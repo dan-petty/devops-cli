@@ -284,3 +284,54 @@ def test_ollama_max_parallel_concurrency_slots(monkeypatch: pytest.MonkeyPatch) 
     assert len(results) == 5
     assert all(r == "Parallel reply" for r in results)
     assert max_observed_concurrent <= 2
+
+
+def test_ollama_error_message_masks_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = LLMClient(AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"]))
+
+    def fake_post(_self: object, url: str, **kwargs: object) -> httpx2.Response:
+        req = httpx2.Request("POST", url)
+        resp = httpx2.Response(
+            500,
+            text="Internal error with token=ghp_secret123456789012345678901234567890 and key=sk-ant-secret12345678901234567890",
+            request=req,
+        )
+        raise httpx2.HTTPStatusError("500 Internal Error", request=req, response=resp)
+
+    monkeypatch.setattr("httpx2.Client.post", fake_post)
+
+    with pytest.raises(AIClientError) as exc_info:
+        client._try_single_ollama_request(
+            "http://localhost:11434", "http://localhost:11434", "sys", [], False, 1
+        )
+
+    err_msg = str(exc_info.value)
+    assert "ghp_secret" not in err_msg
+    assert "sk-ant-secret" not in err_msg
+    assert "<masked-github-token>" in err_msg
+
+
+def test_ollama_stream_error_message_masks_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = LLMClient(AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"]))
+
+    def fake_stream(_self: object, method: str, url: str, **kwargs: object) -> object:
+        req = httpx2.Request(method, url)
+        resp = httpx2.Response(
+            502,
+            text="Gateway error containing token=ghp_secret987654321098765432109876543210",
+            request=req,
+        )
+        raise httpx2.HTTPStatusError("502 Bad Gateway", request=req, response=resp)
+
+    monkeypatch.setattr("httpx2.Client.stream", fake_stream)
+
+    with pytest.raises(AIClientError) as exc_info:
+        list(
+            client._try_single_ollama_stream(
+                "http://localhost:11434", "http://localhost:11434", "sys", [], False, 1
+            )
+        )
+
+    err_msg = str(exc_info.value)
+    assert "ghp_secret" not in err_msg
+    assert "<masked-github-token>" in err_msg

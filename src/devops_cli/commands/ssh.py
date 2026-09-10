@@ -20,6 +20,7 @@ from devops_cli.output import (
     print_warning,
     render_dry_run_result,
 )
+from devops_cli.security.sanitizer import mask_secrets
 
 app = new_typer(
     help=HELP.ssh.app,
@@ -193,9 +194,9 @@ def register(
     try:
         register_key_on_github(pub_key, key_title, token=token)
     except SSHRegistrationError as exc:
-        from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+        from devops_cli.security.sanitizer import mask_secrets
 
-        masked_err = _mask_secrets_in_content(str(exc))
+        masked_err = mask_secrets(str(exc))
         print_error(MESSAGES.messages.failed_to_register_key.format(error=masked_err), prefix=False)
         print_warning(MESSAGES.messages.gh_auth_refresh_tip, prefix=False)
         raise typer.Exit(1)
@@ -302,7 +303,11 @@ def rotate(
         if created_new:
             new_key_path.unlink(missing_ok=True)
             new_key_path.with_name(f"{new_key_path.name}.pub").unlink(missing_ok=True)
-        print_warning(f"GitHub key registration failed: {exc}", prefix=False)
+        safe_err = mask_secrets(str(exc))
+        print_warning(
+            f"GitHub key registration failed: {safe_err}. Check your GitHub token and network connectivity.",
+            prefix=False,
+        )
         print_warning(MESSAGES.ssh.cleaned_unregistered_keys, prefix=False)
 
     print_info(

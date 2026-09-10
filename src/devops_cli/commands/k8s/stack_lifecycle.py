@@ -38,11 +38,16 @@ _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
         "open-webui": "https://open-webui.github.io/helm-charts",
         "qdrant": "https://qdrant.github.io/qdrant-helm",
     },
+    "logging": {
+        "grafana": "https://grafana.github.io/helm-charts",
+        "fluent": "https://fluent.github.io/helm-charts",
+    },
 }
 
 _HELM_REPOS: dict[str, str] = {
     **_HELM_REPOS_BY_STACK["infra"],
     **_HELM_REPOS_BY_STACK["llm"],
+    **_HELM_REPOS_BY_STACK["logging"],
 }
 
 
@@ -81,6 +86,20 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "values": str(DEFAULT_K8S_DIR / "llm" / "values-qdrant.yaml"),
         },
     ],
+    "logging": [
+        {
+            "name": "loki",
+            "chart": "grafana/loki",
+            "namespace": "logging",
+            "values": str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml"),
+        },
+        {
+            "name": "fluent-bit",
+            "chart": "fluent/fluent-bit",
+            "namespace": "logging",
+            "values": str(DEFAULT_K8S_DIR / "logging" / "fluent-bit-values.yaml"),
+        },
+    ],
 }
 
 _HELM_RELEASES: list[dict[str, str]] = _HELM_RELEASES_BY_STACK["infra"]
@@ -93,9 +112,12 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         DEFAULT_K8S_DIR / "llm" / "valkey.yaml",
         DEFAULT_K8S_DIR / "llm" / "ollama-daemonset.yaml",
     ],
+    "logging": [
+        DEFAULT_K8S_DIR / "logging" / "networkpolicy.yaml",
+    ],
 }
 
-VALID_STACKS: tuple[str, ...] = ("infra", "llm", "all")
+VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "all")
 
 
 def _adopt_helm_resource_if_conflict(
@@ -168,8 +190,13 @@ def _bootstrap_openwebui_account(
     email: str | None = None,
     name: str | None = None,
     password: str | None = None,
-) -> bool:
-    """Ensure Open-WebUI signups are enabled and a local admin account is bootstrapped."""
+) -> tuple[bool, bool]:
+    """Ensure Open-WebUI signups are enabled and a local admin account is bootstrapped.
+
+    Returns:
+        tuple[bool, bool]: (success, created) where created indicates whether a new admin
+        account was inserted or an existing account was retained.
+    """
     creds = _get_openwebui_bootstrap_credentials()
     admin_email = email or creds["email"]
     admin_name = name or creds["name"]
@@ -192,9 +219,11 @@ def _bootstrap_openwebui_account(
         "    cur.execute('INSERT INTO \"user\" (id, name, email, role, profile_image_url, last_active_at, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', "
         f"(uid, {repr(admin_name)}, {repr(admin_email)}, 'admin', '/user.png', now, now, now))\n"
         f"    cur.execute('INSERT INTO auth (id, email, password, active) VALUES (?, ?, ?, ?)', (uid, {repr(admin_email)}, hashed, 1))\n"
+        "    print('CREATED')\n"
         "else:\n"
         "    cur.execute('UPDATE auth SET active = 1')\n"
         '    cur.execute(\'UPDATE "user" SET role = "admin" WHERE role = "pending"\')\n'
+        "    print('EXISTING')\n"
         "conn.commit()\n"
     )
     pod_cmd = [
@@ -213,26 +242,42 @@ def _bootstrap_openwebui_account(
     res_pod = k8s._run_cmd(pod_cmd, check=False, capture=True)
     pod_name = (res_pod.stdout or "").strip()
     if not pod_name:
-        return False
+        return (False, False)
 
     exec_cmd = ["kubectl", "exec", "-i", "-n", "llm", pod_name]
     if context:
         exec_cmd.extend(["--context", context])
     exec_cmd.extend(["--", "python", "-"])
     res = k8s._run_cmd(exec_cmd, input=py_script, check=False, capture=True)
-    return res.returncode == 0
+    created = "CREATED" in (res.stdout or "")
+    return (res.returncode == 0, created)
 
 
 def bootstrap_openwebui(
     email: Annotated[str, typer.Option("--email", "-e", help=HELP.k8s.email)] = "admin@localhost",
     name: Annotated[str, typer.Option("--name", "-n", help=HELP.k8s.admin_name)] = "Admin",
-    password: Annotated[str, typer.Option("--password", "-p", help=HELP.k8s.password)] = "admin123",
+    password: Annotated[
+        str | None,
+        typer.Option("--password", "-p", help=HELP.k8s.password),
+    ] = None,
     context: Annotated[
         str | None,
         typer.Option("--context", "-c", help=HELP.options.context),
     ] = None,
+    show_password: Annotated[
+        bool,
+        typer.Option(
+            "--show-password",
+            help="Display generated admin password in plain text instead of masking.",
+        ),
+    ] = False,
 ) -> None:
     """Bootstrap or activate a local administrator account for Open-WebUI."""
+    creds = _get_openwebui_bootstrap_credentials()
+    effective_password = password or creds["password"]
+    raw_env_password = os.environ.get("OPENWEBUI_ADMIN_PASSWORD", "").strip()
+    was_generated = password is None and not raw_env_password
+
     if is_dry_run():
         render_dry_run_result(
             command="devops k8s bootstrap-openwebui",
@@ -243,11 +288,29 @@ def bootstrap_openwebui(
         return
 
     print_info(f"Bootstrapping Open-WebUI local admin account ({email})...")
-    ok = k8s._bootstrap_openwebui_account(
-        context=context, email=email, name=name, password=password
+    ok, created = k8s._bootstrap_openwebui_account(
+        context=context, email=email, name=name, password=effective_password
     )
     if ok:
         print_success(f"Open-WebUI admin account ready: [bold]{email}[/bold]")
+        if created:
+            from devops_cli.config.settings import _keyring_set
+
+            _keyring_set("openwebui_admin_password", effective_password)
+            if was_generated:
+                if show_password:
+                    print_success(
+                        f"Generated secure Open-WebUI admin password: [bold]{effective_password}[/bold]"
+                    )
+                else:
+                    masked = effective_password[:3] + "..." + effective_password[-3:]
+                    print_success(
+                        f"Generated secure Open-WebUI admin password: [bold]{masked}[/bold] (use --show-password to reveal)"
+                    )
+        else:
+            print_info(
+                "Open-WebUI user database already initialized; existing admin credentials retained."
+            )
     else:
         print_error(
             "Failed to bootstrap Open-WebUI account. Ensure the open-webui pod is running in namespace 'llm'."
@@ -566,23 +629,30 @@ def teardown_stack(
         )
 
     # 3. Clean up namespaces
-    if stack == "all":
+    normalized_stack = stack.lower()
+    if normalized_stack == "all":
         print_info(MESSAGES.k8s.removing_stack_namespaces, prefix=False)
         k8s._run_cmd(
             ["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"] + kubectl_ctx,
             check=False,
         )
-    elif stack == "infra":
+    elif normalized_stack == "infra":
         print_info(MESSAGES.k8s.removing_infra_namespaces, prefix=False)
         for ns in ["argocd", "monitoring", "otel"]:
             k8s._run_cmd(
                 ["kubectl", "delete", "namespace", ns, "--ignore-not-found"] + kubectl_ctx,
                 check=False,
             )
-    elif stack == "llm":
+    elif normalized_stack == "llm":
         print_info(MESSAGES.k8s.removing_llm_namespace, prefix=False)
         k8s._run_cmd(
             ["kubectl", "delete", "namespace", "llm", "--ignore-not-found"] + kubectl_ctx,
+            check=False,
+        )
+    elif normalized_stack == "logging":
+        print_info("Removing logging namespace...", prefix=False)
+        k8s._run_cmd(
+            ["kubectl", "delete", "namespace", "logging", "--ignore-not-found"] + kubectl_ctx,
             check=False,
         )
 

@@ -58,6 +58,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_CHUNK_SIZE,
     DEFAULT_RAG_DATA_DIR,
     DEFAULT_RAG_EMBEDDING_MODEL,
+    DEFAULT_RAG_EMBEDDING_TIMEOUT,
     DEFAULT_RAG_EMBEDDING_URL,
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
@@ -172,6 +173,7 @@ class AIRAGConfig(BaseModel):
     enabled: bool = True
     embedding_model: str = DEFAULT_RAG_EMBEDDING_MODEL
     embedding_url: str | None = DEFAULT_RAG_EMBEDDING_URL
+    embedding_timeout: float = DEFAULT_RAG_EMBEDDING_TIMEOUT
     top_k: int = DEFAULT_RAG_TOP_K
     score_threshold: float = DEFAULT_RAG_SCORE_THRESHOLD
     chunk_size: int = DEFAULT_RAG_CHUNK_SIZE
@@ -607,7 +609,10 @@ def get_grafana_password(settings: Settings) -> str | None:
 
 
 def get_argocd_token(settings: Settings) -> str | None:
-    return _keyring_get(_KEYRING_KEYS[opt.ARGOCD_TOKEN])
+    token = _keyring_get(_KEYRING_KEYS[opt.ARGOCD_TOKEN]) or os.getenv("DEVOPS_CLI_ARGOCD_TOKEN")
+    if token and not token.startswith("*"):
+        return token
+    return None
 
 
 def get_argocd_password(settings: Settings) -> str | None:

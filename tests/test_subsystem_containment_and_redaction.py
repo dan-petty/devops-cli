@@ -260,3 +260,14 @@ def test_bootstrap_openwebui_account_secure_random_default(monkeypatch: pytest.M
     assert creds["email"] == "admin@localhost"
     assert creds["password"] != "admin123"
     assert len(creds["password"]) >= 24
+
+
+def test_bootstrap_openwebui_account_empty_env_password_generates_random(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from devops_cli.commands.k8s.stack_lifecycle import _get_openwebui_bootstrap_credentials
+
+    monkeypatch.setenv("OPENWEBUI_ADMIN_PASSWORD", "")
+    creds = _get_openwebui_bootstrap_credentials()
+    assert creds["password"] != ""
+    assert len(creds["password"]) >= 24

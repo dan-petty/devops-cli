@@ -11,6 +11,7 @@ from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.serialization import extract_json_block
+from devops_cli.security.base import BaseSecurityScanner
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,34 @@ def _parse_tflint_issue(issue: dict[str, Any]) -> Finding:
     )
 
 
+class TflintScanner(BaseSecurityScanner):
+    """Declarative security scanner adapter for TFLint Terraform linter."""
+
+    name: str = "tflint"
+    binary_name: str = "tflint"
+
+    def build_command(
+        self,
+        target_path: Path,
+        config_file: Path | None = None,
+        **kwargs: Any,
+    ) -> list[str]:
+        """Build argument command list for invoking TFLint."""
+        cmd = [self.binary_name, "--format", "json"]
+        if config_file and config_file.exists():
+            cmd.extend(["--config", str(config_file)])
+        return cmd
+
+    def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
+        """Parse raw TFLint JSON payload into Finding models."""
+        issues = data.get("issues", []) if isinstance(data, dict) else []
+        return [_parse_tflint_issue(issue) for issue in issues]
+
+    def fallback_scan(self, target_path: Path) -> list[Finding]:
+        """Execute native fallback static inspection for Terraform files."""
+        return _run_native_fallback_tf_lint(target_path)
+
+
 @trace_span("security.tflint")
 def run_tflint_scan(
     target_dir: Path,
@@ -95,15 +124,13 @@ def run_tflint_scan(
     timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
 ) -> list[Finding]:
     """Execute TFLint static analysis on target_dir and return normalized findings."""
+    scanner = TflintScanner()
     tflint_bin = shutil.which("tflint")
     if not tflint_bin:
         logger.debug("TFLint binary not found; running fallback inspection.")
-        return _run_native_fallback_tf_lint(target_dir)
+        return scanner.fallback_scan(target_dir)
 
-    cmd = [tflint_bin, "--format", "json"]
-    if config_file and config_file.exists():
-        cmd.extend(["--config", str(config_file)])
-
+    cmd = scanner.build_command(target_dir, config_file=config_file)
     try:
         cwd_dir = target_dir if target_dir.is_dir() else target_dir.parent
         proc = run_subprocess(
@@ -116,8 +143,7 @@ def run_tflint_scan(
             return []
 
         data = extract_json_block(proc.stdout)
-        issues = data.get("issues", []) if isinstance(data, dict) else []
-        return [_parse_tflint_issue(issue) for issue in issues]
+        return scanner.parse_output(data, target_dir)
     except Exception as exc:
         logger.debug("TFLint error: %s", exc)
-        return _run_native_fallback_tf_lint(target_dir)
+        return scanner.fallback_scan(target_dir)

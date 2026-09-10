@@ -663,7 +663,7 @@ def test_k8s_bootstrap_openwebui() -> None:
     with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
         mock_cmd.side_effect = [
             _mock_proc(0, "open-webui-0\n"),
-            _mock_proc(0, "BOOTSTRAPPED_ADMIN\n"),
+            _mock_proc(0, "CREATED\n"),
         ]
         res_ok = runner.invoke(
             app,
@@ -679,6 +679,42 @@ def test_k8s_bootstrap_openwebui() -> None:
         )
         assert res_ok.exit_code == 0
         assert "admin@localhost" in res_ok.output
+
+    # Generated password when --password is omitted (masked by default)
+    with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
+        mock_cmd.side_effect = [
+            _mock_proc(0, "open-webui-0\n"),
+            _mock_proc(0, "CREATED\n"),
+        ]
+        res_gen = runner.invoke(app, ["bootstrap-openwebui", "--email", "admin@localhost"])
+        assert res_gen.exit_code == 0
+        assert "Generated secure Open-WebUI admin password" in res_gen.output
+        assert "(use --show-password to reveal)" in res_gen.output
+        assert "admin123" not in res_gen.output
+
+    # Generated password with --show-password reveals in plain text
+    with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
+        mock_cmd.side_effect = [
+            _mock_proc(0, "open-webui-0\n"),
+            _mock_proc(0, "CREATED\n"),
+        ]
+        res_show = runner.invoke(
+            app, ["bootstrap-openwebui", "--email", "admin@localhost", "--show-password"]
+        )
+        assert res_show.exit_code == 0
+        assert "Generated secure Open-WebUI admin password" in res_show.output
+        assert "(use --show-password to reveal)" not in res_show.output
+
+    # Rerun when account already exists does not claim to generate new password
+    with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
+        mock_cmd.side_effect = [
+            _mock_proc(0, "open-webui-0\n"),
+            _mock_proc(0, "EXISTING\n"),
+        ]
+        res_exist = runner.invoke(app, ["bootstrap-openwebui", "--email", "admin@localhost"])
+        assert res_exist.exit_code == 0
+        assert "already initialized" in res_exist.output
+        assert "Generated secure Open-WebUI admin password" not in res_exist.output
 
     # Pod not found failure
     with patch("devops_cli.commands.k8s._run_cmd", return_value=_mock_proc(1, "")):

@@ -265,7 +265,7 @@ class BenchmarkRunner:
                 f"backend=[dim]{backend}[/dim] [dim](generating...)[/dim]",
                 prefix=False,
             )
-        t0 = time.monotonic()
+        start_time = time.monotonic()
         try:
             rag_block = ""
             try:
@@ -286,7 +286,7 @@ class BenchmarkRunner:
                 system=_BENCHMARK_TASK_SYSTEM_PROMPT,
                 user=user_prompt,
             )
-            duration = time.monotonic() - t0
+            duration = time.monotonic() - start_time
             with self._print_lock:
                 print_info(
                     f"  ✓ task=[cyan]{task.id}[/cyan] | "
@@ -304,7 +304,7 @@ class BenchmarkRunner:
                 duration_seconds=round(duration, 2),
             )
         except Exception as exc:
-            duration = time.monotonic() - t0
+            duration = time.monotonic() - start_time
             logger.warning("Model %s failed on task %s: %s", model_name, task.id, exc)
             with self._print_lock:
                 print_info(
@@ -415,10 +415,10 @@ class BenchmarkRunner:
                 f"backend=[dim]{backend}[/dim] [dim](grading...)[/dim]",
                 prefix=False,
             )
-        t0 = time.monotonic()
+        start_time = time.monotonic()
         grade = self._evaluate_response(task, c_resp, evaluator_model, client=client)
         grade.server = server_url or ""
-        grade_dur = time.monotonic() - t0
+        grade_dur = time.monotonic() - start_time
         with self._print_lock:
             print_info(
                 f"  ✓ task=[cyan]{task.id}[/cyan] | "

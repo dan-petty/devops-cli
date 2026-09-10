@@ -266,6 +266,66 @@ def k8s_teardown_stack(stack: str = "infra", context: str | None = None) -> str:
 
 
 @mcp.tool()
+def k8s_logs_query(
+    query: str,
+    limit: int = 100,
+    since: str = "1h",
+    namespace: str | None = None,
+) -> str:
+    """Execute LogQL query across Kubernetes and cluster log streams (e.g. {app="web"} |= "error")."""
+    _validate_mcp_arg("query", query)
+    _validate_mcp_int_bound("limit", limit, min_val=1)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "k8s",
+        "logs",
+        "--query",
+        query,
+        "--limit",
+        str(limit),
+        "--since",
+        since,
+        "--format",
+        "json",
+    ]
+    if namespace:
+        _validate_mcp_arg("namespace", namespace)
+        cmd.extend(["--namespace", namespace])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def k8s_logs_tail(
+    query: str,
+    lines: int = 50,
+    namespace: str | None = None,
+) -> str:
+    """Tail recent log lines matching LogQL stream selector (e.g. {app="web"})."""
+    _validate_mcp_arg("query", query)
+    _validate_mcp_int_bound("lines", lines, min_val=1)
+
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "k8s",
+        "logs",
+        "--query",
+        query,
+        "--limit",
+        str(lines),
+        "--format",
+        "json",
+    ]
+    if namespace:
+        _validate_mcp_arg("namespace", namespace)
+        cmd.extend(["--namespace", namespace])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def argo_list() -> str:
     """List ArgoCD applications."""
     return _run_mcp_cmd(
@@ -282,6 +342,66 @@ def argo_status(app: str = "argocd") -> str:
         ["uv", "run", "devops", "argo", "cd", "apps", "status", app],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
+
+
+@mcp.tool()
+def argo_fleet_sync(
+    app_name: str,
+    clusters: str = "dev,staging,prod",
+    fleet: str = "default-fleet",
+    concurrency: int = 3,
+) -> str:
+    """Coordinate multi-cluster ArgoCD fleet synchronization with bounded concurrency."""
+    _validate_mcp_arg("app_name", app_name)
+    _validate_mcp_int_bound("concurrency", concurrency, min_val=1)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "argo",
+        "fleet",
+        "sync",
+        app_name,
+        "--clusters",
+        clusters,
+        "--fleet",
+        fleet,
+        "--concurrency",
+        str(concurrency),
+        "--json",
+    ]
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def argo_rollout_analyze(
+    rollout_name: str,
+    namespace: str = "default",
+    error_rate_threshold: float = 1.0,
+    auto_abort: bool = True,
+) -> str:
+    """Analyze progressive rollout metric gates and trigger automated rollback on threshold violation."""
+    _validate_mcp_arg("rollout_name", rollout_name)
+    _validate_mcp_arg("namespace", namespace)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "argo",
+        "rollouts",
+        "analyze",
+        rollout_name,
+        "--namespace",
+        namespace,
+        "--error-rate-threshold",
+        str(error_rate_threshold),
+        "--json",
+    ]
+    if auto_abort:
+        cmd.append("--auto-abort")
+    else:
+        cmd.append("--no-auto-abort")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
@@ -396,6 +516,22 @@ def tf_output(directory: str = ".", json_format: bool = True) -> str:
     if json_format:
         cmd.append("--json")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def tf_cost_estimate(
+    directory: str = ".",
+    mock: bool = False,
+    max_monthly_cost: float | None = None,
+) -> str:
+    """Estimate cloud infrastructure cost with Infracost FinOps engine."""
+    _validate_mcp_arg("directory", directory)
+    cmd = ["uv", "run", "devops", "tf", "cost", "breakdown", directory, "--json"]
+    if mock:
+        cmd.append("--mock")
+    if max_monthly_cost is not None:
+        cmd.extend(["--max-monthly-cost", str(max_monthly_cost)])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
@@ -864,6 +1000,42 @@ def get_gh_views_resource() -> str:
     )
 
 
+@mcp.resource("resource://argo/fleet/status")
+def get_argo_fleet_status_resource() -> str:
+    """Return live ArgoCD multi-cluster fleet synchronization status across all managed clusters."""
+    return _run_mcp_cmd(
+        [
+            "uv",
+            "run",
+            "devops",
+            "argo",
+            "cd",
+            "apps",
+            "list",
+            "--json",
+        ],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://tf/cost/latest")
+def get_tf_cost_latest_resource() -> str:
+    """Return latest Terraform cloud infrastructure cost breakdown and FinOps metrics."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "tf", "cost", "breakdown", ".", "--mock", "--json"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://k8s/logs/recent")
+def get_k8s_logs_recent_resource() -> str:
+    """Provide structured summary of recent cluster logs across active namespaces and error events."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "k8s", "logs", "{}", "--limit", "30", "--format", "json"],
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
+
+
 @mcp.tool()
 def scan_fix(
     target_path: str = ".",
@@ -998,7 +1170,7 @@ def gh_milestone_close(version: str, repo: str | None = None) -> str:
 
 @mcp.tool()
 def gh_project_sync(repo: str | None = None, dry_run: bool = True) -> str:
-    """Synchronize task items from task.md into GitHub Projects v2 status."""
+    """Synchronize task items from task tracking into GitHub Projects v2 status."""
     cmd = ["uv", "run", "devops", "gh", "project", "sync"]
     if dry_run:
         cmd.append("--dry-run")

@@ -93,10 +93,10 @@ def load_project_template(
 
 def _determine_section_status(heading: str) -> str | None:
     """Map a task markdown section heading to a standardized project status."""
-    clean = heading.lower()
+    clean = heading.lower().replace("-", " ")
     if "completed" in clean or "done" in clean:
         return "Done"
-    if "in-progress" in clean or "wip" in clean:
+    if "in progress" in clean or "wip" in clean:
         return "In Progress"
     if "pending" in clean or "backlog" in clean:
         return "Backlog"
@@ -107,43 +107,142 @@ def _determine_section_status(heading: str) -> str | None:
     return None
 
 
-def parse_tasks_to_project_items(
-    task_path: Path = Path("docs/agent/task.md"),
-) -> list[ProjectItem]:
-    """Parse tasks from markdown task tracking document into ProjectItem models."""
-    if not task_path.is_file():
-        raise GitHubOperationError(
-            f"Task file not found: {task_path}",
-            operation="parse_tasks_to_project_items",
-            details={"path": str(task_path)},
-        )
+def _is_task_markdown(path: Path) -> bool:
+    """Check whether path is an active task markdown file (excluding READMEs and archives)."""
+    return (
+        path.is_file()
+        and path.name != "README.md"
+        and "archive" not in path.parts
+        and not path.name.startswith("archive")
+    )
 
-    lines = task_path.read_text(encoding="utf-8").splitlines()
+
+def _find_active_task_files_in_dir(task_dir: Path) -> list[Path]:
+    """Find all active task markdown files in a directory, falling back to README.md if present."""
+    active_files = [p for p in sorted(task_dir.glob("**/*.md")) if _is_task_markdown(p)]
+    if active_files:
+        return active_files
+    readme = task_dir / "README.md"
+    return [readme] if readme.is_file() else []
+
+
+def _resolve_default_task_fallbacks(task_path: Path) -> list[Path] | None:
+    """Resolve standard fallback locations when default task path is requested."""
+    if task_path not in (Path("docs/agent/tasks"), Path("docs/agent/task.md")):
+        return None
+    tasks_dir = Path("docs/agent/tasks")
+    if tasks_dir.is_dir():
+        files = _find_active_task_files_in_dir(tasks_dir)
+        if files:
+            return files
+    task_file = Path("docs/agent/task.md")
+    return [task_file] if task_file.is_file() else None
+
+
+def _resolve_task_files(task_path: Path) -> list[Path]:
+    """Resolve task_path (file or directory) to a list of existing markdown task files."""
+    if task_path.is_dir():
+        return _find_active_task_files_in_dir(task_path)
+
+    if task_path.is_file():
+        if task_path == Path("docs/agent/task.md"):
+            tasks_dir = Path("docs/agent/tasks")
+            active = _find_active_task_files_in_dir(tasks_dir) if tasks_dir.is_dir() else []
+            if active:
+                return active
+        return [task_path]
+
+    fallback = _resolve_default_task_fallbacks(task_path)
+    if fallback:
+        return fallback
+
+    raise GitHubOperationError(
+        f"Task path not found: {task_path}",
+        operation="parse_tasks_to_project_items",
+        details={"path": str(task_path)},
+    )
+
+
+_HEADING_REGEX = re.compile(r"^#{1,4}\s+(.+)$")
+_ITEM_REGEX = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s+(.+)$")
+_STATUS_META_REGEX = re.compile(r"^(?:\*\*status\*\*|status)\s*:\s*(\w[\w\s-]+)", re.IGNORECASE)
+
+
+def _extract_line_status(line: str) -> str | None:
+    """Extract updated status from heading or metadata key in task markdown."""
+    h_match = _HEADING_REGEX.match(line)
+    if h_match:
+        return _determine_section_status(h_match.group(1))
+    s_match = _STATUS_META_REGEX.match(line)
+    if s_match:
+        return _determine_section_status(s_match.group(1))
+    return None
+
+
+def _parse_checklist_items(lines: list[str]) -> list[ProjectItem]:
+    """Parse checkbox items from markdown lines with current section status."""
     items: list[ProjectItem] = []
     current_status = "Backlog"
 
-    heading_regex = re.compile(r"^#{1,4}\s+(.+)$")
-    item_regex = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s+(.+)$")
+    for line in lines:
+        stripped = line.strip()
+        status = _extract_line_status(stripped)
+        if status:
+            current_status = status
+            continue
+
+        item_match = _ITEM_REGEX.match(stripped)
+        if item_match:
+            title = item_match.group(2).strip()
+            item_status = "Done" if item_match.group(1).lower() == "x" else current_status
+            items.append(ProjectItem(title=title, status=item_status))
+
+    return items
+
+
+def _parse_standalone_task_metadata(lines: list[str]) -> ProjectItem | None:
+    """Parse single task item from a markdown document without checklist items."""
+    title: str | None = None
+    file_status = "Backlog"
 
     for line in lines:
         stripped = line.strip()
-        h_match = heading_regex.match(stripped)
-        if h_match:
-            status = _determine_section_status(h_match.group(1))
-            if status:
-                current_status = status
-            continue
+        if not title:
+            h_match = _HEADING_REGEX.match(stripped)
+            if h_match and not any(
+                kw in stripped.lower() for kw in ("readme", "tracking", "tasks")
+            ):
+                raw = h_match.group(1).strip()
+                title = re.sub(r"^task:\s*", "", raw, flags=re.IGNORECASE)
+        status_match = re.search(
+            r"(?:status|\*\*status\*\*)\s*:\s*(\w[\w\s-]+)", stripped, re.IGNORECASE
+        )
+        if status_match:
+            parsed_status = _determine_section_status(status_match.group(1))
+            if parsed_status:
+                file_status = parsed_status
 
-        item_match = item_regex.match(stripped)
-        if item_match:
-            title = item_match.group(2).strip()
-            # If line is checked [x], prefer Done
-            item_status = current_status
-            if item_match.group(1).lower() == "x":
-                item_status = "Done"
+    return ProjectItem(title=title, status=file_status) if title else None
 
-            items.append(ProjectItem(title=title, status=item_status))
 
+def _parse_single_task_file(file_path: Path) -> list[ProjectItem]:
+    """Parse tasks from a single markdown task document."""
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    items = _parse_checklist_items(lines)
+    if items:
+        return items
+    standalone = _parse_standalone_task_metadata(lines)
+    return [standalone] if standalone else []
+
+
+def parse_tasks_to_project_items(
+    task_path: Path = Path("docs/agent/tasks"),
+) -> list[ProjectItem]:
+    """Parse tasks from markdown task tracking directory or document into ProjectItem models."""
+    resolved_files = _resolve_task_files(task_path)
+    items: list[ProjectItem] = []
+    for f in resolved_files:
+        items.extend(_parse_single_task_file(f))
     return items
 
 

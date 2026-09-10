@@ -65,26 +65,33 @@ devops k8s apply [OPTIONS] <path>
 
 ## `devops k8s logs`
 
-**Stream pod logs (delegates to kubectl).**
+**Stream pod logs or execute LogQL queries across cluster log streams.**
 
 ```bash
-devops k8s logs [OPTIONS] <pod>
+devops k8s logs [OPTIONS] <pod> <query_arg>
 ```
 
 **Arguments:**
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<pod>` | `string` | Yes | Pod name. |
+| `<pod>` | `string` | No | Pod name. |
+| `<query_arg>` | `string` | No | Optional LogQL query string when using query subcommand |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--query`, `-q` | `string` | - | LogQL query expression |
 | `--container`, `-c` | `string` | - | Specific container name within the pod. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--follow`, `-f` | `boolean` | - | Follow stream or log output in real time. |
 | `--tail` | `integer` | `100` | Number of recent lines to display. |
+| `--limit` | `integer` | `100` | Max lines for LogQL query |
+| `--since` | `string` | `1h` | Time range for LogQL query |
+| `--loki-url` | `string` | - | Loki service endpoint |
+| `--format` | `string` | `text` | Output format (text, json) |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -120,8 +127,9 @@ devops k8s bootstrap-openwebui [OPTIONS]
 |---|---|---|---|
 | `--email`, `-e` | `string` | `admin@localhost` | Admin email address. |
 | `--name`, `-n` | `string` | `Admin` | Admin display name. |
-| `--password`, `-p` | `string` | `<masked>` | Admin password. |
+| `--password`, `-p` | `string` | - | Admin password. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--show-password` | `boolean` | - | Display generated admin password in plain text instead of masking. |
 
 ---
 

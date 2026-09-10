@@ -167,7 +167,7 @@ def test_review_stats_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_find_related_file_metas_matches_dependencies_and_symbols() -> None:
-    from devops_cli.commands.review import _find_related_file_metas
+    from devops_cli.ai.review.verification import _find_related_file_metas
     from devops_cli.models.ai import FileAnalysisMeta
 
     finding = Finding(
@@ -195,7 +195,7 @@ def test_find_related_file_metas_matches_dependencies_and_symbols() -> None:
 
 
 def test_build_validation_prompt_includes_related_file_analysis_metadata() -> None:
-    from devops_cli.commands.review import _build_validation_prompt
+    from devops_cli.ai.review.verification import _build_validation_prompt
     from devops_cli.models.ai import FileAnalysisMeta
 
     finding = Finding(

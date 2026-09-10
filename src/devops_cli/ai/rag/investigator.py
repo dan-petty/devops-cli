@@ -122,7 +122,7 @@ def investigate_rag_context(
     is_truncated = len(clean_query) > max_query_len
     search_query = clean_query[:max_query_len] if is_truncated else clean_query
 
-    t0 = time.perf_counter()
+    start_time = time.perf_counter()
     with trace_span(
         "ai.rag.investigation",
         {
@@ -160,7 +160,7 @@ def investigate_rag_context(
                     max_chars=max_chars,
                 )
 
-            duration_ms = (time.perf_counter() - t0) * 1000.0
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
             record_metric("ai.rag.investigation.duration_ms", duration_ms)
 
             if ctx.has_results:

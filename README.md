@@ -14,26 +14,26 @@
 
 ## SRE Engineering Tenets & Architectural Highlights
 
-- 🔒 **Zero-Plaintext Secret Architecture**: Sensitive tokens (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. Configuration files contain zero plaintext credentials.
-- 🛡️ **Active SSRF & Egress Guardrails**: Outbound API requests pass through strict IP validation (`validate_service_url`) blocking private subnets (RFC 1918), loopbacks, and cloud metadata endpoints by default.
-- 🤖 **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) backed by `ScratchpadBuffer` reasoning context and deterministic finding verification.
-- ⚙️ **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle orchestration (`devops devcontainer run-lifecycle`) replaces legacy shell scripts for post-create and post-start hooks.
-- 🚀 **End-to-End Release Cycle Automation**: Native `devops release` subcommands suite (`status`, `prepare`, `check`, `notes`, `tag`) automating version bumping, changelogs, docs sync, and CI validation.
-- 🔌 **FastMCP Server & Native Tool Bridge**: Over 25+ infrastructure and analysis tools exposed over Model Context Protocol for seamless integration into AI IDEs and autonomous subagents.
+- **Zero-Plaintext Secret Architecture**: Sensitive tokens (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. Configuration files contain zero plaintext credentials.
+- **Active SSRF & Egress Guardrails**: Outbound API requests pass through strict IP validation (`validate_service_url`) blocking private subnets (RFC 1918), loopbacks, and cloud metadata endpoints by default.
+- **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) backed by `ScratchpadBuffer` reasoning context and deterministic finding verification.
+- **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle orchestration (`devops devcontainer run-lifecycle`) replaces legacy shell scripts for post-create and post-start hooks.
+- **End-to-End Release Cycle Automation**: Native `devops release` subcommands suite (`status`, `prepare`, `check`, `notes`, `tag`) automating version bumping, changelogs, docs sync, and CI validation.
+- **FastMCP Server & Native Tool Bridge**: Infrastructure and analysis tools exposed over Model Context Protocol for seamless integration into AI IDEs and autonomous subagents.
 
 ---
 
 ## Architectural & Governance Documentation
 
-- 📐 [**System Architecture & Technical Design (`ARCHITECTURE.md`)**](ARCHITECTURE.md) — Subsystem topologies, multi-agent sequence diagrams, and lifecycle hooks.
-- 🔄 [**Release Cycle & Versioning Guide (`RELEASE_CYCLE.md`)**](RELEASE_CYCLE.md) — Semantic versioning, validation checks, and release procedures.
-- 🛡️ [**Security Policy & Threat Model (`SECURITY.md`)**](SECURITY.md) — Vulnerability disclosure, SSRF protections, and OS Keyring encryption.
-- 🤝 [**Contributor Guidelines (`CONTRIBUTING.md`)**](CONTRIBUTING.md) — Standards, local development with `uv`, and PR workflows.
-- 📋 [**Routine Tasks, Order & Methodology Guide (`docs/ROUTINE_TASKS.md`)**](docs/ROUTINE_TASKS.md) — Operational task matrix, cadences, execution order, and troubleshooting protocols.
-- 💡 [**Tool Cheatsheets & Command Translation (`docs/cheatsheets/README.md`)**](docs/cheatsheets/README.md) — Side-by-side comparison of standard DevOps tools (`git`, `kubectl`, `helm`, `docker`, `terraform`, `trivy`, `prometheus`, `grafana`, `ollama`) vs `devops-cli`.
-- 📖 [**Consolidated CLI Reference (`docs/CLI_REFERENCE.md`)**](docs/CLI_REFERENCE.md) — Full subcommand reference.
-- 🌐 [**Environment Variables Guide (`docs/ENV_VARS.md`)**](docs/ENV_VARS.md) — System and environment settings.
-- ⚡ [**FastMCP Tools Specification (`docs/MCP_TOOLS.md`)**](docs/MCP_TOOLS.md) — Registered MCP tools.
+- [**System Architecture & Technical Design (`ARCHITECTURE.md`)**](ARCHITECTURE.md) — Subsystem topologies, multi-agent sequence diagrams, and lifecycle hooks.
+- [**Release Cycle & Versioning Guide (`RELEASE_CYCLE.md`)**](RELEASE_CYCLE.md) — Semantic versioning, validation checks, and release procedures.
+- [**Security Policy & Threat Model (`SECURITY.md`)**](SECURITY.md) — Vulnerability disclosure, SSRF protections, and OS Keyring encryption.
+- [**Contributor Guidelines (`CONTRIBUTING.md`)**](CONTRIBUTING.md) — Standards, local development with `uv`, and PR workflows.
+- [**Routine Tasks, Order & Methodology Guide (`docs/ROUTINE_TASKS.md`)**](docs/ROUTINE_TASKS.md) — Operational task matrix, cadences, execution order, and troubleshooting protocols.
+- [**Tool Cheatsheets & Command Translation (`docs/cheatsheets/README.md`)**](docs/cheatsheets/README.md) — Side-by-side comparison of standard DevOps tools (`git`, `kubectl`, `helm`, `docker`, `terraform`, `trivy`, `prometheus`, `grafana`, `ollama`) vs `devops-cli`.
+- [**Consolidated CLI Reference (`docs/CLI_REFERENCE.md`)**](docs/CLI_REFERENCE.md) — Full subcommand reference.
+- [**Environment Variables Guide (`docs/ENV_VARS.md`)**](docs/ENV_VARS.md) — System and environment settings.
+- [**FastMCP Tools Specification (`docs/MCP_TOOLS.md`)**](docs/MCP_TOOLS.md) — Registered MCP tools.
 
 ---
 
@@ -184,7 +184,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops k8s switch-context <name>` | Switch active kubeconfig context. |
 |  | `devops k8s status` | Show node and pod summary for the current context. |
 |  | `devops k8s apply [OPTIONS] <path>` | Apply a Kubernetes manifest (delegates to kubectl). |
-|  | `devops k8s logs [OPTIONS] <pod>` | Stream pod logs (delegates to kubectl). |
+|  | `devops k8s logs [OPTIONS] <pod> <query_arg>` | Stream pod logs or execute LogQL queries across cluster log streams. |
 |  | `devops k8s bootstrap [OPTIONS]` | Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack. |
 |  | `devops k8s bootstrap-openwebui [OPTIONS]` | Bootstrap or activate a local administrator account for Open-WebUI. |
 |  | `devops k8s deploy-stack [OPTIONS]` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes. |
@@ -224,9 +224,11 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops prometheus query-range [OPTIONS] <expr>` | Execute a range PromQL query and summarise the result. |
 |  | `devops prometheus rules` | List Prometheus recording and alerting rules. |
 |  | `devops prometheus targets` | List active Prometheus scrape targets. |
-| **argo** | `devops argo cd COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
+| **argo** | `devops argo sync [OPTIONS] <name>` | Synchronize an ArgoCD application (or multi-cluster fleet when --fleet is passed). |
+|  | `devops argo cd COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 |  | `devops argo workflows COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 |  | `devops argo rollouts COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
+|  | `devops argo fleet COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 | **config** | `devops config show` | Print all configuration values, masking secrets. |
 |  | `devops config get <key>` | Print a single configuration value. |
 |  | `devops config set <key> <value>` | Set a configuration value. Tokens are stored in the OS keyring. |
@@ -335,6 +337,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops tf deploy-cloud [OPTIONS]` | Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP. |
 |  | `devops tf lint [OPTIONS] <directory>` | Run TFLint static analysis on Terraform/OpenTofu configurations. |
 |  | `devops tf notify-plan [OPTIONS]` | Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments. |
+|  | `devops tf cost COMMAND [ARGS]...` | OpenTofu and Terraform Infrastructure-as-Code operations. |
 | **tls** | `devops tls ca [OPTIONS]` | Generate a self-signed Root Certificate Authority (CA) key pair. |
 |  | `devops tls cert [OPTIONS]` | Generate an X.509 TLS certificate signed by local CA or self-signed. |
 |  | `devops tls homelab [OPTIONS]` | Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert). |

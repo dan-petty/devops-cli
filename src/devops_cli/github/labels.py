@@ -48,9 +48,6 @@ class LabelAuditResult(BaseModel):
     labels: list[str] = Field(default_factory=list)
 
 
-LabelAuditFinding = LabelAuditResult
-
-
 def load_label_specs(path: Path = Path(".github/labels.yml")) -> list[LabelSpec]:
     """Load and validate declarative label specifications from YAML."""
     if not path.is_file():

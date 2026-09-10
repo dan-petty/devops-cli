@@ -324,3 +324,48 @@ def test_embed_texts_vector_count_mismatch(monkeypatch: pytest.MonkeyPatch) -> N
 
     with pytest.raises(EmbeddingsError, match="returned 1 vectors for 2 texts"):
         engine.embed_texts(["text1", "text2"])
+
+
+def test_embeddings_engine_timeout_configuration() -> None:
+    """Verify bounded default timeout and configuration precedence."""
+    from devops_cli.config.defaults import DEFAULT_RAG_EMBEDDING_TIMEOUT
+
+    # Default timeout is bounded to 15.0s
+    ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg)
+    assert engine.timeout == DEFAULT_RAG_EMBEDDING_TIMEOUT
+
+    # Custom RAG timeout in config
+    ai_cfg.rag.embedding_timeout = 8.0
+    engine2 = EmbeddingsEngine(ai_cfg)
+    assert engine2.timeout == 8.0
+
+    # Explicit timeout parameter overrides config
+    engine3 = EmbeddingsEngine(ai_cfg, timeout=25.0)
+    assert engine3.timeout == 25.0
+
+
+def test_ollama_batch_fast_failover(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify failed/timing-out candidate node automatically fails over to next candidate."""
+    ai_cfg = AIConfig(
+        provider="ollama",
+        ollama_urls=["http://node1:11434", "http://node2:11434"],
+        allow_private_network=True,
+    )
+    engine = EmbeddingsEngine(ai_cfg)
+
+    calls: list[str] = []
+
+    def fake_query_node(base_url: str, batch_texts: list[str]) -> list[list[float]] | None:
+        calls.append(base_url)
+        if "node1" in base_url:
+            raise httpx2.ReadTimeout("Simulated node1 read timeout")
+        return [[0.2] * 384 for _ in batch_texts]
+
+    monkeypatch.setattr(engine, "_query_ollama_node_batch", fake_query_node)
+
+    results = engine._embed_ollama(["test chunk"])
+    assert len(results) == 1
+    assert len(results[0]) == 384
+    assert results[0] == [0.2] * 384
+    assert calls == ["http://node1:11434", "http://node2:11434"]

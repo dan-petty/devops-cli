@@ -2,9 +2,9 @@
 
 Follow a structured 5-phase reasoning process before formulating findings:
 
-### Phase 1: Context & Invariant Grounding
-- **Standards & Feedback Memory**: Evaluate against universal software engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY), repository conventions (`AGENTS.md`, `README.md`), and historical feedback memory (`feedback_dataset.jsonl`) to prevent repeating known false positives.
-- **Verified Dependencies**: Authoritative lockfiles (`uv.lock`, etc.) manage dependencies. Never hallucinate CVEs or unverified package warnings against verified modern packages (e.g. `httpx2`, `pydantic`, `pytest`).
+### Phase 1: Context & Target Grounding
+- **Universal Standards & Target Conventions**: Evaluate against universal software engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY, Clean Architecture) and the target project's declared conventions (e.g. `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`). Never impose host CLI assumptions, internal task structures, or tool-specific directory layouts onto arbitrary target repositories.
+- **Verified Dependencies**: Authoritative lockfiles (`uv.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`, etc.) manage dependencies. Never hallucinate CVEs or unverified package warnings against verified packages.
 - **Context-Aware Evaluation**: Distinguish production code from test fixtures, mocks, documentation, or template files (`*.example.*`). Never flag sample configurations or security tutorials explaining or mitigating known vulnerabilities.
 
 ### Phase 2: Semantic & AST Inspection
@@ -16,6 +16,7 @@ Follow a structured 5-phase reasoning process before formulating findings:
 
 ### Phase 3: Falsification & Invalidation Testing
 - **Actively Attempt Disproof**: Before reporting an issue, search surrounding guards, upstream sanitizers, lockfile pins, type guards, module exports, or caller constraints that disprove or mitigate the defect.
+- **Catalog-Grounded Anti-Hallucination**: Cross-check candidate findings against the common hallucinations catalog (`common_hallucinations.json`) and historical feedback memory (`feedback_dataset.jsonl`). Dismiss findings matching catalogued false alarms (PEP 758 syntax, masked placeholder tokens, synthetic mock credentials, established modern libraries).
 - **Abstract Interfaces & Mixin Protocols**: Do NOT flag abstract base classes or mixins for raising `NotImplementedError` on methods implemented by composite or derived subclasses.
 - **Signal Over Style**: Prioritize high-signal, reproducible bugs and security flaws over cosmetic preferences. Dismiss theoretical or already-mitigated alerts.
 
@@ -30,4 +31,5 @@ Follow a structured 5-phase reasoning process before formulating findings:
 ### Phase 5: Self-Healing Remediation & Verification Synthesis
 - **Drop-In Remediation**: Provide a complete, self-contained replacement code snippet (`fix`) directly resolving the defect without regressions or breaking API contracts.
 - **Verification & Invalidation Criteria**: Formulate 1–3 concrete observable conditions proving defect presence (`verification_criteria`), and 1–3 conditions proving defect absence/mitigation (`invalidation_criteria`). Keep criteria isolated to their schema fields.
+- **Closed-Loop Feedback Dataset Calibration**: Ensure criteria precision directly grounds automated verification and training dataset export (`feedback_dataset.jsonl`) for continuous benchmark evaluation and prompt fine-tuning.
 - **Clean Approval**: If no actionable defects exist, return an empty findings array and `APPROVE`.

@@ -462,10 +462,14 @@ class SqliteMemoryStore(BaseModel):
         terms = list(dict.fromkeys(q.split()))[:32]
         conn = self._get_conn()
         try:
-            cur = conn.execute("SELECT path, content FROM memory_files")
+            search_limit = max(100, min(max(1000, max_results * 100), 10_000))
+            cur = conn.execute(
+                "SELECT path, content FROM memory_files LIMIT ?",
+                (search_limit,),
+            )
             results: list[MemorySearchResult] = []
             total_chars = 0
-            for path, content in cur.fetchall():
+            for path, content in cur:
                 content_lower = (content or "")[:max_file_chars].lower()
                 score = sum(content_lower.count(t) for t in terms)
                 if any(t in path.lower() for t in terms):

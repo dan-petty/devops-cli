@@ -75,6 +75,8 @@ DEFAULT_PR_STATE = "open"
 DEFAULT_MAX_CONTEXT_TOKENS: int = 32768
 DEFAULT_DIFF_CHUNK_BUDGET: int = 32768
 DEFAULT_SEMGREP_CONFIG: str = "p/default"
+DEFAULT_DIVE_MIN_EFFICIENCY: float = 0.90
+DEFAULT_DIVE_MAX_WASTED_BYTES: int = 50 * 1024 * 1024  # 50 MiB
 
 # ── Benchmark Defaults ────────────────────────────────────────────────────────
 DEFAULT_BENCHMARK_CONCURRENCY: int = 4
@@ -141,6 +143,7 @@ DEFAULT_VALKEY_SYMBOL_TTL_SECONDS = 604800  # 7 days TTL for cached symbol signa
 DEFAULT_RAG_EMBEDDING_MODEL = "qwen3-embedding:0.6b"
 DEFAULT_RAG_EMBEDDING_URL: str | None = None
 DEFAULT_RAG_EMBEDDING_CACHE_SIZE: int = 1024  # Max entries in in-memory embedding LRU cache
+DEFAULT_RAG_EMBEDDING_TIMEOUT: float = 15.0  # Bounded timeout for fast failover across nodes
 DEFAULT_RAG_TOP_K: int = 5
 DEFAULT_RAG_SCORE_THRESHOLD: float = 0.35
 DEFAULT_RAG_CHUNK_SIZE: int = 2400
@@ -150,6 +153,7 @@ DEFAULT_RAG_CACHE_DIR = DEFAULT_RAG_DATA_DIR
 # ── Tracing & Telemetry Defaults ──────────────────────────────────────────────
 DEFAULT_JAEGER_URL = "http://localhost:16686"
 DEFAULT_OTEL_ENDPOINT = "http://localhost:4318"
+DEFAULT_LOKI_URL = "http://localhost:3100"
 
 # ── Tool & Agent Defaults ─────────────────────────────────────────────────────
 DEFAULT_TOOL_READ_MAX_BYTES: int = 4000

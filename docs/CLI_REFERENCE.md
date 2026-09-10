@@ -631,26 +631,33 @@ devops k8s apply [OPTIONS] <path>
 
 ### `devops k8s logs`
 
-**Stream pod logs (delegates to kubectl).**
+**Stream pod logs or execute LogQL queries across cluster log streams.**
 
 ```bash
-devops k8s logs [OPTIONS] <pod>
+devops k8s logs [OPTIONS] <pod> <query_arg>
 ```
 
 **Arguments:**
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<pod>` | `string` | Yes | Pod name. |
+| `<pod>` | `string` | No | Pod name. |
+| `<query_arg>` | `string` | No | Optional LogQL query string when using query subcommand |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--query`, `-q` | `string` | - | LogQL query expression |
 | `--container`, `-c` | `string` | - | Specific container name within the pod. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--follow`, `-f` | `boolean` | - | Follow stream or log output in real time. |
 | `--tail` | `integer` | `100` | Number of recent lines to display. |
+| `--limit` | `integer` | `100` | Max lines for LogQL query |
+| `--since` | `string` | `1h` | Time range for LogQL query |
+| `--loki-url` | `string` | - | Loki service endpoint |
+| `--format` | `string` | `text` | Output format (text, json) |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops k8s bootstrap`
 
@@ -682,8 +689,9 @@ devops k8s bootstrap-openwebui [OPTIONS]
 |---|---|---|---|
 | `--email`, `-e` | `string` | `admin@localhost` | Admin email address. |
 | `--name`, `-n` | `string` | `Admin` | Admin display name. |
-| `--password`, `-p` | `string` | `<masked>` | Admin password. |
+| `--password`, `-p` | `string` | - | Admin password. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--show-password` | `boolean` | - | Display generated admin password in plain text instead of masking. |
 
 ### `devops k8s deploy-stack`
 
@@ -1413,11 +1421,68 @@ devops prometheus targets
 
 Argo CD, Workflows, and Rollouts management.
 
+### `devops argo sync`
+
+**Synchronize an ArgoCD application (or multi-cluster fleet when --fleet is passed).**
+
+```bash
+devops argo sync [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Application name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--fleet` | `boolean` | - | Synchronize application across multi-cluster fleet |
+| `--clusters`, `-c` | `string` | `dev,staging,prod` | Comma-separated list of target cluster names (e.g. dev,staging,prod) |
+| `--fleet-name` | `string` | `default-fleet` | Fleet identifier group name |
+| `--concurrency`, `-p` | `integer` | `3` | Maximum concurrent cluster synchronization workers |
+| `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
+| `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
 ### `devops argo cd`
 
 ```bash
 devops argo cd COMMAND [ARGS]...
 ```
+
+#### `devops argo cd fleet`
+
+```bash
+devops argo cd fleet COMMAND [ARGS]...
+```
+
+##### `devops argo cd fleet sync`
+
+**Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency.**
+
+```bash
+devops argo cd fleet sync [OPTIONS] <app_name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<app_name>` | `string` | Yes | Application name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--clusters`, `-c` | `string` | `dev,staging,prod` | Comma-separated list of target cluster names (e.g. dev,staging,prod) |
+| `--fleet` | `string` | `default-fleet` | Fleet identifier group name |
+| `--concurrency`, `-p` | `integer` | `3` | Maximum concurrent cluster synchronization workers |
+| `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
+| `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 #### `devops argo cd apps`
 
@@ -1599,6 +1664,121 @@ devops argo rollouts status [OPTIONS] <name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--watch`, `-w` | `boolean` | - | Watch application status changes live. |
+
+#### `devops argo rollouts promote`
+
+**Promote an in-progress Argo Rollout to the next progressive step or full release.**
+
+```bash
+devops argo rollouts promote [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Rollout name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+| `--full` | `boolean` | - | Skip all remaining steps and promote directly to full release |
+
+#### `devops argo rollouts abort`
+
+**Abort an in-progress Argo Rollout and revert immediately to the stable replica set.**
+
+```bash
+devops argo rollouts abort [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Rollout name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+
+#### `devops argo rollouts restart`
+
+**Perform a restart rollout across all pods in an Argo Rollout.**
+
+```bash
+devops argo rollouts restart [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Rollout name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+
+#### `devops argo rollouts analyze`
+
+**Evaluate metric rollback gates and trigger automated rollback on threshold violation.**
+
+```bash
+devops argo rollouts analyze [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Rollout name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+| `--error-rate-threshold`, `-e` | `float` | `1.0` | Maximum allowable HTTP 5xx error rate percentage before triggering automated rollback |
+| `--auto-abort`, `--no-auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
+### `devops argo fleet`
+
+```bash
+devops argo fleet COMMAND [ARGS]...
+```
+
+#### `devops argo fleet sync`
+
+**Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency.**
+
+```bash
+devops argo fleet sync [OPTIONS] <app_name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<app_name>` | `string` | Yes | Application name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--clusters`, `-c` | `string` | `dev,staging,prod` | Comma-separated list of target cluster names (e.g. dev,staging,prod) |
+| `--fleet` | `string` | `default-fleet` | Fleet identifier group name |
+| `--concurrency`, `-p` | `integer` | `3` | Maximum concurrent cluster synchronization workers |
+| `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
+| `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
@@ -4142,7 +4322,7 @@ devops gh project status [OPTIONS]
 
 #### `devops gh project sync`
 
-**Sync task items from task.md into GitHub Projects status.**
+**Sync task items from tasks directory or task.md into GitHub Projects status.**
 
 ```bash
 devops gh project sync [OPTIONS]
@@ -4152,7 +4332,7 @@ devops gh project sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--task-file`, `-f` | `path` | `docs/agent/task.md` | Path to docs/agent/task.md |
+| `--task-file`, `-f` | `path` | `docs/agent/tasks` | Path to docs/agent/tasks directory or task.md |
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run`, `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
@@ -4830,6 +5010,57 @@ devops tf notify-plan [OPTIONS]
 | `--pr` | `integer` | - | Pull Request number to post plan comment to. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+### `devops tf cost`
+
+```bash
+devops tf cost COMMAND [ARGS]...
+```
+
+#### `devops tf cost breakdown`
+
+**Estimate monthly and hourly cloud infrastructure costs using Infracost.**
+
+```bash
+devops tf cost breakdown [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--mock` | `boolean` | - | Use deterministic mock cost output |
+| `--max-monthly-cost` | `float` | - | Maximum allowable monthly cost budget threshold |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
+#### `devops tf cost diff`
+
+**Calculate cost delta between local Terraform code and baseline state using Infracost.**
+
+```bash
+devops tf cost diff [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--compare-to`, `-c` | `string` | - | Path to baseline Infracost JSON file for comparison |
+| `--mock` | `boolean` | - | Use deterministic mock cost output |
+| `--max-monthly-cost` | `float` | - | Maximum allowable monthly cost budget threshold |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 

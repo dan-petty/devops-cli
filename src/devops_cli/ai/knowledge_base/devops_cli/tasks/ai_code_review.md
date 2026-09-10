@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 
-The Multi-Persona AI Code Review system in `devops-cli` provides automated, high-signal, persona-driven feedback on git diffs, pull requests, and file paths. By leveraging domain-specialized personas (`architect`, `devsecops`, `auditor`, `qa`, `pm`), the review engine analyzes code modifications against universal software engineering principles (SOLID, DRY, OWASP Top 10, CIS benchmarks) as well as the target repository's own declared conventions (`AGENTS.md`).
+The Multi-Persona AI Code Review system in `devops-cli` provides automated, high-signal, persona-driven feedback on git diffs, pull requests, and file paths. By leveraging domain-specialized personas (`architect`, `devsecops`, `auditor`, `qa`, `pm`), the review engine analyzes code modifications against universal software engineering principles (SOLID, DRY, OWASP Top 10, CIS benchmarks) as well as the target repository's own declared conventions (e.g. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, or project instructions).
 
 ---
 
@@ -91,22 +91,25 @@ devops ai review path src/ --pre-analysis-only
 ### Findings Management & Closed-Loop Feedback Commands
 ```bash
 # Inspect findings from the latest review session
-devops ai review findings --session latest --details
+devops review findings --session latest --details
 
 # Filter findings by status (VERIFIED, UNVERIFIED, INVALIDATED, MITIGATED)
-devops ai review findings --status VERIFIED
+devops review findings --status VERIFIED
 
 # Mark finding as MITIGATED after applying a fix
-devops ai review verify --session latest --index 1 --status MITIGATED --reason "Service type changed to ClusterIP and NetworkPolicy jaeger-ingress created"
+devops review verify 20260910-143644 1 --status MITIGATED --reason "Service type changed to ClusterIP and NetworkPolicy jaeger-ingress created"
 
 # Mark finding as INVALIDATED if proven to be a false positive
-devops ai review verify --session latest --index 2 --status INVALIDATED --reason "Symbol is re-exported via __all__ in target module"
+devops review verify 20260910-143644 2 --status INVALIDATED --reason "Symbol is re-exported via __all__ in target module"
 
 # Export review report to markdown
-devops ai review branch --export-md .data/reviews/review-report.md
+devops review branch --export-md .data/reviews/review-report.md
 
-# Export all findings to structured feedback dataset for fine-tuning and RAG grounding
-devops ai review export-feedback --status ALL --output .data/reviews/feedback_dataset.jsonl
+# Export all findings to structured feedback dataset for fine-tuning, benchmark evaluation, and live memory
+devops review export-feedback --status ALL --output .data/reviews/feedback_dataset.jsonl
+
+# Export only invalidated findings to train hallucination classifiers
+devops review export-feedback --status INVALIDATED --output .data/invalidated_feedback.jsonl
 ```
 
 ---
@@ -115,16 +118,22 @@ devops ai review export-feedback --status ALL --output .data/reviews/feedback_da
 
 1. **Review Small, Atomic Diffs**: Run reviews iteratively on focused commits to maximize AI context focus and receive higher-signal feedback.
 2. **Target Path Isolation**: When reviewing child workspaces (under `repos/`), always ensure file paths resolve relative to `target_dir` to prevent host file collisions.
-3. **Declare Project Conventions**: Maintain an accurate `AGENTS.md` file in target repositories; the review engine automatically injects it into prompt context.
-4. **Use Response Repair**: The review pipeline automatically normalizes LLM outputs using `repair_json_string` and `fix_llm_response` to ensure valid structured schemas.
-5. **Context-Aware Documentation & Avoidance Context**: Never flag documentation, architectural guides, security tutorials, or prompt tasks that explain known vulnerabilities or insecure configurations in the context of avoiding, preventing, or mitigating them.
-6. **Ground-Truth Symbol & Export Verification**: Review personas and verification engines must inspect actual source module ASTs or exports before asserting that imported variables, constants, or classes are missing or cause `ImportError`. False-alarm missing symbol claims must be registered in the hallucination catalog and invalidated.
+3. **Declare Project Conventions**: Maintain an accurate conventions file (e.g. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.cursorrules`) in target repositories; the review engine automatically discovers and injects it into prompt context.
+4. **Modular Task Tracking Architecture**: Ensure active tasks are tracked in dedicated per-task files (`docs/agent/tasks/task-<issue>-<slug>.md`) rather than editing monolithic tracking documents, preventing merge conflicts across concurrent branches.
+5. **Use Response Repair**: The review pipeline automatically normalizes LLM outputs using `repair_json_string` and `fix_llm_response` to ensure valid structured schemas.
+6. **Context-Aware Documentation & Avoidance Context**: Never flag documentation, architectural guides, security tutorials, or prompt tasks that explain known vulnerabilities or insecure configurations in the context of avoiding, preventing, or mitigating them.
+7. **Ground-Truth Symbol & Export Verification**: Review personas and verification engines must inspect actual source module ASTs or exports before asserting that imported variables, constants, or classes are missing or cause `ImportError`. False-alarm missing symbol claims must be registered in the hallucination catalog and invalidated.
+8. **Closed-Loop Finding Remediation Workflow**: When remediating reported review findings:
+   - **Step 1 (Test-First Specification)**: Author unit/regression tests asserting the defect and desired behavior before modifying source files.
+   - **Step 2 (Clean Implementation & Architectural Invariants)**: Implement fixes adhering strictly to cyclomatic complexity $\le 10$ and maximum nesting depth $\le 5$ project-wide. Ruthlessly prune zombie code.
+   - **Step 3 (Status Verification & Invalidation Calibration)**: Update finding records in `.data/reviews/<session>/findings.json` to `MITIGATED` or `INVALIDATED` with explicit step-by-step causal rationale via `devops review verify`.
+   - **Step 4 (Feedback Dataset Continuous Grounding)**: Run `devops review export-feedback --status ALL --output .data/reviews/feedback_dataset.jsonl` to synchronize the curated verdicts, completing the self-improvement feedback loop for multi-agent reasoning, benchmark evaluation (`devops benchmark suite`), and prompt fine-tuning.
 
 ---
 
 ## 5. Security Recommendations & Zero-Trust Policies
 
-- **Secret Masking & Path Filtering**: All diffs and source excerpts pass through `_mask_secrets_in_content` before transmission to LLM providers. Secret-containing paths (`.env*`, `.pem`, `*.key`, `*secret*`) are excluded from validation prompt injection.
+- **Secret Masking & Path Filtering**: All diffs and source excerpts pass through `mask_secrets` before transmission to LLM providers. Secret-containing paths (`.env*`, `.pem`, `*.key`, `*secret*`) are excluded from validation prompt injection.
 - **Information Exposure & Exception Sanitization (CWE-200)**: Exception messages, log streams, and CLI diagnostic output must sanitize and mask private IPs, internal endpoints, hostnames, and credentials, preserving raw target URLs strictly inside structured debug details dictionaries.
 - **Prompt Injection Defense**: Boundary closing tags and diff titles are escaped to prevent prompt manipulation.
 - **Path Traversal Protection**: Directory traversal routines strictly enforce repository boundaries and skip symlinked files.

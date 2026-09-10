@@ -59,11 +59,6 @@ def _resolve_tf_binary() -> str:
     raise typer.Exit(1)
 
 
-def _validate_dir(path: Path) -> Path:
-    """Ensure the target directory exists and is a directory."""
-    return validate_dir(path, must_exist=True)
-
-
 def _get_cloud_dir(cloud_provider: str, repo_root: Path) -> Path:
     """Resolve directory path for a supported cloud provider."""
     provider_map = {
@@ -100,7 +95,7 @@ def tf_init(
     reconfigure: Annotated[bool, typer.Option("--reconfigure", help=HELP.tf.reconfigure)] = False,
 ) -> None:
     """Initialize an OpenTofu working directory."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "init"]
@@ -143,7 +138,7 @@ def tf_plan(
     destroy: Annotated[bool, typer.Option("--destroy", help=HELP.tf.destroy_plan)] = False,
 ) -> None:
     """Generate and show an OpenTofu execution plan."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "plan"]
@@ -192,7 +187,7 @@ def tf_apply(
     ] = False,
 ) -> None:
     """Create or update OpenTofu infrastructure."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "apply"]
@@ -239,7 +234,7 @@ def tf_destroy(
     ] = False,
 ) -> None:
     """Destroy OpenTofu-managed infrastructure."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "destroy"]
@@ -281,7 +276,7 @@ def tf_output(
     raw: Annotated[bool, typer.Option("--raw", "-r", help=HELP.options.raw)] = False,
 ) -> None:
     """Read an output variable from the OpenTofu state."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "output"]
@@ -320,7 +315,7 @@ def tf_validate(
     no_color: Annotated[bool, typer.Option("--no-color", help=HELP.tf.no_color)] = False,
 ) -> None:
     """Validate the OpenTofu configuration files in a directory."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "validate"]
@@ -360,7 +355,7 @@ def tf_fmt(
     ] = True,
 ) -> None:
     """Rewrites OpenTofu configuration files to canonical format."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "fmt"]
@@ -398,7 +393,7 @@ def status_command(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
 ) -> None:
     """Show OpenTofu directory state, initialization status, and provider plugins."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     tf_dir = target / ".terraform"
@@ -603,3 +598,102 @@ def tf_notify_plan(
         f"✓ Formatted Terraform plan notification (Adds: {adds}, Changes: {changes}, Destroys: {destroys}):"
     )
     write_stdout(comment_body + "\n")
+
+
+# =============================================================================
+# Command Group: devops tf cost
+# =============================================================================
+
+cost_app = new_typer(
+    help="Infracost cloud cost estimation and FinOps budget reporting.",
+    no_args_is_help=True,
+)
+app.add_typer(cost_app, name="cost")
+
+
+@cost_app.command("breakdown")
+def tf_cost_breakdown(
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
+    mock: Annotated[
+        bool, typer.Option("--mock", help="Use deterministic mock cost output")
+    ] = False,
+    max_monthly_cost: Annotated[
+        float | None,
+        typer.Option("--max-monthly-cost", help="Maximum allowable monthly cost budget threshold"),
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """Estimate monthly and hourly cloud infrastructure costs using Infracost."""
+    from devops_cli.tf.cost import render_cost_table, run_infracost_breakdown, validate_cost_budget
+
+    target = validate_dir(directory)
+    if is_dry_run():
+        render_dry_run_result(
+            command=f"devops tf cost breakdown {target}",
+            action="cost_breakdown",
+            target=str(target),
+        )
+        return
+
+    result = run_infracost_breakdown(target, offline_mock=mock)
+    budget_ok = validate_cost_budget(result, max_monthly_cost)
+    if json_output:
+        write_stdout(result.model_dump_json(indent=2) + "\n")
+    else:
+        print(render_cost_table(result))
+
+    if not budget_ok:
+        if not json_output:
+            print_error(
+                f"Monthly cost budget exceeded: ${result.total_monthly_cost:.2f} > ${max_monthly_cost:.2f}"
+            )
+        raise typer.Exit(1)
+
+
+@cost_app.command("diff")
+def tf_cost_diff(
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
+    compare_to: Annotated[
+        str | None,
+        typer.Option(
+            "--compare-to", "-c", help="Path to baseline Infracost JSON file for comparison"
+        ),
+    ] = None,
+    mock: Annotated[
+        bool, typer.Option("--mock", help="Use deterministic mock cost output")
+    ] = False,
+    max_monthly_cost: Annotated[
+        float | None,
+        typer.Option("--max-monthly-cost", help="Maximum allowable monthly cost budget threshold"),
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """Calculate cost delta between local Terraform code and baseline state using Infracost."""
+    from devops_cli.tf.cost import render_cost_table, run_infracost_diff, validate_cost_budget
+
+    target = validate_dir(directory)
+    if is_dry_run():
+        render_dry_run_result(
+            command=f"devops tf cost diff {target}",
+            action="cost_diff",
+            target=str(target),
+        )
+        return
+
+    result = run_infracost_diff(target, compare_to=compare_to, offline_mock=mock)
+    budget_ok = validate_cost_budget(result, max_monthly_cost)
+    if json_output:
+        write_stdout(result.model_dump_json(indent=2) + "\n")
+    else:
+        print(render_cost_table(result, title=f"Cost Diff: {result.directory} ({result.source})"))
+
+    if not budget_ok:
+        if not json_output:
+            print_error(
+                f"Monthly cost budget exceeded: ${result.total_monthly_cost:.2f} > ${max_monthly_cost:.2f}"
+            )
+        raise typer.Exit(1)

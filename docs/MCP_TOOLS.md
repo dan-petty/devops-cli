@@ -23,7 +23,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_resume`](#ai-resume) | Gracefully resume suspended constellation agent loops and task runners. |
 | [`ai_subagent_offload`](#ai-subagent-offload) | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
 | [`ai_test_gen`](#ai-test-gen) | Synthesize isolated pytest unit test suite for a target Python file. |
+| [`argo_fleet_sync`](#argo-fleet-sync) | Coordinate multi-cluster ArgoCD fleet synchronization with bounded concurrency. |
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
+| [`argo_rollout_analyze`](#argo-rollout-analyze) | Analyze progressive rollout metric gates and trigger automated rollback on threshold violation. |
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
 | [`benchmark_embeddings`](#benchmark-embeddings) | Benchmark embedding model inference latency, dimensions, and retrieval accuracy. |
 | [`benchmark_suite`](#benchmark-suite) | Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring. |
@@ -50,7 +52,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_project_list`](#gh-project-list) | List available GitHub Projects v2 boards for user or organization. |
 | [`gh_project_reconcile`](#gh-project-reconcile) | Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items. |
 | [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
-| [`gh_project_sync`](#gh-project-sync) | Synchronize task items from task.md into GitHub Projects v2 status. |
+| [`gh_project_sync`](#gh-project-sync) | Synchronize task items from task tracking into GitHub Projects v2 status. |
 | [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
 | [`gh_views_audit`](#gh-views-audit) | Audit remote project views against standardized view template specifications. |
 | [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
@@ -64,6 +66,8 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_enable_tls`](#k8s-enable-tls) | Apply TLS secrets across Kubernetes cluster namespaces (argocd, monitoring, llm, otel). |
 | [`k8s_jaeger_info`](#k8s-jaeger-info) | Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints. |
 | [`k8s_lint`](#k8s-lint) | Lint Kubernetes manifests against security best practices and deprecated APIs. |
+| [`k8s_logs_query`](#k8s-logs-query) | Execute LogQL query across Kubernetes and cluster log streams (e.g. {app="web"} |= "error"). |
+| [`k8s_logs_tail`](#k8s-logs-tail) | Tail recent log lines matching LogQL stream selector (e.g. {app="web"}). |
 | [`k8s_pods`](#k8s-pods) | List Kubernetes pod status for the specified namespace. |
 | [`k8s_status`](#k8s-status) | Display pod status across infrastructure namespaces. |
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | Uninstall Kubernetes infrastructure or LLM stack and delete namespaces. |
@@ -105,6 +109,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`telemetry_status`](#telemetry-status) | Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings. |
 | [`telemetry_test_span`](#telemetry-test-span) | Emit a test OpenTelemetry trace span and metric to verify collector pipeline health. |
 | [`tf_apply`](#tf-apply) | Apply OpenTofu / Terraform Infrastructure-as-Code changes. |
+| [`tf_cost_estimate`](#tf-cost-estimate) | Estimate cloud infrastructure cost with Infracost FinOps engine. |
 | [`tf_notify_plan`](#tf-notify-plan) | Format structured OpenTofu/Terraform plan summary for PR comments. |
 | [`tf_output`](#tf-output) | Retrieve OpenTofu / Terraform outputs from state. |
 | [`tf_plan`](#tf-plan) | Generate and inspect an OpenTofu / Terraform execution plan. |
@@ -308,11 +313,37 @@ Synthesize isolated pytest unit test suite for a target Python file.
 |---|---|---|---|---|
 | `target_file` | `string` | Yes | - | - |
 
+### `argo_fleet_sync`
+
+Coordinate multi-cluster ArgoCD fleet synchronization with bounded concurrency.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `app_name` | `string` | Yes | - | - |
+| `clusters` | `string` | No | `dev,staging,prod` | - |
+| `fleet` | `string` | No | `default-fleet` | - |
+| `concurrency` | `integer` | No | `3` | - |
+
 ### `argo_list`
 
 List ArgoCD applications.
 
 *No parameters required.*
+
+### `argo_rollout_analyze`
+
+Analyze progressive rollout metric gates and trigger automated rollback on threshold violation.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `rollout_name` | `string` | Yes | - | - |
+| `namespace` | `string` | No | `default` | - |
+| `error_rate_threshold` | `number` | No | `1.0` | - |
+| `auto_abort` | `boolean` | No | `True` | - |
 
 ### `argo_status`
 
@@ -579,7 +610,7 @@ Inspect GitHub Projects v2 template configuration, fields, and view definitions.
 
 ### `gh_project_sync`
 
-Synchronize task items from task.md into GitHub Projects v2 status.
+Synchronize task items from task tracking into GitHub Projects v2 status.
 
 **Parameters:**
 
@@ -719,6 +750,31 @@ Lint Kubernetes manifests against security best practices and deprecated APIs.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `manifest_path` | `string` | No | `.` | - |
+
+### `k8s_logs_query`
+
+Execute LogQL query across Kubernetes and cluster log streams (e.g. {app="web"} |= "error").
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query` | `string` | Yes | - | - |
+| `limit` | `integer` | No | `100` | - |
+| `since` | `string` | No | `1h` | - |
+| `namespace` | `string` | No | - | - |
+
+### `k8s_logs_tail`
+
+Tail recent log lines matching LogQL stream selector (e.g. {app="web"}).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query` | `string` | Yes | - | - |
+| `lines` | `integer` | No | `50` | - |
+| `namespace` | `string` | No | - | - |
 
 ### `k8s_pods`
 
@@ -1128,6 +1184,18 @@ Apply OpenTofu / Terraform Infrastructure-as-Code changes.
 | `directory` | `string` | No | `.` | - |
 | `var_file` | `string` | No | `` | - |
 | `auto_approve` | `boolean` | No | `True` | - |
+
+### `tf_cost_estimate`
+
+Estimate cloud infrastructure cost with Infracost FinOps engine.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `directory` | `string` | No | `.` | - |
+| `mock` | `boolean` | No | `False` | - |
+| `max_monthly_cost` | `number` | No | - | - |
 
 ### `tf_notify_plan`
 

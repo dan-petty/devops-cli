@@ -69,12 +69,12 @@ class AgentMemory(BaseModel):
         **metadata: Any,
     ) -> MemoryEntry:
         """Record an interaction turn into memory."""
-        from devops_cli.ai.review.sanitization import (
-            _mask_secrets_in_content,
-            _sanitize_prompt_boundary_tags,
+        from devops_cli.security.sanitizer import (
+            mask_secrets,
+            sanitize_prompt_boundary_tags,
         )
 
-        sanitized = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(content))
+        sanitized = sanitize_prompt_boundary_tags(mask_secrets(content))
         entry = MemoryEntry(
             role=role,
             content=sanitized,
@@ -103,14 +103,13 @@ class AgentMemory(BaseModel):
         to_summarize = self.entries[:cutoff]
         to_keep = self.entries[cutoff:]
 
-        from devops_cli.ai.review.sanitization import (
-            _mask_secrets_in_content,
-            _sanitize_prompt_boundary_tags,
+        from devops_cli.security.sanitizer import (
+            mask_secrets,
+            sanitize_prompt_boundary_tags,
         )
 
         rendered_interactions = "\n".join(
-            f"[{e.role.upper()}]: "
-            f"{_sanitize_prompt_boundary_tags(_mask_secrets_in_content(e.content))}"
+            f"[{e.role.upper()}]: {sanitize_prompt_boundary_tags(mask_secrets(e.content))}"
             for e in to_summarize
         )
 
@@ -146,7 +145,7 @@ class AgentMemory(BaseModel):
             if len(new_summary) > self.max_chars // 2:
                 new_summary = new_summary[: (self.max_chars // 2) - 3] + "..."
 
-        self.summary = _mask_secrets_in_content(_sanitize_prompt_boundary_tags(new_summary))
+        self.summary = mask_secrets(sanitize_prompt_boundary_tags(new_summary))
         self.entries = to_keep
         return True
 
@@ -171,7 +170,7 @@ class AgentMemory(BaseModel):
             if sys_content:
                 messages.append(ChatMessage(role="system", content=sys_content))
 
-        from devops_cli.ai.review.sanitization import _sanitize_prompt_boundary_tags
+        from devops_cli.security.sanitizer import sanitize_prompt_boundary_tags
 
         for entry in self.entries:
             role_norm = entry.role.lower()
@@ -185,7 +184,7 @@ class AgentMemory(BaseModel):
             messages.append(
                 ChatMessage(
                     role=role_val,
-                    content=_sanitize_prompt_boundary_tags(entry.content),
+                    content=sanitize_prompt_boundary_tags(entry.content),
                 )
             )
 

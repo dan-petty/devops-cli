@@ -497,7 +497,9 @@ def test_ssh_empty_states_and_rotation_failure(tmp_path: Path) -> None:
     with (
         patch(
             "devops_cli.github.ssh.register_key_on_github",
-            side_effect=SSHRegistrationError("API timeout"),
+            side_effect=SSHRegistrationError(
+                "API timeout for token ghp_secret1234567890123456789012345678901234"
+            ),
         ),
         patch("devops_cli.config.settings.get_github_token", return_value="ghp_test"),
         patch("devops_cli.config.settings.load_settings") as mock_load,
@@ -511,6 +513,8 @@ def test_ssh_empty_states_and_rotation_failure(tmp_path: Path) -> None:
         res_rot_fail = runner.invoke(ssh_app, ["rotate", "--force"])
         assert res_rot_fail.exit_code == 0
         assert "registration failed" in res_rot_fail.output
+        assert "ghp_secret" not in res_rot_fail.output
+        assert "Check your GitHub token and network connectivity" in res_rot_fail.output
 
 
 def test_crypto_ssh_keys_edge_cases(tmp_path: Path) -> None:

@@ -31,9 +31,9 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
-    DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_RAG_EMBEDDING_CACHE_SIZE,
     DEFAULT_RAG_EMBEDDING_MODEL,
+    DEFAULT_RAG_EMBEDDING_TIMEOUT,
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -136,7 +136,7 @@ class EmbeddingsEngine:
         ai_config: AIConfig | None = None,
         *,
         api_key: str | None = None,
-        timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
+        timeout: float | None = None,
         cache_size: int = DEFAULT_RAG_EMBEDDING_CACHE_SIZE,
     ) -> None:
         if ai_config is None:
@@ -151,7 +151,14 @@ class EmbeddingsEngine:
 
         self.ai_config = base_config.for_task("embedding")
         self.api_key = api_key
-        self.timeout = min(timeout, 120.0)
+        task_timeout = getattr(getattr(base_config.tasks, "embedding", None), "timeout", None)
+        rag_timeout = getattr(self.ai_config.rag, "embedding_timeout", None)
+        effective_timeout = (
+            timeout
+            if timeout is not None
+            else (task_timeout or rag_timeout or DEFAULT_RAG_EMBEDDING_TIMEOUT)
+        )
+        self.timeout = min(float(effective_timeout), 120.0)
         task_model = getattr(getattr(base_config.tasks, "embedding", None), "model", None)
         self.model = (
             task_model
@@ -394,7 +401,7 @@ class EmbeddingsEngine:
                 "rag.model": str(self.model),
             },
         ):
-            client_timeout = httpx2.Timeout(self.timeout, connect=min(self.timeout, 5.0))
+            client_timeout = httpx2.Timeout(self.timeout, connect=min(self.timeout, 2.0))
             with httpx2.Client(timeout=client_timeout) as client:
                 return self._try_batch_embed_endpoint(client, base_url, batch_texts)
 

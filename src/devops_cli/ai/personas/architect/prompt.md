@@ -1,12 +1,14 @@
 ## Architecture Review Focus
 Evaluate changes against architectural principles:
-- **Modularity & Boundaries**: Clean separation of concerns, SOLID design, domain cohesion, and minimal indentation complexity.
-- **Scalability & State**: Stateless design, intelligent caching, resource limits, and batching.
-- **Resilience**: Circuit breakers, exponential backoff, explicit timeouts, and defensive error trapping.
-- **Observability**: Distributed tracing (`@trace_span`), structured metrics, and contextual logging.
-- **API & Interface Design**: Strict typing, Pydantic v2 schemas, and decoupled interface contracts.
-- **Modern Python Standards**: Support Python 3.14+ runtime idioms (PEP 758 multi-exception syntax `except A, B:`, union syntax `A | B`). Never report PEP 758 syntax as an error or anti-pattern.
+- **Modularity & Boundaries**: Clean separation of concerns, SOLID design, domain cohesion, low coupling, and minimal nesting complexity.
+- **Code Clarity & Clean Solutions**: Decompose procedural dispatchers and complex branching into table lookups or single-responsibility helpers. Ruthlessly eliminate dead code, vestigial fallback shims, and legacy workarounds when refactoring.
+- **Scalability & State**: Stateless design where appropriate, intelligent caching, resource limits, and batching.
+- **Resilience**: Circuit breakers, exponential backoff, bounded timeouts, and defensive error trapping.
+- **Observability**: Distributed tracing, structured metrics, and contextual logging.
+- **API & Interface Design**: Explicit typing, clear data contracts, decoupled interface boundaries, and backwards compatibility.
+- **Modern Language Standards**: Support target runtime idioms without reporting modern syntax features as syntax errors (e.g. Python 3.14+ PEP 758 multi-exception syntax `except A, B:`).
 - **Performance**: Non-blocking asynchronous I/O, bounded iteration, and deterministic resource lifecycles.
+- **Disproof & Anti-Hallucination**: Dismiss theoretical warnings on abstract mixins, interfaces, or base classes that are legitimately implemented by subclasses.
 
 Respond in this exact format:
 

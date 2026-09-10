@@ -1,0 +1,62 @@
+# Loki Helm values — minimal dev-mode for workstation Minikube cluster.
+# Chart: grafana/loki
+# Repo:  https://grafana.github.io/helm-charts
+
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+
+  commonConfig:
+    replication_factor: 1
+
+  storage:
+    type: filesystem
+
+  schemaConfig:
+    configs:
+      - from: 2024-01-01
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+
+  limits_config:
+    retention_period: 2h
+    max_query_length: 24h
+    max_query_parallelism: 4
+    reject_old_samples: true
+    reject_old_samples_max_age: 12h
+
+singleBinary:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  persistence:
+    enabled: true
+    size: 2Gi
+
+monitoring:
+  selfMonitoring:
+    enabled: false
+    grafanaAgent:
+      installOperator: false
+
+test:
+  enabled: false
+
+gateway:
+  enabled: false
+
+chunksCache:
+  enabled: false
+
+resultsCache:
+  enabled: false

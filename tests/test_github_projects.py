@@ -55,6 +55,76 @@ def test_parse_tasks_to_project_items(tmp_path: Path) -> None:
     assert items[2].status == "Backlog"
 
 
+def test_parse_tasks_to_project_items_from_directory(tmp_path: Path) -> None:
+    """parse_tasks_to_project_items parses tasks across multiple modular task files in a directory."""
+    tasks_dir = tmp_path / "tasks"
+    tasks_dir.mkdir()
+
+    # Task file 1: Completed task
+    task1 = tasks_dir / "task-001-setup.md"
+    task1.write_text(
+        "# Task: Setup Environment\n\n"
+        "- **Status**: Done\n\n"
+        "### Completed Tasks\n"
+        "- [x] Provision cluster nodes\n"
+        "- [x] Install Helm controllers\n",
+        encoding="utf-8",
+    )
+
+    # Task file 2: In-progress task
+    task2 = tasks_dir / "task-002-feature.md"
+    task2.write_text(
+        "# Task: Add Ingress Gateway\n\n"
+        "### In-Progress Tasks (WIP)\n"
+        "- [ ] Configure Envoy mesh\n"
+        "- [x] Generate TLS certificates\n",
+        encoding="utf-8",
+    )
+
+    # Task file 3: Standalone task without checklist (metadata-based)
+    task3 = tasks_dir / "task-003-audit.md"
+    task3.write_text(
+        "# Task: Security Egress Audit\n\n"
+        "- **Status**: In Review\n"
+        "- **Issue**: #105\n\n"
+        "Performing security audit.\n",
+        encoding="utf-8",
+    )
+
+    # README and archive files in tasks dir should be ignored
+    readme = tasks_dir / "README.md"
+    readme.write_text("# Tasks Directory\nDocumentation only.", encoding="utf-8")
+    archive_file = tasks_dir / "archive-phases-old.md"
+    archive_file.write_text("# Old Archive\n- [x] Old task\n", encoding="utf-8")
+
+    items = parse_tasks_to_project_items(tasks_dir)
+    assert len(items) == 5
+    # From task1
+    assert items[0].title == "Provision cluster nodes"
+    assert items[0].status == "Done"
+    assert items[1].title == "Install Helm controllers"
+    assert items[1].status == "Done"
+    # From task2
+    assert items[2].title == "Configure Envoy mesh"
+    assert items[2].status == "In Progress"
+    assert items[3].title == "Generate TLS certificates"
+    assert items[3].status == "Done"
+    # From task3
+    assert items[4].title == "Security Egress Audit"
+    assert items[4].status == "In Review"
+
+
+def test_parse_tasks_to_project_items_nonexistent_raises(tmp_path: Path) -> None:
+    """parse_tasks_to_project_items raises GitHubOperationError when path does not exist."""
+    import pytest
+
+    from devops_cli.exceptions.git import GitHubOperationError
+
+    with pytest.raises(GitHubOperationError) as exc_info:
+        parse_tasks_to_project_items(tmp_path / "nonexistent_tasks_path")
+    assert "Task path not found" in str(exc_info.value)
+
+
 def test_verify_project_auth_scopes_insufficient_scope() -> None:
     """verify_project_auth_scopes raises GitHubOperationError when token lacks project scope."""
     from unittest.mock import MagicMock, patch

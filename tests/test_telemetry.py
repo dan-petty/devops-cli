@@ -135,6 +135,50 @@ def test_clean_exit_not_marked_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "error" not in attrs
 
 
+def test_handled_cli_exit_non_zero_status_without_stacktrace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import typer
+
+    sent_payloads: list[tuple[str, dict[str, Any]]] = []
+    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
+    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+
+    with pytest.raises(typer.Exit):
+        with client.span("cli_exit_span"):
+            raise typer.Exit(1)
+
+    assert len(sent_payloads) == 1
+    span_data = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+    assert span_data["status"]["code"] == "STATUS_CODE_ERROR"
+    attrs = {a["key"]: next(iter(a["value"].values())) for a in span_data.get("attributes", [])}
+    assert attrs.get("error") is True
+    assert attrs.get("cli.exit_code") == "1"
+    # Stacktrace must NOT be attached on intentional CLI exits to prevent trace bloat
+    assert "exception.stacktrace" not in attrs
+    # No exception event recorded
+    assert not span_data.get("events")
+
+
+def test_unhandled_exception_records_traceback(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent_payloads: list[tuple[str, dict[str, Any]]] = []
+    client = OTelTelemetryClient(endpoint="http://localhost:4318", enabled=True)
+    monkeypatch.setattr(client, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+
+    with pytest.raises(ValueError, match="unexpected error"):
+        with client.span("crash_span"):
+            raise ValueError("unexpected error")
+
+    assert len(sent_payloads) == 1
+    span_data = sent_payloads[0][1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+    assert span_data["status"]["code"] == "STATUS_CODE_ERROR"
+    attrs = {a["key"]: next(iter(a["value"].values())) for a in span_data.get("attributes", [])}
+    assert attrs.get("error") is True
+    assert attrs.get("exception.type") == "ValueError"
+    assert "exception.stacktrace" in attrs
+    assert len(span_data.get("events", [])) == 1
+
+
 def test_concurrent_threads_context_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
     import concurrent.futures
 

@@ -338,9 +338,9 @@ def telemetry_profile_cmd(
             f"cli.{cmd_args[0] if cmd_args else 'command'}",
             attributes={"command.line": command},
         ) as span_h:
-            t0 = time.perf_counter()
+            start_time = time.perf_counter()
             proc = run_subprocess(cmd_args, env=sub_env, capture_output=False, quiet=True)
-            elapsed_ms = (time.perf_counter() - t0) * 1000
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
             span_h.set_attribute("cli.exit_code", proc.returncode)
             span_h.set_attribute("cli.elapsed_ms", elapsed_ms)
 

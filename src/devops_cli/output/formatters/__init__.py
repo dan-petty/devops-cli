@@ -31,6 +31,8 @@ from devops_cli.output.formatters.scalars import (
 )
 from devops_cli.output.formatters.tables import (
     format_argo_apps_table,
+    format_argo_fleet_sync_table,
+    format_argo_rollout_analysis_table,
     format_benchmark_category_table,
     format_benchmark_leaderboard_table,
     format_benchmark_server_table,
@@ -49,6 +51,7 @@ from devops_cli.output.formatters.tables import (
     format_network_references_table,
     format_review_findings_table,
     format_ssh_keys_table,
+    format_tf_cost_table,
     format_tf_status_table,
     format_tflint_table,
     render_table,
@@ -59,6 +62,8 @@ __all__ = [
     "SEV_COLOR_MAP",
     "format_argo_app_status_panel",
     "format_argo_apps_table",
+    "format_argo_fleet_sync_table",
+    "format_argo_rollout_analysis_table",
     "format_benchmark_category_table",
     "format_benchmark_leaderboard_table",
     "format_benchmark_server_table",
@@ -93,6 +98,7 @@ __all__ = [
     "format_severity",
     "format_ssh_keys_table",
     "format_status_badge",
+    "format_tf_cost_table",
     "format_tf_status_table",
     "format_tflint_table",
     "format_timestamp_age",

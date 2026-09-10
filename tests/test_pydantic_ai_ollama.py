@@ -6,6 +6,8 @@ import os
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+
 from devops_cli.ai.agents.testing import TestModel
 from devops_cli.config.settings import Settings
 
@@ -59,6 +61,49 @@ def test_normalize_ollama_base_url() -> None:
 
     # Whitespace stripping
     assert normalize_ollama_base_url("  http://127.0.0.1:11434  ") == "http://127.0.0.1:11434/v1"
+
+
+def test_normalize_ollama_base_url_ssrf_and_invalid_schemes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify normalize_ollama_base_url rejects non-http/https schemes and cloud metadata IP."""
+    import pytest
+
+    from devops_cli.ai.models.ollama import create_ollama_provider, normalize_ollama_base_url
+    from devops_cli.exceptions import InvalidURLError, SSRFBlockedError
+
+    # Invalid schemes
+    with pytest.raises(InvalidURLError, match="Invalid Ollama URL scheme"):
+        normalize_ollama_base_url("ftp://example.com:11434")
+
+    with pytest.raises(InvalidURLError, match="Invalid Ollama URL scheme"):
+        normalize_ollama_base_url("file:///etc/passwd")
+
+    # Cloud metadata IP and trailing-dot hostnames (SSRF)
+    with pytest.raises(SSRFBlockedError, match="cloud instance metadata service"):
+        normalize_ollama_base_url("http://169.254.169.254/latest/meta-data")
+
+    with pytest.raises(SSRFBlockedError, match="cloud instance metadata service"):
+        normalize_ollama_base_url("http://metadata.google.internal./computeMetadata/v1")
+
+    with pytest.raises(SSRFBlockedError, match="cloud instance metadata service"):
+        normalize_ollama_base_url("http://metadata.google.internal/computeMetadata/v1")
+
+    with pytest.raises(SSRFBlockedError, match="cloud instance metadata service"):
+        create_ollama_provider(base_url="http://169.254.169.254/latest/meta-data")
+
+    # Hostnames resolving to metadata via DNS mock
+    with patch("devops_cli.core.validation._resolve_host_ips") as mock_dns:
+        import ipaddress
+
+        mock_dns.return_value = [ipaddress.ip_address("169.254.169.254")]
+        with pytest.raises(SSRFBlockedError, match="cloud instance metadata service"):
+            normalize_ollama_base_url("http://custom-metadata-alias.net:11434")
+
+    # Private network policy enforcement when allow_private=False
+    monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
+    with pytest.raises(SSRFBlockedError):
+        normalize_ollama_base_url("http://10.0.0.5:11434", allow_private=False)
 
 
 def test_is_ollama_cloud() -> None:

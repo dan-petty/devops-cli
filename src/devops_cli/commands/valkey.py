@@ -20,10 +20,17 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
+from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import trace_span
 from devops_cli.valkey.client import ValkeyClient
 
 app = new_typer(help="Valkey workstation caching and in-memory data store commands")
+
+
+def _print_valkey_error(action: str, exc: ValkeyError) -> None:
+    """Print sanitized Valkey error message masking any credentials or sensitive tokens."""
+    safe_msg = mask_secrets(exc.message)
+    print_error(f"{action}: {safe_msg}")
 
 
 def _resolve_client(
@@ -63,7 +70,7 @@ def valkey_ping(
         else:
             print_warning("Server responded without PONG acknowledgment.")
     except ValkeyError as exc:
-        print_error(f"Valkey ping failed: {exc.message}")
+        _print_valkey_error("Valkey ping failed", exc)
         raise typer.Exit(code=exc.exit_code) from exc
 
 
@@ -88,7 +95,7 @@ def valkey_info(
         sec_title = f" [{section.upper()}]" if section else ""
         print_table(f"Valkey Node Information{sec_title}", columns=columns, rows=rows)
     except ValkeyError as exc:
-        print_error(f"Valkey info retrieval failed: {exc.message}")
+        _print_valkey_error("Valkey info retrieval failed", exc)
         raise typer.Exit(code=exc.exit_code) from exc
 
 
@@ -122,7 +129,7 @@ def valkey_stats(
         ]
         print_table("Valkey Server Diagnostic Statistics", columns=columns, rows=rows)
     except ValkeyError as exc:
-        print_error(f"Failed collecting Valkey statistics: {exc.message}")
+        _print_valkey_error("Failed collecting Valkey statistics", exc)
         raise typer.Exit(code=exc.exit_code) from exc
 
 
@@ -144,7 +151,7 @@ def valkey_keys(
         rows = [[str(idx + 1), k] for idx, k in enumerate(sorted(matched_keys))]
         print_table(f"Valkey Keys ({len(matched_keys)} found)", columns=columns, rows=rows)
     except ValkeyError as exc:
-        print_error(f"Valkey keys search failed: {exc.message}")
+        _print_valkey_error("Valkey keys search failed", exc)
         raise typer.Exit(code=exc.exit_code) from exc
 
 
@@ -164,7 +171,7 @@ def valkey_get(
         else:
             typer.echo(val)
     except ValkeyError as exc:
-        print_error(f"Failed to get key '{key}': {exc.message}")
+        _print_valkey_error(f"Failed to get key '{mask_secrets(key)}'", exc)
         raise typer.Exit(code=exc.exit_code) from exc
 
 
@@ -191,7 +198,7 @@ def valkey_set(
         ttl_msg = f" (TTL: {ex}s)" if ex else ""
         print_success(f"Set '{key}' successfully{ttl_msg}.")
     except ValkeyError as exc:
-        print_error(f"Failed to set key '{key}': {exc.message}")
+        _print_valkey_error(f"Failed to set key '{mask_secrets(key)}'", exc)
         raise typer.Exit(code=exc.exit_code) from exc
 
 
@@ -221,7 +228,7 @@ def valkey_flush(
             client.flushdb()
             print_success(f"Flushed Valkey database {client.db}.")
     except ValkeyError as exc:
-        print_error(f"Valkey flush failed: {exc.message}")
+        _print_valkey_error("Valkey flush failed", exc)
         raise typer.Exit(code=exc.exit_code) from exc
 
 
@@ -242,7 +249,7 @@ def valkey_backup(
         res = client.bgsave()
         print_success(f"Backup initiated: {res}")
     except ValkeyError as exc:
-        print_error(f"Failed to initiate Valkey backup: {exc.message}")
+        _print_valkey_error("Failed to initiate Valkey backup", exc)
         raise typer.Exit(code=exc.exit_code) from exc
 
 
@@ -275,5 +282,5 @@ def valkey_cli(
         else:
             typer.echo(str(res))
     except ValkeyError as exc:
-        print_error(f"Valkey command execution failed: {exc.message}")
+        _print_valkey_error("Valkey command execution failed", exc)
         raise typer.Exit(code=exc.exit_code) from exc

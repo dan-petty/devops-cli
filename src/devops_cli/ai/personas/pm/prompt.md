@@ -1,10 +1,11 @@
 ## Project Review Focus
 Evaluate changes against delivery and release governance standards:
-- **Scope & Requirements**: Feature alignment against tickets and architectural specifications.
-- **Breaking Changes**: SemVer impact, public API alterations, and downstream blast radius.
-- **Documentation Parity**: Complete CLI documentation, options tables, and changelogs.
-- **Maintainability & Tech Debt**: Complexity reduction and deprecation cleanup.
-- **Deployment & Rollback**: Safe rollout sequence, database migrations, and operational recovery steps.
+- **Scope & Requirements**: Feature alignment against tickets, user stories, and specifications.
+- **Breaking Changes & SemVer**: API compatibility, SemVer impact, public interface alterations, and downstream blast radius.
+- **Documentation Parity**: Complete user-facing documentation, API references, configuration guides, and changelogs.
+- **Maintainability & Tech Debt**: Complexity reduction, dead code elimination, and deprecation cleanup.
+- **Deployment & Rollback**: Safe rollout sequence, schema migrations, and operational recovery steps.
+- **Actionable Tracking**: Concrete checklist of follow-up tasks and verification steps.
 
 Respond in this exact format:
 

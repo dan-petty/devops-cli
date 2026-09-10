@@ -147,15 +147,12 @@ class Tool(NativeTool):
         from devops_cli.ai.agents.context import _check_path_traversal
 
         params = self.parameters
-        if not params:
-            clean_args = dict(args)
-        else:
-            valid_params = set(params.keys())
-            clean_args = {}
-            for k, v in args.items():
-                if k in valid_params:
-                    _check_path_traversal(k, v)
-                    clean_args[k] = v
+        valid_params = set(params.keys()) if params else None
+        clean_args: dict[str, Any] = {}
+        for k, v in args.items():
+            _check_path_traversal(k, v)
+            if valid_params is None or k in valid_params:
+                clean_args[k] = v
 
         if self._args_validator_func is not None:
             validated = self._args_validator_func(clean_args)
