@@ -97,9 +97,36 @@ class KubernetesDeployError(KubernetesError, RuntimeError):
         )
 
 
+class KubernetesLoggingError(KubernetesError, RuntimeError):
+    """Raised when querying cluster logs or Loki fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        query: str | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = "K8S_LOGGING_ERROR",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.query = query
+        err_details = {"status_code": status_code, "query": query}
+        if details:
+            err_details.update(details)
+        super().__init__(
+            message,
+            exit_code=exit_code,
+            error_code=error_code,
+            details=err_details,
+        )
+
+
 __all__ = [
     "ChaosExecutionError",
     "KubernetesContextError",
     "KubernetesDeployError",
     "KubernetesError",
+    "KubernetesLoggingError",
 ]

@@ -989,11 +989,21 @@
   - [x] 7. Renamed stopwatch timers from `t0` to `start_time` and schema identifiers from numeric single-letters to semantic names.
   - [x] 8. Validated with 10-gate CI suite (10/10 green, 90% coverage maintained).
   - [x] 9. Hardened secret redaction pipeline and eliminated CodeQL clear-text storage false positives on review outputs.
+- [x] Phase 50.14: Centralized Kubernetes Logging Stack and LogQL Integration (Closes #89)
+  - [x] 1. Declarative Loki and Fluent Bit stack in `k8s/logging/` (`loki-values.yaml`, `fluent-bit-values.yaml`, `networkpolicy.yaml`).
+  - [x] 2. Registered `logging` stack in `devops k8s deploy-stack --stack logging` and `teardown-stack`.
+  - [x] 3. Native LogQL parser, pipeline filter evaluator, and query engine in `src/devops_cli/k8s/logql.py`.
+  - [x] 4. OpenTelemetry `trace_id` extraction and trace correlation in LogQL entries and Grafana Loki datasource.
+  - [x] 5. Integrated `devops k8s logs [query|tail|stream]` with live follow and fallback to `kubectl logs`.
+  - [x] 6. Registered FastMCP tools `k8s_logs_query` and `k8s_logs_tail` with 119 schemas exported.
+  - [x] 7. Unit and integration tests in `tests/test_k8s_logging_stack.py` and `tests/test_k8s_logql.py`.
+  - [x] 8. Validated with 10-gate CI suite (10/10 green, 90% coverage maintained).
 
 ---
 
 ### Pending Tasks
 - [ ] Milestone v0.2.15: GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh
-  - [ ] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical, Issue #89)
-  - [ ] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, Issue #90)
-  - [ ] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High, Issue #91)
+  - [x] Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (P0 - Critical, PR #93 - Merged)
+  - [x] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical, PR #96)
+  - [ ] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, PR #97)
+  - [ ] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High, PR #98)
