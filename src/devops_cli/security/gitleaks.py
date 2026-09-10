@@ -17,6 +17,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
+from devops_cli.security.base import BaseSecurityScanner
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -154,6 +155,80 @@ def _resolve_scan_files(target: Path | list[Path], *, ignore_tests: bool = False
     return candidates
 
 
+class GitleaksScanner(BaseSecurityScanner):
+    """Declarative security scanner adapter for Gitleaks secret detection."""
+
+    name: str = "gitleaks"
+    binary_name: str = "gitleaks"
+
+    def build_command(
+        self,
+        target_path: Path | list[Path],
+        no_git: bool = True,
+        **kwargs: Any,
+    ) -> list[str]:
+        """Build argument command list for invoking Gitleaks."""
+        cmd_target = target_path if isinstance(target_path, Path) else target_path[0]
+        return build_gitleaks_cmd(cmd_target, no_git=no_git)
+
+    def parse_output(self, data: Any, target_path: Path | list[Path]) -> list[Finding]:
+        """Parse raw Gitleaks JSON findings into Finding models."""
+        if isinstance(data, list):
+            return parse_gitleaks_json(data)
+        return []
+
+    def fallback_scan(self, target_path: Path | list[Path]) -> list[Finding]:
+        """Execute high-precision native regex pattern scanner when gitleaks binary is unavailable."""
+        files_to_scan = _resolve_scan_files(target_path, ignore_tests=False)
+        findings: list[Finding] = []
+        for fp in files_to_scan:
+            findings.extend(_scan_file_native_secrets(fp))
+        return findings
+
+    def dry_run_scan(self, target_path: Path | list[Path], **kwargs: Any) -> list[Finding]:
+        """Return simulated Gitleaks findings for dry-run simulation."""
+        target_desc = (
+            str(target_path[0])
+            if isinstance(target_path, list) and target_path
+            else str(target_path)
+        )
+        return [
+            Finding(
+                severity="CRITICAL",
+                location=f"{target_desc}:1",
+                title="[GITLEAKS:simulated-secret] [DRY-RUN] Simulated Secret Detection",
+                description="Gitleaks secret pre-filter simulation mode active.",
+                fix="Revoke simulated test secret (dry-run mode)",
+                confidence_score=None,
+            )
+        ]
+
+
+def _execute_gitleaks_proc(
+    scanner: GitleaksScanner,
+    cmd: list[str],
+    target: Path | list[Path],
+    ignore_tests: bool,
+) -> list[Finding] | None:
+    """Execute Gitleaks CLI subprocess and return findings, or None if skipped/failed."""
+    try:
+        proc = run_subprocess(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, check=False)
+        if proc.stdout and proc.stdout.strip().startswith(("[", "{")):
+            data = json.loads(proc.stdout)
+            if isinstance(data, list):
+                parsed = scanner.parse_output(data, target)
+                if ignore_tests:
+                    return [
+                        f for f in parsed if not _is_test_file(_extract_location_path(f.location))
+                    ]
+                return parsed
+    except FileNotFoundError, OSError, subprocess.SubprocessError:
+        pass
+    except Exception as exc:
+        logger.debug("Gitleaks execution skipped or failed: %s", exc)
+    return None
+
+
 def run_gitleaks_scan(
     target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     no_git: bool = True,
@@ -163,44 +238,20 @@ def run_gitleaks_scan(
     if isinstance(target, Path) and target.is_file() and ignore_tests and _is_test_file(target):
         return []
 
+    scanner = GitleaksScanner()
     target_desc = str(target[0]) if isinstance(target, list) and target else str(target)
 
     with trace_span("security.scan.gitleaks", attributes={"target": target_desc}) as span_h:
         if is_dry_run():
-            return [
-                Finding(
-                    severity="CRITICAL",
-                    location=f"{target_desc}:1",
-                    title="[GITLEAKS:simulated-secret] [DRY-RUN] Simulated Secret Detection",
-                    description="Gitleaks secret pre-filter simulation mode active.",
-                    fix="Revoke simulated test secret (dry-run mode)",
-                    confidence_score=None,
-                )
-            ]
+            return scanner.dry_run_scan(target)
 
         files_to_scan = _resolve_scan_files(target, ignore_tests=ignore_tests)
-        cmd_target = target if isinstance(target, Path) else target[0]
-        cmd = build_gitleaks_cmd(cmd_target, no_git=no_git)
+        cmd = scanner.build_command(target, no_git=no_git)
 
-        try:
-            proc = run_subprocess(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, check=False)
-            if proc.stdout and proc.stdout.strip().startswith(("[", "{")):
-                data = json.loads(proc.stdout)
-                if isinstance(data, list):
-                    parsed = parse_gitleaks_json(data)
-                    if ignore_tests:
-                        parsed = [
-                            f
-                            for f in parsed
-                            if not _is_test_file(_extract_location_path(f.location))
-                        ]
-                    span_h.set_attribute("findings_count", len(parsed))
-                    return parsed
-
-        except FileNotFoundError, OSError, subprocess.SubprocessError:
-            pass
-        except Exception as exc:
-            logger.debug("Gitleaks execution skipped or failed: %s", exc)
+        binary_findings = _execute_gitleaks_proc(scanner, cmd, target, ignore_tests)
+        if binary_findings is not None:
+            span_h.set_attribute("findings_count", len(binary_findings))
+            return binary_findings
 
         findings: list[Finding] = []
         for fp in files_to_scan:

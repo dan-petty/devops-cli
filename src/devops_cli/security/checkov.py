@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import logging
 import re
-import shutil
 from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+from devops_cli.security.base import BaseSecurityScanner
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -141,6 +141,39 @@ def _parse_checkov_results(results_data: Any) -> list[Finding]:
     return findings
 
 
+class CheckovScanner(BaseSecurityScanner):
+    """Declarative security scanner adapter for Checkov IaC analyzer."""
+
+    name: str = "checkov"
+    binary_name: str = "checkov"
+
+    def build_command(
+        self,
+        target_path: Path,
+        framework: str | None = None,
+        **kwargs: Any,
+    ) -> list[str]:
+        """Build argument command list for invoking Checkov."""
+        cmd = [
+            self.binary_name,
+            "-d" if target_path.is_dir() else "-f",
+            str(target_path),
+            "-o",
+            "json",
+        ]
+        if framework:
+            cmd.extend(["--framework", framework])
+        return cmd
+
+    def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
+        """Parse raw Checkov output data into Finding models."""
+        return _parse_checkov_results(data)
+
+    def fallback_scan(self, target_path: Path) -> list[Finding]:
+        """Execute native fallback inspection for Dockerfiles and K8s manifests."""
+        return _run_native_fallback_iac_checks(target_path)
+
+
 @trace_span("security.checkov")
 def run_checkov_scan(
     target_path: Path,
@@ -148,20 +181,5 @@ def run_checkov_scan(
     timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
 ) -> list[Finding]:
     """Execute Checkov IaC security scanner on target_path and return normalized findings."""
-    checkov_bin = shutil.which("checkov")
-    if not checkov_bin:
-        logger.debug("Checkov CLI binary not found in PATH; using native fallback rules.")
-        return _run_native_fallback_iac_checks(target_path)
-
-    cmd = [checkov_bin, "-d" if target_path.is_dir() else "-f", str(target_path), "-o", "json"]
-    if framework:
-        cmd.extend(["--framework", framework])
-
-    try:
-        from devops_cli.core.process import run_json_subprocess
-
-        raw_data = run_json_subprocess(cmd, timeout=timeout, default={}, check=False)
-        return _parse_checkov_results(raw_data)
-    except Exception as exc:
-        logger.debug("Checkov execution encountered an error: %s; falling back", exc)
-        return _run_native_fallback_iac_checks(target_path)
+    scanner = CheckovScanner()
+    return scanner.scan(target_path, timeout=timeout, framework=framework)

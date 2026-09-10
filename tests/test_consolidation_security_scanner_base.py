@@ -111,3 +111,118 @@ def test_scanner_registry_lifecycle(tmp_path: Path) -> None:
     with patch.object(scanner, "scan", side_effect=RuntimeError("Scanner crashed")):
         err_results = registry.scan_all(tmp_path)
         assert err_results["mock_tool"] == []
+
+
+ALL_EXPECTED_SCANNER_NAMES = [
+    "bandit",
+    "checkov",
+    "dive",
+    "gitleaks",
+    "kubeconform",
+    "kubelinter",
+    "pluto",
+    "popeye",
+    "semgrep",
+    "tflint",
+    "trivy",
+]
+
+
+def test_all_11_scanners_registered_in_global_registry() -> None:
+    """Verify 100% of all 11 security scanners are registered in global_scanner_registry."""
+    from devops_cli.security.registry import global_scanner_registry
+
+    registered = global_scanner_registry.list_scanners()
+    for name in ALL_EXPECTED_SCANNER_NAMES:
+        assert name in registered, f"Scanner '{name}' is not registered in global_scanner_registry"
+        scanner = global_scanner_registry.get(name)
+        assert scanner is not None
+        assert isinstance(scanner, BaseSecurityScanner)
+        assert scanner.name == name
+        assert scanner.binary_name != ""
+
+
+def test_all_11_scanner_classes_inherit_base_security_scanner() -> None:
+    """Verify each of the 11 scanner classes subclasses BaseSecurityScanner."""
+    from devops_cli.security import (
+        BanditScanner,
+        CheckovScanner,
+        DiveScanner,
+        GitleaksScanner,
+        KubeconformScanner,
+        KubelinterScanner,
+        PlutoScanner,
+        PopeyeScanner,
+        SemgrepScanner,
+        TflintScanner,
+        TrivyScanner,
+    )
+
+    classes = [
+        BanditScanner,
+        CheckovScanner,
+        DiveScanner,
+        GitleaksScanner,
+        KubeconformScanner,
+        KubelinterScanner,
+        PlutoScanner,
+        PopeyeScanner,
+        SemgrepScanner,
+        TflintScanner,
+        TrivyScanner,
+    ]
+    for cls in classes:
+        assert issubclass(cls, BaseSecurityScanner)
+        instance = cls()
+        assert instance.name != ""
+        assert instance.binary_name != ""
+
+
+def test_scanner_dry_run_simulation(tmp_path: Path) -> None:
+    """Verify scanners handle dry-run execution by returning simulated findings without subprocess."""
+    from devops_cli.security import (
+        BanditScanner,
+        GitleaksScanner,
+        KubelinterScanner,
+        PlutoScanner,
+        PopeyeScanner,
+        SemgrepScanner,
+        TrivyScanner,
+    )
+
+    test_file = tmp_path / "app.py"
+    test_file.write_text("import os\n", encoding="utf-8")
+
+    dry_run_scanners = [
+        BanditScanner(),
+        GitleaksScanner(),
+        KubelinterScanner(),
+        PlutoScanner(),
+        PopeyeScanner(),
+        SemgrepScanner(),
+        TrivyScanner(),
+    ]
+
+    with patch("devops_cli.dry_run.state.is_dry_run", return_value=True):
+        for scanner in dry_run_scanners:
+            findings = scanner.scan(test_file)
+            assert isinstance(findings, list)
+            assert len(findings) >= 1
+            assert any(
+                "DRY-RUN" in f.title.upper() or "SIMULATED" in f.title.upper() for f in findings
+            )
+
+
+def test_scanner_fallback_when_binary_unavailable(tmp_path: Path) -> None:
+    """Verify all 11 scanners gracefully execute fallback when their external binary is missing."""
+    from devops_cli.security.registry import global_scanner_registry
+
+    test_file = tmp_path / "test.yaml"
+    test_file.write_text("apiVersion: v1\nkind: Pod\n", encoding="utf-8")
+
+    with patch("devops_cli.security.base.check_binary", return_value=False):
+        for name in ALL_EXPECTED_SCANNER_NAMES:
+            scanner = global_scanner_registry.get(name)
+            assert scanner is not None
+            findings = scanner.scan(test_file)
+            assert isinstance(findings, list)

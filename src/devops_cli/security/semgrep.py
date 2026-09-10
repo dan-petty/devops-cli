@@ -18,6 +18,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.lang import MESSAGES
+from devops_cli.security.base import BaseSecurityScanner
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import trace_span
 
@@ -154,11 +155,41 @@ def _execute_and_parse_semgrep(cmd: list[str], target_path: str = "") -> list[Fi
     return []
 
 
+class SemgrepScanner(BaseSecurityScanner):
+    """Declarative security scanner adapter for Semgrep static AST pattern matcher."""
+
+    name: str = "semgrep"
+    binary_name: str = BIN_SEMGREP
+
+    def build_command(
+        self,
+        target_path: Path | list[Path],
+        config: str = DEFAULT_SEMGREP_CONFIG,
+        **kwargs: Any,
+    ) -> list[str]:
+        """Build argument command list for invoking Semgrep."""
+        cmd = _build_scan_command(target_path, config)
+        return cmd or []
+
+    def parse_output(self, data: Any, target_path: Path | list[Path]) -> list[Finding]:
+        """Parse raw Semgrep JSON payload into Finding models."""
+        if isinstance(data, dict):
+            tgt_str = str(target_path) if isinstance(target_path, Path) else ""
+            return parse_semgrep_json(data, target_path=tgt_str)
+        return []
+
+    def dry_run_scan(self, target_path: Path | list[Path], **kwargs: Any) -> list[Finding]:
+        """Return simulated Semgrep findings for dry-run simulation."""
+        target_desc = _resolve_target_description(target_path)
+        return [_build_dry_run_finding(target_desc)]
+
+
 def run_semgrep_scan(
     target: Path | list[Path] = DEFAULT_CURRENT_PATH,
     config: str = DEFAULT_SEMGREP_CONFIG,
 ) -> list[Finding]:
     """Execute Semgrep AST pattern scanner subprocess and return parsed findings."""
+    scanner = SemgrepScanner()
     target_desc = _resolve_target_description(target)
 
     with trace_span(
@@ -166,9 +197,9 @@ def run_semgrep_scan(
         attributes={"target": target_desc, "config": config},
     ) as span_h:
         if is_dry_run():
-            return [_build_dry_run_finding(target_desc)]
+            return scanner.dry_run_scan(target)
 
-        cmd = _build_scan_command(target, config)
+        cmd = scanner.build_command(target, config=config)
         if not cmd:
             return []
 
