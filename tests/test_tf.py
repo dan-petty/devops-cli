@@ -13,9 +13,9 @@ from devops_cli.commands.tf import (
     _get_cloud_dir,
     _get_default_var_file,
     _resolve_tf_binary,
-    _validate_dir,
     app,
 )
+from devops_cli.core.validation import validate_dir
 
 runner = CliRunner()
 
@@ -62,13 +62,13 @@ def test_resolve_tf_binary_dry_run() -> None:
 
 
 def test_validate_dir_valid(temp_tf_dir: Path) -> None:
-    assert _validate_dir(temp_tf_dir) == temp_tf_dir.resolve()
+    assert validate_dir(temp_tf_dir) == temp_tf_dir.resolve()
 
 
 def test_validate_dir_invalid(tmp_path: Path) -> None:
     invalid = tmp_path / "non_existent_dir"
     with pytest.raises(typer.Exit):
-        _validate_dir(invalid)
+        validate_dir(invalid)
 
 
 def test_get_cloud_dir(tmp_path: Path) -> None:

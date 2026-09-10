@@ -39,11 +39,6 @@ def _extract_header_filenames(segment: str, header_type: str = "all") -> list[st
     return _unique_preserve_order(items)
 
 
-def _extract_segment_filenames(segment: str) -> list[str]:
-    """Extract filenames from either git diff headers or file block headers."""
-    return _extract_header_filenames(segment, header_type="all")
-
-
 def _extract_code_lines(segment: str, n: int) -> tuple[list[str], list[str]]:
     """Extract the first and last N non-header code lines from a segment."""
     lines = [
@@ -343,9 +338,5 @@ def find_repo_files(
         if _is_reviewable_candidate_file(p, root, ignore_set, max_file_size)
     ]
 
-
-_diff_pages = diff_pages
-_diff_stream_chunks = diff_stream_chunks
-_find_repo_files = find_repo_files
 
 __all__ = ["diff_pages", "diff_stream_chunks", "find_repo_files"]

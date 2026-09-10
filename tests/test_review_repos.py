@@ -9,7 +9,8 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.commands.review import _detect_base_branch, _is_allowed_review_boundary, app
+from devops_cli.ai.review.runner import _detect_base_branch, _is_allowed_review_boundary
+from devops_cli.commands.review import app
 from devops_cli.config.settings import Settings
 
 

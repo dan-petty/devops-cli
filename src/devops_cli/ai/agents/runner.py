@@ -114,12 +114,12 @@ def _execute_single_tool(
     try:
         clean_args = tool_obj.validate_args(args)
     except Exception as exc:
-        from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+        from devops_cli.security.sanitizer import mask_secrets
 
         return (
             "validation_error",
             args,
-            _mask_secrets_in_content(f"Tool argument validation error for {tool_name}: {exc}"),
+            mask_secrets(f"Tool argument validation error for {tool_name}: {exc}"),
         )
 
     prior = next(
@@ -159,12 +159,12 @@ def _execute_single_tool(
             return "call_deferred", clean_args, exc
 
         _dispatch_tool_error_hooks(hooks, ctx, tool_name, exc)
-        from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+        from devops_cli.security.sanitizer import mask_secrets
 
         return (
             "error",
             clean_args,
-            _mask_secrets_in_content(f"Tool execution failed for {tool_name}: {exc}"),
+            mask_secrets(f"Tool execution failed for {tool_name}: {exc}"),
         )
     return "ok", clean_args, tool_result
 

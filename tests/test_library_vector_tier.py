@@ -11,7 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.rag.library_store import LibraryVectorStore
-from devops_cli.commands.ai import ai_app
+from devops_cli.commands.ai import app as ai_app
 from devops_cli.config.defaults import DEFAULT_RAG_LIBRARIES_COLLECTION
 from devops_cli.models.library import (
     ClassSignature,

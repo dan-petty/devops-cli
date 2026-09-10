@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from devops_cli.github.client import GitHubClient, RepoInfo
+from devops_cli.github.client import GhCliClient, GitHubClient, RepoInfo
 from devops_cli.github.issues import (
     GitHubIssue,
     IssueTriageAudit,
@@ -12,7 +12,6 @@ from devops_cli.github.issues import (
     get_repository_issues,
 )
 from devops_cli.github.labels import (
-    LabelAuditFinding,
     LabelAuditResult,
     LabelSpec,
     LabelSyncResult,
@@ -58,12 +57,12 @@ from devops_cli.github.projects import (
 from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
 
 __all__ = [
+    "GhCliClient",
     "GitHubClient",
     "GitHubIssue",
     "GitHubPagesBuildInfo",
     "GitHubPagesInfo",
     "IssueTriageAudit",
-    "LabelAuditFinding",
     "LabelAuditResult",
     "LabelSpec",
     "LabelSyncResult",

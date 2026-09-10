@@ -192,13 +192,13 @@ def _collect_project_context(repo: Path) -> str:
     if pyproject.exists():
         sections.append(f"## pyproject.toml\n```toml\n{pyproject.read_text()}\n```")
 
-    from devops_cli.ai.review.sanitization import _sanitize_prompt_boundary_tags
+    from devops_cli.security.sanitizer import sanitize_prompt_boundary_tags
 
     # README
     for name in ("README.md", "README.rst", "README.txt", "README"):
         readme = repo / name
         if readme.exists():
-            clean_readme = _sanitize_prompt_boundary_tags(readme.read_text()[:4000])
+            clean_readme = sanitize_prompt_boundary_tags(readme.read_text()[:4000])
             sections.append(
                 f"## {name}\n"
                 f'<project_context_file name="{name}">\n'
@@ -230,7 +230,7 @@ def _collect_project_context(repo: Path) -> str:
             cwd=repo,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
-        clean_tree = _sanitize_prompt_boundary_tags(tree.stdout.strip())
+        clean_tree = sanitize_prompt_boundary_tags(tree.stdout.strip())
         sections.append(f"## File tree\n```\n{clean_tree}\n```")
     except OSError, subprocess.SubprocessError:
         pass
@@ -238,7 +238,7 @@ def _collect_project_context(repo: Path) -> str:
     # .editorconfig
     ec = repo / ".editorconfig"
     if ec.exists():
-        clean_ec = _sanitize_prompt_boundary_tags(ec.read_text()[:4000])
+        clean_ec = sanitize_prompt_boundary_tags(ec.read_text()[:4000])
         sections.append(
             "## .editorconfig\n"
             '<project_context_file name=".editorconfig">\n'
@@ -1591,6 +1591,3 @@ app.command("quiesce", help=HELP.ai.quiesce)(run_quiesce_cmd)
 app.command("failover", help=HELP.ai.failover)(run_failover_cmd)
 app.command("resume", help=HELP.ai.resume)(run_resume_cmd)
 app.command("constellation", help=HELP.ai.constellation)(run_constellation_cmd)
-
-# Canonical alias for app
-ai_app = app

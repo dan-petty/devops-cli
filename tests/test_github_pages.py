@@ -104,31 +104,15 @@ def test_request_pages_build() -> None:
         assert ok is True
 
 
-def test_verify_pages_configuration_valid_yaml(tmp_path: Path) -> None:
-    """verify_pages_configuration passes with _config.yaml."""
-    config_file = tmp_path / "_config.yaml"
+def test_verify_pages_configuration_valid(tmp_path: Path) -> None:
+    """verify_pages_configuration passes with docs/github-pages.config.yaml."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    config_file = docs_dir / "github-pages.config.yaml"
     config_file.write_text(
         "title: My Project\ndescription: Test\nurl: https://example.github.io\nbaseurl: /test\nmarkdown: kramdown\nplugins:\n  - jekyll-seo-tag\n",
         encoding="utf-8",
     )
-    docs_dir = tmp_path / "docs"
-    docs_dir.mkdir()
-    (docs_dir / "index.md").write_text("# Hello World\n", encoding="utf-8")
-
-    valid, diagnostics = verify_pages_configuration(tmp_path)
-    assert valid is True
-    assert any("Jekyll configuration valid" in d for d in diagnostics)
-
-
-def test_verify_pages_configuration_valid_yml(tmp_path: Path) -> None:
-    """verify_pages_configuration passes with fallback _config.yml."""
-    config_file = tmp_path / "_config.yml"
-    config_file.write_text(
-        "title: My Legacy Project\ndescription: Test\nurl: https://example.github.io\nbaseurl: /legacy\nmarkdown: kramdown\nplugins:\n  - jekyll-seo-tag\n",
-        encoding="utf-8",
-    )
-    docs_dir = tmp_path / "docs"
-    docs_dir.mkdir()
     (docs_dir / "index.md").write_text("# Hello World\n", encoding="utf-8")
 
     valid, diagnostics = verify_pages_configuration(tmp_path)
@@ -137,7 +121,20 @@ def test_verify_pages_configuration_valid_yml(tmp_path: Path) -> None:
 
 
 def test_verify_pages_configuration_missing_config(tmp_path: Path) -> None:
-    """verify_pages_configuration fails when config is missing."""
+    """verify_pages_configuration fails when github-pages.config.yaml is missing."""
     valid, diagnostics = verify_pages_configuration(tmp_path)
     assert valid is False
-    assert any("Missing _config.yaml or _config.yml" in d for d in diagnostics)
+    assert any("Missing github-pages.config.yaml in docs/" in d for d in diagnostics)
+
+
+def test_verify_pages_configuration_missing_keys(tmp_path: Path) -> None:
+    """verify_pages_configuration fails when required keys are missing."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    config_file = docs_dir / "github-pages.config.yaml"
+    config_file.write_text("title: Only Title\n", encoding="utf-8")
+    (docs_dir / "index.md").write_text("# Hello World\n", encoding="utf-8")
+
+    valid, diagnostics = verify_pages_configuration(tmp_path)
+    assert valid is False
+    assert any("Missing required Jekyll config keys" in d for d in diagnostics)

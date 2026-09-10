@@ -86,8 +86,8 @@ class TestPydanticAIProfiles:
         assert JsonSchemaTransformer is not None
         assert InlineDefsJsonSchemaTransformer is not None
 
-    def test_all_14_family_builders(self) -> None:
-        """Verify all 14 family model profile builders execute and return valid ModelProfiles."""
+    def test_all_family_builders(self) -> None:
+        """Verify all family model profile builders execute and return valid ModelProfiles."""
         builders = [
             amazon_model_profile("titan-text"),
             anthropic_model_profile("claude-3-5-sonnet"),
@@ -223,8 +223,8 @@ class TestPydanticAIProviders:
         anthropic_p = create_pydantic_ai_provider("anthropic", api_key="sk-ant-test")
         assert isinstance(anthropic_p, NativeAnthropicProvider)
 
-    def test_legacy_providers_backward_compatibility(self) -> None:
-        """Verify legacy BaseLLMProvider and get_provider remain 100% operational."""
+    def test_legacy_providers_resolution(self) -> None:
+        """Verify legacy BaseLLMProvider and get_provider remain operational."""
         config = AIConfig()
         ollama = get_provider("ollama", config)
         assert isinstance(ollama, LegacyOllamaProvider)
@@ -278,7 +278,7 @@ class TestThinkingStreamWithDynamicTags:
 
         stream = ["Hello ", "<thinking>", "deliberating ", "carefully", "</thinking>", " World!"]
         for chunk in stream:
-            processor.process_token(chunk)
+            processor.feed(chunk)
         processor.flush()
 
         assert "".join(chunks_thought) == "deliberating carefully"

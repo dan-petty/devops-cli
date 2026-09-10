@@ -169,7 +169,7 @@ def run_subprocess(
 
     bin_name = Path(cmd[0]).name if cmd else "unknown"
     cmd_summary = " ".join(cmd[:8]) + ("..." if len(cmd) > 8 else "") if cmd else ""
-    t0 = time.perf_counter()
+    start_time = time.perf_counter()
 
     sub_env = build_subprocess_env(
         env=env,
@@ -204,7 +204,7 @@ def run_subprocess(
                 timeout=timeout,
             )
         except FileNotFoundError:
-            dur = time.perf_counter() - t0
+            dur = time.perf_counter() - start_time
             span_h.set_attribute("subprocess.executable_found", False)
             span_h.set_attribute("subprocess.exit_code", 127)
             span_h.set_attribute("process.exit.code", 127)
@@ -224,7 +224,7 @@ def run_subprocess(
         stdout_val = getattr(proc, "stdout", None)
         stderr_val = getattr(proc, "stderr", None)
 
-        dur = time.perf_counter() - t0
+        dur = time.perf_counter() - start_time
         span_h.set_attribute("subprocess.exit_code", ret_code)
         span_h.set_attribute("process.exit.code", ret_code)
         span_h.set_attribute("subprocess.duration_seconds", dur)
@@ -248,9 +248,9 @@ def run_subprocess(
                 if isinstance(stderr_val or stdout_val, str)
                 else ""
             )
-            from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+            from devops_cli.security.sanitizer import mask_secrets
 
-            err_sample = _mask_secrets_in_content(raw_sample) if raw_sample else ""
+            err_sample = mask_secrets(raw_sample) if raw_sample else ""
             if err_sample:
                 span_h.set_attribute("subprocess.error_sample", err_sample)
             span_h.add_event(
@@ -307,7 +307,7 @@ async def run_subprocess_async(
 
     bin_name = Path(cmd[0]).name if cmd else "unknown"
     cmd_summary = " ".join(cmd[:8]) + ("..." if len(cmd) > 8 else "") if cmd else ""
-    t0 = time.perf_counter()
+    start_time = time.perf_counter()
 
     sub_env = build_subprocess_env(
         env=env,
@@ -349,7 +349,7 @@ async def run_subprocess_async(
                 await proc.wait()
                 raise subprocess.TimeoutExpired(cmd, timeout) from None
         except FileNotFoundError:
-            dur = time.perf_counter() - t0
+            dur = time.perf_counter() - start_time
             span_h.set_attribute("subprocess.executable_found", False)
             span_h.set_attribute("subprocess.exit_code", 127)
             span_h.set_attribute("process.exit.code", 127)
@@ -377,7 +377,7 @@ async def run_subprocess_async(
             else (stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else "")
         )
 
-        dur = time.perf_counter() - t0
+        dur = time.perf_counter() - start_time
         span_h.set_attribute("subprocess.exit_code", ret_code)
         span_h.set_attribute("process.exit.code", ret_code)
         span_h.set_attribute("subprocess.duration_seconds", dur)
@@ -391,9 +391,9 @@ async def run_subprocess_async(
         if ret_code != 0 and check:
             span_h.set_attribute("error", True)
             raw_sample = (stderr_str or stdout_str or "")[:400]
-            from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+            from devops_cli.security.sanitizer import mask_secrets
 
-            err_sample = _mask_secrets_in_content(raw_sample) if raw_sample else ""
+            err_sample = mask_secrets(raw_sample) if raw_sample else ""
             if err_sample:
                 span_h.set_attribute("subprocess.error_sample", err_sample)
             span_h.add_event(
