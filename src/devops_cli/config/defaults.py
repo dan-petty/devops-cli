@@ -152,6 +152,7 @@ DEFAULT_RAG_CACHE_DIR = DEFAULT_RAG_DATA_DIR
 # ── Tracing & Telemetry Defaults ──────────────────────────────────────────────
 DEFAULT_JAEGER_URL = "http://localhost:16686"
 DEFAULT_OTEL_ENDPOINT = "http://localhost:4318"
+DEFAULT_LOKI_URL = "http://localhost:3100"
 
 # ── Tool & Agent Defaults ─────────────────────────────────────────────────────
 DEFAULT_TOOL_READ_MAX_BYTES: int = 4000

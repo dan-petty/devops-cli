@@ -169,6 +169,8 @@ def _render_logql_results(result: Any, output_format: str) -> None:
         )
         return
 
+    from rich.markup import escape
+
     for entry in result.entries:
         trace_badge = (
             f" [bold cyan][trace:{entry.trace_id[:8]}][/bold cyan]" if entry.trace_id else ""
@@ -176,7 +178,8 @@ def _render_logql_results(result: Any, output_format: str) -> None:
         ns_pod = ""
         if entry.stream_labels.get("pod"):
             ns_pod = f"[dim][{entry.stream_labels.get('pod')}][/dim] "
-        print(f"{ns_pod}{entry.line}{trace_badge}")
+        escaped_line = escape(entry.line)
+        print(f"{ns_pod}{escaped_line}{trace_badge}")
 
 
 def _execute_legacy_kubectl_logs(
@@ -258,6 +261,11 @@ def logs(
         from devops_cli.k8s.logql import execute_logql_query
 
         resolved_query = _resolve_logql_query(pod, query, query_arg)
+        if not resolved_query or not resolved_query.strip():
+            from devops_cli.output import print_error
+
+            print_error("A LogQL query expression is required.", prefix=False)
+            raise typer.Exit(1)
         result = execute_logql_query(
             query=resolved_query,
             namespace=namespace,

@@ -629,26 +629,27 @@ def teardown_stack(
         )
 
     # 3. Clean up namespaces
-    if stack == "all":
+    normalized_stack = stack.lower()
+    if normalized_stack == "all":
         print_info(MESSAGES.k8s.removing_stack_namespaces, prefix=False)
         k8s._run_cmd(
             ["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"] + kubectl_ctx,
             check=False,
         )
-    elif stack == "infra":
+    elif normalized_stack == "infra":
         print_info(MESSAGES.k8s.removing_infra_namespaces, prefix=False)
         for ns in ["argocd", "monitoring", "otel"]:
             k8s._run_cmd(
                 ["kubectl", "delete", "namespace", ns, "--ignore-not-found"] + kubectl_ctx,
                 check=False,
             )
-    elif stack == "llm":
+    elif normalized_stack == "llm":
         print_info(MESSAGES.k8s.removing_llm_namespace, prefix=False)
         k8s._run_cmd(
             ["kubectl", "delete", "namespace", "llm", "--ignore-not-found"] + kubectl_ctx,
             check=False,
         )
-    elif stack == "logging":
+    elif normalized_stack == "logging":
         print_info("Removing logging namespace...", prefix=False)
         k8s._run_cmd(
             ["kubectl", "delete", "namespace", "logging", "--ignore-not-found"] + kubectl_ctx,

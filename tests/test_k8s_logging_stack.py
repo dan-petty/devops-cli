@@ -137,3 +137,39 @@ def test_k8s_logs_logql_rejects_follow() -> None:
     result = runner.invoke(app, ["logs", '{app="frontend"}', "--follow"])
     assert result.exit_code == 1
     assert "--follow" in result.output
+
+
+def test_k8s_logs_empty_query_rejected() -> None:
+    """Verify devops k8s logs with empty query string exits with error."""
+    result = runner.invoke(app, ["logs", "--query", "   "])
+    assert result.exit_code == 1
+    assert "LogQL query expression is required" in result.output
+
+
+def test_k8s_logs_escapes_rich_markup() -> None:
+    """Verify log entries with Rich markup brackets are safely escaped in output."""
+    from devops_cli.k8s.logql import LogEntry, LogQueryResult, parse_logql_query
+
+    mock_result = LogQueryResult(
+        query=parse_logql_query('{app="web"}'),
+        entries=[
+            LogEntry(
+                timestamp="2026-09-10T12:00:00Z",
+                line="[bold red]critical payload syntax error[/bold red] <xml>",
+                stream_labels={"pod": "web-pod-1"},
+            )
+        ],
+        source="loki",
+    )
+    with patch("devops_cli.k8s.logql.execute_logql_query", return_value=mock_result):
+        result = runner.invoke(app, ["logs", '{app="web"}'])
+        assert result.exit_code == 0
+        assert "[bold red]critical payload syntax error[/bold red]" in result.output
+
+
+def test_k8s_teardown_stack_case_insensitive() -> None:
+    """Verify teardown-stack normalizes case-insensitive stack names."""
+    with patch("devops_cli.commands.k8s.stack_lifecycle.is_dry_run", return_value=True):
+        result = runner.invoke(app, ["teardown-stack", "--stack", "LOGGING"])
+        assert result.exit_code == 0
+        assert "teardown_k8s_stack" in result.output

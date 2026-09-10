@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -19,7 +20,7 @@ from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LOKI_URL = "http://loki.logging.svc.cluster.local:3100"
+DEFAULT_LOKI_URL = "http://localhost:3100"
 _TRACE_ID_REGEX = re.compile(
     r'(?:trace_id|traceId|traceID)[=:"\s]+([0-9a-fA-F]{16,32})', re.IGNORECASE
 )
@@ -258,10 +259,29 @@ def _get_matching_pods(namespace: str, selectors: dict[str, str]) -> list[str]:
     return []
 
 
+def _parse_duration_to_seconds(duration_str: str) -> int:
+    """Parse duration strings like '30s', '15m', '1h', '2d' to integer seconds."""
+    stripped = duration_str.strip().lower()
+    if not stripped:
+        return 3600
+    if stripped.isdigit():
+        return int(stripped)
+    unit = stripped[-1]
+    val_part = stripped[:-1]
+    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+    if unit in multipliers:
+        try:
+            return int(float(val_part) * multipliers[unit])
+        except ValueError:
+            return 3600
+    return 3600
+
+
 def execute_kubectl_logql(
     query: LogQLQuery,
     namespace: str = "default",
     limit: int = 100,
+    since: str | None = None,
 ) -> LogQueryResult:
     """Query logs via kubectl across matching pods with in-memory LogQL filtering."""
     ns = query.selectors.get("namespace", namespace)
@@ -284,6 +304,8 @@ def execute_kubectl_logql(
     all_entries: list[LogEntry] = []
     for pod in pods[:5]:
         cmd = ["kubectl", "logs", pod, "-n", ns, f"--tail={limit}"]
+        if since:
+            cmd.append(f"--since={since}")
         proc = run_subprocess(cmd, check=False)
         if proc.returncode != 0:
             continue
@@ -314,10 +336,14 @@ def execute_loki_query(
     """Execute LogQL query against Loki REST API (/loki/api/v1/query_range)."""
     valid_url = validate_url_egress(loki_url, purpose="Loki", allow_private=True)
     endpoint = f"{valid_url.rstrip('/')}/loki/api/v1/query_range"
+    now_ns = int(time.time() * 1_000_000_000)
+    duration_sec = _parse_duration_to_seconds(since)
+    start_ns = now_ns - (duration_sec * 1_000_000_000)
     params: dict[str, Any] = {
         "query": query.raw_query,
         "limit": limit,
-        "since": since,
+        "start": str(start_ns),
+        "end": str(now_ns),
         "direction": "BACKWARD",
     }
     try:
@@ -379,7 +405,24 @@ def execute_logql_query(
 ) -> LogQueryResult:
     """High-level query entrypoint with automatic Loki to kubectl fallback."""
     parsed = query if isinstance(query, LogQLQuery) else parse_logql_query(query)
-    target_ns = namespace or parsed.selectors.get("namespace", "default")
+
+    if namespace:
+        current_ns = parsed.selectors.get("namespace")
+        if current_ns and current_ns != namespace:
+            raise KubernetesLoggingError(
+                f"Conflicting namespace selector: query specifies '{current_ns}' but --namespace is '{namespace}'",
+                query=parsed.raw_query,
+            )
+        if not current_ns:
+            parsed.selectors["namespace"] = namespace
+            selectors_str = ", ".join(f'{k}="{v}"' for k, v in parsed.selectors.items())
+            pipeline_parts = [f'{f.op.value} "{f.pattern}"' for f in parsed.filters]
+            if parsed.format_pipeline:
+                pipeline_parts.append(f"| {parsed.format_pipeline}")
+            filter_suffix = f" {' '.join(pipeline_parts)}" if pipeline_parts else ""
+            parsed.raw_query = f"{{{selectors_str}}}{filter_suffix}".strip()
+
+    target_ns = parsed.selectors.get("namespace", namespace or "default")
     url = loki_url or DEFAULT_LOKI_URL
 
     if dry_run or is_dry_run():
@@ -406,6 +449,6 @@ def execute_logql_query(
             return execute_loki_query(parsed, loki_url=url, limit=limit, since=since)
         except (ConnectionError, httpx2.ConnectError, httpx2.TimeoutException) as exc:
             logger.info("Loki unreachable (%s); falling back to kubectl logs stream", exc)
-            return execute_kubectl_logql(parsed, namespace=target_ns, limit=limit)
+            return execute_kubectl_logql(parsed, namespace=target_ns, limit=limit, since=since)
         except KubernetesLoggingError:
             raise

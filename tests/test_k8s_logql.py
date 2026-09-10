@@ -264,3 +264,98 @@ def test_mcp_k8s_logs_bounds_validation() -> None:
 
     with pytest.raises(ValidationError):
         k8s_logs_tail(query='{app="web"}', lines=-5)
+
+
+def test_parse_duration_to_seconds() -> None:
+    """Test duration parsing helper handles common time units and edge cases."""
+    from devops_cli.k8s.logql import _parse_duration_to_seconds
+
+    assert _parse_duration_to_seconds("30s") == 30
+    assert _parse_duration_to_seconds("15m") == 900
+    assert _parse_duration_to_seconds("1h") == 3600
+    assert _parse_duration_to_seconds("2d") == 172800
+    assert _parse_duration_to_seconds("1w") == 604800
+    assert _parse_duration_to_seconds("120") == 120
+    assert _parse_duration_to_seconds("") == 3600
+    assert _parse_duration_to_seconds("invalid") == 3600
+
+
+def test_execute_loki_query_time_range_parameters() -> None:
+    """Test execute_loki_query converts since to start and end nanosecond parameters."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"data": {"result": []}}
+
+    with patch("httpx2.get", return_value=mock_resp) as mock_get:
+        query = parse_logql_query('{app="api"}')
+        execute_loki_query(query, loki_url="http://localhost:3100", since="30m", limit=50)
+
+        mock_get.assert_called_once()
+        params = mock_get.call_args[1]["params"]
+        assert "start" in params
+        assert "end" in params
+        assert int(params["end"]) > int(params["start"])
+        # Expected diff is ~30m * 60s * 1e9 ns = 1.8e12 ns
+        diff_ns = int(params["end"]) - int(params["start"])
+        assert 1_790_000_000_000 <= diff_ns <= 1_810_000_000_000
+
+
+def test_execute_kubectl_logql_since_parameter() -> None:
+    """Test execute_kubectl_logql forwards --since to kubectl logs."""
+    mock_proc = MagicMock(returncode=0, stdout="2026-09-10T12:00:00Z app log line")
+    with (
+        patch("devops_cli.k8s.logql._get_matching_pods", return_value=["pod-1"]),
+        patch("devops_cli.k8s.logql.run_subprocess", return_value=mock_proc) as mock_run,
+    ):
+        query = parse_logql_query('{app="web"}')
+        execute_kubectl_logql(query, namespace="prod", limit=20, since="45m")
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert "--since=45m" in cmd
+        assert "-n" in cmd
+        assert "prod" in cmd
+
+
+def test_execute_logql_query_merges_namespace() -> None:
+    """Test execute_logql_query merges explicit namespace into query selectors and raw_query."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"data": {"result": []}}
+
+    with patch("httpx2.get", return_value=mock_resp) as mock_get:
+        execute_logql_query(
+            '{app="web"} |= "error"', namespace="production", loki_url="http://localhost:3100"
+        )
+
+        mock_get.assert_called_once()
+        params = mock_get.call_args[1]["params"]
+        query_str = params["query"]
+        assert 'namespace="production"' in query_str
+        assert 'app="web"' in query_str
+        assert '|= "error"' in query_str
+
+
+def test_execute_logql_query_conflicting_namespace_raises_error() -> None:
+    """Test execute_logql_query raises KubernetesLoggingError when query namespace conflicts with --namespace."""
+    import pytest
+
+    from devops_cli.exceptions.k8s import KubernetesLoggingError
+
+    with pytest.raises(KubernetesLoggingError) as exc_info:
+        execute_logql_query('{namespace="staging", app="web"}', namespace="production")
+    assert "Conflicting namespace selector" in str(exc_info.value)
+
+
+def test_execute_logql_query_fallback_passes_since() -> None:
+    """Test execute_logql_query passes since duration to kubectl fallback on connection failure."""
+    with (
+        patch("devops_cli.k8s.logql.execute_loki_query", side_effect=ConnectionError("Loki down")),
+        patch("devops_cli.k8s.logql.execute_kubectl_logql") as mock_fallback,
+    ):
+        query = parse_logql_query('{app="worker"}')
+        execute_logql_query(query, namespace="default", since="2h", limit=50)
+
+        mock_fallback.assert_called_once()
+        assert mock_fallback.call_args[1]["since"] == "2h"
+        assert mock_fallback.call_args[1]["limit"] == 50
