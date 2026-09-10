@@ -250,19 +250,22 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (P0 - Critical, Issue #88, PR #93)**:
   - *Context & Rationale*: Standardizes all 11 scanner modules (`bandit`, `checkov`, `dive`, `gitleaks`, `kubeconform`, `kubelinter`, `pluto`, `popeye`, `semgrep`, `tflint`, `trivy`) to inherit from `BaseSecurityScanner`. Eliminates duplicate subprocess boilerplate, enforces pre-flight binary verification (`require_binary`), guarantees bounded timeouts, and produces normalized `Finding` objects.
   - *Acceptance Criteria*: 100% scanner registration in `ScannerRegistry`; zero ad-hoc subprocess calls; cyclomatic complexity $\le 10$ and nesting depth $\le 5$ across all scanner adapters. Passed all 10 `devops ci` quality gates.
-- [ ] **Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs` / `devops logs`) (P0 - Critical)**:
+- [x] **Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs` / `devops logs`) (P0 - Critical, Issue #89, PR #96)**:
   - *Context & Rationale*: Establishes enterprise log aggregation in Minikube/Kubernetes, providing the logging backbone for both incident triage and future sandboxed application observability (v0.2.16).
   - *Architecture & Components*:
     - **Declarative Loki & Fluent Bit Stack (`k8s/logging/`, `devops k8s deploy-stack --stack logging`)**: Multi-tenant, lightweight log aggregation running in dedicated namespace `logging` with PSA enforcement and restrictive NetworkPolicy.
     - **Trace-to-Log Correlation**: Automatic correlation linking OpenTelemetry `trace_id` from Jaeger distributed traces with Loki log streams in Grafana.
     - **Native LogQL Query & Stream Engine (`devops k8s logs query|tail|stream`)**: Rich terminal log inspection powered by LogQL parser pipelines (`| json`, `| logfmt`), regex filters (`|=`, `!~`), label selectors, and WebSocket follow mode (`-f`).
     - **FastMCP Log Tools & System Resource**: Exposing `k8s_logs_query`, `k8s_logs_tail`, and dynamic resource `resource://k8s/logs/recent` for autonomous AI incident diagnosis.
-    - **Interactive TUI Logs Tab (`devops dashboard`)**: Real-time log streaming tab in the Textual TUI with syntax-highlighted search and pause/resume controls.
-- [ ] **Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High)**:
+- [x] **Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, Issue #90, PR #97)**:
   - *Context & Rationale*: Evaluates financial impacts of OpenTofu/Terraform diffs, calculating monthly cloud spend deltas and enriching `pm` and `architect` reviewer personas with FinOps guardrails.
   - *CLI & Integration*: `devops tf cost [--diff] [--currency USD] [--format table|json]`; automatically embeds cost summaries into `devops tf notify-plan` PR comments.
-- [ ] **Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High)**:
+- [x] **Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High, Issue #91, PR #98)**:
   - *Context & Rationale*: Multi-cluster GitOps orchestration coordinating synchronized deployments across development, staging, and production clusters with Argo Rollouts (canary/blue-green) and automated metric-driven rollback gates.
+- [x] **Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, Issue #99, PR #100)**:
+  - *Context & Rationale*: Deterministic caching across GitHub Actions workflows (`ci.yml`, `release.yml`) with `setup-uv` cache-python and prune-cache, `actions/cache` for mypy/ruff/pytest, and DevContainer layer caching.
+- [x] **Modularize Agent Task Tracking to Eliminate Merge Conflicts (P1 - High, Issue #101)**:
+  - *Context & Rationale*: Decomposes monolithic task tracking into branch-isolated per-task files (`docs/agent/tasks/task-<issue>-<slug>.md`) with automated directory discovery in `devops gh project sync`, historical archiving, and commit context isolation.
 - [ ] **Automated GitOps Drift Detection & Webhook Synchronization (`devops argo gitops watch`) (P1 - High)**:
   - *Context & Rationale*: Eliminates polling delays by triggering instant ArgoCD app reconciliations upon local git commits or inotify filesystem changes.
 - [ ] **Local GitOps Project Orchestration Pipeline (`devops argo cd apps bootstrap-gitops`) (P1 - High)**:
@@ -456,10 +459,12 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Tree-Sitter Multilingual AST Graph & Code Intelligence Engine | `tree-sitter` / Multi-Language | High | Medium | v0.2.14 | ✅ Completed |
 | | Library API Drift & Deprecation Auditor | AST / McCabe | High | Medium | v0.2.14 | ✅ Completed |
 | | AI Context Packing & Symbol-Pruned Prompt Synthesizer | `devops_cli.ai.context_packer` | High | Medium | v0.2.14 | ✅ Completed |
-| | Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` | Python ABC / Subprocess | High | Medium | v0.2.15 | 📋 Scheduled (P0) |
-| | Centralized K8s Logging Stack & LogQL CLI (`devops k8s logs`) | Grafana Loki / Fluent Bit / LogQL | High | Medium | v0.2.15 | 📋 Scheduled (P0) |
-| | Infracost FinOps Cloud Cost Engine (`devops tf cost`) | `infracost` CLI | High | Medium | v0.2.15 | 📋 Scheduled (P1) |
-| | Multi-Cluster ArgoCD Fleet Sync & Rollouts | Argo Rollouts / Prometheus | High | High | v0.2.15 | 📋 Scheduled (P1) |
+| | Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` | Python ABC / Subprocess | High | Medium | v0.2.15 | ✅ Completed (P0) |
+| | Centralized K8s Logging Stack & LogQL CLI (`devops k8s logs`) | Grafana Loki / Fluent Bit / LogQL | High | Medium | v0.2.15 | ✅ Completed (P0) |
+| | Infracost FinOps Cloud Cost Engine (`devops tf cost`) | `infracost` CLI | High | Medium | v0.2.15 | ✅ Completed (P1) |
+| | Multi-Cluster ArgoCD Fleet Sync & Rollouts | Argo Rollouts / Prometheus | High | High | v0.2.15 | ✅ Completed (P1) |
+| | Optimize Caching Configuration Across All GitHub Workflows | GitHub Actions / `actions/cache` | High | Low | v0.2.15 | ✅ Completed (P2) |
+| | Modularize Agent Task Tracking to Eliminate Merge Conflicts | `docs/agent/tasks/` / Projects v2 | High | Low | v0.2.15 | ✅ Completed (P1) |
 | | Automated GitOps Drift Detection & Webhook Sync | Watchdog / ArgoCD REST | High | Medium | v0.2.15 | 📋 Scheduled (P1) |
 | | Sigstore Cosign Container Provenance (`devops docker sign|verify`) | `cosign` CLI / OS Keyring | High | Medium | v0.2.15 | 📋 Scheduled (P1) |
 | | Falco eBPF Runtime Security & Anomaly Streamer | `falco` / eBPF | High | Medium | v0.2.15 | 📋 Scheduled (P2) |

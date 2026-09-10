@@ -52,7 +52,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_project_list`](#gh-project-list) | List available GitHub Projects v2 boards for user or organization. |
 | [`gh_project_reconcile`](#gh-project-reconcile) | Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items. |
 | [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
-| [`gh_project_sync`](#gh-project-sync) | Synchronize task items from task.md into GitHub Projects v2 status. |
+| [`gh_project_sync`](#gh-project-sync) | Synchronize task items from task tracking into GitHub Projects v2 status. |
 | [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
 | [`gh_views_audit`](#gh-views-audit) | Audit remote project views against standardized view template specifications. |
 | [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
@@ -610,7 +610,7 @@ Inspect GitHub Projects v2 template configuration, fields, and view definitions.
 
 ### `gh_project_sync`
 
-Synchronize task items from task.md into GitHub Projects v2 status.
+Synchronize task items from task tracking into GitHub Projects v2 status.
 
 **Parameters:**
 

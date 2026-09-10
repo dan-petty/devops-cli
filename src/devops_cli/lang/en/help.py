@@ -594,7 +594,9 @@ class GHCommandHelp:
     project_app: str = "Manage GitHub Projects v2 templates and task item synchronization."
     project_list: str = "List available GitHub Projects v2 boards for user or organization."
     project_status: str = "Inspect project template structure and configured views."
-    project_sync: str = "Sync task items from task.md into GitHub Projects status."
+    project_sync: str = (
+        "Sync task items from tasks directory or task.md into GitHub Projects status."
+    )
     project_reconcile: str = (
         "Reconcile custom fields (Status, Priority, Category, Value, Effort) on project items."
     )

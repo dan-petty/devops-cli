@@ -1170,7 +1170,7 @@ def gh_milestone_close(version: str, repo: str | None = None) -> str:
 
 @mcp.tool()
 def gh_project_sync(repo: str | None = None, dry_run: bool = True) -> str:
-    """Synchronize task items from task.md into GitHub Projects v2 status."""
+    """Synchronize task items from task tracking into GitHub Projects v2 status."""
     cmd = ["uv", "run", "devops", "gh", "project", "sync"]
     if dry_run:
         cmd.append("--dry-run")

@@ -5,7 +5,7 @@
 GitHub project governance in `devops-cli` standardizes repository metadata across six foundational pillars:
 1. **GitHub Pages Publishing**: Inspection of deployment health, custom domain status, HTTPS enforcement, build history, manual build dispatching, and local Jekyll `docs/github-pages.config.yaml` / `docs/` readiness verification.
 2. **GitHub Issues Lifecycle & Triage**: Issue creation, taxonomy label enforcement (`type/*`, `scope/*`, `priority/*`), milestone linkage, and proactive triage auditing to guarantee zero unclassified or unmilestoned open issues.
-3. **GitHub Projects v2 Lifecycle**: Board creation, multi-board listing, card lifecycle reconciliation against `docs/agent/task.md`, and automated drift auditing against standardized template schemas.
+3. **GitHub Projects v2 Lifecycle**: Board creation, multi-board listing, card lifecycle reconciliation against `docs/agent/tasks/` (and `docs/agent/task.md`), and automated drift auditing against standardized template schemas.
 4. **Standardized Projects v2 Views**: Continuous auditing and synchronization of the 4 canonical views (`Sprint Kanban`, `Roadmap Timeline`, `Triage & Quality Table`, and `Value vs Effort Priority Matrix`) ensuring full alignment across `https://github.com/dan-petty/devops-cli/projects` and `https://github.com/dan-petty/devops-cli/issues/views`.
 5. **Roadmap Milestones**: Synchronized milestone lifecycle directly extracted from `docs/ROADMAP.md` release headings, providing issue completion ratios, health metrics, and automated milestone closure on release.
 6. **Declarative Label Taxonomy & PR Auditing**: Repository label synchronization driven by `.github/labels.yml`, enforcing strict categorization across `type/*`, `scope/*`, `priority/*`, `status/*`, and `review/*`.
@@ -18,7 +18,7 @@ GitHub project governance in `devops-cli` standardizes repository metadata acros
 graph TD
     A[Declarative Schemas<br/>.github/labels.yml & project-template.json] -->|devops gh labels sync| B[Remote GitHub Labels]
     C[docs/ROADMAP.md Headings] -->|devops gh milestones sync| D[Remote GitHub Milestones]
-    E[docs/agent/task.md Lifecycles] -->|devops gh project sync| F[GitHub Projects v2 Items]
+    E[docs/agent/tasks/ Lifecycles] -->|devops gh project sync| F[GitHub Projects v2 Items]
     G[docs/github-pages.config.yaml] -->|devops gh pages verify| H[GitHub Pages Deployment]
     I[Open Issues Queue] -->|devops gh issues triage| J[Triage Audit & Taxonomies]
     B --> K[devops gh labels audit]
@@ -84,10 +84,10 @@ devops gh project status
 # Audit project board health and alignment against standardized template
 devops gh project audit
 
-# Synchronize task.md item cards, provision fields, and link project
+# Synchronize task tracking item cards, provision fields, and link project
 devops gh project sync
 
-# Preview task.md item synchronization into project statuses
+# Preview task item synchronization into project statuses
 devops gh project sync --dry-run
 
 # Link an existing project board to the repository
@@ -142,7 +142,7 @@ devops gh milestones close v0.2.14
    - If no issue exists: immediately author a formal tracking issue (`gh issue create` or FastMCP `gh_issue_create`), apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`, `status/in-progress`), link the active milestone, and synchronize into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`).
 4. **Projects v2 Board Linkage & Real-Time Card Lifecycle Transitions**:
    - Ensure the project board is linked to the repository via `devops gh project link <number>`, surfacing the project board under `https://github.com/dan-petty/devops-cli/projects` and its 4 canonical views under `https://github.com/dan-petty/devops-cli/issues/views`.
-   - Maintain bidirectional synchronization between `docs/agent/task.md` and GitHub Projects v2 across the 5 canonical lifecycle states:
+   - Maintain bidirectional synchronization between `docs/agent/tasks/` and GitHub Projects v2 across the 5 canonical lifecycle states:
      - `Backlog`: Queued deliverables and roadmap milestones awaiting assignment.
      - `Ready`: Scoped items with concrete acceptance criteria and tests designed.
      - `In Progress (WIP)`: Active implementation. **Move card to `In Progress` BEFORE making code edits in `src/`**.

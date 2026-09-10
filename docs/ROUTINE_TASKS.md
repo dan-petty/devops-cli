@@ -89,11 +89,11 @@ flowchart TD
    - **Ground Requirement in GitHub Issue Card**: Every feature, bug fix, or refactor must map to an active tracking issue and project item.
      - If a matching issue card exists: link task to it, verify milestone and taxonomy labels, and transition its card to `In Progress` (`devops gh project sync`).
      - If no issue exists: **IMMEDIATELY CREATE THE TRACKING ISSUE** (`gh issue create` or FastMCP `gh_issue_create`), assign active milestone (`--milestone "v<version>"`), assign taxonomy labels (`type/*`, `scope/*`, `priority/*`, `status/in-progress`), and sync to project board (`devops gh project sync`).
-   - For multi-step or architectural work, author an implementation plan (`implementation_plan.md`, `docs/agent/task.md`, or update [`docs/ROADMAP.md`](ROADMAP.md)).
+   - For multi-step or architectural work, author an implementation plan (`implementation_plan.md`, `docs/agent/tasks/task-<issue>-<slug>.md`, or update [`docs/ROADMAP.md`](ROADMAP.md)).
    - Explicitly track task progression across five lifecycle states:
      - **Backlog**: Queued items awaiting milestone assignment.
      - **Ready**: Scoped items ready for immediate development.
-     - **In-Progress Tasks (WIP)**: Active work items currently being modified. **Card MUST be moved to In Progress before editing code in `src/`**.
+     - **In-Progress Tasks (WIP)**: Active work items currently being modified. **Card MUST be moved to In Progress before editing code in `src/`**. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md`.
      - **In Review**: PR opened with CI checks and reviews running.
      - **Completed Tasks**: Verified implementations, green test gates, and merged PRs.
 2. **Sync Dependencies (`uv sync`)**: Always ensure `.venv` is aligned with `uv.lock` before starting work.
@@ -203,11 +203,11 @@ sequenceDiagram
 - **Commit Standards & Message Hygiene**:
   - All commits must follow Conventional Commits (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
   - **No Internal References or Numeric IDs**: Never include internal review session timestamps (e.g. `164259`, `003105`), review session IDs, subagent IDs, prompt phase numbers (`Phase 48.5`), or arbitrary numeric identifiers in commit subjects or messages. Use clear, descriptive technical terminology.
-  - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking files under `docs/agent/` (`task.md`) must NEVER be committed in isolation; they must always be bundled atomically into the corresponding feature, fix, or refactoring deliverable commit.
+  - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking files under `docs/agent/` (`docs/agent/tasks/`, `docs/agent/task.md`) must NEVER be committed in isolation; they must always be bundled atomically into the corresponding feature, fix, or refactoring deliverable commit.
 - **Issue Linkage, GitHub Projects & Issues Views Lifecycle (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**:
   - **Zero Disconnected PRs**: Every PR addressing an issue MUST explicitly link to it using canonical closing keywords (`Fixes #<id>`, `Closes #<id>`, `Resolves #<id>`), be added as a project item to the project board, and possess taxonomy labels (`type/*`, `scope/*`).
   - **Automated Field Sync & State Progression**: Run `devops gh project sync` (or FastMCP `gh_project_sync`) after opening or updating PRs to reconcile the 6 custom project fields (`Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`) and transition the card to `In Review`.
-  - Reconcile task state transitions (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/task.md`](agent/task.md) and verify alignment with `.github/project-template.json` across the 4 canonical views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) displayed under `https://github.com/dan-petty/devops-cli/issues/views`.
+  - Reconcile task state transitions (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) in [`docs/agent/tasks/`](agent/tasks/README.md) and verify alignment with `.github/project-template.json` across the 4 canonical views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) displayed under `https://github.com/dan-petty/devops-cli/issues/views`.
   - Ensure the project board is linked to the repository via `devops gh project link <number>` so it appears on `https://github.com/dan-petty/devops-cli/projects` and its views on `https://github.com/dan-petty/devops-cli/issues/views`. Audit views via `devops gh views list`, `devops gh views audit`, and `devops gh views spec`.
   - Enforce taxonomy labels via `devops gh labels audit`, milestone alignment via `devops gh milestones sync`, and milestone closure upon release merge via `devops gh milestones close <version>`.
 
@@ -232,7 +232,7 @@ sequenceDiagram
 ```
 
 #### Step-by-Step Procedure:
-1. **Audit Open Tasks & Issues**: Ensure all milestone deliverables in `docs/ROADMAP.md` and `docs/agent/task.md` are completed.
+1. **Audit Open Tasks & Issues**: Ensure all milestone deliverables in `docs/ROADMAP.md` and `docs/agent/tasks/` are completed.
 2. **Execute Release Preparation**: Run `devops release prepare <version> --create-pr`.
    - Bumps version in `pyproject.toml` and `src/devops_cli/__init__.py`.
    - Updates `CHANGELOG.md` converting `[Unreleased]` into the target version release block.

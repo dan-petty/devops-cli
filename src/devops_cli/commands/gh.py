@@ -428,8 +428,12 @@ def status_project(
 def sync_project(
     task_file: Annotated[
         Path,
-        typer.Option("--task-file", "-f", help="Path to docs/agent/task.md"),
-    ] = Path("docs/agent/task.md"),
+        typer.Option(
+            "--task-file",
+            "-f",
+            help="Path to docs/agent/tasks directory or task.md",
+        ),
+    ] = Path("docs/agent/tasks"),
     template_file: Annotated[
         Path,
         typer.Option("--template", "-t", help="Path to project template JSON"),
@@ -449,7 +453,7 @@ def sync_project(
         ),
     ] = True,
 ) -> None:
-    """Synchronize task.md lifecycle items into GitHub Projects v2 status."""
+    """Synchronize task lifecycle items into GitHub Projects v2 status."""
     items = parse_tasks_to_project_items(task_file)
     counts: dict[str, int] = {}
     for it in items:

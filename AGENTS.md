@@ -52,21 +52,22 @@ All work follows a test-first progressive verification strategy to optimize deve
 5. **Comprehensive Quality Gate**: Execute `devops ci` (or `uv run devops ci`) to validate all gates and enforce the minimum project-specified code coverage requirement across `src/`.
 
 ### Project Planning & Task Tracking
-- **Mandatory Planning Artifacts**: Document project planning and technical implementation designs in dedicated planning documents (`implementation_plan.md`, `docs/agent/task.md`, `docs/ROADMAP.md`, `docs/PENDING_FEATURES.md`, `docs/LOG.md`) prior to executing complex, multi-step, or architectural changes.
+- **Mandatory Planning Artifacts**: Document project planning and technical implementation designs in dedicated planning documents (`implementation_plan.md`, `docs/agent/tasks/task-<issue>-<slug>.md`, `docs/ROADMAP.md`, `docs/PENDING_FEATURES.md`, `docs/LOG.md`) prior to executing complex, multi-step, or architectural changes.
 - **Mandatory GitHub Projects v2 Session Bootstrap (Zero Ungrounded Tasks)**:
   - At the inception of every AI agent session, upon receiving any user prompt, or before starting development, AI agents **MUST PROACTIVELY BOOTSTRAP GITHUB PROJECT TRACKING**:
     1. **Query Active Project Status**: Inspect board status and views via `devops gh project status` (or FastMCP `gh_project_status`) and triage queue via `devops gh issues triage` (or FastMCP `gh_issue_triage`).
     2. **Ground User Request to an Issue Card**: Every feature, bug fix, refactor, or documentation task must have a corresponding GitHub Issue and Project Item.
        - If a matching open issue exists: link the task to it, verify its milestone and taxonomy labels, and immediately move its project card to `In Progress` (`devops gh project sync`).
        - If no issue exists: **IMMEDIATELY AUTHOR A FORMAL TRACKING ISSUE** (`gh issue create` or FastMCP `gh_issue_create`), assign the active release milestone (`--milestone "v<version>"`), assign declarative taxonomy labels matching `.github/labels.yml` (`type/*`, `scope/*`, `priority/*`, `status/in-progress`), and synchronize it to the project board (`devops gh project sync` or FastMCP `gh_project_sync`).
-- **Continuous Task Status Tracking (`docs/agent/task.md`) & Real-Time Card Movement**:
-  - Maintain bidirectional synchronization between `docs/agent/task.md` and GitHub Projects v2 cards across five unambiguous lifecycle states:
+- **Modular Per-Task Tracking Architecture (`docs/agent/tasks/`) & Real-Time Card Movement**:
+  - **Zero Merge Conflicts Mandate**: To eliminate git merge conflicts between concurrent feature branches, task tracking is maintained in **dedicated per-task files** under `docs/agent/tasks/` (`docs/agent/tasks/task-<issue>-<slug>.md`). Topic branches must ONLY create or modify their own dedicated task file; editing other branches' task files is strictly prohibited. An index table of active tasks is maintained in [`docs/agent/task.md`](docs/agent/task.md).
+  - **Commit Context Mandate & Zero Standalone Tracking Commits**: Updates to task tracking files under `docs/agent/tasks/` MUST ONLY be made in the context of the functional changes delivering that specific task (bundled atomically into functional deliverable commits) or when merging the PR into the release branch. They must NEVER be committed as standalone or isolated one-off commits.
+  - Maintain bidirectional synchronization between `docs/agent/tasks/` and GitHub Projects v2 cards across five unambiguous lifecycle states:
     - **Backlog**: Queued deliverables, backlog requirements, and upcoming milestone items awaiting assignment.
     - **Ready**: Scoped items with concrete acceptance criteria and tests designed, awaiting active development.
-    - **In Progress (WIP)**: Active work items currently being authored or edited. **Card must be moved to In Progress before modifying code in `src/`**. Mirrored in `docs/agent/task.md` under `### In-Progress Tasks (WIP)`.
-    - **In Review**: Pull Request opened with automated review, CI checks running, and peer feedback in progress. Mirrored in `docs/agent/task.md`.
-    - **Done**: Pull Request squash-merged into release branch, remote CI checks green, issue closed, and milestone ratios updated. Mirrored in `docs/agent/task.md` under `### Completed Tasks`.
-  - **No Standalone Agent Tracking Commits**: Updates to `docs/agent/` files must never be committed as standalone or isolated commits; they must always be bundled into functional feature, fix, or refactoring deliverable commits.
+    - **In Progress (WIP)**: Active work items currently being authored or edited. **Card must be moved to In Progress before modifying code in `src/`**. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: In Progress` or `### In-Progress Tasks (WIP)`.
+    - **In Review**: Pull Request opened with automated review, CI checks running, and peer feedback in progress. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: In Review`.
+    - **Done**: Pull Request squash-merged into release branch, remote CI checks green, issue closed, and milestone ratios updated. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: Done` or `### Completed Tasks`.
 - **Mandatory Custom Field Reconciliation (`devops gh project sync`)**:
   - Ground all task lifecycles, issue tracking, and sprint planning in GitHub Projects v2 (`.github/project-template.json`) and roadmap milestones (`docs/ROADMAP.md`).
   - Every project item MUST be enriched with all 6 standardized custom fields: `Status`, `Milestone`, `Priority`, `Category`, `Value`, and `Effort`.
@@ -114,7 +115,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - Follow **Conventional Commits** (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
   - **Atomic Commits by Default**: Break multi-faceted work into small, logically self-contained commits with precise messages.
   - **No Internal References or Numeric IDs in Commit Messages**: Commit messages and PR titles MUST describe the technical or functional change using standard, descriptive engineering terminology. NEVER include internal session timestamps (e.g. `164259`, `003105`), review session numbers, subagent IDs, prompt phase numbers (e.g. `Phase 48.5`), or arbitrary numeric identifiers in commit subjects or messages.
-  - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking documentation under `docs/agent/` (such as `docs/agent/task.md`) MUST NEVER be committed as standalone one-off commits. They must always be bundled atomically into the corresponding feature, fix, or refactoring commit that delivers the actual code changes, or kept in local workspace state until bundled with functional deliverable commits.
+  - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking documentation under `docs/agent/` (such as `docs/agent/tasks/` or `docs/agent/task.md`) MUST NEVER be committed as standalone one-off commits. They must always be bundled atomically into the corresponding feature, fix, or refactoring commit that delivers the actual code changes, or kept in local workspace state until bundled with functional deliverable commits.
 - **Pull Request Governance & Title Conventions**:
   - **Conventional Commit PR Titles**: Standard feature, fix, refactoring, documentation, and chore PR titles MUST follow Conventional Commits (`feat(scope): concise description`) in standard engineering terminology for clean squash-merging.
   - **Strict Release PR Title Convention (`feat(release): v<version>`)**: Release Pull Requests targeting `main` from a release branch MUST strictly follow the exact canonical format `feat(release): v<version>` (or `fix(release): v<version>` / `feat(release)!: v<version>` for breaking changes), e.g. `feat(release): v0.2.12`. NEVER append descriptive summaries, release highlights, or verbose explanations to release PR titles (highlights belong strictly in the PR body and release notes). This matches `_format_release_title()` and repository squash-merge git history.
@@ -138,7 +139,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
       - Milestone linkage (`--milestone "v<version>"`).
       - Taxonomy labels matching `.github/labels.yml`: at least one `type/*`, one `scope/*`, and appropriate `priority/*` (`priority/p0-critical` through `priority/p3-low`).
       - Clear problem statement, proposed architectural solution, and acceptance criteria.
-    - Synchronize the new issues into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`), linking card lifecycles with [`docs/agent/task.md`](docs/agent/task.md) and PRs via closing keywords (`Closes #<issue>`).
+    - Synchronize the new issues into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`), linking card lifecycles with [`docs/agent/tasks/`](docs/agent/tasks/README.md) and PRs via closing keywords (`Closes #<issue>`).
   - **Mandatory Defect & Warning Incident Tracking (Zero Unrecorded CLI Errors & Warnings)**:
     - Whenever an AI agent encounters an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior while executing `devops` CLI commands (e.g. CLI crashes, option parsing errors, unhandled exceptions, linter/scanner warnings, or unexpected non-zero exits), the agent **MUST IMMEDIATELY CREATE A FORMAL BUG/ISSUE ENTRY** in GitHub project tracking.
     - **Issue Creation Protocol**:
@@ -148,7 +149,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
       - Link the active release milestone (`--milestone "v<version>"`).
       - Provide full operational context in the issue body: exact CLI command executed, operating environment, full terminal traceback or warning message, steps to reproduce, and root-cause analysis.
       - Synchronize the new issue into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`) so that it appears in the *Triage & Quality Table* view (`type/bug`, `status/blocked`, `status/triage`).
-      - Immediately mirror the bug tracking entry in [`docs/agent/task.md`](docs/agent/task.md) and [`docs/ROADMAP.md`](docs/ROADMAP.md) under active defects.
+      - Immediately mirror the bug tracking entry in a dedicated task file under [`docs/agent/tasks/`](docs/agent/tasks/README.md) and [`docs/ROADMAP.md`](docs/ROADMAP.md) under active defects.
       - **Zero Suppression Policy**: Never suppress, ignore, work around silently, or bypass errors or warnings emitted by the `devops` CLI without formally documenting and tracking them as defects in GitHub Issues and GitHub Projects.
   - **Issue Tracking, Triage & PR Linkage**:
     - Track all engineering issues, bug reports, feature requests, and technical chores using standardized issue templates (`.github/ISSUE_TEMPLATE/`: `bug_report.yml`, `feature_request.yml`, `security_advisory.yml`, `task.yml`).
@@ -181,11 +182,11 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
     - **Continuous Project & Views Drift Auditing**: Routinely audit project board health and field schema alignment via `devops gh project audit` (or FastMCP `gh_project_audit`) and view configurations via `devops gh views audit` (or FastMCP `gh_views_audit`).
     - **Continuous Custom Field & Project Item Population**: Every issue and pull request for the active milestone MUST be added as a project item and populated with custom project fields: `Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`. Synchronize card states using `devops gh project sync` or FastMCP `gh_project_sync`.
     - **Strict Real-Time Kanban State Progression & WIP Movement**:
-      - Manage state transitions strictly (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) across issues and tasks in [`docs/agent/task.md`](docs/agent/task.md):
+      - Manage state transitions strictly (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) across issues and tasks in [`docs/agent/tasks/`](docs/agent/tasks/README.md):
         - `Backlog`: Queued items awaiting milestone assignment or scheduling.
         - `Ready`: Scoped items ready for immediate development with designed test specifications.
-        - `In Progress`: Active work items currently being authored or edited. **Card MUST be transitioned to In Progress before making edits in `src/`**. Mirrored in `docs/agent/task.md` under `### In-Progress Tasks (WIP)`.
-        - `In Review`: Pull Request opened with CI checks running and code reviews in progress. Mirrored in `docs/agent/task.md`.
+        - `In Progress`: Active work items currently being authored or edited. **Card MUST be transitioned to In Progress before making edits in `src/`**. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: In Progress`.
+        - `In Review`: Pull Request opened with CI checks running and code reviews in progress. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: In Review`.
         - `Done`: Pull Request squash-merged by maintainer into release branch, remote CI verified, and issue closed.
       - **Zero Disconnected PRs**: Every PR MUST link to an active tracking issue (`Closes #<id>`, `Fixes #<id>`), be added as a project item to the project board, and possess taxonomy labels (`type/*`, `scope/*`) so that its custom fields (`Category`, `Value`, `Effort`) are data-driven and automatically populated.
     - **Active Triage & Quality Queue Monitoring**: AI agents must routinely inspect and populate the *Triage & Quality Table* (`type/bug`, `status/blocked`, `status/triage`) to promptly triage, remediate, and track incoming bugs, review findings, and pipeline failures.
