@@ -81,6 +81,31 @@ _REVIEW_OUTPUT_INSTRUCTION = "\n" + load_task_prompt("review_output_instruction.
 _GUARDRAILS_PROMPT = "\n\n" + load_task_prompt("guardrails_isolation.md")
 _PATH_REVIEW_PROMPT_TEMPLATE = load_task_prompt("path_review_prompt.md")
 
+_TARGET_CONVENTIONS_CANDIDATES: tuple[str, ...] = (
+    CONST_AGENTS_MD_FILENAME,
+    "CLAUDE.md",
+    ".github/copilot-instructions.md",
+    ".cursorrules",
+    ".cursor/rules",
+)
+
+
+def _read_candidate_conventions_file(directory: Path | None) -> str:
+    """Read first matching project conventions file from directory."""
+    if not directory or not directory.is_dir():
+        return ""
+    for name in _TARGET_CONVENTIONS_CANDIDATES:
+        cand = directory / name
+        if not cand.is_file():
+            continue
+        try:
+            content = cand.read_text(encoding="utf-8")
+            if content.strip():
+                return content
+        except OSError:
+            continue
+    return ""
+
 
 class ReviewClients(BaseModel):
     """LLM clients resolved per review task, each potentially using a different model."""
@@ -194,7 +219,7 @@ def _persona_system_prompt(persona: PersonaDefinition, agents_md: str) -> str:
     clean_agents = sanitize_prompt_boundary_tags(agents_md)
     return (
         f"{persona.system_prompt}\n\n"
-        "## Target Project Conventions & Reference Instructions (AGENTS.md)\n"
+        "## Target Project Conventions & Reference Instructions\n"
         "<project_conventions_context>\n"
         f"{clean_agents}\n"
         "</project_conventions_context>\n\n"
@@ -1137,37 +1162,24 @@ def _resolve_review_clients(settings: Settings | None = None) -> ReviewClients:
 
 
 def _load_agents_md(start: Path) -> str:
-    """Return sanitized AGENTS.md content from target repo, start dir, or CWD repo root."""
+    """Return sanitized project conventions from target repo, start dir, or CWD repo root."""
     start_resolved = start.resolve()
-    raw_content = ""
     target_repo = _git_repo_root(start_resolved)
-    if target_repo is not None:
-        agents_file = target_repo / CONST_AGENTS_MD_FILENAME
-        if agents_file.is_file():
-            try:
-                raw_content = agents_file.read_text(encoding="utf-8")
-            except OSError:
-                pass
+    raw_content = _read_candidate_conventions_file(target_repo) if target_repo else ""
 
     if not raw_content:
-        agents_file = (
-            start_resolved / CONST_AGENTS_MD_FILENAME
-            if start_resolved.is_dir()
-            else start_resolved.parent / CONST_AGENTS_MD_FILENAME
-        )
-        if agents_file.is_file():
-            try:
-                raw_content = agents_file.read_text(encoding="utf-8")
-            except OSError:
-                pass
+        base_dir = start_resolved if start_resolved.is_dir() else start_resolved.parent
+        raw_content = _read_candidate_conventions_file(base_dir)
 
-    if raw_content:
-        from devops_cli.security.sanitizer import (
-            redact_text,
-            sanitize_prompt_boundary_tags,
-        )
+    if not raw_content:
+        return ""
 
-        return sanitize_prompt_boundary_tags(redact_text(raw_content))
+    from devops_cli.security.sanitizer import (
+        redact_text,
+        sanitize_prompt_boundary_tags,
+    )
+
+    return sanitize_prompt_boundary_tags(redact_text(raw_content))
 
     return ""
 

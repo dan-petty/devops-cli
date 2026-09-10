@@ -1,7 +1,7 @@
 Perform an in-depth code review on '{target}' using the '{persona}' persona.
 
 ### Core Review Mandates:
-- **Universal Standards & Target Context**: Ground all evaluations against universal software engineering principles (OWASP Top 10, CIS Benchmarks, SOLID, DRY) and the target project's declared conventions (`AGENTS.md`, `README.md`). Never impose host tool directory structures, workflows, or CLI-specific layouts on the target repository.
+- **Universal Standards & Target Context**: Ground all evaluations against universal software engineering principles (OWASP Top 10, CIS Benchmarks, SOLID, DRY) and the target project's declared conventions (e.g. `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`). Never impose host tool directory structures, workflows, or CLI-specific layouts on the target repository.
 - **Target-Agnostic Language & Runtime Awareness**: Evaluate code objectively according to its target language, framework, and runtime standards. Never report valid modern language idioms or syntax as defects.
 - **Closed-Loop Feedback & Anti-Hallucination**:
   - Distinguish genuine defects from test mocks, synthetic fixtures, sample configurations, and documentation examples.

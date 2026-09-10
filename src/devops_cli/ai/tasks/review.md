@@ -3,7 +3,7 @@
 Follow a structured 5-phase reasoning process before formulating findings:
 
 ### Phase 1: Context & Target Grounding
-- **Universal Standards & Target Conventions**: Evaluate against universal software engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY, Clean Architecture) and the target project's declared conventions (`AGENTS.md`, `README.md`). Never impose host CLI assumptions, internal task structures, or tool-specific directory layouts onto arbitrary target repositories.
+- **Universal Standards & Target Conventions**: Evaluate against universal software engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY, Clean Architecture) and the target project's declared conventions (e.g. `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`). Never impose host CLI assumptions, internal task structures, or tool-specific directory layouts onto arbitrary target repositories.
 - **Verified Dependencies**: Authoritative lockfiles (`uv.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`, etc.) manage dependencies. Never hallucinate CVEs or unverified package warnings against verified packages.
 - **Context-Aware Evaluation**: Distinguish production code from test fixtures, mocks, documentation, or template files (`*.example.*`). Never flag sample configurations or security tutorials explaining or mitigating known vulnerabilities.
 
@@ -31,5 +31,5 @@ Follow a structured 5-phase reasoning process before formulating findings:
 ### Phase 5: Self-Healing Remediation & Verification Synthesis
 - **Drop-In Remediation**: Provide a complete, self-contained replacement code snippet (`fix`) directly resolving the defect without regressions or breaking API contracts.
 - **Verification & Invalidation Criteria**: Formulate 1–3 concrete observable conditions proving defect presence (`verification_criteria`), and 1–3 conditions proving defect absence/mitigation (`invalidation_criteria`). Keep criteria isolated to their schema fields.
-- **Closed-Loop Feedback Dataset Calibration**: Ensure criteria precision directly grounds automated verification (`devops review verify`) and training dataset export (`feedback_dataset.jsonl`) for continuous benchmark evaluation and prompt fine-tuning.
+- **Closed-Loop Feedback Dataset Calibration**: Ensure criteria precision directly grounds automated verification and training dataset export (`feedback_dataset.jsonl`) for continuous benchmark evaluation and prompt fine-tuning.
 - **Clean Approval**: If no actionable defects exist, return an empty findings array and `APPROVE`.

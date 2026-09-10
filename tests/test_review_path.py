@@ -57,6 +57,30 @@ def test_load_agents_md_reads_repo_root_file(tmp_path: Path) -> None:
     assert "Use latest Python." in agents_md
 
 
+def test_load_agents_md_reads_claude_md_fallback(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "CLAUDE.md").write_text("## Guidelines\nUse Go 1.23.\n", encoding="utf-8")
+    nested = tmp_path / "cmd"
+    nested.mkdir(parents=True)
+
+    conventions = _load_agents_md(nested)
+
+    assert "Use Go 1.23." in conventions
+
+
+def test_load_agents_md_reads_copilot_instructions_fallback(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    github_dir = tmp_path / ".github"
+    github_dir.mkdir(parents=True)
+    (github_dir / "copilot-instructions.md").write_text(
+        "## Copilot\nUse Rust 2024 edition.\n", encoding="utf-8"
+    )
+
+    conventions = _load_agents_md(tmp_path)
+
+    assert "Use Rust 2024 edition." in conventions
+
+
 def test_load_agents_md_returns_empty_when_missing(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
 

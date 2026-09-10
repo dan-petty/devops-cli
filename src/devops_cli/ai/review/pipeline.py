@@ -1319,22 +1319,24 @@ class ReviewPipelineOrchestrator:
 
     # ── Multi-Persona Code Content Review ──────────────────────────────────────
     def _read_target_conventions(self) -> str:
-        """Read and sanitize AGENTS.md conventions from target repository."""
-        target_agents_path = self.target_dir / "AGENTS.md"
-        if target_agents_path.exists() and target_agents_path.is_file():
-            try:
-                from devops_cli.security.sanitizer import (
-                    mask_secrets,
-                    sanitize_prompt_boundary_tags,
-                )
+        """Read and sanitize conventions from target repository."""
+        from devops_cli.ai.review.runner import _read_candidate_conventions_file
 
-                c_text = target_agents_path.read_text(encoding="utf-8", errors="replace")[:3000]
-                clean_c_text = sanitize_prompt_boundary_tags(mask_secrets(c_text))
-                header = f"\n\nTarget Repository Conventions ({target_agents_path.name}):\n"
-                return f"{header}{clean_c_text}\n"
-            except Exception as exc:
-                logger.debug("Failed reading AGENTS.md conventions: %s", exc)
-        return ""
+        raw_conventions = _read_candidate_conventions_file(self.target_dir)
+        if not raw_conventions:
+            return ""
+
+        try:
+            from devops_cli.security.sanitizer import (
+                mask_secrets,
+                sanitize_prompt_boundary_tags,
+            )
+
+            clean_c_text = sanitize_prompt_boundary_tags(mask_secrets(raw_conventions[:3000]))
+            return f"\n\nTarget Repository Conventions:\n{clean_c_text}\n"
+        except Exception as exc:
+            logger.debug("Failed reading conventions: %s", exc)
+            return ""
 
     def _build_multi_persona_pipeline(
         self, active_personas: list[str], target_conventions: str
