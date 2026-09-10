@@ -9,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.library.docs_ingester import DocsIngester
-from devops_cli.commands.ai import ai_app
+from devops_cli.commands.ai import app as ai_app
 from devops_cli.exceptions.ai import DocsIngestionError
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.models.library import DocChunk, IngestDocResult

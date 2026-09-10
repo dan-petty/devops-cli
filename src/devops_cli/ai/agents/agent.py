@@ -419,10 +419,6 @@ class PydanticAgent[T, DepsT = Any]:
             return decorator(func)
         return decorator
 
-    def instructions(self, func: Callable[..., str]) -> Callable[..., str]:
-        """Decorator to register dynamic agent instructions (PydanticAI parity alias)."""
-        return self.system_prompt_fn(func)
-
     def system_prompt_fn(self, func: Callable[..., str]) -> Callable[..., str]:
         """Decorator to register a dynamic system prompt function."""
         self._dynamic_system_prompts.append(func)
@@ -1138,15 +1134,6 @@ class PydanticAgent[T, DepsT = Any]:
             on_tool_call=on_tool_call,
             on_thought=on_thought,
         )
-
-    def run_stream_sync(
-        self,
-        user_prompt: str,
-        *,
-        enable_thinking: bool = True,
-    ) -> Generator[str]:
-        """Synchronously stream response tokens in real-time (PydanticAI parity alias)."""
-        yield from self.run_stream(user_prompt, enable_thinking=enable_thinking)
 
     async def run_async(
         self,

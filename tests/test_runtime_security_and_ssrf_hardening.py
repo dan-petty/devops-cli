@@ -15,9 +15,9 @@ from devops_cli.ai.common_tools import web_fetch_tool
 from devops_cli.ai.diff.difftastic import get_structural_diff
 from devops_cli.ai.ext_langchain import _validate_langchain_kwargs
 from devops_cli.ai.review.auto_fix import generate_remediation_branch
-from devops_cli.ai.review.sanitization import _mask_secrets_in_content
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.k8s.chaos_runner import ChaosExperiment, ChaosFaultRunner
+from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.security.vault_broker import parse_vault_uri
 
 # ── 1. DiskMediaStore Traversal & Hash Validation ─────────────────────────────
@@ -148,7 +148,7 @@ def test_secret_sanitizer_does_not_mask_variable_identifiers() -> None:
         '+    secret_storage_failed: str = "Failed to store secret"\n'
         "+    secret_rotation_interval_seconds: int = 3600\n"
     )
-    sanitized = _mask_secrets_in_content(code_diff)
+    sanitized = mask_secrets(code_diff)
     assert "secret_storage_failed" in sanitized
     assert "<masked-secret>" not in sanitized
     assert "secret_rotation_interval_seconds" in sanitized
@@ -157,7 +157,7 @@ def test_secret_sanitizer_does_not_mask_variable_identifiers() -> None:
 def test_secret_sanitizer_masks_actual_secret_assignments() -> None:
     """Verify that actual secret values after assignment or tokens ARE masked."""
     diff = "@@ -10,1 +10,1 @@\n+    api_token = secret_ab12cd34ef56gh78ij90\n"
-    sanitized = _mask_secrets_in_content(diff)
+    sanitized = mask_secrets(diff)
     assert "<masked-secret>" in sanitized or "<masked-token>" in sanitized
 
 

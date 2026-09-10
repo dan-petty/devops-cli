@@ -33,9 +33,7 @@ from devops_cli.ai.personas import PERSONAS
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.sanitization import (
     _escape_backticks,
-    _mask_secrets_in_content,
     _sanitize_filename,
-    _sanitize_prompt_boundary_tags,
 )
 from devops_cli.ai.review.verification import _validate_segment_findings
 from devops_cli.ai.review_schema import (
@@ -72,6 +70,10 @@ from devops_cli.output import (
 from devops_cli.security.reference_extractor import (
     extract_dependencies_from_text,
     extract_network_references,
+)
+from devops_cli.security.sanitizer import (
+    mask_secrets,
+    sanitize_prompt_boundary_tags,
 )
 from devops_cli.security.vulnerability_lookup import (
     CloudflareRadarClient,
@@ -368,8 +370,8 @@ def _build_page_review_prompt(
     contract_context_str: str = "",
 ) -> str:
     """Construct sanitized review prompt for a specific paginated slice of source code."""
-    masked = _mask_secrets_in_content(page_content)
-    clean = _sanitize_prompt_boundary_tags(_escape_backticks(masked))
+    masked = mask_secrets(page_content)
+    clean = sanitize_prompt_boundary_tags(_escape_backticks(masked))
     prefix = (
         f"Review File: {fpath} (Page {p_idx}/{total_pages})\n"
         if total_pages > 1
@@ -1321,13 +1323,13 @@ class ReviewPipelineOrchestrator:
         target_agents_path = self.target_dir / "AGENTS.md"
         if target_agents_path.exists() and target_agents_path.is_file():
             try:
-                from devops_cli.ai.review.sanitization import (
-                    _mask_secrets_in_content,
-                    _sanitize_prompt_boundary_tags,
+                from devops_cli.security.sanitizer import (
+                    mask_secrets,
+                    sanitize_prompt_boundary_tags,
                 )
 
                 c_text = target_agents_path.read_text(encoding="utf-8", errors="replace")[:3000]
-                clean_c_text = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(c_text))
+                clean_c_text = sanitize_prompt_boundary_tags(mask_secrets(c_text))
                 header = f"\n\nTarget Repository Conventions ({target_agents_path.name}):\n"
                 return f"{header}{clean_c_text}\n"
             except Exception as exc:

@@ -1,0 +1,47 @@
+# =============================================================================
+# GitHub Pages Documentation Website Configuration (Jekyll)
+# =============================================================================
+# PURPOSE:
+# This file is strictly for the GitHub Pages static site generator (Jekyll)
+# to publish and style project documentation at:
+#   https://dan-petty.github.io/devops-cli/
+#
+# GitHub Pages reads this file from the '/docs' publishing directory.
+#
+# NOTE:
+# This is NOT the runtime configuration for devops-cli!
+# Runtime CLI configuration lives in 'config.yaml' at the project root.
+#
+# Validated by: devops gh pages verify
+# =============================================================================
+
+title: "devops-cli"
+description: "Workstation DevOps CLI & Multi-Persona AI Code Reviewer"
+url: "https://dan-petty.github.io"
+baseurl: "/devops-cli"
+repository: "dan-petty/devops-cli"
+version: "v0.2.15"
+
+# Markdown & Syntax Highlighting
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    css_class: 'highlight'
+
+# Plugins supported by GitHub Pages
+plugins:
+  - jekyll-seo-tag
+
+# Exclude build, virtualenv, and test directories from Jekyll processing
+exclude:
+  - .venv/
+  - .data/
+  - tests/
+  - .ruff_cache/
+  - .mypy_cache/
+  - .pytest_cache/
+  - uv.lock
+  - pyproject.toml

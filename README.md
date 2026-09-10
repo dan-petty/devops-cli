@@ -14,26 +14,26 @@
 
 ## SRE Engineering Tenets & Architectural Highlights
 
-- 🔒 **Zero-Plaintext Secret Architecture**: Sensitive tokens (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. Configuration files contain zero plaintext credentials.
-- 🛡️ **Active SSRF & Egress Guardrails**: Outbound API requests pass through strict IP validation (`validate_service_url`) blocking private subnets (RFC 1918), loopbacks, and cloud metadata endpoints by default.
-- 🤖 **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) backed by `ScratchpadBuffer` reasoning context and deterministic finding verification.
-- ⚙️ **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle orchestration (`devops devcontainer run-lifecycle`) replaces legacy shell scripts for post-create and post-start hooks.
-- 🚀 **End-to-End Release Cycle Automation**: Native `devops release` subcommands suite (`status`, `prepare`, `check`, `notes`, `tag`) automating version bumping, changelogs, docs sync, and CI validation.
-- 🔌 **FastMCP Server & Native Tool Bridge**: Over 25+ infrastructure and analysis tools exposed over Model Context Protocol for seamless integration into AI IDEs and autonomous subagents.
+- **Zero-Plaintext Secret Architecture**: Sensitive tokens (`github.token`, `grafana.token`, `argocd.token`, `ai.api_key`) are stored exclusively in the OS Keyring via Python `keyring`. Configuration files contain zero plaintext credentials.
+- **Active SSRF & Egress Guardrails**: Outbound API requests pass through strict IP validation (`validate_service_url`) blocking private subnets (RFC 1918), loopbacks, and cloud metadata endpoints by default.
+- **Multi-Persona Agentic Code Review**: Paginated diff analysis across branches and PRs using specialized expert personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) backed by `ScratchpadBuffer` reasoning context and deterministic finding verification.
+- **Native DevContainer Lifecycle Engine**: Cross-platform Python lifecycle orchestration (`devops devcontainer run-lifecycle`) replaces legacy shell scripts for post-create and post-start hooks.
+- **End-to-End Release Cycle Automation**: Native `devops release` subcommands suite (`status`, `prepare`, `check`, `notes`, `tag`) automating version bumping, changelogs, docs sync, and CI validation.
+- **FastMCP Server & Native Tool Bridge**: Infrastructure and analysis tools exposed over Model Context Protocol for seamless integration into AI IDEs and autonomous subagents.
 
 ---
 
 ## Architectural & Governance Documentation
 
-- 📐 [**System Architecture & Technical Design (`ARCHITECTURE.md`)**](ARCHITECTURE.md) — Subsystem topologies, multi-agent sequence diagrams, and lifecycle hooks.
-- 🔄 [**Release Cycle & Versioning Guide (`RELEASE_CYCLE.md`)**](RELEASE_CYCLE.md) — Semantic versioning, validation checks, and release procedures.
-- 🛡️ [**Security Policy & Threat Model (`SECURITY.md`)**](SECURITY.md) — Vulnerability disclosure, SSRF protections, and OS Keyring encryption.
-- 🤝 [**Contributor Guidelines (`CONTRIBUTING.md`)**](CONTRIBUTING.md) — Standards, local development with `uv`, and PR workflows.
-- 📋 [**Routine Tasks, Order & Methodology Guide (`docs/ROUTINE_TASKS.md`)**](docs/ROUTINE_TASKS.md) — Operational task matrix, cadences, execution order, and troubleshooting protocols.
-- 💡 [**Tool Cheatsheets & Command Translation (`docs/cheatsheets/README.md`)**](docs/cheatsheets/README.md) — Side-by-side comparison of standard DevOps tools (`git`, `kubectl`, `helm`, `docker`, `terraform`, `trivy`, `prometheus`, `grafana`, `ollama`) vs `devops-cli`.
-- 📖 [**Consolidated CLI Reference (`docs/CLI_REFERENCE.md`)**](docs/CLI_REFERENCE.md) — Full subcommand reference.
-- 🌐 [**Environment Variables Guide (`docs/ENV_VARS.md`)**](docs/ENV_VARS.md) — System and environment settings.
-- ⚡ [**FastMCP Tools Specification (`docs/MCP_TOOLS.md`)**](docs/MCP_TOOLS.md) — Registered MCP tools.
+- [**System Architecture & Technical Design (`ARCHITECTURE.md`)**](ARCHITECTURE.md) — Subsystem topologies, multi-agent sequence diagrams, and lifecycle hooks.
+- [**Release Cycle & Versioning Guide (`RELEASE_CYCLE.md`)**](RELEASE_CYCLE.md) — Semantic versioning, validation checks, and release procedures.
+- [**Security Policy & Threat Model (`SECURITY.md`)**](SECURITY.md) — Vulnerability disclosure, SSRF protections, and OS Keyring encryption.
+- [**Contributor Guidelines (`CONTRIBUTING.md`)**](CONTRIBUTING.md) — Standards, local development with `uv`, and PR workflows.
+- [**Routine Tasks, Order & Methodology Guide (`docs/ROUTINE_TASKS.md`)**](docs/ROUTINE_TASKS.md) — Operational task matrix, cadences, execution order, and troubleshooting protocols.
+- [**Tool Cheatsheets & Command Translation (`docs/cheatsheets/README.md`)**](docs/cheatsheets/README.md) — Side-by-side comparison of standard DevOps tools (`git`, `kubectl`, `helm`, `docker`, `terraform`, `trivy`, `prometheus`, `grafana`, `ollama`) vs `devops-cli`.
+- [**Consolidated CLI Reference (`docs/CLI_REFERENCE.md`)**](docs/CLI_REFERENCE.md) — Full subcommand reference.
+- [**Environment Variables Guide (`docs/ENV_VARS.md`)**](docs/ENV_VARS.md) — System and environment settings.
+- [**FastMCP Tools Specification (`docs/MCP_TOOLS.md`)**](docs/MCP_TOOLS.md) — Registered MCP tools.
 
 ---
 

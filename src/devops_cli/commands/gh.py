@@ -16,7 +16,7 @@ from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
-from devops_cli.github.client import GitHubClient
+from devops_cli.github.client import GhCliClient, GitHubClient, parse_paginated_json
 from devops_cli.github.issues import (
     audit_issues_triage,
     create_repository_issue,
@@ -153,23 +153,19 @@ def _get_repo_milestones(repo: str | None = None, state: str = "all") -> list[di
     ]
     res = run_subprocess(cmd, check=False, quiet=True)
     if res.returncode == 0 and res.stdout.strip():
-        try:
-            raw = json.loads(res.stdout)
-            return [
-                {
-                    "title": m.get("title", ""),
-                    "number": m.get("number", 0),
-                    "state": m.get("state", "open"),
-                    "description": m.get("description", "") or "",
-                    "open_issues": m.get("open_issues", 0),
-                    "closed_issues": m.get("closed_issues", 0),
-                    "due_on": m.get("due_on"),
-                }
-                for m in raw
-                if isinstance(m, dict)
-            ]
-        except json.JSONDecodeError:
-            pass
+        raw = parse_paginated_json(res.stdout)
+        return [
+            {
+                "title": m.get("title", ""),
+                "number": m.get("number", 0),
+                "state": m.get("state", "open"),
+                "description": m.get("description", "") or "",
+                "open_issues": m.get("open_issues", 0),
+                "closed_issues": m.get("closed_issues", 0),
+                "due_on": m.get("due_on"),
+            }
+            for m in raw
+        ]
     return []
 
 
@@ -244,45 +240,7 @@ def sync_labels(
         print_error(f"Failed to load labels schema: {exc}")
         raise typer.Exit(1) from exc
 
-    client = _get_github_client()
-    if not client:
-        # Provide lightweight mock/wrapper client for local sync or dry runs
-        class _GhCliLabelShim:
-            def get_labels(self, r: str) -> list[dict[str, Any]]:
-                return _get_repo_labels(repo)
-
-            def create_label(self, r: str, name: str, color: str, description: str = "") -> None:
-                cmd = [
-                    CONST_GH_CLI,
-                    "label",
-                    "create",
-                    name,
-                    "--color",
-                    color,
-                    "--description",
-                    description,
-                ]
-                if repo:
-                    cmd.extend(["--repo", repo])
-                run_subprocess(cmd, check=False)
-
-            def edit_label(self, r: str, name: str, color: str, description: str = "") -> None:
-                cmd = [
-                    CONST_GH_CLI,
-                    "label",
-                    "edit",
-                    name,
-                    "--color",
-                    color,
-                    "--description",
-                    description,
-                ]
-                if repo:
-                    cmd.extend(["--repo", repo])
-                run_subprocess(cmd, check=False)
-
-        client = _GhCliLabelShim()  # type: ignore[assignment]
-
+    client = _get_github_client() or GhCliClient(target_repo)
     result = sync_repository_labels(client, target_repo, desired, dry_run=dry_run)
     mode_text = "[yellow][DRY RUN][/yellow] " if result.dry_run else ""
     print_success(
@@ -364,38 +322,7 @@ def sync_milestones(
         print_error(f"Failed to extract milestones from roadmap: {exc}")
         raise typer.Exit(1) from exc
 
-    client = _get_github_client()
-    if not client:
-
-        class _GhCliMilestoneShim:
-            def get_milestones(self, r: str, state: str = "all") -> list[dict[str, Any]]:
-                return _get_repo_milestones(r, state=state)
-
-            def create_milestone(
-                self,
-                r: str,
-                title: str,
-                description: str = "",
-                state: str = "open",
-                due_on: Any = None,
-            ) -> None:
-                cmd = [
-                    CONST_GH_CLI,
-                    "api",
-                    f"repos/{r}/milestones",
-                    "-f",
-                    f"title={title}",
-                    "-f",
-                    f"description={description}",
-                    "-f",
-                    f"state={state}",
-                ]
-                if due_on:
-                    cmd.extend(["-f", f"due_on={due_on}"])
-                run_subprocess(cmd, check=False)
-
-        client = _GhCliMilestoneShim()  # type: ignore[assignment]
-
+    client = _get_github_client() or GhCliClient(target_repo)
     result = sync_repository_milestones(client, target_repo, desired, dry_run=dry_run)
     mode_text = "[yellow][DRY RUN][/yellow] " if result.dry_run else ""
     print_success(

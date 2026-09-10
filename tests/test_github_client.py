@@ -9,7 +9,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from github.GithubException import UnknownObjectException
 
-from devops_cli.github.client import GitHubClient, RepoInfo
+from devops_cli.github.client import (
+    GhCliClient,
+    GitHubClient,
+    RepoInfo,
+    parse_paginated_json,
+)
 
 
 def test_repo_info_model() -> None:
@@ -330,3 +335,84 @@ def test_close_milestone_by_title_and_number(monkeypatch: pytest.MonkeyPatch) ->
     # 3. Non-existent milestone returns False
     res_missing = client.close_milestone("octo/repo", "v9.9.9")
     assert res_missing is False
+
+
+def test_parse_paginated_json_concatenated_documents() -> None:
+    """Verify parse_paginated_json correctly parses multiple concatenated pages from gh api --paginate."""
+    page_1 = '[{"number": 1, "title": "v0.1.0"}]'
+    page_2 = '[{"number": 2, "title": "v0.2.0"}, {"number": 3, "title": "v0.3.0"}]'
+    raw_output = f"{page_1}\n{page_2}\n"
+
+    parsed = parse_paginated_json(raw_output)
+    assert len(parsed) == 3
+    assert parsed[0]["title"] == "v0.1.0"
+    assert parsed[1]["title"] == "v0.2.0"
+    assert parsed[2]["title"] == "v0.3.0"
+
+    assert parse_paginated_json("") == []
+    assert parse_paginated_json("   ") == []
+
+
+def test_gh_cli_client_labels() -> None:
+    """Verify GhCliClient label listing, creation, and editing commands."""
+    client = GhCliClient(default_repo="owner/my-repo")
+
+    mock_list_proc = MagicMock(
+        returncode=0,
+        stdout='[{"name": "bug", "color": "d73a4a", "description": "Bug fix"}]',
+    )
+    mock_run = MagicMock(return_value=mock_list_proc)
+
+    with patch("devops_cli.github.client.run_subprocess", mock_run):
+        labels = client.get_labels("owner/my-repo")
+        assert len(labels) == 1
+        assert labels[0]["name"] == "bug"
+        assert mock_run.call_args[0][0][:4] == ["gh", "label", "list", "--json"]
+
+        client.create_label("owner/my-repo", "feature", "#0e8a16", "New feature")
+        create_cmd = mock_run.call_args[0][0]
+        assert create_cmd[:4] == ["gh", "label", "create", "feature"]
+        assert "--color" in create_cmd
+        assert "0e8a16" in create_cmd
+
+        client.edit_label("owner/my-repo", "feature", "0075ca", "Updated desc")
+        edit_cmd = mock_run.call_args[0][0]
+        assert edit_cmd[:4] == ["gh", "label", "edit", "feature"]
+        assert "0075ca" in edit_cmd
+
+
+def test_gh_cli_client_milestones_paginated() -> None:
+    """Verify GhCliClient milestone querying across multiple paginated pages."""
+    client = GhCliClient(default_repo="owner/my-repo")
+
+    multi_page_stdout = (
+        '[{"number": 1, "title": "v0.1.0", "state": "closed", "open_issues": 0, "closed_issues": 5}]\n'
+        '[{"number": 2, "title": "v0.2.0", "state": "open", "open_issues": 3, "closed_issues": 10}]\n'
+    )
+    mock_proc = MagicMock(returncode=0, stdout=multi_page_stdout)
+    mock_run = MagicMock(return_value=mock_proc)
+
+    with patch("devops_cli.github.client.run_subprocess", mock_run):
+        milestones = client.get_milestones("owner/my-repo")
+        assert len(milestones) == 2
+        assert milestones[0]["title"] == "v0.1.0"
+        assert milestones[0]["state"] == "closed"
+        assert milestones[1]["title"] == "v0.2.0"
+        assert milestones[1]["open_issues"] == 3
+
+        client.create_milestone(
+            "owner/my-repo",
+            "v0.3.0",
+            description="Next release",
+            due_on="2026-10-01T00:00:00Z",
+        )
+        create_cmd = mock_run.call_args[0][0]
+        assert "repos/owner/my-repo/milestones" in create_cmd
+        assert "title=v0.3.0" in create_cmd
+        assert "due_on=2026-10-01T00:00:00Z" in create_cmd
+
+        client.edit_milestone("owner/my-repo", 2, title="v0.2.1", state="closed")
+        edit_cmd = mock_run.call_args[0][0]
+        assert "repos/owner/my-repo/milestones/2" in edit_cmd
+        assert "title=v0.2.1" in edit_cmd
+        assert "state=closed" in edit_cmd

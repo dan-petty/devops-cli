@@ -151,17 +151,17 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Dedicated Agent Operational Task Tracking Tier (`docs/agent/`)**:
   - Canonical task status tracking under `docs/agent/task.md` with explicit lifecycle guidelines (`docs/agent/README.md`).
 
-### Workstation Infrastructure, FastMCP 72 Tools & Quality Architecture (v0.2.11 - Completed)
+### Workstation Infrastructure, FastMCP Parity & Quality Architecture (v0.2.11 - Completed)
 - [x] **Workstation Infrastructure Valkey Migration**: Replaced Redis components with Valkey 8.0-alpine under BSD-3-Clause across ArgoCD and LLM cluster stacks.
 - [x] **Codebase Stylistic Drift Remediation & Invariants**: Enforced strict nesting depth $\le 5$ (< 6 indentations), cyclomatic complexity $\le 10$, standardized domain exception taxonomy (`DevOpsCLIError`), and automated CI architectural invariant gates (`tests/test_architectural_invariants.py`).
-- [x] **FastMCP Server Tool Parity Expansion (72 Tools)**: Expanded registered FastMCP tools from 53 to 72 tools covering security scans (Trivy, Gitleaks, Semgrep, Checkov, AIBOM, SBOM), Kubernetes operations (chaos, audit, lint, validate, diff), HashiCorp Vault (set, sync), benchmarking, and Git/PR governance.
+- [x] **FastMCP Server Tool Parity Expansion**: Expanded registered FastMCP tools covering security scans (Trivy, Gitleaks, Semgrep, Checkov, AIBOM, SBOM), Kubernetes operations (chaos, audit, lint, validate, diff), HashiCorp Vault (set, sync), benchmarking, and Git/PR governance.
 - [x] **FastMCP Prompt Templates & Dynamic System Resources**: Implemented 4 prompt templates (`code_review_prompt`, `security_audit_prompt`, `k8s_diagnostics_prompt`, `architecture_analysis_prompt`) and 6 dynamic system resources (`resource://workspace/status`, `resource://config/active`, `resource://telemetry/status`, `resource://release/status`, `resource://vault/status`, `resource://mcp/tools`).
 - [x] **FastMCP JSON Schema Exporter (`devops mcp export-schemas`)**: Built introspection CLI command exporting JSON tool schemas and markdown instructions, synchronizing with Antigravity IDE lazy tool loader.
 - [x] **Enterprise SDLC Governance & Community Health**: Authored `docs/SDLC.md`, standardized `.github/pull_request_template.md`, issue forms, `CODEOWNERS`, `dependabot.yml`, `SECURITY.md`, and `CONTRIBUTING.md`.
 - [x] **Review Findings Remediation & Invariant Hardening**: Remediated path traversal in repo listing and ArgoCD manifests, Vault percent-encoded traversal, tool argument validation, and AWS EKS public endpoint exposure.
 - [x] **AI Review Report Executive Summary Statement**: Synthesized high-level overview statements, key good patterns, and dynamically categorized defect anti-patterns directly under report titles in markdown artifacts and console output.
 - [x] **Autonomous Review Feedback & Self-Improvement Loop Hardening**: Grounded missing-symbol and masked-placeholder hallucination detection with AST export verification, word boundary lookaheads, and prompt guardrails.
-- [x] **Submodule Boilerplate Consolidation & Usability Architecture (Phase 42)**:
+- [x] **Submodule Boilerplate Consolidation & Usability Architecture**:
   - **Declarative Dry-Run Execution (`@dry_run_command`)**: Implemented `@dry_run_command` in `devops_cli.dry_run.decorator` eliminating repetitive manual dry-run interception blocks and cyclomatic overhead across 35 command files.
   - **Universal CLI Error Boundary & Decorator (`@cli_command_handler`)**: Unified OpenTelemetry span tracing, command duration/counter metrics, clean error output, and standard `typer.Exit(code=exc.exit_code)` dispatch.
   - **Filesystem Subpath Containment & Traversal Defense (`safe_resolve_subpath`)**: Standardized secure path resolution in `devops_cli.core.paths` guarding against directory traversal, absolute path escapes, and symlink dereference attacks.
@@ -169,25 +169,25 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - **External Binary Pre-flight Verification (`require_binary` / `check_binary`)**: Built dependency verification utilities in `devops_cli.core.binaries` raising strongly typed `DependencyError` with actionable installation hints.
   - **Universal Secret Masking & Credential Sanitizer (`devops_cli.security.sanitizer`)**: Centralized secret redaction (`mask_secrets`, `mask_dict_secrets`, `mask_uri_credentials`), eliminating 80 lines of duplicate pattern arrays.
   - **Markdown Codeblock JSON Deserializer (`extract_json_block`)**: Centralized markdown JSON parsing in `devops_cli.core.serialization` with `json_repair` fallback.
-- [x] **Declarative Security Framework Foundation & AST Cache Tier (Phase 43)**:
+- [x] **Declarative Security Framework Foundation & AST Cache Tier**:
   - **Declarative Security Scanner Framework (`BaseSecurityScanner`)**: Universal abstract base class in `devops_cli.security.base` standardizing scanner lifecycle, binary pre-flight checks, timeout execution, JSON extraction, and normalized `Finding` creation.
   - **Centralized Scanner Registry (`ScannerRegistry`)**: Dynamic scanner registry in `devops_cli.security.registry` providing introspection, capability filtering, and batch dispatch.
   - **In-Memory High-Performance AST Cache Tier (`ASTCache`)**: Thread-safe in-memory cache in `devops_cli.ai.ast_cache` keyed by `(filepath, st_mtime)` eliminating redundant AST parsing during multi-persona reviews.
   - **Declarative Rich Table Builder (`render_table`)**: Declarative table rendering helper in `devops_cli.output.table_builder` unifying table layouts, empty states, and JSON/YAML serialization.
-- [x] **GitHub Management & Quality Automation (Phase 44)**:
+- [x] **GitHub Management & Quality Automation**:
   - **Declarative GitHub Taxonomy (`.github/labels.yml`)**: Standardized 29 labels across `type/*`, `scope/*`, `priority/*`, `status/*`, and `review/*`.
   - **GitHub Projects v2 Life Cycle Template (`.github/project-template.json`)**: Configured 4 standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*).
   - **Native GitHub CLI Command Group (`devops gh`)**: Added `devops gh labels list|sync|audit`, `devops gh milestones list|sync|status`, `devops gh project status|sync|template`, and `devops gh views list|spec`.
   - **FastMCP GitHub Tools**: Added 6 FastMCP tools (`gh_label_list`, `gh_label_sync`, `gh_milestone_list`, `gh_milestone_sync`, `gh_project_status`, `gh_view_spec`).
   - **Task Manual 13**: Authored `src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md`.
-- [x] **Documentation & AI Instruction Token Optimization (Phase 45)**:
+- [x] **Documentation & AI Instruction Token Optimization**:
   - **Root Agent Instructions Optimization (`AGENTS.md`)**: Reduced file size by 36% (10.5 KB saved) to eliminate assistant context truncation while preserving all architectural invariants and security mandates.
   - **Review Prompt Stack Deduplication (`src/devops_cli/ai/tasks/`)**: Deduplicated overlapping instructions across `review.md`, `guardrails_isolation.md`, and `verify_finding_system.md` saving 34% prompt tokens per segment.
   - **Dedicated Agent Data Isolation**: Cleanly separated workspace data root (`./.data`) from isolated agent task artifacts (`<data_dir>/agent`, e.g. `./.data/agent`).
-- [x] **Principal DevSecOps Architectural Review & Threat Evaluation (Phase 47.1)**:
+- [x] **Principal DevSecOps Architectural Review & Threat Evaluation**:
   - Comprehensive architectural review by Principal DevSecOps Engineer evaluating supply chain, process execution, container sandboxing, network perimeter/SSRF, secret management, Kubernetes posture, and AI/LLM safety.
   - Authored full evaluation report detailing 1 Critical, 4 High, and 4 Medium/Low findings with verified exploit scenarios and remediation specifications.
-- [ ] **DevSecOps Architectural Hardening & Zero-Trust Defense-in-Depth (Phase 47.2)**:
+- [ ] **DevSecOps Architectural Hardening & Zero-Trust Defense-in-Depth**:
   - **OpenAIProvider Authentication Header Injection**: Inject `Authorization: Bearer <token>` in `OpenAIProvider.generate()` leveraging `settings.ai.openai_api_key` or OS Keyring, eliminating 401 Unauthorized failures on authenticated OpenAI-compatible endpoints.
   - **Fail-Closed SSRF DNS Resolution Guard**: Harden `_enforce_non_private_ssrf` in `devops_cli.core.validation` to fail closed when `allow_private=False` upon DNS timeouts, `socket.gaierror`, or `OSError`, mitigating DNS rebinding and delayed resolution bypasses.
   - **Universal Secret Sanitizer Pattern Expansion**: Expand `_SECRET_PATTERNS` in `devops_cli.security.sanitizer` with Vault tokens (`hvs.*`, `s.*`), GitLab PATs (`glpat-*`), Slack/Discord webhooks, and HuggingFace API keys (`hf_*`).
@@ -201,8 +201,8 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **FastMCP Valkey Toolset & Live System Resource**: 6 FastMCP tools (`valkey_ping`, `valkey_info`, `valkey_get`, `valkey_set`, `valkey_keys`, `valkey_flush`) and dynamic system resource `resource://valkey/status` reporting real-time memory usage, connected clients, and cache hit ratios.
 - [x] **Ephemeral Testcontainers Valkey Testing Harness**: Rootless container fixture (`testcontainers-python` running `valkey/valkey:8.0-alpine`) for offline unit and integration test suites without requiring live Minikube cluster dependencies.
 - [x] **Valkey IT Domain Knowledge Base Manual (`it_domains/tools/valkey.md`)**: Comprehensive technical guide covering Valkey 8.0 architecture, RESP3 wire protocol, memory optimization, eviction policies, and cluster topologies.
-- [x] **Automated PR DevContainer Pruning & Package Lifecycle (Phase 47.4)**: Author automated GHCR cleanup workflow (`cleanup-devcontainer.yml`) pruning PR-specific devcontainer tags upon PR closure.
-- [x] **Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust (Phase 48)**:
+- [x] **Automated PR DevContainer Pruning & Package Lifecycle**: Author automated GHCR cleanup workflow (`cleanup-devcontainer.yml`) pruning PR-specific devcontainer tags upon PR closure.
+- [x] **Infrastructure Perimeter, Supply Chain & Workstation Zero-Trust**:
   - [x] **Kubernetes Pod Security Admission (PSA) Enforcement**: Apply PSA enforcement and audit labels across all namespaces in `k8s/namespaces.yaml` and `k8s/llm/namespace.yaml`.
   - [x] **Cluster Default-Deny NetworkPolicies**: Author granular `NetworkPolicy` manifests for `k8s/monitoring/` and `k8s/argocd/` with explicit DNS and inter-service egress rules.
   - [x] **Subprocess Environment Isolation & Credential Boundary**: Restrict default environment inheritance in `run_subprocess` (`src/devops_cli/core/process.py`) to prevent ambient token leakage to untrusted child binaries.
@@ -271,7 +271,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: Keyless cryptographic container image and manifest signing integrating with OS Keyring and OIDC tokens for verifiable supply-chain provenance.
 - [ ] **Falco eBPF Runtime Security & Anomaly Streamer (`devops k8s security-stream`) (P2 - Medium)**:
   - *Context & Rationale*: Real-time kernel-level syscall anomaly streaming via eBPF probes, detecting unauthorized container privilege escalation, sensitive file reads, and unexpected network egress.
-- [ ] **GitHub Enterprise Automation Phase 2 (`devops gh branch-protection`, `secrets`) (P2 - Medium)**:
+- [ ] **Extended GitHub Enterprise Automation (`devops gh branch-protection`, `secrets`) (P2 - Medium)**:
   - *Context & Rationale*: Declarative branch protection policy enforcement and libsodium-encrypted secret synchronization from OS Keyring/Vault to GitHub repository secrets.
 - [ ] **Deterministic Async Memory & Connection Pool Profiler (`devops test profile-memory`) (P2 - Medium)**:
   - *Context & Rationale*: Diagnostic tool leveraging Python `tracemalloc` to validate socket lifecycles and catch memory leaks across background daemons and FastMCP workers.

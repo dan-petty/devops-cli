@@ -9,16 +9,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from devops_cli.ai.review.sanitization import (
-    _mask_secrets_in_content,
-    _sanitize_prompt_boundary_tags,
-)
 from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.defaults import (
     DEFAULT_DIFF_CONTEXT_LINES,
     DEFAULT_MAX_RELATED_FILES,
     DEFAULT_RELATED_FILE_MAX_CHARS,
+)
+from devops_cli.security.sanitizer import (
+    mask_secrets,
+    sanitize_prompt_boundary_tags,
 )
 
 logger = logging.getLogger(__name__)
@@ -145,7 +145,7 @@ def _read_and_mask_related_file(
         if not resolved.is_file():
             return None
         raw_text = resolved.read_text(encoding="utf-8", errors="replace")[:max_chars]
-        clean_text = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(raw_text))
+        clean_text = sanitize_prompt_boundary_tags(mask_secrets(raw_text))
         return f"```\n{clean_text}\n```"
     except Exception as exc:
         logger.debug("Failed reading related file %s: %s", rel_path, exc)
@@ -180,7 +180,7 @@ def _extract_finding_excerpt(finding: Finding, all_segments: list[str]) -> str |
     for segment in all_segments:
         ctx = _extract_location_context(segment, finding.location)
         if ctx:
-            clean_ctx = _sanitize_prompt_boundary_tags(ctx)
+            clean_ctx = sanitize_prompt_boundary_tags(ctx)
             return f"### Finding: {finding.title} ({finding.location})\n```\n{clean_ctx}\n```"
     return None
 
@@ -235,7 +235,7 @@ def _build_validation_prompt(
         code_section = "\n\n".join(excerpts)
     else:
         full_code = "\n\n---\n\n".join(all_segments)
-        code_section = _sanitize_prompt_boundary_tags(_mask_secrets_in_content(full_code))
+        code_section = sanitize_prompt_boundary_tags(mask_secrets(full_code))
 
     related_section = ""
     if analysis_metas:
@@ -255,7 +255,7 @@ def _build_validation_prompt(
             + "\n</untrusted_rag_context>\n\n"
         )
 
-    findings_json = _sanitize_prompt_boundary_tags(
+    findings_json = sanitize_prompt_boundary_tags(
         json.dumps(
             [
                 {k: v for k, v in f.model_dump().items() if k not in {"verified", "mitigated"}}

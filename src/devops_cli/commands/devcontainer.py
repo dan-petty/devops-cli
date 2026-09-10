@@ -63,10 +63,6 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # =============================================================================
 
 
-def _project_python_version() -> str:
-    return get_project_python_version()
-
-
 def _jinja_env() -> Environment:
     return Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
@@ -92,7 +88,7 @@ def init(
     ] = None,
     python_version: Annotated[
         str, typer.Option("--python", help=HELP.devcontainer.python_version)
-    ] = _project_python_version(),
+    ] = get_project_python_version(),
     image: Annotated[
         str | None,
         typer.Option(
@@ -186,7 +182,7 @@ def update(
     ] = DEFAULT_CURRENT_PATH,
     python_version: Annotated[
         str, typer.Option("--python", help=HELP.devcontainer.python_version)
-    ] = _project_python_version(),
+    ] = get_project_python_version(),
 ) -> None:
     """Update the Python image version in an existing devcontainer.json."""
     dc_file = repo_path / CONST_DEVCONTAINER_JSON_PATH

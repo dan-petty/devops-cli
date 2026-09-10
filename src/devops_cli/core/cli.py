@@ -55,9 +55,9 @@ def _record_cli_failure(span_h: Any, cmd_name: str, dur: float, exc: Exception) 
             attributes={"command": cmd_name, "status": "ok"},
         )
     else:
-        from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+        from devops_cli.security.sanitizer import mask_secrets
 
-        clean_err = _mask_secrets_in_content(str(exc))
+        clean_err = mask_secrets(str(exc))
         span_h.set_attribute("cli.error", clean_err)
         span_h.add_event(
             "subcommand_failed",
@@ -81,7 +81,7 @@ def _execute_traced_cli_command(
     from devops_cli.telemetry import trace_span
 
     span_name = f"cli.{cmd_name}"
-    t0 = time.perf_counter()
+    start_time = time.perf_counter()
     kwargs_summary = ", ".join(f_kwargs.keys()) if f_kwargs else ""
     attrs = {
         "cli.command": cmd_name,
@@ -93,10 +93,10 @@ def _execute_traced_cli_command(
         span_h.add_event("subcommand_started", {"command": cmd_name})
         try:
             res = f(*f_args, **f_kwargs)
-            _record_cli_success(span_h, cmd_name, time.perf_counter() - t0)
+            _record_cli_success(span_h, cmd_name, time.perf_counter() - start_time)
             return res
         except Exception as exc:
-            _record_cli_failure(span_h, cmd_name, time.perf_counter() - t0, exc)
+            _record_cli_failure(span_h, cmd_name, time.perf_counter() - start_time, exc)
             raise
 
 

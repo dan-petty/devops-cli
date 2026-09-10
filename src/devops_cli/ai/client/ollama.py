@@ -197,7 +197,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
     def _ollama_request(
         self, base: str, system: str, messages: list[ChatMessage], think: bool
     ) -> LLMResponse:
-        t0 = time.monotonic()
+        start_time = time.monotonic()
         with httpx2.Client(timeout=self._request_timeout()) as http_client:
             payload: dict[str, Any] = {
                 "model": self._config.model,
@@ -231,7 +231,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 self._ollama_thinking_supported = True
 
             raw_res = read_limited_json(response)
-            wall_elapsed = time.monotonic() - t0
+            wall_elapsed = time.monotonic() - start_time
 
             msg = raw_res.get("message", {})
             content = str(msg.get("content", ""))
