@@ -1420,6 +1420,37 @@ Argo CD, Workflows, and Rollouts management.
 devops argo cd COMMAND [ARGS]...
 ```
 
+#### `devops argo cd fleet`
+
+```bash
+devops argo cd fleet COMMAND [ARGS]...
+```
+
+##### `devops argo cd fleet sync`
+
+**Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency.**
+
+```bash
+devops argo cd fleet sync [OPTIONS] <app_name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<app_name>` | `string` | Yes | Application name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--clusters`, `-c` | `string` | `dev,staging,prod` | Comma-separated list of target cluster names (e.g. dev,staging,prod) |
+| `--fleet` | `string` | `default-fleet` | Fleet identifier group name |
+| `--concurrency`, `-p` | `integer` | `3` | Maximum concurrent cluster synchronization workers |
+| `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
+| `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
 #### `devops argo cd apps`
 
 ```bash
@@ -1600,6 +1631,121 @@ devops argo rollouts status [OPTIONS] <name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
 | `--watch`, `-w` | `boolean` | - | Watch application status changes live. |
+
+#### `devops argo rollouts promote`
+
+**Promote an in-progress Argo Rollout to the next progressive step or full release.**
+
+```bash
+devops argo rollouts promote [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Rollout name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+| `--full` | `boolean` | - | Skip all remaining steps and promote directly to full release |
+
+#### `devops argo rollouts abort`
+
+**Abort an in-progress Argo Rollout and revert immediately to the stable replica set.**
+
+```bash
+devops argo rollouts abort [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Rollout name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+
+#### `devops argo rollouts restart`
+
+**Perform a restart rollout across all pods in an Argo Rollout.**
+
+```bash
+devops argo rollouts restart [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Rollout name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+
+#### `devops argo rollouts analyze`
+
+**Evaluate metric rollback gates and trigger automated rollback on threshold violation.**
+
+```bash
+devops argo rollouts analyze [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Rollout name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+| `--error-rate-threshold`, `-e` | `float` | `1.0` | Maximum allowable HTTP 5xx error rate percentage before triggering automated rollback |
+| `--auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
+### `devops argo fleet`
+
+```bash
+devops argo fleet COMMAND [ARGS]...
+```
+
+#### `devops argo fleet sync`
+
+**Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency.**
+
+```bash
+devops argo fleet sync [OPTIONS] <app_name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<app_name>` | `string` | Yes | Application name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--clusters`, `-c` | `string` | `dev,staging,prod` | Comma-separated list of target cluster names (e.g. dev,staging,prod) |
+| `--fleet` | `string` | `default-fleet` | Fleet identifier group name |
+| `--concurrency`, `-p` | `integer` | `3` | Maximum concurrent cluster synchronization workers |
+| `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
+| `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 

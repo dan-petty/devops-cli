@@ -856,3 +856,76 @@ def format_tflint_table(findings: Sequence[Any], target_name: str) -> TablePaylo
         columns=columns,
         rows=rows,
     )
+
+
+def format_argo_fleet_sync_table(result: Any) -> TablePayload:
+    """Build a structured TablePayload for Argo multi-cluster fleet synchronization."""
+    from devops_cli.output.models import TableColumn, TablePayload
+
+    columns: list[TableColumn | str | tuple[str, str | int]] = [
+        TableColumn(header="Cluster", style="bold cyan"),
+        TableColumn(header="Application", style="bold"),
+        TableColumn(header="Status"),
+        TableColumn(header="Duration (s)", justify="right"),
+        TableColumn(header="Message"),
+    ]
+    rows: list[list[str]] = []
+    targets = getattr(result, "targets", [])
+    for t in targets:
+        st = getattr(t, "status", "Unknown")
+        status_styled = f"[green]{st}[/green]" if st == "Synced" else f"[red]{st}[/red]"
+        rows.append(
+            [
+                getattr(t, "cluster", ""),
+                getattr(t, "app_name", ""),
+                status_styled,
+                f"{getattr(t, 'duration_seconds', 0.0):.2f}",
+                getattr(t, "message", ""),
+            ]
+        )
+    fleet_name = getattr(result, "fleet_name", "Fleet")
+    synced = getattr(result, "total_synced", 0)
+    failed = getattr(result, "total_failed", 0)
+    return TablePayload(
+        title=f"Argo Fleet Synchronization: {fleet_name} ({synced} synced, {failed} failed)",
+        columns=columns,
+        rows=rows,
+    )
+
+
+def format_argo_rollout_analysis_table(result: Any) -> TablePayload:
+    """Build a structured TablePayload for Argo Rollout metric gate analysis."""
+    from devops_cli.output.models import TableColumn, TablePayload
+
+    columns: list[TableColumn | str | tuple[str, str | int]] = [
+        TableColumn(header="Metric", style="bold cyan"),
+        TableColumn(header="Value", justify="right"),
+        TableColumn(header="Operator"),
+        TableColumn(header="Threshold", justify="right"),
+        TableColumn(header="Status"),
+    ]
+    rows: list[list[str]] = []
+    metric_results = getattr(result, "metric_results", [])
+    for m in metric_results:
+        passed = m.get("passed", False) if isinstance(m, dict) else getattr(m, "passed", False)
+        status_styled = "[green]PASSED[/green]" if passed else "[red]FAILED[/red]"
+        metric_name = m.get("metric", "") if isinstance(m, dict) else getattr(m, "metric_name", "")
+        val = m.get("value", 0.0) if isinstance(m, dict) else getattr(m, "value", 0.0)
+        op = m.get("operator", "") if isinstance(m, dict) else getattr(m, "operator", "")
+        thresh = m.get("threshold", 0.0) if isinstance(m, dict) else getattr(m, "threshold", 0.0)
+        rows.append(
+            [
+                str(metric_name),
+                f"{val:.3f}" if isinstance(val, (int, float)) else str(val),
+                str(op),
+                f"{thresh:.3f}" if isinstance(thresh, (int, float)) else str(thresh),
+                status_styled,
+            ]
+        )
+    rollout_name = getattr(result, "rollout_name", "Rollout")
+    action = getattr(result, "action_taken", "None")
+    return TablePayload(
+        title=f"Argo Rollout Analysis: {rollout_name} (Action: {action.upper()})",
+        columns=columns,
+        rows=rows,
+    )

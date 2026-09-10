@@ -227,6 +227,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 | **argo** | `devops argo cd COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 |  | `devops argo workflows COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 |  | `devops argo rollouts COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
+|  | `devops argo fleet COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 | **config** | `devops config show` | Print all configuration values, masking secrets. |
 |  | `devops config get <key>` | Print a single configuration value. |
 |  | `devops config set <key> <value>` | Set a configuration value. Tokens are stored in the OS keyring. |

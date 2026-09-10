@@ -44,3 +44,43 @@ class ArgoCDApp(BaseModel):
             repo_url=str(source.get("repoURL", "")),
             revision=str(sync.get("revision", ""))[:8],
         )
+
+
+class ArgoFleetAppTarget(BaseModel):
+    """Synchronization state for a single cluster target within an Argo fleet."""
+
+    app_name: str
+    cluster: str
+    status: str = "Pending"
+    message: str = ""
+    duration_seconds: float = 0.0
+
+
+class ArgoFleetSyncResult(BaseModel):
+    """Aggregated outcome of multi-cluster fleet application synchronization."""
+
+    fleet_name: str = "default-fleet"
+    targets: list[ArgoFleetAppTarget] = []
+    total_synced: int = 0
+    total_failed: int = 0
+    success: bool = True
+
+
+class RolloutMetricThreshold(BaseModel):
+    """Metric comparison threshold gate for progressive delivery rollout analysis."""
+
+    metric_name: str
+    query: str
+    threshold: float
+    operator: str = "lte"
+
+
+class RolloutAnalysisResult(BaseModel):
+    """Analysis result of progressive rollout health evaluation and gate triggers."""
+
+    rollout_name: str
+    namespace: str = "default"
+    passed: bool = True
+    metric_results: list[dict[str, object]] = []
+    action_taken: str = "promoted"
+    reason: str = ""

@@ -42,10 +42,13 @@ app = new_typer(help=HELP.argo.app, no_args_is_help=True)
 cd_app = new_typer(help=HELP.argo.cd)
 workflows_app = new_typer(help=HELP.argo.workflows)
 rollouts_app = new_typer(help=HELP.argo.rollouts)
+fleet_app = new_typer(help="Multi-cluster ArgoCD fleet synchronization")
 
 app.add_typer(cd_app, name="cd")
 app.add_typer(workflows_app, name="workflows")
 app.add_typer(rollouts_app, name="rollouts")
+app.add_typer(fleet_app, name="fleet")
+cd_app.add_typer(fleet_app, name="fleet")
 
 cd_apps_app = new_typer(help=HELP.argo.cd)
 cd_app.add_typer(cd_apps_app, name="apps")
@@ -398,3 +401,182 @@ def rollouts_status(
     run_subprocess(
         cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
     )
+
+
+@fleet_app.command("sync")
+@dry_run_command(
+    command="devops argo fleet sync",
+    action="sync_argo_fleet",
+    target_param="app_name",
+    detail_params=["clusters", "fleet_name", "concurrency"],
+)
+def fleet_sync(
+    app_name: Annotated[str, typer.Argument(help=HELP.argo.app_name)],
+    clusters: Annotated[
+        str,
+        typer.Option(
+            "--clusters",
+            "-c",
+            help="Comma-separated list of target cluster names (e.g. dev,staging,prod)",
+        ),
+    ] = "dev,staging,prod",
+    fleet_name: Annotated[
+        str, typer.Option("--fleet", help="Fleet identifier group name")
+    ] = "default-fleet",
+    concurrency: Annotated[
+        int,
+        typer.Option(
+            "--concurrency",
+            "-p",
+            help="Maximum concurrent cluster synchronization workers",
+        ),
+    ] = 3,
+    prune: Annotated[bool, typer.Option("--prune", help=HELP.argo.prune)] = False,
+    force: Annotated[bool, typer.Option("--force", help=HELP.options.force)] = False,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency."""
+    _validate_k8s_name(app_name, "application name")
+    from devops_cli.argo.fleet import render_fleet_sync_table, sync_fleet
+    from devops_cli.output import write_stdout
+
+    cluster_list = [c.strip() for c in clusters.split(",") if c.strip()]
+    for c in cluster_list:
+        _validate_k8s_name(c, "cluster name")
+
+    result = sync_fleet(
+        app_name=app_name,
+        clusters=cluster_list,
+        fleet_name=fleet_name,
+        prune=prune,
+        force=force,
+        max_concurrency=concurrency,
+        dry_run=False,
+    )
+
+    if json_output:
+        write_stdout(result.model_dump_json(indent=2) + "\n")
+    else:
+        print(render_fleet_sync_table(result))
+
+    if not result.success:
+        raise typer.Exit(1)
+
+
+@rollouts_app.command("promote")
+def rollouts_promote(
+    name: Annotated[str, typer.Argument(help=HELP.argo.rollout_name)],
+    namespace: Annotated[
+        str, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = "default",
+    full: Annotated[
+        bool,
+        typer.Option(
+            "--full", help="Skip all remaining steps and promote directly to full release"
+        ),
+    ] = False,
+) -> None:
+    """Promote an in-progress Argo Rollout to the next progressive step or full release."""
+    from devops_cli.argo.rollouts import promote_rollout
+
+    success = promote_rollout(name, namespace=namespace, full=full)
+    if not success:
+        print_error(f"Failed to promote rollout '{name}' in namespace '{namespace}'")
+        raise typer.Exit(1)
+    target_mode = "full release" if full else "next step"
+    print_success(
+        f"Successfully promoted rollout '{name}' ({target_mode}) in namespace '{namespace}'"
+    )
+
+
+@rollouts_app.command("abort")
+def rollouts_abort(
+    name: Annotated[str, typer.Argument(help=HELP.argo.rollout_name)],
+    namespace: Annotated[
+        str, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = "default",
+) -> None:
+    """Abort an in-progress Argo Rollout and revert immediately to the stable replica set."""
+    from devops_cli.argo.rollouts import abort_rollout
+
+    success = abort_rollout(name, namespace=namespace)
+    if not success:
+        print_error(f"Failed to abort rollout '{name}' in namespace '{namespace}'")
+        raise typer.Exit(1)
+    print_success(f"Successfully aborted rollout '{name}' in namespace '{namespace}'")
+
+
+@rollouts_app.command("restart")
+def rollouts_restart(
+    name: Annotated[str, typer.Argument(help=HELP.argo.rollout_name)],
+    namespace: Annotated[
+        str, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = "default",
+) -> None:
+    """Perform a restart rollout across all pods in an Argo Rollout."""
+    from devops_cli.argo.rollouts import restart_rollout
+
+    success = restart_rollout(name, namespace=namespace)
+    if not success:
+        print_error(f"Failed to restart rollout '{name}' in namespace '{namespace}'")
+        raise typer.Exit(1)
+    print_success(f"Successfully restarted rollout '{name}' in namespace '{namespace}'")
+
+
+@rollouts_app.command("analyze")
+def rollouts_analyze(
+    name: Annotated[str, typer.Argument(help=HELP.argo.rollout_name)],
+    namespace: Annotated[
+        str, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = "default",
+    error_rate_threshold: Annotated[
+        float,
+        typer.Option(
+            "--error-rate-threshold",
+            "-e",
+            help="Maximum allowable HTTP 5xx error rate percentage before triggering automated rollback",
+        ),
+    ] = 1.0,
+    auto_abort: Annotated[
+        bool,
+        typer.Option(
+            "--auto-abort",
+            help="Automatically trigger rollout abort when metric analysis violates threshold",
+        ),
+    ] = True,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """Evaluate metric rollback gates and trigger automated rollback on threshold violation."""
+    from devops_cli.argo.rollouts import evaluate_rollout_gate, render_rollout_analysis_table
+    from devops_cli.models.argo import RolloutMetricThreshold
+    from devops_cli.output import write_stdout
+
+    thresholds = [
+        RolloutMetricThreshold(
+            metric_name="http_error_rate_percentage",
+            query=f'sum(rate(http_requests_total{{status=~"5..",app="{name}"}}[2m])) / sum(rate(http_requests_total{{app="{name}"}}[2m])) * 100',
+            threshold=error_rate_threshold,
+            operator="lte",
+        )
+    ]
+
+    result = evaluate_rollout_gate(
+        rollout_name=name,
+        namespace=namespace,
+        thresholds=thresholds,
+        auto_abort=auto_abort,
+    )
+
+    if json_output:
+        write_stdout(result.model_dump_json(indent=2) + "\n")
+    else:
+        print(render_rollout_analysis_table(result))
+
+    if not result.passed:
+        if not json_output:
+            print_error(f"Rollout metric analysis failed: {result.reason}")
+        raise typer.Exit(1)

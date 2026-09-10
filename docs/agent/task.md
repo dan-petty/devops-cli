@@ -976,7 +976,7 @@
 
 ### Pending Tasks
 - [ ] Milestone v0.2.15: GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh
-  - [ ] Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (P0 - Critical)
-  - [ ] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical)
-  - [ ] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High)
-  - [ ] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High)
+  - [x] Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (P0 - Critical, PR #93)
+  - [x] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical, PR #96)
+  - [x] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, PR #97)
+  - [x] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo fleet sync`) (P1 - High, Issue #91, PR #98)

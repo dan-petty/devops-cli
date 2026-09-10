@@ -285,6 +285,64 @@ def argo_status(app: str = "argocd") -> str:
 
 
 @mcp.tool()
+def argo_fleet_sync(
+    app_name: str,
+    clusters: str = "dev,staging,prod",
+    fleet: str = "default-fleet",
+    concurrency: int = 3,
+) -> str:
+    """Coordinate multi-cluster ArgoCD fleet synchronization with bounded concurrency."""
+    _validate_mcp_arg("app_name", app_name)
+    _validate_mcp_int_bound("concurrency", concurrency, min_val=1)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "argo",
+        "fleet",
+        "sync",
+        app_name,
+        "--clusters",
+        clusters,
+        "--fleet",
+        fleet,
+        "--concurrency",
+        str(concurrency),
+        "--json",
+    ]
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def argo_rollout_analyze(
+    rollout_name: str,
+    namespace: str = "default",
+    error_rate_threshold: float = 1.0,
+    auto_abort: bool = True,
+) -> str:
+    """Analyze progressive rollout metric gates and trigger automated rollback on threshold violation."""
+    _validate_mcp_arg("rollout_name", rollout_name)
+    _validate_mcp_arg("namespace", namespace)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "argo",
+        "rollouts",
+        "analyze",
+        rollout_name,
+        "--namespace",
+        namespace,
+        "--error-rate-threshold",
+        str(error_rate_threshold),
+        "--json",
+    ]
+    if auto_abort:
+        cmd.append("--auto-abort")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def grafana_dashboards(query: str = "") -> str:
     """List Grafana dashboards, optionally filtered by search query."""
     if query:
@@ -860,6 +918,26 @@ def get_gh_views_resource() -> str:
     """Return remote GitHub Projects views synchronization and audit status."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "gh", "views", "audit"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://argo/fleet/status")
+def get_argo_fleet_status_resource() -> str:
+    """Return live ArgoCD multi-cluster fleet synchronization status across all managed clusters."""
+    return _run_mcp_cmd(
+        [
+            "uv",
+            "run",
+            "devops",
+            "argo",
+            "fleet",
+            "sync",
+            "root-app",
+            "--clusters",
+            "dev,staging,prod",
+            "--json",
+        ],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 
