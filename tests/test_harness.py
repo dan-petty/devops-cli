@@ -1773,9 +1773,11 @@ def test_harness_memory_suite(tmp_path: Path) -> None:
     assert len(s_search) == 1
     assert s_search[0].path == "topics/cloud.md"
 
-    # Search with limit respects bounds
+    # Search with limit respects bounds and caps large max_results
     bounded_search = sql_store.search("topics", max_results=1)
     assert len(bounded_search) <= 1
+    large_search = sql_store.search("topics", max_results=1_000_000)
+    assert isinstance(large_search, list)
 
     assert sql_store.list_paths(prefix="topics") == ["topics/big.md", "topics/cloud.md"]
     assert sql_store.delete("topics/cloud.md") is True

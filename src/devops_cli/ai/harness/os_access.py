@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.tools import RunContext as NativeRunContext
 
 from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, RunContext, Tool
+from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.ai import HarnessExecutionError
 
 logger = logging.getLogger(__name__)
@@ -24,12 +25,71 @@ STANDARD_SANDBOX_MODULES: frozenset[str] = frozenset(
         "re",
         "math",
         "typing",
-        "sys",
         "unicodedata",
         "datetime",
         "print",
     }
 )
+
+_FORBIDDEN_ATTRIBUTES: frozenset[str] = frozenset(
+    {
+        "__class__",
+        "__base__",
+        "__bases__",
+        "__subclasses__",
+        "__mro__",
+        "__globals__",
+        "__builtins__",
+        "__code__",
+        "__closure__",
+        "__dict__",
+        "__module__",
+        "__qualname__",
+        "__func__",
+        "__self__",
+        "__init__",
+        "__new__",
+        "__import__",
+        "gi_frame",
+        "cr_frame",
+        "f_locals",
+        "f_globals",
+        "f_builtins",
+        "f_code",
+    }
+)
+
+_FORBIDDEN_IDENTIFIERS: frozenset[str] = frozenset(
+    {
+        "__builtins__",
+        "__globals__",
+        "__subclasses__",
+        "eval",
+        "exec",
+        "compile",
+        "open",
+        "breakpoint",
+    }
+)
+
+
+class _ASTSecurityValidator(ast.NodeVisitor):
+    """Validate that code mode AST does not attempt reflection or sandbox escape."""
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        attr = node.attr
+        if attr in _FORBIDDEN_ATTRIBUTES or (attr.startswith("__") and attr.endswith("__")):
+            raise SecurityError(
+                f"Reflection and object graph traversal via '{attr}' is forbidden in sandboxed code mode"
+            )
+        self.generic_visit(node)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if node.id in _FORBIDDEN_IDENTIFIERS:
+            raise SecurityError(
+                f"Access to identifier '{node.id}' is forbidden in sandboxed code mode"
+            )
+        self.generic_visit(node)
 
 
 def _extract_target_names(target: ast.expr) -> set[str]:
@@ -295,11 +355,14 @@ class CodeMode(BaseCapability):
                 t_func = getattr(st, "func", st) if not callable(st) else st
                 sandbox_env[t_name] = self._make_sandboxed_tool_wrapper(t_func, t_name)
 
-            # Parse and transform AST
+            # Parse, validate, and transform AST
             try:
                 parsed = ast.parse(code, mode="exec")
+                _ASTSecurityValidator().visit(parsed)
             except SyntaxError as syn_err:
                 return f"SyntaxError in code mode snippet: {syn_err}"
+            except (SecurityError, RuntimeError, ImportError) as sec_err:
+                return f"RuntimeError in code mode snippet: {sec_err}"
 
             last_val_node: ast.expr | None = None
             if parsed.body:

@@ -117,7 +117,12 @@ class StagePipeline[ContextT, ResultT]:
             except Exception as exc:
                 rec.success = False
                 rec.error_message = mask_secrets(str(exc))
-                stage_span.record_exception(exc)
+                try:
+                    sanitized_exc = type(exc)(rec.error_message)
+                    sanitized_exc.__traceback__ = exc.__traceback__
+                except Exception:
+                    sanitized_exc = exc
+                stage_span.record_exception(sanitized_exc)
             finally:
                 rec.duration_seconds = time.perf_counter() - t_start
                 stage_span.set_attribute("stage.duration_seconds", rec.duration_seconds)

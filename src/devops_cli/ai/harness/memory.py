@@ -462,7 +462,7 @@ class SqliteMemoryStore(BaseModel):
         terms = list(dict.fromkeys(q.split()))[:32]
         conn = self._get_conn()
         try:
-            search_limit = max(1000, max_results * 100)
+            search_limit = max(100, min(max(1000, max_results * 100), 10_000))
             cur = conn.execute(
                 "SELECT path, content FROM memory_files LIMIT ?",
                 (search_limit,),

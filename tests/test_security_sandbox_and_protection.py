@@ -70,12 +70,15 @@ math.sqrt(16)
     res_safe = asyncio.run(run_fn(code=safe_script))
     assert res_safe == 4.0 or res_safe == {"result": 4.0} or "4.0" in str(res_safe)
 
-    # Dangerous reflection builtins (getattr, hasattr, type) and sys import must be blocked
+    # Dangerous reflection builtins (getattr, hasattr, type), sys import, and dunder traversal must be blocked
     for dangerous_snippet in [
         "getattr(math, 'sqrt')(16)",
         "hasattr(math, 'sqrt')",
         "type(123)",
         "import sys",
+        "().__class__.__base__.__subclasses__()",
+        "[].__class__.__mro__",
+        "__builtins__",
     ]:
         res_dang = asyncio.run(run_fn(code=dangerous_snippet))
         assert (
@@ -84,6 +87,7 @@ math.sqrt(16)
             or "RuntimeError" in str(res_dang)
             or "not permitted" in str(res_dang)
             or "is not defined" in str(res_dang)
+            or "forbidden" in str(res_dang)
         )
 
 

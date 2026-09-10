@@ -343,9 +343,12 @@ class SpanHandle(str):
         """Record structured exception details and event to the active span."""
         import traceback
 
+        from devops_cli.security.sanitizer import mask_secrets
+
         exc_type = type(exc).__name__
-        exc_msg = str(exc)
-        exc_stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        exc_msg = mask_secrets(str(exc))
+        raw_stack = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        exc_stack = mask_secrets(raw_stack)
         self._attributes["error"] = True
         self._attributes["otel.status_code"] = "ERROR"
         self._attributes["exception.type"] = exc_type
@@ -357,7 +360,10 @@ class SpanHandle(str):
             "exception.stacktrace": exc_stack,
         }
         if attributes:
-            event_attrs.update(attributes)
+            sanitized_attrs = {
+                k: mask_secrets(v) if isinstance(v, str) else v for k, v in attributes.items()
+            }
+            event_attrs.update(sanitized_attrs)
         self.add_event("exception", event_attrs)
 
     def record_llm_metrics(

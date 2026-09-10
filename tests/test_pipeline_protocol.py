@@ -99,3 +99,19 @@ def test_stage_pipeline_error_masking() -> None:
     assert records[0].error_message is not None
     assert "token=<masked-github-token>" in records[0].error_message
     assert "ghp_secrettoken" not in records[0].error_message
+
+
+def test_span_handle_record_exception_masks_secrets() -> None:
+    """SpanHandle.record_exception must sanitize sensitive tokens in message and stack trace."""
+    from devops_cli.telemetry.tracer import SpanHandle
+
+    span = SpanHandle("test-span-id")
+    try:
+        raise ValueError("Secret failure: ghp_supersecretaccesstoken123456789012345")
+    except ValueError as exc:
+        span.record_exception(exc)
+
+    assert "ghp_supersecretaccesstoken" not in span._attributes.get("exception.message", "")
+    assert "<masked-github-token>" in span._attributes.get("exception.message", "")
+    assert "ghp_supersecretaccesstoken" not in span._attributes.get("exception.stacktrace", "")
+    assert "<masked-github-token>" in span._attributes.get("exception.stacktrace", "")

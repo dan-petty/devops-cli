@@ -33,17 +33,24 @@ DEFAULT_OLLAMA_BASE_URL: str = "http://localhost:11434"
 
 
 def _is_cloud_metadata_host(host: str) -> bool:
-    clean = host.strip().lower().strip("[]")
+    clean = host.strip().lower().strip("[]").rstrip(".")
     if clean in ("169.254.169.254", "fd00:ec2::254", "metadata.google.internal", "metadata"):
         return True
     try:
         ip = ipaddress.ip_address(clean)
         return ip.is_link_local
     except ValueError:
-        return False
+        pass
+
+    from devops_cli.core.validation import _resolve_host_ips
+
+    resolved_ips = _resolve_host_ips(clean)
+    return any(
+        ip.is_link_local or str(ip) in ("169.254.169.254", "fd00:ec2::254") for ip in resolved_ips
+    )
 
 
-def normalize_ollama_base_url(url: str) -> str:
+def normalize_ollama_base_url(url: str, *, allow_private: bool = True) -> str:
     """Normalize Ollama base URL ensuring a clean /v1 endpoint path without duplicate segments.
 
     Examples:
@@ -78,6 +85,15 @@ def normalize_ollama_base_url(url: str) -> str:
             clean_url,
             reason="Access to cloud instance metadata service is forbidden",
         )
+
+    from devops_cli.core.validation import validate_url
+
+    validate_url(
+        clean_url,
+        purpose="Ollama endpoint",
+        allow_private=allow_private,
+        schemes=("http", "https"),
+    )
 
     raw_path = parsed.path.rstrip("/")
     if raw_path.endswith("/v1"):
@@ -124,6 +140,7 @@ def create_ollama_provider(
     api_key: str | None = None,
     openai_client: AsyncOpenAI | None = None,
     http_client: Any | None = None,
+    allow_private: bool = True,
 ) -> OllamaProvider:
     """Create a native pydantic_ai.providers.ollama.OllamaProvider with cluster and auth support.
 
@@ -133,6 +150,7 @@ def create_ollama_provider(
         api_key: Optional API key for authenticated gateways or Ollama Cloud.
         openai_client: Optional pre-configured AsyncOpenAI client instance.
         http_client: Optional custom HTTP client.
+        allow_private: Whether private network/loopback endpoints are allowed.
     """
     raw_url: str | None = None
     if urls and len(urls) > 0:
@@ -142,7 +160,7 @@ def create_ollama_provider(
     else:
         raw_url = os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
 
-    normalized_url = normalize_ollama_base_url(raw_url)
+    normalized_url = normalize_ollama_base_url(raw_url, allow_private=allow_private)
     resolved_api_key = api_key or os.environ.get("OLLAMA_API_KEY")
 
     return OllamaProvider(

@@ -122,6 +122,7 @@ devops k8s bootstrap-openwebui [OPTIONS]
 | `--name`, `-n` | `string` | `Admin` | Admin display name. |
 | `--password`, `-p` | `string` | - | Admin password. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--show-password` | `boolean` | - | Display generated admin password in plain text instead of masking. |
 
 ---
 

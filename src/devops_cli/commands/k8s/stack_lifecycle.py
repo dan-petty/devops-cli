@@ -168,8 +168,13 @@ def _bootstrap_openwebui_account(
     email: str | None = None,
     name: str | None = None,
     password: str | None = None,
-) -> bool:
-    """Ensure Open-WebUI signups are enabled and a local admin account is bootstrapped."""
+) -> tuple[bool, bool]:
+    """Ensure Open-WebUI signups are enabled and a local admin account is bootstrapped.
+
+    Returns:
+        tuple[bool, bool]: (success, created) where created indicates whether a new admin
+        account was inserted or an existing account was retained.
+    """
     creds = _get_openwebui_bootstrap_credentials()
     admin_email = email or creds["email"]
     admin_name = name or creds["name"]
@@ -192,9 +197,11 @@ def _bootstrap_openwebui_account(
         "    cur.execute('INSERT INTO \"user\" (id, name, email, role, profile_image_url, last_active_at, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', "
         f"(uid, {repr(admin_name)}, {repr(admin_email)}, 'admin', '/user.png', now, now, now))\n"
         f"    cur.execute('INSERT INTO auth (id, email, password, active) VALUES (?, ?, ?, ?)', (uid, {repr(admin_email)}, hashed, 1))\n"
+        "    print('CREATED')\n"
         "else:\n"
         "    cur.execute('UPDATE auth SET active = 1')\n"
         '    cur.execute(\'UPDATE "user" SET role = "admin" WHERE role = "pending"\')\n'
+        "    print('EXISTING')\n"
         "conn.commit()\n"
     )
     pod_cmd = [
@@ -213,14 +220,15 @@ def _bootstrap_openwebui_account(
     res_pod = k8s._run_cmd(pod_cmd, check=False, capture=True)
     pod_name = (res_pod.stdout or "").strip()
     if not pod_name:
-        return False
+        return (False, False)
 
     exec_cmd = ["kubectl", "exec", "-i", "-n", "llm", pod_name]
     if context:
         exec_cmd.extend(["--context", context])
     exec_cmd.extend(["--", "python", "-"])
     res = k8s._run_cmd(exec_cmd, input=py_script, check=False, capture=True)
-    return res.returncode == 0
+    created = "CREATED" in (res.stdout or "")
+    return (res.returncode == 0, created)
 
 
 def bootstrap_openwebui(
@@ -234,11 +242,19 @@ def bootstrap_openwebui(
         str | None,
         typer.Option("--context", "-c", help=HELP.options.context),
     ] = None,
+    show_password: Annotated[
+        bool,
+        typer.Option(
+            "--show-password",
+            help="Display generated admin password in plain text instead of masking.",
+        ),
+    ] = False,
 ) -> None:
     """Bootstrap or activate a local administrator account for Open-WebUI."""
     creds = _get_openwebui_bootstrap_credentials()
     effective_password = password or creds["password"]
-    was_generated = password is None and "OPENWEBUI_ADMIN_PASSWORD" not in os.environ
+    raw_env_password = os.environ.get("OPENWEBUI_ADMIN_PASSWORD", "").strip()
+    was_generated = password is None and not raw_env_password
 
     if is_dry_run():
         render_dry_run_result(
@@ -250,14 +266,28 @@ def bootstrap_openwebui(
         return
 
     print_info(f"Bootstrapping Open-WebUI local admin account ({email})...")
-    ok = k8s._bootstrap_openwebui_account(
+    ok, created = k8s._bootstrap_openwebui_account(
         context=context, email=email, name=name, password=effective_password
     )
     if ok:
         print_success(f"Open-WebUI admin account ready: [bold]{email}[/bold]")
-        if was_generated:
-            print_success(
-                f"Generated secure Open-WebUI admin password: [bold]{effective_password}[/bold]"
+        if created:
+            from devops_cli.config.settings import _keyring_set
+
+            _keyring_set("openwebui_admin_password", effective_password)
+            if was_generated:
+                if show_password:
+                    print_success(
+                        f"Generated secure Open-WebUI admin password: [bold]{effective_password}[/bold]"
+                    )
+                else:
+                    masked = effective_password[:3] + "..." + effective_password[-3:]
+                    print_success(
+                        f"Generated secure Open-WebUI admin password: [bold]{masked}[/bold] (use --show-password to reveal)"
+                    )
+        else:
+            print_info(
+                "Open-WebUI user database already initialized; existing admin credentials retained."
             )
     else:
         print_error(
