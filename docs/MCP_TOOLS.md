@@ -105,6 +105,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`telemetry_status`](#telemetry-status) | Check OpenTelemetry collector connectivity, Jaeger UI URL, and active telemetry settings. |
 | [`telemetry_test_span`](#telemetry-test-span) | Emit a test OpenTelemetry trace span and metric to verify collector pipeline health. |
 | [`tf_apply`](#tf-apply) | Apply OpenTofu / Terraform Infrastructure-as-Code changes. |
+| [`tf_cost_estimate`](#tf-cost-estimate) | Estimate cloud infrastructure cost with Infracost FinOps engine. |
 | [`tf_notify_plan`](#tf-notify-plan) | Format structured OpenTofu/Terraform plan summary for PR comments. |
 | [`tf_output`](#tf-output) | Retrieve OpenTofu / Terraform outputs from state. |
 | [`tf_plan`](#tf-plan) | Generate and inspect an OpenTofu / Terraform execution plan. |
@@ -1128,6 +1129,18 @@ Apply OpenTofu / Terraform Infrastructure-as-Code changes.
 | `directory` | `string` | No | `.` | - |
 | `var_file` | `string` | No | `` | - |
 | `auto_approve` | `boolean` | No | `True` | - |
+
+### `tf_cost_estimate`
+
+Estimate cloud infrastructure cost with Infracost FinOps engine.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `directory` | `string` | No | `.` | - |
+| `mock` | `boolean` | No | `False` | - |
+| `max_monthly_cost` | `number` | No | - | - |
 
 ### `tf_notify_plan`
 

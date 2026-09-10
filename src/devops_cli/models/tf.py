@@ -91,3 +91,43 @@ class TFLintResult(BaseModel):
     passed: bool = Field(default=True, description="Whether all static rules passed")
     issues_count: int = Field(default=0, description="Total count of lint issues found")
     issues: list[TFLintIssue] = Field(default_factory=list, description="Discovered lint issues")
+
+
+class TFCostResource(BaseModel):
+    """Single cloud infrastructure resource cost estimate."""
+
+    name: str = Field(..., description="Resource name/identifier")
+    resource_type: str = Field(
+        default="", alias="resourceType", description="Terraform resource type"
+    )
+    hourly_cost: float = Field(default=0.0, alias="hourlyCost", description="Hourly cost estimate")
+    monthly_cost: float = Field(
+        default=0.0, alias="monthlyCost", description="Monthly cost estimate"
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class TFCostBreakdownResult(BaseModel):
+    """Execution report and cost breakdown from Infracost."""
+
+    directory: str = Field(default="tf", description="Target IaC directory")
+    currency: str = Field(default="USD", description="Billing currency")
+    total_hourly_cost: float = Field(default=0.0, description="Total estimated hourly cost")
+    total_monthly_cost: float = Field(default=0.0, description="Total estimated monthly cost")
+    past_monthly_cost: float | None = Field(
+        default=None, description="Previous baseline monthly cost"
+    )
+    diff_monthly_cost: float | None = Field(default=None, description="Delta monthly cost change")
+    budget_exceeded: bool = Field(
+        default=False, description="Whether budget threshold was exceeded"
+    )
+    resources: list[TFCostResource] = Field(
+        default_factory=list, description="Resource cost line items"
+    )
+    source: str = Field(
+        default="infracost", description="Execution engine source (infracost, mock)"
+    )
+    raw_json: dict[str, Any] | None = Field(default=None, description="Raw JSON data payload")
+
+    model_config = {"populate_by_name": True}

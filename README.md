@@ -335,6 +335,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops tf deploy-cloud [OPTIONS]` | Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP. |
 |  | `devops tf lint [OPTIONS] <directory>` | Run TFLint static analysis on Terraform/OpenTofu configurations. |
 |  | `devops tf notify-plan [OPTIONS]` | Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments. |
+|  | `devops tf cost COMMAND [ARGS]...` | OpenTofu and Terraform Infrastructure-as-Code operations. |
 | **tls** | `devops tls ca [OPTIONS]` | Generate a self-signed Root Certificate Authority (CA) key pair. |
 |  | `devops tls cert [OPTIONS]` | Generate an X.509 TLS certificate signed by local CA or self-signed. |
 |  | `devops tls homelab [OPTIONS]` | Generate complete Homelab TLS bundle (Root CA, Wildcard + Stack Services Cert). |
