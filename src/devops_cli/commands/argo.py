@@ -22,7 +22,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_k8s_name
-from devops_cli.dry_run import dry_run_command
+from devops_cli.dry_run import dry_run_command, is_dry_run
 from devops_cli.http.validation import validate_service_url
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.argo import ArgoCDApp
@@ -453,7 +453,7 @@ def fleet_sync(
         prune=prune,
         force=force,
         max_concurrency=concurrency,
-        dry_run=False,
+        dry_run=is_dry_run(),
     )
 
     if json_output:
@@ -465,7 +465,63 @@ def fleet_sync(
         raise typer.Exit(1)
 
 
+@app.command("sync")
+def argo_sync_cmd(
+    name: Annotated[str, typer.Argument(help=HELP.argo.app_name)],
+    fleet: Annotated[
+        bool,
+        typer.Option(
+            "--fleet",
+            help="Synchronize application across multi-cluster fleet",
+        ),
+    ] = False,
+    clusters: Annotated[
+        str,
+        typer.Option(
+            "--clusters",
+            "-c",
+            help="Comma-separated list of target cluster names (e.g. dev,staging,prod)",
+        ),
+    ] = "dev,staging,prod",
+    fleet_name: Annotated[
+        str, typer.Option("--fleet-name", help="Fleet identifier group name")
+    ] = "default-fleet",
+    concurrency: Annotated[
+        int,
+        typer.Option(
+            "--concurrency",
+            "-p",
+            help="Maximum concurrent cluster synchronization workers",
+        ),
+    ] = 3,
+    prune: Annotated[bool, typer.Option("--prune", help=HELP.argo.prune)] = False,
+    force: Annotated[bool, typer.Option("--force", help=HELP.options.force)] = False,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """Synchronize an ArgoCD application (or multi-cluster fleet when --fleet is passed)."""
+    if fleet:
+        fleet_sync(
+            app_name=name,
+            clusters=clusters,
+            fleet_name=fleet_name,
+            concurrency=concurrency,
+            prune=prune,
+            force=force,
+            json_output=json_output,
+        )
+    else:
+        cd_apps_sync(name=name, prune=prune, force=force)
+
+
 @rollouts_app.command("promote")
+@dry_run_command(
+    command="devops argo rollouts promote",
+    action="promote_argo_rollout",
+    target_param="name",
+    detail_params=["namespace", "full"],
+)
 def rollouts_promote(
     name: Annotated[str, typer.Argument(help=HELP.argo.rollout_name)],
     namespace: Annotated[
@@ -481,7 +537,7 @@ def rollouts_promote(
     """Promote an in-progress Argo Rollout to the next progressive step or full release."""
     from devops_cli.argo.rollouts import promote_rollout
 
-    success = promote_rollout(name, namespace=namespace, full=full)
+    success = promote_rollout(name, namespace=namespace, full=full, dry_run=is_dry_run())
     if not success:
         print_error(f"Failed to promote rollout '{name}' in namespace '{namespace}'")
         raise typer.Exit(1)
@@ -492,6 +548,12 @@ def rollouts_promote(
 
 
 @rollouts_app.command("abort")
+@dry_run_command(
+    command="devops argo rollouts abort",
+    action="abort_argo_rollout",
+    target_param="name",
+    detail_params=["namespace"],
+)
 def rollouts_abort(
     name: Annotated[str, typer.Argument(help=HELP.argo.rollout_name)],
     namespace: Annotated[
@@ -501,7 +563,7 @@ def rollouts_abort(
     """Abort an in-progress Argo Rollout and revert immediately to the stable replica set."""
     from devops_cli.argo.rollouts import abort_rollout
 
-    success = abort_rollout(name, namespace=namespace)
+    success = abort_rollout(name, namespace=namespace, dry_run=is_dry_run())
     if not success:
         print_error(f"Failed to abort rollout '{name}' in namespace '{namespace}'")
         raise typer.Exit(1)
@@ -509,6 +571,12 @@ def rollouts_abort(
 
 
 @rollouts_app.command("restart")
+@dry_run_command(
+    command="devops argo rollouts restart",
+    action="restart_argo_rollout",
+    target_param="name",
+    detail_params=["namespace"],
+)
 def rollouts_restart(
     name: Annotated[str, typer.Argument(help=HELP.argo.rollout_name)],
     namespace: Annotated[
@@ -518,7 +586,7 @@ def rollouts_restart(
     """Perform a restart rollout across all pods in an Argo Rollout."""
     from devops_cli.argo.rollouts import restart_rollout
 
-    success = restart_rollout(name, namespace=namespace)
+    success = restart_rollout(name, namespace=namespace, dry_run=is_dry_run())
     if not success:
         print_error(f"Failed to restart rollout '{name}' in namespace '{namespace}'")
         raise typer.Exit(1)
@@ -542,7 +610,7 @@ def rollouts_analyze(
     auto_abort: Annotated[
         bool,
         typer.Option(
-            "--auto-abort",
+            "--auto-abort/--no-auto-abort",
             help="Automatically trigger rollout abort when metric analysis violates threshold",
         ),
     ] = True,
@@ -569,6 +637,7 @@ def rollouts_analyze(
         namespace=namespace,
         thresholds=thresholds,
         auto_abort=auto_abort,
+        dry_run=is_dry_run(),
     )
 
     if json_output:

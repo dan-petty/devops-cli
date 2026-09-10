@@ -254,13 +254,17 @@ def test_mcp_argo_rollout_analyze_tool() -> None:
 
 
 def test_mcp_argo_fleet_status_resource() -> None:
-    """Verify FastMCP resource get_argo_fleet_status_resource."""
+    """Verify FastMCP resource get_argo_fleet_status_resource queries read-only apps list."""
     from devops_cli.ai.mcp.server import get_argo_fleet_status_resource
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value='{"targets": []}') as mock_cmd:
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value='{"items": []}') as mock_cmd:
         out = get_argo_fleet_status_resource()
-        assert "targets" in out
+        assert "items" in out
         mock_cmd.assert_called_once()
+        cmd = mock_cmd.call_args[0][0]
+        assert "cd" in cmd
+        assert "apps" in cmd
+        assert "list" in cmd
 
 
 def test_execute_cluster_sync_live() -> None:
@@ -286,18 +290,45 @@ def test_execute_cluster_sync_live() -> None:
 
         _execute_cluster_sync("my-app", "prod-cluster", prune=True, force=True)
         mock_client.post.assert_called_once()
-        assert "applications/my-app/sync" in mock_client.post.call_args[0][0]
+        assert "applications/my-app-prod-cluster/sync" in mock_client.post.call_args[0][0]
+        assert mock_client.post.call_args[1]["headers"]["Authorization"] == "Bearer test-token"
+
+
+def test_execute_cluster_sync_masked_token() -> None:
+    """Verify _execute_cluster_sync omits Authorization header when token is masked."""
+    from devops_cli.argo.fleet import _execute_cluster_sync
+
+    mock_settings = MagicMock()
+    mock_settings.argocd.url = "https://argocd.example.com"
+    mock_settings.ai.allow_private_network = True
+
+    with (
+        patch("devops_cli.argo.fleet.load_settings", return_value=mock_settings),
+        patch("devops_cli.config.settings.get_argocd_token", return_value="******"),
+        patch("devops_cli.argo.fleet.validate_service_url"),
+        patch("httpx2.Client") as mock_client_cls,
+    ):
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client.post.return_value = mock_resp
+        mock_client_cls.return_value = mock_client
+
+        _execute_cluster_sync("my-app", "prod", prune=False, force=False)
+        assert "Authorization" not in mock_client.post.call_args[1]["headers"]
 
 
 def test_execute_cluster_sync_missing_url() -> None:
-    """Verify _execute_cluster_sync raises RuntimeError when ArgoCD URL is missing."""
+    """Verify _execute_cluster_sync raises ConfigurationError when ArgoCD URL is missing."""
     from devops_cli.argo.fleet import _execute_cluster_sync
+    from devops_cli.exceptions.config import ConfigurationError
 
     mock_settings = MagicMock()
     mock_settings.argocd.url = ""
 
     with patch("devops_cli.argo.fleet.load_settings", return_value=mock_settings):
-        with pytest.raises(RuntimeError, match="ArgoCD URL is not configured"):
+        with pytest.raises(ConfigurationError, match="ArgoCD URL is not configured"):
             _execute_cluster_sync("app", "cluster")
 
 
@@ -316,11 +347,11 @@ def test_fetch_metric_value_branches() -> None:
     """Verify _fetch_metric_value across configured, error, and missing settings."""
     from devops_cli.argo.rollouts import _fetch_metric_value
 
-    # Case 1: no settings url
+    # Case 1: no settings url returns None
     mock_settings_empty = MagicMock()
     mock_settings_empty.prometheus.url = ""
     with patch("devops_cli.config.load_settings", return_value=mock_settings_empty):
-        assert _fetch_metric_value("rate(http_requests[1m])") == 0.0
+        assert _fetch_metric_value("rate(http_requests[1m])") is None
 
     # Case 2: valid response with value
     mock_settings = MagicMock()
@@ -342,12 +373,12 @@ def test_fetch_metric_value_branches() -> None:
         val = _fetch_metric_value("rate(http_requests[1m])")
         assert val == 3.14
 
-    # Case 3: exception during request returns 0.0
+    # Case 3: exception during request returns None
     with (
         patch("devops_cli.config.load_settings", return_value=mock_settings),
         patch("devops_cli.http.validation.validate_service_url", side_effect=ValueError("bad url")),
     ):
-        assert _fetch_metric_value("rate(http_requests[1m])") == 0.0
+        assert _fetch_metric_value("rate(http_requests[1m])") is None
 
 
 def test_compare_metric_operators() -> None:
@@ -362,7 +393,11 @@ def test_compare_metric_operators() -> None:
     assert _compare_metric(2.0, 2.0, "gt") is False
     assert _compare_metric(2.0, 2.0, "eq") is True
     assert _compare_metric(2.0, 3.0, "eq") is False
-    assert _compare_metric(1.0, 2.0, "unknown_op") is True
+    # Fail-closed on None
+    assert _compare_metric(None, 2.0, "lte") is False
+    # Unsupported operator raises ValueError
+    with pytest.raises(ValueError, match="Unsupported"):
+        _compare_metric(1.0, 2.0, "unknown_op")
 
 
 def test_render_table_formatters() -> None:
@@ -410,3 +445,122 @@ def test_render_table_formatters() -> None:
     )
     tbl2 = render_rollout_analysis_table(rollout_res)
     assert tbl2 is not None
+
+
+def test_rollout_metric_threshold_invalid_operator() -> None:
+    """Verify RolloutMetricThreshold rejects unsupported operators."""
+    with pytest.raises(ValueError):
+        RolloutMetricThreshold(
+            metric_name="bad_operator",
+            query="sum(rate(http_requests[1m]))",
+            threshold=1.0,
+            operator="invalid_op",  # type: ignore[arg-type]
+        )
+
+
+def test_cli_argo_sync_fleet_alias() -> None:
+    """Verify devops argo sync --fleet delegates to fleet sync."""
+    with patch("devops_cli.argo.fleet.sync_fleet") as mock_sync:
+        mock_sync.return_value = ArgoFleetSyncResult(
+            fleet_name="default-fleet",
+            targets=[
+                ArgoFleetAppTarget(
+                    app_name="web",
+                    cluster="dev",
+                    status="Synced",
+                    duration_seconds=0.5,
+                )
+            ],
+            total_synced=1,
+            total_failed=0,
+            success=True,
+        )
+        result = runner.invoke(app, ["sync", "web", "--fleet", "--clusters", "dev,staging"])
+        assert result.exit_code == 0
+        mock_sync.assert_called_once()
+        assert mock_sync.call_args[1]["clusters"] == ["dev", "staging"]
+
+
+def test_rollout_gate_metric_unavailable_fails_closed() -> None:
+    """Verify evaluate_rollout_gate fails closed when metrics cannot be queried."""
+    from devops_cli.argo.rollouts import evaluate_rollout_gate
+
+    with (
+        patch("devops_cli.argo.rollouts._fetch_metric_value", return_value=None),
+        patch("devops_cli.argo.rollouts.abort_rollout", return_value=True) as mock_abort,
+    ):
+        res = evaluate_rollout_gate("payment-svc", auto_abort=True)
+        assert res.passed is False
+        assert res.action_taken == "aborted"
+        assert "failed closed" in res.reason
+        mock_abort.assert_called_once()
+
+
+def test_rollout_gate_abort_failed() -> None:
+    """Verify evaluate_rollout_gate sets action_taken to abort_failed when abort fails."""
+    from devops_cli.argo.rollouts import evaluate_rollout_gate
+
+    with (
+        patch("devops_cli.argo.rollouts._fetch_metric_value", return_value=5.0),
+        patch("devops_cli.argo.rollouts.abort_rollout", return_value=False),
+    ):
+        res = evaluate_rollout_gate("cart-svc", auto_abort=True)
+        assert res.passed is False
+        assert res.action_taken == "abort_failed"
+        assert "automated rollback failed" in res.reason
+
+
+def test_rollout_dry_run_propagation() -> None:
+    """Verify CLI rollout commands propagate dry-run mode and prevent execution."""
+    with (
+        patch("devops_cli.dry_run.decorator.is_dry_run", return_value=True),
+        patch("devops_cli.argo.rollouts.promote_rollout", return_value=True) as mock_promote,
+        patch("devops_cli.argo.rollouts.abort_rollout", return_value=True) as mock_abort,
+        patch("devops_cli.argo.rollouts.restart_rollout", return_value=True) as mock_restart,
+    ):
+        res1 = runner.invoke(app, ["rollouts", "promote", "svc"])
+        assert res1.exit_code == 0
+        mock_promote.assert_not_called()
+        assert "dry_run" in res1.output.lower()
+
+        res2 = runner.invoke(app, ["rollouts", "abort", "svc"])
+        assert res2.exit_code == 0
+        mock_abort.assert_not_called()
+        assert "dry_run" in res2.output.lower()
+
+        res3 = runner.invoke(app, ["rollouts", "restart", "svc"])
+        assert res3.exit_code == 0
+        mock_restart.assert_not_called()
+        assert "dry_run" in res3.output.lower()
+
+
+def test_mcp_argo_rollout_analyze_no_auto_abort() -> None:
+    """Verify FastMCP tool passes --no-auto-abort when auto_abort is False."""
+    from devops_cli.ai.mcp.server import argo_rollout_analyze
+
+    with patch(
+        "devops_cli.ai.mcp.server._run_mcp_cmd", return_value='{"passed": true}'
+    ) as mock_cmd:
+        out = argo_rollout_analyze(rollout_name="cart", auto_abort=False)
+        assert "true" in out
+        cmd = mock_cmd.call_args[0][0]
+        assert "--no-auto-abort" in cmd
+
+
+def test_fleet_sync_telemetry_and_metrics() -> None:
+    """Verify fleet synchronization instruments OpenTelemetry span and Prometheus metrics."""
+    from devops_cli.argo.fleet import sync_fleet
+
+    with (
+        patch("devops_cli.argo.fleet._execute_cluster_sync"),
+        patch("devops_cli.telemetry.metrics.GLOBAL_METRICS.increment_counter") as mock_counter,
+        patch("devops_cli.telemetry.metrics.GLOBAL_METRICS.record_histogram") as mock_histo,
+    ):
+        result = sync_fleet("app", clusters=["dev"], fleet_name="test-telemetry-fleet")
+        assert result.success is True
+        mock_counter.assert_called_once_with(
+            "devops_cli_argo_fleet_sync_total",
+            value=1.0,
+            labels={"fleet": "test-telemetry-fleet", "success": "true"},
+        )
+        mock_histo.assert_called_once()

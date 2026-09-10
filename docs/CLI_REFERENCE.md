@@ -1414,6 +1414,32 @@ devops prometheus targets
 
 Argo CD, Workflows, and Rollouts management.
 
+### `devops argo sync`
+
+**Synchronize an ArgoCD application (or multi-cluster fleet when --fleet is passed).**
+
+```bash
+devops argo sync [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Application name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--fleet` | `boolean` | - | Synchronize application across multi-cluster fleet |
+| `--clusters`, `-c` | `string` | `dev,staging,prod` | Comma-separated list of target cluster names (e.g. dev,staging,prod) |
+| `--fleet-name` | `string` | `default-fleet` | Fleet identifier group name |
+| `--concurrency`, `-p` | `integer` | `3` | Maximum concurrent cluster synchronization workers |
+| `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
+| `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
 ### `devops argo cd`
 
 ```bash
@@ -1713,7 +1739,7 @@ devops argo rollouts analyze [OPTIONS] <name>
 |---|---|---|---|
 | `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
 | `--error-rate-threshold`, `-e` | `float` | `1.0` | Maximum allowable HTTP 5xx error rate percentage before triggering automated rollback |
-| `--auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
+| `--auto-abort`, `--no-auto-abort` | `boolean` | `True` | Automatically trigger rollout abort when metric analysis violates threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops argo fleet`

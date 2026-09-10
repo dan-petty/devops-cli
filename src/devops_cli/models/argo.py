@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, field_validator
 
 
 class ArgoCDApp(BaseModel):
@@ -72,7 +74,15 @@ class RolloutMetricThreshold(BaseModel):
     metric_name: str
     query: str
     threshold: float
-    operator: str = "lte"
+    operator: Literal["lte", "lt", "gte", "gt", "eq"] = "lte"
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        valid = {"lte", "lt", "gte", "gt", "eq"}
+        if v not in valid:
+            raise ValueError(f"Unsupported rollout metric operator '{v}'. Allowed: {sorted(valid)}")
+        return v
 
 
 class RolloutAnalysisResult(BaseModel):

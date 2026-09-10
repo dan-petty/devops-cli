@@ -607,7 +607,10 @@ def get_grafana_password(settings: Settings) -> str | None:
 
 
 def get_argocd_token(settings: Settings) -> str | None:
-    return _keyring_get(_KEYRING_KEYS[opt.ARGOCD_TOKEN])
+    token = _keyring_get(_KEYRING_KEYS[opt.ARGOCD_TOKEN]) or os.getenv("DEVOPS_CLI_ARGOCD_TOKEN")
+    if token and not token.startswith("*"):
+        return token
+    return None
 
 
 def get_argocd_password(settings: Settings) -> str | None:

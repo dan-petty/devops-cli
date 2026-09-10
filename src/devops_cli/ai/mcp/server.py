@@ -339,6 +339,8 @@ def argo_rollout_analyze(
     ]
     if auto_abort:
         cmd.append("--auto-abort")
+    else:
+        cmd.append("--no-auto-abort")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
@@ -931,11 +933,9 @@ def get_argo_fleet_status_resource() -> str:
             "run",
             "devops",
             "argo",
-            "fleet",
-            "sync",
-            "root-app",
-            "--clusters",
-            "dev,staging,prod",
+            "cd",
+            "apps",
+            "list",
             "--json",
         ],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
