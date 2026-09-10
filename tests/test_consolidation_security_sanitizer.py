@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
-from devops_cli.security.sanitizer import mask_dict_secrets, mask_secrets, mask_uri_credentials
+from devops_cli.security.sanitizer import (
+    mask_dict_secrets,
+    mask_secrets,
+    mask_uri_credentials,
+    redact_text,
+)
+
+
+def test_redact_text() -> None:
+    """Ensure redact_text cleanses credentials equivalently."""
+    sample = "Token: ghp_1234567890abcdef1234"
+    assert "<masked-github-token>" in redact_text(sample)
+    assert "ghp_1234567890abcdef1234" not in redact_text(sample)
 
 
 def test_mask_secrets_tokens() -> None:

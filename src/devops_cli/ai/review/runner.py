@@ -64,7 +64,7 @@ from devops_cli.output import (
     render_review_result,
 )
 from devops_cli.security.sanitizer import (
-    mask_secrets,
+    redact_text,
     sanitize_prompt_boundary_tags,
 )
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
@@ -413,7 +413,7 @@ def _review_session_dir(label: str) -> Path:
 def _save_segments(pages: list[str], session_dir: Path) -> None:
     for i, page in enumerate(pages, 1):
         target = session_dir / f"segment-{i}.md"
-        target.write_text(mask_secrets(page), encoding="utf-8")
+        target.write_text(page, encoding="utf-8")
         target.chmod(0o600)
 
 
@@ -495,7 +495,7 @@ def _save_persona_review(
     session_dir: Path,
 ) -> Path:
     filename = f"{pd.name}-review.md"
-    content = mask_secrets(f"# {pd.title}\n\n{_review_to_markdown(review)}\n")
+    content = f"# {pd.title}\n\n{_review_to_markdown(review)}\n"
     dest = session_dir / filename
     dest.write_text(content, encoding="utf-8")
     dest.chmod(0o600)
@@ -561,7 +561,7 @@ def _write_summary(
             lines.append(f"| {i} | [segment-{i}.md](segment-{i}.md) |")
         lines.append("")
     summary_path = session_dir / "summary.md"
-    summary_path.write_text(mask_secrets("\n".join(lines)), encoding="utf-8")
+    summary_path.write_text("\n".join(lines), encoding="utf-8")
     summary_path.chmod(0o600)
     if completed:
         print_info(f"[dim]Review saved → {session_dir}[/dim]", prefix=False)
@@ -1163,11 +1163,11 @@ def _load_agents_md(start: Path) -> str:
 
     if raw_content:
         from devops_cli.security.sanitizer import (
-            mask_secrets,
+            redact_text,
             sanitize_prompt_boundary_tags,
         )
 
-        return sanitize_prompt_boundary_tags(mask_secrets(raw_content))
+        return sanitize_prompt_boundary_tags(redact_text(raw_content))
 
     return ""
 
@@ -1453,7 +1453,7 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
         print_warning(MESSAGES.review.no_files_found, prefix=False)
         raise typer.Exit(0)
 
-    pages = [mask_secrets(p) for p in blocks]
+    pages = [redact_text(p) for p in blocks]
     agents_md = _load_agents_md(
         target_resolved if target_resolved.is_dir() else target_resolved.parent
     )
@@ -1521,12 +1521,15 @@ def _prepare_branch_content(
 
     title = f"Branch `{branch_name}` vs `{effective_base}`"
     agents_md = _load_agents_md(repo_path)
-    pages = [mask_secrets(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
+    pages = [redact_text(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
     return pages, title, agents_md
 
 
 def _prepare_pr_content(
-    number: int, repo_arg: str | None, token: str
+    number: int,
+    repo_arg: str | None = None,
+    auth: str | None = None,
+    **kwargs: Any,
 ) -> tuple[list[str], str, str, Any, str]:
     """Fetch PR details, diff pages, title, and agents_md for PR review target."""
     import typer
@@ -1547,12 +1550,13 @@ def _prepare_pr_content(
 
     fetch_msg = MESSAGES.review.fetching_pr.format(number=number, repo=f"[cyan]{repo}[/cyan]")
     print_info(fetch_msg, prefix=False)
-    gh = GitHubClient(token)
+    effective_auth = auth or kwargs.get("token") or ""
+    gh = GitHubClient(effective_auth)
     pull = gh.get_pull(repo, number)
     diff = gh.get_pr_diff(repo, number)
     title = f"PR #{number}: {pull.title}"
     agents_md = _load_agents_md(Path.cwd())
-    pages = [mask_secrets(p) for p in diff_pages(diff, _MAX_DIFF_CHARS)]
+    pages = [redact_text(p) for p in diff_pages(diff, _MAX_DIFF_CHARS)]
     return pages, title, agents_md, pull, repo
 
 

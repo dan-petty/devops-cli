@@ -988,6 +988,7 @@
   - [x] 6. Removed pass-through wrappers (`_validate_dir`, `_validate_path`, `_project_python_version`, `_validate_version_str`, `_is_git_ignored`).
   - [x] 7. Renamed stopwatch timers from `t0` to `start_time` and schema identifiers from numeric single-letters to semantic names.
   - [x] 8. Validated with 10-gate CI suite (10/10 green, 90% coverage maintained).
+  - [x] 9. Hardened secret redaction pipeline and eliminated CodeQL clear-text storage false positives on review outputs.
 
 ---
 
