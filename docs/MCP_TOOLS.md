@@ -64,8 +64,8 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_enable_tls`](#k8s-enable-tls) | Apply TLS secrets across Kubernetes cluster namespaces (argocd, monitoring, llm, otel). |
 | [`k8s_jaeger_info`](#k8s-jaeger-info) | Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints. |
 | [`k8s_lint`](#k8s-lint) | Lint Kubernetes manifests against security best practices and deprecated APIs. |
-| [`k8s_logs_query`](#k8s-logs-query) | Execute LogQL query across Kubernetes and cluster log streams (e.g. {app='web'} |= 'error'). |
-| [`k8s_logs_tail`](#k8s-logs-tail) | Tail recent log lines matching LogQL stream selector. |
+| [`k8s_logs_query`](#k8s-logs-query) | Execute LogQL query across Kubernetes and cluster log streams (e.g. {app="web"} |= "error"). |
+| [`k8s_logs_tail`](#k8s-logs-tail) | Tail recent log lines matching LogQL stream selector (e.g. {app="web"}). |
 | [`k8s_pods`](#k8s-pods) | List Kubernetes pod status for the specified namespace. |
 | [`k8s_status`](#k8s-status) | Display pod status across infrastructure namespaces. |
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | Uninstall Kubernetes infrastructure or LLM stack and delete namespaces. |
@@ -724,7 +724,7 @@ Lint Kubernetes manifests against security best practices and deprecated APIs.
 
 ### `k8s_logs_query`
 
-Execute LogQL query across Kubernetes and cluster log streams (e.g. {app='web'} |= 'error').
+Execute LogQL query across Kubernetes and cluster log streams (e.g. {app="web"} |= "error").
 
 **Parameters:**
 
@@ -737,7 +737,7 @@ Execute LogQL query across Kubernetes and cluster log streams (e.g. {app='web'} 
 
 ### `k8s_logs_tail`
 
-Tail recent log lines matching LogQL stream selector.
+Tail recent log lines matching LogQL stream selector (e.g. {app="web"}).
 
 **Parameters:**
 

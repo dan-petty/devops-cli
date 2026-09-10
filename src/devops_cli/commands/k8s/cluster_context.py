@@ -125,18 +125,24 @@ def apply(
     k8s._run_cmd(cmd, check=True)
 
 
-def _is_logql_request(pod: str, query: str | None) -> bool:
+def _is_logql_request(pod: str, query: str | None, query_arg: str | None = None) -> bool:
     """Check whether invocation targets LogQL query/stream engine."""
-    return bool(query or pod in ("query", "tail", "stream") or pod.startswith("{"))
+    if query or pod.startswith("{"):
+        return True
+    if pod in ("query", "tail", "stream") and query_arg:
+        return True
+    return False
 
 
 def _resolve_logql_query(pod: str, query: str | None, extra_arg: str | None) -> str:
     """Extract LogQL query string from options or positional arguments."""
     if query:
         return query
-    if pod not in ("query", "tail", "stream"):
+    if pod.startswith("{"):
         return pod
-    return extra_arg or ""
+    if pod in ("query", "tail", "stream") and extra_arg:
+        return extra_arg
+    return pod
 
 
 def _render_logql_results(result: Any, output_format: str) -> None:
@@ -239,7 +245,16 @@ def logs(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Stream pod logs or execute LogQL queries across cluster log streams."""
-    if _is_logql_request(pod, query):
+    if _is_logql_request(pod, query, query_arg):
+        if follow:
+            from devops_cli.output import print_error
+
+            print_error(
+                "The --follow flag is only supported for direct pod log streaming, not LogQL queries.",
+                prefix=False,
+            )
+            raise typer.Exit(1)
+
         from devops_cli.k8s.logql import execute_logql_query
 
         resolved_query = _resolve_logql_query(pod, query, query_arg)

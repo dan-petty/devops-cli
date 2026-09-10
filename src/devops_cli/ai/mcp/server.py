@@ -272,8 +272,9 @@ def k8s_logs_query(
     since: str = "1h",
     namespace: str | None = None,
 ) -> str:
-    """Execute LogQL query across Kubernetes and cluster log streams (e.g. {app='web'} |= 'error')."""
+    """Execute LogQL query across Kubernetes and cluster log streams (e.g. {app="web"} |= "error")."""
     _validate_mcp_arg("query", query)
+    _validate_mcp_int_bound("limit", limit, min_val=1)
     cmd = [
         "uv",
         "run",
@@ -300,8 +301,10 @@ def k8s_logs_tail(
     lines: int = 50,
     namespace: str | None = None,
 ) -> str:
-    """Tail recent log lines matching LogQL stream selector."""
+    """Tail recent log lines matching LogQL stream selector (e.g. {app="web"})."""
     _validate_mcp_arg("query", query)
+    _validate_mcp_int_bound("lines", lines, min_val=1)
+
     cmd = [
         "uv",
         "run",

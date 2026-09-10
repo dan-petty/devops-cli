@@ -22,13 +22,23 @@ spec:
       ports:
         - protocol: TCP
           port: 3100
-    # 3. Allow workstation host / cluster ingress to Loki API (3100)
+    # 3. Ingress controller and workstation management network (RFC 1918 / loopback)
     - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
         - ipBlock:
-            cidr: 0.0.0.0/0
+            cidr: 10.0.0.0/8
+        - ipBlock:
+            cidr: 172.16.0.0/12
+        - ipBlock:
+            cidr: 192.168.0.0/16
+        - ipBlock:
+            cidr: 127.0.0.1/32
       ports:
         - protocol: TCP
           port: 3100
+
   egress:
     # 1. Intra-namespace communications
     - to:

@@ -12,7 +12,9 @@ from typing import Any
 import httpx2
 
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.validation import validate_url_egress
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.exceptions.k8s import KubernetesLoggingError
 from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
@@ -100,8 +102,8 @@ def extract_fields_logfmt(line: str) -> dict[str, str]:
 
 
 def _parse_stream_selectors(selector_part: str) -> dict[str, str]:
-    """Extract label matches from {label=\"val\"} block."""
-    content = selector_part.strip("{}").strip()
+    """Extract stream label selectors from LogQL braces block {app="x", ...}."""
+    content = selector_part.strip().lstrip("{").rstrip("}").strip()
     if not content:
         return {}
     return dict(_SELECTOR_REGEX.findall(content))
@@ -123,7 +125,16 @@ def _parse_filters_and_pipeline(
 
     for op_str, pattern in _FILTER_REGEX.findall(remaining_text):
         try:
-            filters.append(LogQLFilter(op=FilterOp(op_str), pattern=pattern))
+            op = FilterOp(op_str)
+            if op in (FilterOp.REGEX_MATCH, FilterOp.NOT_REGEX_MATCH):
+                try:
+                    re.compile(pattern)
+                except re.error as exc:
+                    raise KubernetesLoggingError(
+                        f"Invalid LogQL regular expression '{pattern}': {exc}",
+                        query=pattern,
+                    ) from exc
+            filters.append(LogQLFilter(op=op, pattern=pattern))
         except ValueError:
             continue
 
@@ -168,9 +179,19 @@ def _matches_single_filter(line: str, f: LogQLFilter) -> bool:
     if f.op == FilterOp.NOT_CONTAINS:
         return f.pattern not in line
     if f.op == FilterOp.REGEX_MATCH:
-        return bool(re.search(f.pattern, line))
+        try:
+            return bool(re.search(f.pattern, line))
+        except re.error as exc:
+            raise KubernetesLoggingError(
+                f"Invalid regex pattern '{f.pattern}': {exc}", query=f.pattern
+            ) from exc
     if f.op == FilterOp.NOT_REGEX_MATCH:
-        return not bool(re.search(f.pattern, line))
+        try:
+            return not bool(re.search(f.pattern, line))
+        except re.error as exc:
+            raise KubernetesLoggingError(
+                f"Invalid regex pattern '{f.pattern}': {exc}", query=f.pattern
+            ) from exc
     return True
 
 
@@ -225,11 +246,12 @@ def evaluate_log_lines(
     return results
 
 
-def _get_matching_pods(namespace: str, app_label: str | None) -> list[str]:
-    """Discover active pod names matching namespace and label."""
+def _get_matching_pods(namespace: str, selectors: dict[str, str]) -> list[str]:
+    """Discover active pod names matching namespace and stream selectors."""
     cmd = ["kubectl", "get", "pods", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}"]
-    if app_label:
-        cmd.extend(["-l", f"app={app_label}"])
+    label_filters = [f"{k}={v}" for k, v in selectors.items() if k not in ("namespace", "pod")]
+    if label_filters:
+        cmd.extend(["-l", ",".join(label_filters)])
     proc = run_subprocess(cmd, check=False)
     if proc.returncode == 0 and proc.stdout.strip():
         return proc.stdout.strip().split()
@@ -242,11 +264,22 @@ def execute_kubectl_logql(
     limit: int = 100,
 ) -> LogQueryResult:
     """Query logs via kubectl across matching pods with in-memory LogQL filtering."""
-    app_label = query.selectors.get("app")
     ns = query.selectors.get("namespace", namespace)
-    pods = _get_matching_pods(ns, app_label)
+    if "pod" in query.selectors:
+        pods = [query.selectors["pod"]]
+    else:
+        pods = _get_matching_pods(ns, query.selectors)
+
+    # If stream selectors were specified (e.g. app="x") and no pods matched, return empty result
+    if not pods and query.selectors:
+        return LogQueryResult(
+            query=query,
+            entries=[],
+            source="k8s_fallback",
+            duration_ms=0.0,
+        )
     if not pods:
-        pods = _get_matching_pods(ns, None)
+        pods = _get_matching_pods(ns, {})
 
     all_entries: list[LogEntry] = []
     for pod in pods[:5]:
@@ -279,16 +312,31 @@ def execute_loki_query(
     since: str = "1h",
 ) -> LogQueryResult:
     """Execute LogQL query against Loki REST API (/loki/api/v1/query_range)."""
-    endpoint = f"{loki_url.rstrip('/')}/loki/api/v1/query_range"
+    valid_url = validate_url_egress(loki_url, purpose="Loki", allow_private=True)
+    endpoint = f"{valid_url.rstrip('/')}/loki/api/v1/query_range"
     params: dict[str, Any] = {
         "query": query.raw_query,
         "limit": limit,
         "since": since,
         "direction": "BACKWARD",
     }
-    resp = httpx2.get(endpoint, params=params, timeout=10.0)
+    try:
+        resp = httpx2.get(endpoint, params=params, timeout=10.0)
+    except (httpx2.ConnectError, httpx2.ConnectTimeout, httpx2.NetworkError) as conn_err:
+        raise ConnectionError(f"Loki connection failed: {conn_err}") from conn_err
+
+    if resp.status_code == 400:
+        raise KubernetesLoggingError(
+            f"Invalid LogQL query: {resp.text.strip()}",
+            status_code=400,
+            query=query.raw_query,
+        )
     if resp.status_code != 200:
-        raise RuntimeError(f"Loki query failed with HTTP {resp.status_code}: {resp.text}")
+        raise KubernetesLoggingError(
+            f"Loki query failed with HTTP {resp.status_code}: {resp.text.strip()}",
+            status_code=resp.status_code,
+            query=query.raw_query,
+        )
 
     payload = resp.json()
     entries: list[LogEntry] = []
@@ -356,6 +404,8 @@ def execute_logql_query(
     with trace_span("k8s.logql.query", attributes={"query": parsed.raw_query}):
         try:
             return execute_loki_query(parsed, loki_url=url, limit=limit, since=since)
-        except Exception as exc:
+        except (ConnectionError, httpx2.ConnectError, httpx2.TimeoutException) as exc:
             logger.info("Loki unreachable (%s); falling back to kubectl logs stream", exc)
             return execute_kubectl_logql(parsed, namespace=target_ns, limit=limit)
+        except KubernetesLoggingError:
+            raise

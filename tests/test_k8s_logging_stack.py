@@ -119,3 +119,21 @@ def test_k8s_logs_subcommand_query_dispatch() -> None:
         )
         assert result.exit_code == 0
         mock_query.assert_called_once()
+
+
+def test_k8s_logs_pod_named_tail_legacy() -> None:
+    """Verify devops k8s logs tail without query argument treats tail as a pod name."""
+    mock_proc = MagicMock(returncode=0, stdout="logs from pod tail", stderr="")
+    with patch("devops_cli.commands.k8s._run_cmd", return_value=mock_proc) as mock_run:
+        result = runner.invoke(app, ["logs", "tail", "-n", "default"])
+        assert result.exit_code == 0
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert "tail" in cmd
+
+
+def test_k8s_logs_logql_rejects_follow() -> None:
+    """Verify devops k8s logs with LogQL query rejects --follow."""
+    result = runner.invoke(app, ["logs", '{app="frontend"}', "--follow"])
+    assert result.exit_code == 1
+    assert "--follow" in result.output
