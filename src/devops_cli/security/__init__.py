@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from devops_cli.security.bandit import run_bandit_scan
+from devops_cli.security.bandit import BanditScanner, run_bandit_scan
 from devops_cli.security.base import BaseSecurityScanner
-from devops_cli.security.checkov import run_checkov_scan
-from devops_cli.security.dive import run_dive_analysis
-from devops_cli.security.gitleaks import run_gitleaks_scan
-from devops_cli.security.kubeconform import run_kubeconform_validation
-from devops_cli.security.kubelinter import run_kubelinter_scan
-from devops_cli.security.pluto import run_pluto_scan
-from devops_cli.security.popeye import run_popeye_scan
+from devops_cli.security.checkov import CheckovScanner, run_checkov_scan
+from devops_cli.security.dive import DiveScanner, run_dive_analysis
+from devops_cli.security.gitleaks import GitleaksScanner, run_gitleaks_scan
+from devops_cli.security.kubeconform import KubeconformScanner, run_kubeconform_validation
+from devops_cli.security.kubelinter import KubelinterScanner, run_kubelinter_scan
+from devops_cli.security.pluto import PlutoScanner, run_pluto_scan
+from devops_cli.security.popeye import PopeyeScanner, run_popeye_scan
 from devops_cli.security.reference_extractor import (
     extract_dependencies_from_text,
     extract_network_references,
@@ -28,9 +28,9 @@ from devops_cli.security.sanitizer import (
     sanitize_prompt_injection,
     sanitize_telemetry_endpoint,
 )
-from devops_cli.security.semgrep import run_semgrep_scan
-from devops_cli.security.tflint import run_tflint_scan
-from devops_cli.security.trivy import run_trivy_scan
+from devops_cli.security.semgrep import SemgrepScanner, run_semgrep_scan
+from devops_cli.security.tflint import TflintScanner, run_tflint_scan
+from devops_cli.security.trivy import TrivyScanner, run_trivy_scan
 from devops_cli.security.vulnerability_lookup import (
     CloudflareRadarClient,
     NVDClient,
@@ -39,12 +39,23 @@ from devops_cli.security.vulnerability_lookup import (
 )
 
 __all__ = [
+    "BanditScanner",
     "BaseSecurityScanner",
+    "CheckovScanner",
     "CloudflareRadarClient",
+    "DiveScanner",
+    "GitleaksScanner",
+    "KubeconformScanner",
+    "KubelinterScanner",
     "NVDClient",
     "OSVClient",
+    "PlutoScanner",
+    "PopeyeScanner",
     "ScannerRegistry",
+    "SemgrepScanner",
     "ShodanInternetDBClient",
+    "TflintScanner",
+    "TrivyScanner",
     "extract_dependencies_from_text",
     "extract_network_references",
     "global_scanner_registry",

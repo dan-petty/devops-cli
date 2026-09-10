@@ -957,23 +957,22 @@
 
 ---
 
-### In-Progress Tasks (WIP)
 - [x] Phase 50.12: Remediate Review Findings (Session 20260909-122649) & Strengthen Self-Improvement Review Loop (Closes #87, PR #92)
-- [x] Phase 50.13: Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (Closes #88, PR #93)
+- [x] Phase 50.13: Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (Closes #88, PR #93 - Merged)
 - [x] Phase 50.14: Eliminate Obsolete Shims, Aliases, Proxy Wrappers & Compatibility Remnants (Closes #94, PR #95)
 - [x] Phase 50.15: Centralized Kubernetes Logging Stack & LogQL Integration (Closes #89, PR #96)
-- [x] Phase 50.16: Infracost FinOps Cloud Cost Engine (`devops tf cost`) (Closes #90)
+- [x] Phase 50.16: Infracost FinOps Cloud Cost Engine (`devops tf cost`) (Closes #90, PR #97)
   - [x] 1. Authored Pydantic models `TFCostResource` and `TFCostBreakdownResult` in `src/devops_cli/models/tf.py`.
   - [x] 2. Implemented Infracost FinOps engine in `src/devops_cli/tf/cost.py` (breakdown, diff, budget validation, offline mock).
   - [x] 3. Added `cost breakdown` and `cost diff` commands to `src/devops_cli/commands/tf.py`.
   - [x] 4. Exposed `tf_cost_estimate` FastMCP tool in `src/devops_cli/ai/mcp/server.py`.
-  - [x] 5. Verified 100% test coverage and invariants in `tests/test_tf_cost.py` (13/13 passing).
+  - [x] 5. Verified 100% test coverage and invariants in `tests/test_tf_cost.py` (20/20 passing).
   - [x] 6. Synchronized docs and README (`devops docs generate --sync-readme`).
 
 ---
 
 ### Pending Tasks
 - [ ] Milestone v0.2.15: GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh
-  - [ ] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (Closes #91)
-  - [ ] Remediate Copilot Review Comments across all open PRs (#96, #95, #93, #92)
+  - [x] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (Closes #91, PR #98)
+  - [x] Remediate Copilot Review Comments across all open PRs (#98, #97, #96, #95, #93, #92)
   - [ ] Synchronize GitHub Projects v2 custom fields and boards
