@@ -240,10 +240,10 @@ class EmbeddingBenchmarkRunner:
         # 1. Measure single-query latencies (p50, p95)
         query_latencies: list[float] = []
         for pair in pairs[:5]:
-            t0 = time.perf_counter()
+            start_time = time.perf_counter()
             try:
                 engine.embed_texts([pair.query], is_query=True)
-                dur_ms = (time.perf_counter() - t0) * 1000.0
+                dur_ms = (time.perf_counter() - start_time) * 1000.0
                 query_latencies.append(dur_ms)
             except Exception as exc:
                 logger.warning(

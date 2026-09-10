@@ -54,14 +54,14 @@ def test_native_security_tool_invocations(mock_cmd: MagicMock, tmp_path: Path) -
 @patch("devops_cli.security.kubelinter.run_kubelinter_scan")
 @patch("devops_cli.security.pluto.run_pluto_scan")
 @patch("devops_cli.security.bandit.run_bandit_scan")
-def test_pipeline_stage2_multi_scanner_aggregation(
+def test_pipeline_multi_scanner_aggregation(
     mock_bandit: MagicMock,
     mock_pluto: MagicMock,
     mock_kl: MagicMock,
     mock_trivy: MagicMock,
     tmp_path: Path,
 ) -> None:
-    """Stage 2 payloads aggregate findings across Trivy, Kube-linter, Pluto, Bandit."""
+    """Verify payloads aggregate findings across Trivy, Kube-linter, Pluto, Bandit."""
     mock_trivy.return_value = [
         Finding(
             severity="CRITICAL",

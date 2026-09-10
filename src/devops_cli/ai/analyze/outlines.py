@@ -74,9 +74,9 @@ def _validate_enhanced_metadata(
 
 def _mask_sensitive_data(text: str) -> str:
     """Mask credentials and secrets before transmitting code to external LLM services."""
-    from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+    from devops_cli.security.sanitizer import mask_secrets
 
-    return _mask_secrets_in_content(text)
+    return mask_secrets(text)
 
 
 def _enhance_file_metadata_with_ai(

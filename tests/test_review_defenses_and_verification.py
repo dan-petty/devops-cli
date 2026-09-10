@@ -15,13 +15,13 @@ from devops_cli.ai.review.common_hallucinations import (
     verify_ground_truth_hallucination,
 )
 from devops_cli.ai.review.exporter import export_invalidated_feedback
-from devops_cli.ai.review.sanitization import _mask_secrets_in_content
 from devops_cli.ai.review.verification import _deterministic_pre_verification
 from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.vault import _validate_vault_path
 from devops_cli.core.repo import list_repo_files
 from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.vault import VaultConfigurationError
+from devops_cli.security.sanitizer import mask_secrets
 
 
 def test_list_repo_files_symlink_traversal_prevention(tmp_path: Path) -> None:
@@ -82,7 +82,7 @@ def test_mask_secrets_preserves_function_invocations() -> None:
     code_snippet = (
         "embedder = EmbeddingsEngine(ai_config=st.ai, api_key=settings_mod.get_ai_api_key(st))\n"
     )
-    masked = _mask_secrets_in_content(code_snippet)
+    masked = mask_secrets(code_snippet)
     # The function call settings_mod.get_ai_api_key(st) must NOT be replaced with <masked-api-key>(st)
     assert "<masked-api-key>(st)" not in masked
     assert "settings_mod.get_ai_api_key(st)" in masked
@@ -151,7 +151,7 @@ def test_common_hallucinations_missing_symbol_false_alarm(tmp_path: Path) -> Non
 
 def test_mask_secrets_unquoted_token_with_dots() -> None:
     yaml_snippet = "api_key: abc.def.1234567890abcdef12345\n"
-    masked = _mask_secrets_in_content(yaml_snippet)
+    masked = mask_secrets(yaml_snippet)
     assert "abc.def" not in masked
     assert "api_key=<masked-api-key>" in masked
 

@@ -59,11 +59,6 @@ def _resolve_tf_binary() -> str:
     raise typer.Exit(1)
 
 
-def _validate_dir(path: Path) -> Path:
-    """Ensure the target directory exists and is a directory."""
-    return validate_dir(path, must_exist=True)
-
-
 def _get_cloud_dir(cloud_provider: str, repo_root: Path) -> Path:
     """Resolve directory path for a supported cloud provider."""
     provider_map = {
@@ -100,7 +95,7 @@ def tf_init(
     reconfigure: Annotated[bool, typer.Option("--reconfigure", help=HELP.tf.reconfigure)] = False,
 ) -> None:
     """Initialize an OpenTofu working directory."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "init"]
@@ -143,7 +138,7 @@ def tf_plan(
     destroy: Annotated[bool, typer.Option("--destroy", help=HELP.tf.destroy_plan)] = False,
 ) -> None:
     """Generate and show an OpenTofu execution plan."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "plan"]
@@ -192,7 +187,7 @@ def tf_apply(
     ] = False,
 ) -> None:
     """Create or update OpenTofu infrastructure."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "apply"]
@@ -239,7 +234,7 @@ def tf_destroy(
     ] = False,
 ) -> None:
     """Destroy OpenTofu-managed infrastructure."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "destroy"]
@@ -281,7 +276,7 @@ def tf_output(
     raw: Annotated[bool, typer.Option("--raw", "-r", help=HELP.options.raw)] = False,
 ) -> None:
     """Read an output variable from the OpenTofu state."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "output"]
@@ -320,7 +315,7 @@ def tf_validate(
     no_color: Annotated[bool, typer.Option("--no-color", help=HELP.tf.no_color)] = False,
 ) -> None:
     """Validate the OpenTofu configuration files in a directory."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "validate"]
@@ -360,7 +355,7 @@ def tf_fmt(
     ] = True,
 ) -> None:
     """Rewrites OpenTofu configuration files to canonical format."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     cmd = [binary, "fmt"]
@@ -398,7 +393,7 @@ def status_command(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
 ) -> None:
     """Show OpenTofu directory state, initialization status, and provider plugins."""
-    target = _validate_dir(directory)
+    target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
     tf_dir = target / ".terraform"

@@ -106,18 +106,15 @@ def request_pages_build(repo: str) -> bool:
 
 
 def _resolve_jekyll_config_path(root_dir: Path) -> Path:
-    """Resolve Jekyll configuration path, preferring _config.yaml over _config.yml."""
-    yaml_path = root_dir / "_config.yaml"
-    if yaml_path.is_file():
-        return yaml_path
-    return root_dir / "_config.yml"
+    """Resolve GitHub Pages configuration path, strictly requiring docs/github-pages.config.yaml."""
+    return root_dir / "docs" / "github-pages.config.yaml"
 
 
 def _check_jekyll_config(config_path: Path) -> tuple[bool, list[str]]:
     """Validate required Jekyll keys and configuration properties."""
     diagnostics: list[str] = []
     if not config_path.is_file():
-        diagnostics.append("Missing _config.yaml or _config.yml in root directory.")
+        diagnostics.append(f"Missing {config_path.name} in docs/ directory.")
         return False, diagnostics
 
     try:
