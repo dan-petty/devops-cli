@@ -54,15 +54,32 @@ grafana:
 
   additionalDataSources:
     - name: Jaeger
+      uid: jaeger
       type: jaeger
       access: proxy
       url: http://jaeger.otel.svc.cluster.local:16686
       isDefault: false
       jsonData:
         tracesToLogs:
-          datasourceUid: prometheus
+          datasourceUid: loki
+          tags: ['job', 'instance', 'pod', 'namespace']
+          filterByTraceID: true
+          filterBySpanID: true
         nodeGraph:
           enabled: true
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.logging.svc.cluster.local:3100
+      isDefault: false
+      jsonData:
+        maxLines: 1000
+        derivedFields:
+          - datasourceUid: jaeger
+            matcherRegex: "(?:trace_id|traceId|traceID)[\"':=\\s]+([0-9a-fA-F]{16,32})"
+            name: TraceID
+            url: "$${__value.raw}"
 
   readinessProbe:
     httpGet:

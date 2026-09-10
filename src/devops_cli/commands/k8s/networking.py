@@ -34,14 +34,14 @@ from devops_cli.output import (
     print_table,
 )
 
-VALID_STACKS: tuple[str, ...] = ("infra", "llm", "all")
+VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "all")
 
 
 def _resolve_stacks(stack: str) -> list[str]:
     s = stack.strip().lower()
     if s == "all":
-        return ["infra", "llm"]
-    if s in ("infra", "llm"):
+        return ["infra", "llm", "logging"]
+    if s in ("infra", "llm", "logging"):
         return [s]
     print_error(
         f"Invalid stack: {stack!r}. Supported stacks: {', '.join(VALID_STACKS)}",
