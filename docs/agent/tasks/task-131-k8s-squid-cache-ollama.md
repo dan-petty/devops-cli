@@ -48,8 +48,8 @@ Configure and deploy a dedicated, high-capacity Squid caching forward proxy with
 - [x] Ground issue in GitHub tracking (#131) with milestone `v0.2.16`.
 - [x] Create dedicated topic branch `feat/k8s-squid-cache`.
 - [x] Create task tracking document `docs/agent/tasks/task-131-k8s-squid-cache-ollama.md`.
-- [x] Create `docker/squid/entrypoint.sh` for SSL database and cache swap init.
-- [x] Create `docker/squid/Dockerfile` using Ubuntu 24.04 and `squid-openssl`.
+- [x] Create `k8s/squid/docker/entrypoint.sh` for SSL database and cache swap init.
+- [x] Create `k8s/squid/docker/Dockerfile` using Ubuntu 24.04 and `squid-openssl`.
 - [x] Create `docs/squid-failover-and-observability.md` detailing failover resilience and observability.
 - [x] Create `k8s/squid/namespace.yaml` for dedicated `squid` namespace with baseline security.
 - [x] Create `k8s/squid/configmap.yaml` with optimized `squid.conf` (100GB objects, SSL-Bump, JSON logging, LFUDA).

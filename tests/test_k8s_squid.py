@@ -9,7 +9,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 K8S_DIR = REPO_ROOT / "k8s"
 SQUID_DIR = K8S_DIR / "squid"
-DOCKER_DIR = REPO_ROOT / "docker" / "squid"
+DOCKER_DIR = SQUID_DIR / "docker"
 
 
 def test_squid_manifest_files_exist() -> None:
