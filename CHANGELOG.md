@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.15] - 2026-09-10
+
+### Added
+- **Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`)**:
+  - Loki log aggregation engine and Fluent Bit log forwarder integration with dynamic namespace scraping.
+  - Subcommands `devops k8s logs query` and `devops k8s logs tail` supporting LogQL expressions, label streams, stream filtering, and JSON/terminal output formatting.
+  - FastMCP tools for Loki centralized log exploration.
+- **Infracost FinOps Cloud Cost Engine (`devops tf cost`)**:
+  - Cloud infrastructure cost estimation and breakdown across AWS, Azure, and Google Cloud with breakdown tables and diff reporting.
+- **Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`)**:
+  - Multi-cluster ArgoCD orchestration, fleet synchronization across managed clusters, and automated rollback triggers on health degradation.
+- **BaseSecurityScanner Registry Migration**:
+  - Completed migration of all security scanners (Trivy, Gitleaks, Bandit, Semgrep, Checkov) to `BaseSecurityScanner` and unified `ScannerRegistry`.
+- **Target-Agnostic AI Code Review & Multi-Convention Discovery**:
+  - Generalize `devops ai review` for arbitrary target repositories (Python, Go, Rust, TypeScript, monorepos, Kubernetes manifests) with automated discovery across `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.cursorrules`.
+- **Modular Agent Task Architecture (`docs/agent/tasks/`)**:
+  - Per-task markdown tracking eliminating git merge conflicts across feature branches.
+
+### Fixed
+- **Distributed Tracing & Jaeger Stability Optimizations**:
+  - Reduced `MEMORY_MAX_TRACES` to 10,000 and increased memory limit to 1024Mi in `k8s/otel/jaeger.yaml` to prevent pod OOMKills (`Exit Code 137`).
+  - Refactored `src/devops_cli/telemetry/tracer.py` to avoid recording stack trace events on handled CLI exits (`typer.Exit`).
+  - Bounded embedding timeout (`DEFAULT_RAG_EMBEDDING_TIMEOUT: 15.0`) with 2.0s connect timeout in `src/devops_cli/ai/rag/embeddings.py` for rapid multi-node failover.
+- **Compatibility Remnants & Zombie Code Removal**:
+  - Eliminated obsolete fallback shims, proxy wrappers, and vestigial aliases project-wide.
+
 ## [0.2.14] - 2026-09-09
 
 ### Added
