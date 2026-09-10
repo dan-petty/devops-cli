@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from devops_cli.ai.mcp.server import (
     ai_architecture,
+    ai_ast_graph,
+    ai_ast_parse,
     ai_diagram,
     ai_repomap,
     ai_test_gen,
@@ -137,6 +139,8 @@ __all__ = [
     "ServerCapabilities",
     "ToolResult",
     "ai_architecture",
+    "ai_ast_graph",
+    "ai_ast_parse",
     "ai_diagram",
     "ai_repomap",
     "ai_test_gen",

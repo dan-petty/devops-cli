@@ -50,7 +50,7 @@ All configuration values can be overridden via `DEVOPS_CLI_*` environment variab
 | `DEVOPS_CLI_AI_REASONING_EFFORT` | `ai.reasoning_effort` | Reasoning depth for reasoning models (`low`, `medium`, `high`) |
 | `DEVOPS_CLI_AI_TEMPERATURE` | `ai.temperature` | Sampling temperature (`0.0` to `1.0`) |
 | `DEVOPS_CLI_AI_MAX_TOKENS` | `ai.max_tokens` | Response token generation ceiling (e.g. `2048`, `4096`) |
-| `DEVOPS_CLI_AI_OLLAMA_URLS` | `ai.ollama_urls` | Comma-separated list of Ollama host endpoints (e.g. `http://hog.lan:11434,http://127.0.0.1:11434`) |
+| `DEVOPS_CLI_AI_OLLAMA_URLS` | `ai.ollama_urls` | Comma-separated list of Ollama host endpoints (e.g. `http://10.0.0.10:11434,http://127.0.0.1:11434`) |
 | `DEVOPS_CLI_AI_OLLAMA_MAX_PARALLEL` | `ai.ollama_max_parallel` | Maximum concurrent requests dispatched per Ollama endpoint |
 | `GITHUB_TOKEN` | `github.token` | GitHub Personal Access Token for API and PR operations |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `telemetry.endpoint` | OTLP gRPC collector target (e.g. `http://localhost:4317`) |
@@ -76,7 +76,7 @@ ai:
       timeout_seconds: 240
     embedding:
       ollama_urls:
-        - http://workhorse.lan:11434
+        - http://10.0.0.10:11434
       model: qwen3-embedding:0.6b
     chat:
       temperature: 0.7
@@ -85,7 +85,7 @@ ai:
       temperature: 0.2
       max_tokens: 2048
   rag:
-    embedding_url: http://workhorse.lan:11434
+    embedding_url: http://10.0.0.10:11434
     embedding_model: qwen3-embedding:0.6b
 ```
 
@@ -105,8 +105,8 @@ devops config set ai.provider ollama
 devops config set ai.model qwen3.8:27b
 devops config set ai.reasoning_effort low
 devops config set ai.allow_private_network true
-devops config set ai.rag.embedding_url http://workhorse.lan:11434
-devops config set ai.tasks.embedding.ollama_urls http://workhorse.lan:11434
+devops config set ai.rag.embedding_url http://10.0.0.10:11434
+devops config set ai.tasks.embedding.ollama_urls http://10.0.0.10:11434
 devops config set github.default_org my-org
 
 # Get specific configuration values

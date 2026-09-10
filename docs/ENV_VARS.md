@@ -13,7 +13,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_OLLAMA_MAX_PARALLEL` | `ai.ollama_max_parallel` | No | Maximum parallel requests per Ollama host |
 | `DEVOPS_CLI_AI_OLLAMA_URLS` | `ai.ollama_urls` | No | Ollama service URLs (comma-separated) |
 | `DEVOPS_CLI_AI_PROVIDER` | `ai.provider` | No | AI provider (ollama \| claude \| copilot \| openai) |
-| `DEVOPS_CLI_AI_RAG_EMBEDDING_URL` | `ai.rag.embedding_url` | No | Dedicated endpoint URL for RAG dense vector embedding generation (e.g. http://workhorse.lan:11434) |
+| `DEVOPS_CLI_AI_RAG_EMBEDDING_URL` | `ai.rag.embedding_url` | No | Dedicated endpoint URL for RAG dense vector embedding generation (e.g. http://10.0.0.10:11434) |
 | `DEVOPS_CLI_AI_REASONING_EFFORT` | `ai.reasoning_effort` | No | AI reasoning effort level (low \| medium \| high) |
 | `DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL` | `ai.tasks.analysis.model` | No | AI model override for analysis task |
 | `DEVOPS_CLI_AI_TASK_ANALYSIS_OLLAMA_URLS` | `ai.tasks.analysis.ollama_urls` | No | Ollama URLs override for analysis task |

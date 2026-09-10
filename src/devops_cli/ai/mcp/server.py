@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import subprocess
+from pathlib import Path
 from typing import Literal
 
 from fastmcp import FastMCP
@@ -442,6 +444,16 @@ def rag_index(path: str = ".", project: str | None = None, force: bool = False) 
 
 
 @mcp.tool()
+def rag_drift(path: str = ".", auto_sync: bool = False) -> str:
+    """Detect staleness and drift between the working tree and the Qdrant vector index."""
+    _validate_mcp_arg("path", path)
+    cmd = ["uv", "run", "devops", "ai", "rag", "drift", path, "--json"]
+    if auto_sync:
+        cmd.append("--auto-sync")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def k8s_jaeger_info() -> str:
     """Retrieve Jaeger distributed tracing Query UI URL and OTLP trace endpoints."""
     return (
@@ -654,6 +666,69 @@ def ai_repomap(target_dir: str = ".") -> str:
 
 
 @mcp.tool()
+def ai_ast_parse(file_path: str, query: str = "") -> str:
+    """Parse a polyglot source file (Python, TypeScript, Go, Rust, Java, HCL) into syntax symbols or execute S-expression query."""
+    _validate_mcp_arg("file_path", file_path)
+    cmd = ["uv", "run", "devops", "ai", "ast", "parse", file_path, "--json"]
+    if query:
+        _validate_mcp_arg("query", query)
+        cmd.extend(["--query", query])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_ast_graph(target_dir: str = ".", max_files: int = 50) -> str:
+    """Synthesize whole-repository code symbol and reference graph across polyglot languages."""
+    _validate_mcp_arg("target_dir", target_dir)
+    return _run_mcp_cmd(
+        [
+            "uv",
+            "run",
+            "devops",
+            "ai",
+            "ast",
+            "graph",
+            "--dir",
+            target_dir,
+            "--max-files",
+            str(max_files),
+        ],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def ai_pack_context(
+    file_path: str,
+    referenced: str = "",
+    max_tokens: int = 1500,
+    strip_private: bool = True,
+    skeletonize: bool = True,
+) -> str:
+    """Pack and prune source code context to fit token budget while preserving signatures and types."""
+    _validate_mcp_arg("file_path", file_path)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "pack-context",
+        file_path,
+        "--max-tokens",
+        str(max_tokens),
+        "--json",
+    ]
+    if referenced:
+        _validate_mcp_arg("referenced", referenced)
+        cmd.extend(["--referenced", referenced])
+    if not strip_private:
+        cmd.append("--no-strip-private")
+    if not skeletonize:
+        cmd.append("--no-skeletonize")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def ai_diagram(diagram_type: str = "arch", target_dir: str = ".") -> str:
     """Generate visual Mermaid architecture or threat modeling diagram."""
     _validate_mcp_arg("diagram_type", diagram_type)
@@ -749,6 +824,42 @@ def get_release_resource() -> str:
     """Return current project version, git tags, and release readiness."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "release", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://gh/pages/status")
+def get_gh_pages_resource() -> str:
+    """Return live GitHub Pages publishing status, custom domain, and build health."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "pages", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://gh/issues/status")
+def get_gh_issues_resource() -> str:
+    """Return aggregated open GitHub issues counts grouped by priority, type, and milestone."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "issues", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://gh/project/status")
+def get_gh_project_resource() -> str:
+    """Return live GitHub Projects v2 board configuration and field mappings."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "project", "status"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://gh/views/status")
+def get_gh_views_resource() -> str:
+    """Return remote GitHub Projects views synchronization and audit status."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "views", "audit"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 
@@ -916,6 +1027,153 @@ def gh_views_sync(repo: str = "") -> str:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_pages_status(repo: str | None = None) -> str:
+    """Inspect GitHub Pages site deployment status, URL, branch, and HTTPS enforcement."""
+    cmd = ["uv", "run", "devops", "gh", "pages", "status"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_pages_build(repo: str | None = None) -> str:
+    """Trigger a new deployment build for GitHub Pages."""
+    cmd = ["uv", "run", "devops", "gh", "pages", "build"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_pages_verify() -> str:
+    """Verify local repository readiness for GitHub Pages publishing."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "pages", "verify"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def gh_issue_list(
+    repo: str | None = None,
+    state: str = "open",
+    milestone: str | None = None,
+    label: str | None = None,
+    limit: int = 30,
+) -> str:
+    """List repository issues with milestone, taxonomy labels, and status."""
+    _validate_mcp_arg("state", state)
+    cmd = ["uv", "run", "devops", "gh", "issues", "list", "--state", state, "--limit", str(limit)]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if milestone:
+        _validate_mcp_arg("milestone", milestone)
+        cmd.extend(["--milestone", milestone])
+    if label:
+        _validate_mcp_arg("label", label)
+        cmd.extend(["--label", label])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_issue_create(
+    title: str,
+    body: str = "",
+    milestone: str | None = None,
+    labels: str | None = None,
+    repo: str | None = None,
+) -> str:
+    """Create a new GitHub issue linking milestone and taxonomy labels."""
+    _validate_mcp_arg("title", title)
+    cmd = ["uv", "run", "devops", "gh", "issues", "create", "--title", title, "--body", body]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if milestone:
+        _validate_mcp_arg("milestone", milestone)
+        cmd.extend(["--milestone", milestone])
+    if labels:
+        for lbl in labels.split(","):
+            cleaned = lbl.strip()
+            if cleaned:
+                _validate_mcp_arg("label", cleaned)
+                cmd.extend(["--label", cleaned])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_issue_triage(repo: str | None = None) -> str:
+    """Audit open issues for mandatory taxonomy labels and milestone linkage."""
+    cmd = ["uv", "run", "devops", "gh", "issues", "triage"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_issue_status(repo: str | None = None) -> str:
+    """Display aggregated issue counts by priority, type, and milestone."""
+    cmd = ["uv", "run", "devops", "gh", "issues", "status"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_project_list(owner: str | None = None) -> str:
+    """List available GitHub Projects v2 boards for user or organization."""
+    cmd = ["uv", "run", "devops", "gh", "project", "list"]
+    if owner:
+        _validate_mcp_arg("owner", owner)
+        cmd.extend(["--owner", owner])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_project_audit(repo: str | None = None) -> str:
+    """Audit project board health and alignment against standardized template."""
+    cmd = ["uv", "run", "devops", "gh", "project", "audit"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_project_reconcile(
+    project_number: int | None = None,
+    repo: str | None = None,
+    dry_run: bool = False,
+) -> str:
+    """Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items."""
+    cmd = ["uv", "run", "devops", "gh", "project", "reconcile"]
+    if project_number is not None:
+        _validate_mcp_int_bound("project_number", project_number, min_val=1)
+        cmd.extend(["--project-number", str(project_number)])
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_views_audit(repo: str | None = None) -> str:
+    """Audit remote project views against standardized view template specifications."""
+    cmd = ["uv", "run", "devops", "gh", "views", "audit"]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
@@ -1235,6 +1493,37 @@ def pr_checks(pr_number: int) -> str:
 
 
 @mcp.tool()
+def pr_threads_list(pr_number: int, unresolved_only: bool = True) -> str:
+    """List review discussion threads, file locations, and comments on a pull request."""
+    _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+    cmd = ["uv", "run", "devops", "pr", "threads", "list", str(pr_number)]
+    if unresolved_only:
+        cmd.append("--unresolved-only")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def pr_thread_reply(thread_id: str, body: str) -> str:
+    """Post an in-thread reply directly to a pull request review discussion thread."""
+    _validate_mcp_arg("thread_id", thread_id)
+    _validate_mcp_arg("body", body)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "pr", "threads", "reply", thread_id, body],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def pr_thread_resolve(thread_id: str) -> str:
+    """Programmatically mark a pull request review discussion thread as resolved."""
+    _validate_mcp_arg("thread_id", thread_id)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "pr", "threads", "resolve", thread_id],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
 def valkey_ping() -> str:
     """Test connection and measure latency to the workstation Valkey server."""
     return _run_mcp_cmd(
@@ -1402,6 +1691,104 @@ def ai_constellation_status() -> str:
         ["uv", "run", "devops", "ai", "constellation", "--format", "json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
+
+
+@mcp.tool()
+def ai_ingest_library(
+    package: str,
+    max_depth: int = 1,
+) -> str:
+    """Introspect an installed Python package and extract its public API contract into .data/libraries/."""
+    _validate_mcp_arg("package", package)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "ingest",
+        "library",
+        package,
+        "--max-depth",
+        str(max_depth),
+        "--format",
+        "json",
+    ]
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_query_library(
+    query: str,
+    package: str = "",
+    exact: bool = False,
+    top_k: int = 5,
+) -> str:
+    """Search library contracts and documentation via semantic search or exact symbol lookup."""
+    _validate_mcp_arg("query", query)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "ingest",
+        "query-library",
+        query,
+        "--top-k",
+        str(top_k),
+        "--format",
+        "json",
+    ]
+    if package:
+        _validate_mcp_arg("package", package)
+        cmd.extend(["--package", package])
+    if exact:
+        cmd.append("--exact")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_inspect_symbol(
+    symbol: str,
+    package: str = "",
+) -> str:
+    """Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts."""
+    _validate_mcp_arg("symbol", symbol)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "ingest",
+        "query-library",
+        symbol,
+        "--exact",
+        "--format",
+        "json",
+    ]
+    if package:
+        _validate_mcp_arg("package", package)
+        cmd.extend(["--package", package])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.resource("resource://libraries/indexed")
+def get_indexed_libraries_resource() -> str:
+    """Return JSON metadata of all indexed library contracts, module counts, and symbol counts."""
+    from devops_cli.commands.ai_ingest import _load_local_contracts
+
+    contracts = _load_local_contracts(Path(".data/libraries"))
+    payload = [
+        {
+            "package_name": c.package_name,
+            "version": c.version,
+            "timestamp": c.timestamp,
+            "total_modules": c.total_modules,
+            "total_functions": c.total_functions,
+            "total_classes": c.total_classes,
+        }
+        for c in contracts
+    ]
+    return json.dumps(payload, indent=2)
 
 
 @mcp.resource("resource://ai/constellation")

@@ -9,19 +9,14 @@ import pydantic_ai._function_schema as _pydantic_fs
 from pydantic import BaseModel, Field
 from pydantic_ai.tools import RunContext as NativeRunContext
 
-from devops_cli.exceptions import SecurityError
-
 DepsT = TypeVar("DepsT")
 
 
 def _check_path_traversal(key: str, value: Any) -> None:
     """Validate that path parameters do not contain traversal sequences."""
-    if isinstance(value, str) and any(
-        sub in key.lower() for sub in ("path", "file", "dest", "target")
-    ):
-        clean_val = value.strip()
-        if ".." in clean_val:
-            raise SecurityError(f"Path traversal sequence detected in parameter '{key}': {value}")
+    from devops_cli.core.paths import validate_path_parameter
+
+    validate_path_parameter(key, value, allow_absolute=True)
 
 
 class AgentUsage(BaseModel):

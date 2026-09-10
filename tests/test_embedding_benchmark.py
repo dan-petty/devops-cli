@@ -90,7 +90,7 @@ def test_embedding_benchmark_runner_multi_server_dry_run() -> None:
     """Test Cartesian execution across multiple backend servers."""
     bench_runner = EmbeddingBenchmarkRunner(
         models=["nomic-embed-text:latest", "qwen3-embedding:0.6b"],
-        servers=["http://hog.lan:11434", "http://workhorse.lan:11434"],
+        servers=["http://node-1.example.internal:11434", "http://node-2.example.internal:11434"],
         is_dry_run=True,
     )
     report = bench_runner.run()

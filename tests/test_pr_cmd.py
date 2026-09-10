@@ -129,3 +129,62 @@ class TestPrCommands:
             args = mock_run.call_args[0][0]
             assert "--base" in args
             assert "release/v0.1.12" in args
+
+    def test_threads_list_success(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_threads import ReviewComment, ReviewThread
+
+        mock_threads = [
+            ReviewThread(
+                id="PRRT_1",
+                is_resolved=False,
+                path="src/main.py",
+                line=20,
+                comments=[ReviewComment(id="C1", body="Fix timeout", author="alice")],
+            )
+        ]
+        with (
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch(
+                "devops_cli.github.pr_threads.list_pr_review_threads",
+                return_value=mock_threads,
+            ),
+        ):
+            res = runner.invoke(app, ["threads", "list", "83"])
+            assert res.exit_code == 0
+            assert "PRRT_1" in res.output
+            assert "Open" in res.output
+
+    def test_threads_reply_success(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_threads import ReviewComment
+
+        mock_comment = ReviewComment(id="C_reply_1", body="Fixed", author="bob")
+        with patch(
+            "devops_cli.github.pr_threads.reply_pr_review_thread",
+            return_value=mock_comment,
+        ):
+            res = runner.invoke(app, ["threads", "reply", "PRRT_1", "Addressed in commit 123"])
+            assert res.exit_code == 0
+            assert "In-thread reply posted successfully" in res.output
+            assert "C_reply_1" in res.output
+
+    def test_threads_resolve_success(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_threads import ThreadResolutionResult
+
+        with patch(
+            "devops_cli.github.pr_threads.resolve_pr_review_thread",
+            return_value=ThreadResolutionResult(thread_id="PRRT_1", is_resolved=True),
+        ):
+            res = runner.invoke(app, ["threads", "resolve", "PRRT_1"])
+            assert res.exit_code == 0
+            assert "Thread PRRT_1 marked as resolved" in res.output
+
+    def test_threads_unresolve_success(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_threads import ThreadResolutionResult
+
+        with patch(
+            "devops_cli.github.pr_threads.unresolve_pr_review_thread",
+            return_value=ThreadResolutionResult(thread_id="PRRT_1", is_resolved=False),
+        ):
+            res = runner.invoke(app, ["threads", "unresolve", "PRRT_1"])
+            assert res.exit_code == 0
+            assert "reopened (unresolved)" in res.output

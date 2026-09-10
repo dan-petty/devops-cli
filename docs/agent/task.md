@@ -736,11 +736,11 @@
   - [x] 11. Remediated 5 GitHub Copilot review comments in commit 38662f8, replied in-thread, resolved threads via GraphQL, validated full CI gates, and squash-merged PR #72 into release branch `release/v0.2.13`. Closed Issue #59 and pruned remote branch.
 
 - [x] Phase 49.9.2: In-Cluster Container Registry, Pod Security Alignment & Non-Blocking Stack Deployment
-  - [x] 1. Deployed Docker Registry v2 (`registry:2.8.3`) in `registry` namespace on `homelab-k3s` backed by a 50Gi `local-path` PersistentVolumeClaim and exposed via NodePort `30500`.
-  - [x] 2. Configured containerd mirror registry endpoints across k3s cluster nodes (`hog.lan`, `condor.lan`) via Ansible playbook `configure_registries.yaml` to pull insecure HTTP images from `192.168.1.4:30500`, `hog.lan:30500`, and `condor.lan:30500`.
+  - [x] 1. Deployed Docker Registry v2 (`registry:2.8.3`) in `registry` namespace on `k3s-cluster` backed by a 50Gi `local-path` PersistentVolumeClaim and exposed via NodePort `30500`.
+  - [x] 2. Configured containerd mirror registry endpoints across cluster nodes via Ansible playbook `configure_registries.yaml` to pull insecure HTTP images from cluster mirror endpoints on port 30500.
   - [x] 3. Configured devcontainer Docker daemon with `insecure-registries` and verified end-to-end container build, push, and Kubernetes execution (`kubectl run test-hello-registry`).
   - [x] 4. Aligned PodSecurity admission labels and security contexts across namespaces (`monitoring`, `llm`, `registry`, `argocd`, `otel`), eliminating all PodSecurity admission warnings.
-  - [x] 5. Added `--wait / --no-wait` and `--timeout` flags to `devops k8s deploy-stack`, preventing Helm hangs when cluster nodes (such as `workhorse`) are temporarily offline.
+  - [x] 5. Added `--wait / --no-wait` and `--timeout` flags to `devops k8s deploy-stack`, preventing Helm hangs when cluster nodes are temporarily offline.
   - [x] 6. Authored comprehensive unit tests (`test_k8s_deploy_stack_no_wait` in `tests/test_k8s.py`) and verified 100% passing.
   - [x] 7. Synchronized documentation and CLI references via `devops docs generate --sync-readme`.
 
@@ -749,21 +749,222 @@
   - [x] 2. Verified full test suite and coverage execution across 110 test files with 0 test failures and coverage >= 90.0%.
   - [x] 3. Verified all 10/10 primary CI quality gates pass cleanly (`python_version`, `test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`, `actionlint`, `docs`).
 
-- [x] Phase 49.11: Release v0.2.13 Finalization & Release PR Preparation
+- [x] Phase 49.11: Release v0.2.13 Finalization, Copilot Review Remediation & Release PR Merge
   - [x] 1. Consolidated `CHANGELOG.md` with full release notes for `0.2.13` and re-initialized `## [Unreleased]`.
-  - [x] 2. Bumped version to `0.2.13` across `pyproject.toml` and `src/devops_cli/__init__.py`.
+  - [x] 2. Bumped version to `0.2.13` across `pyproject.toml`, `src/devops_cli/__init__.py`, `_config.yml`, and `uv.lock`.
   - [x] 3. Synchronized CLI references and README matrix via `devops docs generate --sync-readme`.
   - [x] 4. Verified 100% release consistency via `devops release status`.
-  - [x] 5. Commit and push `release/v0.2.13` to `origin/release/v0.2.13`.
-  - [x] 6. Open official Release PR targeting `main` with canonical title `feat(release): v0.2.13`.
+  - [x] 5. Committed and pushed `release/v0.2.13` to `origin/release/v0.2.13`.
+  - [x] 6. Opened official Release PR #73 targeting `main` with canonical title `feat(release): v0.2.13`.
+  - [x] 7. Remediated 3 GitHub Copilot review comments on PR #73 (Jekyll config version bump, binary last-byte newline check in `_append_known_host_entry`, pinned devcontainer image tag).
+  - [x] 8. Authored unit test cases in `tests/test_git_operations.py` verifying newline handling and empty entry safety.
+  - [x] 9. Replied directly in-thread to each review comment and programmatically resolved all 3 threads via GraphQL.
+  - [x] 10. Verified remote CI checks green on PR #73 and squash-merged into `main`.
+  - [x] 11. Closed release milestone `v0.2.13` and synchronized GitHub Projects v2 board (616 items).
+  - [x] 12. Pruned remote branch `origin/release/v0.2.13` and deleted local branch `release/v0.2.13`.
+
+---
+
+- [x] Phase 50.0: Release v0.2.14 Lifecycle & Milestone Initialization
+  - [x] 1. Created release branch `release/v0.2.14` tracking `origin/main`.
+  - [x] 2. Configured Dependabot (`.github/dependabot.yml`) for weekly package updates across pip, github-actions, and devcontainers.
+  - [x] 3. Scrubbed all documentation, manifests, tests, and configs of private hostnames and homelab references.
+  - [x] 4. Authored tracking issues #74 through #81 for all Milestone `v0.2.14` roadmap deliverables and synchronized into GitHub Projects v2 (#2, 622 items).
+
+- [x] Phase 50.1 & 50.2: Dynamic Package Introspection & Multi-Source Documentation Ingestion Engine (Issues #75, #76)
+  - [x] 1. Authored comprehensive test-first suites in `tests/test_library_ingest.py` (parameter extraction, function signatures, class hierarchy, serialization roundtrip, CLI) and `tests/test_docs_ingester.py` (markdown chunking, heading breadcrumbs, SSRF protection, remote crawling, CLI).
+  - [x] 2. Implemented Pydantic v2 contract models in `src/devops_cli/models/library.py` (`ParameterSignature`, `FunctionSignature`, `ClassSignature`, `ModuleContract`, `LibraryContract`, `DocChunk`, `IngestDocResult`).
+  - [x] 3. Added domain exceptions `LibraryIngestionError`, `LibraryNotFoundError`, and `DocsIngestionError` in `src/devops_cli/exceptions/ai.py` and re-exported in `src/devops_cli/exceptions/__init__.py`.
+  - [x] 4. Implemented `PackageIntrospector` and signature extractors in `src/devops_cli/ai/library/introspector.py` with runtime inspection, recursion depth capping, and JSON persistence.
+  - [x] 5. Implemented `DocsIngester` in `src/devops_cli/ai/library/docs_ingester.py` with markdown heading-aware chunking and SSRF egress blocking via `validate_service_url`.
+  - [x] 6. Created `devops ai ingest library` and `devops ai ingest docs` subcommands in `src/devops_cli/commands/ai_ingest.py` and wired into `ai_app` in `src/devops_cli/commands/ai.py`.
+  - [x] 7. Added centralized English CLI help catalogs in `src/devops_cli/lang/en/help.py`.
+  - [x] 8. Validated complexity <= 10 and nesting depth <= 5 across all new code (`devops scan complexity`).
+  - [x] 9. Reached 95.39% coverage on `ai/library` and 100% on `commands/ai_ingest.py`.
+  - [x] 10. Synchronized CLI reference documentation and README matrix (`devops docs generate --sync-readme`).
+  - [x] 11. Passed all 10/10 primary CI quality gates cleanly (`uv run devops ci`).
+  - [x] 12. Opened PR #82 (`feat(ai): dynamic package introspection and multi-source docs ingestion engine`) targeting `release/v0.2.14` linking `Closes #75, Closes #76`.
+  - [x] 13. PR #82 squash-merged into `release/v0.2.14` by maintainer (commit `e77dc7b`). Issues #75 and #76 closed; remote branch pruned.
+
+
+- [x] Phase 50.2.2: Sandbox Application Probing, Monitoring, Fuzzing, Scanning & Iteration Architecture (Roadmap v0.2.16 & v0.2.17)
+  - [x] 1. Investigated 5 sandbox application lifecycle capabilities: probing (socket, HTTP/REST, OpenAPI, gRPC reflection), monitoring (cgroups v2, Prometheus /metrics, W3C traceparent correlation with OTel/Jaeger/Logfire, log streaming & panic detection), fuzzing (OpenAPI schema mutations, boundary testing, stateful sequences, minimal repro case generator), scanning (DAST with OWASP ZAP/Nuclei, container fs diffing, network egress anomaly detection, privilege verification), and iterating (autonomous closed-loop remediation pipeline, AST diagnosis, multi-persona AI repair, continuous watch mode).
+  - [x] 2. Defined Milestone `v0.2.16` (Ephemeral Workload Sandboxing, Dynamic Probing & Runtime Observability) with 5 major feature blocks and operational requirements in `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md`.
+  - [x] 3. Defined Milestone `v0.2.17` (Dynamic API Fuzzing, Runtime Security DAST & Autonomous Remediation Iteration) with 5 major feature blocks, closed-loop iteration architecture, and FastMCP toolset in `docs/ROADMAP.md` and `docs/PENDING_FEATURES.md`.
+  - [x] 4. Updated the Strategic Value vs. Effort Prioritization Matrix in `docs/ROADMAP.md` with 12 new deliverables across Quick Wins, Strategic Investments, and Tactical Additions.
+  - [x] 5. Validated documentation integrity with zero drift via `devops docs generate --sync-readme` and `devops docs check`.
+
+- [x] Phase 50.2.3: GitHub Governance, Pages, Issues, Projects & Views Integration with FastMCP & Agent Instructions
+  - [x] 1. Implemented GitHub Pages management engine in `src/devops_cli/github/pages.py` (`get_pages_status`, `get_pages_builds`, `request_pages_build`, `verify_pages_configuration`).
+  - [x] 2. Implemented GitHub Issues engine and taxonomy audit in `src/devops_cli/github/issues.py` (`get_repository_issues`, `create_repository_issue`, `audit_issues_triage`, `get_issues_summary`).
+  - [x] 3. Enhanced GitHub Projects v2 engine in `src/devops_cli/github/projects.py` with multi-board listing (`list_remote_projects`), view auditing (`audit_remote_project_views`), and board drift auditing (`audit_project_drift`).
+  - [x] 4. Integrated Typer CLI subcommands: `devops gh pages [status|builds|build|verify]`, `devops gh issues [list|create|triage|status]`, `devops gh project [list|audit]`, `devops gh views audit`.
+  - [x] 5. Added centralized English CLI help catalogs in `src/devops_cli/lang/en/help.py`.
+  - [x] 6. Registered 10 new FastMCP tools (`gh_pages_status`, `gh_pages_build`, `gh_pages_verify`, `gh_issue_list`, `gh_issue_create`, `gh_issue_triage`, `gh_issue_status`, `gh_project_list`, `gh_project_audit`, `gh_views_audit`) and 4 dynamic system resources (`resource://gh/pages/status`, `resource://gh/issues/status`, `resource://gh/project/status`, `resource://gh/views/status`) in `src/devops_cli/ai/mcp/server.py`.
+  - [x] 7. Exported 106 FastMCP tool schemas (`devops mcp export-schemas`).
+  - [x] 8. Codified mandatory operational rules in `AGENTS.md` and `docs/ROUTINE_TASKS.md` for Pages verification, issue triage, project reconciliation, and views drift auditing.
+  - [x] 9. Updated Knowledge Base Task Manual 13 (`src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md`).
+  - [x] 10. Authored comprehensive test-first suites in `tests/test_github_pages.py` (8/8), `tests/test_github_issues.py` (6/6), `tests/test_github_projects.py` (21/21), `tests/test_gh_cmd.py` (18/18), `tests/test_mcp.py` (30/30), `tests/test_fastmcp_contracts.py` (6/6).
+  - [x] 11. Verified complexity <= 10 and indentation depth <= 5 across all modules (`devops scan complexity`).
+
+- [x] Phase 50.3.1: Roadmap Comprehensive Review, Context Enrichment & Milestone Reprioritization
+  - [x] 1. Reviewed and synchronized all active and scheduled release milestones in `docs/ROADMAP.md` (`v0.2.13`, `v0.2.14`, `v0.2.15`, `v0.2.16`, `v0.2.17`, and `v0.3.0`).
+  - [x] 2. Marked Milestone `v0.2.13` as Completed and Milestone `v0.2.14` as Current Release / Active Development with 4 completed deliverables.
+  - [x] 3. Reprioritized remaining `v0.2.14` tasks with explicit priority tiers, deep technical context, and acceptance criteria (P0: AST Grounding #78, FastMCP Library Tools #80; P1: Tree-sitter #74, Drift Auditor #79; P2: Context Packing #81, RAG Index Drift).
+  - [x] 4. Front-loaded `v0.2.15` with `BaseSecurityScanner` migration (P0) and Loki/Fluent Bit Centralized Logging (P0) to establish prerequisites for sandboxed app observability.
+  - [x] 5. Enriched `v0.2.16` and `v0.2.17` with detailed architecture for socket/OpenAPI/gRPC probing, cgroup v2 metrics, W3C traceparent propagation, OpenAPI dynamic fuzzing, DAST, and closed-loop autonomous repair.
+  - [x] 6. Fully reconciled Section 3 *Value vs. Effort Prioritization Matrix* with 1-to-1 alignment with milestone tasks and explicit priority tags.
+  - [x] 7. Verified documentation freshness (`devops docs check`) and full CI suite (`devops ci` — 10/10 green).
+
+- [x] Phase 50.3.2: Historical Documentation Compaction (v0.1 Series) & Automated Release Compaction Instructions
+  - [x] 1. Compacted historical `v0.0.1`–`v0.1.9` milestone sections in `docs/ROADMAP.md` into a single, high-density section `### Workstation Foundation, SecOps, Multi-Cloud IaC & Core Architecture (v0.0.1 – v0.1.9 - Completed)`.
+  - [x] 2. Consolidated older `v0.1.x` rows in Section 3 (*Value vs. Effort Prioritization Matrix*) into high-level category summary entries under Quick Wins, Strategic Investments, and Tactical Additions.
+  - [x] 3. Compacted verbose historical release highlights for `v0.1.5` through `v0.1.13` in `docs/RELEASE_NOTES.md` into a unified `## 🚀 Highlights of v0.1 Series (v0.1.0 – v0.1.13 - Completed)` block.
+  - [x] 4. Replaced stale `v0.1.9` roadmap section in `RELEASE_CYCLE.md` with canonical reference to `docs/ROADMAP.md` and active release milestones.
+  - [x] 5. Compacted historical release logs and removed redundant duplicate planning paragraphs in `docs/LOG.md`.
+  - [x] 6. Codified the mandatory rule *Mandatory Historical Documentation Compaction on Major & Minor Releases* in `AGENTS.md` (Section 3) and `docs/ROUTINE_TASKS.md` (Cadence C Step 8 and Routine Tasks Matrix Step 7).
+  - [x] 7. Verified documentation freshness (`uv run devops docs check`) and passed full CI suite (`uv run devops ci` — 10/10 green).
+
+---
+
+- [x] Phase 50.3: Dedicated Library Vector Tier (`devops_libraries`) & Valkey Symbol Cache Store (Issue #77, PR #83)
+  - [x] 1. Authored test-first verification suite in `tests/test_library_vector_tier.py` (19/19 passing).
+  - [x] 2. Added configuration defaults `DEFAULT_RAG_LIBRARIES_COLLECTION` and `DEFAULT_VALKEY_SYMBOL_TTL_SECONDS` in `src/devops_cli/config/defaults.py`.
+  - [x] 3. Implemented `LibrarySearchResult` in `src/devops_cli/models/library.py`.
+  - [x] 4. Implemented `LibraryVectorStore` in `src/devops_cli/ai/rag/library_store.py` with segregated Qdrant collection and L1 Valkey symbol cache.
+  - [x] 5. Implemented `devops ai ingest index-libraries` and `devops ai ingest query-library` CLI subcommands in `src/devops_cli/commands/ai_ingest.py`.
+  - [x] 6. Added CLI help strings in `src/devops_cli/lang/en/help.py`.
+  - [x] 7. Verified complexity <= 10 and indentation depth <= 5 via `devops scan complexity`.
+  - [x] 8. Verified full CI suite (`devops ci` — 10/10 green), committed, pushed, and opened PR #83 targeting `release/v0.2.14` (Closes #77).
+  - [x] 9. Addressed all 5 code review findings on PR #83:
+    - [x] Updated `ensure_collection_exists()` to call `ensure_collection` on `QdrantClient` with fallback to `create_collection`.
+    - [x] Implemented `_build_runtime_vector_store` in `src/devops_cli/commands/ai_ingest.py` to wire live `QdrantClient`, `EmbeddingsEngine`, and `ValkeyClient` in `index-libraries` and `query-library`.
+    - [x] Added class method indexing in `_collect_contract_items()` for embedding points (`kind="method"`) and Valkey caching (`symbol:<qualname>`).
+    - [x] Updated `_load_local_contracts()` to return `list[LibraryContract]` with debug logging on malformed contract JSON.
+    - [x] Expanded unit test suite to 19 tests in `tests/test_library_vector_tier.py` (100% passing).
+    - [x] Validated all 10 quality gates via `uv run devops ci` (10/10 green).
+
+- [x] Phase 50.3.3: GitHub Projects v2 Synchronization, GraphQL Rate-Limit Resilience & Custom Fields Reconciliation
+  - [x] 1. Reconciled and populated all 19 Project #2 items on View 1 (*Sprint Kanban*) with complete custom field values (`Status`, `Priority`, `Category`, `Value`, `Effort`) for Milestone `v0.2.14` deliverables (#74, #75, #76, #77, #78, #79, #80, #81, PR #83) and prior closed items.
+  - [x] 2. Upgraded `src/devops_cli/github/projects.py` with `_find_project_via_rest` and `_list_projects_via_rest` to resolve Project #2 via GitHub REST API (`GET /users/{owner}/projectsV2`), bypassing GraphQL quota constraints.
+  - [x] 3. Implemented `check_github_rate_limit_error()` to detect GraphQL rate limit exhaustion and surface actionable diagnostic warnings rather than generic `unknown owner type` errors.
+  - [x] 4. Added automated repository issue reconciliation in `sync_repository_issues_to_project()` to link missing repo issues directly to the project board.
+  - [x] 5. Fixed `parse_tasks_to_project_items()` to consistently mark any `[x]` checked task as `Done` regardless of parent section heading.
+  - [x] 6. Streamlined `sync_remote_project()` so that `--dry-run` executes preview logic without requiring remote authentication checks.
+  - [x] 7. Authored 5 new unit tests in `tests/test_github_projects.py` (26/26 passing).
+  - [x] 8. Validated cyclomatic complexity <= 10 and indentation depth <= 5 across all functions (`devops scan complexity`).
+  - [x] 9. Passed all 10/10 primary CI quality gates cleanly (`uv run devops ci`).
+
+- [x] Phase 50.3.4: Security Architecture Consolidation & Canonical Submodule Helpers Refactor
+  - [x] 1. Comprehensive codebase audit across SSRF, path traversal, secret masking, prompt injection, and subprocess execution.
+  - [x] 2. Implemented canonical SSRF validation helpers in `src/devops_cli/core/validation.py` (`is_loopback_or_private_host`, `validate_url_egress`).
+  - [x] 3. Implemented canonical path traversal and containment helpers in `src/devops_cli/core/paths.py` (`is_forbidden_system_path`, `validate_no_path_traversal`, `validate_path_parameter`).
+  - [x] 4. Implemented canonical secret and prompt sanitizers in `src/devops_cli/security/sanitizer.py` (`sanitize_command_args_for_display`, `sanitize_telemetry_endpoint`, `sanitize_prompt_boundary_tags`, `sanitize_prompt_injection`).
+  - [x] 5. Refactored 15+ scattered in-place security checks across `commands/k8s/cluster_context.py`, `commands/k8s/diagnostics.py`, `commands/vault.py`, `commands/workspace.py`, `commands/install_tools.py`, `security/vault_broker.py`, `security/tflint.py`, `output/console.py`, `server/routes/telemetry.py`, `ai/common_tools.py`, `ai/model_bundler.py`, `ai/ext_langchain.py`, `ai/agents/context.py`, `ai/agents/prompt.py`, `ai/review/auto_fix.py`, and `ai/review/sanitization.py`.
+  - [x] 6. Authored comprehensive test suites in `tests/test_validation.py`, `tests/test_consolidation_core_paths.py`, `tests/test_consolidation_security_sanitizer.py`, and updated `tests/test_tflint.py`.
+  - [x] 7. Verified architectural invariants and complexity <= 10, nesting depth <= 5 across all modules (`devops scan complexity`, `tests/test_architectural_invariants.py`).
+- [x] Phase 50.3.5: Scratch Scripts Feature Enhancements: PR Review Threads & Project Custom Fields Reconciler
+  - [x] 1. Audited all 31 scratch scripts across brain directories and documented feature harvest in `scratch_scripts_feature_review.md`.
+  - [x] 2. Implemented GitHub PR review thread management in `src/devops_cli/github/pr_threads.py` (`ReviewComment`, `ReviewThread`, `ThreadResolutionResult`, `list_pr_review_threads`, `reply_pr_review_thread`, `resolve_pr_review_thread`, `unresolve_pr_review_thread`) via GraphQL API.
+  - [x] 3. Added CLI command group `devops pr threads [list|reply|resolve|unresolve]` in `src/devops_cli/commands/pr.py` and alias under `devops gh pr threads`.
+  - [x] 4. Implemented GitHub Projects v2 custom field reconciler in `src/devops_cli/github/projects.py` (`infer_item_priority`, `infer_item_status`, `infer_item_category_value_effort`, `reconcile_project_custom_fields`).
+  - [x] 5. Added CLI commands `devops gh project reconcile` and flag `--reconcile-fields` to `devops gh project sync` in `src/devops_cli/commands/gh.py`.
+  - [x] 6. Registered 4 FastMCP tools (`pr_threads_list`, `pr_thread_reply`, `pr_thread_resolve`, `gh_project_reconcile`) in `src/devops_cli/ai/mcp/server.py`.
+  - [x] 7. Authored comprehensive unit test suites in `tests/test_github_pr_threads.py`, `tests/test_github_projects_reconcile.py`, and updated `tests/test_pr_cmd.py`, `tests/test_gh_cmd.py` (42/42 passing).
+  - [x] 8. Enforced cyclomatic complexity <= 10 and nesting depth <= 5 across all new functions (`devops scan complexity`, `tests/test_architectural_invariants.py`).
+  - [x] 9. Synchronized documentation and README (`devops docs generate --sync-readme`).
+  - [x] 10. Validated all 10 primary CI quality gates cleanly (`uv run devops ci`).
+
+- [x] Defect Fix: Skip Private Submodules and `__main__` During Package Introspection (Issue #84)
+  - [x] 1. Filtered out any discovered leaf submodule starting with `_` (e.g. `__main__`, `_vendor`, `_internal`) in `_discover_submodules()` in `src/devops_cli/ai/library/introspector.py`.
+  - [x] 2. Prevented CLI execution hazard where importing packages like `typer` runs `typer.cli.main()` reading `sys.argv`.
+  - [x] 3. Filed GitHub Issue #84 and synced to GitHub Projects v2 (#2).
+  - [x] 4. Added regression test in `tests/test_library_vector_tier.py` (20/20 passed).
+
+- [x] Phase 50.4: Import-Driven AST Prompt Grounding and API Contract Invalidator (P0 - Critical, Issue #78)
+  - [x] 1. Implemented AST import extraction for source files and unified diffs in `src/devops_cli/ai/review/ast_imports.py` (`extract_imports_from_source`, `extract_imports_from_diff`, `group_imports_by_package`).
+  - [x] 2. Implemented contract grounding resolver in `src/devops_cli/ai/review/contract_grounding.py` (`resolve_grounded_contracts`, `format_contract_grounding_for_prompt`) linking imports to Valkey L1 cache / Qdrant / offline JSON contracts.
+  - [x] 3. Integrated contract context injection into `_build_page_review_prompt` and `_review_single_file_payload` in `src/devops_cli/ai/review/pipeline.py` with `--ground-contracts` flag in `runner.py`.
+  - [x] 4. Populated grounded contracts in `payload.ai_scratchpad["grounded_contracts"]` for downstream verification and invalidation.
+  - [x] 5. Authored comprehensive unit tests in `tests/test_contract_injection.py` (9/9 passed).
+
+- [x] Phase 50.5: FastMCP Library Intelligence Tools and Dynamic System Resources (P0 - Critical, Issue #80)
+  - [x] 1. Registered `@mcp.tool()` `ai_ingest_library(package, max_depth)` in `src/devops_cli/ai/mcp/server.py`.
+  - [x] 2. Registered `@mcp.tool()` `ai_query_library(query, package, exact, top_k)` in `src/devops_cli/ai/mcp/server.py`.
+  - [x] 3. Registered `@mcp.tool()` `ai_inspect_symbol(symbol, package)` in `src/devops_cli/ai/mcp/server.py`.
+  - [x] 4. Registered `@mcp.resource("resource://libraries/indexed")` in `src/devops_cli/ai/mcp/server.py` listing indexed contracts, symbol counts, and vector point health.
+  - [x] 5. Exported 113 MCP schemas via `devops mcp export-schemas` and updated `tests/test_fastmcp_contracts.py` (7/7 passed).
+  - [x] 6. Enforced cyclomatic complexity <= 10 and nesting depth <= 5 across all functions.
+
+- [x] Phase 50.6: Tree-sitter Multilingual AST Graph & Code Intelligence Integration (P1 - High, Issue #74)
+  - [x] 1. Domain models in `src/devops_cli/ai/ast/models.py`: `SymbolKind`, `CodeSpan`, `PolyglotSymbol`, `PolyglotFileMap`, `CodeGraphEdge`, and `CodeGraph` (JSON and DOT graph exporters).
+  - [x] 2. Zero-crash polyglot AST/token parser in `src/devops_cli/ai/ast/fallback.py`: Python (`ast`), TypeScript, Go, Rust, Java, HCL/Terraform.
+  - [x] 3. Polyglot engine in `src/devops_cli/ai/ast/engine.py` with extension mapping, dynamic grammars, S-expression query execution, and mtime caching.
+  - [x] 4. Code graph builder in `src/devops_cli/ai/ast/graph.py` linking cross-file call and reference edges.
+  - [x] 5. CLI subcommands `devops ai ast parse` and `devops ai ast graph` registered in `ai.py` via `src/devops_cli/commands/ai_ast.py`. Added `--multilingual` to `devops ai repomap`.
+  - [x] 6. FastMCP tools `ai_ast_parse` and `ai_ast_graph` registered in `src/devops_cli/ai/mcp/server.py` and exported 115 schemas.
+  - [x] 7. Unit and contract tests in `tests/test_treesitter_engine.py` (13/13 passed) and `tests/test_fastmcp_contracts.py` (8/8 passed).
+
+- [x] Phase 50.7: Library API Drift and Deprecation Usage Auditor (P1 - High, Issue #79)
+  - [x] 1. Implemented `LibraryDriftAuditor` in `src/devops_cli/ai/library/drift_auditor.py` auditing workspace AST call sites against indexed `.data/libraries/` contracts.
+  - [x] 2. Supported detection of `REMOVED_METHOD`, `UNKNOWN_ATTRIBUTE`, `UNRECOGNIZED_KWARG`, and `DEPRECATED_CALL`.
+  - [x] 3. CLI command `devops ai audit-library-usage` with `--package`, `--dir`, `--contracts-dir`, `--fail-on-breaking`, and `--json`.
+  - [x] 4. Enforced architectural invariants: cyclomatic complexity <= 10 and nesting depth <= 2 via extracted helper functions `_audit_file_calls` and `_audit_call_node`.
+  - [x] 5. Unit tests in `tests/test_library_drift_auditor.py` (5/5 passed).
+
+- [x] Phase 50.8: AI Context Packing & Symbol-Pruned Prompt Synthesizer (P2 - Medium, Issue #85)
+  - [x] 1. Implemented `ContextPacker` and `PackedContext` in `src/devops_cli/ai/context_packer.py` ranking imported symbols, stripping unreferenced private methods/docstrings, and skeletonizing bodies with ellipsis (`...`).
+  - [x] 2. Supported zero-crash fallback for unparseable or non-Python code with bounded token truncation.
+  - [x] 3. Exposed CLI command `devops ai pack-context <path> [--referenced <syms>] [--max-tokens <int>] [--json]`.
+  - [x] 4. Registered FastMCP tool `ai_pack_context` in `src/devops_cli/ai/mcp/server.py` and exported 116 schemas.
+  - [x] 5. Integrated `ContextPacker` into `_collect_linked_snippets` in `src/devops_cli/ai/review/pipeline.py` for token-efficient prompt synthesis.
+  - [x] 6. Enforced architectural invariants: cyclomatic complexity <= 10 and maximum nesting depth <= 2 across all packer helper functions.
+  - [x] 7. Authored unit and contract tests in `tests/test_context_packer.py` (10/10 passed) and `tests/test_fastmcp_contracts.py` (9/9 passed).
+
+- [x] Phase 50.9: Autonomous RAG Index Drift Detection & Auto-Reindexing (P2 - Medium, Issue #81)
+  - [x] 1. Implemented `RAGDriftDetector` and `RAGDriftReport` in `src/devops_cli/ai/rag/drift.py` comparing working tree file hashes and git commit HEAD against vector index cache.
+  - [x] 2. Supported detection of stale modified files, newly added files, deleted files, and git commit divergence with normalized drift scoring.
+  - [x] 3. Instrumented OpenTelemetry tracing span `rag.drift_detection` and Prometheus metrics `devops_cli_rag_drift_detected_total` and `devops_cli_rag_drift_score`.
+  - [x] 4. Exposed CLI command `devops ai rag drift [path] [--auto-sync] [--fail-on-drift] [--json]`.
+  - [x] 5. Registered FastMCP tool `rag_drift` in `src/devops_cli/ai/mcp/server.py` and exported 117 schemas.
+  - [x] 6. Enforced architectural invariants: cyclomatic complexity <= 10 and maximum nesting depth <= 2.
+  - [x] 7. Authored unit and contract tests in `tests/test_rag_drift.py` (9/9 passed) and `tests/test_fastmcp_contracts.py` (10/10 passed).
+
+- [x] Phase 50.10: Release v0.2.14 Finalization & Active Milestone Transition
+  - [x] 1. Closed all 12 tracked issues in Milestone `v0.2.14` (100% completion rate).
+  - [x] 2. Bumped project version to `0.2.14` in `pyproject.toml` and `src/devops_cli/__init__.py`.
+  - [x] 3. Updated `CHANGELOG.md` with complete v0.2.14 release notes across AST intelligence, library drift auditor, context packer, and RAG drift detector.
+  - [x] 4. Updated `docs/RELEASE_NOTES.md` and `docs/ROADMAP.md` (marked v0.2.14 Completed, activated v0.2.15).
+  - [x] 5. Regenerated introspected CLI documentation and synchronized `README.md`.
+  - [x] 6. Executed comprehensive 10-gate CI quality suite (`uv run devops ci`).
+  - [x] 7. Prepared GitHub Release Pull Request targeting `main`.
+  - [x] 8. Aligned Jekyll configuration file naming from `_config.yml` to `_config.yaml` conforming to project-wide `.yaml` standard.
+
+- [x] Phase 50.11: Address Copilot Feedback on PR #86 & Proactive GitHub Project Tracking Hardening
+  - [x] 1. Remediated all 20 GitHub Copilot review findings via Test-First Development (TDD) across security, docs ingester, introspector, library store, AST engine/graph, context packer, drift auditor, client, and projects.
+  - [x] 2. Fixed inline token redaction (`sanitizer.py`), removed global socket timeout mutation and enforced fail-closed DNS resolution (`validation.py`).
+  - [x] 3. Ensured unique relative-path chunk IDs and masked credentials in docs ingester (`docs_ingester.py`).
+  - [x] 4. Added qualified module names to function/class signatures and recursive submodule BFS walk (`introspector.py`).
+  - [x] 5. Added package-namespaced Valkey symbol cache and Qdrant point IDs (`library_store.py`).
+  - [x] 6. Added native Tree-Sitter CST parsing attempt and S-expression query filtering (`engine.py`).
+  - [x] 7. Resolved call graph edges by inspecting function bodies for actual call invocations (`graph.py`).
+  - [x] 8. Implemented AST statement-level pruning to guarantee valid Python syntax and dynamic budget allocation (`context_packer.py`).
+  - [x] 9. Added `ast.Import` support and module attribute call resolution (`drift_auditor.py`).
+  - [x] 10. Forwarded all labels in GitHub client adapter (`client.py`, `issues.py`).
+  - [x] 11. Added GraphQL connection cursor pagination for PR review threads (`pr_threads.py`).
+  - [x] 12. Implemented data-driven Project custom field classification from taxonomy labels (`projects.py`).
+  - [x] 13. Updated agent instructions in `AGENTS.md`, `docs/ROUTINE_TASKS.md`, and `github_project_management.md` to mandate session-start project bootstrap, real-time WIP card movement before editing, and data-driven custom field reconciliation.
 
 ---
 
 ### In-Progress Tasks (WIP)
-- [x] Release v0.2.13 Finalization & Release PR Preparation
+- None. Ready for next milestone backlog execution.
 
 ---
 
 ### Pending Tasks
-- [ ] Maintainer Review & Squash-Merge of Release PR #... into `main`
-- [ ] Post-Merge Release Orchestration (Git Tag `v0.2.13`, GitHub Release, Milestone `v0.2.13` Closure)
+- [ ] Milestone v0.2.15: GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh
+  - [ ] Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (P0 - Critical)
+  - [ ] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical)
+  - [ ] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High)
+  - [ ] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High)

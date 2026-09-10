@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.serialization import extract_json_block
 from devops_cli.telemetry import trace_span
 
@@ -106,11 +106,9 @@ def run_tflint_scan(
 
     try:
         cwd_dir = target_dir if target_dir.is_dir() else target_dir.parent
-        proc = subprocess.run(
+        proc = run_subprocess(
             cmd,
-            cwd=str(cwd_dir),
-            capture_output=True,
-            text=True,
+            cwd=cwd_dir,
             timeout=timeout,
             check=False,
         )

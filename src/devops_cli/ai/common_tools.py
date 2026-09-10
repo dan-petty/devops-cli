@@ -266,40 +266,18 @@ else:
 
 def _is_private_or_loopback(host: str) -> bool:
     """Validate if a hostname or IP address resolves to private/loopback space."""
-    import ipaddress
-    import socket
+    from devops_cli.core.validation import is_loopback_or_private_host
 
-    try:
-        ip = ipaddress.ip_address(host)
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
-    except ValueError:
-        pass
-
-    lower_host = host.lower()
-    if lower_host in ("localhost", "127.0.0.1", "::1") or lower_host.endswith(".local"):
-        return True
-
-    try:
-        resolved_addrs = socket.getaddrinfo(host, None)
-        for _, _, _, _, sockaddr in resolved_addrs:
-            ip_str = sockaddr[0]
-            try:
-                ip = ipaddress.ip_address(ip_str)
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                    return True
-            except ValueError:
-                continue
-    except socket.gaierror, OSError:
-        pass
-
-    return False
+    return is_loopback_or_private_host(host)
 
 
 def is_private_ip_or_localhost(url_or_host: str) -> bool:
     """Validate if a URL or hostname resolves to private/loopback/link-local space."""
     parsed = urllib.parse.urlparse(url_or_host)
     host = parsed.hostname or url_or_host
-    return _is_private_or_loopback(host)
+    from devops_cli.core.validation import is_loopback_or_private_host
+
+    return is_loopback_or_private_host(host)
 
 
 def _html_to_markdown(raw_html: str) -> str:
@@ -363,12 +341,12 @@ def web_fetch_tool(
             resp = client.get(url, follow_redirects=True, timeout=15.0)
             final_host = ""
             if hasattr(resp, "url"):
-                final_host = (
-                    getattr(resp.url, "host", None) or getattr(resp.url, "hostname", None) or ""
-                )
-                if not final_host:
-                    final_host = urllib.parse.urlparse(str(resp.url)).hostname or ""
-            if final_host and _is_private_or_loopback(str(final_host)):
+                raw_host = getattr(resp.url, "host", None) or getattr(resp.url, "hostname", None)
+                if isinstance(raw_host, str):
+                    final_host = raw_host
+                elif isinstance(resp.url, str):
+                    final_host = urllib.parse.urlparse(resp.url).hostname or ""
+            if final_host and _is_private_or_loopback(final_host):
                 raise SSRFBlockedError(target_url=str(getattr(resp, "url", url)))
             if not final_host and _is_private_or_loopback(hostname):
                 raise SSRFBlockedError(target_url=url)

@@ -33,7 +33,7 @@
 ## k8s-helm-bootstrap
 - **Category:** kubernetes
 - **Query:** Bootstrap local development cluster with Helm chart releases and wait for ready pods
-- **Target Passage:** Execute devops k8s bootstrap --context homelab-k3s to reconcile CRDs, install Prometheus and Grafana Helm charts, apply Kustomize overlays, and poll Deployment rollout status until all pods pass readiness probes.
+- **Target Passage:** Execute devops k8s bootstrap --context local-k3s to reconcile CRDs, install Prometheus and Grafana Helm charts, apply Kustomize overlays, and poll Deployment rollout status until all pods pass readiness probes.
 
 ## k8s-netpol-isolation
 - **Category:** kubernetes

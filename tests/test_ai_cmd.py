@@ -250,18 +250,21 @@ def test_ai_test_disables_cache_and_targets_url() -> None:
 
     st = Settings()
     st.ai.provider = "ollama"
-    st.ai.ollama_urls = ["http://hog.lan:11434", "http://condor.lan:11434"]
+    st.ai.ollama_urls = [
+        "http://node-1.example.internal:11434",
+        "http://node-2.example.internal:11434",
+    ]
 
     mock_resp = MagicMock()
     mock_resp.__str__.return_value = "Hello live"
     mock_resp.wall_seconds = 0.5
-    mock_resp.backend_info = "ollama (condor.lan:11434)"
+    mock_resp.backend_info = "ollama (node-2.example.internal:11434)"
 
     with (
         patch("devops_cli.config.settings.load_settings", return_value=st),
         patch.object(LLMClient, "chat", return_value=mock_resp) as mock_chat,
     ):
-        res = runner.invoke(ai_app, ["test", "-u", "http://condor.lan:11434"])
+        res = runner.invoke(ai_app, ["test", "-u", "http://node-2.example.internal:11434"])
         assert res.exit_code == 0
         assert "Hello live" in res.output
         mock_chat.assert_called_once()

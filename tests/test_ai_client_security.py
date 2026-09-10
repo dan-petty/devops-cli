@@ -129,8 +129,8 @@ def test_ollama_non_thinking_400_raises_ai_client_error(
 
 
 def test_get_ollama_urls_parsing() -> None:
-    cfg1 = AIConfig(ollama_urls=["http://192.168.1.4:11434", "http://192.168.1.5:11434/"])
-    assert cfg1.get_ollama_urls == ["http://192.168.1.4:11434", "http://192.168.1.5:11434"]
+    cfg1 = AIConfig(ollama_urls=["http://172.16.0.1:11434", "http://172.16.0.2:11434/"])
+    assert cfg1.get_ollama_urls == ["http://172.16.0.1:11434", "http://172.16.0.2:11434"]
 
     cfg2 = AIConfig(ollama_urls=["http://10.0.0.1:11434/", "http://10.0.0.2:11434"])
     assert cfg2.get_ollama_urls == ["http://10.0.0.1:11434", "http://10.0.0.2:11434"]

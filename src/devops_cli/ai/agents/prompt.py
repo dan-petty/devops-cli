@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from devops_cli.ai.agents.capabilities import BaseCapability
 from devops_cli.ai.agents.context import RunContext
 from devops_cli.config.constants import CONST_PROMPT_INJECTION_TAGS_RE
+from devops_cli.security.sanitizer import sanitize_prompt_injection
 
 _PROMPT_INJECTION_TAGS_REGEX = CONST_PROMPT_INJECTION_TAGS_RE
 
@@ -67,7 +68,7 @@ class ManagedPrompt(BaseCapability):
         if not template:
             template = self.fallback_template
 
-        sanitized_template = _PROMPT_INJECTION_TAGS_REGEX.sub("", template or "")
+        sanitized_template = sanitize_prompt_injection(template or "")
         self._cached_template = sanitized_template
         self._last_fetch_time = now
         return self._cached_template
@@ -79,14 +80,16 @@ class ManagedPrompt(BaseCapability):
         item_tag: str = "item",
         include_field_info: Any = False,
     ) -> str:
-        """Format an object or mapping as clean XML for template interpolation."""
-        from devops_cli.ai.format_prompt import format_as_xml
+        """Format Python dictionary, list, or primitive into structured XML element string."""
+        from devops_cli.ai.format_prompt import format_prompt_data
 
-        return format_as_xml(
-            obj=value,
-            root_tag=root_tag,
-            item_tag=item_tag,
-            include_field_info=include_field_info,
+        return str(
+            format_prompt_data(
+                data=value,
+                root_tag=root_tag,
+                item_tag=item_tag,
+                include_field_info=include_field_info,
+            )
         )
 
     def render(
@@ -94,7 +97,7 @@ class ManagedPrompt(BaseCapability):
         extra_vars: dict[str, Any] | None = None,
         format_xml_vars: dict[str, Any] | None = None,
     ) -> str:
-        """Render the prompt template substituting variables, including XML-formatted variables."""
+        """Render prompt template with bound and additional variables."""
         template = self.fetch_template()
         if not template:
             return ""
@@ -106,7 +109,7 @@ class ManagedPrompt(BaseCapability):
 
         rendered = template
         for k, v in vars_dict.items():
-            val_clean = _PROMPT_INJECTION_TAGS_REGEX.sub("", str(v))
+            val_clean = sanitize_prompt_injection(str(v))
             rendered = rendered.replace(f"{{{k}}}", val_clean)
         return rendered
 

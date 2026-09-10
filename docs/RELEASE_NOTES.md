@@ -1,6 +1,53 @@
-# Release Notes — devops-cli v0.2.12
+# Release Notes — devops-cli v0.2.14
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, Valkey distributed caching, and multi-persona AI code reviews.
+
+---
+
+## 🚀 Highlights of v0.2.14
+
+### 🌳 Tree-Sitter Multilingual AST Graph & Polyglot Code Intelligence Engine (`devops ai ast`, `devops ai repomap --multilingual`)
+- **Polyglot CST Parsing & S-Expression Engine**: Parses concrete syntax trees across Python, TypeScript, Go, Rust, Java, and HCL/Terraform with tree-sitter S-expression query resolution.
+- **Polyglot Code Graphs**: Generates DOT and JSON code structure graphs capturing class hierarchies, functions, and cross-file dependencies.
+- **FastMCP Toolset**: Registered `ai_ast_parse` and `ai_ast_graph` FastMCP tools with dynamic schema export.
+- **Zero-Crash Fallback**: Automatically falls back to standard library `ast` when optional tree-sitter grammars are uninstalled.
+
+### 🔍 Library API Drift & Deprecation Usage Auditor (`devops ai audit-library-usage`)
+- **Proactive AST Call-Site Auditor**: Scans workspace call sites against indexed library contracts in `.data/libraries/` to surface breaking changes before dependency upgrades.
+- **Defect Taxonomy**: Detects and categorizes `REMOVED_METHOD`, `UNKNOWN_ATTRIBUTE`, `UNRECOGNIZED_KWARG`, and `DEPRECATED_CALL`.
+- **Quality Gating**: Rich terminal table discrepancies and persistent JSON reports (`.data/analysis/api_drift_report.json`) with `--fail-on-breaking`.
+
+### 📦 AI Context Packing & Symbol-Pruned Prompt Synthesizer (`devops ai pack-context`)
+- **AST Pruning & Skeletonization**: Prunes unreferenced private symbols and skeletonizes implementation bodies with `...`, preserving full parameter types, defaults, and return annotations while slashing prompt token consumption by 40-60%.
+- **Budget-Aware Distribution**: Multi-snippet token distribution (`pack_snippets`) with configurable token bounds and docstring compression.
+- **Review Pipeline Integration**: Integrated into `Stage1PreAnalysis` and FastMCP tool `ai_pack_context`.
+
+### 🔄 Autonomous RAG Index Drift Detection & Auto-Reindexing Engine (`devops ai rag drift`)
+- **Working Tree & Commit Drift Detection**: Identifies SHA256 content divergence and git HEAD divergence against the vector index cache.
+- **Granular Metrics & Scoring**: Tracks stale, new, and deleted files with normalized drift scoring ($[0.0, 1.0]$).
+- **Observability Integration**: OpenTelemetry spans (`rag.drift_detection`) and Prometheus metrics (`devops_cli_rag_drift_detected_total`, `devops_cli_rag_drift_score`).
+- **Automated Sync**: Programmatic reconciliation via `--auto-sync` and CI gating via `--fail-on-drift`.
+
+### 🛡️ Ground-Truth Library Contract Grounding & Invalidation
+- Injects verified library signatures from `devops_libraries` / Valkey into review prompts, driving third-party API hallucination rates to <1%.
+- Registered FastMCP tools `ai_ingest_library`, `ai_query_library`, and `ai_inspect_symbol` with dynamic resource `resource://libraries/indexed`.
+
+---
+
+## 🚀 Highlights of v0.2.13
+
+### 🤖 Sub-Agent Local Offloading Engine & Agent Harness Slots (`devops ai harness`)
+- Modular harness slots (`ModelSlot`, `SkillSlot`, `ToolSlot`, `SubAgentSlot`) offloading token-heavy AST syntax exploration to local open models (Granite, Qwen2.5-Coder via Ollama), achieving 85%+ token savings.
+- Dedicated CLI command group `devops ai harness` (`status`, `offload`, `run`) and FastMCP tools `ai_harness_status`, `ai_subagent_offload`.
+
+### 🖥️ Interactive Terminal UI Dashboard (`devops dashboard` / `devops tui`)
+- Responsive full-screen `Textual` dashboard for Kubernetes pods, Docker containers, OTel spans, Valkey metrics, and AI review statuses.
+
+### 💥 Model Dependency Chaos Engineering Suite (`devops ai chaos-model`)
+- Automated fault injection engine evaluating fallback routing across latency, 429 rate-limits, timeouts, and malformed JSON payloads.
+
+### ⏸️ Agent Constellation Quiesce & Emergency Failover Controller (`devops ai quiesce`, `devops ai failover`)
+- Workstation agent task suspension, route diversion, and state resumption with `.data/agent/quiesce.json` snapshot persistence.
 
 ---
 
@@ -233,88 +280,17 @@ Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes cl
 
 ---
 
-## 🚀 Highlights of v0.1.13
+## 🚀 Highlights of v0.1 Series (v0.1.0 – v0.1.13 - Completed)
 
-### ⚡ Embedding Model Benchmark Suite (`devops ai benchmark --type embedding`)
-- **Vector Embedding Model Evaluation**: Dedicated benchmark runner for dense vector embedding models (`qwen3-embedding`, `nomic-embed-text`, `all-minilm`, `bge-*`, `text-embedding-3-*`).
-- **Semantic Retrieval Quality & Accuracy**: Evaluates Recall@1, Recall@3, Mean Reciprocal Rank (MRR), and Cosine Margin against a domain-specific evaluation corpus of 15 DevOps query-passage pairs and 10 distractors across Security, Kubernetes, Architecture, CI/CD, and Infrastructure.
-- **Latency & Throughput**: Benchmarks single-query p50/p95 latency (ms) and batch throughput (items/sec and chars/sec).
-- **Auto-Detection & Multi-Server Routing**: Automatically routes embedding models to vector evaluation and supports parallel multi-server Ollama distribution.
-
-### 🔒 Local & Homelab TLS Certificate Automation (`devops tls`, `devops cert`)
-- **X.509 Certificate Generation**: Native CA and TLS server/client certificate issuance with SAN extensions for IP addresses, hostnames, localhost, homelab `.lan`/`.local` domains, and Kubernetes service FQDNs.
-- **Kubernetes Secret Provisioning**: Automated secret injection (`devops tls inject-k8s-secret`, `devops k8s enable-tls`) and cert-manager ClusterIssuer integration.
-
-### 📊 End-to-End OpenTelemetry Observability (`devops telemetry`, `devops otel`)
-- **OTLP Trace Export**: Distributed tracing across all CLI commands and AI multi-agent pipeline stages.
-- **Observability Stack**: OTLP endpoint configuration and Jaeger deployment manifests (`k8s/otel/jaeger.yaml`).
-
-### 🧼 Standard Library Code Hygiene & AST Tokenization
-- **Standard Library Parsing**: Replaced ad-hoc keyword lists and regex string matching in `reference_extractor.py` with standard `ast`, `tokenize`, `packaging.requirements.Requirement`, `tomllib`, `json`, `yaml`, `urllib.parse`, `ipaddress`, `mimetypes`, and `tldextract`.
-- **PEP 508 & PEP 621 Support**: Standard requirement parsing for dependencies, optional groups, and PEP 735 dependency groups.
-- **Review Pipeline Optimization**: Filtered universal standard library imports to eliminate graph explosion in individual file review JSONs.
-
----
-
-
-## 🚀 Highlights of v0.1.8
-
-### 🔄 Automated Release Cycle Suite (`devops release`)
-- **Native Release Management**: Implemented `devops release status`, `devops release prepare`, `devops release check`, `devops release notes`, and `devops release tag` automating version bumping, changelog updates, docs synchronization, and pre-release quality validation.
-- **FastMCP Server Release Tools**: Added `release_status` MCP tool allowing autonomous AI agents to query version consistency, git tags, and documentation freshness directly over Model Context Protocol.
-
-### 📚 Dynamic Documentation Engine & Auto-Sync
-- **`devops docs` Engine**: Added dynamic Click/Typer introspection engine generating markdown reference manuals (`CLI_REFERENCE.md`, `MCP_TOOLS.md`, `ENV_VARS.md`) and synchronizing the `README.md` Command Matrix.
-- **Continuous Documentation Gate**: Integrated `devops docs check` directly into `devops ci run` ensuring stale documentation automatically fails CI validation.
-
-### 🏛️ System Architecture Blueprint & SRE Governance
-- **Enterprise Design Blueprint**: Published [`ARCHITECTURE.md`](../ARCHITECTURE.md) detailing multi-agent pipeline topology, FastMCP bridges, DevContainer lifecycle hooks, and SSRF security perimeters.
-- **Open-Source Governance & CI/CD**: Added standard MIT [`LICENSE`](../LICENSE), enterprise [`SECURITY.md`](../SECURITY.md), SRE [`CONTRIBUTING.md`](../CONTRIBUTING.md), and GitHub Actions CI/CD workflows (`.github/workflows/ci.yml`, `.github/workflows/release.yml`).
-
----
-
-## 🚀 Highlights of v0.1.7
-
-
-### 🐍 Native DevContainer Lifecycle Engine
-- **`devops devcontainer run-lifecycle`**: Implemented type-safe, cross-platform Python lifecycle hooks (`--post-create`, `--post-start`, `--all`) replacing legacy shell scripts (`postCreate.sh`, `postStart.sh`).
-- **Complete Environment Bootstrap**: Automated persistent shell history (`~/.bash_history`), completion aliases, SSH key permission hardening (`chmod 0600`), Git SSH commit signing setup, and MCP configuration synchronization.
-
-### 🧠 Enhanced AI Reasoning Scratchpad Buffer
-- **`ScratchpadBuffer` Reasoning Context**: Preserves intermediate chain-of-thought, persona analysis notes, and verification hypotheses across multi-agent review stages.
-- **Context Degradation Prevention**: Maintains high review fidelity across large multi-file diffs and multi-turn pipeline handovers.
-
-### ⚡ Prompt Token & Latency Optimization
-- **Compact Serialization**: Enforced compact JSON serialization (`separators=(",", ":")`) across prompt templates and schemas.
-- **Context Streamlining**: Reduced token overhead and improved LLM inference responsiveness for local Ollama nodes and remote API providers.
-
-### 🛡️ Exception Resilience & Storage Standardization
-- **Worker Error Recovery**: Robust error handling in parallel review worker pipelines, preventing crashes on isolated file parsing anomalies.
-- **Top-Level Storage Persistence**: Standardized all analysis and review metadata persistence under `.data/` at the repository root.
-
----
-
-## 🚀 Highlights of v0.1.6
-
-### 🛡️ Static SecOps & K8s Security Integrations
-- **Aqua Trivy Scanning (`devops scan [repo|image|iac]`)**: Comprehensive vulnerability and secret scanning with automated finding injection into `devsecops` persona reviews.
-- **Red Hat Kube-linter (`devops k8s lint`)**: Static analysis of Kubernetes manifests and Helm charts against production security best practices.
-- **Derailed Popeye (`devops k8s audit`)**: Live Minikube and Kubernetes cluster health sanitizer checking resource limits, pods, and misconfigurations.
-- **Fairwinds Pluto (`devops k8s check-deprecated`)**: Deprecated and removed Kubernetes API version detector.
-
----
-
-## 🚀 Highlights of v0.1.5
-
-### ☸️ Minikube Infrastructure & Target Service Auto-Configuration
-- **`devops k8s configure-urls`**: Auto-detects Minikube NodePort service endpoints (`argocd-server`, `kube-prometheus-grafana`, `kube-prometheus-kube-prome-prometheus`) and updates `argocd.url`, `grafana.url`, and `prometheus.url` in `config.yaml`.
-- **Automated `deploy-stack` Integration**: `devops k8s deploy-stack` automatically triggers service URL detection upon completing Helm release deployments.
-
-### ⚡ FastMCP Server Tool Alignment
-- **Verified 18 FastMCP Tools**: Fixed CLI subcommand mappings in `src/devops_cli/mcp.py` for `repos_status`, `argo_list`, `argo_status`, `docker_stats`, and `workspace_list`.
-
-### 🛡️ 7-Gate CI Quality Gate
-- **Expanded Quality Gate**: Added `devops ci coverage` (`pytest-cov`) and `devops ci security` (`bandit`), expanding the automated CI check to 7 sequential gates (`test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`).
+- **Vector Embedding Benchmarks (`devops ai benchmark --type embedding`)**: Dense vector embedding evaluation measuring Recall@1, Recall@3, MRR, Cosine Margin, single-query latency, and batch throughput across local Ollama and remote embedding models.
+- **Local & Homelab TLS Certificate Automation (`devops tls`)**: Native X.509 CA and server/client TLS certificate issuance with SAN extensions, cert-manager ClusterIssuer integration, and Kubernetes secret injection (`devops k8s enable-tls`).
+- **OpenTelemetry Distributed Tracing & Observability (`devops telemetry`)**: Distributed tracing across CLI commands and multi-agent pipeline stages with OTLP export, Jaeger manifests, and Prometheus client metrics.
+- **OpenTofu Multi-Cloud Infrastructure as Code (`devops tf`)**: Production OpenTofu IaC modules for AWS (EKS), Azure (AKS), and GCP (GKE), with FastMCP agent tools (`tf_plan`, `tf_apply`, `tf_output`).
+- **Automated Release Management & Documentation (`devops release`, `devops docs`)**: Version bumping, changelog maintenance, pre-release checks, and dynamic Typer/Click markdown documentation generation with CI freshness gating.
+- **Native DevContainer Lifecycle Hooks (`devops devcontainer run-lifecycle`)**: Pure Python lifecycle execution (`--post-create`, `--post-start`) replacing shell scripts, with pre-built GHCR workstation containers.
+- **Static SecOps & Kubernetes Auditing**: Embedded Aqua Trivy vulnerability scanning, Red Hat Kube-linter static manifest analysis, Derailed Popeye cluster health audits, Fairwinds Pluto API deprecation checks, and Kubernetes RBAC audits.
+- **Minikube Auto-Configuration & 7-Gate CI**: Automated NodePort discovery (`configure-urls`), 18 core FastMCP tools, and 7-gate CI validation suite (`test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`).
+- **AI Scratchpad & Prompt Defense**: Structured multi-turn reasoning buffers (`ScratchpadBuffer`), XML prompt boundary isolation, and human invalidation feedback dataset exporter (`export-feedback`).
 
 ---
 

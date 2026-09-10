@@ -10,15 +10,13 @@ from typing import Annotated, Any
 
 import typer
 
-from devops_cli.config.constants import (
-    CONST_FORBIDDEN_SYSTEM_DIRS,
-    CONST_VSCODE_CLI,
-)
+from devops_cli.config.constants import CONST_VSCODE_CLI
 from devops_cli.config.defaults import (
     DEFAULT_CLEAN_WORKSPACE_DAYS,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.core.paths import is_forbidden_system_path
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 
 _LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
@@ -123,9 +121,8 @@ def _load(ws_file: Path) -> dict[str, Any]:
 # system directories (CONST_FORBIDDEN_SYSTEM_DIRS) to prevent unauthorized file creation.
 def _is_safe_workspace_file(ws_file: Path) -> bool:
     resolved = ws_file.resolve()
-    for sys_dir in CONST_FORBIDDEN_SYSTEM_DIRS:
-        if resolved == sys_dir or resolved.is_relative_to(sys_dir):
-            return False
+    if is_forbidden_system_path(resolved):
+        return False
     return resolved.name.endswith((".code-workspace", ".json"))
 
 

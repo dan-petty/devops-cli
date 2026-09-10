@@ -3,6 +3,14 @@
 from __future__ import annotations
 
 from devops_cli.github.client import GitHubClient, RepoInfo
+from devops_cli.github.issues import (
+    GitHubIssue,
+    IssueTriageAudit,
+    audit_issues_triage,
+    create_repository_issue,
+    get_issues_summary,
+    get_repository_issues,
+)
 from devops_cli.github.labels import (
     LabelAuditFinding,
     LabelAuditResult,
@@ -23,6 +31,14 @@ from devops_cli.github.milestones import (
     extract_roadmap_milestones,
     sync_repository_milestones,
 )
+from devops_cli.github.pages import (
+    GitHubPagesBuildInfo,
+    GitHubPagesInfo,
+    get_pages_builds,
+    get_pages_status,
+    request_pages_build,
+    verify_pages_configuration,
+)
 from devops_cli.github.projects import (
     ProjectField,
     ProjectFieldOption,
@@ -30,7 +46,10 @@ from devops_cli.github.projects import (
     ProjectSyncResult,
     ProjectTemplate,
     ProjectView,
+    audit_project_drift,
+    audit_remote_project_views,
     link_project_to_repository,
+    list_remote_projects,
     load_project_template,
     parse_tasks_to_project_items,
     sync_remote_project,
@@ -40,6 +59,10 @@ from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
 
 __all__ = [
     "GitHubClient",
+    "GitHubIssue",
+    "GitHubPagesBuildInfo",
+    "GitHubPagesInfo",
+    "IssueTriageAudit",
     "LabelAuditFinding",
     "LabelAuditResult",
     "LabelSpec",
@@ -55,19 +78,30 @@ __all__ = [
     "ProjectView",
     "RepoInfo",
     "SSHRegistrationError",
+    "audit_issues_triage",
+    "audit_project_drift",
+    "audit_remote_project_views",
     "audit_repository_labels",
     "calculate_milestone_progress",
     "close_repository_milestone",
+    "create_repository_issue",
     "diff_labels",
     "diff_milestones",
     "extract_roadmap_milestones",
+    "get_issues_summary",
+    "get_pages_builds",
+    "get_pages_status",
+    "get_repository_issues",
     "link_project_to_repository",
+    "list_remote_projects",
     "load_label_specs",
     "load_project_template",
     "parse_tasks_to_project_items",
     "register_key_on_github",
+    "request_pages_build",
     "sync_remote_project",
     "sync_repository_labels",
     "sync_repository_milestones",
+    "verify_pages_configuration",
     "verify_project_auth_scopes",
 ]

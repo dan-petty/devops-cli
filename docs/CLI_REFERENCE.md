@@ -26,7 +26,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops docs`](#devops-docs) — Generate and validate CLI and architecture documentation.
 - [`devops release`](#devops-release) — Automate version bumps, changelogs, tags, and GitHub releases.
 - [`devops pr`](#devops-pr) — GitHub Pull Request workflows and reviews.
-- [`devops gh`](#devops-gh) — GitHub Views, Projects, Milestones, and Labels automation.
+- [`devops gh`](#devops-gh) — GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
 - [`devops tf`](#devops-tf) — OpenTofu and Terraform Infrastructure-as-Code operations.
 - [`devops tls`](#devops-tls) — Generate and manage homelab TLS certificates and CAs.
 - [`devops telemetry`](#devops-telemetry) — OpenTelemetry tracing, metrics, and Jaeger observability.
@@ -2371,6 +2371,51 @@ devops ai repomap [OPTIONS]
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
 | `--max-files`, `-n` | `integer` | `100` | Maximum source files to include. |
 | `--include-tests` | `boolean` | - | Include test modules in symbol map. |
+| `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, Go, Rust, Java, and HCL. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai audit-library-usage`
+
+**Audit workspace code for library API drift and deprecated calls.**
+
+```bash
+devops ai audit-library-usage [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--package`, `-p` | `string` | - | Filter by package distribution name. |
+| `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
+| `--contracts-dir` | `path` | - | Path to directory containing exported library contract JSON files. |
+| `--fail-on-breaking` | `boolean` | - | Exit with code 1 if any breaking API drift issues are detected. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai pack-context`
+
+**Pack and prune source code context to fit token budget while preserving signatures.**
+
+```bash
+devops ai pack-context [OPTIONS] <target_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target_path>` | `path` | Yes | Path to source code file to pack and prune. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--referenced`, `-r` | `string` | - | Comma-separated list of symbols referenced by caller to prioritize during pruning. |
+| `--max-tokens` | `integer` | `<masked>` | Maximum token budget for packed context output. |
+| `--strip-private`, `--no-strip-private` | `boolean` | `True` | Strip unreferenced private functions, methods, and attributes. |
+| `--skeletonize`, `--no-skeletonize` | `boolean` | `True` | Replace function and method bodies with ellipsis (...) while preserving signatures. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3004,6 +3049,29 @@ devops ai rag clear [OPTIONS]
 | `--collection`, `-c` | `string` | - | Target collection override. |
 | `--force`, `-f` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 
+#### `devops ai rag drift`
+
+**Detect staleness and drift between the working tree and the Qdrant vector index.**
+
+```bash
+devops ai rag drift [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `path` | No | Directory or file to index into vector store. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--auto-sync`, `--reindex`, `-s` | `boolean` | - | Automatically re-index stale and newly added files. |
+| `--fail-on-drift` | `boolean` | - | Exit with code 1 if index drift or git commit divergence is detected. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops ai benchmark`
 
 **Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks.**
@@ -3124,6 +3192,146 @@ devops ai harness run [OPTIONS] <task>
 | `--frontier-model` | `string` | `claude-3-7-sonnet` | Frontier model identifier for architecture and verification. |
 | `--local-model` | `string` | `qwen2.5-coder:7b` | Local model identifier for sub-agent offloading. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ai ingest`
+
+**Ingest library API contracts, type stubs, and documentation.**
+
+```bash
+devops ai ingest COMMAND [ARGS]...
+```
+
+#### `devops ai ingest library`
+
+**Introspect an installed Python package and extract its public API contract.**
+
+```bash
+devops ai ingest library [OPTIONS] <package_name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<package_name>` | `string` | Yes | Introspect an installed Python package and extract its public API contract. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--max-depth`, `-d` | `integer` | `1` | Maximum module recursion depth for package introspection. |
+| `--output-dir`, `-o` | `path` | - | Directory path for generated output files. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+#### `devops ai ingest docs`
+
+**Ingest local or remote documentation into chunked markdown knowledge files.**
+
+```bash
+devops ai ingest docs [OPTIONS] <source>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<source>` | `string` | Yes | Ingest local or remote documentation into chunked markdown knowledge files. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--output-dir`, `-o` | `path` | - | Directory path for generated output files. |
+| `--max-pages`, `-p` | `integer` | `10` | Maximum number of items to return or display. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+#### `devops ai ingest index-libraries`
+
+**Index exported library API contracts into Qdrant vector collection and Valkey cache.**
+
+```bash
+devops ai ingest index-libraries [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dir`, `-d` | `path` | `.data/libraries` | Path to directory containing exported library contract JSON files. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+#### `devops ai ingest query-library`
+
+**Search library contracts and documentation via semantic search or exact symbol lookup.**
+
+```bash
+devops ai ingest query-library [OPTIONS] <query>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<query>` | `string` | Yes | Search library contracts and documentation via semantic search or exact symbol lookup. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--package`, `-p` | `string` | - | Filter by package distribution name. |
+| `--exact`, `-e` | `boolean` | - | Perform exact qualified symbol lookup instead of semantic vector search. |
+| `--top-k`, `-k` | `integer` | `5` | Maximum number of items to return or display. |
+| `--contracts-dir` | `path` | `.data/libraries` | Path to directory containing exported library contract JSON files. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+### `devops ai ast`
+
+**Tree-Sitter multilingual AST concrete syntax tree parsing and code graph synthesis.**
+
+```bash
+devops ai ast COMMAND [ARGS]...
+```
+
+#### `devops ai ast parse`
+
+**Parse source file concrete syntax tree and extract structural symbols.**
+
+```bash
+devops ai ast parse [OPTIONS] <file_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<file_path>` | `path` | Yes | Parse source file concrete syntax tree and extract structural symbols. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--query`, `-q` | `string` | `` | Optional Tree-Sitter S-expression query to execute against the syntax tree. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+#### `devops ai ast graph`
+
+**Synthesize whole-repository symbol dependency and reference graph.**
+
+```bash
+devops ai ast graph [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
+| `--max-files`, `-n` | `integer` | `100` | Maximum source files to include. |
+| `--output`, `-o` | `path` | - | Destination file path for output report or artifacts. |
+| `--format`, `-f` | `string` | `json` | Output format for synthesized code graph: 'json' or 'dot'. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -3708,11 +3916,82 @@ devops pr create [OPTIONS]
 | `--draft`, `-d` | `boolean` | - | Create pull request or entity as draft. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
+### `devops pr threads`
+
+```bash
+devops pr threads COMMAND [ARGS]...
+```
+
+#### `devops pr threads list`
+
+**List PR review discussion threads, file locations, and comments.**
+
+```bash
+devops pr threads list [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--unresolved-only`, `-u` | `boolean` | - | Filter to display only unresolved review discussion threads. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+#### `devops pr threads reply`
+
+**Post an in-thread reply to a PR review discussion thread.**
+
+```bash
+devops pr threads reply <thread_id> <body>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<thread_id>` | `string` | Yes | Review thread GraphQL ID (e.g. PRRT_...). |
+| `<body>` | `string` | Yes | Reply message text to append directly to the review thread. |
+
+#### `devops pr threads resolve`
+
+**Programmatically mark one or more PR review discussion threads as resolved.**
+
+```bash
+devops pr threads resolve <thread_ids>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<thread_ids>` | `string` | Yes | One or more review thread GraphQL IDs to resolve. |
+
+#### `devops pr threads unresolve`
+
+**Reopen a previously resolved PR review discussion thread.**
+
+```bash
+devops pr threads unresolve <thread_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<thread_id>` | `string` | Yes | Review thread GraphQL ID (e.g. PRRT_...). |
+
 ---
 
 ## devops gh
 
-GitHub Views, Projects, Milestones, and Labels automation.
+GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
 
 ### `devops gh labels`
 
@@ -3877,6 +4156,23 @@ devops gh project sync [OPTIONS]
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run`, `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
+| `--reconcile-fields`, `--no-reconcile-fields` | `boolean` | `True` | Automatically infer and update project custom fields from taxonomy labels and issue state. |
+
+#### `devops gh project reconcile`
+
+**Reconcile custom fields (Status, Priority, Category, Value, Effort) on project items.**
+
+```bash
+devops gh project reconcile [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--project-number`, `-n` | `integer` | - | GitHub Projects v2 board number |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview field reconciliation without mutations |
 
 #### `devops gh project link`
 
@@ -3896,6 +4192,35 @@ devops gh project link [OPTIONS] <project_number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh project list`
+
+**List available GitHub Projects v2 boards for user or organization.**
+
+```bash
+devops gh project list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--owner`, `-o` | `string` | - | Target user or organization |
+
+#### `devops gh project audit`
+
+**Audit project board items and fields against local tasks and template.**
+
+```bash
+devops gh project audit [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 #### `devops gh project template`
@@ -3960,6 +4285,328 @@ devops gh views sync [OPTIONS]
 |---|---|---|---|
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 | `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh views audit`
+
+**Audit remote project views against standardized template specifications.**
+
+```bash
+devops gh views audit [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
+| `--repo`, `-R` | `string` | - | Target repository |
+
+### `devops gh pages`
+
+```bash
+devops gh pages COMMAND [ARGS]...
+```
+
+#### `devops gh pages status`
+
+**Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement.**
+
+```bash
+devops gh pages status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh pages builds`
+
+**List recent GitHub Pages build history and durations.**
+
+```bash
+devops gh pages builds [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--limit`, `-l` | `integer` | `5` | Number of builds to retrieve |
+
+#### `devops gh pages build`
+
+**Trigger a new deployment build for GitHub Pages.**
+
+```bash
+devops gh pages build [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh pages verify`
+
+**Verify local repository readiness for GitHub Pages publishing.**
+
+```bash
+devops gh pages verify [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dir`, `-d` | `path` | `.` | Path to project root directory |
+
+### `devops gh issues`
+
+```bash
+devops gh issues COMMAND [ARGS]...
+```
+
+#### `devops gh issues list`
+
+**List repository issues with milestone, taxonomy labels, and status.**
+
+```bash
+devops gh issues list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--state`, `-s` | `string` | `open` | Issue state: open, closed, all |
+| `--milestone`, `-m` | `string` | - | Filter by milestone |
+| `--label`, `-l` | `string` | - | Filter by label |
+| `--limit` | `integer` | `30` | Max issues to return |
+
+#### `devops gh issues create`
+
+**Create a new issue linking milestone and taxonomy labels.**
+
+```bash
+devops gh issues create [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--title`, `-t` | `string` | - | Issue title |
+| `--body`, `-b` | `string` | `` | Issue description |
+| `--milestone`, `-m` | `string` | - | Target milestone |
+| `--label`, `-l` | `string` | - | Taxonomy label (repeatable) |
+| `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh issues triage`
+
+**Audit open issues for mandatory taxonomy labels and milestone linkage.**
+
+```bash
+devops gh issues triage [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh issues status`
+
+**Display aggregated issue counts by priority, type, and milestone.**
+
+```bash
+devops gh issues status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
+### `devops gh pr`
+
+```bash
+devops gh pr COMMAND [ARGS]...
+```
+
+#### `devops gh pr list`
+
+**List pull requests with base targeting and review status.**
+
+```bash
+devops gh pr list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--state`, `-s` | `string` | `open` | Filter by state (open, closed, merged, all). |
+| `--limit`, `-n` | `integer` | `30` | Maximum number of items to return or display. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+#### `devops gh pr view`
+
+**View details of a pull request.**
+
+```bash
+devops gh pr view [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+#### `devops gh pr checks`
+
+**Check remote CI quality gate status on a pull request.**
+
+```bash
+devops gh pr checks [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+#### `devops gh pr edit`
+
+**Edit pull request base branch, title, or body.**
+
+```bash
+devops gh pr edit [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--base`, `-B` | `string` | - | Change the base branch for this pull request. |
+| `--title`, `-t` | `string` | - | Set the new title. |
+| `--body`, `-b` | `string` | - | Set the new body. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+#### `devops gh pr create`
+
+**Create a pull request with automatic release branch target validation.**
+
+```bash
+devops gh pr create [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--title`, `-t` | `string` | - | Title for the item or entity. |
+| `--body`, `-b` | `string` | `` | Body or description text. |
+| `--base`, `-B` | `string` | - | Base git branch to diff against (default: main). |
+| `--draft`, `-d` | `boolean` | - | Create pull request or entity as draft. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+#### `devops gh pr threads`
+
+```bash
+devops gh pr threads COMMAND [ARGS]...
+```
+
+##### `devops gh pr threads list`
+
+**List PR review discussion threads, file locations, and comments.**
+
+```bash
+devops gh pr threads list [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--unresolved-only`, `-u` | `boolean` | - | Filter to display only unresolved review discussion threads. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+##### `devops gh pr threads reply`
+
+**Post an in-thread reply to a PR review discussion thread.**
+
+```bash
+devops gh pr threads reply <thread_id> <body>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<thread_id>` | `string` | Yes | Review thread GraphQL ID (e.g. PRRT_...). |
+| `<body>` | `string` | Yes | Reply message text to append directly to the review thread. |
+
+##### `devops gh pr threads resolve`
+
+**Programmatically mark one or more PR review discussion threads as resolved.**
+
+```bash
+devops gh pr threads resolve <thread_ids>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<thread_ids>` | `string` | Yes | One or more review thread GraphQL IDs to resolve. |
+
+##### `devops gh pr threads unresolve`
+
+**Reopen a previously resolved PR review discussion thread.**
+
+```bash
+devops gh pr threads unresolve <thread_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<thread_id>` | `string` | Yes | Review thread GraphQL ID (e.g. PRRT_...). |
 
 ---
 
@@ -4203,7 +4850,7 @@ devops tls ca [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--output-dir`, `-o` | `path` | `~/.config/devops-cli/tls` | Directory to save certificate and key files. |
-| `--common-name`, `-cn` | `string` | `Homelab DevOps Root CA` | Common Name for the certificate (e.g. *.local.lan). |
+| `--common-name`, `-cn` | `string` | `Homelab DevOps Root CA` | Common Name for the certificate (e.g. *.example.internal). |
 | `--organization`, `-org` | `string` | `Homelab DevOps` | Organization name. |
 | `--country`, `-c` | `string` | `US` | 2-letter country code. |
 | `--validity-days`, `-d` | `integer` | `3650` | Validity period in days. |
@@ -4222,7 +4869,7 @@ devops tls cert [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--common-name`, `-cn` | `string` | `homelab.local` | Common Name for the certificate (e.g. *.local.lan). |
+| `--common-name`, `-cn` | `string` | `homelab.local` | Common Name for the certificate (e.g. *.example.internal). |
 | `--san`, `-s` | `string` | - | Subject Alternative Names (DNS names or IP addresses). |
 | `--ca-cert` | `path` | - | Path to signing CA certificate (ca.crt). |
 | `--ca-key` | `path` | - | Path to signing CA private key (ca.key). |

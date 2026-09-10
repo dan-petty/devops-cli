@@ -7,11 +7,17 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | Tool Name | Description |
 |---|---|
 | [`ai_architecture`](#ai-architecture) | Analyze architectural module boundaries, dependency graphs, and cyclic imports. |
+| [`ai_ast_graph`](#ai-ast-graph) | Synthesize whole-repository code symbol and reference graph across polyglot languages. |
+| [`ai_ast_parse`](#ai-ast-parse) | Parse a polyglot source file (Python, TypeScript, Go, Rust, Java, HCL) into syntax symbols or execute S-expression query. |
 | [`ai_chaos_model`](#ai-chaos-model) | Execute model dependency chaos fault injection and verify automated fallback recovery. |
 | [`ai_constellation_status`](#ai-constellation-status) | Display constellation fleet status, active fallback routes, and suspended tasks. |
 | [`ai_diagram`](#ai-diagram) | Generate visual Mermaid architecture or threat modeling diagram. |
 | [`ai_failover`](#ai-failover) | Emergency failover controller re-routing tasks to designated fallback endpoints. |
 | [`ai_harness_status`](#ai-harness-status) | Inspect AI agent harness slot configuration, active models, skills, and sandbox state. |
+| [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into .data/libraries/. |
+| [`ai_inspect_symbol`](#ai-inspect-symbol) | Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts. |
+| [`ai_pack_context`](#ai-pack-context) | Pack and prune source code context to fit token budget while preserving signatures and types. |
+| [`ai_query_library`](#ai-query-library) | Search library contracts and documentation via semantic search or exact symbol lookup. |
 | [`ai_quiesce`](#ai-quiesce) | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
 | [`ai_resume`](#ai-resume) | Gracefully resume suspended constellation agent loops and task runners. |
@@ -28,14 +34,25 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
 | [`docker_sandbox`](#docker-sandbox) | Execute command inside an isolated Docker container sandbox. |
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
+| [`gh_issue_create`](#gh-issue-create) | Create a new GitHub issue linking milestone and taxonomy labels. |
+| [`gh_issue_list`](#gh-issue-list) | List repository issues with milestone, taxonomy labels, and status. |
+| [`gh_issue_status`](#gh-issue-status) | Display aggregated issue counts by priority, type, and milestone. |
+| [`gh_issue_triage`](#gh-issue-triage) | Audit open issues for mandatory taxonomy labels and milestone linkage. |
 | [`gh_label_list`](#gh-label-list) | List declarative repository labels and descriptions. |
 | [`gh_label_sync`](#gh-label-sync) | Synchronize repository labels against .github/labels.yml schema. |
 | [`gh_milestone_close`](#gh-milestone-close) | Close a repository milestone matching the given version or title. |
 | [`gh_milestone_list`](#gh-milestone-list) | List repository milestones and progress rates. |
 | [`gh_milestone_sync`](#gh-milestone-sync) | Synchronize repository milestones from docs/ROADMAP.md. |
+| [`gh_pages_build`](#gh-pages-build) | Trigger a new deployment build for GitHub Pages. |
+| [`gh_pages_status`](#gh-pages-status) | Inspect GitHub Pages site deployment status, URL, branch, and HTTPS enforcement. |
+| [`gh_pages_verify`](#gh-pages-verify) | Verify local repository readiness for GitHub Pages publishing. |
+| [`gh_project_audit`](#gh-project-audit) | Audit project board health and alignment against standardized template. |
+| [`gh_project_list`](#gh-project-list) | List available GitHub Projects v2 boards for user or organization. |
+| [`gh_project_reconcile`](#gh-project-reconcile) | Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items. |
 | [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
 | [`gh_project_sync`](#gh-project-sync) | Synchronize task items from task.md into GitHub Projects v2 status. |
 | [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
+| [`gh_views_audit`](#gh-views-audit) | Audit remote project views against standardized view template specifications. |
 | [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
 | [`k8s_audit`](#k8s-audit) | Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks. |
@@ -53,7 +70,11 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_validate`](#k8s-validate) | Validate Kubernetes manifest syntax and schemas against OpenAPI specifications. |
 | [`pr_checks`](#pr-checks) | Inspect detailed status of GitHub Actions CI checks for a pull request. |
 | [`pr_list`](#pr-list) | List GitHub pull requests with review approval state and CI check summaries. |
+| [`pr_thread_reply`](#pr-thread-reply) | Post an in-thread reply directly to a pull request review discussion thread. |
+| [`pr_thread_resolve`](#pr-thread-resolve) | Programmatically mark a pull request review discussion thread as resolved. |
+| [`pr_threads_list`](#pr-threads-list) | List review discussion threads, file locations, and comments on a pull request. |
 | [`prometheus_query`](#prometheus-query) | Execute PromQL instant query against Prometheus endpoint. |
+| [`rag_drift`](#rag-drift) | Detect staleness and drift between the working tree and the Qdrant vector index. |
 | [`rag_index`](#rag-index) | Index workspace files into Qdrant vector database for semantic retrieval. |
 | [`rag_search`](#rag-search) | Perform semantic vector search across indexed workspace codebase and architecture docs. |
 | [`release_status`](#release-status) | Check devops-cli release status, version consistency, tags, and docs state. |
@@ -116,6 +137,28 @@ Analyze architectural module boundaries, dependency graphs, and cyclic imports.
 | `target` | `string` | No | `src` | - |
 | `max_depth` | `integer` | No | `4` | - |
 
+### `ai_ast_graph`
+
+Synthesize whole-repository code symbol and reference graph across polyglot languages.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target_dir` | `string` | No | `.` | - |
+| `max_files` | `integer` | No | `50` | - |
+
+### `ai_ast_parse`
+
+Parse a polyglot source file (Python, TypeScript, Go, Rust, Java, HCL) into syntax symbols or execute S-expression query.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `file_path` | `string` | Yes | - | - |
+| `query` | `string` | No | `` | - |
+
 ### `ai_chaos_model`
 
 Execute model dependency chaos fault injection and verify automated fallback recovery.
@@ -162,6 +205,55 @@ Emergency failover controller re-routing tasks to designated fallback endpoints.
 Inspect AI agent harness slot configuration, active models, skills, and sandbox state.
 
 *No parameters required.*
+
+### `ai_ingest_library`
+
+Introspect an installed Python package and extract its public API contract into .data/libraries/.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `package` | `string` | Yes | - | - |
+| `max_depth` | `integer` | No | `1` | - |
+
+### `ai_inspect_symbol`
+
+Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `symbol` | `string` | Yes | - | - |
+| `package` | `string` | No | `` | - |
+
+### `ai_pack_context`
+
+Pack and prune source code context to fit token budget while preserving signatures and types.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `file_path` | `string` | Yes | - | - |
+| `referenced` | `string` | No | `` | - |
+| `max_tokens` | `integer` | No | `1500` | - |
+| `strip_private` | `boolean` | No | `True` | - |
+| `skeletonize` | `boolean` | No | `True` | - |
+
+### `ai_query_library`
+
+Search library contracts and documentation via semantic search or exact symbol lookup.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query` | `string` | Yes | - | - |
+| `package` | `string` | No | `` | - |
+| `exact` | `boolean` | No | `False` | - |
+| `top_k` | `integer` | No | `5` | - |
 
 ### `ai_quiesce`
 
@@ -320,6 +412,54 @@ List local Docker images and display container information.
 
 *No parameters required.*
 
+### `gh_issue_create`
+
+Create a new GitHub issue linking milestone and taxonomy labels.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `title` | `string` | Yes | - | - |
+| `body` | `string` | No | `` | - |
+| `milestone` | `string` | No | - | - |
+| `labels` | `string` | No | - | - |
+| `repo` | `string` | No | - | - |
+
+### `gh_issue_list`
+
+List repository issues with milestone, taxonomy labels, and status.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+| `state` | `string` | No | `open` | - |
+| `milestone` | `string` | No | - | - |
+| `label` | `string` | No | - | - |
+| `limit` | `integer` | No | `30` | - |
+
+### `gh_issue_status`
+
+Display aggregated issue counts by priority, type, and milestone.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+
+### `gh_issue_triage`
+
+Audit open issues for mandatory taxonomy labels and milestone linkage.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+
 ### `gh_label_list`
 
 List declarative repository labels and descriptions.
@@ -373,6 +513,64 @@ Synchronize repository milestones from docs/ROADMAP.md.
 | `repo` | `string` | No | - | - |
 | `dry_run` | `boolean` | No | `True` | - |
 
+### `gh_pages_build`
+
+Trigger a new deployment build for GitHub Pages.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+
+### `gh_pages_status`
+
+Inspect GitHub Pages site deployment status, URL, branch, and HTTPS enforcement.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+
+### `gh_pages_verify`
+
+Verify local repository readiness for GitHub Pages publishing.
+
+*No parameters required.*
+
+### `gh_project_audit`
+
+Audit project board health and alignment against standardized template.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
+
+### `gh_project_list`
+
+List available GitHub Projects v2 boards for user or organization.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `owner` | `string` | No | - | - |
+
+### `gh_project_reconcile`
+
+Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `project_number` | `integer` | No | - | - |
+| `repo` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `False` | - |
+
 ### `gh_project_status`
 
 Inspect GitHub Projects v2 template configuration, fields, and view definitions.
@@ -395,6 +593,16 @@ Synchronize task items from task.md into GitHub Projects v2 status.
 Return JSON specification for GitHub Projects v2 views.
 
 *No parameters required.*
+
+### `gh_views_audit`
+
+Audit remote project views against standardized view template specifications.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repo` | `string` | No | - | - |
 
 ### `gh_views_sync`
 
@@ -570,6 +778,38 @@ List GitHub pull requests with review approval state and CI check summaries.
 | `limit` | `integer` | No | `10` | - |
 | `state` | `string` | No | `open` | - |
 
+### `pr_thread_reply`
+
+Post an in-thread reply directly to a pull request review discussion thread.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `thread_id` | `string` | Yes | - | - |
+| `body` | `string` | Yes | - | - |
+
+### `pr_thread_resolve`
+
+Programmatically mark a pull request review discussion thread as resolved.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `thread_id` | `string` | Yes | - | - |
+
+### `pr_threads_list`
+
+List review discussion threads, file locations, and comments on a pull request.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pr_number` | `integer` | Yes | - | - |
+| `unresolved_only` | `boolean` | No | `True` | - |
+
 ### `prometheus_query`
 
 Execute PromQL instant query against Prometheus endpoint.
@@ -579,6 +819,17 @@ Execute PromQL instant query against Prometheus endpoint.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `promql` | `string` | No | `up` | - |
+
+### `rag_drift`
+
+Detect staleness and drift between the working tree and the Qdrant vector index.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | `string` | No | `.` | - |
+| `auto_sync` | `boolean` | No | `False` | - |
 
 ### `rag_index`
 

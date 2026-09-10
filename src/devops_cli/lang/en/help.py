@@ -144,6 +144,43 @@ class AICommandHelp:
     constellation: str = (
         "Display constellation fleet status, active fallback routes, and suspended tasks."
     )
+    ingest: str = "Ingest library API contracts, type stubs, and documentation."
+    ingest_library: str = (
+        "Introspect an installed Python package and extract its public API contract."
+    )
+    ingest_docs: str = "Ingest local or remote documentation into chunked markdown knowledge files."
+    max_depth: str = "Maximum module recursion depth for package introspection."
+    index_libraries: str = (
+        "Index exported library API contracts and doc chunks into Qdrant and Valkey."
+    )
+    query_library: str = (
+        "Search library contracts and documentation via semantic search or exact symbol lookup."
+    )
+    contracts_dir: str = "Path to directory containing exported library contract JSON files."
+    exact_lookup: str = "Perform exact qualified symbol lookup instead of semantic vector search."
+    package_name: str = "Filter by package distribution name."
+    multilingual: str = (
+        "Enable multilingual polyglot scanning across Python, TypeScript, Go, Rust, Java, and HCL."
+    )
+    ast: str = "Tree-Sitter multilingual AST concrete syntax tree parsing and code graph synthesis."
+    ast_parse: str = "Parse source file concrete syntax tree and extract structural symbols."
+    ast_graph: str = "Synthesize whole-repository symbol dependency and reference graph."
+    ast_query: str = "Optional Tree-Sitter S-expression query to execute against the syntax tree."
+    graph_format: str = "Output format for synthesized code graph: 'json' or 'dot'."
+    audit_library_usage: str = "Audit workspace code for library API drift and deprecated calls."
+    fail_on_breaking: str = "Exit with code 1 if any breaking API drift issues are detected."
+    pack_context: str = (
+        "Pack and prune source code context to fit token budget while preserving signatures."
+    )
+    referenced_symbols: str = (
+        "Comma-separated list of symbols referenced by caller to prioritize during pruning."
+    )
+    strip_private: str = "Strip unreferenced private functions, methods, and attributes."
+    skeletonize: str = (
+        "Replace function and method bodies with ellipsis (...) while preserving signatures."
+    )
+    pack_target_file: str = "Path to source code file to pack and prune."
+    max_tokens: str = "Maximum token budget for packed context output."
 
 
 @dataclass(frozen=True)
@@ -529,11 +566,22 @@ class PRCommandHelp:
     edit_base: str = "Change the base branch for this pull request."
     edit_title: str = "Set the new title."
     edit_body: str = "Set the new body."
+    threads_app: str = "Manage and programmatically resolve PR review discussion threads."
+    threads_list: str = "List PR review discussion threads, file locations, and comments."
+    threads_reply: str = "Post an in-thread reply to a PR review discussion thread."
+    threads_resolve: str = (
+        "Programmatically mark one or more PR review discussion threads as resolved."
+    )
+    threads_unresolve: str = "Reopen a previously resolved PR review discussion thread."
+    thread_id: str = "Review thread GraphQL ID (e.g. PRRT_...)."
+    thread_ids: str = "One or more review thread GraphQL IDs to resolve."
+    unresolved_only: str = "Filter to display only unresolved review discussion threads."
+    reply_body: str = "Reply message text to append directly to the review thread."
 
 
 @dataclass(frozen=True)
 class GHCommandHelp:
-    app: str = "GitHub Views, Projects, Milestones, and Labels automation."
+    app: str = "GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation."
     labels_app: str = "Manage declarative repository labels and audit PR taxonomy."
     labels_list: str = "List all repository labels."
     labels_sync: str = "Synchronize repository labels against declarative schema."
@@ -544,14 +592,37 @@ class GHCommandHelp:
     milestones_status: str = "Inspect progress and health for a specific milestone."
     milestones_close: str = "Close a repository release milestone by title or version."
     project_app: str = "Manage GitHub Projects v2 templates and task item synchronization."
+    project_list: str = "List available GitHub Projects v2 boards for user or organization."
     project_status: str = "Inspect project template structure and configured views."
     project_sync: str = "Sync task items from task.md into GitHub Projects status."
+    project_reconcile: str = (
+        "Reconcile custom fields (Status, Priority, Category, Value, Effort) on project items."
+    )
+    reconcile_fields: str = (
+        "Automatically infer and update project custom fields from taxonomy labels and issue state."
+    )
     project_link: str = "Link a GitHub Project v2 board to the repository."
+    project_audit: str = "Audit project board items and fields against local tasks and template."
     project_template: str = "Display the declarative GitHub Projects v2 JSON template."
     views_app: str = "Inspect standardized GitHub Projects v2 views."
     views_list: str = "List all 4 standardized project views."
     views_spec: str = "Output JSON schema specification for project views."
     views_sync: str = "Synchronize standardized views with the remote GitHub Projects v2 board."
+    views_audit: str = "Audit remote project views against standardized template specifications."
+    pages_app: str = (
+        "Inspect GitHub Pages site deployment status, builds, and local Jekyll configuration."
+    )
+    pages_status: str = (
+        "Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement."
+    )
+    pages_builds: str = "List recent GitHub Pages build history and durations."
+    pages_build: str = "Trigger a new deployment build for GitHub Pages."
+    pages_verify: str = "Verify local repository readiness for GitHub Pages publishing."
+    issues_app: str = "Manage GitHub Issues, track milestones, and enforce taxonomy standards."
+    issues_list: str = "List repository issues with milestone, taxonomy labels, and status."
+    issues_create: str = "Create a new issue linking milestone and taxonomy labels."
+    issues_triage: str = "Audit open issues for mandatory taxonomy labels and milestone linkage."
+    issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
 
 
 @dataclass(frozen=True)
@@ -688,7 +759,7 @@ class TLSCommandHelp:
     bundle: str = "Generate full homelab TLS certificate bundle."
     k8s_secret: str = "Create Kubernetes TLS secret in cluster namespaces."
     output_dir: str = "Directory to save certificate and key files."
-    common_name: str = "Common Name for the certificate (e.g. *.local.lan)."
+    common_name: str = "Common Name for the certificate (e.g. *.example.internal)."
     organization: str = "Organization name."
     country: str = "2-letter country code."
     validity_days: str = "Validity period in days."
@@ -802,6 +873,9 @@ class RAGCommandHelp:
     min_score: str = "Minimum similarity score (0.0 - 1.0)."
     file_filter: str = "Filter by filepath glob pattern."
     explain: str = "Explain RAG vector embeddings, Qdrant indexing, and terminology."
+    drift: str = "Detect staleness and drift between the working tree and the Qdrant vector index."
+    auto_sync: str = "Automatically re-index stale and newly added files."
+    fail_on_drift: str = "Exit with code 1 if index drift or git commit divergence is detected."
 
 
 @dataclass(frozen=True)

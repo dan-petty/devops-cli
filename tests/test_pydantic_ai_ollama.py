@@ -90,7 +90,10 @@ def test_get_recommended_output_mode() -> None:
 
     # Self-hosted Ollama (v0.5.0+) supports grammar-constrained JSON schema decoding
     assert get_recommended_output_mode("http://localhost:11434/v1", "qwen2.5-coder") == "native"
-    assert get_recommended_output_mode("http://workhorse.lan:11434", "deepseek-r1") == "native"
+    assert (
+        get_recommended_output_mode("http://node-1.example.internal:11434", "deepseek-r1")
+        == "native"
+    )
 
     # Ollama Cloud accepts json_schema without error but does not enforce it upstream yet
     assert get_recommended_output_mode("https://ollama.com/v1", "llama3.2") == "tool"

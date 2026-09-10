@@ -77,7 +77,7 @@ def test_run_tflint_scan_with_binary(tmp_path: Path) -> None:
 
     with (
         patch("devops_cli.security.tflint.shutil.which", return_value="/usr/local/bin/tflint"),
-        patch("devops_cli.security.tflint.subprocess.run", return_value=mock_proc),
+        patch("devops_cli.security.tflint.run_subprocess", return_value=mock_proc),
     ):
         findings = run_tflint_scan(tmp_path, config_file=config_file)
         assert len(findings) == 3
@@ -96,7 +96,7 @@ def test_run_tflint_scan_empty_output(tmp_path: Path) -> None:
     )
     with (
         patch("devops_cli.security.tflint.shutil.which", return_value="/usr/local/bin/tflint"),
-        patch("devops_cli.security.tflint.subprocess.run", return_value=mock_proc),
+        patch("devops_cli.security.tflint.run_subprocess", return_value=mock_proc),
     ):
         findings = run_tflint_scan(tmp_path)
         assert findings == []
@@ -107,7 +107,7 @@ def test_run_tflint_scan_exception_fallback(tmp_path: Path) -> None:
     with (
         patch("devops_cli.security.tflint.shutil.which", return_value="/usr/local/bin/tflint"),
         patch(
-            "devops_cli.security.tflint.subprocess.run",
+            "devops_cli.security.tflint.run_subprocess",
             side_effect=RuntimeError("Subprocess failed"),
         ),
     ):

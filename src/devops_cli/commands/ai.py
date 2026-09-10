@@ -10,6 +10,7 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.ai.personas import Persona
+from devops_cli.commands.ai_ast import app as ast_app
 from devops_cli.commands.ai_cache import app as cache_app
 from devops_cli.commands.ai_chaos import run_chaos_model_cmd
 from devops_cli.commands.ai_controller import (
@@ -19,6 +20,7 @@ from devops_cli.commands.ai_controller import (
     run_resume_cmd,
 )
 from devops_cli.commands.ai_harness import app as harness_app
+from devops_cli.commands.ai_ingest import app as ingest_app
 from devops_cli.commands.analyze import app as analyze_app
 from devops_cli.commands.benchmark import app as benchmark_app
 from devops_cli.commands.rag import app as rag_app
@@ -98,6 +100,16 @@ app.add_typer(
     harness_app,
     name="harness",
     help=HELP.ai.harness,
+)
+app.add_typer(
+    ingest_app,
+    name="ingest",
+    help=HELP.ai.ingest,
+)
+app.add_typer(
+    ast_app,
+    name="ast",
+    help=HELP.ai.ast,
 )
 
 
@@ -1201,6 +1213,10 @@ def repomap_cmd(
         bool,
         typer.Option("--include-tests", help=HELP.ai.include_tests),
     ] = False,
+    multilingual: Annotated[
+        bool,
+        typer.Option("--multilingual", "-m", help=HELP.ai.multilingual),
+    ] = False,
     json_output: Annotated[
         bool,
         typer.Option("--json", help=HELP.options.json_output),
@@ -1223,12 +1239,18 @@ def repomap_cmd(
             details={
                 "max_files": max_files,
                 "include_tests": include_tests,
+                "multilingual": multilingual,
                 "status": "DRY_RUN_MAPPED",
             },
         )
         return
 
-    maps = generate_repo_map(target_dir, max_files=max_files, include_tests=include_tests)
+    maps = generate_repo_map(
+        target_dir,
+        max_files=max_files,
+        include_tests=include_tests,
+        multilingual=multilingual,
+    )
     if json_output:
         payload = {"files_count": len(maps), "files": [f.to_dict() for f in maps]}
         write_stdout(json.dumps(payload, indent=2) + "\n")
@@ -1240,6 +1262,157 @@ def repomap_cmd(
         prefix=False,
     )
     write_stdout(text + "\n")
+
+
+# =============================================================================
+# Command: devops ai audit-library-usage
+# =============================================================================
+
+
+def _render_drift_report(report: Any, json_output: bool) -> None:
+    """Render library drift findings to stdout in json or rich text format."""
+    import json
+
+    if json_output:
+        write_stdout(json.dumps(report.to_dict(), indent=2) + "\n")
+        return
+    print_info(
+        f"[bold]Library API Drift Audit[/bold] ({report.files_scanned} files, {report.total_calls_checked} calls, {report.breaking_count} breaking, {report.warning_count} warnings):\n",
+        prefix=False,
+    )
+    for f in report.findings:
+        color = "red" if f.is_breaking else "yellow"
+        tag = "[BREAKING]" if f.is_breaking else "[WARNING]"
+        write_stdout(f"[{color}]{tag}[/{color}] {f.file_path}:{f.line_number} {f.message}\n")
+
+
+@app.command("audit-library-usage")
+def audit_library_usage_cmd(
+    package: Annotated[
+        str | None,
+        typer.Option("--package", "-p", help=HELP.ai.package_name),
+    ] = None,
+    target_dir: Annotated[
+        Path | None,
+        typer.Option("--target", "-t", "--dir", "-d", help=HELP.ai.target_dir),
+    ] = None,
+    contracts_dir: Annotated[
+        Path | None,
+        typer.Option("--contracts-dir", help=HELP.ai.contracts_dir),
+    ] = None,
+    fail_on_breaking: Annotated[
+        bool,
+        typer.Option("--fail-on-breaking", help=HELP.ai.fail_on_breaking),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Audit workspace code for library API drift and deprecated calls."""
+    from devops_cli.ai.library.drift_auditor import LibraryDriftAuditor
+    from devops_cli.dry_run import is_dry_run, render_dry_run_result
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops ai audit-library-usage",
+            action="audit_library_drift",
+            details={
+                "package": package or "all",
+                "fail_on_breaking": fail_on_breaking,
+                "status": "DRY_RUN_AUDITED",
+            },
+        )
+        return
+
+    auditor = LibraryDriftAuditor(contracts_dir=contracts_dir)
+    ws_dir = target_dir or Path.cwd()
+    report = auditor.audit_workspace(ws_dir, package_filter=package)
+    _render_drift_report(report, json_output)
+
+    if fail_on_breaking and report.breaking_count > 0:
+        raise typer.Exit(code=1)
+
+
+# =============================================================================
+# Command: devops ai pack-context
+# =============================================================================
+
+
+@app.command("pack-context")
+def pack_context_cmd(
+    target_path: Annotated[
+        Path,
+        typer.Argument(help=HELP.ai.pack_target_file),
+    ],
+    referenced: Annotated[
+        str | None,
+        typer.Option("--referenced", "-r", help=HELP.ai.referenced_symbols),
+    ] = None,
+    max_tokens: Annotated[
+        int,
+        typer.Option("--max-tokens", help=HELP.ai.max_tokens),
+    ] = 1500,
+    strip_private: Annotated[
+        bool,
+        typer.Option("--strip-private/--no-strip-private", help=HELP.ai.strip_private),
+    ] = True,
+    skeletonize: Annotated[
+        bool,
+        typer.Option("--skeletonize/--no-skeletonize", help=HELP.ai.skeletonize),
+    ] = True,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Pack and prune source code context to fit token budget while preserving signatures."""
+    import json
+
+    from devops_cli.ai.context_packer import ContextPacker, PackingConfig
+    from devops_cli.dry_run import is_dry_run, render_dry_run_result
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command=f"devops ai pack-context {target_path}",
+            action="pack_context",
+            details={
+                "target_path": str(target_path),
+                "max_tokens": max_tokens,
+                "strip_private": strip_private,
+                "skeletonize": skeletonize,
+                "status": "DRY_RUN_PACKED",
+            },
+        )
+        return
+
+    ref_symbols = [s.strip() for s in referenced.split(",") if s.strip()] if referenced else None
+    config = PackingConfig(
+        max_tokens=max_tokens,
+        strip_private=strip_private,
+        skeletonize=skeletonize,
+    )
+    packer = ContextPacker(default_config=config)
+    packed = packer.pack_file(target_path, referenced_symbols=ref_symbols)
+
+    if json_output:
+        write_stdout(json.dumps(packed.model_dump(), indent=2) + "\n")
+    else:
+        print_info(
+            f"[bold]Packed Context[/bold]: {packed.original_tokens} -> {packed.packed_tokens} tokens "
+            f"({int(packed.reduction_ratio * 100)}% reduction, "
+            f"pruned: {len(packed.pruned_symbols)}, preserved: {len(packed.preserved_symbols)})\n",
+            prefix=False,
+        )
+        write_stdout(packed.content + "\n")
 
 
 # =============================================================================
@@ -1418,3 +1591,6 @@ app.command("quiesce", help=HELP.ai.quiesce)(run_quiesce_cmd)
 app.command("failover", help=HELP.ai.failover)(run_failover_cmd)
 app.command("resume", help=HELP.ai.resume)(run_resume_cmd)
 app.command("constellation", help=HELP.ai.constellation)(run_constellation_cmd)
+
+# Canonical alias for app
+ai_app = app

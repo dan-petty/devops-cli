@@ -365,6 +365,7 @@ def _build_page_review_prompt(
     page_content: str,
     symbols: str,
     rag_context_str: str,
+    contract_context_str: str = "",
 ) -> str:
     """Construct sanitized review prompt for a specific paginated slice of source code."""
     masked = _mask_secrets_in_content(page_content)
@@ -374,23 +375,27 @@ def _build_page_review_prompt(
         if total_pages > 1
         else f"Review File: {fpath}\n"
     )
-    return f"{prefix}Key Symbols: {symbols}{rag_context_str}\n\nCode Content / Diff:\n{clean}"
+    return f"{prefix}Key Symbols: {symbols}{rag_context_str}{contract_context_str}\n\nCode Content / Diff:\n{clean}"
 
 
 def _collect_linked_snippets(
     linked_files: Sequence[FileAnalysisMeta],
     resolve_fn: Callable[[str], Path],
 ) -> list[str]:
-    """Extract code context snippets from linked repository files."""
+    """Extract code context snippets from linked repository files with context packing and skeletonization."""
+    from devops_cli.ai.context_packer import ContextPacker, PackingConfig
+
+    packer = ContextPacker(default_config=PackingConfig(max_tokens=400, skeletonize=True))
     snippets: list[str] = []
     for lmeta in linked_files:
         lpath = resolve_fn(lmeta.path)
         if lpath.exists() and lpath.is_file():
             try:
-                snippet = lpath.read_text(encoding="utf-8", errors="replace")[:2000]
-                snippets.append(f"Linked File ({lmeta.path}):\n{snippet}")
+                raw_code = lpath.read_text(encoding="utf-8", errors="replace")
+                packed = packer.pack_code(raw_code)
+                snippets.append(f"Linked File ({lmeta.path}):\n{packed.content}")
             except Exception as exc:
-                logger.debug("Failed reading linked file %s: %s", lmeta.path, exc)
+                logger.debug("Failed reading/packing linked file %s: %s", lmeta.path, exc)
     return snippets
 
 
@@ -686,11 +691,13 @@ class ReviewPipelineOrchestrator:
         session_dir: Path | None = None,
         concurrency: int | None = None,
         parallel: bool = True,
+        ground_contracts: bool = True,
     ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.target_dir = target_dir
         self.concurrency = concurrency
         self.parallel = parallel
+        self.ground_contracts = ground_contracts
         if session_dir is not None:
             self.session_dir = session_dir
         else:
@@ -1463,13 +1470,48 @@ class ReviewPipelineOrchestrator:
             except Exception as exc:
                 logger.debug("Failed investigating RAG context for %s: %s", fpath, exc)
 
+            contract_context_str = ""
+            if self.ground_contracts and ext in (".py", ".pyi"):
+                try:
+                    from devops_cli.ai.review.ast_imports import (
+                        extract_imports_from_diff,
+                        extract_imports_from_source,
+                    )
+                    from devops_cli.ai.review.contract_grounding import (
+                        format_contract_grounding_for_prompt,
+                        resolve_grounded_contracts,
+                    )
+
+                    file_imports = (
+                        extract_imports_from_diff(content_or_diff)
+                        if any(
+                            line.startswith(("+", "-"))
+                            for line in content_or_diff.splitlines()[:50]
+                        )
+                        else extract_imports_from_source(content_or_diff)
+                    )
+                    grounded = resolve_grounded_contracts(file_imports)
+                    contract_context_str = format_contract_grounding_for_prompt(grounded)
+                    if grounded:
+                        payload.ai_scratchpad["grounded_contracts"] = [
+                            getattr(c, "qualname", getattr(c, "name", str(c))) for c in grounded
+                        ]
+                except Exception as exc:
+                    logger.debug("Failed investigating contract grounding for %s: %s", fpath, exc)
+
             t_start = time.monotonic()
             actual_servers: list[str] = []
             thoughts: list[str] = list(payload.ai_scratchpad.get("thoughts", []))
 
             def _review_page(p_idx: int, page_content: str) -> int:
                 prompt = _build_page_review_prompt(
-                    fpath, p_idx, total_pages, page_content, symbols, rag_context_str
+                    fpath,
+                    p_idx,
+                    total_pages,
+                    page_content,
+                    symbols,
+                    rag_context_str,
+                    contract_context_str,
                 )
                 return _execute_page_review_steps(
                     pipeline,

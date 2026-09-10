@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import urllib.parse
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.agents.pydantic_agent import FunctionToolset, Tool
@@ -12,24 +10,14 @@ from devops_cli.ai.agents.pydantic_agent import FunctionToolset, Tool
 
 def _validate_langchain_kwargs(kwargs: dict[str, Any]) -> str | None:
     """Validate tool keyword arguments against path traversal sequences, including percent-encoding and absolute paths."""
+    from devops_cli.core.paths import validate_path_parameter
+    from devops_cli.exceptions.security import SecurityError
+
     for k, v in kwargs.items():
-        if any(
-            pat in k.lower()
-            for pat in ("path", "file", "dir", "dest", "filename", "filepath", "uri")
-        ):
-            if isinstance(v, (str, Path)):
-                raw_str = str(v)
-                decoded = urllib.parse.unquote(raw_str)
-                if (
-                    ".." in raw_str
-                    or "../" in raw_str
-                    or "..\\" in raw_str
-                    or ".." in decoded
-                    or any(part == ".." for part in Path(decoded).parts)
-                    or Path(decoded).is_absolute()
-                    or raw_str.startswith(("/", "\\"))
-                ):
-                    return f"Path traversal or absolute path in argument '{k}' is blocked by security policy: {v}"
+        try:
+            validate_path_parameter(k, v, allow_absolute=False, error_cls=SecurityError)
+        except SecurityError:
+            return f"Path traversal or absolute path in argument '{k}' is blocked by security policy: {v}"
     return None
 
 

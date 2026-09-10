@@ -11,12 +11,12 @@ def test_embeddings_engine_defaults_to_active_settings(monkeypatch) -> None:
     """Verify that EmbeddingsEngine defaults to load_settings().ai rather than blank AIConfig."""
     custom_settings = Settings()
     custom_settings.ai.rag.embedding_model = "embeddinggemma:300m"
-    custom_settings.ai.rag.embedding_url = "http://workhorse.lan:11434"
+    custom_settings.ai.rag.embedding_url = "http://10.0.0.10:11434"
     monkeypatch.setattr("devops_cli.config.settings.load_settings", lambda: custom_settings)
 
     engine = EmbeddingsEngine()
     assert engine.model == "embeddinggemma:300m"
-    assert engine.ai_config.rag.embedding_url == "http://workhorse.lan:11434"
+    assert engine.ai_config.rag.embedding_url == "http://10.0.0.10:11434"
 
 
 def test_embeddings_engine_respects_task_override() -> None:
