@@ -44,9 +44,8 @@ jobs:
             .mypy_cache
             .ruff_cache
             .pytest_cache
-          key: tooling-cache-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ github.sha }}
+          key: tooling-cache-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}
           restore-keys: |
-            tooling-cache-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
             tooling-cache-${{ runner.os }}-
 
       - name: Synchronize dependencies

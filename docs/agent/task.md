@@ -994,8 +994,8 @@
   - [x] 2. Configured `actions/cache` in `ci.yml` for `.mypy_cache`, `.ruff_cache`, and `.pytest_cache`.
   - [x] 3. Configured `devcontainers/ci` with `cacheFrom: ${{ steps.image_repo.outputs.name }}:latest` in `ci.yml` and `release.yml`.
   - [x] 4. Authored unit tests in `tests/test_ci.py` validating declarative workflow caching invariants.
-  - [ ] 5. Remediate Copilot code review comments (stable cache key without github.sha, exact cacheFrom assertion in test).
-  - [ ] 6. Verify full 10-gate CI quality suite passes cleanly (`uv run devops ci`).
+  - [x] 5. Remediate Copilot code review comments (stable cache key without github.sha, exact cacheFrom assertion in test).
+  - [/] 6. Verify full 10-gate CI quality suite passes cleanly (`uv run devops ci`).
 
 ---
 

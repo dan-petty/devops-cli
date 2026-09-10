@@ -386,7 +386,9 @@ def _validate_devcontainer_step(step: dict[str, object], source: str) -> None:
     with_args = step.get("with", {})
     assert isinstance(with_args, dict), f"{source}: 'with' block must be a dict"
     assert "cacheFrom" in with_args, f"{source}: devcontainers/ci missing cacheFrom"
-    assert with_args["cacheFrom"], f"{source}: devcontainers/ci cacheFrom must not be empty"
+    assert with_args["cacheFrom"] == "${{ steps.image_repo.outputs.name }}:latest", (
+        f"{source}: devcontainers/ci cacheFrom must be '${{{{ steps.image_repo.outputs.name }}}}:latest'"
+    )
 
 
 def test_github_workflows_caching_configuration() -> None:
@@ -413,7 +415,7 @@ def test_github_workflows_caching_configuration() -> None:
 
 
 def test_ci_workflow_has_tooling_cache_step() -> None:
-    """Validate that ci.yml includes tooling cache for mypy, ruff, and pytest."""
+    """Validate that ci.yml includes tooling cache for mypy, ruff, and pytest with stable key."""
     import yaml
 
     ci_file = Path(".github/workflows/ci.yml")
@@ -424,7 +426,13 @@ def test_ci_workflow_has_tooling_cache_step() -> None:
         s for s in steps if isinstance(s, dict) and "actions/cache" in str(s.get("uses", ""))
     ]
     assert len(cache_steps) >= 1
-    cache_paths = str(cache_steps[0].get("with", {}).get("path", ""))
+    cache_with = cache_steps[0].get("with", {})
+    assert isinstance(cache_with, dict)
+    cache_paths = str(cache_with.get("path", ""))
     assert ".mypy_cache" in cache_paths
     assert ".ruff_cache" in cache_paths
     assert ".pytest_cache" in cache_paths
+    cache_key = str(cache_with.get("key", ""))
+    assert "tooling-cache-" in cache_key
+    assert "hashFiles" in cache_key
+    assert "github.sha" not in cache_key
