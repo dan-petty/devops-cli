@@ -23,7 +23,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_resume`](#ai-resume) | Gracefully resume suspended constellation agent loops and task runners. |
 | [`ai_subagent_offload`](#ai-subagent-offload) | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
 | [`ai_test_gen`](#ai-test-gen) | Synthesize isolated pytest unit test suite for a target Python file. |
+| [`argo_fleet_sync`](#argo-fleet-sync) | Coordinate multi-cluster ArgoCD fleet synchronization with bounded concurrency. |
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
+| [`argo_rollout_analyze`](#argo-rollout-analyze) | Analyze progressive rollout metric gates and trigger automated rollback on threshold violation. |
 | [`argo_status`](#argo-status) | Check ArgoCD application health and sync status. |
 | [`benchmark_embeddings`](#benchmark-embeddings) | Benchmark embedding model inference latency, dimensions, and retrieval accuracy. |
 | [`benchmark_suite`](#benchmark-suite) | Benchmark candidate models against feedback dataset for precision, recall, and hallucination scoring. |
@@ -311,11 +313,37 @@ Synthesize isolated pytest unit test suite for a target Python file.
 |---|---|---|---|---|
 | `target_file` | `string` | Yes | - | - |
 
+### `argo_fleet_sync`
+
+Coordinate multi-cluster ArgoCD fleet synchronization with bounded concurrency.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `app_name` | `string` | Yes | - | - |
+| `clusters` | `string` | No | `dev,staging,prod` | - |
+| `fleet` | `string` | No | `default-fleet` | - |
+| `concurrency` | `integer` | No | `3` | - |
+
 ### `argo_list`
 
 List ArgoCD applications.
 
 *No parameters required.*
+
+### `argo_rollout_analyze`
+
+Analyze progressive rollout metric gates and trigger automated rollback on threshold violation.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `rollout_name` | `string` | Yes | - | - |
+| `namespace` | `string` | No | `default` | - |
+| `error_rate_threshold` | `number` | No | `1.0` | - |
+| `auto_abort` | `boolean` | No | `True` | - |
 
 ### `argo_status`
 

@@ -995,6 +995,6 @@
 - [ ] Milestone v0.2.15: GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh
   - [x] Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (P0 - Critical, PR #93 - Merged)
   - [x] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical, PR #96 - Merged)
-  - [/] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, PR #97)
-  - [ ] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High, PR #98)
+  - [x] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, PR #97 - Merged)
+  - [/] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High, Issue #91, PR #98)
   - [ ] Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, PR #100)
