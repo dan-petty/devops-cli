@@ -459,6 +459,22 @@ def tf_output(directory: str = ".", json_format: bool = True) -> str:
 
 
 @mcp.tool()
+def tf_cost_estimate(
+    directory: str = ".",
+    mock: bool = False,
+    max_monthly_cost: float | None = None,
+) -> str:
+    """Estimate cloud infrastructure cost with Infracost FinOps engine."""
+    _validate_mcp_arg("directory", directory)
+    cmd = ["uv", "run", "devops", "tf", "cost", "breakdown", directory, "--json"]
+    if mock:
+        cmd.append("--mock")
+    if max_monthly_cost is not None:
+        cmd.extend(["--max-monthly-cost", str(max_monthly_cost)])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def rag_search(
     query: str,
     top_k: int = 5,
@@ -920,6 +936,15 @@ def get_gh_views_resource() -> str:
     """Return remote GitHub Projects views synchronization and audit status."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "gh", "views", "audit"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://tf/cost/latest")
+def get_tf_cost_latest_resource() -> str:
+    """Return latest Terraform cloud infrastructure cost breakdown and FinOps metrics."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "tf", "cost", "breakdown", ".", "--mock", "--json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 
