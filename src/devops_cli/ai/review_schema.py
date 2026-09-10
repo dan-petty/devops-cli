@@ -517,42 +517,49 @@ def _parse_location(location: str) -> tuple[str, int | None, int | None]:
     return file_part, s_line, e_line
 
 
-def _are_findings_duplicate(f1: Finding, f2: Finding) -> bool:
+def _are_findings_duplicate(primary: Finding, candidate: Finding) -> bool:
     """Determine if two findings describe the same underlying issue across personas or segments."""
-    file1, s1, e1 = _parse_location(f1.location)
-    file2, s2, e2 = _parse_location(f2.location)
-    t1 = f1.title.strip().lower()
-    t2 = f2.title.strip().lower()
+    primary_file, primary_start, primary_end = _parse_location(primary.location)
+    candidate_file, candidate_start, candidate_end = _parse_location(candidate.location)
+    primary_title = primary.title.strip().lower()
+    candidate_title = candidate.title.strip().lower()
 
-    if not file1 or not file2 or file1 != file2:
+    if not primary_file or not candidate_file or primary_file != candidate_file:
         return False
 
-    if t1 == t2:
+    if primary_title == candidate_title:
         return True
 
-    tokens1 = _tokenize_title(t1)
-    tokens2 = _tokenize_title(t2)
+    primary_tokens = _tokenize_title(primary_title)
+    candidate_tokens = _tokenize_title(candidate_title)
 
-    intersection = tokens1 & tokens2
-    union = tokens1 | tokens2
+    intersection = primary_tokens & candidate_tokens
+    union = primary_tokens | candidate_tokens
     jaccard = len(intersection) / len(union) if union else 0.0
 
     same_line_range = (
-        s1 is not None
-        and e1 is not None
-        and s2 is not None
-        and e2 is not None
-        and max(s1, s2) <= min(e1, e2) + LINE_OVERLAP_TOLERANCE
+        primary_start is not None
+        and primary_end is not None
+        and candidate_start is not None
+        and candidate_end is not None
+        and max(primary_start, candidate_start)
+        <= min(primary_end, candidate_end) + LINE_OVERLAP_TOLERANCE
     )
 
-    if (s1 == s2 and e1 == e2) or (s1 is None and s2 is None):
+    if (primary_start == candidate_start and primary_end == candidate_end) or (
+        primary_start is None and candidate_start is None
+    ):
         if jaccard >= TITLE_SIMILARITY_THRESHOLD or (
-            tokens1 and tokens2 and len(intersection) / min(len(tokens1), len(tokens2)) >= 0.6
+            primary_tokens
+            and candidate_tokens
+            and len(intersection) / min(len(primary_tokens), len(candidate_tokens)) >= 0.6
         ):
             return True
     elif same_line_range:
         if jaccard >= 0.4 or (
-            tokens1 and tokens2 and len(intersection) / min(len(tokens1), len(tokens2)) >= 0.5
+            primary_tokens
+            and candidate_tokens
+            and len(intersection) / min(len(primary_tokens), len(candidate_tokens)) >= 0.5
         ):
             return True
 
@@ -561,19 +568,23 @@ def _are_findings_duplicate(f1: Finding, f2: Finding) -> bool:
 
 def _merge_two_findings[F: Finding](base: F, other: F) -> F:
     """Merge duplicate finding `other` into `base`, taking highest severity and confidence."""
-    sev1 = base.severity.upper().strip()
-    sev2 = other.severity.upper().strip()
-    best_sev = sev1 if _SEVERITY_RANK.get(sev1, 99) <= _SEVERITY_RANK.get(sev2, 99) else sev2
+    base_sev = base.severity.upper().strip()
+    other_sev = other.severity.upper().strip()
+    best_sev = (
+        base_sev
+        if _SEVERITY_RANK.get(base_sev, 99) <= _SEVERITY_RANK.get(other_sev, 99)
+        else other_sev
+    )
 
-    c1 = base.confidence_score
-    c2 = other.confidence_score
+    base_conf = base.confidence_score
+    other_conf = other.confidence_score
     best_conf: float | None = None
-    if c1 is not None and c2 is not None:
-        best_conf = max(c1, c2)
-    elif c1 is not None:
-        best_conf = c1
+    if base_conf is not None and other_conf is not None:
+        best_conf = max(base_conf, other_conf)
+    elif base_conf is not None:
+        best_conf = base_conf
     else:
-        best_conf = c2
+        best_conf = other_conf
 
     status_order = {"VERIFIED": 0, "UNVERIFIED": 1, "MITIGATED": 2, "INVALIDATED": 3}
     best_status = (

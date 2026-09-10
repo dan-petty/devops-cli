@@ -194,9 +194,9 @@ def register(
     try:
         register_key_on_github(pub_key, key_title, token=token)
     except SSHRegistrationError as exc:
-        from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+        from devops_cli.security.sanitizer import mask_secrets
 
-        masked_err = _mask_secrets_in_content(str(exc))
+        masked_err = mask_secrets(str(exc))
         print_error(MESSAGES.messages.failed_to_register_key.format(error=masked_err), prefix=False)
         print_warning(MESSAGES.messages.gh_auth_refresh_tip, prefix=False)
         raise typer.Exit(1)

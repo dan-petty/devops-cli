@@ -90,7 +90,7 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
     from devops_cli.telemetry import record_metric, trace_span
 
     args_summary = " ".join(args) if args else ""
-    t0 = time.perf_counter()
+    start_time = time.perf_counter()
     with trace_span(
         f"cli.{command_name}",
         attributes={
@@ -109,7 +109,7 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
                 prog_name=f"devops {command_name}",
                 standalone_mode=False,
             )
-            dur = time.perf_counter() - t0
+            dur = time.perf_counter() - start_time
             exit_code = result if isinstance(result, int) else 0
             span_h.set_attribute("cli.exit_code", exit_code)
             span_h.set_attribute("cli.duration_seconds", dur)
@@ -135,7 +135,7 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
             if exit_code != 0:
                 raise typer.Exit(exit_code)
         except SystemExit as exc:  # pragma: no cover - defensive for wrapped click exits
-            dur = time.perf_counter() - t0
+            dur = time.perf_counter() - start_time
             code = exc.code if isinstance(exc.code, int) else 1
             span_h.set_attribute("cli.exit_code", code)
             span_h.set_attribute("cli.duration_seconds", dur)

@@ -153,7 +153,7 @@ async def _execute_check_async(
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 ) -> CheckResult:
     """Execute an individual CI verification step asynchronously and record telemetry."""
-    t0 = time.perf_counter()
+    start_time = time.perf_counter()
     root = _get_project_root()
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
@@ -167,7 +167,7 @@ async def _execute_check_async(
             capture_output=True,
         )
         passed = proc.returncode == 0
-        dur = time.perf_counter() - t0
+        dur = time.perf_counter() - start_time
         _get("record_metric")(
             "ci.step_pass", 1.0 if passed else 0.0, attributes={"step": metric_step}
         )
@@ -402,10 +402,10 @@ def all_checks(
     if dry_run:
         set_dry_run(True)
 
-    t0 = time.perf_counter()
+    start_time = time.perf_counter()
     results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix, docs_fix=fix))
     _print_failures(results)
-    _print_summary(results, total_elapsed=time.perf_counter() - t0)
+    _print_summary(results, total_elapsed=time.perf_counter() - start_time)
 
     if not all(res.passed for res in results):
         raise typer.Exit(1)
@@ -692,9 +692,9 @@ def run(
     """Run full CI and return a single pass/fail status."""
     if dry_run:
         set_dry_run(True)
-    t0 = time.perf_counter()
+    start_time = time.perf_counter()
     results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix, docs_fix=fix))
     _print_failures(results)
-    _print_summary(results, total_elapsed=time.perf_counter() - t0)
+    _print_summary(results, total_elapsed=time.perf_counter() - start_time)
     if not all(res.passed for res in results):
         raise typer.Exit(1)

@@ -42,9 +42,9 @@ def sanitize_diff_output(diff_text: str) -> str:
     sanitized = text
     for pat in _SECRET_PATTERNS:
         sanitized = pat.sub("[REDACTED_SECRET]", sanitized)
-    from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+    from devops_cli.security.sanitizer import mask_secrets
 
-    return _mask_secrets_in_content(sanitized)
+    return mask_secrets(sanitized)
 
 
 _GIT_REF_RE = re.compile(r"^[A-Za-z0-9_\-./]+$")
