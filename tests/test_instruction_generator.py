@@ -101,6 +101,8 @@ def test_generate_agents_md_contains_required_sections() -> None:
     assert "uv run mypy src" in content
     assert "DevContainer Environment" in content
     assert "GitHub Projects, Issues & Views Governance" in content
+    assert "API Rate Limit Honor" in content
+    assert "gh api rate_limit" in content
 
 
 def test_scaffold_agent_instructions(tmp_path: Path) -> None:
