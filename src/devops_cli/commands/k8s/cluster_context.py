@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+import json
+from typing import Annotated, Any
 
 import typer
 
@@ -124,18 +125,62 @@ def apply(
     k8s._run_cmd(cmd, check=True)
 
 
-def logs(
-    pod: Annotated[str, typer.Argument(help=HELP.k8s.pod_name)],
-    container: Annotated[
-        str | None, typer.Option("--container", "-c", help=HELP.options.container)
-    ] = None,
-    namespace: Annotated[
-        str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
-    ] = None,
-    follow: Annotated[bool, typer.Option("--follow", "-f", help=HELP.options.follow)] = False,
-    tail: Annotated[int, typer.Option("--tail", help=HELP.options.tail)] = DEFAULT_K8S_LOGS_TAIL,
+def _is_logql_request(pod: str, query: str | None) -> bool:
+    """Check whether invocation targets LogQL query/stream engine."""
+    return bool(query or pod in ("query", "tail", "stream") or pod.startswith("{"))
+
+
+def _resolve_logql_query(pod: str, query: str | None, extra_arg: str | None) -> str:
+    """Extract LogQL query string from options or positional arguments."""
+    if query:
+        return query
+    if pod not in ("query", "tail", "stream"):
+        return pod
+    return extra_arg or ""
+
+
+def _render_logql_results(result: Any, output_format: str) -> None:
+    """Render LogQL query entries to terminal."""
+    from devops_cli.output import print, print_info
+
+    if output_format == "json":
+        entries_data = [
+            {
+                "timestamp": e.timestamp,
+                "line": e.line,
+                "stream": e.stream_labels,
+                "fields": e.fields,
+                "trace_id": e.trace_id,
+            }
+            for e in result.entries
+        ]
+        print(json.dumps({"source": result.source, "entries": entries_data}, indent=2))
+        return
+
+    if not result.entries:
+        print_info(
+            f"[dim]No log entries matched query (source: {result.source}).[/dim]", prefix=False
+        )
+        return
+
+    for entry in result.entries:
+        trace_badge = (
+            f" [bold cyan][trace:{entry.trace_id[:8]}][/bold cyan]" if entry.trace_id else ""
+        )
+        ns_pod = ""
+        if entry.stream_labels.get("pod"):
+            ns_pod = f"[dim][{entry.stream_labels.get('pod')}][/dim] "
+        print(f"{ns_pod}{entry.line}{trace_badge}")
+
+
+def _execute_legacy_kubectl_logs(
+    pod: str,
+    container: str | None,
+    namespace: str | None,
+    follow: bool,
+    tail: int,
 ) -> None:
-    """Stream pod logs (delegates to kubectl)."""
+    """Execute standard kubectl logs command against a single pod."""
     k8s._validate_k8s_identifier(pod, "pod name")
     if container:
         k8s._validate_k8s_identifier(container, "container name")
@@ -166,3 +211,47 @@ def logs(
         )
     else:
         k8s._run_cmd(cmd, check=True)
+
+
+def logs(
+    pod: Annotated[str, typer.Argument(help=HELP.k8s.pod_name)] = "",
+    query_arg: Annotated[
+        str | None,
+        typer.Argument(help="Optional LogQL query string when using query subcommand"),
+    ] = None,
+    query: Annotated[
+        str | None, typer.Option("--query", "-q", help="LogQL query expression")
+    ] = None,
+    container: Annotated[
+        str | None, typer.Option("--container", "-c", help=HELP.options.container)
+    ] = None,
+    namespace: Annotated[
+        str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = None,
+    follow: Annotated[bool, typer.Option("--follow", "-f", help=HELP.options.follow)] = False,
+    tail: Annotated[int, typer.Option("--tail", help=HELP.options.tail)] = DEFAULT_K8S_LOGS_TAIL,
+    limit: Annotated[int, typer.Option("--limit", help="Max lines for LogQL query")] = 100,
+    since: Annotated[str, typer.Option("--since", help="Time range for LogQL query")] = "1h",
+    loki_url: Annotated[
+        str | None, typer.Option("--loki-url", help="Loki service endpoint")
+    ] = None,
+    format: Annotated[str, typer.Option("--format", help="Output format (text, json)")] = "text",
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Stream pod logs or execute LogQL queries across cluster log streams."""
+    if _is_logql_request(pod, query):
+        from devops_cli.k8s.logql import execute_logql_query
+
+        resolved_query = _resolve_logql_query(pod, query, query_arg)
+        result = execute_logql_query(
+            query=resolved_query,
+            namespace=namespace,
+            loki_url=loki_url,
+            limit=limit,
+            since=since,
+            dry_run=dry_run,
+        )
+        _render_logql_results(result, format)
+        return
+
+    _execute_legacy_kubectl_logs(pod, container, namespace, follow, tail)

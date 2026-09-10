@@ -266,6 +266,61 @@ def k8s_teardown_stack(stack: str = "infra", context: str | None = None) -> str:
 
 
 @mcp.tool()
+def k8s_logs_query(
+    query: str,
+    limit: int = 100,
+    since: str = "1h",
+    namespace: str | None = None,
+) -> str:
+    """Execute LogQL query across Kubernetes and cluster log streams (e.g. {app='web'} |= 'error')."""
+    _validate_mcp_arg("query", query)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "k8s",
+        "logs",
+        query,
+        "--limit",
+        str(limit),
+        "--since",
+        since,
+        "--format",
+        "json",
+    ]
+    if namespace:
+        _validate_mcp_arg("namespace", namespace)
+        cmd.extend(["--namespace", namespace])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def k8s_logs_tail(
+    query: str,
+    lines: int = 50,
+    namespace: str | None = None,
+) -> str:
+    """Tail recent log lines matching LogQL stream selector."""
+    _validate_mcp_arg("query", query)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "k8s",
+        "logs",
+        query,
+        "--limit",
+        str(lines),
+        "--format",
+        "json",
+    ]
+    if namespace:
+        _validate_mcp_arg("namespace", namespace)
+        cmd.extend(["--namespace", namespace])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def argo_list() -> str:
     """List ArgoCD applications."""
     return _run_mcp_cmd(
@@ -861,6 +916,15 @@ def get_gh_views_resource() -> str:
     return _run_mcp_cmd(
         ["uv", "run", "devops", "gh", "views", "audit"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://k8s/logs/recent")
+def get_k8s_logs_recent_resource() -> str:
+    """Provide structured summary of recent cluster logs across active namespaces and error events."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "k8s", "logs", "{}", "--limit", "30", "--format", "json"],
+        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
 
 

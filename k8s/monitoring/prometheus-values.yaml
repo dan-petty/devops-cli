@@ -60,9 +60,25 @@ grafana:
       isDefault: false
       jsonData:
         tracesToLogs:
-          datasourceUid: prometheus
+          datasourceUid: loki
+          tags: ['job', 'instance', 'pod', 'namespace']
+          filterByTrace: true
+          filterBySpan: true
         nodeGraph:
           enabled: true
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.logging.svc.cluster.local:3100
+      isDefault: false
+      jsonData:
+        maxLines: 1000
+        derivedFields:
+          - datasourceUid: Jaeger
+            matcherRegex: "(?:trace_id|traceID|traceId)=(\\w+)"
+            name: TraceID
+            url: "$${__value.raw}"
 
   readinessProbe:
     httpGet:
