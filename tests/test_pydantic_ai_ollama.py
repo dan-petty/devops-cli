@@ -61,6 +61,28 @@ def test_normalize_ollama_base_url() -> None:
     assert normalize_ollama_base_url("  http://127.0.0.1:11434  ") == "http://127.0.0.1:11434/v1"
 
 
+def test_normalize_ollama_base_url_ssrf_and_invalid_schemes() -> None:
+    """Verify normalize_ollama_base_url rejects non-http/https schemes and cloud metadata IP."""
+    import pytest
+
+    from devops_cli.ai.models.ollama import create_ollama_provider, normalize_ollama_base_url
+    from devops_cli.exceptions import InvalidURLError, SSRFBlockedError
+
+    # Invalid schemes
+    with pytest.raises(InvalidURLError, match="Invalid Ollama URL scheme"):
+        normalize_ollama_base_url("ftp://example.com:11434")
+
+    with pytest.raises(InvalidURLError, match="Invalid Ollama URL scheme"):
+        normalize_ollama_base_url("file:///etc/passwd")
+
+    # Cloud metadata IP (SSRF)
+    with pytest.raises(SSRFBlockedError, match="cloud instance metadata service"):
+        normalize_ollama_base_url("http://169.254.169.254/latest/meta-data")
+
+    with pytest.raises(SSRFBlockedError, match="cloud instance metadata service"):
+        create_ollama_provider(base_url="http://169.254.169.254/latest/meta-data")
+
+
 def test_is_ollama_cloud() -> None:
     """Verify is_ollama_cloud accurately identifies cloud endpoints and cloud model suffixes."""
     from devops_cli.ai.models.ollama import is_ollama_cloud

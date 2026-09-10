@@ -682,7 +682,7 @@ devops k8s bootstrap-openwebui [OPTIONS]
 |---|---|---|---|
 | `--email`, `-e` | `string` | `admin@localhost` | Admin email address. |
 | `--name`, `-n` | `string` | `Admin` | Admin display name. |
-| `--password`, `-p` | `string` | `<masked>` | Admin password. |
+| `--password`, `-p` | `string` | - | Admin password. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
 ### `devops k8s deploy-stack`

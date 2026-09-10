@@ -1429,6 +1429,22 @@ def test_tool_output_limits_suite(tmp_path: Path) -> None:
     slice_filter = store.read_slice(handle, pattern="line3")
     assert slice_filter == "line3"
 
+    # Test fallback bounded capacity with simulated disk write failure
+    from unittest.mock import patch
+
+    from devops_cli.ai.harness.compaction import (
+        _MAX_OVERFLOW_FALLBACK_ENTRIES,
+        _OVERFLOW_MEMORY_FALLBACK,
+    )
+
+    with patch.object(Path, "write_bytes", side_effect=OSError("Disk full")):
+        first_h = store.write("first", b"data1")
+        assert first_h in _OVERFLOW_MEMORY_FALLBACK
+        for i in range(_MAX_OVERFLOW_FALLBACK_ENTRIES):
+            store.write(f"batch_{i}", f"payload_{i}".encode())
+        assert first_h not in _OVERFLOW_MEMORY_FALLBACK
+        assert len(_OVERFLOW_MEMORY_FALLBACK) == _MAX_OVERFLOW_FALLBACK_ENTRIES
+
     # 3. Test Serializers
     struct_val = {"key": "value", "count": 42}
     ind_res = indented_json(struct_val)
@@ -1753,9 +1769,13 @@ def test_harness_memory_suite(tmp_path: Path) -> None:
     assert sql_store.read("topics/nonexistent.md").content == ""
     assert sql_store.search("") == []
 
-    s_search = sql_store.search("Replaced")
+    s_search = sql_store.search("Replaced", max_results=1)
     assert len(s_search) == 1
     assert s_search[0].path == "topics/cloud.md"
+
+    # Search with limit respects bounds
+    bounded_search = sql_store.search("topics", max_results=1)
+    assert len(bounded_search) <= 1
 
     assert sql_store.list_paths(prefix="topics") == ["topics/big.md", "topics/cloud.md"]
     assert sql_store.delete("topics/cloud.md") is True

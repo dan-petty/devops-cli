@@ -185,7 +185,6 @@ class CodeMode(BaseCapability):
 
             import datetime
             import re
-            import sys
             import typing
             import unicodedata
 
@@ -195,7 +194,6 @@ class CodeMode(BaseCapability):
                 "re": re,
                 "math": math,
                 "typing": typing,
-                "sys": sys,
                 "unicodedata": unicodedata,
                 "datetime": datetime,
             }
@@ -225,8 +223,6 @@ class CodeMode(BaseCapability):
                 "float": float,
                 "format": format,
                 "frozenset": frozenset,
-                "getattr": getattr,
-                "hasattr": hasattr,
                 "hash": hash,
                 "hex": hex,
                 "id": id,
@@ -254,7 +250,6 @@ class CodeMode(BaseCapability):
                 "str": str,
                 "sum": sum,
                 "tuple": tuple,
-                "type": type,
                 "zip": zip,
                 "Exception": Exception,
                 "ValueError": ValueError,
@@ -275,7 +270,6 @@ class CodeMode(BaseCapability):
                 "re": re,
                 "math": math,
                 "typing": typing,
-                "sys": sys,
                 "unicodedata": unicodedata,
                 "datetime": datetime,
                 "print": _custom_print,

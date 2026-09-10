@@ -24,6 +24,7 @@ from devops_cli.ai.client.streaming import (
     _extract_ollama_stream_tuple,
 )
 from devops_cli.models.ai import ChatMessage
+from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
 from devops_cli.telemetry import inject_trace_context
 
@@ -150,7 +151,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 self._ollama_thinking_supported = False
                 with track_ollama_url(candidate_url, max_parallel=max_par):
                     return self._ollama_request(base, system, messages, think=False)
-            msg_text = exc.response.text[:300].strip() or "(empty)"
+            msg_text = mask_secrets(exc.response.text[:300].strip()) or "(empty)"
             raise AIClientError(
                 f"Ollama returned HTTP {exc.response.status_code}. Response: {msg_text}"
             ) from exc
@@ -307,7 +308,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 with track_ollama_url(candidate_url, max_parallel=max_par):
                     yield from self._ollama_stream_request(base, system, messages, think=False)
                     return
-            body = exc.response.text[:300].strip()
+            body = mask_secrets(exc.response.text[:300].strip())
             msg_text = body or "(empty)"
             raise AIClientError(
                 f"Ollama returned HTTP {exc.response.status_code}. Response: {msg_text}"

@@ -9,6 +9,7 @@ from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel, Field
 
+from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import record_metric, trace_span
 
 ContextT = TypeVar("ContextT")
@@ -115,7 +116,7 @@ class StagePipeline[ContextT, ResultT]:
                 rec.success = True
             except Exception as exc:
                 rec.success = False
-                rec.error_message = str(exc)
+                rec.error_message = mask_secrets(str(exc))
                 stage_span.record_exception(exc)
             finally:
                 rec.duration_seconds = time.perf_counter() - t_start

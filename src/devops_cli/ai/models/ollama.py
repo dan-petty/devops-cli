@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
@@ -26,8 +27,20 @@ from devops_cli.ai.settings import (
     create_model_settings,
     merge_model_settings,
 )
+from devops_cli.exceptions import InvalidURLError, SSRFBlockedError
 
 DEFAULT_OLLAMA_BASE_URL: str = "http://localhost:11434"
+
+
+def _is_cloud_metadata_host(host: str) -> bool:
+    clean = host.strip().lower().strip("[]")
+    if clean in ("169.254.169.254", "fd00:ec2::254", "metadata.google.internal", "metadata"):
+        return True
+    try:
+        ip = ipaddress.ip_address(clean)
+        return ip.is_link_local
+    except ValueError:
+        return False
 
 
 def normalize_ollama_base_url(url: str) -> str:
@@ -42,10 +55,30 @@ def normalize_ollama_base_url(url: str) -> str:
     if not clean_url:
         clean_url = DEFAULT_OLLAMA_BASE_URL
 
-    if not clean_url.startswith(("http://", "https://")):
+    if "://" in clean_url:
+        scheme = clean_url.split("://", 1)[0].lower()
+        if scheme not in ("http", "https"):
+            raise InvalidURLError(
+                clean_url,
+                reason=f"Invalid Ollama URL scheme '{scheme}': must be http or https",
+            )
+    elif not clean_url.startswith(("http://", "https://")):
         clean_url = f"http://{clean_url}"
 
     parsed = urlsplit(clean_url)
+    if parsed.scheme not in ("http", "https"):
+        raise InvalidURLError(
+            clean_url,
+            reason=f"Invalid Ollama URL scheme '{parsed.scheme}': must be http or https",
+        )
+
+    host = (parsed.hostname or "").lower()
+    if _is_cloud_metadata_host(host):
+        raise SSRFBlockedError(
+            clean_url,
+            reason="Access to cloud instance metadata service is forbidden",
+        )
+
     raw_path = parsed.path.rstrip("/")
     if raw_path.endswith("/v1"):
         normalized_path = raw_path

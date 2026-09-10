@@ -119,6 +119,11 @@ devops ai review export-feedback --status ALL --output .data/reviews/feedback_da
 4. **Use Response Repair**: The review pipeline automatically normalizes LLM outputs using `repair_json_string` and `fix_llm_response` to ensure valid structured schemas.
 5. **Context-Aware Documentation & Avoidance Context**: Never flag documentation, architectural guides, security tutorials, or prompt tasks that explain known vulnerabilities or insecure configurations in the context of avoiding, preventing, or mitigating them.
 6. **Ground-Truth Symbol & Export Verification**: Review personas and verification engines must inspect actual source module ASTs or exports before asserting that imported variables, constants, or classes are missing or cause `ImportError`. False-alarm missing symbol claims must be registered in the hallucination catalog and invalidated.
+7. **Closed-Loop Finding Remediation Workflow**: When remediating reported review findings:
+   - **Step 1 (Test-First Specification)**: Author unit/regression tests asserting the defect and desired behavior before modifying source files.
+   - **Step 2 (Clean Implementation & Architectural Invariants)**: Implement fixes adhering strictly to cyclomatic complexity $\le 10$ and maximum nesting depth $\le 5$ project-wide. Ruthlessly prune zombie code.
+   - **Step 3 (Status Verification & Invalidation Calibration)**: Update finding records in `.data/reviews/<session>/findings.json` to `MITIGATED` or `INVALIDATED` with explicit rationale via `devops ai review verify`.
+   - **Step 4 (Feedback Dataset Continuous Grounding)**: Run `devops ai review export-feedback` to append the curated verdicts to `.data/reviews/feedback_dataset.jsonl`, completing the self-improvement feedback loop for multi-agent reasoning and prompt evaluation.
 
 ---
 

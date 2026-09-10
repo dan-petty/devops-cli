@@ -605,3 +605,18 @@ class TestValkeyCliCommands:
         assert res.exit_code == 0
         assert "item1" in res.output
         assert "item2" in res.output
+
+    @patch("devops_cli.commands.valkey._resolve_client")
+    def test_cli_error_masks_credentials(self, mock_resolve: MagicMock) -> None:
+        mock_client = MagicMock()
+        from devops_cli.exceptions.valkey import ValkeyError
+
+        mock_client.ping.side_effect = ValkeyError(
+            "Connection failed with token=ghp_secretvalkey12345678901234567890123456"
+        )
+        mock_resolve.return_value = mock_client
+
+        res = runner.invoke(app, ["ping"])
+        assert res.exit_code != 0
+        assert "ghp_secretvalkey" not in res.output
+        assert "<masked-github-token>" in res.output

@@ -226,13 +226,20 @@ def _bootstrap_openwebui_account(
 def bootstrap_openwebui(
     email: Annotated[str, typer.Option("--email", "-e", help=HELP.k8s.email)] = "admin@localhost",
     name: Annotated[str, typer.Option("--name", "-n", help=HELP.k8s.admin_name)] = "Admin",
-    password: Annotated[str, typer.Option("--password", "-p", help=HELP.k8s.password)] = "admin123",
+    password: Annotated[
+        str | None,
+        typer.Option("--password", "-p", help=HELP.k8s.password),
+    ] = None,
     context: Annotated[
         str | None,
         typer.Option("--context", "-c", help=HELP.options.context),
     ] = None,
 ) -> None:
     """Bootstrap or activate a local administrator account for Open-WebUI."""
+    creds = _get_openwebui_bootstrap_credentials()
+    effective_password = password or creds["password"]
+    was_generated = password is None and "OPENWEBUI_ADMIN_PASSWORD" not in os.environ
+
     if is_dry_run():
         render_dry_run_result(
             command="devops k8s bootstrap-openwebui",
@@ -244,10 +251,14 @@ def bootstrap_openwebui(
 
     print_info(f"Bootstrapping Open-WebUI local admin account ({email})...")
     ok = k8s._bootstrap_openwebui_account(
-        context=context, email=email, name=name, password=password
+        context=context, email=email, name=name, password=effective_password
     )
     if ok:
         print_success(f"Open-WebUI admin account ready: [bold]{email}[/bold]")
+        if was_generated:
+            print_success(
+                f"Generated secure Open-WebUI admin password: [bold]{effective_password}[/bold]"
+            )
     else:
         print_error(
             "Failed to bootstrap Open-WebUI account. Ensure the open-webui pod is running in namespace 'llm'."

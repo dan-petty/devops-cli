@@ -10,6 +10,7 @@ import tempfile
 import time
 import uuid
 import warnings
+from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
 from datetime import timedelta
 from enum import StrEnum
@@ -90,7 +91,8 @@ class OverflowStore(Protocol):
     def read(self, handle: str) -> bytes: ...
 
 
-_OVERFLOW_MEMORY_FALLBACK: dict[str, bytes] = {}
+_MAX_OVERFLOW_FALLBACK_ENTRIES = 128
+_OVERFLOW_MEMORY_FALLBACK: OrderedDict[str, bytes] = OrderedDict()
 
 
 class LocalFileStore(BaseModel):
@@ -139,6 +141,8 @@ class LocalFileStore(BaseModel):
             target.write_bytes(data)
             return handle
         except Exception:
+            if len(_OVERFLOW_MEMORY_FALLBACK) >= _MAX_OVERFLOW_FALLBACK_ENTRIES:
+                _OVERFLOW_MEMORY_FALLBACK.popitem(last=False)
             _OVERFLOW_MEMORY_FALLBACK[handle] = data
             return handle
 

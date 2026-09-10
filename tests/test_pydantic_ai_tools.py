@@ -257,3 +257,17 @@ class TestPydanticAIToolsSubsystem:
             assert hasattr(target, "matches_tool_selector")
             assert hasattr(target, "create_tool")
             assert hasattr(target, "is_native_tool")
+
+    def test_validate_args_unconditional_path_traversal(self) -> None:
+        """Verify validate_args rejects path traversal even when parameters schema is empty."""
+
+        def dummy_action(**kwargs: Any) -> str:
+            return "done"
+
+        tool = Tool(dummy_action, parameters={})
+        with pytest.raises(ValueError, match="Path traversal"):
+            tool.validate_args({"filepath": "../etc/passwd"})
+
+        # Normal valid args pass cleanly
+        clean = tool.validate_args({"normal_arg": "safe_value"})
+        assert clean == {"normal_arg": "safe_value"}

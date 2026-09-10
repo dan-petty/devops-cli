@@ -958,7 +958,19 @@
 ---
 
 ### In-Progress Tasks (WIP)
-- None. Ready for next milestone backlog execution.
+- [x] Phase 50.12: Remediate Review Findings (Session 20260909-122649) & Strengthen Self-Improvement Review Loop (Closes #87)
+  - [x] 1. Sandbox Escape via `getattr`, `hasattr`, `type` in safe_builtins (`src/devops_cli/ai/harness/os_access.py`)
+  - [x] 2. Hardcoded default password for Open-WebUI admin account (`src/devops_cli/commands/k8s/stack_lifecycle.py`)
+  - [x] 3. Information leakage in SSH rotation error message (`src/devops_cli/commands/ssh.py`)
+  - [x] 4. Unbounded SQLite search causes DoS via resource exhaustion (`src/devops_cli/ai/harness/memory.py`)
+  - [x] 5. Path traversal validation bypassed when parameters schema is empty (`src/devops_cli/ai/tools/__init__.py`)
+  - [x] 6. Memory leak in _OVERFLOW_MEMORY_FALLBACK (`src/devops_cli/ai/harness/compaction.py`)
+  - [x] 7. Information Leakage via Raw Exception Details in `error_message` (`src/devops_cli/ai/pipeline_protocol.py`)
+  - [x] 8. SSRF Risk via Unvalidated `base_url` in `create_ollama_provider` (`src/devops_cli/ai/models/ollama.py`)
+  - [x] 9. Information Leakage in Error Messages (`src/devops_cli/ai/client/ollama.py`)
+  - [x] 10. Information Leakage in Streaming Error Messages (`src/devops_cli/ai/client/ollama.py`)
+  - [x] 11. Information leakage in Valkey error messages (`src/devops_cli/commands/valkey.py`)
+  - [x] 12. Update docs and prompts to improve feedback, review, and self-improvement loop
 
 ---
 

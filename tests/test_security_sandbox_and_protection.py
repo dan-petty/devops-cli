@@ -70,6 +70,22 @@ math.sqrt(16)
     res_safe = asyncio.run(run_fn(code=safe_script))
     assert res_safe == 4.0 or res_safe == {"result": 4.0} or "4.0" in str(res_safe)
 
+    # Dangerous reflection builtins (getattr, hasattr, type) and sys import must be blocked
+    for dangerous_snippet in [
+        "getattr(math, 'sqrt')(16)",
+        "hasattr(math, 'sqrt')",
+        "type(123)",
+        "import sys",
+    ]:
+        res_dang = asyncio.run(run_fn(code=dangerous_snippet))
+        assert (
+            "NameError" in str(res_dang)
+            or "ImportError" in str(res_dang)
+            or "RuntimeError" in str(res_dang)
+            or "not permitted" in str(res_dang)
+            or "is not defined" in str(res_dang)
+        )
+
 
 # 3. Path traversal prevention in evaluate_persona_prompts (Finding 3)
 def test_prompt_eval_rejects_path_traversal_and_symlinks(tmp_path: Path) -> None:
