@@ -105,17 +105,25 @@ def request_pages_build(repo: str) -> bool:
     return res.returncode == 0
 
 
+def _resolve_jekyll_config_path(root_dir: Path) -> Path:
+    """Resolve Jekyll configuration path, preferring _config.yaml over _config.yml."""
+    yaml_path = root_dir / "_config.yaml"
+    if yaml_path.is_file():
+        return yaml_path
+    return root_dir / "_config.yml"
+
+
 def _check_jekyll_config(config_path: Path) -> tuple[bool, list[str]]:
     """Validate required Jekyll keys and configuration properties."""
     diagnostics: list[str] = []
     if not config_path.is_file():
-        diagnostics.append("Missing _config.yml in root directory.")
+        diagnostics.append("Missing _config.yaml or _config.yml in root directory.")
         return False, diagnostics
 
     try:
         data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     except Exception as exc:
-        diagnostics.append(f"Invalid YAML syntax in _config.yml: {exc}")
+        diagnostics.append(f"Invalid YAML syntax in {config_path.name}: {exc}")
         return False, diagnostics
 
     required_keys = ["title", "url", "baseurl", "markdown"]
@@ -149,7 +157,8 @@ def _check_docs_directory(docs_dir: Path) -> tuple[bool, list[str]]:
 def verify_pages_configuration(root_dir: Path = Path(".")) -> tuple[bool, list[str]]:
     """Verify local repository readiness for GitHub Pages publishing."""
     resolved = root_dir.resolve()
-    config_ok, config_diags = _check_jekyll_config(resolved / "_config.yml")
+    config_path = _resolve_jekyll_config_path(resolved)
+    config_ok, config_diags = _check_jekyll_config(config_path)
     docs_ok, docs_diags = _check_docs_directory(resolved / "docs")
 
     all_ok = config_ok and docs_ok

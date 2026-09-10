@@ -54,7 +54,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Observability & Diagnostics** | Command Output, Logs, Metrics & Trace Audit | Continuous / On Execution | `devops telemetry status` / `devops telemetry logfire-status` | Comprehensive review of command outputs, application logs (`.data/logs/`), metrics, and tracing spans for latency, misconfigurations, and warnings | Nominal latencies, zero unhandled errors/warnings |
 | **Workspace & Sync** | DevContainer Lifecycle Hooks | Daily / On Start | `devops devcontainer run-lifecycle --post-start` | Cross-platform container initialization tasks | All lifecycle tasks complete successfully |
 | **Workspace & Sync** | Multi-Repo Synchronization | Daily / On Demand | `devops repos sync` / `devops repos status` | Pulls upstream changes across all managed repos | All repositories up to date |
-| **Workspace & Sync** | GitHub Pages Publishing & Readiness Audit | Pre-PR / Pre-Release | `devops gh pages status` / `devops gh pages verify` | Inspects live publishing health, HTTPS enforcement, and validates local Jekyll `_config.yml` / `docs/` | Clean verification; HTTPS strictly enforced |
+| **Workspace & Sync** | GitHub Pages Publishing & Readiness Audit | Pre-PR / Pre-Release | `devops gh pages status` / `devops gh pages verify` | Inspects live publishing health, HTTPS enforcement, and validates local Jekyll `_config.yaml` / `docs/` | Clean verification; HTTPS strictly enforced |
 | **Workspace & Sync** | GitHub Issues Lifecycle & Triage Audit | Daily / Pre-PR | `devops gh issues triage` / `devops gh issues status` | Audits open issues for mandatory taxonomy labels (`type/*`, `scope/*`, `priority/*`) and milestone linkage | Zero untriaged or unmilestoned open issues |
 | **Workspace & Sync** | GitHub Projects & Issues Views Sync & Audit | On Demand / Pre-PR | `devops gh project sync` / `devops gh project audit` / `devops gh views audit` | Reconciles and audits 4 declarative project views, boards, and links projects/views | All projects and views populated with zero drift or empty state (`projects` & `issues/views`) |
 | **Workspace & Sync** | SSH Keys & Host Audit | On Demand | `devops ssh status` / `devops ssh audit` | Validates ED25519 keys, permissions, and GitHub keys | All keys secure with correct 0600/0700 perms |
@@ -145,7 +145,7 @@ Executed at the final stage of work after all iterative feature modifications an
    - Review execution durations, OpenTelemetry spans, metric gauges, and application log output generated during test runs and CLI executions.
    - Verify absence of performance bottlenecks, resource leaks, configuration warnings, or suppressed exceptions.
 4. **Validate GitHub Governance, Pages Readiness & Issues Triage**:
-   - Verify local Jekyll `_config.yml` syntax and `docs/` publishing root existence via `devops gh pages verify`.
+   - Verify local Jekyll `_config.yaml` syntax and `docs/` publishing root existence via `devops gh pages verify`.
    - Audit open issues for mandatory taxonomy labels (`type/*`, `scope/*`, `priority/*`) and milestone linkage via `devops gh issues triage`.
    - Inspect issue portfolio distribution via `devops gh issues status`.
    - Validate remote project views template compliance via `devops gh views audit`.
@@ -329,7 +329,7 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
 #### 4. GitHub Governance, Pages, Issues & Views Auditing
 - **Frequency**: Pre-PR, Pre-Release, or On-Demand.
 - **Methodology**:
-  - Validates GitHub Pages deployment health and verifies local publishing assets (`_config.yml` and `docs/`).
+  - Validates GitHub Pages deployment health and verifies local publishing assets (`_config.yaml` and `docs/`).
   - Audits live open issues for missing taxonomy labels (`type/*`, `scope/*`, `priority/*`) and milestone links.
   - Audits remote GitHub Projects v2 boards and views against `.github/project-template.json` to prevent configuration drift.
 - **Commands**:

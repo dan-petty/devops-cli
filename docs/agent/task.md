@@ -938,6 +938,7 @@
   - [x] 5. Regenerated introspected CLI documentation and synchronized `README.md`.
   - [x] 6. Executed comprehensive 10-gate CI quality suite (`uv run devops ci`).
   - [x] 7. Prepared GitHub Release Pull Request targeting `main`.
+  - [x] 8. Aligned Jekyll configuration file naming from `_config.yml` to `_config.yaml` conforming to project-wide `.yaml` standard.
 
 ---
 

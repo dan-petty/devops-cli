@@ -3,7 +3,7 @@
 ## 1. Overview & Purpose
 
 GitHub project governance in `devops-cli` standardizes repository metadata across six foundational pillars:
-1. **GitHub Pages Publishing**: Inspection of deployment health, custom domain status, HTTPS enforcement, build history, manual build dispatching, and local Jekyll `_config.yml` / `docs/` readiness verification.
+1. **GitHub Pages Publishing**: Inspection of deployment health, custom domain status, HTTPS enforcement, build history, manual build dispatching, and local Jekyll `_config.yaml` / `docs/` readiness verification.
 2. **GitHub Issues Lifecycle & Triage**: Issue creation, taxonomy label enforcement (`type/*`, `scope/*`, `priority/*`), milestone linkage, and proactive triage auditing to guarantee zero unclassified or unmilestoned open issues.
 3. **GitHub Projects v2 Lifecycle**: Board creation, multi-board listing, card lifecycle reconciliation against `docs/agent/task.md`, and automated drift auditing against standardized template schemas.
 4. **Standardized Projects v2 Views**: Continuous auditing and synchronization of the 4 canonical views (`Sprint Kanban`, `Roadmap Timeline`, `Triage & Quality Table`, and `Value vs Effort Priority Matrix`) ensuring full alignment across `https://github.com/dan-petty/devops-cli/projects` and `https://github.com/dan-petty/devops-cli/issues/views`.
@@ -19,7 +19,7 @@ graph TD
     A[Declarative Schemas<br/>.github/labels.yml & project-template.json] -->|devops gh labels sync| B[Remote GitHub Labels]
     C[docs/ROADMAP.md Headings] -->|devops gh milestones sync| D[Remote GitHub Milestones]
     E[docs/agent/task.md Lifecycles] -->|devops gh project sync| F[GitHub Projects v2 Items]
-    G[docs/ & _config.yml] -->|devops gh pages verify| H[GitHub Pages Deployment]
+    G[docs/ & _config.yaml] -->|devops gh pages verify| H[GitHub Pages Deployment]
     I[Open Issues Queue] -->|devops gh issues triage| J[Triage Audit & Taxonomies]
     B --> K[devops gh labels audit]
     D --> L[devops gh milestones list]
@@ -54,7 +54,7 @@ devops gh pages builds --limit 10
 # Request a new GitHub Pages deployment build
 devops gh pages build
 
-# Verify local repository readiness (validates Jekyll _config.yml and docs/ directory)
+# Verify local repository readiness (validates Jekyll _config.yaml and docs/ directory)
 devops gh pages verify
 ```
 
@@ -129,7 +129,7 @@ devops gh milestones close v0.2.14
 ## 4. Best Practice Guidance
 
 1. **GitHub Pages Deployment Readiness**:
-   - Before requesting builds or pushing documentation releases, run `devops gh pages verify` to validate local Jekyll configuration files (`_config.yml` syntax, title, markdown engine) and confirm the `docs/` publishing root exists.
+   - Before requesting builds or pushing documentation releases, run `devops gh pages verify` to validate local Jekyll configuration files (`_config.yaml` syntax, title, markdown engine) and confirm the `docs/` publishing root exists.
    - Verify that HTTPS is strictly enforced (`enforce_https: true`) and custom domains have valid SSL certificates via `devops gh pages status`.
 2. **Issue Triage & Zero-Untracked Defect Policy**:
    - Every open issue must have at least one `type/*` label, at least one `scope/*` label, and an assigned `priority/*` label (`priority/p0-critical` through `priority/p3-low`).
