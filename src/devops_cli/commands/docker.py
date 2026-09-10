@@ -40,8 +40,9 @@ app = new_typer(help=HELP.docker.app, no_args_is_help=True)
 
 def _client() -> Any:
     try:
-        import docker  # type: ignore[import-untyped]
         from docker.errors import DockerException  # type: ignore[import-untyped]
+
+        import docker  # type: ignore[import-untyped]
 
         docker_host = os.environ.get("DOCKER_HOST", "").strip()
         if docker_host.startswith(("tcp://", "http://", "https://")):
