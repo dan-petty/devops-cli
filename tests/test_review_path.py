@@ -12,8 +12,21 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.personas import PERSONAS, Persona
-from devops_cli.commands import review
-from devops_cli.commands.review import ReviewClients
+from devops_cli.ai.review.chunker import (
+    _paginate_file_diff_block,
+    _split_diff_into_file_blocks,
+    _split_source_file_blocks,
+    diff_pages,
+)
+from devops_cli.ai.review.runner import (
+    ReviewClients,
+    _collect_files,
+    _load_agents_md,
+    _persona_system_prompt,
+    _run_review,
+)
+from devops_cli.ai.review.sanitization import _build_prompt
+from devops_cli.ai.review_schema import ReviewResult
 from devops_cli.config.defaults import (
     DEFAULT_REVIEW_MAX_DIFF_CHARS,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
@@ -39,7 +52,7 @@ def test_load_agents_md_reads_repo_root_file(tmp_path: Path) -> None:
     nested = tmp_path / "src" / "pkg"
     nested.mkdir(parents=True)
 
-    agents_md = review._load_agents_md(nested)
+    agents_md = _load_agents_md(nested)
 
     assert "Use latest Python." in agents_md
 
@@ -47,13 +60,13 @@ def test_load_agents_md_reads_repo_root_file(tmp_path: Path) -> None:
 def test_load_agents_md_returns_empty_when_missing(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
 
-    assert review._load_agents_md(tmp_path) == ""
+    assert _load_agents_md(tmp_path) == ""
 
 
 def test_persona_system_prompt_includes_agents_md_when_present() -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
 
-    prompt = review._persona_system_prompt(persona, "Use latest Python by policy.")
+    prompt = _persona_system_prompt(persona, "Use latest Python by policy.")
 
     assert persona.system_prompt in prompt
     assert "Use latest Python by policy." in prompt
@@ -62,7 +75,7 @@ def test_persona_system_prompt_includes_agents_md_when_present() -> None:
 
 def test_persona_system_prompt_unchanged_when_no_agents_md() -> None:
     persona = PERSONAS[Persona.DEVSECOPS]
-    prompt = review._persona_system_prompt(persona, "")
+    prompt = _persona_system_prompt(persona, "")
 
     assert prompt.startswith(persona.system_prompt)
     assert "Security & Prompt Isolation Guardrails" in prompt
@@ -78,7 +91,7 @@ def test_collect_files_skips_gitignored_entries(tmp_path: Path) -> None:
     subprocess.run(["git", "add", ".gitignore", "kept.py"], cwd=tmp_path, check=True)
     subprocess.run(["git", "add", "-f", "ignored.txt"], cwd=tmp_path, check=True)
 
-    content = review._collect_files(tmp_path, "*")
+    content = _collect_files(tmp_path, "*")
 
     assert "kept.py" in content
     assert "### ignored.txt" not in content
@@ -86,7 +99,7 @@ def test_collect_files_skips_gitignored_entries(tmp_path: Path) -> None:
 
 def test_review_prompt_contains_full_diff_without_truncation() -> None:
     big_diff = "x" * (DEFAULT_REVIEW_MAX_DIFF_CHARS + 1)
-    prompt = review._build_prompt(big_diff, "review title")
+    prompt = _build_prompt(big_diff, "review title")
 
     assert "review title" in prompt
     assert big_diff in prompt
@@ -95,7 +108,7 @@ def test_review_prompt_contains_full_diff_without_truncation() -> None:
 def test_diff_pages_keeps_small_files_on_separate_pages() -> None:
     diff = "diff --git a/one.py b/one.py\n+line one\ndiff --git a/two.py b/two.py\n+line two\n"
 
-    pages = review._diff_pages(diff, max_chars=1000)
+    pages = diff_pages(diff, max_chars=1000)
 
     assert len(pages) == 2
     assert "one.py" in pages[0]
@@ -107,7 +120,7 @@ def test_paginate_file_diff_block_splits_across_windows_without_dropping_content
     body = "".join(f"+line-{i:02d}\n" for i in range(20))
     block = preamble + body
 
-    windows = review._paginate_file_diff_block(block, max_chars=100)
+    windows = _paginate_file_diff_block(block, max_chars=100)
 
     assert len(windows) > 1
     combined = "".join(windows)
@@ -119,7 +132,7 @@ def test_paginate_file_diff_block_splits_across_windows_without_dropping_content
 def test_paginate_file_diff_block_hard_splits_an_oversized_single_block() -> None:
     huge_block = "diff --git a/huge.py b/huge.py\n" + "".join(f"+line-{i}\n" for i in range(60))
 
-    pages = review._paginate_file_diff_block(huge_block, max_chars=100)
+    pages = _paginate_file_diff_block(huge_block, max_chars=100)
 
     assert len(pages) > 1
     assert "huge.py" in pages[0]
@@ -128,7 +141,7 @@ def test_paginate_file_diff_block_hard_splits_an_oversized_single_block() -> Non
 def test_split_diff_into_file_blocks_separates_per_file() -> None:
     diff = "diff --git a/one.py b/one.py\n+one\ndiff --git a/two.py b/two.py\n+two\n"
 
-    blocks = review._split_diff_into_file_blocks(diff)
+    blocks = _split_diff_into_file_blocks(diff)
 
     assert len(blocks) == 2
     assert blocks[0].startswith("diff --git a/one.py")
@@ -141,7 +154,7 @@ def test_diff_pages_covers_every_file_when_paginated() -> None:
         " b/two.py\n" + ("+" + "b" * 80 + "\n") * 3
     )
 
-    pages = review._diff_pages(diff, max_chars=200)
+    pages = diff_pages(diff, max_chars=200)
 
     assert len(pages) > 1
     combined = "".join(pages)
@@ -160,7 +173,7 @@ def test_diff_pages_preserves_file_context_for_oversized_single_file() -> None:
         "@@ -0,0 +1,200 @@\n" + "".join(f"+line {i}\n" for i in range(200))
     )
 
-    pages = review._diff_pages(diff, max_chars=200)
+    pages = diff_pages(diff, max_chars=200)
 
     assert len(pages) > 1
     assert all("diff --git a/one.py b/one.py" in page for page in pages)
@@ -169,7 +182,7 @@ def test_diff_pages_preserves_file_context_for_oversized_single_file() -> None:
 
 def test_collect_file_blocks_splits_large_file_with_part_headers(tmp_path: Path) -> None:
     text = "".join(f"print({i})\n" for i in range(120))
-    blocks = review._split_source_file_blocks(Path("big.py"), "py", text, max_chars=300)
+    blocks = _split_source_file_blocks(Path("big.py"), "py", text, max_chars=300)
 
     assert len(blocks) > 1
     assert all("### File: big.py (part " in block for block in blocks)
@@ -181,7 +194,7 @@ def test_paginate_file_diff_block_rolling_window_overlap() -> None:
     lines = [f"+line {i:03d}\n" for i in range(100)]
     block = preamble + "".join(lines)
 
-    windows = review._paginate_file_diff_block(
+    windows = _paginate_file_diff_block(
         block, max_chars=500, window_size_factor=0.8, overlap_factor=0.1
     )
 
@@ -213,7 +226,7 @@ def test_run_review_three_steps_combines_segments() -> None:
                 '"summary":"segment review"}'
             )
 
-    result = review._run_review(
+    result = _run_review(
         ["page-one", "page-two"],
         "title",
         persona,
@@ -248,7 +261,7 @@ def test_run_review_never_sends_empty_user_prompt() -> None:
                 '"summary":"ok"}'
             )
 
-    review._run_review(
+    _run_review(
         ["content-1", "content-2"],
         "title",
         persona,
@@ -290,7 +303,7 @@ def test_run_review_metadata_includes_filenames() -> None:
         "diff --git a/src/a.py b/src/a.py\n@@ -1,1 +1,2 @@\n+x\n",
         "diff --git a/src/b.py b/src/b.py\n@@ -1,1 +1,2 @@\n+y\n",
     ]
-    result = review._run_review(
+    result = _run_review(
         pages,
         "title",
         persona,
@@ -326,7 +339,7 @@ def test_run_review_dry_run_skips_client_calls(
 
     monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
 
-    result = review._run_review(
+    result = _run_review(
         ["page-one", "page-two"],
         "title",
         persona,
@@ -363,7 +376,7 @@ def test_run_review_single_segment_skips_recompose() -> None:
                 '"summary":"single segment review"}'
             )
 
-    result = review._run_review(
+    result = _run_review(
         ["only-page"],
         "title",
         persona,
@@ -374,7 +387,7 @@ def test_run_review_single_segment_skips_recompose() -> None:
 
     # 1 review (step 2); step 1 uses fast static metadata extraction and step 3 (recompose) skipped
     assert len(calls) == 1
-    assert isinstance(result, review.ReviewResult)
+    assert isinstance(result, ReviewResult)
     assert result.summary == "single segment review"
 
 
@@ -434,8 +447,8 @@ def test_review_path_append_cache_flag(tmp_path: Path, monkeypatch: pytest.Monke
     monkeypatch.setattr(
         "devops_cli.ai.review.runner._is_allowed_review_boundary", lambda *a, **kw: True
     )
-    monkeypatch.setattr("devops_cli.ai.review.runner._make_review_clients", mock_make_clients)
-    monkeypatch.setattr("devops_cli.ai.review.runner._execute_review_workflow", lambda *a, **kw: [])
+    monkeypatch.setattr("devops_cli.commands.review._make_review_clients", mock_make_clients)
+    monkeypatch.setattr("devops_cli.commands.review._execute_review_workflow", lambda *a, **kw: [])
 
     res = runner.invoke(
         review_app,

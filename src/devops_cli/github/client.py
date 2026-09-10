@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import urllib.parse
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
@@ -9,8 +10,9 @@ from typing import TYPE_CHECKING, Any
 import httpx2
 from pydantic import BaseModel
 
-from devops_cli.config.constants import CONST_URL_GITHUB_API_BASE
+from devops_cli.config.constants import CONST_GH_CLI, CONST_URL_GITHUB_API_BASE
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
+from devops_cli.core.process import run_subprocess
 from devops_cli.models.ssh import SSHKeyInfo
 
 if TYPE_CHECKING:
@@ -302,3 +304,108 @@ class GitHubClient:
 
         builds = get_pages_builds(repo, limit=limit)
         return [b.model_dump() for b in builds]
+
+
+class GhCliClient:
+    """GitHub client backed by the gh CLI tool for local operations without raw PATs."""
+
+    def __init__(self, default_repo: str | None = None) -> None:
+        self.default_repo = default_repo
+
+    def get_labels(self, repo: str) -> list[dict[str, Any]]:
+        target_repo = repo or self.default_repo or ""
+        cmd = [CONST_GH_CLI, "label", "list", "--json", "name,color,description"]
+        if target_repo:
+            cmd.extend(["--repo", target_repo])
+        res = run_subprocess(cmd, check=False, quiet=True)
+        if res.returncode == 0 and res.stdout.strip():
+            try:
+                return json.loads(res.stdout)  # type: ignore[no-any-return]
+            except json.JSONDecodeError:
+                pass
+        return []
+
+    def create_label(self, repo: str, name: str, color: str, description: str = "") -> None:
+        target_repo = repo or self.default_repo or ""
+        cmd = [
+            CONST_GH_CLI,
+            "label",
+            "create",
+            name,
+            "--color",
+            color.lstrip("#"),
+            "--description",
+            description,
+        ]
+        if target_repo:
+            cmd.extend(["--repo", target_repo])
+        run_subprocess(cmd, check=False)
+
+    def edit_label(self, repo: str, name: str, color: str, description: str = "") -> None:
+        target_repo = repo or self.default_repo or ""
+        cmd = [
+            CONST_GH_CLI,
+            "label",
+            "edit",
+            name,
+            "--color",
+            color.lstrip("#"),
+            "--description",
+            description,
+        ]
+        if target_repo:
+            cmd.extend(["--repo", target_repo])
+        run_subprocess(cmd, check=False)
+
+    def get_milestones(self, repo: str, state: str = "all") -> list[dict[str, Any]]:
+        target_repo = repo or self.default_repo or ""
+        cmd = [
+            CONST_GH_CLI,
+            "api",
+            "--paginate",
+            f"repos/{target_repo}/milestones?state={state}&per_page=100",
+        ]
+        res = run_subprocess(cmd, check=False, quiet=True)
+        if res.returncode == 0 and res.stdout.strip():
+            try:
+                raw = json.loads(res.stdout)
+                return [
+                    {
+                        "title": m.get("title", ""),
+                        "number": m.get("number", 0),
+                        "state": m.get("state", "open"),
+                        "description": m.get("description", ""),
+                        "open_issues": m.get("open_issues", 0),
+                        "closed_issues": m.get("closed_issues", 0),
+                        "due_on": m.get("due_on"),
+                    }
+                    for m in raw
+                    if isinstance(m, dict)
+                ]
+            except json.JSONDecodeError:
+                pass
+        return []
+
+    def create_milestone(
+        self,
+        repo: str,
+        title: str,
+        description: str = "",
+        state: str = "open",
+        due_on: Any = None,
+    ) -> None:
+        target_repo = repo or self.default_repo or ""
+        cmd = [
+            CONST_GH_CLI,
+            "api",
+            f"repos/{target_repo}/milestones",
+            "-f",
+            f"title={title}",
+            "-f",
+            f"description={description}",
+            "-f",
+            f"state={state}",
+        ]
+        if due_on:
+            cmd.extend(["-f", f"due_on={due_on}"])
+        run_subprocess(cmd, check=False)

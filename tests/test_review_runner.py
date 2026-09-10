@@ -19,7 +19,6 @@ from devops_cli.ai.review.runner import (
     _get_reviews_base_dir,
     _git_repo_root,
     _is_allowed_review_boundary,
-    _is_git_ignored,
     _load_agents_md,
     _make_review_clients,
     _personas_to_run,
@@ -101,18 +100,20 @@ def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
     repo_dir.mkdir()
     (repo_dir / ".git").mkdir()
     (repo_dir / "src").mkdir()
-    f1 = repo_dir / "src" / "app.py"
-    f1.write_text("print('hello')\n")
+    sample_file = repo_dir / "src" / "app.py"
+    sample_file.write_text("print('hello')\n")
     (repo_dir / "AGENTS.md").write_text("# Agents Guidelines\n")
 
-    assert _git_repo_root(f1) == repo_dir
-    assert _is_allowed_review_boundary(f1, st) is True
+    assert _git_repo_root(sample_file) == repo_dir
+    assert _is_allowed_review_boundary(sample_file, st) is True
 
     agents_content = _load_agents_md(repo_dir)
     assert "Agents Guidelines" in agents_content
 
-    with patch("devops_cli.ai.review.runner.is_ignored_by_git", return_value=False):
-        assert _is_git_ignored(f1, repo_dir) is False
+    with patch("devops_cli.core.repo.is_ignored_by_git", return_value=False):
+        from devops_cli.core.repo import is_ignored_by_git
+
+        assert is_ignored_by_git(repo_dir, sample_file) is False
 
     files = _collect_files(repo_dir / "src", "*.py")
     assert len(files) >= 1

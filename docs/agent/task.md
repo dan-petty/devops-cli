@@ -972,6 +972,16 @@
   - [x] 11. Information leakage in Valkey error messages (`src/devops_cli/commands/valkey.py`)
   - [x] 12. Update docs and prompts to improve feedback, review, and self-improvement loop
 
+- [x] Phase 50.13: Eliminate Obsolete Shims, Aliases, Proxy Wrappers, and Backwards Compatibility Remnants (Closes #94)
+  - [x] 1. Stripped unicode icons and emojis from `README.md` bullets and documentation.
+  - [x] 2. Removed numeric counts, timestamps, and arbitrary phase labels from test names, variable names, and roadmap documents.
+  - [x] 3. Cleaned legacy `__getattr__` dynamic proxies and 15 wrapper functions from `devops_cli.commands.review`.
+  - [x] 4. Replaced private re-exports `_mask_secrets_in_content` and `_sanitize_prompt_boundary_tags` with canonical `mask_secrets` and `sanitize_prompt_boundary_tags` from `devops_cli.security.sanitizer`.
+  - [x] 5. Cleaned GitHub client wrappers (`_GhCliLabelShim`, `_GhCliMilestoneShim`), `LabelAuditFinding` alias, and `ai_app = app` alias.
+  - [x] 6. Removed pass-through wrappers (`_validate_dir`, `_validate_path`, `_project_python_version`, `_validate_version_str`, `_is_git_ignored`).
+  - [x] 7. Renamed stopwatch timers from `t0` to `start_time` and schema identifiers from numeric single-letters to semantic names.
+  - [x] 8. Validated with 10-gate CI suite (10/10 green, 90% coverage maintained).
+
 ---
 
 ### Pending Tasks

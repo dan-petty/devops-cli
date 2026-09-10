@@ -164,7 +164,7 @@ def test_review_verify_command(tmp_path: Path) -> None:
     )
     findings_file.write_text(session_payload.model_dump_json(), encoding="utf-8")
 
-    with patch("devops_cli.ai.review.runner._find_session_dir", return_value=session_dir):
+    with patch("devops_cli.commands.review._find_session_dir", return_value=session_dir):
         # Update by index
         res_idx = runner.invoke(
             review_app, ["verify", "session_verify", "--index", "1", "--status", "VERIFIED"]
@@ -325,7 +325,7 @@ def test_review_verify_with_title_pattern_and_status(tmp_path: Path) -> None:
     """Verify review verify with title pattern, invalid status, and out of bounds indices."""
     sess_dir = _create_sample_review_session(tmp_path)
 
-    with patch("devops_cli.ai.review.runner._find_session_dir", return_value=sess_dir):
+    with patch("devops_cli.commands.review._find_session_dir", return_value=sess_dir):
         res_ver_title = runner.invoke(
             review_app,
             [
@@ -377,7 +377,7 @@ def test_review_apply_patch_success() -> None:
 def test_review_findings_details_pretty_printing(tmp_path: Path) -> None:
     """Verify review findings command with --details formatting."""
     sess_dir = _create_sample_review_session(tmp_path)
-    with patch("devops_cli.ai.review.runner._find_session_dir", return_value=sess_dir):
+    with patch("devops_cli.commands.review._find_session_dir", return_value=sess_dir):
         res_details = runner.invoke(
             review_app, ["findings", "--session", "rev_sess_1", "--details"]
         )

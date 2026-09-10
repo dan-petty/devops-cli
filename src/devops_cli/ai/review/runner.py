@@ -18,14 +18,10 @@ from devops_cli.ai.analyze.cache import _load_file_analysis_metas
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
 from devops_cli.ai.review.chunker import (
-    _extract_segment_filenames,
+    _extract_header_filenames,
     _split_source_file_blocks,
 )
 from devops_cli.ai.review.flags import ReviewStageFlags
-from devops_cli.ai.review.sanitization import (
-    _mask_secrets_in_content,
-    _sanitize_prompt_boundary_tags,
-)
 from devops_cli.ai.review.verification import (
     _merge_segment_results,
     _reconcile_verified,
@@ -66,6 +62,10 @@ from devops_cli.output import (
     print_table,
     print_warning,
     render_review_result,
+)
+from devops_cli.security.sanitizer import (
+    mask_secrets,
+    sanitize_prompt_boundary_tags,
 )
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
 from devops_cli.telemetry import trace_span
@@ -191,7 +191,7 @@ def _persona_system_prompt(persona: PersonaDefinition, agents_md: str) -> str:
     if not agents_md:
         return persona.system_prompt + _GUARDRAILS_PROMPT
 
-    clean_agents = _sanitize_prompt_boundary_tags(agents_md)
+    clean_agents = sanitize_prompt_boundary_tags(agents_md)
     return (
         f"{persona.system_prompt}\n\n"
         "## Target Project Conventions & Reference Instructions (AGENTS.md)\n"
@@ -269,7 +269,7 @@ def _build_segment_review_prompt(
     build_base: Callable[[str, str], str],
     persona: PersonaDefinition,
 ) -> str:
-    fns = _extract_segment_filenames(segment)
+    fns = _extract_header_filenames(segment)
     relevant_metas = _resolve_relevant_analysis_metas(fns, analysis_metas)
     all_files_list = list(analysis_metas.keys()) if analysis_metas else fns
     context_meta = {
@@ -279,9 +279,7 @@ def _build_segment_review_prompt(
         "all_files": all_files_list,
         "file_metadata": relevant_metas,
     }
-    meta_json = _sanitize_prompt_boundary_tags(
-        json.dumps(context_meta, indent=2, ensure_ascii=True)
-    )
+    meta_json = sanitize_prompt_boundary_tags(json.dumps(context_meta, indent=2, ensure_ascii=True))
     part_title = title if total == 1 else f"{title} — file {index}/{total}"
     format_section = _persona_format_section(persona)
     rag_section = _query_segment_rag_section(fns, relevant_metas, title, persona)
@@ -320,12 +318,10 @@ def _build_recompose_prompt(
         "total_files": len(analysis_metas),
         "file_summaries": summary_map,
     }
-    meta_json = _sanitize_prompt_boundary_tags(
-        json.dumps(context_meta, indent=2, ensure_ascii=True)
-    )
+    meta_json = sanitize_prompt_boundary_tags(json.dumps(context_meta, indent=2, ensure_ascii=True))
     parsed_findings = [f for r in segment_results if r for f in r.sorted_findings]
     if parsed_findings:
-        findings_json = _sanitize_prompt_boundary_tags(
+        findings_json = sanitize_prompt_boundary_tags(
             json.dumps([f.model_dump() for f in parsed_findings], indent=2, ensure_ascii=True)
         )
         findings_block = (
@@ -336,7 +332,7 @@ def _build_recompose_prompt(
         non_empty = [(i + 1, r) for i, r in enumerate(responses) if r.strip()]
         total = len(responses)
         parts = "\n\n".join(f"## Segment {i}/{total}\n{r}" for i, r in non_empty)
-        clean_parts = _sanitize_prompt_boundary_tags(parts)
+        clean_parts = sanitize_prompt_boundary_tags(parts)
         findings_block = (
             f"Per-segment review outputs ({len(non_empty)} of {total} segments had content):\n"
             f"<untrusted_segment_outputs>\n{clean_parts}\n</untrusted_segment_outputs>"
@@ -666,7 +662,7 @@ def _prepare_review_metadata(
     except Exception:
         repo_target = None
 
-    all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
+    all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
     print_info(
         f"[dim]Step 1/4: Loading analysis metadata for {total} file(s)...{analysis_suffix}[/dim]",
         prefix=False,
@@ -739,10 +735,10 @@ def _execute_review_segments(
     """Execute Step 2: review each segment across parallel or serial workers."""
     total = len(pages)
     print_info(f"[dim]Step 2/4: Reviewing {total} file(s)...{analysis_suffix}[/dim]", prefix=False)
-    t2 = time.monotonic()
+    t_review = time.monotonic()
 
     def _review_segment(i: int, page: str) -> tuple[int, str]:
-        fns = _extract_segment_filenames(page)
+        fns = _extract_header_filenames(page)
         file_label = (
             f"{', '.join(fns)} ({i}/{total})"
             if fns and total > 1
@@ -774,7 +770,9 @@ def _execute_review_segments(
         responses = [_review_segment(i, page)[1] for i, page in enumerate(pages, 1)]
 
     if not is_dry_run():
-        print_info(f"[dim]  total {format_duration(time.monotonic() - t2)}[/dim]", prefix=False)
+        print_info(
+            f"[dim]  total {format_duration(time.monotonic() - t_review)}[/dim]", prefix=False
+        )
     return responses
 
 
@@ -790,7 +788,7 @@ def _validate_single_segment_findings(
     analysis_suffix: str,
 ) -> tuple[int, ReviewResult | None]:
     """Verify findings for a single review segment."""
-    fns = _extract_segment_filenames(page)
+    fns = _extract_header_filenames(page)
     file_label = (
         f"{', '.join(fns)} ({index}/{total})"
         if fns and total > 1
@@ -1010,7 +1008,7 @@ def _load_shared_metadata_for_pages(pages: list[str]) -> dict[str, FileAnalysisM
         repo_target = find_repo_root(Path.cwd())
     except Exception:
         repo_target = None
-    all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
+    all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
     return _load_file_analysis_metas(all_files, repo_root=repo_target)
 
 
@@ -1158,12 +1156,12 @@ def _load_agents_md(start: Path) -> str:
                 pass
 
     if raw_content:
-        from devops_cli.ai.review.sanitization import (
-            _mask_secrets_in_content,
-            _sanitize_prompt_boundary_tags,
+        from devops_cli.security.sanitizer import (
+            mask_secrets,
+            sanitize_prompt_boundary_tags,
         )
 
-        return _sanitize_prompt_boundary_tags(_mask_secrets_in_content(raw_content))
+        return sanitize_prompt_boundary_tags(mask_secrets(raw_content))
 
     return ""
 
@@ -1171,10 +1169,6 @@ def _load_agents_md(start: Path) -> str:
 def _git_repo_root(path: Path) -> Path | None:
     root = find_repo_root(path)
     return root if (root / ".git").exists() else None
-
-
-def _is_git_ignored(repo_root: Path, path: Path) -> bool:
-    return is_ignored_by_git(repo_root, path)
 
 
 def _list_git_tracked_candidates(
@@ -1191,7 +1185,7 @@ def _list_git_tracked_candidates(
         rel_str = "."
 
     root_ignored = (
-        _is_git_ignored(repo_root, root) if root.resolve() != repo_root.resolve() else False
+        is_ignored_by_git(repo_root, root) if root.resolve() != repo_root.resolve() else False
     )
     if not root_ignored:
         result = _run_subprocess(
@@ -1238,7 +1232,7 @@ def _is_candidate_file_included(
         not is_from_git
         and repo_root is not None
         and not root_ignored
-        and _is_git_ignored(repo_root, candidate_path)
+        and is_ignored_by_git(repo_root, candidate_path)
     ):
         return False
 
@@ -1281,7 +1275,7 @@ def _collect_files(root: Path, pattern: str) -> str:
 
 
 def _build_path_prompt(content: str, title: str) -> str:
-    clean_content = _sanitize_prompt_boundary_tags(content)
+    clean_content = sanitize_prompt_boundary_tags(content)
     return _PATH_REVIEW_PROMPT_TEMPLATE.format(title=title, clean_content=clean_content)
 
 
@@ -1453,7 +1447,7 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
         print_warning(MESSAGES.review.no_files_found, prefix=False)
         raise typer.Exit(0)
 
-    pages = [_mask_secrets_in_content(p) for p in blocks]
+    pages = [mask_secrets(p) for p in blocks]
     agents_md = _load_agents_md(
         target_resolved if target_resolved.is_dir() else target_resolved.parent
     )
@@ -1521,7 +1515,7 @@ def _prepare_branch_content(
 
     title = f"Branch `{branch_name}` vs `{effective_base}`"
     agents_md = _load_agents_md(repo_path)
-    pages = [_mask_secrets_in_content(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
+    pages = [mask_secrets(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
     return pages, title, agents_md
 
 
@@ -1552,7 +1546,7 @@ def _prepare_pr_content(
     diff = gh.get_pr_diff(repo, number)
     title = f"PR #{number}: {pull.title}"
     agents_md = _load_agents_md(Path.cwd())
-    pages = [_mask_secrets_in_content(p) for p in diff_pages(diff, _MAX_DIFF_CHARS)]
+    pages = [mask_secrets(p) for p in diff_pages(diff, _MAX_DIFF_CHARS)]
     return pages, title, agents_md, pull, repo
 
 
@@ -1608,7 +1602,7 @@ def _execute_review_workflow(
         spans_msg = MESSAGES.review.spans_pages.format(count=len(pages))
         print_info(f"[dim]{spans_msg}[/dim]", prefix=False)
 
-    all_files = sorted(list({fn for page in pages for fn in _extract_segment_filenames(page)}))
+    all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
     orchestrator = ReviewPipelineOrchestrator(
         llm_client=clients.analysis,
         target_dir=target_dir,
