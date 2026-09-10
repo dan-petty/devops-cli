@@ -12,14 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`)**:
   - Loki log aggregation engine and Fluent Bit log forwarder integration with dynamic namespace scraping.
-  - Subcommands `devops k8s logs query` and `devops k8s logs tail` supporting LogQL expressions, label streams, stream filtering, and JSON/terminal output formatting.
+  - Invocation `devops k8s logs [--query <logql>] [--tail <n>] [--follow] [<pod_name>]` supporting LogQL expressions, label streams, stream filtering, and JSON/terminal output formatting.
   - FastMCP tools for Loki centralized log exploration.
 - **Infracost FinOps Cloud Cost Engine (`devops tf cost`)**:
   - Cloud infrastructure cost estimation and breakdown across AWS, Azure, and Google Cloud with breakdown tables and diff reporting.
 - **Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`)**:
   - Multi-cluster ArgoCD orchestration, fleet synchronization across managed clusters, and automated rollback triggers on health degradation.
 - **BaseSecurityScanner Registry Migration**:
-  - Completed migration of all security scanners (Trivy, Gitleaks, Bandit, Semgrep, Checkov) to `BaseSecurityScanner` and unified `ScannerRegistry`.
+  - Completed migration of all 11 built-in security scanners (Bandit, Checkov, Dive, Gitleaks, Kubeconform, Kube-linter, Pluto, Popeye, Semgrep, TFLint, Trivy) to `BaseSecurityScanner` and unified `ScannerRegistry`.
 - **Target-Agnostic AI Code Review & Multi-Convention Discovery**:
   - Generalize `devops ai review` for arbitrary target repositories (Python, Go, Rust, TypeScript, monorepos, Kubernetes manifests) with automated discovery across `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.cursorrules`.
 - **Modular Agent Task Architecture (`docs/agent/tasks/`)**:
