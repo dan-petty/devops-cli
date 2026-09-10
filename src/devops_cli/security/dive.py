@@ -5,10 +5,17 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
-from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+from devops_cli.ai.review_schema import Finding
+from devops_cli.config.defaults import (
+    DEFAULT_DIVE_MAX_WASTED_BYTES,
+    DEFAULT_DIVE_MIN_EFFICIENCY,
+    DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+)
+from devops_cli.security.base import BaseSecurityScanner
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -99,3 +106,63 @@ def run_dive_analysis(
     except Exception as exc:
         logger.debug("Dive execution failed: %s", exc)
         return DiveAnalysisResult(image_name=image_name)
+
+
+class DiveScanner(BaseSecurityScanner):
+    """Declarative security scanner adapter for Dive container layer efficiency."""
+
+    name: str = "dive"
+    binary_name: str = "dive"
+
+    def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
+        """Build argument command list for invoking Dive.
+
+        If target_path is an existing filesystem directory and no explicit image reference
+        is supplied via kwargs ('image' or 'image_name'), returns empty list to skip directory paths.
+        """
+        image_name = kwargs.get("image") or kwargs.get("image_name")
+        if not image_name:
+            if target_path.exists() and target_path.is_dir():
+                logger.debug(
+                    "Dive scanner requires container image target; skipping filesystem directory %s",
+                    target_path,
+                )
+                return []
+            image_name = str(target_path)
+        return [self.binary_name, str(image_name), "--json", "-"]
+
+    def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
+        """Convert Dive layer efficiency metrics into Finding models."""
+        findings: list[Finding] = []
+        if not isinstance(data, dict):
+            return findings
+        image_data = data.get("image", {})
+        efficiency = float(image_data.get("efficiencyScore", 1.0))
+        wasted_bytes = int(image_data.get("wastedBytes", 0))
+        img = str(target_path)
+        if efficiency < DEFAULT_DIVE_MIN_EFFICIENCY or wasted_bytes > DEFAULT_DIVE_MAX_WASTED_BYTES:
+            findings.append(
+                Finding(
+                    severity="MEDIUM",
+                    location=f"{img}:efficiency",
+                    title=f"[DIVE:layer-inefficiency] Efficiency Score {efficiency:.2f}",
+                    description=(
+                        f"Image {img} has an efficiency score of {efficiency:.2f} with "
+                        f"{wasted_bytes} wasted bytes across layers."
+                    ),
+                    fix="Combine consecutive RUN commands and prune build caches to optimize image layers.",
+                )
+            )
+        return findings
+
+    def dry_run_scan(self, target_path: Path, **kwargs: Any) -> list[Finding]:
+        """Return simulated Dive layer inspection findings."""
+        return [
+            Finding(
+                severity="LOW",
+                location=f"{target_path}:dry-run",
+                title="[DIVE] [DRY-RUN] Simulated Container Layer Efficiency Audit",
+                description="Dive layer efficiency simulation mode active.",
+                fix="No action required (dry-run mode)",
+            )
+        ]

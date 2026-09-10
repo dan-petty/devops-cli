@@ -971,6 +971,13 @@
   - [x] 10. Information Leakage in Streaming Error Messages (`src/devops_cli/ai/client/ollama.py`)
   - [x] 11. Information leakage in Valkey error messages (`src/devops_cli/commands/valkey.py`)
   - [x] 12. Update docs and prompts to improve feedback, review, and self-improvement loop
+- [x] Phase 51.1: Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (P0 - Critical, Closes #88)
+  - [x] 1. Enhanced `BaseSecurityScanner` with `dry_run_scan` hook, dynamic dry-run detection, `_resolve_cwd` helper, and span telemetry.
+  - [x] 2. Enhanced `ScannerRegistry` with `auto_load_defaults` and registered all 11 security scanners into `global_scanner_registry`.
+  - [x] 3. Migrated all 11 scanner modules to subclass `BaseSecurityScanner` (`bandit`, `checkov`, `dive`, `gitleaks`, `kubeconform`, `kubelinter`, `pluto`, `popeye`, `semgrep`, `tflint`, `trivy`).
+  - [x] 4. Preserved backward compatibility and local mocks on `run_subprocess` across all legacy entrypoints.
+  - [x] 5. Enforced architectural invariants: cyclomatic complexity <= 10 and nesting depth <= 5 across all scanner modules.
+  - [x] 6. Verified with unit tests (`tests/test_consolidation_security_scanner_base.py`, 8/8 passed) and full invariant suite (6/6 passed).
 
 - [x] Phase 50.13: Eliminate Obsolete Shims, Aliases, Proxy Wrappers, and Backwards Compatibility Remnants (Closes #94)
   - [x] 1. Stripped unicode icons and emojis from `README.md` bullets and documentation.
@@ -986,7 +993,6 @@
 
 ### Pending Tasks
 - [ ] Milestone v0.2.15: GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh
-  - [ ] Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (P0 - Critical)
-  - [ ] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical)
-  - [ ] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High)
-  - [ ] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High)
+  - [ ] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical, Issue #89)
+  - [ ] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, Issue #90)
+  - [ ] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High, Issue #91)

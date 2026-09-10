@@ -8,13 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.review_schema import Finding
-from devops_cli.config.commands import build_kubelinter_cmd
+from devops_cli.config.commands import BIN_KUBELINTER, build_kubelinter_cmd
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_KUBELINTER_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
+from devops_cli.security.base import BaseSecurityScanner
 
 logger = logging.getLogger(__name__)
 
@@ -62,27 +63,49 @@ def parse_kubelinter_json(data: dict[str, Any], target_path: str = "") -> list[F
     return findings
 
 
+class KubelinterScanner(BaseSecurityScanner):
+    """Declarative security scanner adapter for Red Hat Kube-linter."""
+
+    name: str = "kubelinter"
+    binary_name: str = BIN_KUBELINTER
+
+    def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
+        """Build argument command list for invoking Kube-linter."""
+        return build_kubelinter_cmd(target_path)
+
+    def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
+        """Parse raw Kube-linter JSON payload into Finding models."""
+        if isinstance(data, dict):
+            return parse_kubelinter_json(data, target_path=str(target_path))
+        return []
+
+    def dry_run_scan(self, target_path: Path, **kwargs: Any) -> list[Finding]:
+        """Return simulated Kube-linter findings for dry-run simulation."""
+        return [
+            Finding(
+                severity="MEDIUM",
+                location=f"{target_path}:Deployment/dry-run-spec",
+                title="[DRY-RUN] Simulated Kube-linter Manifest Audit",
+                description="Kube-linter static audit simulation mode active.",
+                fix="No action required (dry-run mode)",
+                confidence_score=None,
+            )
+        ]
+
+
 def run_kubelinter_scan(target: Path = DEFAULT_CURRENT_PATH) -> list[Finding]:
     """Execute Kube-linter scanner subprocess and return parsed findings."""
     from devops_cli.telemetry import trace_span
 
+    scanner = KubelinterScanner()
     with trace_span(
         "security.scan.kubelinter",
         attributes={"target": str(target)},
     ) as span_h:
         if is_dry_run():
-            return [
-                Finding(
-                    severity="MEDIUM",
-                    location=f"{target}:Deployment/dry-run-spec",
-                    title="[DRY-RUN] Simulated Kube-linter Manifest Audit",
-                    description="Kube-linter static audit simulation mode active.",
-                    fix="No action required (dry-run mode)",
-                    confidence_score=None,
-                )
-            ]
+            return scanner.dry_run_scan(target)
 
-        cmd = build_kubelinter_cmd(target)
+        cmd = scanner.build_command(target)
         findings: list[Finding] = []
 
         try:
@@ -92,7 +115,7 @@ def run_kubelinter_scan(target: Path = DEFAULT_CURRENT_PATH) -> list[Finding]:
             elif proc.stdout:
                 data = json.loads(proc.stdout)
                 if isinstance(data, dict):
-                    findings = parse_kubelinter_json(data, target_path=str(target))
+                    findings = scanner.parse_output(data, target)
         except Exception as exc:
             logger.debug(f"Kube-linter scan execution skipped or failed: {exc}")
 
