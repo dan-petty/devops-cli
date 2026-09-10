@@ -101,8 +101,13 @@ def test_generate_agents_md_contains_required_sections() -> None:
     assert "uv run mypy src" in content
     assert "DevContainer Environment" in content
     assert "GitHub Projects, Issues & Views Governance" in content
-    assert "API Rate Limit Honor" in content
+    assert "API Rate Limit Honor, Resilient Backoff & Quota Budgeting" in content
     assert "gh api rate_limit" in content
+    assert "GraphQL queries to targeted REST endpoints" in content
+    assert "exponential backoff with random jitter" in content
+    assert "AI Inference Rate Limit & Token Budget Management" in content
+    assert "Tokens-Per-Minute / TPM and Requests-Per-Minute / RPM" in content
+    assert "asyncio.Semaphore(4..8)" in content
 
 
 def test_scaffold_agent_instructions(tmp_path: Path) -> None:

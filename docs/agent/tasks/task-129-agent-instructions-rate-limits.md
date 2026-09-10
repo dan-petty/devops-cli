@@ -2,7 +2,7 @@
 
 **Issue**: [#129](https://github.com/dan-petty/devops-cli/issues/129)
 **Active Release Milestone**: `v0.2.16`
-**Status**: In Progress
+**Status**: In Review
 **Scope**: `AGENTS.md`, `src/devops_cli/ai/instruction_generator.py`, `tests/test_instruction_generator.py`
 
 ---
