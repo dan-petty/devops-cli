@@ -116,6 +116,17 @@ def test_squid_deployment_and_sidecar_exporter() -> None:
     assert 9301 in exporter_ports
     assert "-listen" in exporter_c.get("command", [])
 
+    # Storage node affinity verification (prefers high-capacity condor node)
+    affinity = pod_spec.get("affinity", {})
+    node_aff = affinity.get("nodeAffinity", {})
+    preferred = node_aff.get("preferredDuringSchedulingIgnoredDuringExecution", [])
+    has_condor_affinity = any(
+        "condor" in expr.get("values", [])
+        for p in preferred
+        for expr in p.get("preference", {}).get("matchExpressions", [])
+    )
+    assert has_condor_affinity is True
+
 
 def test_squid_pvc_and_service_spec() -> None:
     """Verify 250Gi PVC and Service ports for proxy and metrics."""
