@@ -643,21 +643,29 @@ def tf_cost_breakdown(
         return
 
     result = run_infracost_breakdown(target, offline_mock=mock)
+    budget_ok = validate_cost_budget(result, max_monthly_cost)
     if json_output:
         write_stdout(result.model_dump_json(indent=2) + "\n")
     else:
         print(render_cost_table(result))
 
-    if max_monthly_cost is not None and not validate_cost_budget(result, max_monthly_cost):
-        print_error(
-            f"Monthly cost budget exceeded: ${result.total_monthly_cost:.2f} > ${max_monthly_cost:.2f}"
-        )
+    if not budget_ok:
+        if not json_output:
+            print_error(
+                f"Monthly cost budget exceeded: ${result.total_monthly_cost:.2f} > ${max_monthly_cost:.2f}"
+            )
         raise typer.Exit(1)
 
 
 @cost_app.command("diff")
 def tf_cost_diff(
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
+    compare_to: Annotated[
+        str | None,
+        typer.Option(
+            "--compare-to", "-c", help="Path to baseline Infracost JSON file for comparison"
+        ),
+    ] = None,
     mock: Annotated[
         bool, typer.Option("--mock", help="Use deterministic mock cost output")
     ] = False,
@@ -681,14 +689,16 @@ def tf_cost_diff(
         )
         return
 
-    result = run_infracost_diff(target, offline_mock=mock)
+    result = run_infracost_diff(target, compare_to=compare_to, offline_mock=mock)
+    budget_ok = validate_cost_budget(result, max_monthly_cost)
     if json_output:
         write_stdout(result.model_dump_json(indent=2) + "\n")
     else:
         print(render_cost_table(result, title=f"Cost Diff: {result.directory} ({result.source})"))
 
-    if max_monthly_cost is not None and not validate_cost_budget(result, max_monthly_cost):
-        print_error(
-            f"Monthly cost budget exceeded: ${result.total_monthly_cost:.2f} > ${max_monthly_cost:.2f}"
-        )
+    if not budget_ok:
+        if not json_output:
+            print_error(
+                f"Monthly cost budget exceeded: ${result.total_monthly_cost:.2f} > ${max_monthly_cost:.2f}"
+            )
         raise typer.Exit(1)

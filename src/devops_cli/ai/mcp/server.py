@@ -880,6 +880,15 @@ def get_gh_views_resource() -> str:
     )
 
 
+@mcp.resource("resource://tf/cost/latest")
+def get_tf_cost_latest_resource() -> str:
+    """Return latest Terraform cloud infrastructure cost breakdown and FinOps metrics."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "tf", "cost", "breakdown", ".", "--mock", "--json"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
 @mcp.tool()
 def scan_fix(
     target_path: str = ".",

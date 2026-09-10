@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.tf import app
+from devops_cli.exceptions import DependencyError, SubprocessError, ToolExecutionError
 from devops_cli.models.tf import TFCostBreakdownResult
 from devops_cli.tf.cost import (
     parse_infracost_breakdown,
@@ -167,6 +169,44 @@ def test_tf_cost_command_budget_failure(tmp_path: Path) -> None:
     assert "exceeded" in result.output.lower() or "budget" in result.output.lower()
 
 
+def test_tf_cost_command_budget_failure_json(tmp_path: Path) -> None:
+    """Verify over-budget result serializes budget_exceeded: true in JSON output."""
+    result = runner.invoke(
+        app,
+        ["cost", "breakdown", str(tmp_path), "--mock", "--json", "--max-monthly-cost", "1.00"],
+    )
+    assert result.exit_code == 1
+    data = json.loads(result.output)
+    assert data["budget_exceeded"] is True
+    assert data["total_monthly_cost"] > 1.00
+
+
+def test_tf_cost_diff_command_budget_failure_json(tmp_path: Path) -> None:
+    """Verify over-budget diff serializes budget_exceeded: true in JSON output."""
+    result = runner.invoke(
+        app,
+        ["cost", "diff", str(tmp_path), "--mock", "--json", "--max-monthly-cost", "1.00"],
+    )
+    assert result.exit_code == 1
+    data = json.loads(result.output)
+    assert data["budget_exceeded"] is True
+
+
+def test_tf_cost_diff_command_compare_to(tmp_path: Path) -> None:
+    """Verify devops tf cost diff passes --compare-to baseline."""
+    baseline = tmp_path / "infracost-base.json"
+    baseline.write_text("{}", encoding="utf-8")
+    with patch("devops_cli.tf.cost.run_infracost_diff") as mock_diff:
+        mock_diff.return_value = TFCostBreakdownResult(
+            directory=str(tmp_path), currency="USD", total_monthly_cost=100.0, source="mock"
+        )
+        result = runner.invoke(
+            app, ["cost", "diff", str(tmp_path), "--compare-to", str(baseline), "--mock"]
+        )
+        assert result.exit_code == 0
+        mock_diff.assert_called_once_with(tmp_path, compare_to=str(baseline), offline_mock=True)
+
+
 def test_tf_cost_command_dry_run(tmp_path: Path) -> None:
     """Verify devops tf cost respects global dry run."""
     with patch("devops_cli.commands.tf.is_dry_run", return_value=True):
@@ -183,10 +223,49 @@ def test_tf_cost_estimate_mcp_tool(tmp_path: Path) -> None:
     assert "total_monthly_cost" in out
 
 
+def test_tf_cost_latest_mcp_resource() -> None:
+    """Verify FastMCP resource get_tf_cost_latest_resource executes expected command."""
+    from devops_cli.ai.mcp.server import get_tf_cost_latest_resource
+
+    with patch(
+        "devops_cli.ai.mcp.server._run_mcp_cmd", return_value='{"total_monthly_cost": 108.0}'
+    ) as mock_cmd:
+        out = get_tf_cost_latest_resource()
+        assert "108.0" in out
+        mock_cmd.assert_called_once_with(
+            ["uv", "run", "devops", "tf", "cost", "breakdown", ".", "--mock", "--json"],
+            timeout=30.0,
+        )
+
+
+def test_parse_infracost_malformed_errors() -> None:
+    """Verify ToolExecutionError raised on invalid or non-dict JSON output."""
+    with pytest.raises(ToolExecutionError, match="Failed to parse Infracost breakdown output"):
+        parse_infracost_breakdown("not-json", directory="tf")
+
+    with pytest.raises(ToolExecutionError, match="Failed to parse Infracost breakdown output"):
+        parse_infracost_breakdown("[1, 2, 3]", directory="tf")
+
+    with pytest.raises(ToolExecutionError, match="Failed to parse Infracost diff output"):
+        parse_infracost_diff("{broken", directory="tf")
+
+
+def test_run_infracost_breakdown_missing_binary(tmp_path: Path) -> None:
+    """Verify DependencyError raised when Infracost binary is missing without --mock."""
+    with patch("devops_cli.tf.cost.check_binary", return_value=False):
+        with pytest.raises(DependencyError, match="infracost"):
+            run_infracost_breakdown(tmp_path, offline_mock=False)
+
+
+def test_run_infracost_diff_missing_binary(tmp_path: Path) -> None:
+    """Verify DependencyError raised when Infracost binary is missing without --mock in diff."""
+    with patch("devops_cli.tf.cost.check_binary", return_value=False):
+        with pytest.raises(DependencyError, match="infracost"):
+            run_infracost_diff(tmp_path, offline_mock=False)
+
+
 def test_run_infracost_breakdown_subprocess(tmp_path: Path) -> None:
     """Verify infracost breakdown with subprocess success and failure."""
-    from unittest.mock import MagicMock
-
     with (
         patch("devops_cli.tf.cost.check_binary", return_value=True),
         patch("devops_cli.tf.cost.run_subprocess") as mock_run,
@@ -196,24 +275,24 @@ def test_run_infracost_breakdown_subprocess(tmp_path: Path) -> None:
         assert res.total_monthly_cost == 108.00
         assert res.source == "infracost"
 
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error")
-        res_err = run_infracost_breakdown(tmp_path, offline_mock=False)
-        assert res_err.source == "infracost_error"
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="infracost auth failed")
+        with pytest.raises(SubprocessError, match="Infracost breakdown failed with exit code 1"):
+            run_infracost_breakdown(tmp_path, offline_mock=False)
 
 
 def test_run_infracost_diff_subprocess(tmp_path: Path) -> None:
-    """Verify infracost diff with subprocess success and failure."""
-    from unittest.mock import MagicMock
-
+    """Verify infracost diff with subprocess success and failure, including --compare-to."""
     with (
         patch("devops_cli.tf.cost.check_binary", return_value=True),
         patch("devops_cli.tf.cost.run_subprocess") as mock_run,
     ):
         mock_run.return_value = MagicMock(returncode=0, stdout=_SAMPLE_DIFF_JSON)
-        res = run_infracost_diff(tmp_path, offline_mock=False)
+        res = run_infracost_diff(tmp_path, compare_to="base.json", offline_mock=False)
         assert res.diff_monthly_cost == 36.00
         assert res.source == "infracost"
+        assert "--compare-to" in mock_run.call_args[0][0]
+        assert "base.json" in mock_run.call_args[0][0]
 
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error")
-        res_err = run_infracost_diff(tmp_path, offline_mock=False)
-        assert res_err.source == "infracost_error"
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="diff failed")
+        with pytest.raises(SubprocessError, match="Infracost diff failed with exit code 1"):
+            run_infracost_diff(tmp_path, offline_mock=False)

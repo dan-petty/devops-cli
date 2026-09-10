@@ -4878,6 +4878,7 @@ devops tf cost diff [OPTIONS] <directory>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--compare-to`, `-c` | `string` | - | Path to baseline Infracost JSON file for comparison |
 | `--mock` | `boolean` | - | Use deterministic mock cost output |
 | `--max-monthly-cost` | `float` | - | Maximum allowable monthly cost budget threshold |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
