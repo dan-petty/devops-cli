@@ -101,14 +101,19 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
-def mask_secrets(text: str) -> str:
-    """Mask known secret patterns, tokens, and credentials in the input text."""
+def redact_text(text: str) -> str:
+    """Sanitize and redact known credential and secret patterns in the input text."""
     if not text:
         return ""
     result = text
     for pattern, replacement in _SECRET_PATTERNS:
         result = pattern.sub(replacement, result)
     return result
+
+
+def mask_secrets(text: str) -> str:
+    """Mask known secret patterns, tokens, and credentials in the input text."""
+    return redact_text(text)
 
 
 def mask_dict_secrets(data: Any) -> Any:

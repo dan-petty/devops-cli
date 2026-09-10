@@ -37,7 +37,7 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
             self._config.api_base_url or CONST_URL_ANTHROPIC_API_BASE,
             purpose="Claude API",
         )
-        t0 = time.monotonic()
+        start_time = time.monotonic()
         headers = inject_trace_context(
             {
                 "x-api-key": self._api_key,
@@ -74,7 +74,7 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
                 response = http_client.post(f"{base}/v1/messages", headers=headers, json=payload)
                 response.raise_for_status()
-                wall_elapsed = time.monotonic() - t0
+                wall_elapsed = time.monotonic() - start_time
                 raw_json = read_limited_json(response)
                 content_blocks = raw_json.get("content", [])
                 text_parts: list[str] = []

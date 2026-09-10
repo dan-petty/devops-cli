@@ -13,7 +13,7 @@ from devops_cli.ai.library.introspector import (
     extract_class_signature,
     extract_function_signature,
 )
-from devops_cli.commands.ai import ai_app
+from devops_cli.commands.ai import app as ai_app
 from devops_cli.exceptions.ai import LibraryNotFoundError
 from devops_cli.models.library import (
     FunctionSignature,

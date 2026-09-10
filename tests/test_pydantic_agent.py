@@ -1179,8 +1179,8 @@ def test_pydantic_agent_native_parity() -> None:
     assert resp.content == '{"summary": "Parity test passed"}'
     assert resp.output == resp.data if resp.data is not None else resp.content
 
-    # run_stream_sync execution
-    tokens = list(agent.run_stream_sync("Check stream"))
+    # run_stream execution
+    tokens = list(agent.run_stream("Check stream"))
     assert "".join(tokens) == "Parity passed"
 
     # to_cli execution

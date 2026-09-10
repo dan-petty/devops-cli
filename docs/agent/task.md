@@ -938,7 +938,7 @@
   - [x] 5. Regenerated introspected CLI documentation and synchronized `README.md`.
   - [x] 6. Executed comprehensive 10-gate CI quality suite (`uv run devops ci`).
   - [x] 7. Prepared GitHub Release Pull Request targeting `main`.
-  - [x] 8. Aligned Jekyll configuration file naming from `_config.yml` to `_config.yaml` conforming to project-wide `.yaml` standard.
+  - [x] 8. Migrated Jekyll documentation configuration to `docs/github-pages.config.yaml` to eliminate vague root-level configuration files.
 
 - [x] Phase 50.11: Address Copilot Feedback on PR #86 & Proactive GitHub Project Tracking Hardening
   - [x] 1. Remediated all 20 GitHub Copilot review findings via Test-First Development (TDD) across security, docs ingester, introspector, library store, AST engine/graph, context packer, drift auditor, client, and projects.
@@ -979,15 +979,23 @@
   - [x] 5. Enforced architectural invariants: cyclomatic complexity <= 10 and nesting depth <= 5 across all scanner modules.
   - [x] 6. Verified with unit tests (`tests/test_consolidation_security_scanner_base.py`, 8/8 passed) and full invariant suite (6/6 passed).
 
-- [x] Phase 51.2: Centralized Kubernetes Logging Stack & LogQL Integration (P0 - Critical, Closes #89)
-- [x] Phase 51.3: Infracost FinOps Cloud Cost Engine (P1 - High, Closes #90)
-- [x] Phase 51.4: Multi-Cluster ArgoCD Fleet Sync & Rollouts (P1 - High, Closes #91)
-- [x] Phase 51.5: Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, Closes #99)
+- [x] Phase 50.13: Eliminate Obsolete Shims, Aliases, Proxy Wrappers, and Backwards Compatibility Remnants (Closes #94)
+  - [x] 1. Stripped unicode icons and emojis from `README.md` bullets and documentation.
+  - [x] 2. Removed numeric counts, timestamps, and arbitrary phase labels from test names, variable names, and roadmap documents.
+  - [x] 3. Cleaned legacy `__getattr__` dynamic proxies and 15 wrapper functions from `devops_cli.commands.review`.
+  - [x] 4. Replaced private re-exports `_mask_secrets_in_content` and `_sanitize_prompt_boundary_tags` with canonical `mask_secrets` and `sanitize_prompt_boundary_tags` from `devops_cli.security.sanitizer`.
+  - [x] 5. Cleaned GitHub client wrappers (`_GhCliLabelShim`, `_GhCliMilestoneShim`), `LabelAuditFinding` alias, and `ai_app = app` alias.
+  - [x] 6. Removed pass-through wrappers (`_validate_dir`, `_validate_path`, `_project_python_version`, `_validate_version_str`, `_is_git_ignored`).
+  - [x] 7. Renamed stopwatch timers from `start_time` and schema identifiers from numeric single-letters to semantic names.
+  - [x] 8. Validated with 10-gate CI suite (10/10 green, 90% coverage maintained).
+  - [x] 9. Hardened secret redaction pipeline and eliminated CodeQL clear-text storage false positives on review outputs.
+- [/] Phase 51.5: Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, Closes #99)
   - [x] 1. Configured setup-uv with `cache-python: "true"`, `prune-cache: "true"`, and `cache-dependency-glob: "uv.lock"` in `ci.yml` and `release.yml`.
   - [x] 2. Configured `actions/cache` in `ci.yml` for `.mypy_cache`, `.ruff_cache`, and `.pytest_cache`.
   - [x] 3. Configured `devcontainers/ci` with `cacheFrom: ${{ steps.image_repo.outputs.name }}:latest` in `ci.yml` and `release.yml`.
   - [x] 4. Authored unit tests in `tests/test_ci.py` validating declarative workflow caching invariants.
-  - [x] 5. Verified full 10-gate CI quality suite passes cleanly (`uv run devops ci`).
+  - [ ] 5. Remediate Copilot code review comments (stable cache key without github.sha, exact cacheFrom assertion in test).
+  - [ ] 6. Verify full 10-gate CI quality suite passes cleanly (`uv run devops ci`).
 
 ---
 

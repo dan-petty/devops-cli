@@ -43,7 +43,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         *,
         enable_thinking: bool = True,
     ) -> LLMResponse:
-        t0 = time.monotonic()
+        start_time = time.monotonic()
         headers = inject_trace_context(
             {
                 "Authorization": f"Bearer {self._api_key}",
@@ -83,7 +83,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                     f"{self._api_base()}/chat/completions", headers=headers, json=payload
                 )
                 response.raise_for_status()
-                wall_elapsed = time.monotonic() - t0
+                wall_elapsed = time.monotonic() - start_time
                 raw_json = read_limited_json(response)
                 choices = raw_json.get("choices", [{}])
                 first_choice = choices[0] if choices else {}

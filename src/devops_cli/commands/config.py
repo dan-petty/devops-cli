@@ -49,10 +49,10 @@ app = typer.Typer(help=HELP.config.app, no_args_is_help=True)
 
 
 def _render_secret_store_error(key: str, exc: SecretStorageError) -> None:
-    from devops_cli.ai.review.sanitization import _mask_secrets_in_content
+    from devops_cli.security.sanitizer import mask_secrets
 
     env_var = env_var_for_option(key)
-    masked_err = _mask_secrets_in_content(str(exc))
+    masked_err = mask_secrets(str(exc))
     print_warning(f"Could not store secret for {key}: {masked_err}", prefix=False)
     if env_var:
         print_warning(f"Use environment variable fallback: export {env_var}=<value>", prefix=False)

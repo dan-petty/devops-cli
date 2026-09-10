@@ -23,10 +23,6 @@ from devops_cli.lang import HELP
 app = new_typer(help=HELP.kustomize.app, no_args_is_help=True)
 
 
-def _validate_path(path: Path) -> Path:
-    return validate_path(path, must_exist=True)
-
-
 @app.command(help=HELP.kustomize.build)
 def build(
     path: Annotated[Path, typer.Argument(help=HELP.kustomize.target_dir)] = DEFAULT_CURRENT_PATH,
@@ -35,7 +31,7 @@ def build(
     ] = None,
 ) -> None:
     """Build kustomize overlays (delegates to kustomize build)."""
-    target = _validate_path(path)
+    target = validate_path(path)
     cmd = build_kustomize_build_cmd(target)
     if output:
         cmd += ["--output", output]
@@ -49,7 +45,7 @@ def diff(
     path: Annotated[Path, typer.Argument(help=HELP.kustomize.target_dir)] = DEFAULT_CURRENT_PATH,
 ) -> None:
     """Show a diff of pending changes (delegates to kubectl diff -k)."""
-    target = _validate_path(path)
+    target = validate_path(path)
     cmd = build_kubectl_cmd(["diff", "-k", str(target)])
     run_subprocess(cmd, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False)
 
@@ -63,7 +59,7 @@ def apply(
     ] = None,
 ) -> None:
     """Apply a kustomization (delegates to kubectl apply -k)."""
-    target = _validate_path(path)
+    target = validate_path(path)
     if namespace:
         from devops_cli.commands.k8s import _validate_k8s_identifier
 

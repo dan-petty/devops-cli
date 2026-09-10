@@ -131,10 +131,6 @@ class ThinkingStreamProcessor:
         self._buffer += chunk
         self._process_buffer()
 
-    def process_token(self, chunk: str) -> None:
-        """Alias to feed for streaming token ingestion."""
-        self.feed(chunk)
-
     def _process_outside_think(self) -> bool:
         """Process buffer while outside think block. Returns False to break loop."""
         pos = self._buffer.find(self.open_tag)
