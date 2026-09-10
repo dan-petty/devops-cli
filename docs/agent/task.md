@@ -976,7 +976,7 @@
   - [x] 4. Replaced private re-exports `_mask_secrets_in_content` and `_sanitize_prompt_boundary_tags` with canonical `mask_secrets` and `sanitize_prompt_boundary_tags` from `devops_cli.security.sanitizer`.
   - [x] 5. Cleaned GitHub client wrappers (`_GhCliLabelShim`, `_GhCliMilestoneShim`), `LabelAuditFinding` alias, and `ai_app = app` alias.
   - [x] 6. Removed pass-through wrappers (`_validate_dir`, `_validate_path`, `_project_python_version`, `_validate_version_str`, `_is_git_ignored`).
-  - [x] 7. Renamed stopwatch timers from `t0` to `start_time` and schema identifiers from numeric single-letters to semantic names.
+  - [x] 7. Renamed stopwatch timers from `start_time` and schema identifiers from numeric single-letters to semantic names.
   - [x] 8. Validated with 10-gate CI suite (10/10 green, 90% coverage maintained).
   - [x] 9. Hardened secret redaction pipeline and eliminated CodeQL clear-text storage false positives on review outputs.
 - [x] Phase 50.14: Centralized Kubernetes Logging Stack and LogQL Integration (Closes #89)
@@ -988,6 +988,13 @@
   - [x] 6. Registered FastMCP tools `k8s_logs_query` and `k8s_logs_tail` with 119 schemas exported.
   - [x] 7. Unit and integration tests in `tests/test_k8s_logging_stack.py` and `tests/test_k8s_logql.py`.
   - [x] 8. Validated with 10-gate CI suite (10/10 green, 90% coverage maintained).
+- [/] Phase 51.5: Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, Closes #99)
+  - [x] 1. Configured setup-uv with `cache-python: "true"`, `prune-cache: "true"`, and `cache-dependency-glob: "uv.lock"` in `ci.yml` and `release.yml`.
+  - [x] 2. Configured `actions/cache` in `ci.yml` for `.mypy_cache`, `.ruff_cache`, and `.pytest_cache`.
+  - [x] 3. Configured `devcontainers/ci` with `cacheFrom: ${{ steps.image_repo.outputs.name }}:latest` in `ci.yml` and `release.yml`.
+  - [x] 4. Authored unit tests in `tests/test_ci.py` validating declarative workflow caching invariants.
+  - [x] 5. Remediate Copilot code review comments (stable cache key without github.sha, exact cacheFrom assertion in test).
+  - [x] 6. Verify full 10-gate CI quality suite passes cleanly (`uv run devops ci`).
 
 ---
 
@@ -996,5 +1003,5 @@
   - [x] Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (P0 - Critical, PR #93 - Merged)
   - [x] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical, PR #96 - Merged)
   - [x] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, PR #97 - Merged)
-  - [/] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High, Issue #91, PR #98)
-  - [ ] Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, PR #100)
+  - [x] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High, PR #98 - Merged)
+  - [/] Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, PR #100)

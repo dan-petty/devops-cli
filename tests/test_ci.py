@@ -369,3 +369,70 @@ def test_ci_run_docs_fix_when_needed() -> None:
         results = asyncio.run(_run_all_checks_async(lint_fix=True, format_fix=True, docs_fix=True))
         assert any("generate" in cmd for cmd in called_cmds)
         assert any(r.name == "docs" for r in results)
+
+
+def _validate_setup_uv_step(step: dict[str, object], source: str) -> None:
+    with_args = step.get("with", {})
+    assert isinstance(with_args, dict), f"{source}: 'with' block must be a dict"
+    assert with_args.get("enable-cache") is True, f"{source}: missing enable-cache"
+    assert with_args.get("cache-python") == "true", f"{source}: missing cache-python: true"
+    assert with_args.get("prune-cache") == "true", f"{source}: missing prune-cache: true"
+    assert with_args.get("cache-dependency-glob") == "uv.lock", (
+        f"{source}: missing uv.lock dependency glob"
+    )
+
+
+def _validate_devcontainer_step(step: dict[str, object], source: str) -> None:
+    with_args = step.get("with", {})
+    assert isinstance(with_args, dict), f"{source}: 'with' block must be a dict"
+    assert "cacheFrom" in with_args, f"{source}: devcontainers/ci missing cacheFrom"
+    assert with_args["cacheFrom"] == "${{ steps.image_repo.outputs.name }}:latest", (
+        f"{source}: devcontainers/ci cacheFrom must be '${{{{ steps.image_repo.outputs.name }}}}:latest'"
+    )
+
+
+def test_github_workflows_caching_configuration() -> None:
+    """Validate that GitHub workflows configure optimized caching for uv and devcontainers."""
+    import yaml
+
+    workflows_dir = Path(".github/workflows")
+    assert workflows_dir.is_dir()
+
+    for wf_file in sorted(workflows_dir.glob("*.yml")):
+        content = yaml.safe_load(wf_file.read_text(encoding="utf-8")) or {}
+        jobs = content.get("jobs", {})
+        for job_name, job_data in jobs.items():
+            steps = job_data.get("steps", []) if isinstance(job_data, dict) else []
+            for step in steps:
+                if not isinstance(step, dict):
+                    continue
+                uses = str(step.get("uses", ""))
+                context_tag = f"{wf_file.name}:{job_name}:{step.get('name', 'unnamed')}"
+                if "astral-sh/setup-uv" in uses:
+                    _validate_setup_uv_step(step, context_tag)
+                elif "devcontainers/ci" in uses:
+                    _validate_devcontainer_step(step, context_tag)
+
+
+def test_ci_workflow_has_tooling_cache_step() -> None:
+    """Validate that ci.yml includes tooling cache for mypy, ruff, and pytest with stable key."""
+    import yaml
+
+    ci_file = Path(".github/workflows/ci.yml")
+    assert ci_file.is_file()
+    content = yaml.safe_load(ci_file.read_text(encoding="utf-8")) or {}
+    steps = content["jobs"]["validate"]["steps"]
+    cache_steps = [
+        s for s in steps if isinstance(s, dict) and "actions/cache" in str(s.get("uses", ""))
+    ]
+    assert len(cache_steps) >= 1
+    cache_with = cache_steps[0].get("with", {})
+    assert isinstance(cache_with, dict)
+    cache_paths = str(cache_with.get("path", ""))
+    assert ".mypy_cache" in cache_paths
+    assert ".ruff_cache" in cache_paths
+    assert ".pytest_cache" in cache_paths
+    cache_key = str(cache_with.get("key", ""))
+    assert "tooling-cache-" in cache_key
+    assert "hashFiles" in cache_key
+    assert "github.sha" not in cache_key
