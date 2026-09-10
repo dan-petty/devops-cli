@@ -677,7 +677,7 @@ class OTelTelemetryClient:
 
             status_code = "STATUS_CODE_ERROR"
             error_msg = self._populate_exception_span_attributes(exc, attrs, exit_code)
-            if not isinstance(exc, (SystemExit, KeyboardInterrupt)):
+            if exit_code is None and not isinstance(exc, (SystemExit, KeyboardInterrupt)):
                 handle.record_exception(exc)
             else:
                 handle.set_status("ERROR", error_msg)

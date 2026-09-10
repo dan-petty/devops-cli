@@ -143,6 +143,7 @@ DEFAULT_VALKEY_SYMBOL_TTL_SECONDS = 604800  # 7 days TTL for cached symbol signa
 DEFAULT_RAG_EMBEDDING_MODEL = "qwen3-embedding:0.6b"
 DEFAULT_RAG_EMBEDDING_URL: str | None = None
 DEFAULT_RAG_EMBEDDING_CACHE_SIZE: int = 1024  # Max entries in in-memory embedding LRU cache
+DEFAULT_RAG_EMBEDDING_TIMEOUT: float = 15.0  # Bounded timeout for fast failover across nodes
 DEFAULT_RAG_TOP_K: int = 5
 DEFAULT_RAG_SCORE_THRESHOLD: float = 0.35
 DEFAULT_RAG_CHUNK_SIZE: int = 2400

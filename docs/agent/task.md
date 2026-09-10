@@ -19,6 +19,7 @@
 | [#101](https://github.com/dan-petty/devops-cli/issues/101) | — | Modularize Agent Task Tracking to Eliminate Merge Conflicts | `Done` | [`task-101-modular-agent-task-tracking.md`](tasks/task-101-modular-agent-task-tracking.md) |
 | [#102](https://github.com/dan-petty/devops-cli/issues/102) | — | Strengthen Review Prompts, Feedback Dataset Export & Self-Improvement Loop | `Done` | [`task-102-review-feedback-loop-hardening.md`](tasks/task-102-review-feedback-loop-hardening.md) |
 | [#103](https://github.com/dan-petty/devops-cli/issues/103) | — | Generalize `devops ai review` for Arbitrary Target Repositories & Multi-Convention Discovery | `Done` | [`task-103-target-agnostic-review-generalization.md`](tasks/task-103-target-agnostic-review-generalization.md) |
+| [#104](https://github.com/dan-petty/devops-cli/issues/104) | — | Telemetry Tracing Optimizations, Jaeger Sizing & Fast Failover | `Done` | [`task-104-telemetry-trace-optimizations.md`](tasks/task-104-telemetry-trace-optimizations.md) |
 
 ---
 
