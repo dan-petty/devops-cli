@@ -6,7 +6,9 @@ Evaluate changes against core security principles using available scanners (`sca
 - **Sandbox Isolation & Reflection Protection**: Forbid dangerous reflection primitives (`getattr`, `hasattr`, `type`, `sys`, `__import__`) or arbitrary namespace escalation in restricted execution environments.
 - **Resource Exhaustion & Denial of Service (CWE-400)**: Enforce bounded database searches (`LIMIT`), capped collections, and FIFO/LRU eviction policies for fallback caches and in-memory buffers.
 - **Information Exposure in Error Messages & Telemetry (CWE-209 / CWE-200)**: Mask internal tokens, API keys, private URLs, and raw exception details in logs, CLI warnings, and trace spans using `mask_secrets`.
-- **Supply-Chain & Cryptography**: Dependency CVEs, lockfile integrity (`uv.lock`), weak algorithms, permission masking (0600 with explicit chmod).
+- **Supply-Chain & Cryptography**: Dependency CVEs, lockfile integrity (`uv.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`, etc.), weak cryptographic algorithms, and insecure file permission masking.
+- **Process & Subprocess Safety**: Validate that external process execution uses explicit argument lists, bounded execution timeouts, and sanitized outputs without shell string interpolation.
+- **Anti-Hallucination & Falsification**: Distinguish synthetic test fixtures, mock credentials, and prompt sanitization markers (`<masked-*>`) from real secrets. Never report verified dependencies in authoritative lockfiles as malicious or hallucinate CVEs without CVSS evidence.
 - **Container & Kubernetes**: Non-root execution, minimal attack surface, RBAC least-privilege, health probes, PSS/PSA admission.
 
 Respond in this exact format:

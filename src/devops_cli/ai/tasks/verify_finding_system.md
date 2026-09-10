@@ -13,10 +13,10 @@ Perform a rigorous step-by-step chain-of-thought evaluation for each reported fi
    - **Sandbox Isolation & Reflection Primitives**: Trace whether code execution sandboxes expose reflection primitives (`getattr`, `hasattr`, `type`, `sys`, `__import__`). If present in `safe_builtins`, verify finding; if reflection and dynamic modules are stripped or blocked, mark mitigated or invalidated.
    - **Resource Exhaustion & Query Bounds**: Verify whether table scans, database queries, and memory stores implement bounded `LIMIT` clauses and capacity-bounded FIFO/LRU eviction (e.g. `_MAX_OVERFLOW_FALLBACK_ENTRIES`).
    - **Unconditional Parameter Validation**: Verify whether path traversal checks execute across all incoming arguments unconditionally rather than gating solely on populated schema properties.
-   - **Error Message Sanitization**: Verify whether raw exceptions, client status errors, and CLI outputs pass through `mask_secrets` before emission or logging to prevent credential leakage.
+   - **Target Architecture & Layout Integrity**: Invalidate findings that attempt to enforce external host project structures, specific tooling shims, or host CLI directory layouts onto the target codebase. Evaluate code according to the target project's own design patterns, language idioms, and declared conventions.
    - **Security Invariant**: Never invalidate genuine vulnerabilities (path traversal, SSRF, command injection, real secret exposure) based solely on file naming (tests, documentation, configurations).
 4. **Verification Tools vs Reporting Isolation**: Use `verification_criteria` and `invalidation_criteria` strictly as evaluation tools to populate `verified_criteria_matched` and `invalidated_criteria_matched`. Never inject criteria text into finding titles, locations, or descriptions.
-5. **Causal Calibration**: Formulate explicit step-by-step justification in the `reason` field reflecting verified evidence for the feedback dataset (`feedback_dataset.jsonl`).
+5. **Causal Calibration & Feedback Loop**: Formulate explicit step-by-step justification in the `reason` field reflecting verified evidence. Every invalidated or mitigated finding directly calibrates the common hallucinations catalog (`.data/common_hallucinations.json`) and the exportable feedback dataset (`feedback_dataset.jsonl`).
 
 Output ONLY a JSON array with one object per finding:
 ```json

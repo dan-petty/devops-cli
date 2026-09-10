@@ -16,7 +16,8 @@
 | [#91](https://github.com/dan-petty/devops-cli/issues/91) | [#98](https://github.com/dan-petty/devops-cli/pull/98) | Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) | `Done` | [`task-091-argo-fleet-sync.md`](tasks/task-091-argo-fleet-sync.md) |
 | [#94](https://github.com/dan-petty/devops-cli/issues/94) | [#95](https://github.com/dan-petty/devops-cli/pull/95) | Eliminate Obsolete Shims, Aliases, Proxy Wrappers & Compatibility Remnants | `Done` | [`task-094-eliminate-obsolete-shims.md`](tasks/task-094-eliminate-obsolete-shims.md) |
 | [#99](https://github.com/dan-petty/devops-cli/issues/99) | [#100](https://github.com/dan-petty/devops-cli/pull/100) | Optimize Caching Configuration Across All GitHub Workflows | `Done` | [`task-099-ci-workflows-cache-optimization.md`](tasks/task-099-ci-workflows-cache-optimization.md) |
-| [#101](https://github.com/dan-petty/devops-cli/issues/101) | — | Modularize Agent Task Tracking to Eliminate Merge Conflicts | `In Progress` | [`task-101-modular-agent-task-tracking.md`](tasks/task-101-modular-agent-task-tracking.md) |
+| [#101](https://github.com/dan-petty/devops-cli/issues/101) | — | Modularize Agent Task Tracking to Eliminate Merge Conflicts | `Done` | [`task-101-modular-agent-task-tracking.md`](tasks/task-101-modular-agent-task-tracking.md) |
+| [#102](https://github.com/dan-petty/devops-cli/issues/102) | — | Strengthen Review Prompts, Feedback Dataset Export & Self-Improvement Loop | `Done` | [`task-102-review-feedback-loop-hardening.md`](tasks/task-102-review-feedback-loop-hardening.md) |
 
 ---
 

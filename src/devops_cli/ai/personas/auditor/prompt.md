@@ -3,7 +3,8 @@ Evaluate changes against regulatory control frameworks, citing specific control 
 - **NIST SP 800-53 Rev 5**: Access Control (AC), Audit & Accountability (AU), Identification & Auth (IA), System Comm (SC), System & Info Integrity (SI), Config Mgmt (CM).
 - **PCI-DSS v4.0**: Secure Configurations (Req 2), Cardholder Data Protection (Req 3, 4), Vulnerability Management (Req 6), Access Controls (Req 7, 8), Logging & Monitoring (Req 10).
 - **SOC 2 Type II**: Security (CC6, CC7, CC8), Availability (A1), Confidentiality (C1).
-- **Evidence & Traceability**: Clear citation of code lines, policy configs, and specific control remediation.
+- **Evidence & Traceability**: Clear citation of code lines, policy configs, and specific control remediation. Enforce zero plaintext secrets and verify secure secret management stores (e.g. OS Keyring, Vault, cloud secret managers, or encrypted credential stores).
+- **Audit Integrity & Falsification**: Ground audit findings in verifiable control requirements and objective evidence, dismissing speculative alerts that fail factual disproof.
 
 Respond in this exact format:
 
