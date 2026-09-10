@@ -247,5 +247,5 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - **Feedback Dataset Export**: Export verified and invalidated review findings to structured datasets (`devops review export-feedback`) to continuously ground RAG retrieval and refine LLM prompts.
 - **AI Inference Rate Limit & Token Budget Management**:
   - Review pipelines and AI agent stages calling local or remote LLMs (Ollama, Anthropic, Gemini, OpenAI) must budget token usage and honor provider rate limits (Tokens-Per-Minute / TPM and Requests-Per-Minute / RPM).
-  - Bounded concurrency with semaphores (`asyncio.Semaphore(4..8)`) prevents overloading inference endpoints.
+  - Bounded concurrency with semaphores (`asyncio.Semaphore(5)` for 4–8 concurrent workers) prevents overloading inference endpoints.
   - On HTTP 429 or provider overload errors, implement exponential backoff with jitter and retry reflection rather than unthrottled burst retries.

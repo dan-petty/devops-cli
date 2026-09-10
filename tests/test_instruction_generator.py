@@ -107,7 +107,7 @@ def test_generate_agents_md_contains_required_sections() -> None:
     assert "exponential backoff with random jitter" in content
     assert "AI Inference Rate Limit & Token Budget Management" in content
     assert "Tokens-Per-Minute / TPM and Requests-Per-Minute / RPM" in content
-    assert "asyncio.Semaphore(4..8)" in content
+    assert "asyncio.Semaphore(5)" in content
 
 
 def test_scaffold_agent_instructions(tmp_path: Path) -> None:

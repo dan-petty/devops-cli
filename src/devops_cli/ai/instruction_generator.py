@@ -237,7 +237,7 @@ codebase or reviewing target repositories.
 - **AI Inference Rate Limit & Token Budget Management**: Review pipelines and AI agent stages calling
   local or remote LLMs (Ollama, Anthropic, Gemini, OpenAI) must budget token consumption and honor
   provider quotas (Tokens-Per-Minute / TPM and Requests-Per-Minute / RPM). Bound concurrency with
-  semaphores (`asyncio.Semaphore(4..8)`) to prevent overloading inference endpoints. On HTTP 429 or
+  semaphores (`asyncio.Semaphore(5)` for 4–8 concurrent workers) to prevent overloading inference endpoints. On HTTP 429 or
   provider overload errors, implement exponential backoff with jitter and retry reflection rather than
   unthrottled burst retries.
 
