@@ -58,26 +58,34 @@ spec:
           resources:
             requests:
               cpu: 3000m
-              memory: 12Gi
-            limits:
-              memory: 24Gi
+              memory: 8Gi
           volumeMounts:
             - name: ollama-data
               mountPath: /root/.ollama
+          startupProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /
               port: 11434
-            initialDelaySeconds: 15
-            periodSeconds: 5
-            timeoutSeconds: 3
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /
               port: 11434
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
       volumes:
         - name: ollama-data
           # Local development/workstation: NFS share for sharing multi-GB GGUF models across nodes.

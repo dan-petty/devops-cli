@@ -37,8 +37,8 @@ singleBinary:
       cpu: 100m
       memory: 256Mi
     limits:
-      cpu: 500m
-      memory: 512Mi
+      cpu: 1000m
+      memory: 2048Mi
   persistence:
     enabled: true
     size: 2Gi

@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
@@ -745,3 +746,68 @@ def test_k8s_deploy_stack_no_wait() -> None:
             cmd = call_args[0][0]
             if isinstance(cmd, list) and "helm" in cmd and "upgrade" in cmd:
                 assert "--wait" not in cmd
+
+
+def test_k8s_workload_resource_limits_and_probes() -> None:
+    """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
+    repo_root = Path(__file__).resolve().parent.parent
+
+    # 1. Ollama DaemonSet: no hard memory limit, requests 8Gi, robust startup and liveness probes
+    ollama_path = repo_root / "k8s" / "llm" / "ollama-daemonset.yaml"
+    assert ollama_path.is_file()
+    ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
+    daemonset = next(d for d in ollama_docs if d and d.get("kind") == "DaemonSet")
+    container = daemonset["spec"]["template"]["spec"]["containers"][0]
+    resources = container.get("resources", {})
+    assert "limits" not in resources or "memory" not in resources.get("limits", {})
+    assert resources["requests"]["memory"] == "8Gi"
+    assert resources["requests"]["cpu"] == "3000m"
+
+    # Probes
+    assert "startupProbe" in container
+    assert container["startupProbe"]["failureThreshold"] >= 30
+    assert container["livenessProbe"]["timeoutSeconds"] >= 10
+    assert container["livenessProbe"]["failureThreshold"] >= 5
+    assert container["readinessProbe"]["timeoutSeconds"] >= 5
+
+    # 2. Ollama Helm values: no hard limits
+    values_ollama = yaml.safe_load(
+        (repo_root / "k8s" / "llm" / "values-ollama.yaml").read_text(encoding="utf-8")
+    )
+    assert "limits" not in values_ollama.get("resources", {})
+    assert values_ollama["resources"]["requests"]["memory"] == "4Gi"
+
+    # 3. Valkey: memory limit >= 2048Mi
+    valkey_docs = list(
+        yaml.safe_load_all((repo_root / "k8s" / "llm" / "valkey.yaml").read_text(encoding="utf-8"))
+    )
+    valkey_dep = next(d for d in valkey_docs if d and d.get("kind") == "Deployment")
+    valkey_res = valkey_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert valkey_res["limits"]["memory"] == "2048Mi"
+
+    # 4. Jaeger: memory limit >= 2048Mi
+    jaeger_docs = list(
+        yaml.safe_load_all((repo_root / "k8s" / "otel" / "jaeger.yaml").read_text(encoding="utf-8"))
+    )
+    jaeger_dep = next(d for d in jaeger_docs if d and d.get("kind") == "Deployment")
+    jaeger_res = jaeger_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert jaeger_res["limits"]["memory"] == "2048Mi"
+
+    # 5. Registry: memory limit >= 2048Mi
+    reg_docs = list(
+        yaml.safe_load_all(
+            (repo_root / "k8s" / "registry" / "deployment.yaml").read_text(encoding="utf-8")
+        )
+    )
+    reg_dep = next(d for d in reg_docs if d and d.get("kind") == "Deployment")
+    reg_res = reg_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert reg_res["limits"]["memory"] == "2048Mi"
+
+    # 6. ArgoCD values: elevated memory limits
+    argo_values = yaml.safe_load(
+        (repo_root / "k8s" / "argocd" / "values.yaml").read_text(encoding="utf-8")
+    )
+    assert argo_values["controller"]["resources"]["limits"]["memory"] == "2048Mi"
+    assert argo_values["repoServer"]["resources"]["limits"]["memory"] == "2048Mi"
+    assert argo_values["server"]["resources"]["limits"]["memory"] == "1024Mi"
+    assert argo_values["redis"]["resources"]["limits"]["memory"] == "1024Mi"
