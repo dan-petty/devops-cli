@@ -38,11 +38,16 @@ _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
         "open-webui": "https://open-webui.github.io/helm-charts",
         "qdrant": "https://qdrant.github.io/qdrant-helm",
     },
+    "logging": {
+        "grafana": "https://grafana.github.io/helm-charts",
+        "fluent": "https://fluent.github.io/helm-charts",
+    },
 }
 
 _HELM_REPOS: dict[str, str] = {
     **_HELM_REPOS_BY_STACK["infra"],
     **_HELM_REPOS_BY_STACK["llm"],
+    **_HELM_REPOS_BY_STACK["logging"],
 }
 
 
@@ -81,6 +86,20 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "values": str(DEFAULT_K8S_DIR / "llm" / "values-qdrant.yaml"),
         },
     ],
+    "logging": [
+        {
+            "name": "loki",
+            "chart": "grafana/loki",
+            "namespace": "logging",
+            "values": str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml"),
+        },
+        {
+            "name": "fluent-bit",
+            "chart": "fluent/fluent-bit",
+            "namespace": "logging",
+            "values": str(DEFAULT_K8S_DIR / "logging" / "fluent-bit-values.yaml"),
+        },
+    ],
 }
 
 _HELM_RELEASES: list[dict[str, str]] = _HELM_RELEASES_BY_STACK["infra"]
@@ -93,9 +112,12 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         DEFAULT_K8S_DIR / "llm" / "valkey.yaml",
         DEFAULT_K8S_DIR / "llm" / "ollama-daemonset.yaml",
     ],
+    "logging": [
+        DEFAULT_K8S_DIR / "logging" / "networkpolicy.yaml",
+    ],
 }
 
-VALID_STACKS: tuple[str, ...] = ("infra", "llm", "all")
+VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "all")
 
 
 def _adopt_helm_resource_if_conflict(
@@ -607,23 +629,30 @@ def teardown_stack(
         )
 
     # 3. Clean up namespaces
-    if stack == "all":
+    normalized_stack = stack.lower()
+    if normalized_stack == "all":
         print_info(MESSAGES.k8s.removing_stack_namespaces, prefix=False)
         k8s._run_cmd(
             ["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"] + kubectl_ctx,
             check=False,
         )
-    elif stack == "infra":
+    elif normalized_stack == "infra":
         print_info(MESSAGES.k8s.removing_infra_namespaces, prefix=False)
         for ns in ["argocd", "monitoring", "otel"]:
             k8s._run_cmd(
                 ["kubectl", "delete", "namespace", ns, "--ignore-not-found"] + kubectl_ctx,
                 check=False,
             )
-    elif stack == "llm":
+    elif normalized_stack == "llm":
         print_info(MESSAGES.k8s.removing_llm_namespace, prefix=False)
         k8s._run_cmd(
             ["kubectl", "delete", "namespace", "llm", "--ignore-not-found"] + kubectl_ctx,
+            check=False,
+        )
+    elif normalized_stack == "logging":
+        print_info("Removing logging namespace...", prefix=False)
+        k8s._run_cmd(
+            ["kubectl", "delete", "namespace", "logging", "--ignore-not-found"] + kubectl_ctx,
             check=False,
         )
 

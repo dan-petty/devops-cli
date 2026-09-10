@@ -51,6 +51,7 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `K8S_CONTEXT_ERROR` | `1` | K8s | Raised when a Kubernetes context cannot be resolved or is invalid. |
 | `K8S_DEPLOY_ERROR` | `1` | K8s | Raised when deploying manifests or Helm charts fails. |
 | `K8S_ERROR` | `1` | K8s | Base exception for Kubernetes operations. |
+| `K8S_LOGGING_ERROR` | `1` | K8s | Raised when querying cluster logs or Loki fails. |
 | `LLM_INFERENCE_ERROR` | `10` | Ai | Base exception for LLM provider invocation failures. |
 | `LIBRARY_INGESTION_ERROR` | `1` | Ai | Base exception for package introspection and library ingestion errors. |
 | `LIBRARY_NOT_FOUND_ERROR` | `1` | Ai | Raised when target package cannot be imported or found in the environment. |
