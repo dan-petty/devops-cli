@@ -989,19 +989,29 @@
   - [x] 7. Renamed stopwatch timers from `start_time` and schema identifiers from numeric single-letters to semantic names.
   - [x] 8. Validated with 10-gate CI suite (10/10 green, 90% coverage maintained).
   - [x] 9. Hardened secret redaction pipeline and eliminated CodeQL clear-text storage false positives on review outputs.
+- [x] Phase 50.14: Centralized Kubernetes Logging Stack and LogQL Integration (Closes #89)
+  - [x] 1. Declarative Loki and Fluent Bit stack in `k8s/logging/` (`loki-values.yaml`, `fluent-bit-values.yaml`, `networkpolicy.yaml`).
+  - [x] 2. Registered `logging` stack in `devops k8s deploy-stack --stack logging` and `teardown-stack`.
+  - [x] 3. Native LogQL parser, pipeline filter evaluator, and query engine in `src/devops_cli/k8s/logql.py`.
+  - [x] 4. OpenTelemetry `trace_id` extraction and trace correlation in LogQL entries and Grafana Loki datasource.
+  - [x] 5. Integrated `devops k8s logs [query|tail|stream]` with live follow and fallback to `kubectl logs`.
+  - [x] 6. Registered FastMCP tools `k8s_logs_query` and `k8s_logs_tail` with 119 schemas exported.
+  - [x] 7. Unit and integration tests in `tests/test_k8s_logging_stack.py` and `tests/test_k8s_logql.py`.
+  - [x] 8. Validated with 10-gate CI suite (10/10 green, 90% coverage maintained).
 - [/] Phase 51.5: Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, Closes #99)
   - [x] 1. Configured setup-uv with `cache-python: "true"`, `prune-cache: "true"`, and `cache-dependency-glob: "uv.lock"` in `ci.yml` and `release.yml`.
   - [x] 2. Configured `actions/cache` in `ci.yml` for `.mypy_cache`, `.ruff_cache`, and `.pytest_cache`.
   - [x] 3. Configured `devcontainers/ci` with `cacheFrom: ${{ steps.image_repo.outputs.name }}:latest` in `ci.yml` and `release.yml`.
   - [x] 4. Authored unit tests in `tests/test_ci.py` validating declarative workflow caching invariants.
   - [x] 5. Remediate Copilot code review comments (stable cache key without github.sha, exact cacheFrom assertion in test).
-  - [/] 6. Verify full 10-gate CI quality suite passes cleanly (`uv run devops ci`).
+  - [x] 6. Verify full 10-gate CI quality suite passes cleanly (`uv run devops ci`).
 
 ---
 
 ### Pending Tasks
 - [ ] Milestone v0.2.15: GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh
-  - [x] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical, Issue #89)
-  - [x] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, Issue #90)
-  - [x] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo fleet sync`) (P1 - High, Issue #91)
-  - [x] Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, Issue #99)
+  - [x] Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (P0 - Critical, PR #93 - Merged)
+  - [x] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical, PR #96 - Merged)
+  - [x] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, PR #97)
+  - [x] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High, PR #98)
+  - [/] Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, PR #100)
