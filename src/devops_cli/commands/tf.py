@@ -598,3 +598,102 @@ def tf_notify_plan(
         f"✓ Formatted Terraform plan notification (Adds: {adds}, Changes: {changes}, Destroys: {destroys}):"
     )
     write_stdout(comment_body + "\n")
+
+
+# =============================================================================
+# Command Group: devops tf cost
+# =============================================================================
+
+cost_app = new_typer(
+    help="Infracost cloud cost estimation and FinOps budget reporting.",
+    no_args_is_help=True,
+)
+app.add_typer(cost_app, name="cost")
+
+
+@cost_app.command("breakdown")
+def tf_cost_breakdown(
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
+    mock: Annotated[
+        bool, typer.Option("--mock", help="Use deterministic mock cost output")
+    ] = False,
+    max_monthly_cost: Annotated[
+        float | None,
+        typer.Option("--max-monthly-cost", help="Maximum allowable monthly cost budget threshold"),
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """Estimate monthly and hourly cloud infrastructure costs using Infracost."""
+    from devops_cli.tf.cost import render_cost_table, run_infracost_breakdown, validate_cost_budget
+
+    target = validate_dir(directory)
+    if is_dry_run():
+        render_dry_run_result(
+            command=f"devops tf cost breakdown {target}",
+            action="cost_breakdown",
+            target=str(target),
+        )
+        return
+
+    result = run_infracost_breakdown(target, offline_mock=mock)
+    budget_ok = validate_cost_budget(result, max_monthly_cost)
+    if json_output:
+        write_stdout(result.model_dump_json(indent=2) + "\n")
+    else:
+        print(render_cost_table(result))
+
+    if not budget_ok:
+        if not json_output:
+            print_error(
+                f"Monthly cost budget exceeded: ${result.total_monthly_cost:.2f} > ${max_monthly_cost:.2f}"
+            )
+        raise typer.Exit(1)
+
+
+@cost_app.command("diff")
+def tf_cost_diff(
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
+    compare_to: Annotated[
+        str | None,
+        typer.Option(
+            "--compare-to", "-c", help="Path to baseline Infracost JSON file for comparison"
+        ),
+    ] = None,
+    mock: Annotated[
+        bool, typer.Option("--mock", help="Use deterministic mock cost output")
+    ] = False,
+    max_monthly_cost: Annotated[
+        float | None,
+        typer.Option("--max-monthly-cost", help="Maximum allowable monthly cost budget threshold"),
+    ] = None,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """Calculate cost delta between local Terraform code and baseline state using Infracost."""
+    from devops_cli.tf.cost import render_cost_table, run_infracost_diff, validate_cost_budget
+
+    target = validate_dir(directory)
+    if is_dry_run():
+        render_dry_run_result(
+            command=f"devops tf cost diff {target}",
+            action="cost_diff",
+            target=str(target),
+        )
+        return
+
+    result = run_infracost_diff(target, compare_to=compare_to, offline_mock=mock)
+    budget_ok = validate_cost_budget(result, max_monthly_cost)
+    if json_output:
+        write_stdout(result.model_dump_json(indent=2) + "\n")
+    else:
+        print(render_cost_table(result, title=f"Cost Diff: {result.directory} ({result.source})"))
+
+    if not budget_ok:
+        if not json_output:
+            print_error(
+                f"Monthly cost budget exceeded: ${result.total_monthly_cost:.2f} > ${max_monthly_cost:.2f}"
+            )
+        raise typer.Exit(1)

@@ -4839,6 +4839,57 @@ devops tf notify-plan [OPTIONS]
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
+### `devops tf cost`
+
+```bash
+devops tf cost COMMAND [ARGS]...
+```
+
+#### `devops tf cost breakdown`
+
+**Estimate monthly and hourly cloud infrastructure costs using Infracost.**
+
+```bash
+devops tf cost breakdown [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--mock` | `boolean` | - | Use deterministic mock cost output |
+| `--max-monthly-cost` | `float` | - | Maximum allowable monthly cost budget threshold |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
+#### `devops tf cost diff`
+
+**Calculate cost delta between local Terraform code and baseline state using Infracost.**
+
+```bash
+devops tf cost diff [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--compare-to`, `-c` | `string` | - | Path to baseline Infracost JSON file for comparison |
+| `--mock` | `boolean` | - | Use deterministic mock cost output |
+| `--max-monthly-cost` | `float` | - | Maximum allowable monthly cost budget threshold |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
 ---
 
 ## devops tls
