@@ -228,6 +228,18 @@ codebase or reviewing target repositories.
   code changes, run `devops ci`, fix all reported issues, and run `devops ci` again, iteratively
   fixing issues and running `devops ci` until passing. Agents should not run any other tooling
   that is already covered and automatically executed by `devops ci`.
+- **API Rate Limit Honor, Resilient Backoff & Quota Budgeting**: AI agents and automated workflows MUST
+  actively respect API rate limits, complexity budgets, and resource quotas across all external services
+  (GitHub REST/GraphQL APIs, AI LLM/embedding inference endpoints, package registries, and cloud APIs).
+  Proactively monitor rate limits (`gh api rate_limit`, `x-ratelimit-remaining`, `Retry-After`), gracefully
+  fall back from complexity-constrained or rate-limited GraphQL queries to targeted REST endpoints, apply
+  exponential backoff with random jitter, and avoid aggressive polling loops.
+- **AI Inference Rate Limit & Token Budget Management**: Review pipelines and AI agent stages calling
+  local or remote LLMs (Ollama, Anthropic, Gemini, OpenAI) must budget token consumption and honor
+  provider quotas (Tokens-Per-Minute / TPM and Requests-Per-Minute / RPM). Bound concurrency with
+  semaphores (`asyncio.Semaphore(5)` for 4–8 concurrent workers) to prevent overloading inference endpoints. On HTTP 429 or
+  provider overload errors, implement exponential backoff with jitter and retry reflection rather than
+  unthrottled burst retries.
 
 
 
@@ -256,6 +268,7 @@ codebase or reviewing target repositories.
   - Proactively author and populate tracking issues for all scheduled roadmap deliverables upon milestone activation; the open issues queue (`issues?q=is:issue+state:open`), projects tab (`projects`), and issue views (`issues/views`) must never be left empty.
   - Link project boards conforming to `.github/project-template.json` to the repository (`devops gh project link <number>`) and synchronize items and custom fields via `devops gh project sync`.
   - Enforce strict remote branch lifecycle: every remote topic branch on `origin` must have an associated open PR, and merged or superseded branches must be deleted immediately.
+  - Respect GitHub API rate limits: monitor `gh api rate_limit`, adaptively fall back to REST when GraphQL complexity limits are reached, avoid unthrottled polling, and honor `Retry-After` reset windows.
 """
 
 
