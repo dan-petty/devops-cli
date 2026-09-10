@@ -264,3 +264,13 @@ def test_validate_url_egress() -> None:
             schemes=("http", "https"),
             error_cls=CustomContextError,
         )
+
+    # Unresolvable hostname must fail closed
+    import socket
+
+    initial_timeout = socket.getdefaulttimeout()
+    with patch("socket.getaddrinfo", side_effect=socket.gaierror):
+        with pytest.raises(SSRFBlockedError, match="DNS resolution failed"):
+            validate_url_egress("http://unresolvable.hostname.internal/manifest.yaml")
+    # Verify global socket timeout was not mutated
+    assert socket.getdefaulttimeout() == initial_timeout

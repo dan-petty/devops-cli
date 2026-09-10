@@ -109,8 +109,8 @@ def _search_contract_modules(
 
 def _collect_function_item(
     fn: FunctionSignature, package_name: str, version: str, kind: str = "function"
-) -> tuple[dict[str, Any], str, tuple[str, str]]:
-    """Extract point metadata, embedding text, and cache tuple for a function or method."""
+) -> tuple[dict[str, Any], str, list[tuple[str, str]]]:
+    """Extract point metadata, embedding text, and cache tuples for a function or method."""
     sig = _format_fn_signature(fn)
     text = f"{sig}\n\n{fn.docstring or ''}"
     meta = {
@@ -122,14 +122,18 @@ def _collect_function_item(
         "docstring": fn.docstring,
         "source": "library_contract",
     }
-    cache = (f"symbol:{fn.qualname}", fn.model_dump_json())
+    json_str = fn.model_dump_json()
+    cache = [
+        (f"symbol:{package_name}:{fn.qualname}", json_str),
+        (f"symbol:{fn.qualname}", json_str),
+    ]
     return meta, text, cache
 
 
 def _collect_class_item(
     cls: ClassSignature, package_name: str, version: str
-) -> tuple[dict[str, Any], str, tuple[str, str]]:
-    """Extract point metadata, embedding text, and cache tuple for a class."""
+) -> tuple[dict[str, Any], str, list[tuple[str, str]]]:
+    """Extract point metadata, embedding text, and cache tuples for a class."""
     cls_sig = _format_class_signature(cls)
     text = f"{cls_sig}\n\n{cls.docstring or ''}"
     meta = {
@@ -141,7 +145,11 @@ def _collect_class_item(
         "docstring": cls.docstring,
         "source": "library_contract",
     }
-    cache = (f"symbol:{cls.qualname}", cls.model_dump_json())
+    json_str = cls.model_dump_json()
+    cache = [
+        (f"symbol:{package_name}:{cls.qualname}", json_str),
+        (f"symbol:{cls.qualname}", json_str),
+    ]
     return meta, text, cache
 
 
@@ -247,7 +255,7 @@ class LibraryVectorStore:
                 )
                 points_meta.append(meta)
                 texts.append(text)
-                cache_entries.append(cache)
+                cache_entries.extend(cache)
 
             for cls in mod.classes.values():
                 meta, text, cache = _collect_class_item(
@@ -255,7 +263,7 @@ class LibraryVectorStore:
                 )
                 points_meta.append(meta)
                 texts.append(text)
-                cache_entries.append(cache)
+                cache_entries.extend(cache)
 
                 for method in cls.methods.values():
                     m_meta, m_text, m_cache = _collect_function_item(
@@ -263,7 +271,7 @@ class LibraryVectorStore:
                     )
                     points_meta.append(m_meta)
                     texts.append(m_text)
-                    cache_entries.append(m_cache)
+                    cache_entries.extend(m_cache)
 
         return points_meta, texts, cache_entries
 
@@ -298,7 +306,7 @@ class LibraryVectorStore:
         vectors = self._embed_many_texts(texts)
         points = [
             {
-                "id": chunk.chunk_id,
+                "id": f"{package_name}:{chunk.chunk_id}",
                 "vector": vec,
                 "payload": {
                     "symbol_name": chunk.title,
@@ -336,7 +344,11 @@ class LibraryVectorStore:
                 contract = LibraryContract.model_validate_json(filepath.read_text(encoding="utf-8"))
                 match = _search_contract_modules(contract, symbol)
                 if match is not None:
-                    self._cache_symbol_in_valkey(f"symbol:{symbol}", match.model_dump_json())
+                    json_str = match.model_dump_json()
+                    self._cache_symbol_in_valkey(
+                        f"symbol:{contract.package_name}:{symbol}", json_str
+                    )
+                    self._cache_symbol_in_valkey(f"symbol:{symbol}", json_str)
                     return match
             except Exception as exc:
                 logger.debug("Failed parsing contract file %s: %s", filepath, exc)
@@ -348,7 +360,11 @@ class LibraryVectorStore:
         """Retrieve symbol signature from Valkey L1 cache, falling back to local contracts."""
         if self.valkey_client is not None:
             try:
-                raw = self.valkey_client.get(f"symbol:{symbol}")
+                raw = None
+                if package:
+                    raw = self.valkey_client.get(f"symbol:{package}:{symbol}")
+                if raw is None:
+                    raw = self.valkey_client.get(f"symbol:{symbol}")
                 if raw is None:
                     raw = self.valkey_client.get(symbol)
                 if raw:

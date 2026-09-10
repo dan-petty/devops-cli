@@ -9,16 +9,31 @@ from __future__ import annotations
 import re
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urldefrag, urljoin, urlparse
 
 import httpx2
 
 from devops_cli.exceptions.ai import DocsIngestionError
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.library import DocChunk, IngestDocResult
+from devops_cli.security.sanitizer import mask_uri_credentials
 
 _SUPPORTED_DOC_EXTENSIONS = {".md", ".markdown", ".rst", ".txt"}
 _HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$")
+
+
+def _extract_hrefs(attrs: list[tuple[str, str | None]]) -> list[str]:
+    return [val for name, val in attrs if name.lower() == "href" and val]
+
+
+def _format_starttag(tag_lower: str) -> str | None:
+    if tag_lower in ("p", "div", "section", "article"):
+        return "\n"
+    if tag_lower == "li":
+        return "\n- "
+    if len(tag_lower) == 2 and tag_lower[0] == "h" and tag_lower[1].isdigit():
+        return f"\n{'#' * int(tag_lower[1])} "
+    return None
 
 
 class _HTMLContentExtractor(HTMLParser):
@@ -32,6 +47,7 @@ class _HTMLContentExtractor(HTMLParser):
         self.page_title = ""
         self.in_title = False
         self.lines: list[str] = []
+        self.links: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag_lower = tag.lower()
@@ -42,13 +58,13 @@ class _HTMLContentExtractor(HTMLParser):
             return
         if tag_lower == "title":
             self.in_title = True
-        elif tag_lower in ("h1", "h2", "h3", "h4", "h5", "h6"):
-            level = int(tag_lower[1])
-            self.lines.append(f"\n{'#' * level} ")
-        elif tag_lower in ("p", "div", "section", "article"):
-            self.lines.append("\n")
-        elif tag_lower == "li":
-            self.lines.append("\n- ")
+            return
+        if tag_lower == "a":
+            self.links.extend(_extract_hrefs(attrs))
+            return
+        prefix = _format_starttag(tag_lower)
+        if prefix:
+            self.lines.append(prefix)
 
     def handle_endtag(self, tag: str) -> None:
         tag_lower = tag.lower()
@@ -60,7 +76,8 @@ class _HTMLContentExtractor(HTMLParser):
             return
         if tag_lower == "title":
             self.in_title = False
-        elif tag_lower in ("h1", "h2", "h3", "h4", "h5", "h6", "p"):
+            return
+        if tag_lower in ("h1", "h2", "h3", "h4", "h5", "h6", "p"):
             self.lines.append("\n")
 
     def handle_data(self, data: str) -> None:
@@ -71,9 +88,9 @@ class _HTMLContentExtractor(HTMLParser):
             return
         self.lines.append(data)
 
-    def get_markdown(self) -> tuple[str, str]:
+    def get_markdown(self) -> tuple[str, str, list[str]]:
         text = "".join(self.lines).strip()
-        return self.page_title, text
+        return self.page_title, text, self.links
 
 
 def _create_chunk(
@@ -183,7 +200,14 @@ class DocsIngester:
         all_chunks: list[DocChunk] = []
         for file in files_to_process:
             content = file.read_text(encoding="utf-8", errors="replace")
-            chunks = _chunk_markdown_content(content, source=str(file), slug=file.stem)
+            rel = file.relative_to(src_path) if not src_path.is_file() else Path(file.name)
+            slug = (
+                re.sub(r"[^a-zA-Z0-9_-]+", "_", str(rel.with_suffix("")).replace("/", "_")).strip(
+                    "_"
+                )
+                or file.stem
+            )
+            chunks = _chunk_markdown_content(content, source=str(file), slug=slug)
             all_chunks.extend(chunks)
 
         chunk_files = _save_chunks(all_chunks, target_dir)
@@ -206,36 +230,88 @@ class DocsIngester:
         """Ingest remote documentation page over HTTP/HTTPS with strict SSRF validation."""
         validate_service_url(url, "Docs Ingestion", allow=False)
 
-        parsed = urlparse(url)
-        slug = (parsed.path.strip("/").replace("/", "_") or parsed.netloc) or "remote_doc"
-        target_dir = Path(output_dir) if output_dir else Path(".data/docs_ingest") / slug
+        parsed_origin = urlparse(url)
+        origin_netloc = parsed_origin.netloc
+        base_slug = (
+            parsed_origin.path.strip("/").replace("/", "_") or parsed_origin.netloc
+        ) or "remote_doc"
+        target_dir = Path(output_dir) if output_dir else Path(".data/docs_ingest") / base_slug
 
-        try:
-            with httpx2.Client(timeout=30.0) as client:
-                resp = client.get(url)
-                resp.raise_for_status()
-                content_type = resp.headers.get("content-type", "")
-                raw_text = resp.text
-        except Exception as exc:
-            raise DocsIngestionError(
-                f"Failed to fetch remote documentation from {url}: {exc}"
-            ) from exc
+        queue: list[str] = [url]
+        visited: set[str] = set()
+        all_chunks: list[DocChunk] = []
 
-        if "html" in content_type:
-            parser = _HTMLContentExtractor()
-            parser.feed(raw_text)
-            _, markdown_text = parser.get_markdown()
-        else:
-            markdown_text = raw_text
+        with httpx2.Client(timeout=30.0) as client:
+            while queue and len(visited) < max(1, max_pages):
+                current_url = queue.pop(0)
+                clean_url = urldefrag(current_url).url
+                if clean_url in visited:
+                    continue
+                visited.add(clean_url)
 
-        chunks = _chunk_markdown_content(markdown_text, source=url, slug=slug)
-        chunk_files = _save_chunks(chunks, target_dir)
+                try:
+                    validate_service_url(clean_url, "Docs Ingestion", allow=False)
+                    resp = client.get(clean_url)
+                    resp.raise_for_status()
+                    content_type = resp.headers.get("content-type", "")
+                    raw_text = resp.text
+                except Exception as exc:
+                    masked_url = mask_uri_credentials(clean_url)
+                    if len(visited) == 1:
+                        raise DocsIngestionError(
+                            f"Failed to fetch remote documentation from {masked_url}: {exc}"
+                        ) from exc
+                    continue
+
+                links: list[str] = []
+                if "html" in content_type:
+                    parser = _HTMLContentExtractor()
+                    parser.feed(raw_text)
+                    _, markdown_text, links = parser.get_markdown()
+                else:
+                    markdown_text = raw_text
+
+                page_slug = (
+                    urlparse(clean_url).path.strip("/").replace("/", "_") or base_slug
+                ) or "page"
+                chunks = _chunk_markdown_content(
+                    markdown_text, source=mask_uri_credentials(clean_url), slug=page_slug
+                )
+                all_chunks.extend(chunks)
+
+                if max_pages > 1 and len(visited) < max_pages:
+                    _collect_child_links(links, clean_url, origin_netloc, visited, queue)
+
+        chunk_files = _save_chunks(all_chunks, target_dir)
 
         return IngestDocResult(
-            source=url,
+            source=mask_uri_credentials(url),
             is_remote=True,
-            total_pages=1,
-            total_chunks=len(chunks),
+            total_pages=len(visited),
+            total_chunks=len(all_chunks),
             output_dir=str(target_dir),
             chunk_files=chunk_files,
         )
+
+
+def _collect_child_links(
+    links: list[str],
+    current_url: str,
+    origin_netloc: str,
+    visited: set[str],
+    queue: list[str],
+) -> None:
+    """Filter and enqueue candidate links on the same origin domain."""
+    for link in links:
+        resolved = urljoin(current_url, link)
+        p_res = urlparse(resolved)
+        is_same_origin = p_res.netloc == origin_netloc and p_res.scheme in ("http", "https")
+        if not is_same_origin:
+            continue
+        if p_res.path.lower().endswith(
+            (".png", ".jpg", ".jpeg", ".gif", ".svg", ".zip", ".tar", ".gz", ".pdf")
+        ):
+            continue
+        clean_res = urldefrag(resolved).url
+        if clean_res not in visited and clean_res not in queue:
+            queue.append(clean_res)

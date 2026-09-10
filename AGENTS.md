@@ -24,6 +24,7 @@ This document provides foundational context, architectural principles, and opera
   - Enforce subprocess safety with explicit command argument lists, bounded timeouts, and error handling.
 - **Never Lower Security Standards or Quality Thresholds**: Never lower, relax, disable, bypass, or weaken security standards, quality thresholds (such as minimum 90% code coverage, strict static type checks, or lint rules), or compliance validations unless explicitly instructed by the user.
 - **Continuous Standards Compliance & Solution Refinement**: Ensure every proposed solution, design, code change, or architecture meets all project standards and conventions, iteratively refining until every standard is met or exceeded.
+- **Proactive GitHub Project Tracking & Workflow Grounding**: Every engineering action, planned deliverable, active WIP implementation, review remediation, and defect investigation MUST be formally grounded in GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and GitHub Issues. Working on "invisible" or ungrounded tasks without an active project card is strictly prohibited. AI agents must proactively bootstrap tasks into issues, maintain real-time card state transitions, and reconcile custom fields on every lifecycle event.
 - **Clean Solutions Over Legacy Remnants (Zero Zombie Code)**: When modifying, refactoring, or replacing features, schemas, configurations, or interfaces, implement clean, complete solutions and ruthlessly remove obsolete code, variables, aliases, fallback shims, and legacy workarounds. Never leave remnants or vestigial fallback paths.
 - **Dedicated Agent Workspace Data Isolation**: The workspace data directory is configured via `DEVOPS_CLI_DATA_DIR` (or configuration key `data.dir`, defaulting to `./.data`). AI agents executing CLI review sessions, background benchmarks, analysis scans, test executions, or temporary operational tasks must isolate agent work products (reviews, logs, traces, metadata) under the dedicated `agent/` subfolder (`<data_dir>/agent`, e.g. `./.data/agent`) to keep agent artifacts separate from the user workspace data tier.
 - **Mandatory Backup for Files Outside Workspace**: Whenever modifying, overwriting, editing, or truncating any file located outside the project workspace directory (e.g. `~/.ssh/`, `~/.bashrc`, `~/.zshrc`, `/etc/`), AI agents **MUST ALWAYS** create a timestamped backup named `<original-filepath>.bak-<YYYYMMDD-HHMMSS>` prior to making edits.
@@ -47,12 +48,24 @@ All work follows a test-first progressive verification strategy to optimize deve
 
 ### Project Planning & Task Tracking
 - **Mandatory Planning Artifacts**: Document project planning and technical implementation designs in dedicated planning documents (`implementation_plan.md`, `docs/agent/task.md`, `docs/ROADMAP.md`, `docs/PENDING_FEATURES.md`, `docs/LOG.md`) prior to executing complex, multi-step, or architectural changes.
-- **Continuous Task Status Tracking (`docs/agent/task.md`)**: Maintain and track transparent task statuses across three unambiguous categories in real time:
-  - **Pending Tasks**: Queued deliverables, backlog requirements, and upcoming milestones awaiting execution.
-  - **In-Progress Tasks (WIP)**: Active focus items, specific files under modification, and ongoing test specifications.
-  - **Completed Tasks**: Verified implementations, green test gates, synchronized documentation, and closed operational loops.
+- **Mandatory GitHub Projects v2 Session Bootstrap (Zero Ungrounded Tasks)**:
+  - At the inception of every AI agent session, upon receiving any user prompt, or before starting development, AI agents **MUST PROACTIVELY BOOTSTRAP GITHUB PROJECT TRACKING**:
+    1. **Query Active Project Status**: Inspect board status and views via `devops gh project status` (or FastMCP `gh_project_status`) and triage queue via `devops gh issues triage` (or FastMCP `gh_issue_triage`).
+    2. **Ground User Request to an Issue Card**: Every feature, bug fix, refactor, or documentation task must have a corresponding GitHub Issue and Project Item.
+       - If a matching open issue exists: link the task to it, verify its milestone and taxonomy labels, and immediately move its project card to `In Progress` (`devops gh project sync`).
+       - If no issue exists: **IMMEDIATELY AUTHOR A FORMAL TRACKING ISSUE** (`gh issue create` or FastMCP `gh_issue_create`), assign the active release milestone (`--milestone "v<version>"`), assign declarative taxonomy labels matching `.github/labels.yml` (`type/*`, `scope/*`, `priority/*`, `status/in-progress`), and synchronize it to the project board (`devops gh project sync` or FastMCP `gh_project_sync`).
+- **Continuous Task Status Tracking (`docs/agent/task.md`) & Real-Time Card Movement**:
+  - Maintain bidirectional synchronization between `docs/agent/task.md` and GitHub Projects v2 cards across five unambiguous lifecycle states:
+    - **Backlog**: Queued deliverables, backlog requirements, and upcoming milestone items awaiting assignment.
+    - **Ready**: Scoped items with concrete acceptance criteria and tests designed, awaiting active development.
+    - **In Progress (WIP)**: Active work items currently being authored or edited. **Card must be moved to In Progress before modifying code in `src/`**. Mirrored in `docs/agent/task.md` under `### In-Progress Tasks (WIP)`.
+    - **In Review**: Pull Request opened with automated review, CI checks running, and peer feedback in progress. Mirrored in `docs/agent/task.md`.
+    - **Done**: Pull Request squash-merged into release branch, remote CI checks green, issue closed, and milestone ratios updated. Mirrored in `docs/agent/task.md` under `### Completed Tasks`.
   - **No Standalone Agent Tracking Commits**: Updates to `docs/agent/` files must never be committed as standalone or isolated commits; they must always be bundled into functional feature, fix, or refactoring deliverable commits.
-- **GitHub Projects v2 & Issue Alignment**: Ground all task lifecycles, issue tracking, and sprint planning in GitHub Projects v2 (`.github/project-template.json`) and roadmap milestones (`docs/ROADMAP.md`), continuously reconciling state transitions (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) and auditing issue/PR taxonomies.
+- **Mandatory Custom Field Reconciliation (`devops gh project sync`)**:
+  - Ground all task lifecycles, issue tracking, and sprint planning in GitHub Projects v2 (`.github/project-template.json`) and roadmap milestones (`docs/ROADMAP.md`).
+  - Every project item MUST be enriched with all 6 standardized custom fields: `Status`, `Milestone`, `Priority`, `Category`, `Value`, and `Effort`.
+  - AI agents must run `devops gh project sync` (or FastMCP `gh_project_sync`) after authoring issues, creating PRs, or updating branches to ensure data-driven custom fields reflect declarative taxonomy labels (`type/*`, `priority/*`).
 
 ### Knowledge Base Consultation
 Before planning, implementing, debugging, refactoring, or reviewing code, consult the **DevOps CLI Knowledge Base** under [`src/devops_cli/ai/knowledge_base/README.md`](src/devops_cli/ai/knowledge_base/README.md):
@@ -161,12 +174,15 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
     - **Mandatory Repository Project Linkage & Creation**: Ensure that the active GitHub Projects v2 board conforming to `.github/project-template.json` is created and linked to the repository (`devops gh project link <number>`) so that the board appears directly under `https://github.com/dan-petty/devops-cli/projects` and its views appear under `https://github.com/dan-petty/devops-cli/issues/views`. Discover existing boards via `devops gh project list` (or FastMCP `gh_project_list`). If no project board exists yet, AI agents must instruct or provision the project matching the declarative template (`.github/project-template.json`) and link it immediately.
     - **Continuous Project & Views Drift Auditing**: Routinely audit project board health and field schema alignment via `devops gh project audit` (or FastMCP `gh_project_audit`) and view configurations via `devops gh views audit` (or FastMCP `gh_views_audit`).
     - **Continuous Custom Field & Project Item Population**: Every issue and pull request for the active milestone MUST be added as a project item and populated with custom project fields: `Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`. Synchronize card states using `devops gh project sync` or FastMCP `gh_project_sync`.
-    - **Strict Task State Transitions**: Manage state transitions strictly (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) across issues and tasks in [`docs/agent/task.md`](docs/agent/task.md):
-      - `Backlog`: Queued items awaiting milestone assignment or scheduling.
-      - `Ready`: Scoped items ready for immediate development.
-      - `In Progress`: Active work items currently being authored/edited (mirrored in `docs/agent/task.md` under `### In-Progress Tasks (WIP)`).
-      - `In Review`: Pull Request opened with CI checks running and code reviews in progress.
-      - `Done`: Pull Request squash-merged by maintainer into release branch, remote CI verified, and issue closed.
+    - **Strict Real-Time Kanban State Progression & WIP Movement**:
+      - Manage state transitions strictly (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) across issues and tasks in [`docs/agent/task.md`](docs/agent/task.md):
+        - `Backlog`: Queued items awaiting milestone assignment or scheduling.
+        - `Ready`: Scoped items ready for immediate development with designed test specifications.
+        - `In Progress`: Active work items currently being authored or edited. **Card MUST be transitioned to In Progress before making edits in `src/`**. Mirrored in `docs/agent/task.md` under `### In-Progress Tasks (WIP)`.
+        - `In Review`: Pull Request opened with CI checks running and code reviews in progress. Mirrored in `docs/agent/task.md`.
+        - `Done`: Pull Request squash-merged by maintainer into release branch, remote CI verified, and issue closed.
+      - **Zero Disconnected PRs**: Every PR MUST link to an active tracking issue (`Closes #<id>`, `Fixes #<id>`), be added as a project item to the project board, and possess taxonomy labels (`type/*`, `scope/*`) so that its custom fields (`Category`, `Value`, `Effort`) are data-driven and automatically populated.
+    - **Active Triage & Quality Queue Monitoring**: AI agents must routinely inspect and populate the *Triage & Quality Table* (`type/bug`, `status/blocked`, `status/triage`) to promptly triage, remediate, and track incoming bugs, review findings, and pipeline failures.
     - **OAuth Scope Diagnostics & Offline Validation**: When the local GitHub token lacks `project` or `read:project` scopes, instruct the user to authorize via `gh auth refresh -s project,read:project`, while validating template integrity offline via `devops gh project status`, `devops gh views list`, `devops gh views spec`, and `devops gh project sync --dry-run`.
     - **Zero Empty Projects & Views State**: The repository's Projects tab (`https://github.com/dan-petty/devops-cli/projects`) and issue views queue (`https://github.com/dan-petty/devops-cli/issues/views`) must NEVER be left unlinked or empty during active release development.
     - Never invent ad-hoc status tags or unregistered labels outside `.github/labels.yml` and `.github/project-template.json`.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from devops_cli.ai.ast.engine import EXT_TO_LANG, TreeSitterEngine
@@ -35,17 +36,44 @@ def _collect_target_files(root_dir: Path, max_files: int) -> list[Path]:
     return files
 
 
+def _read_file_lines(path_str: str) -> list[str]:
+    try:
+        p = Path(path_str)
+        if p.is_file():
+            return p.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        pass
+    return []
+
+
+def _extract_symbol_body(sym: PolyglotSymbol, file_lines: list[str]) -> str:
+    """Extract symbol body text excluding signature declaration line."""
+    if not file_lines:
+        return sym.docstring
+    lines = file_lines[sym.span.line_start - 1 : sym.span.line_end]
+    if len(lines) > 1:
+        return "\n".join(lines[1:])
+    return "\n".join(lines)
+
+
+def _is_call_in_body(target_name: str, body: str) -> bool:
+    return bool(re.search(rf"\b{re.escape(target_name)}\s*\(", body))
+
+
 def _link_call_edges(
     nodes: dict[str, PolyglotSymbol],
     file_map: PolyglotFileMap,
 ) -> list[CodeGraphEdge]:
     edges: list[CodeGraphEdge] = []
     symbol_names = {sym.name: k for k, sym in nodes.items()}
+    file_lines = _read_file_lines(file_map.path)
 
     for sym in file_map.symbols:
-        # Check if symbol calls or references any other discovered symbol
+        body = _extract_symbol_body(sym, file_lines)
+        if not body:
+            continue
         for target_name, target_key in symbol_names.items():
-            if target_name != sym.name and target_name in sym.signature:
+            if target_name != sym.name and _is_call_in_body(target_name, body):
                 edges.append(
                     CodeGraphEdge(
                         source_symbol=f"{file_map.path}::{sym.name}",

@@ -181,3 +181,56 @@ def test_pr_threads_error_handling() -> None:
     with patch("devops_cli.github.pr_threads.run_subprocess", return_value=mock_res):
         with pytest.raises(GitHubOperationError, match="GraphQL error"):
             resolve_pr_review_thread("INVALID_ID")
+
+
+def test_list_pr_review_threads_pagination() -> None:
+    """Verify list_pr_review_threads walks through paginated GraphQL pages."""
+    page_1 = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": True, "endCursor": "cursor_1"},
+                        "nodes": [
+                            {
+                                "id": "PRRT_1",
+                                "isResolved": False,
+                                "path": "a.py",
+                                "line": 1,
+                                "comments": {"nodes": []},
+                            }
+                        ],
+                    }
+                }
+            }
+        }
+    }
+    page_2 = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [
+                            {
+                                "id": "PRRT_2",
+                                "isResolved": True,
+                                "path": "b.py",
+                                "line": 2,
+                                "comments": {"nodes": []},
+                            }
+                        ],
+                    }
+                }
+            }
+        }
+    }
+
+    mock_res_1 = MagicMock(returncode=0, stdout=json.dumps(page_1))
+    mock_res_2 = MagicMock(returncode=0, stdout=json.dumps(page_2))
+
+    with patch("devops_cli.github.pr_threads.run_subprocess", side_effect=[mock_res_1, mock_res_2]):
+        threads = list_pr_review_threads(owner="dan-petty", repo="devops-cli", pr_number=86)
+        assert len(threads) == 2
+        assert threads[0].id == "PRRT_1"
+        assert threads[1].id == "PRRT_2"

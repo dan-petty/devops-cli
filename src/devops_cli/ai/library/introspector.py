@@ -65,7 +65,11 @@ def _extract_parameter(param: inspect.Parameter) -> ParameterSignature:
 def extract_function_signature(fn: Any) -> FunctionSignature:
     """Extract a standardized FunctionSignature from any callable or method."""
     name = getattr(fn, "__name__", str(fn))
-    qualname = getattr(fn, "__qualname__", name)
+    raw_qualname = getattr(fn, "__qualname__", name)
+    mod = getattr(fn, "__module__", None)
+    qualname = (
+        f"{mod}.{raw_qualname}" if mod and not raw_qualname.startswith(f"{mod}.") else raw_qualname
+    )
     docstring = inspect.getdoc(fn)
     is_async = inspect.iscoroutinefunction(fn) or inspect.isasyncgenfunction(fn)
     is_generator = inspect.isgeneratorfunction(fn) or inspect.isasyncgenfunction(fn)
@@ -117,7 +121,11 @@ def _extract_methods_and_props(
 def extract_class_signature(cls: type) -> ClassSignature:
     """Extract a standardized ClassSignature from a Python class definition."""
     name = cls.__name__
-    qualname = getattr(cls, "__qualname__", name)
+    raw_qualname = getattr(cls, "__qualname__", name)
+    mod = getattr(cls, "__module__", None)
+    qualname = (
+        f"{mod}.{raw_qualname}" if mod and not raw_qualname.startswith(f"{mod}.") else raw_qualname
+    )
     bases = [b.__name__ for b in cls.__bases__ if b is not object]
     docstring = inspect.getdoc(cls)
     methods, properties = _extract_methods_and_props(cls)
@@ -183,25 +191,31 @@ def _extract_module_symbols(
 
 
 def _discover_submodules(root_module: ModuleType, max_depth: int) -> list[ModuleType]:
-    """Discover and import submodules up to max_depth."""
+    """Discover and import submodules up to max_depth using iterative BFS."""
     if max_depth <= 0 or not hasattr(root_module, "__path__"):
         return []
 
     discovered: list[ModuleType] = []
-    prefix = f"{root_module.__name__}."
+    queue: list[tuple[ModuleType, int]] = [(root_module, 1)]
+    visited: set[str] = {root_module.__name__}
 
-    for _, sub_name, _ in pkgutil.iter_modules(root_module.__path__, prefix=prefix):
-        leaf = sub_name.rsplit(".", 1)[-1]
-        if leaf.startswith("_"):
+    while queue:
+        curr_mod, depth = queue.pop(0)
+        if not hasattr(curr_mod, "__path__"):
             continue
-        depth = sub_name.count(".") - root_module.__name__.count(".")
-        if depth > max_depth:
-            continue
-        try:
-            sub_mod = importlib.import_module(sub_name)
-            discovered.append(sub_mod)
-        except Exception:
-            continue
+        prefix = f"{curr_mod.__name__}."
+        for _, sub_name, is_pkg in pkgutil.iter_modules(curr_mod.__path__, prefix=prefix):
+            parts = sub_name.split(".")
+            if any(part.startswith("_") for part in parts) or sub_name in visited:
+                continue
+            visited.add(sub_name)
+            try:
+                sub_mod = importlib.import_module(sub_name)
+                discovered.append(sub_mod)
+                if is_pkg and depth < max_depth and hasattr(sub_mod, "__path__"):
+                    queue.append((sub_mod, depth + 1))
+            except Exception:
+                continue
 
     return discovered
 

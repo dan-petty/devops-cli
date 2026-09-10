@@ -266,9 +266,8 @@ class GitHubClient:
         from devops_cli.github.issues import get_repository_issues
 
         m_str = str(milestone) if milestone is not None else None
-        lbl_str = labels[0] if labels else None
         issues = get_repository_issues(
-            repo, state=state, milestone=m_str, label=lbl_str, limit=limit
+            repo, state=state, milestone=m_str, labels=labels, limit=limit
         )
         return [issue.model_dump() for issue in issues]
 

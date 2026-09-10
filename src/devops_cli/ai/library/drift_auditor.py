@@ -165,18 +165,38 @@ def _evaluate_call_symbol(
     return findings
 
 
+def _extract_from_import_node(
+    node: ast.ImportFrom, contracts: dict[str, LibraryContract]
+) -> dict[str, tuple[str, str]]:
+    if not node.module:
+        return {}
+    root_pkg = node.module.split(".")[0]
+    if root_pkg not in contracts:
+        return {}
+    return {(alias.asname or alias.name): (root_pkg, alias.name) for alias in node.names}
+
+
+def _extract_plain_import_node(
+    node: ast.Import, contracts: dict[str, LibraryContract]
+) -> dict[str, tuple[str, str]]:
+    res: dict[str, tuple[str, str]] = {}
+    for alias in node.names:
+        root_pkg = alias.name.split(".")[0]
+        if root_pkg in contracts:
+            res[alias.asname or alias.name] = (root_pkg, alias.name)
+    return res
+
+
 def _extract_imported_symbols(
     tree: ast.AST, contracts: dict[str, LibraryContract]
 ) -> dict[str, tuple[str, str]]:
     # maps local_alias -> (package_name, original_name)
     imported: dict[str, tuple[str, str]] = {}
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            root_pkg = node.module.split(".")[0]
-            if root_pkg in contracts:
-                for alias in node.names:
-                    local_name = alias.asname or alias.name
-                    imported[local_name] = (root_pkg, alias.name)
+        if isinstance(node, ast.ImportFrom):
+            imported.update(_extract_from_import_node(node, contracts))
+        elif isinstance(node, ast.Import):
+            imported.update(_extract_plain_import_node(node, contracts))
     return imported
 
 
@@ -187,7 +207,10 @@ def _resolve_call_target(
         return imported.get(node.func.id)
     if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
         parent_pkg = node.func.value.id
-        if (parent_pkg, parent_pkg) in imported.values() or parent_pkg in imported:
+        if parent_pkg in imported:
+            root_pkg, _ = imported[parent_pkg]
+            return (root_pkg, node.func.attr)
+        if (parent_pkg, parent_pkg) in imported.values():
             return (parent_pkg, node.func.attr)
     return None
 

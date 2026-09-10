@@ -475,3 +475,29 @@ def test_discover_submodules_skips_private_and_main(monkeypatch: pytest.MonkeyPa
     assert discovered[0].__name__ == "dummy_pkg.sub"
     assert "dummy_pkg.__main__" not in imported_names
     assert "dummy_pkg._private" not in imported_names
+
+
+def test_index_doc_chunks_namespaced_point_ids() -> None:
+    mock_qdrant = MagicMock()
+    mock_qdrant.get_collection_info.return_value = {"status": "green"}
+    store = LibraryVectorStore(qdrant_client=mock_qdrant)
+    chunk = DocChunk(
+        chunk_id="intro_001",
+        title="Introduction",
+        content="Welcome to the library docs.",
+        source="https://docs.example.com",
+    )
+    count = store.index_doc_chunks([chunk], package_name="demo-pkg")
+    assert count == 1
+    mock_qdrant.upsert_points.assert_called_once()
+    called_points = mock_qdrant.upsert_points.call_args[1]["points"]
+    assert called_points[0]["id"] == "demo-pkg:intro_001"
+
+
+def test_valkey_symbol_cache_namespacing() -> None:
+    mock_valkey = MagicMock()
+    mock_valkey.get.return_value = None
+    store = LibraryVectorStore(valkey_client=mock_valkey)
+    store.lookup_symbol("fetch_data", package="my_lib")
+    first_call_key = mock_valkey.get.call_args_list[0][0][0]
+    assert first_call_key == "symbol:my_lib:fetch_data"

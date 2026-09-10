@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.ast.fallback import FallbackASTParser
-from devops_cli.ai.ast.models import PolyglotFileMap
+from devops_cli.ai.ast.models import CodeSpan, PolyglotFileMap, PolyglotSymbol, SymbolKind
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,52 @@ def detect_language(path: Path | str) -> str | None:
     """Infer canonical programming language identifier from file extension."""
     suffix = Path(path).suffix.lower()
     return EXT_TO_LANG.get(suffix)
+
+
+NATIVE_KIND_MAP: dict[str, SymbolKind] = {
+    "function_definition": SymbolKind.FUNCTION,
+    "function_declaration": SymbolKind.FUNCTION,
+    "function_item": SymbolKind.FUNCTION,
+    "class_definition": SymbolKind.CLASS,
+    "class_declaration": SymbolKind.CLASS,
+    "struct_item": SymbolKind.STRUCT,
+    "trait_item": SymbolKind.INTERFACE,
+    "interface_declaration": SymbolKind.INTERFACE,
+    "method_definition": SymbolKind.METHOD,
+    "method_declaration": SymbolKind.METHOD,
+}
+
+
+def _matches_sexpr_filter(sym: PolyglotSymbol, query_sexpr: str) -> bool:
+    """Filter polyglot symbols based on S-expression query intent."""
+    q = query_sexpr.lower()
+    targets: set[str] = set()
+    if "function" in q or "func" in q:
+        targets.update(["function", "method"])
+    if "class" in q:
+        targets.add("class")
+    if "interface" in q:
+        targets.add("interface")
+    if "struct" in q:
+        targets.add("struct")
+    if "method" in q:
+        targets.add("method")
+    if "type" in q:
+        targets.add("type")
+    if "constant" in q or "const" in q:
+        targets.add("constant")
+
+    return sym.kind.value in targets if targets else True
+
+
+def _extract_node_name(node: Any) -> str:
+    name_node = getattr(node, "child_by_field_name", lambda _: None)("name")
+    if name_node and hasattr(name_node, "text"):
+        return str(name_node.text.decode("utf-8"))
+    for ch in getattr(node, "children", []):
+        if getattr(ch, "type", "") == "identifier" and hasattr(ch, "text"):
+            return str(ch.text.decode("utf-8"))
+    return ""
 
 
 class TreeSitterEngine:
@@ -99,6 +145,41 @@ class TreeSitterEngine:
                 logger.debug("Native tree-sitter load error for %s: %s", lang, exc)
                 return None
 
+    def _extract_native_symbols(self, tree: Any, code: str, lang: str) -> list[PolyglotSymbol]:
+        """Extract polyglot symbols from a native Tree-Sitter tree."""
+        symbols: list[PolyglotSymbol] = []
+        lines = code.splitlines()
+
+        stack: list[tuple[Any, str | None]] = [(tree.root_node, None)]
+        while stack:
+            curr, scope = stack.pop()
+            node_type = getattr(curr, "type", "")
+            next_scope = scope
+            if node_type in NATIVE_KIND_MAP:
+                name = _extract_node_name(curr)
+                if name:
+                    start_pt = getattr(curr, "start_point", (0, 0))
+                    end_pt = getattr(curr, "end_point", (0, 0))
+                    sig = lines[start_pt[0]].strip() if start_pt[0] < len(lines) else ""
+                    kind = NATIVE_KIND_MAP[node_type]
+                    symbols.append(
+                        PolyglotSymbol(
+                            name=name,
+                            kind=kind,
+                            span=CodeSpan(line_start=start_pt[0] + 1, line_end=end_pt[0] + 1),
+                            signature=sig,
+                            language=lang,
+                            parent_scope=scope,
+                        )
+                    )
+                    if kind in (SymbolKind.CLASS, SymbolKind.INTERFACE, SymbolKind.STRUCT):
+                        next_scope = name
+
+            for child in reversed(getattr(curr, "children", [])):
+                stack.append((child, next_scope))
+
+        return symbols
+
     def parse_code(
         self,
         code: str,
@@ -107,7 +188,22 @@ class TreeSitterEngine:
     ) -> PolyglotFileMap:
         """Parse source code string into PolyglotFileMap."""
         lang = self._resolve_lang(language_or_ext)
-        # Always fallback cleanly if native grammar is absent or on syntax error
+        pair = self._load_native_parser(lang)
+        if pair is not None:
+            parser, _ = pair
+            try:
+                tree = parser.parse(bytes(code, "utf-8"))
+                symbols = self._extract_native_symbols(tree, code, lang)
+                if symbols:
+                    return PolyglotFileMap(
+                        path=path,
+                        language=lang,
+                        symbols=symbols,
+                        line_count=len(code.splitlines()) if code else 0,
+                        parse_engine="tree-sitter",
+                    )
+            except Exception as exc:
+                logger.debug("Native parse failed for %s, falling back: %s", lang, exc)
         return self._fallback.parse(path, code, lang)
 
     def parse_file(self, file_path: Path) -> PolyglotFileMap | None:
@@ -148,18 +244,43 @@ class TreeSitterEngine:
     ) -> list[dict[str, Any]]:
         """Execute S-expression or structural query across code symbols."""
         lang = self._resolve_lang(language_or_ext)
-        file_map = self.parse_code(code, lang)
-        matches: list[dict[str, Any]] = []
+        pair = self._load_native_parser(lang)
+        if pair is not None:
+            _, ts_lang = pair
+            try:
+                query = ts_lang.query(query_sexpr)
+                # Parse raw CST for captures
+                parser, _ = pair
+                cst = parser.parse(bytes(code, "utf-8"))
+                captures = query.captures(cst.root_node)
+                matches: list[dict[str, Any]] = []
+                for node, capture_name in captures:
+                    text = node.text.decode("utf-8") if hasattr(node, "text") else str(node)
+                    line = node.start_point[0] + 1 if hasattr(node, "start_point") else 1
+                    matches.append(
+                        {
+                            "symbol": text,
+                            "kind": capture_name,
+                            "line": line,
+                            "signature": text,
+                            "query": query_sexpr,
+                        }
+                    )
+                return matches
+            except Exception as exc:
+                logger.debug("Native query failed for %s, falling back: %s", lang, exc)
 
-        # When running native or fallback, extract captured symbol identifiers
+        file_map = self.parse_code(code, lang)
+        matches = []
         for sym in file_map.symbols:
-            matches.append(
-                {
-                    "symbol": sym.name,
-                    "kind": sym.kind.value,
-                    "line": sym.span.line_start,
-                    "signature": sym.signature,
-                    "query": query_sexpr,
-                }
-            )
+            if _matches_sexpr_filter(sym, query_sexpr):
+                matches.append(
+                    {
+                        "symbol": sym.name,
+                        "kind": sym.kind.value,
+                        "line": sym.span.line_start,
+                        "signature": sym.signature,
+                        "query": query_sexpr,
+                    }
+                )
         return matches

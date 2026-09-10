@@ -48,6 +48,32 @@ def test_infer_item_category_value_effort() -> None:
     assert eff == "Medium"
 
 
+def test_infer_item_category_value_effort_from_labels() -> None:
+    # type/security -> Quick Win, High, Low
+    cat, val, eff = infer_item_category_value_effort(
+        "Custom Secret Tool", "P2-Medium", labels=["type/security"]
+    )
+    assert cat == "Quick Win"
+    assert val == "High"
+    assert eff == "Low"
+
+    # type/docs -> Fill-In, Medium, Low
+    cat, val, eff = infer_item_category_value_effort(
+        "Update User Manual", "P2-Medium", labels=["type/docs"]
+    )
+    assert cat == "Fill-In"
+    assert val == "Medium"
+    assert eff == "Low"
+
+    # type/feature -> Major Project, High, High
+    cat, val, eff = infer_item_category_value_effort(
+        "Polyglot Engine", "P1-High", labels=[{"name": "type/feature"}]
+    )
+    assert cat == "Major Project"
+    assert val == "High"
+    assert eff == "High"
+
+
 def test_reconcile_project_custom_fields_dry_run() -> None:
     res = reconcile_project_custom_fields(
         owner="dan-petty",

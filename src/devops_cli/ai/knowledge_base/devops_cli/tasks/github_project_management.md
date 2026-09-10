@@ -135,22 +135,33 @@ devops gh milestones close v0.2.14
    - Every open issue must have at least one `type/*` label, at least one `scope/*` label, and an assigned `priority/*` label (`priority/p0-critical` through `priority/p3-low`).
    - Every feature or defect issue must link to the active release milestone (`--milestone "v<version>"`).
    - Regularly execute `devops gh issues triage` to catch issues missing labels or milestones.
-3. **Projects v2 Board Linkage & Issues Views Item State Transitions (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**:
+3. **Mandatory GitHub Projects v2 Session Bootstrap & Task-to-Issue Grounding**:
+   - At the beginning of every session or upon receiving any user task, AI agents must inspect board status via `devops gh project status` (or FastMCP `gh_project_status`) and triage health via `devops gh issues triage` (or FastMCP `gh_issue_triage`).
+   - Ground every user task to a corresponding GitHub Issue and Project Item.
+   - If an open issue exists: verify milestone and taxonomy labels, and transition its project card to `In Progress` prior to authoring code edits.
+   - If no issue exists: immediately author a formal tracking issue (`gh issue create` or FastMCP `gh_issue_create`), apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`, `status/in-progress`), link the active milestone, and synchronize into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`).
+4. **Projects v2 Board Linkage & Real-Time Card Lifecycle Transitions**:
    - Ensure the project board is linked to the repository via `devops gh project link <number>`, surfacing the project board under `https://github.com/dan-petty/devops-cli/projects` and its 4 canonical views under `https://github.com/dan-petty/devops-cli/issues/views`.
-   - Populate all 6 custom project fields (`Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`) for each issue and PR card.
+   - Maintain bidirectional synchronization between `docs/agent/task.md` and GitHub Projects v2 across the 5 canonical lifecycle states:
+     - `Backlog`: Queued deliverables and roadmap milestones awaiting assignment.
+     - `Ready`: Scoped items with concrete acceptance criteria and tests designed.
+     - `In Progress (WIP)`: Active implementation. **Move card to `In Progress` BEFORE making code edits in `src/`**.
+     - `In Review`: Pull Request opened with automated review and CI checks running.
+     - `Done`: PR squash-merged, remote CI checks green, and issue closed.
    - Run `devops gh project audit` and `devops gh views audit` to detect missing fields, invalid options, or misconfigured view filters.
-   - When beginning a task: transition card from `Backlog` to `In Progress`.
-   - When PR is submitted: transition card to `In Review`.
-   - When PR is merged: transition card to `Done`.
-4. **Active Milestone Resource Population & Zero-Empty Queue/Projects Policy**:
+5. **Data-Driven Custom Field Reconciliation (`devops gh project sync`)**:
+   - Enforce enrichment of all 6 custom project fields (`Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`) for every issue and PR card.
+   - Reconcile project item custom fields using declarative taxonomy mappings (`infer_item_category_value_effort` mapping `type/*` and `priority/*` to strategic categories, business value, and engineering effort).
+   - Run `devops gh project sync` (or FastMCP `gh_project_sync`) after creating issues, pushing branches, or opening PRs to keep project views fully updated.
+6. **Active Milestone Resource Population & Zero-Empty Queue/Projects Policy**:
    - When initializing a new release branch or activating a milestone, AI agents must proactively author GitHub tracking issues for every planned deliverable in `docs/ROADMAP.md`.
    - The open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) must never be left empty during an active release cycle.
    - Each issue must follow Conventional Commits (`feat(<scope>): ...`), assign the milestone (`vX.Y.Z`), and include mandatory taxonomy labels (`type/*`, `scope/*`, `priority/*`).
-5. **Strict Remote Branch Lifecycle & PR Governance**:
+7. **Strict Remote Branch Lifecycle & PR Governance**:
    - Every remote topic branch on `origin` must have an associated open PR targeting the active release branch or `main`.
    - Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`).
    - Orphan remote branches are strictly prohibited.
-6. **Mandatory Defect & Incident Tracking on CLI Errors/Warnings**:
+8. **Mandatory Defect & Incident Tracking on CLI Errors/Warnings**:
    - Whenever an AI agent or developer encounters an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior while executing `devops` CLI commands, they must immediately file a formal bug issue via `gh issue create` (using `.github/ISSUE_TEMPLATE/bug_report.yml`).
    - Title follows Conventional Commits: `fix(<scope>): <concise description>`.
    - Apply mandatory taxonomy labels: `type/bug`, appropriate `scope/*`, `priority/*`, and `status/triage` (or `status/in-progress`).

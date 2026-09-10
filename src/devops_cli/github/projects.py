@@ -498,22 +498,68 @@ def infer_item_status(state: str, labels: list[Any]) -> str:
     return "Todo"
 
 
-def infer_item_category_value_effort(title: str, priority: str) -> tuple[str, str, str]:
+TAXONOMY_CATEGORY_MAPPING: dict[str, tuple[str, str, str]] = {
+    "type/feature": ("Major Project", "High", "High"),
+    "type/security": ("Quick Win", "High", "Low"),
+    "type/bug": ("Quick Win", "High", "Low"),
+    "type/refactor": ("Foundation", "High", "Medium"),
+    "type/infra": ("Foundation", "High", "Medium"),
+    "type/test": ("Foundation", "Medium", "Medium"),
+    "type/docs": ("Fill-In", "Medium", "Low"),
+    "type/chore": ("Fill-In", "Low", "Low"),
+}
+
+PRIORITY_CATEGORY_MAPPING: dict[str, tuple[str, str, str]] = {
+    "P0-Critical": ("Quick Win", "High", "Low"),
+    "P1-High": ("Foundation", "High", "Medium"),
+    "P2-Medium": ("Fill-In", "Medium", "Medium"),
+    "P3-Low": ("Fill-In", "Low", "Low"),
+}
+
+
+def _match_taxonomy_labels(labels: list[Any], priority: str) -> tuple[str, str, str] | None:
+    """Classify Project Category, Value, Effort from issue/PR taxonomy labels."""
+    label_names = [lbl.get("name", "") if isinstance(lbl, dict) else str(lbl) for lbl in labels]
+    for name in label_names:
+        n_lower = name.lower()
+        for type_key, mapping in TAXONOMY_CATEGORY_MAPPING.items():
+            if type_key in n_lower:
+                if priority in ("P0-Critical", "P1-High") and "bug" in n_lower:
+                    return "Quick Win", "High", "Low"
+                return mapping
+    return None
+
+
+def infer_item_category_value_effort(
+    title: str, priority: str, labels: list[Any] | None = None
+) -> tuple[str, str, str]:
     """Infer Category, Value, and Effort for GitHub Projects v2 custom fields."""
-    t = title.lower()
-    if any(k in t for k in ("tree-sitter", "ast graph", "observability", "loki", "daemon")):
-        return "Major Project", "High", "High"
-    if any(k in t for k in ("fastmcp", "mcp", "prompt grounding", "contract")):
-        return "Quick Win", "High", "Low"
-    if any(k in t for k in ("vector", "store", "tier", "valkey", "ingest", "cache")):
-        return "Foundation", "High", "Medium"
-    if any(k in t for k in ("drift", "auditor", "usage", "docs", "chore")):
-        return "Fill-In", "Medium", "Medium"
+    if labels:
+        matched = _match_taxonomy_labels(labels, priority)
+        if matched is not None:
+            return matched
+
     if priority == "P0-Critical":
         return "Quick Win", "High", "Low"
-    if priority == "P1-High":
-        return "Foundation", "High", "Medium"
-    return "Fill-In", "Medium", "Medium"
+
+    t = title.lower()
+    title_rules: list[tuple[tuple[str, ...], tuple[str, str, str]]] = [
+        (
+            ("tree-sitter", "ast graph", "observability", "loki", "daemon"),
+            ("Major Project", "High", "High"),
+        ),
+        (("fastmcp", "mcp", "prompt grounding", "contract"), ("Quick Win", "High", "Low")),
+        (
+            ("vector", "store", "tier", "valkey", "ingest", "cache"),
+            ("Foundation", "High", "Medium"),
+        ),
+        (("drift", "auditor", "usage", "docs", "chore"), ("Fill-In", "Medium", "Medium")),
+    ]
+    for keywords, mapping in title_rules:
+        if any(k in t for k in keywords):
+            return mapping
+
+    return PRIORITY_CATEGORY_MAPPING.get(priority, ("Fill-In", "Medium", "Medium"))
 
 
 def _fetch_repository_prs(repo: str) -> list[dict[str, Any]]:
@@ -576,7 +622,7 @@ def _reconcile_single_item(
 
     priority = infer_item_priority(labels)
     status = infer_item_status(state, labels)
-    category, val, eff = infer_item_category_value_effort(title, priority)
+    category, val, eff = infer_item_category_value_effort(title, priority, labels=labels)
 
     if dry_run:
         return True

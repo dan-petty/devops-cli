@@ -197,3 +197,30 @@ def test_cli_audit_library_usage(tmp_path: Path) -> None:
     data = json.loads(res.output)
     assert data["files_scanned"] == 1
     assert data["breaking_count"] == 0
+
+
+def test_drift_auditor_handles_module_import_and_alias(tmp_path: Path) -> None:
+    """Verify drift auditor catches calls from `import pkg` and `import pkg as alias`."""
+    contracts_dir = tmp_path / "libraries"
+    _create_mock_contract(contracts_dir, "demolib")
+
+    code = """
+import demolib
+import demolib as d
+
+def run():
+    a = demolib.compute(x=10, mode="turbo")
+    b = d.legacy_calc(val=99)
+    return a, b
+"""
+    ws_dir = tmp_path / "workspace"
+    ws_dir.mkdir()
+    (ws_dir / "app.py").write_text(code)
+
+    auditor = LibraryDriftAuditor(contracts_dir=contracts_dir)
+    report = auditor.audit_workspace(ws_dir)
+
+    assert report.files_scanned == 1
+    assert report.total_calls_checked >= 2
+    assert report.warning_count >= 1
+    assert any(f.symbol == "legacy_calc" for f in report.findings)

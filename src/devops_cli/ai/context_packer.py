@@ -246,21 +246,51 @@ def _handle_syntax_fallback(code: str, orig_tokens: int, cfg: PackingConfig) -> 
     )
 
 
+def _strip_docstrings_from_node(node: ast.AST) -> None:
+    """Remove docstring expressions from functions, classes, and module."""
+    for child in ast.walk(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)):
+            if child.body and isinstance(child.body[0], ast.Expr):
+                val = getattr(child.body[0], "value", None)
+                if isinstance(val, ast.Constant) and isinstance(val.value, str):
+                    child.body = child.body[1:] if len(child.body) > 1 else [_make_ellipsis_expr()]
+
+
+def _prune_tree_to_budget(tree: ast.Module, max_tokens: int, pruned: list[str]) -> tuple[str, bool]:
+    """Prune AST body nodes from the end until unparsed code fits within max_tokens."""
+    unparsed = ast.unparse(tree)
+    if count_tokens(unparsed) <= max_tokens:
+        return unparsed, False
+
+    # Step 1: Strip docstrings first to preserve interface structure
+    _strip_docstrings_from_node(tree)
+    unparsed = ast.unparse(tree)
+    if count_tokens(unparsed) <= max_tokens:
+        return unparsed, True
+
+    # Step 2: Progressively prune body statements from the end
+    while tree.body and count_tokens(unparsed) > max_tokens:
+        removed = tree.body.pop()
+        rem_name = getattr(removed, "name", type(removed).__name__)
+        pruned.append(rem_name)
+        unparsed = ast.unparse(tree) if tree.body else ""
+
+    if not unparsed:
+        unparsed = "# [Code truncated due to token budget]"
+
+    return unparsed, True
+
+
 def _finalize_packed_ast(
-    unparsed: str,
+    tree: ast.Module,
     orig_tokens: int,
     cfg: PackingConfig,
     pruned: list[str],
     preserved: list[str],
 ) -> PackedContext:
-    """Finalize unparsed AST into PackedContext enforcing token budget."""
-    truncated = False
+    """Finalize AST into PackedContext by pruning statements to fit token budget."""
+    unparsed, truncated = _prune_tree_to_budget(tree, cfg.max_tokens, pruned)
     packed_tokens = count_tokens(unparsed)
-    if packed_tokens > cfg.max_tokens:
-        unparsed = truncate_to_token_limit(unparsed, cfg.max_tokens)
-        packed_tokens = count_tokens(unparsed)
-        truncated = True
-
     ratio = max(0.0, (orig_tokens - packed_tokens) / max(1, orig_tokens))
     return PackedContext(
         content=unparsed,
@@ -297,7 +327,7 @@ class ContextPacker:
         preserved: list[str] = []
         ref_set = set(referenced_symbols or ())
         tree.body = _build_pruned_ast_body(tree, ref_set, cfg, pruned, preserved)
-        return _finalize_packed_ast(ast.unparse(tree), orig_tokens, cfg, pruned, preserved)
+        return _finalize_packed_ast(tree, orig_tokens, cfg, pruned, preserved)
 
     def pack_file(
         self,
@@ -321,7 +351,7 @@ class ContextPacker:
         if not snippets:
             return []
 
-        per_item_budget = max(50, total_budget // len(snippets))
+        per_item_budget = max(1, total_budget // len(snippets))
         base_cfg = config or self.config
         results: list[PackedContext] = []
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
@@ -225,3 +226,29 @@ def test_cli_pack_context_plain(tmp_path: Path) -> None:
     assert res.exit_code == 0
     assert "def get_user" in res.stdout
     assert "public_api_function" in res.stdout
+
+
+def test_pack_code_syntactically_valid_under_strict_budget() -> None:
+    """Verify that AST statement pruning produces syntactically valid Python even with tight token limits."""
+    packer = ContextPacker()
+    packed = packer.pack_code(SAMPLE_PYTHON_CODE, config=PackingConfig(max_tokens=40))
+
+    assert isinstance(packed, PackedContext)
+    assert packed.packed_tokens <= 40
+    # Must be 100% valid Python syntax without SyntaxError
+    parsed = ast.parse(packed.content)
+    assert parsed is not None
+
+
+def test_pack_snippets_small_budget_never_exceeds_total() -> None:
+    """Verify that pack_snippets never violates small total_budget contracts."""
+    packer = ContextPacker()
+    snippets = [
+        ("a.py", SAMPLE_PYTHON_CODE),
+        ("b.py", SAMPLE_PYTHON_CODE),
+        ("c.py", SAMPLE_PYTHON_CODE),
+    ]
+    results = packer.pack_snippets(snippets, total_budget=60)
+    assert len(results) == 3
+    total_packed = sum(r.packed_tokens for r in results)
+    assert total_packed <= 60

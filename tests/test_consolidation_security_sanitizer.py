@@ -213,7 +213,10 @@ def test_sanitize_command_args_for_display() -> None:
         "login",
         "--token",
         "secret-token-12345",
+        "--token=inline-token-99999",
         "--password=mysecretpassword",
+        "--api-key=key-abcdef12345",
+        "-p=shortsecret",
         "--verbose",
         "status",
     ]
@@ -223,7 +226,10 @@ def test_sanitize_command_args_for_display() -> None:
         "login",
         "--token",
         "<masked>",
+        "--token=<masked>",
         "--password=<masked>",
+        "--api-key=<masked>",
+        "-p=<masked>",
         "--verbose",
         "status",
     ]

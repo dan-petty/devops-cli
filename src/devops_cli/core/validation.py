@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import ipaddress
 import os
 import re
@@ -41,9 +42,34 @@ def is_non_public_ip(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> boo
     return not addr.is_global
 
 
+def _resolve_host_ips(
+    host: str,
+    port: int | None = None,
+    timeout: float = DEFAULT_DNS_TIMEOUT_SECONDS,
+) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Resolve hostname to IP addresses with bounded timeout without mutating global socket state."""
+    effective_port = port or 0
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                socket.getaddrinfo, host, effective_port, type=socket.SOCK_STREAM
+            )
+            addrinfos = future.result(timeout=timeout)
+    except Exception:
+        return []
+
+    resolved: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    for a in addrinfos:
+        try:
+            resolved.append(ipaddress.ip_address(a[4][0]))
+        except ValueError, IndexError:
+            continue
+    return resolved
+
+
 def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) -> bool:
     """Return True if host or IP string resolves to loopback, link-local, private, or non-global space."""
-    clean = host_or_ip.strip().lower()
+    clean = host_or_ip.strip().lower().strip("[]")
     if not clean:
         return True
     if clean in _LOOPBACK_AND_LOCAL_HOSTS or clean.endswith(".local"):
@@ -57,21 +83,8 @@ def is_loopback_or_private_host(host_or_ip: str, *, resolve_dns: bool = True) ->
     if not resolve_dns:
         return False
 
-    old_timeout = socket.getdefaulttimeout()
-    try:
-        socket.setdefaulttimeout(DEFAULT_DNS_TIMEOUT_SECONDS)
-        addrinfos = socket.getaddrinfo(clean, None, type=socket.SOCK_STREAM)
-        resolved: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
-        for a in addrinfos:
-            try:
-                resolved.append(ipaddress.ip_address(a[4][0]))
-            except ValueError:
-                continue
-        return bool(resolved and any(is_non_public_ip(ip) for ip in resolved))
-    except socket.gaierror, TimeoutError, OSError:
-        return False
-    finally:
-        socket.setdefaulttimeout(old_timeout)
+    resolved = _resolve_host_ips(clean)
+    return bool(resolved and any(is_non_public_ip(ip) for ip in resolved))
 
 
 def validate_url_egress(
@@ -103,8 +116,25 @@ def validate_url_egress(
     if not host:
         raise error_cls(f"Invalid {purpose} URL: missing valid hostname in '{url}'")
 
-    if not allow_private and is_loopback_or_private_host(host, resolve_dns=True):
-        raise error_cls(f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}")
+    if not allow_private:
+        try:
+            addr = ipaddress.ip_address(host)
+            if is_non_public_ip(addr):
+                raise error_cls(
+                    f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}"
+                )
+        except ValueError:
+            if host in _LOOPBACK_AND_LOCAL_HOSTS or host.endswith(".local"):
+                raise error_cls(
+                    f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}"
+                )
+            resolved_ips = _resolve_host_ips(host)
+            if not resolved_ips:
+                raise error_cls(f"DNS resolution failed or timed out for {purpose} URL: {host}")
+            if any(is_non_public_ip(ip) for ip in resolved_ips):
+                raise error_cls(
+                    f"{purpose.capitalize()} URL resolves to private or reserved IP: {host}"
+                )
     return clean_url
 
 
@@ -128,27 +158,15 @@ def _enforce_non_private_ssrf(
             )
         return
 
-    old_timeout = socket.getdefaulttimeout()
-    try:
-        socket.setdefaulttimeout(DEFAULT_DNS_TIMEOUT_SECONDS)
-        effective_port = port or (443 if scheme == "https" else 80)
-        addrinfos = socket.getaddrinfo(host, effective_port, type=socket.SOCK_STREAM)
-    except socket.gaierror, TimeoutError, OSError:
+    effective_port = port or (443 if scheme == "https" else 80)
+    resolved_ips = _resolve_host_ips(host, port=effective_port)
+    if not resolved_ips:
         raise SSRFBlockedError(
             url,
             reason=f"DNS resolution failed or timed out for {purpose} URL",
         )
-    finally:
-        socket.setdefaulttimeout(old_timeout)
 
-    resolved_ips: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
-    for addrinfo in addrinfos:
-        try:
-            resolved_ips.append(ipaddress.ip_address(addrinfo[4][0]))
-        except ValueError:
-            continue
-
-    if not resolved_ips or any(is_non_public_ip(ip) for ip in resolved_ips):
+    if any(is_non_public_ip(ip) for ip in resolved_ips):
         raise SSRFBlockedError(
             url, reason=MESSAGES.messages.refusing_non_public_url.format(purpose=purpose)
         )

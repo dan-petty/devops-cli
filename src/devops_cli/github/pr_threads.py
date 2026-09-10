@@ -75,16 +75,20 @@ def _run_graphql_query(query: str, variables: dict[str, Any]) -> dict[str, Any]:
 
 
 _QUERY_GET_REVIEW_THREADS = """
-query GetReviewThreads($owner: String!, $repo: String!, $pr: Int!) {
+query GetReviewThreads($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $pr) {
-      reviewThreads(first: 50) {
+      reviewThreads(first: 50, after: $cursor) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
         nodes {
           id
           isResolved
           path
           line
-          comments(first: 10) {
+          comments(first: 50) {
             nodes {
               id
               body
@@ -166,20 +170,32 @@ def list_pr_review_threads(
     pr_number: int,
     unresolved_only: bool = False,
 ) -> list[ReviewThread]:
-    """Retrieve PR review discussion threads via GitHub GraphQL API."""
+    """Retrieve PR review discussion threads via GitHub GraphQL API with cursor pagination."""
     repo_name = repo.split("/")[-1]
-    data = _run_graphql_query(
-        _QUERY_GET_REVIEW_THREADS,
-        variables={"owner": owner, "repo": repo_name, "pr": pr_number},
-    )
-    raw_nodes = (
-        data.get("data", {})
-        .get("repository", {})
-        .get("pullRequest", {})
-        .get("reviewThreads", {})
-        .get("nodes", [])
-    )
-    threads = [_parse_review_thread(n) for n in raw_nodes if isinstance(n, dict)]
+    threads: list[ReviewThread] = []
+    cursor: str | None = None
+
+    while True:
+        data = _run_graphql_query(
+            _QUERY_GET_REVIEW_THREADS,
+            variables={"owner": owner, "repo": repo_name, "pr": pr_number, "cursor": cursor},
+        )
+        pr_data = (
+            data.get("data", {})
+            .get("repository", {})
+            .get("pullRequest", {})
+            .get("reviewThreads", {})
+        )
+        raw_nodes = pr_data.get("nodes", [])
+        threads.extend(_parse_review_thread(n) for n in raw_nodes if isinstance(n, dict))
+
+        page_info = pr_data.get("pageInfo", {})
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info.get("endCursor")
+        if not cursor:
+            break
+
     if unresolved_only:
         return [t for t in threads if not t.is_resolved]
     return threads

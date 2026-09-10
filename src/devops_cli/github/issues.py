@@ -101,6 +101,7 @@ def get_repository_issues(
     state: str = "open",
     milestone: str | None = None,
     label: str | None = None,
+    labels: list[str] | None = None,
     limit: int = 30,
 ) -> list[GitHubIssue]:
     """Retrieve issues from repository via gh issue list."""
@@ -119,8 +120,11 @@ def get_repository_issues(
     ]
     if milestone:
         cmd.extend(["--milestone", milestone])
-    if label:
-        cmd.extend(["--label", label])
+    all_labels = list(labels or [])
+    if label and label not in all_labels:
+        all_labels.append(label)
+    for lbl in all_labels:
+        cmd.extend(["--label", lbl])
 
     res = run_subprocess(cmd, check=False, quiet=True)
     if res.returncode != 0 or not res.stdout.strip():

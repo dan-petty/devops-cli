@@ -149,6 +149,7 @@ _SENSITIVE_ARG_FLAGS: frozenset[str] = frozenset(
 )
 _SENSITIVE_ARG_PREFIXES: tuple[str, ...] = (
     "--password=",
+    "-p=",
     "--token=",
     "--api-key=",
     "--secret=",

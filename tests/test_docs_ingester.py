@@ -173,3 +173,81 @@ def test_cli_ai_ingest_docs_remote(tmp_path: Path) -> None:
         )
         assert result.exit_code == 0
         assert "Documentation Ingest" in result.output
+
+
+def test_ingest_local_docs_duplicate_filenames(tmp_path: Path) -> None:
+    """Ensure duplicate filenames in different directories produce unique slugs and chunks."""
+    guide_dir = tmp_path / "guide"
+    guide_dir.mkdir()
+    (guide_dir / "index.md").write_text("# Guide Index\n\nContent A.", encoding="utf-8")
+
+    ref_dir = tmp_path / "reference"
+    ref_dir.mkdir()
+    (ref_dir / "index.md").write_text("# Reference Index\n\nContent B.", encoding="utf-8")
+
+    out_dir = tmp_path / "chunks_dedup"
+    ingester = DocsIngester()
+    result = ingester.ingest_local_docs(tmp_path, output_dir=out_dir)
+
+    assert result.total_pages == 2
+    chunk_files = list(out_dir.glob("*.json"))
+    assert len(chunk_files) >= 2
+    # Filenames must not overwrite each other
+    names = {f.name for f in chunk_files}
+    assert any("guide_index" in n for n in names)
+    assert any("reference_index" in n for n in names)
+
+
+def test_ingest_remote_docs_masks_credentials(tmp_path: Path) -> None:
+    """Ensure credentials in remote URL are masked in DocsIngestionError and result."""
+    ingester = DocsIngester()
+    with (
+        patch("devops_cli.ai.library.docs_ingester.validate_service_url"),
+        patch("httpx2.Client.get", side_effect=RuntimeError("Connection refused")),
+    ):
+        with pytest.raises(DocsIngestionError) as excinfo:
+            ingester.ingest_remote_docs(
+                "https://alice:supersecret999@docs.example.com/api",
+                output_dir=tmp_path,
+            )
+        err_msg = str(excinfo.value)
+        assert "supersecret999" not in err_msg
+        assert "<masked-password>@docs.example.com" in err_msg or "***@docs.example.com" in err_msg
+
+
+def test_ingest_remote_docs_multipage_traversal(tmp_path: Path) -> None:
+    """Ensure max_pages traverses links on same origin domain."""
+    ingester = DocsIngester()
+
+    page1_html = """<html><body>
+    <h1>Page 1</h1>
+    <a href="/subpage">Subpage</a>
+    <a href="https://external.com/other">External</a>
+    </body></html>"""
+
+    page2_html = """<html><body>
+    <h1>Subpage 2</h1>
+    <p>Subpage content</p>
+    </body></html>"""
+
+    def mock_get(url: str) -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.headers = {"content-type": "text/html"}
+        if "subpage" in url:
+            resp.text = page2_html
+        else:
+            resp.text = page1_html
+        return resp
+
+    with (
+        patch("devops_cli.ai.library.docs_ingester.validate_service_url"),
+        patch("httpx2.Client.get", side_effect=mock_get),
+    ):
+        result = ingester.ingest_remote_docs(
+            "https://docs.example.com/root",
+            output_dir=tmp_path,
+            max_pages=2,
+        )
+        assert result.total_pages == 2
+        assert result.total_chunks >= 2

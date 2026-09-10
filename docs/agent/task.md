@@ -940,6 +940,21 @@
   - [x] 7. Prepared GitHub Release Pull Request targeting `main`.
   - [x] 8. Aligned Jekyll configuration file naming from `_config.yml` to `_config.yaml` conforming to project-wide `.yaml` standard.
 
+- [x] Phase 50.11: Address Copilot Feedback on PR #86 & Proactive GitHub Project Tracking Hardening
+  - [x] 1. Remediated all 20 GitHub Copilot review findings via Test-First Development (TDD) across security, docs ingester, introspector, library store, AST engine/graph, context packer, drift auditor, client, and projects.
+  - [x] 2. Fixed inline token redaction (`sanitizer.py`), removed global socket timeout mutation and enforced fail-closed DNS resolution (`validation.py`).
+  - [x] 3. Ensured unique relative-path chunk IDs and masked credentials in docs ingester (`docs_ingester.py`).
+  - [x] 4. Added qualified module names to function/class signatures and recursive submodule BFS walk (`introspector.py`).
+  - [x] 5. Added package-namespaced Valkey symbol cache and Qdrant point IDs (`library_store.py`).
+  - [x] 6. Added native Tree-Sitter CST parsing attempt and S-expression query filtering (`engine.py`).
+  - [x] 7. Resolved call graph edges by inspecting function bodies for actual call invocations (`graph.py`).
+  - [x] 8. Implemented AST statement-level pruning to guarantee valid Python syntax and dynamic budget allocation (`context_packer.py`).
+  - [x] 9. Added `ast.Import` support and module attribute call resolution (`drift_auditor.py`).
+  - [x] 10. Forwarded all labels in GitHub client adapter (`client.py`, `issues.py`).
+  - [x] 11. Added GraphQL connection cursor pagination for PR review threads (`pr_threads.py`).
+  - [x] 12. Implemented data-driven Project custom field classification from taxonomy labels (`projects.py`).
+  - [x] 13. Updated agent instructions in `AGENTS.md`, `docs/ROUTINE_TASKS.md`, and `github_project_management.md` to mandate session-start project bootstrap, real-time WIP card movement before editing, and data-driven custom field reconciliation.
+
 ---
 
 ### In-Progress Tasks (WIP)
