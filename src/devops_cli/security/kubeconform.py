@@ -6,12 +6,14 @@ import json
 import logging
 import shutil
 from pathlib import Path
+from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import (
     DEFAULT_KUBECONFORM_VERSION,
     DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
 )
+from devops_cli.security.base import BaseSecurityScanner
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -79,6 +81,47 @@ def _parse_kubeconform_line(line: str) -> Finding | None:
     return None
 
 
+class KubeconformScanner(BaseSecurityScanner):
+    """Declarative security scanner adapter for Kubeconform OpenAPI manifest validator."""
+
+    name: str = "kubeconform"
+    binary_name: str = "kubeconform"
+
+    def build_command(
+        self,
+        target_path: Path,
+        k8s_version: str = DEFAULT_KUBECONFORM_VERSION,
+        strict: bool = True,
+        **kwargs: Any,
+    ) -> list[str]:
+        """Build argument command list for invoking Kubeconform."""
+        cmd = [self.binary_name, "-output", "json", "-kubernetes-version", k8s_version]
+        if strict:
+            cmd.append("-strict")
+        cmd.append(str(target_path))
+        return cmd
+
+    def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
+        """Parse raw Kubeconform JSON or line-delimited records into Finding models."""
+        findings: list[Finding] = []
+        if isinstance(data, dict):
+            finding = _parse_kubeconform_line(json.dumps(data))
+            if finding:
+                findings.append(finding)
+        elif isinstance(data, list):
+            for item in data:
+                finding = _parse_kubeconform_line(
+                    json.dumps(item) if isinstance(item, dict) else str(item)
+                )
+                if finding:
+                    findings.append(finding)
+        return findings
+
+    def fallback_scan(self, target_path: Path) -> list[Finding]:
+        """Execute native fallback validation for Kubernetes manifests."""
+        return _run_native_fallback_k8s_validation(target_path)
+
+
 @trace_span("k8s.kubeconform")
 def run_kubeconform_validation(
     manifest_path: Path,
@@ -92,10 +135,8 @@ def run_kubeconform_validation(
         logger.debug("Kubeconform binary not found in PATH; running native schema fallback.")
         return _run_native_fallback_k8s_validation(manifest_path)
 
-    cmd = [kubeconform_bin, "-output", "json", "-kubernetes-version", k8s_version]
-    if strict:
-        cmd.append("-strict")
-    cmd.append(str(manifest_path))
+    scanner = KubeconformScanner()
+    cmd = scanner.build_command(manifest_path, k8s_version=k8s_version, strict=strict)
 
     try:
         from devops_cli.core.process import run_subprocess

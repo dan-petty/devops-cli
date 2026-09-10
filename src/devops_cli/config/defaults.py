@@ -75,6 +75,8 @@ DEFAULT_PR_STATE = "open"
 DEFAULT_MAX_CONTEXT_TOKENS: int = 32768
 DEFAULT_DIFF_CHUNK_BUDGET: int = 32768
 DEFAULT_SEMGREP_CONFIG: str = "p/default"
+DEFAULT_DIVE_MIN_EFFICIENCY: float = 0.90
+DEFAULT_DIVE_MAX_WASTED_BYTES: int = 50 * 1024 * 1024  # 50 MiB
 
 # ── Benchmark Defaults ────────────────────────────────────────────────────────
 DEFAULT_BENCHMARK_CONCURRENCY: int = 4
