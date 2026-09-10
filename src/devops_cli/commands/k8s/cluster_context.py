@@ -147,7 +147,7 @@ def _resolve_logql_query(pod: str, query: str | None, extra_arg: str | None) -> 
 
 def _render_logql_results(result: Any, output_format: str) -> None:
     """Render LogQL query entries to terminal."""
-    from devops_cli.output import print, print_info
+    from devops_cli.output import escape_text, print, print_info
 
     if output_format == "json":
         entries_data = [
@@ -169,8 +169,6 @@ def _render_logql_results(result: Any, output_format: str) -> None:
         )
         return
 
-    from rich.markup import escape
-
     for entry in result.entries:
         trace_badge = (
             f" [bold cyan][trace:{entry.trace_id[:8]}][/bold cyan]" if entry.trace_id else ""
@@ -178,7 +176,7 @@ def _render_logql_results(result: Any, output_format: str) -> None:
         ns_pod = ""
         if entry.stream_labels.get("pod"):
             ns_pod = f"[dim][{entry.stream_labels.get('pod')}][/dim] "
-        escaped_line = escape(entry.line)
+        escaped_line = escape_text(entry.line)
         print(f"{ns_pod}{escaped_line}{trace_badge}")
 
 

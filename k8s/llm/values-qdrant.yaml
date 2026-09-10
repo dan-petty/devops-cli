@@ -25,10 +25,10 @@ extraEnv:
         key: api-key
 
 service:
-  # Local workstation / minikube: NodePort allows direct host access on port 31744.
-  # Production: Use ClusterIP with an Ingress resource and TLS certificate.
-  type: NodePort
-  nodePort: 31744
+  # Zero-trust perimeter: ClusterIP restricts network access to the cluster network.
+  # For local minikube direct access from the workstation host without port-forwarding,
+  # override with type: NodePort.
+  type: ClusterIP
 
 persistence:
   enabled: true
