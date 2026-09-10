@@ -979,10 +979,21 @@
   - [x] 5. Enforced architectural invariants: cyclomatic complexity <= 10 and nesting depth <= 5 across all scanner modules.
   - [x] 6. Verified with unit tests (`tests/test_consolidation_security_scanner_base.py`, 8/8 passed) and full invariant suite (6/6 passed).
 
+- [x] Phase 51.2: Centralized Kubernetes Logging Stack & LogQL Integration (P0 - Critical, Closes #89)
+- [x] Phase 51.3: Infracost FinOps Cloud Cost Engine (P1 - High, Closes #90)
+- [x] Phase 51.4: Multi-Cluster ArgoCD Fleet Sync & Rollouts (P1 - High, Closes #91)
+- [x] Phase 51.5: Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, Closes #99)
+  - [x] 1. Configured setup-uv with `cache-python: "true"`, `prune-cache: "true"`, and `cache-dependency-glob: "uv.lock"` in `ci.yml` and `release.yml`.
+  - [x] 2. Configured `actions/cache` in `ci.yml` for `.mypy_cache`, `.ruff_cache`, and `.pytest_cache`.
+  - [x] 3. Configured `devcontainers/ci` with `cacheFrom: ${{ steps.image_repo.outputs.name }}:latest` in `ci.yml` and `release.yml`.
+  - [x] 4. Authored unit tests in `tests/test_ci.py` validating declarative workflow caching invariants.
+  - [x] 5. Verified full 10-gate CI quality suite passes cleanly (`uv run devops ci`).
+
 ---
 
 ### Pending Tasks
 - [ ] Milestone v0.2.15: GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh
-  - [ ] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical, Issue #89)
-  - [ ] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, Issue #90)
-  - [ ] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High, Issue #91)
+  - [x] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical, Issue #89)
+  - [x] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, Issue #90)
+  - [x] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo fleet sync`) (P1 - High, Issue #91)
+  - [x] Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, Issue #99)
