@@ -929,3 +929,51 @@ def format_argo_rollout_analysis_table(result: Any) -> TablePayload:
         columns=columns,
         rows=rows,
     )
+
+
+def format_tf_cost_table(
+    cost: Any,
+    title: str | None = None,
+) -> TablePayload:
+    """Build a structured TablePayload for Infracost FinOps cost breakdown."""
+    from devops_cli.output.models import TableColumn, TablePayload
+
+    tbl_title = (
+        title
+        or f"Cloud Cost Breakdown: {getattr(cost, 'directory', 'tf')} ({getattr(cost, 'source', 'infracost')})"
+    )
+    columns: list[TableColumn | str | tuple[str, str | int]] = [
+        TableColumn(header="Resource", style="cyan"),
+        TableColumn(header="Type", style="magenta"),
+        TableColumn(header="Hourly Cost", justify="right"),
+        TableColumn(header="Monthly Cost", justify="right"),
+    ]
+    rows: list[list[str]] = []
+    for res in getattr(cost, "resources", []):
+        rows.append(
+            [
+                res.name,
+                res.resource_type or "unknown",
+                f"${res.hourly_cost:.2f}",
+                f"${res.monthly_cost:.2f}",
+            ]
+        )
+    rows.append(
+        [
+            "Total",
+            getattr(cost, "currency", "USD"),
+            f"${getattr(cost, 'total_hourly_cost', 0.0):.2f}",
+            f"${getattr(cost, 'total_monthly_cost', 0.0):.2f}",
+        ]
+    )
+    if getattr(cost, "diff_monthly_cost", None) is not None:
+        diff = float(cost.diff_monthly_cost)
+        diff_str = f"{'+' if diff >= 0 else ''}${diff:.2f}"
+        rows.append(["Monthly Diff", getattr(cost, "currency", "USD"), "-", diff_str])
+
+    return TablePayload(
+        title=tbl_title,
+        columns=columns,
+        rows=rows,
+        border_style="green",
+    )

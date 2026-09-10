@@ -957,27 +957,17 @@
 
 ---
 
-### In-Progress Tasks (WIP)
-- [x] Phase 50.12: Remediate Review Findings (Session 20260909-122649) & Strengthen Self-Improvement Review Loop (Closes #87)
-  - [x] 1. Sandbox Escape via `getattr`, `hasattr`, `type` in safe_builtins (`src/devops_cli/ai/harness/os_access.py`)
-  - [x] 2. Hardcoded default password for Open-WebUI admin account (`src/devops_cli/commands/k8s/stack_lifecycle.py`)
-  - [x] 3. Information leakage in SSH rotation error message (`src/devops_cli/commands/ssh.py`)
-  - [x] 4. Unbounded SQLite search causes DoS via resource exhaustion (`src/devops_cli/ai/harness/memory.py`)
-  - [x] 5. Path traversal validation bypassed when parameters schema is empty (`src/devops_cli/ai/tools/__init__.py`)
-  - [x] 6. Memory leak in _OVERFLOW_MEMORY_FALLBACK (`src/devops_cli/ai/harness/compaction.py`)
-  - [x] 7. Information Leakage via Raw Exception Details in `error_message` (`src/devops_cli/ai/pipeline_protocol.py`)
-  - [x] 8. SSRF Risk via Unvalidated `base_url` in `create_ollama_provider` (`src/devops_cli/ai/models/ollama.py`)
-  - [x] 9. Information Leakage in Error Messages (`src/devops_cli/ai/client/ollama.py`)
-  - [x] 10. Information Leakage in Streaming Error Messages (`src/devops_cli/ai/client/ollama.py`)
-  - [x] 11. Information leakage in Valkey error messages (`src/devops_cli/commands/valkey.py`)
-  - [x] 12. Update docs and prompts to improve feedback, review, and self-improvement loop
-- [x] Phase 51.1: Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (P0 - Critical, Closes #88)
-  - [x] 1. Enhanced `BaseSecurityScanner` with `dry_run_scan` hook, dynamic dry-run detection, `_resolve_cwd` helper, and span telemetry.
-  - [x] 2. Enhanced `ScannerRegistry` with `auto_load_defaults` and registered all 11 security scanners into `global_scanner_registry`.
-  - [x] 3. Migrated all 11 scanner modules to subclass `BaseSecurityScanner` (`bandit`, `checkov`, `dive`, `gitleaks`, `kubeconform`, `kubelinter`, `pluto`, `popeye`, `semgrep`, `tflint`, `trivy`).
-  - [x] 4. Preserved backward compatibility and local mocks on `run_subprocess` across all legacy entrypoints.
-  - [x] 5. Enforced architectural invariants: cyclomatic complexity <= 10 and nesting depth <= 5 across all scanner modules.
-  - [x] 6. Verified with unit tests (`tests/test_consolidation_security_scanner_base.py`, 8/8 passed) and full invariant suite (6/6 passed).
+- [x] Phase 50.12: Remediate Review Findings (Session 20260909-122649) & Strengthen Self-Improvement Review Loop (Closes #87, PR #92)
+- [x] Phase 50.13: Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (Closes #88, PR #93 - Merged)
+- [x] Phase 50.14: Eliminate Obsolete Shims, Aliases, Proxy Wrappers & Compatibility Remnants (Closes #94, PR #95)
+- [x] Phase 50.15: Centralized Kubernetes Logging Stack & LogQL Integration (Closes #89, PR #96)
+- [x] Phase 50.16: Infracost FinOps Cloud Cost Engine (`devops tf cost`) (Closes #90, PR #97)
+  - [x] 1. Authored Pydantic models `TFCostResource` and `TFCostBreakdownResult` in `src/devops_cli/models/tf.py`.
+  - [x] 2. Implemented Infracost FinOps engine in `src/devops_cli/tf/cost.py` (breakdown, diff, budget validation, offline mock).
+  - [x] 3. Added `cost breakdown` and `cost diff` commands to `src/devops_cli/commands/tf.py`.
+  - [x] 4. Exposed `tf_cost_estimate` FastMCP tool in `src/devops_cli/ai/mcp/server.py`.
+  - [x] 5. Verified 100% test coverage and invariants in `tests/test_tf_cost.py` (20/20 passing).
+  - [x] 6. Synchronized docs and README (`devops docs generate --sync-readme`).
 
 - [x] Phase 50.13: Eliminate Obsolete Shims, Aliases, Proxy Wrappers, and Backwards Compatibility Remnants (Closes #94)
   - [x] 1. Stripped unicode icons and emojis from `README.md` bullets and documentation.
@@ -1005,6 +995,6 @@
 - [ ] Milestone v0.2.15: GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh
   - [x] Complete Security Scanner Migration to `BaseSecurityScanner` & `ScannerRegistry` (P0 - Critical, PR #93 - Merged)
   - [x] Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`) (P0 - Critical, PR #96 - Merged)
-  - [x] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, PR #97)
+  - [x] Infracost FinOps Cloud Cost Engine (`devops tf cost`) (P1 - High, PR #97 - Merged)
   - [/] Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`) (P1 - High, Issue #91, PR #98)
   - [ ] Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, PR #100)
