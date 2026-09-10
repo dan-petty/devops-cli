@@ -412,7 +412,9 @@ def _review_session_dir(label: str) -> Path:
 
 def _save_segments(pages: list[str], session_dir: Path) -> None:
     for i, page in enumerate(pages, 1):
-        (session_dir / f"segment-{i}.md").write_text(page, encoding="utf-8")
+        target = session_dir / f"segment-{i}.md"
+        target.write_text(mask_secrets(page), encoding="utf-8")
+        target.chmod(0o600)
 
 
 def _save_findings_json(
@@ -445,6 +447,7 @@ def _save_findings_json(
             payload.model_dump_json(indent=2),
             encoding="utf-8",
         )
+        target.chmod(0o600)
         if show_status:
             print_muted(f"  ✓ findings saved → {target}")
         return True
@@ -492,9 +495,10 @@ def _save_persona_review(
     session_dir: Path,
 ) -> Path:
     filename = f"{pd.name}-review.md"
-    content = f"# {pd.title}\n\n{_review_to_markdown(review)}\n"
+    content = mask_secrets(f"# {pd.title}\n\n{_review_to_markdown(review)}\n")
     dest = session_dir / filename
     dest.write_text(content, encoding="utf-8")
+    dest.chmod(0o600)
     return dest
 
 
@@ -556,7 +560,9 @@ def _write_summary(
         for i in range(1, len(pages) + 1):
             lines.append(f"| {i} | [segment-{i}.md](segment-{i}.md) |")
         lines.append("")
-    (session_dir / "summary.md").write_text("\n".join(lines), encoding="utf-8")
+    summary_path = session_dir / "summary.md"
+    summary_path.write_text(mask_secrets("\n".join(lines)), encoding="utf-8")
+    summary_path.chmod(0o600)
     if completed:
         print_info(f"[dim]Review saved → {session_dir}[/dim]", prefix=False)
 

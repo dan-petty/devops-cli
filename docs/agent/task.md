@@ -938,7 +938,7 @@
   - [x] 5. Regenerated introspected CLI documentation and synchronized `README.md`.
   - [x] 6. Executed comprehensive 10-gate CI quality suite (`uv run devops ci`).
   - [x] 7. Prepared GitHub Release Pull Request targeting `main`.
-  - [x] 8. Aligned Jekyll configuration file naming from `_config.yml` to `_config.yaml` conforming to project-wide `.yaml` standard.
+  - [x] 8. Migrated Jekyll documentation configuration to `docs/github-pages.config.yaml` to eliminate vague root-level configuration files.
 
 - [x] Phase 50.11: Address Copilot Feedback on PR #86 & Proactive GitHub Project Tracking Hardening
   - [x] 1. Remediated all 20 GitHub Copilot review findings via Test-First Development (TDD) across security, docs ingester, introspector, library store, AST engine/graph, context packer, drift auditor, client, and projects.
