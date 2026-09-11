@@ -34,7 +34,7 @@ The published Dev Container image is built on Python 3.14 (`trixie`) and include
 - **Containers & Virtualization**: Docker-in-Docker (DinD) enabled with rootless socket mapping for non-root user `vscode`.
 - **Kubernetes & Cloud Native**: `kubectl`, `helm`, `minikube` (with optional GPU passthrough support), `kustomize`.
 - **Infrastructure as Code**: OpenTofu (`tofu`) and Terraform (`terraform`) dual compatibility.
-- **Security & Compliance Scanners**: Aqua `trivy`, `semgrep`, `gitleaks`, `checkov`, `bandit`, `pip-audit`, Red Hat `kube-linter`, Fairwinds `pluto`, `actionlint`.
+- **Security & Compliance Integrations**: Embedded Python SAST and audit tools (`bandit`, `pip-audit`, `checkov`), with native runner integrations for external scanners (`trivy`, `semgrep`, `gitleaks`, `kube-linter`, `pluto`, `actionlint`), installable on-demand via `devops install-tools` or system package managers.
 - **AI Code Review & MCP Integration**: `devops-cli` suite pre-installed with Model Context Protocol (FastMCP) server endpoints (`devops mcp serve`), OpenTelemetry instrumentation, and Logfire.
 
 ---
@@ -54,7 +54,7 @@ devops devcontainer init --name my-project --image ghcr.io/dan-petty/devops-cli/
 ```
 
 This scaffolds:
-1. `.devcontainer/devcontainer.json`: Pre-configured manifest using the published image with performance-optimized named volumes, cross-platform SSH forwarding, and IDE extensions.
+1. `.devcontainer/devcontainer.json`: Pre-configured manifest using the published image with `/tmp`, persistent user home volume, SSH directory forwarding, post-create lifecycle commands (`devops devcontainer post-create`), and IDE extensions.
 2. `.vscode/mcp.json`: Model Context Protocol configuration exposing `devops-cli` tools to AI coding assistants (Claude Desktop, Cursor, VS Code, Antigravity IDE).
 3. `AGENTS.md`: Operational engineering instructions and architectural constraints for AI pair programmers.
 
@@ -139,6 +139,9 @@ For existing repositories or custom setups, create `.devcontainer/devcontainer.j
         "editor.defaultFormatter": "charliermarsh.ruff",
         "editor.tabSize": 2,
         "editor.insertSpaces": true,
+        "editor.rulers": [
+          100
+        ],
         "files.eol": "\n",
         "files.trimTrailingWhitespace": true,
         "files.insertFinalNewline": true,
@@ -165,6 +168,9 @@ For existing repositories or custom setups, create `.devcontainer/devcontainer.j
         "editor.defaultFormatter": "charliermarsh.ruff",
         "editor.tabSize": 2,
         "editor.insertSpaces": true,
+        "editor.rulers": [
+          100
+        ],
         "files.eol": "\n",
         "files.trimTrailingWhitespace": true,
         "files.insertFinalNewline": true,
@@ -177,13 +183,15 @@ For existing repositories or custom setups, create `.devcontainer/devcontainer.j
       }
     }
   },
-  "remoteUser": "vscode",
-  "runArgs": [
-    "--gpus",
-    "all"
-  ]
+  "remoteUser": "vscode"
 }
 ```
+
+> [!TIP]
+> **Optional GPU Acceleration (NVIDIA Hosts)**: If running on a host with an NVIDIA GPU and `nvidia-container-toolkit` installed, pass GPUs to the container by adding:
+> ```json
+> "runArgs": ["--gpus", "all"]
+> ```
 
 ---
 
@@ -240,6 +248,7 @@ USER vscode
   "containerEnv": {
     "DEVOPS_CLI_CONFIG": "${containerWorkspaceFolder}/config.yaml"
   },
+  "postCreateCommand": "uv sync",
   "customizations": {
     "vscode": {
       "settings": {
@@ -262,17 +271,26 @@ Inside the Dev Container, `devops-cli` is accessible globally. You can configure
 
 ### Configuring AI Credentials Securely
 ```bash
-# Configure Anthropic Claude API provider
-devops ai config --provider claude --api-key "sk-ant-..."
+# Supply API key via environment variable (or secret manager / OS Keyring) to avoid plaintext secrets in shell history
+export ANTHROPIC_API_KEY="sk-ant-..."  # or export DEVOPS_CLI_AI_API_KEY="sk-ant-..."
+
+# Configure Anthropic Claude provider
+devops ai config --provider claude
 
 # Or configure local Ollama running on your workstation host
+# Note: For Linux hosts without Docker Desktop, add "runArgs": ["--add-host=host.docker.internal:host-gateway"] to devcontainer.json
+# and allow local/private network egress:
+export DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true
 devops ai config --provider ollama --model qwen2.5-coder:7b --ollama-urls http://host.docker.internal:11434
 
 # Verify provider connectivity and latency
 devops ai test
 
-# Run multi-persona code review on your feature branch
-devops review branch main
+# Run multi-persona code review on active branch against main
+devops review branch
+
+# Or explicitly review a specific feature branch against main
+devops review branch feat/my-feature --base main
 
 # Run targeted security review on a specific directory
 devops review path src/ --persona devsecops
@@ -314,11 +332,14 @@ On Windows (WSL2 9P filesystem) and macOS (VirtioFS), bind-mounting directories 
 - **Best Practice**: Mount named Docker volumes for high-churn paths (`.venv`, `.data`, `.uv`, `/tmp`, and `/home/vscode`).
 - **Result**: Native Linux ext4 performance inside the container, reducing `uv sync` and test execution times by up to **10x**.
 
-### Cross-Platform SSH Agent Forwarding
-Windows uses `%USERPROFILE%\.ssh` while macOS/Linux use `$HOME/.ssh`. Combining both environment variables in the mount definition ensures cross-platform compatibility without manual edits:
+### SSH Key Management & Host Agent Forwarding
+- **SSH Agent Forwarding (Recommended / Zero-Key Exposure)**: In VS Code and Dev Containers, the host SSH agent is automatically forwarded into the container when `SSH_AUTH_SOCK` is active on the host, allowing seamless git operations without copying or mounting private keys into the container.
+- **Direct `.ssh` Directory Bind Mount (Local Development Convenience)**: If host agent forwarding is unavailable, bind-mounting the host `.ssh` directory allows authentication across Windows, macOS, and Linux:
 ```json
 "source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
 ```
+> [!WARNING]
+> Bind-mounting the entire host `.ssh` directory exposes your private keys to processes running inside the container. In shared or zero-trust environments, prefer SSH Agent forwarding or dedicate a container-specific key pair (`~/.ssh/id_ed25519_devcontainer`).
 
 ### Zero-Root Principle
 The published Dev Container executes by default as non-root user `vscode` (UID 1000, GID 1000) with passwordless `sudo` privileges if required. Always ensure custom scripts and daily development commands execute under `vscode` to prevent permission collisions on host-mounted files.
