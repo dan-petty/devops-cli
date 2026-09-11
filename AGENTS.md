@@ -59,7 +59,7 @@ All work follows a test-first progressive verification strategy to optimize deve
 5. **Comprehensive Quality Gate**: Execute `devops ci` (or `uv run devops ci`) to validate all gates and enforce the minimum project-specified code coverage requirement across `src/`.
 
 ### Project Planning & Task Tracking
-- **Mandatory Planning Artifacts**: Document project planning and technical implementation designs in dedicated planning documents (`implementation_plan.md`, `docs/agent/tasks/task-<issue>-<slug>.md`, `docs/ROADMAP.md`, `docs/PENDING_FEATURES.md`, `docs/LOG.md`) prior to executing complex, multi-step, or architectural changes.
+- **Mandatory Planning Artifacts**: Document project planning and technical implementation designs in dedicated planning documents (`implementation_plan.md`, `docs/agent/tasks/task-<issue>-<slug>.md`, `docs/ROADMAP.md`) prior to executing complex, multi-step, or architectural changes.
 - **Mandatory GitHub Projects v2 Session Bootstrap (Zero Ungrounded Tasks)**:
   - At the inception of every AI agent session, upon receiving any user prompt, or before starting development, AI agents **MUST PROACTIVELY BOOTSTRAP GITHUB PROJECT TRACKING**:
     1. **Query Active Project Status**: Inspect board status and views via `devops gh project status` (or FastMCP `gh_project_status`) and triage queue via `devops gh issues triage` (or FastMCP `gh_issue_triage`).
@@ -172,7 +172,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
       - **`docs/ROADMAP.md`**: Consolidate completed milestone subsections of older major/minor release series (e.g., condensing individual `v0.1.0` through `v0.1.9` subsections into a single `### Workstation Foundation, SecOps, Multi-Cloud IaC & Core Architecture (v0.0.1 – v0.1.9 - Completed)` milestone block). In Section 3 (*Value vs. Effort Prioritization Matrix*), consolidate older completed rows into high-level category summary entries (e.g., `v0.1.x`) to keep the matrix tightly focused on the active minor release and forward-looking roadmap.
       - **`docs/RELEASE_NOTES.md`**: Consolidate verbose highlight sections of older minor/major series into a unified, high-level summary block (e.g., `## 🚀 Highlights of v0.1 Series (v0.1.0 – v0.1.13 - Completed)`), preventing vertical document sprawl.
       - **`RELEASE_CYCLE.md`**: Ensure roadmap references point strictly to the canonical, active release series in `docs/ROADMAP.md`, ruthlessly pruning vestigial or outdated version targets.
-      - **`docs/LOG.md` & Historical Logs**: Condense historical planning and execution entries for older releases into concise milestone summaries, eliminating redundant scratchpad planning blocks.
+      - **Historical Logs & Archive (`docs/agent/archive/`)**: Maintain historical task archives under `docs/agent/archive/` while keeping active task tracking lean and scoped strictly to active release milestones, eliminating redundant scratchpad planning blocks.
       - **Context Optimization Rationale**: Historical compaction preserves context window capacity, eliminates assistant distraction on obsolete milestones, and maintains a high-density, poetic codebase without losing commit traceability.
   - **GitHub Pages Publishing & Deployment Verification Mandate**:
     - **Publishing Health & SSL Inspection**: Inspect GitHub Pages site deployment status, custom domains, and HTTPS enforcement (`enforce_https: true`) via `devops gh pages status` (or FastMCP `gh_pages_status`).
