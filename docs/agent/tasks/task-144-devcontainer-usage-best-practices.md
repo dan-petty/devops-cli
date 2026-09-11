@@ -2,7 +2,7 @@
 
 **Issue**: [#144](https://github.com/dan-petty/devops-cli/issues/144)
 **PR**: [#145](https://github.com/dan-petty/devops-cli/pull/145)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p2-medium`
 **Scope**: `scope/infra`

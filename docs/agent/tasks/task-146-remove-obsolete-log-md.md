@@ -2,7 +2,7 @@
 
 **Issue**: [#146](https://github.com/dan-petty/devops-cli/issues/146)
 **PR**: [#147](https://github.com/dan-petty/devops-cli/pull/147)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p3-low`
 **Scope**: `scope/cli`

@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.16] - 2026-09-11
+
+### Added
+- **Squid Caching Forward Proxy & SSL-Bump Cluster Enablement (`k8s/squid/`)**:
+  - Deployed Squid caching forward proxy in Minikube/Kubernetes cluster with SSL-Bump decryption, local CA generation (`devops tls generate-ca`), and signed endpoint certificates (`devops tls generate-cert`).
+  - Enabled proxy cluster-wide, resolving root CA trust and accelerating external LLM model downloads and container registry image pulls.
+  - Comprehensive Prometheus metrics scraping and automated health failover handling.
+- **Context Document Compaction Engine (`devops docs compact`)**:
+  - Context-preserving document compaction CLI and engine designed for large AI prompts, runbooks, and historical task tracking archives.
+  - Compaction options including token estimation, hierarchical section reduction, and technical invariant preservation.
+- **AI Chat Rich Formatting & Persona Styling**:
+  - Modernized interactive `devops ai chat` CLI with live Rich Markdown streaming, syntax-highlighted code blocks, and formatted thinking display blocks.
+  - Integrated distinct Persona Orange visual styling for enhanced developer identity.
+- **Pre-1.0 Alpha Policy & Post-1.0 SemVer Governance**:
+  - Formalized Pre-1.0 Alpha lifecycle policy guaranteeing zero backwards compatibility prior to 1.0.0 and requiring ruthless elimination of legacy remnants, obsolete shims, and zombie code.
+  - Defined strict Semantic Versioning 2.0.0 and enterprise change management guidelines for post-1.0 releases.
+- **Roadmap Strategic Expansion**:
+  - Added Core Principles 12-14 and scheduled milestones:
+    - **v0.2.19**: *Autonomous Trial-and-Error Solution Discovery, MCTS Exploration & Delta-Debugging Engine*
+    - **v0.2.20**: *Deep Cognitive Information Foraging, Syntopical Reading & Epistemic Research Engine*
+    - **v0.2.21**: *Iterative Agentic GitHub Project Manager & Autonomous Backlog Orchestration*
+
+### Fixed & Hardened
+- **DevSecOps Review Findings Remediation**:
+  - **Credential Leakage Defenses**: Excluded `authorization_token` from serialized model settings in diagnostics while preserving runtime provider authentication in MCP tools (`NativeTool.get_model_settings`, `_build_mcp_tool_settings`).
+  - **Argument & Command Injection Mitigation**: Centralized Kubernetes RFC 1123 resource name validation in `core/validation.py` for chaos testing (`k8s/chaos.py`) and log querying (`k8s/logql.py`).
+  - **Rich Markup Injection Defense**: Hardened `console.print()`, `panels.py`, `scalars.py`, and `table_builder.py` with `safe=True` markup escaping to prevent terminal escape injection.
+  - **WebSocket Frame Bounding**: Enforced 1MB maximum frame size at raw UTF-8 byte level in `server/routes/stream.py`, closing oversized connections with code 1009.
+  - **Error String Bounding**: Enforced strict <= 256 character limits on exception messages in `pipeline/pipeline.py` and dry-run details to prevent log injection.
+  - **Offline Threat Intel Fallback**: Integrated resilient offline fallbacks into `security/reference_extractor.py` and filtered documented example domains (RFC 2606, 6761), IPs (RFC 5737, 3849, 6890), and telephone numbers.
+  - **Closed-Loop Feedback**: Registered `HALLUCINATION-LOCAL-FILE-OR-COLLECTION-CWE400` in common hallucinations catalog and added falsification rules in review prompts.
+- **Comprehensive Infrastructure & Homelab Sanitization**:
+  - Stripped internal LAN hostnames, RFC 1918 IPs, concrete hardware mount paths, and homelab topology across codebase templates, manifests, tests, and documentation.
+  - Hardened agent instructions in `AGENTS.md` and `instruction_generator.py` to enforce abstract infrastructure placeholders (`<storage-node>`, `<host>`, RFC 5737 documentation blocks).
+  - Protected local user runtime `config.yaml` from automated sanitization resets.
+- **Kubernetes Workload Resource Tuning & OOMKill Prevention**:
+  - Eliminated container cgroup OOMKills (`ExitCode 137`) across Jaeger and Valkey workloads by adjusting memory requests/limits and bounding trace/key buffers.
+- **Architectural Circular Import Decoupling**:
+  - Decoupled circular module imports and streamlined convoluted import patterns across core config settings, CLI main entry points, and stack lifecycle runners.
+- **Unified Embedding Configuration**:
+  - Consolidated all embedding configuration under `ai.tasks.embedding` (`model`, `ollama_urls`, `timeout`), removing duplicate and conflicting keys under `ai.rag`.
+
 ## [0.2.15] - 2026-09-10
 
 ### Added

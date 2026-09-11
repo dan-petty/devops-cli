@@ -1,8 +1,8 @@
 # Task 150: Document Pre-1.0 Alpha Status, Zero Backwards Compatibility Guarantee & Post-1.0 SemVer Policy
 
 **Issue**: [#150](https://github.com/dan-petty/devops-cli/issues/150)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#151](https://github.com/dan-petty/devops-cli/pull/151)
+**Status**: Done
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/cli`
