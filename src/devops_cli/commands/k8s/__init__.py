@@ -191,7 +191,7 @@ _STACK_ATTRS = {
 
 
 _PATCH_TARGET_MAP: dict[str, tuple[types.ModuleType, ...]] = {
-    "run_subprocess": (_cluster_runtime, _cluster_context, _networking),
+    "run_subprocess": (_cluster_runtime, _cluster_context, _networking, _stack_lifecycle),
     "shutil": (_stack_lifecycle,),
 }
 

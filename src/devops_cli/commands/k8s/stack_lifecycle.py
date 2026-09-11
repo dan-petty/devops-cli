@@ -13,12 +13,12 @@ import typer
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 import devops_cli.commands.k8s.networking as net
+from devops_cli.commands.k8s.cluster_runtime import run_subprocess as run_subprocess
 from devops_cli.config.defaults import (
     DEFAULT_K8S_DIR,
     DEFAULT_K8S_STACK,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
-from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
