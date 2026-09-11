@@ -6,7 +6,21 @@
 
 ---
 
-## Active Milestone: v0.2.15
+## Active Milestone: v0.2.16
+
+| Issue | PR | Title | Status | Task File |
+| :--- | :--- | :--- | :--- | :--- |
+| [#131](https://github.com/dan-petty/devops-cli/issues/131) | [#134](https://github.com/dan-petty/devops-cli/pull/134) | Deploy Squid Caching Proxy with SSL-Bump, Observability & Failover Handling | `Done` | [`task-131-k8s-squid-cache-ollama.md`](tasks/task-131-k8s-squid-cache-ollama.md) |
+| [#132](https://github.com/dan-petty/devops-cli/issues/132) | [#133](https://github.com/dan-petty/devops-cli/pull/133) | Modernize AI Chat CLI with Rich Rendering & Persona Orange Integration | `Done` | [`task-132-ai-chat-persona-orange.md`](tasks/task-132-ai-chat-persona-orange.md) |
+| [#135](https://github.com/dan-petty/devops-cli/issues/135) | [#136](https://github.com/dan-petty/devops-cli/pull/136) / [#143](https://github.com/dan-petty/devops-cli/pull/143) | Review Pod Restarts, Eliminate Cgroup OOM Kills & Optimize Resource Limits | `Done` | [`task-135-k8s-pod-restarts-resource-limits.md`](tasks/task-135-k8s-pod-restarts-resource-limits.md) |
+| [#137](https://github.com/dan-petty/devops-cli/issues/137) | [#138](https://github.com/dan-petty/devops-cli/pull/138) | Context Document Compaction Engine (`devops docs compact`) | `Done` | [`task-137-docs-compaction-engine.md`](tasks/task-137-docs-compaction-engine.md) |
+| [#139](https://github.com/dan-petty/devops-cli/issues/139) | [#140](https://github.com/dan-petty/devops-cli/pull/140) | Refine AI Chat Streaming Markdown Formatting & Thinking Display | `Done` | [`task-139-ai-chat-markdown-formatting.md`](tasks/task-139-ai-chat-markdown-formatting.md) |
+| [#141](https://github.com/dan-petty/devops-cli/issues/141) | [#143](https://github.com/dan-petty/devops-cli/pull/143) | Resolve Squid Proxy Root CA, Build Image, and Enable Proxy Across Cluster | `Done` | [`task-141-squid-proxy-cluster-enablement.md`](tasks/task-141-squid-proxy-cluster-enablement.md) |
+| [#142](https://github.com/dan-petty/devops-cli/issues/142) | TBD | High-Throughput LLM Gateway & Distributed Model Router | `Ready` | [`task-142-llm-gateway-distributed-router.md`](tasks/task-142-llm-gateway-distributed-router.md) |
+
+---
+
+## Milestone: v0.2.15
 
 | Issue | PR | Title | Status | Task File |
 | :--- | :--- | :--- | :--- | :--- |

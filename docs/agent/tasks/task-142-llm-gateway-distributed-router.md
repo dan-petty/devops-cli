@@ -1,8 +1,8 @@
 # Task 142: High-Throughput LLM Gateway & Distributed Model Router
 
 **Issue**: [#142](https://github.com/dan-petty/devops-cli/issues/142)
-**PR**: [#143](https://github.com/dan-petty/devops-cli/pull/143)
-**Status**: In Review
+**PR**: TBD
+**Status**: Ready
 **Milestone**: `v0.2.18`
 **Priority**: `priority/p0-critical`
 **Scope**: `scope/ai`

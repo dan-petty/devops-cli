@@ -2,7 +2,7 @@
 
 **Issue**: [#141](https://github.com/dan-petty/devops-cli/issues/141)
 **PR**: [#143](https://github.com/dan-petty/devops-cli/pull/143)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/k8s`
