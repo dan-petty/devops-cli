@@ -136,4 +136,4 @@ spec:
         - name: squid-ca
           secret:
             secretName: squid-ca-secret
-            optional: true
+            optional: false

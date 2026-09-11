@@ -55,7 +55,7 @@ spec:
             - name: NO_PROXY
               value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc,.cluster.local"
             - name: SSL_CERT_DIR
-              value: "/etc/ssl/certs"
+              value: "/etc/ssl/certs:/etc/ssl/squid-ca"
           ports:
             - name: http
               containerPort: 11434
@@ -73,8 +73,7 @@ spec:
             - name: ollama-data
               mountPath: /root/.ollama
             - name: squid-ca-cert
-              mountPath: /etc/ssl/certs/squid-ca.pem
-              subPath: squid-ca.pem
+              mountPath: /etc/ssl/squid-ca
               readOnly: true
           startupProbe:
             httpGet:
@@ -101,6 +100,8 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 6
       volumes:
+        # Node-local NVMe storage: direct PCIe bandwidth maximizes model load speeds into VRAM
+        # and avoids saturating cluster network bandwidth with multi-gigabyte weight layers
         - name: ollama-data
           hostPath:
             path: /var/lib/ollama

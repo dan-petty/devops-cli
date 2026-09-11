@@ -1,7 +1,7 @@
 # Task 141: Resolve Squid Proxy Root CA, Build Image, and Enable Proxy Across K3s Cluster
 
 **Issue**: [#141](https://github.com/dan-petty/devops-cli/issues/141)
-**PR**: TBD
+**PR**: [#143](https://github.com/dan-petty/devops-cli/pull/143)
 **Status**: In Review
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p1-high`
@@ -14,7 +14,7 @@
 Fix and operationalize the in-cluster Squid forward caching proxy with SSL-Bump and Prometheus observability across the K3s homelab cluster.
 
 ### Problems & Remediation Steps
-1. **Container Image**: Build `192.168.1.4:30500/squid:0.2.16` containing `squid-openssl` and push to in-cluster registry.
+1. **Container Image**: Build `<registry-host>:30500/squid:0.2.16` containing `squid-openssl` and push to in-cluster registry.
 2. **Cryptographic Root CA & Trust Distribution**:
    - Generate matching `ca.key` and `ca.pem` for SSL-Bump certificate generation.
    - Provision Secret `squid-ca-secret` in namespace `squid` (consumed by Squid container).
@@ -37,7 +37,7 @@ Fix and operationalize the in-cluster Squid forward caching proxy with SSL-Bump 
 
 - [x] Ground issue in GitHub tracking (#141) under milestone `v0.2.16`.
 - [x] Create task tracking document `docs/agent/tasks/task-141-squid-proxy-cluster-enablement.md`.
-- [x] Build and push `192.168.1.4:30500/squid:0.2.16` to in-cluster registry.
+- [x] Build and push `<registry-host>:30500/squid:0.2.16` to in-cluster registry.
 - [x] Generate matching Root CA keypair (`ca.key` and `ca.pem`).
 - [x] Create Secret `squid-ca-secret` in `squid` namespace.
 - [x] Synchronize `ca-configmap.yaml` in `k8s/squid/` and `k8s/llm/` with generated CA certificate.

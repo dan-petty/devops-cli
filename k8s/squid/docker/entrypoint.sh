@@ -34,14 +34,11 @@ elif [ -f "/etc/squid/ssl-ca/tls.key" ] && [ -f "/etc/squid/ssl-ca/tls.crt" ]; t
     chmod 400 "${SSL_DIR}/ca.key"
     chmod 444 "${SSL_DIR}/ca.pem"
     chown -R proxy:proxy "${SSL_DIR}"
-elif [ ! -f "${SSL_DIR}/ca.key" ] || [ ! -f "${SSL_DIR}/ca.pem" ]; then
-    echo "Generating dynamic Root CA for Squid SSL-Bump in ${SSL_DIR}..."
-    openssl req -new -newkey rsa:2048 -days 3650 -nodes -x509 \
-      -subj "/CN=DevOps CLI In-Cluster Squid CA/O=DevOps CLI/OU=Caching Proxy" \
-      -keyout "${SSL_DIR}/ca.key" -out "${SSL_DIR}/ca.pem"
-    chmod 400 "${SSL_DIR}/ca.key"
-    chmod 444 "${SSL_DIR}/ca.pem"
-    chown -R proxy:proxy "${SSL_DIR}"
+elif [ -f "${SSL_DIR}/ca.key" ] && [ -f "${SSL_DIR}/ca.pem" ]; then
+    echo "Using existing persisted Root CA in ${SSL_DIR}..."
+else
+    echo "FATAL: Pre-provisioned Root CA missing from /etc/squid/ssl-ca. Ensure Kubernetes Secret 'squid-ca-secret' is provisioned before deploying Squid." >&2
+    exit 1
 fi
 
 # Initialize SSL cert database if not present

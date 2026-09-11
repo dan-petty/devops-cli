@@ -82,11 +82,15 @@ http_access deny manager
 ```
 
 ### 2.3 Structured JSON Access Logging
-To integrate seamlessly with the cluster's centralized logging architecture (Fluent Bit, OpenTelemetry, Loki), access logs are emitted directly to container stdout in structured JSON format rather than legacy flat files:
+To integrate seamlessly with the cluster's centralized logging architecture (Fluent Bit, OpenTelemetry, Loki), access logs are written to `/var/log/squid/access.log` and streamed directly to container stdout via background `tail -F` in structured JSON format:
 
 ```squid
-logformat json_k8s {"timestamp":"%tl","client_ip":">a","duration_ms":%tr,"cache_status":"%Ss","http_status":%03>Hs,"bytes_sent":%<st,"method":">rm","uri":">ru","mime_type":"%mt","upstream":"%Sh/%<a"}
-access_log stdio:/dev/stdout json_k8s
+# Strip sensitive query parameters (SAS tokens, signatures) from access records
+strip_query_terms on
+
+# Structured JSON log format streamed to stdout via /var/log/squid/access.log
+logformat json_k8s {"timestamp":"%tl","client_ip":"%>a","duration_ms":%tr,"cache_status":"%Ss","http_status":%03>Hs,"bytes_sent":%<st,"method":"%>rm","uri":"%>ru","mime_type":"%mt","upstream":"%Sh/%<a"}
+access_log /var/log/squid/access.log json_k8s
 logfile_rotate 0
 ```
 
