@@ -65,35 +65,46 @@ def test_parse_project_metadata_fallback_when_no_pyproject(tmp_path: Path) -> No
 
 def test_generate_pointer_stub() -> None:
     """Verify pointer stubs correctly direct tools to canonical AGENTS.md."""
-    claude_stub = generate_pointer_stub(
+    claude_stub_generic = generate_pointer_stub(
         title="Sample — Claude Instructions",
         tool_name="Claude Code",
         filename="CLAUDE.md",
         canonical_relpath="./AGENTS.md",
+        is_devops_cli=False,
     )
-    assert "# Sample — Claude Instructions" in claude_stub
-    assert "Claude Code" in claude_stub
-    assert "[AGENTS.md](./AGENTS.md)" in claude_stub
-    assert "devops ai agents" in claude_stub
-    assert "Pre-1.0 Alpha Notice" in claude_stub
-    assert "alpha software prior to release" in claude_stub
-    assert "no backwards compatibility guarantees" in claude_stub
-    assert "Semantic Versioning" in claude_stub
+    assert "# Sample — Claude Instructions" in claude_stub_generic
+    assert "Claude Code" in claude_stub_generic
+    assert "[AGENTS.md](./AGENTS.md)" in claude_stub_generic
+    assert "devops ai agents" in claude_stub_generic
+    assert "Pre-1.0 Alpha Notice" not in claude_stub_generic
+
+    claude_stub_devops = generate_pointer_stub(
+        title="devops-cli — Claude Instructions",
+        tool_name="Claude Code",
+        filename="CLAUDE.md",
+        canonical_relpath="./AGENTS.md",
+        is_devops_cli=True,
+    )
+    assert "Pre-1.0 Alpha Notice" in claude_stub_devops
+    assert "alpha software prior to release" in claude_stub_devops
+    assert "no backwards compatibility guarantees" in claude_stub_devops
+    assert "Semantic Versioning" in claude_stub_devops
 
 
 def test_generate_agents_md_contains_required_sections() -> None:
     """Verify generated AGENTS.md has standard sections and clean formatting."""
     meta = ProjectMetadata(
-        name="test-automation",
+        name="devops-cli",
         description="Workstation automation scripts",
         version="0.1.0",
         requires_python=">=3.14",
-        entry_point="test-cli (test_automation.main:app)",
+        entry_point="devops (devops_cli.main:app)",
         has_devcontainer=True,
+        is_devops_cli=True,
     )
     content = generate_agents_md(meta)
 
-    assert "# test-automation — AI Agent Instructions & Engineering Best Practices" in content
+    assert "# devops-cli — AI Agent Instructions & Engineering Best Practices" in content
     assert "Canonical Source" in content
     assert "## 1. Project Overview & Architecture" in content
     assert "## 2. Core Engineering Philosophy & Best Practices" in content
@@ -116,6 +127,17 @@ def test_generate_agents_md_contains_required_sections() -> None:
     assert "asyncio.Semaphore(5)" in content
     assert "Comprehensive Sanitization of Internal Systems & Homelab Data" in content
     assert "<storage-node>" in content
+
+    # Verify external/generic project AGENTS.md omits pre-1.0 alpha lifecycle block
+    meta_generic = ProjectMetadata(
+        name="external-app",
+        description="Generic user application",
+        version="1.0.0",
+        requires_python=">=3.14",
+        is_devops_cli=False,
+    )
+    generic_content = generate_agents_md(meta_generic)
+    assert "Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee" not in generic_content
 
 
 def test_scaffold_agent_instructions(tmp_path: Path) -> None:

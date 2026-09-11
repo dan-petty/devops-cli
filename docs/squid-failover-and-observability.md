@@ -172,7 +172,7 @@ graph TD
   refresh_pattern -i ollama-cache\.local/blobs/sha256/[a-f0-9]+$ 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
   refresh_pattern -i /v2/.*/blobs/sha256:[a-f0-9]+$ 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
   ```
-- **Outcome**: Even when the external internet is completely severed, any cluster node can pull previously downloaded 70B models directly from the Squid cache at full LAN speed (~10 Gbps).
+- **Outcome**: Even when the external internet is completely severed, any cluster node can pull previously downloaded 70B models directly from the Squid cache at local cluster network speed.
 
 ### 3.3 Failure Domain 3: Storage Exhaustion & Eviction Failover
 **Problem**: Downloading multiple 70B models (e.g. DeepSeek-R1, Llama-3.3, Qwen-2.5) consumes ~180 GB. If disk space reaches 100%, Squid encounters a FATAL file write error and abruptly halts. Standard LRU (Least Recently Used) eviction also tends to evict large files first to maximize small-object counts, which destroys model caching.

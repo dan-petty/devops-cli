@@ -1,8 +1,8 @@
 # Task 152: Sanitize Internal Homelab Hostnames, IPs, and Mount Paths & Strengthen Agent Instructions
 
 **Issue**: [#152](https://github.com/dan-petty/devops-cli/issues/152)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#153](https://github.com/dan-petty/devops-cli/pull/153)
+**Status**: In Review
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/agent`
