@@ -121,6 +121,7 @@ data:
     snmp_port 3401
     acl snmppublic snmp_community public
     snmp_access allow snmppublic localhost
+    snmp_access allow snmppublic localnet
     snmp_access deny all
 
     # -------------------------------------------------------------------------

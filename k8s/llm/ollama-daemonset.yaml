@@ -110,7 +110,7 @@ spec:
         - name: squid-ca-cert
           configMap:
             name: squid-ca-cert
-            optional: true
+            optional: false
 ---
 apiVersion: v1
 kind: Service

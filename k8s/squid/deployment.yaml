@@ -60,16 +60,14 @@ spec:
               containerPort: 3401
               protocol: UDP
           livenessProbe:
-            httpGet:
-              path: /squid-internal-mgr/info
+            tcpSocket:
               port: 3128
             initialDelaySeconds: 20
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
-            httpGet:
-              path: /squid-internal-mgr/info
+            tcpSocket:
               port: 3128
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -88,6 +86,9 @@ spec:
             - name: squid-config
               mountPath: /etc/squid/squid.conf
               subPath: squid.conf
+            - name: squid-ca
+              mountPath: /etc/squid/ssl-ca
+              readOnly: true
 
         # ---------------------------------------------------------------------
         # Observability Sidecar: Prometheus Squid Exporter
@@ -129,3 +130,7 @@ spec:
         - name: squid-config
           configMap:
             name: squid-config
+        - name: squid-ca
+          secret:
+            secretName: squid-ca-secret
+            optional: true

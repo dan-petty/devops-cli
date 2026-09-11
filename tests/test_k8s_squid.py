@@ -82,6 +82,7 @@ def test_squid_conf_caching_and_observability_directives() -> None:
     assert "acl manager proto cache_object" in conf_text
     assert "http_access allow manager localhost" in conf_text
     assert "snmp_port 3401" in conf_text
+    assert "snmp_access allow snmppublic localnet" in conf_text
 
 
 def test_squid_deployment_and_sidecar_exporter() -> None:
@@ -103,10 +104,12 @@ def test_squid_deployment_and_sidecar_exporter() -> None:
     assert "squid" in container_names
     assert "squid-exporter" in container_names
 
-    # Squid container verification
+    # Squid container verification with tcpSocket probes
     squid_c = next(c for c in containers if c["name"] == "squid")
     assert squid_c.get("livenessProbe") is not None
     assert squid_c.get("readinessProbe") is not None
+    assert squid_c["livenessProbe"].get("tcpSocket", {}).get("port") == 3128
+    assert squid_c["readinessProbe"].get("tcpSocket", {}).get("port") == 3128
     assert squid_c["readinessProbe"]["failureThreshold"] == 2
     assert squid_c["readinessProbe"]["periodSeconds"] == 5
 
@@ -161,4 +164,34 @@ def test_ollama_daemonset_proxy_integration() -> None:
 
     volumes = {v["name"]: v for v in daemonset_doc["spec"]["template"]["spec"]["volumes"]}
     assert "squid-ca-cert" in volumes
-    assert volumes["squid-ca-cert"].get("configMap", {}).get("optional") is True
+    assert volumes["squid-ca-cert"].get("configMap", {}).get("optional") is False
+
+
+def test_squid_networkpolicy_security_and_ca_distribution() -> None:
+    """Verify NetworkPolicy SSRF protections and cross-namespace CA distribution."""
+    np_doc = yaml.safe_load((SQUID_DIR / "networkpolicy.yaml").read_text(encoding="utf-8"))
+    assert np_doc.get("kind") == "NetworkPolicy"
+
+    egress_rules = np_doc["spec"].get("egress", [])
+    external_rule = next(
+        r for r in egress_rules if any("ipBlock" in to_item for to_item in r.get("to", []))
+    )
+    ip_block = next(to_item["ipBlock"] for to_item in external_rule["to"] if "ipBlock" in to_item)
+    assert ip_block["cidr"] == "0.0.0.0/0"
+    assert "169.254.169.254/32" in ip_block["except"]
+
+    # Verify CA configmaps in both squid and llm namespaces
+    squid_ca_doc = yaml.safe_load((SQUID_DIR / "ca-configmap.yaml").read_text(encoding="utf-8"))
+    assert squid_ca_doc["metadata"]["name"] == "squid-ca-cert"
+    assert squid_ca_doc["metadata"]["namespace"] == "squid"
+    assert "squid-ca.pem" in squid_ca_doc["data"]
+
+    llm_ca_doc = yaml.safe_load((K8S_DIR / "llm" / "ca-configmap.yaml").read_text(encoding="utf-8"))
+    assert llm_ca_doc["metadata"]["name"] == "squid-ca-cert"
+    assert llm_ca_doc["metadata"]["namespace"] == "llm"
+    assert llm_ca_doc["data"]["squid-ca.pem"] == squid_ca_doc["data"]["squid-ca.pem"]
+
+    # Verify entrypoint.sh avoids recursive chown on restart and checks for pre-provisioned CA
+    entrypoint_text = (DOCKER_DIR / "entrypoint.sh").read_text(encoding="utf-8")
+    assert ".initialized" in entrypoint_text
+    assert "/etc/squid/ssl-ca" in entrypoint_text

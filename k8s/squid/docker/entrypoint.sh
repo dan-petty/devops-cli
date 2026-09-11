@@ -7,10 +7,34 @@ SSL_DIR="/var/spool/squid/ssl"
 LOG_DIR="/var/log/squid"
 
 mkdir -p "${CACHE_DIR}" "${SSL_DB_DIR}" "${SSL_DIR}" "${LOG_DIR}"
-chown -R proxy:proxy "/var/spool/squid" "${LOG_DIR}"
 
-# Generate internal Root CA for SSL-Bump if not present
-if [ ! -f "${SSL_DIR}/ca.key" ] || [ ! -f "${SSL_DIR}/ca.pem" ]; then
+# One-time volume initialization check to avoid slow recursive traversal on restart
+if [ ! -f "${CACHE_DIR}/.initialized" ]; then
+    echo "First-time volume initialization for ${CACHE_DIR}..."
+    chown -R proxy:proxy "/var/spool/squid" "${LOG_DIR}"
+    touch "${CACHE_DIR}/.initialized"
+    chown proxy:proxy "${CACHE_DIR}/.initialized"
+else
+    # Non-recursive top-level ownership verification
+    chown proxy:proxy /var/spool/squid "${CACHE_DIR}" "${SSL_DB_DIR}" "${SSL_DIR}" "${LOG_DIR}"
+fi
+
+# Synchronize Root CA for Squid SSL-Bump
+if [ -f "/etc/squid/ssl-ca/ca.key" ] && [ -f "/etc/squid/ssl-ca/ca.pem" ]; then
+    echo "Loading pre-provisioned Root CA from /etc/squid/ssl-ca..."
+    cp "/etc/squid/ssl-ca/ca.key" "${SSL_DIR}/ca.key"
+    cp "/etc/squid/ssl-ca/ca.pem" "${SSL_DIR}/ca.pem"
+    chmod 400 "${SSL_DIR}/ca.key"
+    chmod 444 "${SSL_DIR}/ca.pem"
+    chown -R proxy:proxy "${SSL_DIR}"
+elif [ -f "/etc/squid/ssl-ca/tls.key" ] && [ -f "/etc/squid/ssl-ca/tls.crt" ]; then
+    echo "Loading pre-provisioned Root CA from /etc/squid/ssl-ca (TLS secret format)..."
+    cp "/etc/squid/ssl-ca/tls.key" "${SSL_DIR}/ca.key"
+    cp "/etc/squid/ssl-ca/tls.crt" "${SSL_DIR}/ca.pem"
+    chmod 400 "${SSL_DIR}/ca.key"
+    chmod 444 "${SSL_DIR}/ca.pem"
+    chown -R proxy:proxy "${SSL_DIR}"
+elif [ ! -f "${SSL_DIR}/ca.key" ] || [ ! -f "${SSL_DIR}/ca.pem" ]; then
     echo "Generating dynamic Root CA for Squid SSL-Bump in ${SSL_DIR}..."
     openssl req -new -newkey rsa:2048 -days 3650 -nodes -x509 \
       -subj "/CN=DevOps CLI In-Cluster Squid CA/O=DevOps CLI/OU=Caching Proxy" \
