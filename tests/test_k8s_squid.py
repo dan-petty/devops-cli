@@ -78,7 +78,7 @@ def test_squid_conf_caching_and_observability_directives() -> None:
 
     # Observability & Structured JSON Logging
     assert "logformat json_k8s" in conf_text
-    assert "access_log stdio:/dev/stdout json_k8s" in conf_text
+    assert "access_log /var/log/squid/access.log json_k8s" in conf_text
     assert "acl manager proto cache_object" in conf_text
     assert "http_access allow manager localhost" in conf_text
     assert "snmp_port 3401" in conf_text

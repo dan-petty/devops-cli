@@ -104,6 +104,8 @@ data:
     # OCI / Registry / Ollama content-addressable immutable blobs (never expire)
     refresh_pattern -i /v2/.*/blobs/sha256:[a-f0-9]+$ 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
     refresh_pattern -i /v2/.*blobs.* 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
+    refresh_pattern -i .*/blobs/sha256/.* 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
+    refresh_pattern -i .*\.r2\.cloudflarestorage\.com/.* 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
     refresh_pattern -i (registry\.ollama\.ai|huggingface\.co|github\.com)/.* 10080 80% 43200 override-expire ignore-reload
 
     # Default refresh pattern
@@ -112,9 +114,9 @@ data:
     # -------------------------------------------------------------------------
     # Observability & Structured Logging
     # -------------------------------------------------------------------------
-    # JSON structured access logs emitted directly to stdout for Fluent Bit / Loki
-    logformat json_k8s {"timestamp":"%tl","client_ip":">a","duration_ms":%tr,"cache_status":"%Ss","http_status":%03>Hs,"bytes_sent":%<st,"method":">rm","uri":">ru","mime_type":"%mt","upstream":"%Sh/%<a"}
-    access_log stdio:/dev/stdout json_k8s
+    # JSON structured access logs streamed to /var/log/squid/access.log (tailed to stdout)
+    logformat json_k8s {"timestamp":"%tl","client_ip":"%>a","duration_ms":%tr,"cache_status":"%Ss","http_status":%03>Hs,"bytes_sent":%<st,"method":"%>rm","uri":"%>ru","mime_type":"%mt","upstream":"%Sh/%<a"}
+    access_log /var/log/squid/access.log json_k8s
     logfile_rotate 0
 
     # SNMP Observability

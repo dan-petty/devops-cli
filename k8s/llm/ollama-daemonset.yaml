@@ -102,11 +102,9 @@ spec:
             failureThreshold: 6
       volumes:
         - name: ollama-data
-          # Local development/workstation: NFS share for sharing multi-GB GGUF models across nodes.
-          # Production: Use persistentVolumeClaim with ReadWriteMany CSI driver (e.g. CephFS, AWS EFS).
-          nfs:
-            server: 10.0.0.10
-            path: /srv/nfs/ollama
+          hostPath:
+            path: /var/lib/ollama
+            type: DirectoryOrCreate
         - name: squid-ca-cert
           configMap:
             name: squid-ca-cert

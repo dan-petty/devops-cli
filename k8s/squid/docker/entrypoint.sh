@@ -58,5 +58,10 @@ if [ ! -d "${CACHE_DIR}/00" ]; then
     squid -z -N -f /etc/squid/squid.conf
 fi
 
+# Ensure access log exists and stream to stdout for container log collection
+touch "${LOG_DIR}/access.log"
+chown proxy:proxy "${LOG_DIR}/access.log"
+tail -F -n 0 "${LOG_DIR}/access.log" &
+
 echo "Starting Squid Cache..."
 exec squid -N -d 1 -f /etc/squid/squid.conf
