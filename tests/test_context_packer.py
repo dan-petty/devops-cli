@@ -252,3 +252,18 @@ def test_pack_snippets_small_budget_never_exceeds_total() -> None:
     assert len(results) == 3
     total_packed = sum(r.packed_tokens for r in results)
     assert total_packed <= 60
+
+
+def test_prune_tree_linear_statement_scaling() -> None:
+    """Verify that pruning many top-level statements scales linearly and obeys token budget."""
+    code_lines = [f"def worker_fn_{i}() -> int:\n    return {i}\n" for i in range(120)]
+    large_module_code = "\n".join(code_lines)
+
+    packer = ContextPacker()
+    packed = packer.pack_code(large_module_code, config=PackingConfig(max_tokens=80))
+
+    assert isinstance(packed, PackedContext)
+    assert packed.packed_tokens <= 80
+    assert len(packed.pruned_symbols) > 50
+    # Output must be syntactically valid Python
+    ast.parse(packed.content)

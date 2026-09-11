@@ -114,3 +114,24 @@ def test_reporting_stage_generates_executive_summary(tmp_path: Path) -> None:
     assert "## Executive Summary" in content
     assert "### Key Good Patterns Observed" in content
     assert "### Key Bad Patterns Observed" in content
+
+
+def test_consolidated_markdown_report_with_errored_files(tmp_path: Path) -> None:
+    """Ensure that reviews encountering provider or analysis errors do not report a false-clean executive summary."""
+    pipeline = _make_dummy_pipeline(tmp_path)
+    pipeline.errored_files["src/devops_cli/commands/ai.py"] = "Review: Cannot connect to Ollama"
+
+    report_md = pipeline._build_consolidated_markdown_report(
+        session_id="test-errored-session",
+        generated_at="2026-09-11T02:00:00Z",
+        reportable_findings=[],
+        all_deps=[],
+        all_nets=[],
+    )
+
+    assert "## Executive Summary" in report_md
+    assert "The automated review encountered errors on **1 file(s)**" in report_md
+    assert "The codebase demonstrates exceptional engineering quality" not in report_md
+    assert "## Skipped / Errored Files" in report_md
+    assert "`src/devops_cli/commands/ai.py`" in report_md
+    assert "Cannot connect to Ollama" in report_md

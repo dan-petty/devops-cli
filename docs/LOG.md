@@ -2,6 +2,18 @@
 
 Chronological log of refactoring milestones, quality gates, and security enhancements.
 
+### [2026-09-11] Code Review Findings Remediation & Closed-Loop Feedback Dataset Calibration (Session `20260910-200018`)
+- **Review Findings Remediation**:
+  - **Public Documentation Zero-Leakage (Finding 1, CWE-200)**: Replaced private RFC 1918 address `http://10.0.0.10:11434` with official RFC 5737 TEST-NET-1 documentation address `http://192.0.2.10:11434` across `src/devops_cli/config/env.py`, `docs/ENV_VARS.md`, and AI knowledge base manuals (`configuration_and_settings.md`, `ollama.md`).
+  - **Loki NetworkPolicy Ingress Tightening (Finding 2, CWE-200)**: Removed broad RFC 1918 CIDR blocks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.1/32`) from `k8s/logging/networkpolicy.yaml`, strictly scoping ingress on port 3100 to intra-namespace, `monitoring` namespace (Grafana), and `ingress-nginx` namespace.
+  - **Linear AST Statement Token Pruning (Finding 3, CWE-400)**: Refactored `_prune_tree_to_budget` in `src/devops_cli/ai/context_packer.py` to pre-compute statement token costs in a single linear pass ($O(N)$), eliminating $O(N^2)$ AST unparsing and tokenization loops. Added unit test `test_prune_tree_linear_statement_scaling`.
+  - **Bounded Exception Detail Strings (Finding 4, CWE-209 / CWE-400)**: Truncated `title` to maximum 256 characters in `GitHubOperationError` details in `create_repository_issue` (`src/devops_cli/github/issues.py`). Added unit test `test_create_repository_issue_failure_bounds_title_in_error_details`.
+- **Closed-Loop Feedback Dataset & Review Prompts Calibration**:
+  - Updated review session `20260910-200018` records (`findings.json`, `review.md`) marking all 4 findings as `MITIGATED` with step-by-step causal remediation details.
+  - Exported 562 curated feedback records to `.data/reviews/feedback_dataset.jsonl` via `devops review export-feedback`.
+  - Enhanced review task prompts (`src/devops_cli/ai/tasks/review.md`, `verify_finding_system.md`) with explicit rules for RFC 5737 documentation IP checking, algorithmic complexity invariant validation, and bounded exception detail mapping.
+  - Updated `AGENTS.md` and AI knowledge base manuals to formalize prompt synchronization as part of the closed-loop feedback lifecycle.
+
 ### [2026-09-09] Phase 50.1 & 50.2: Dynamic Package Introspection & Documentation Ingestion Engine (Issues #75, #76)
 - **Dynamic Package Introspector (`src/devops_cli/ai/library/introspector.py`)**:
   - Implemented `PackageIntrospector` with runtime package version resolution and module tree introspection bounded by `--max-depth`.

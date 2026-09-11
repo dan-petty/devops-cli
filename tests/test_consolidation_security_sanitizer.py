@@ -310,3 +310,18 @@ def test_sanitize_prompt_injection() -> None:
     assert "<instructions>" not in sanitized
     assert "System prompt preamble." in sanitized
     assert "Valid instructions." in sanitized
+
+
+def test_mask_secrets_preserves_task_file_paths() -> None:
+    """Ensure filenames starting with 'task-' are never falsely masked as OpenAI keys."""
+    sample_path = "docs/agent/tasks/task-128-streaming-reasoning-think-token-parser.md"
+    sample_diff = (
+        "diff --git a/docs/agent/tasks/task-129-rate-limits.md b/docs/agent/tasks/task-129-rate-limits.md\n"
+        "--- a/docs/agent/tasks/task-129-rate-limits.md\n"
+        "+++ b/docs/agent/tasks/task-129-rate-limits.md\n"
+    )
+    assert mask_secrets(sample_path) == sample_path
+    assert mask_secrets(sample_diff) == sample_diff
+    # Verify genuine OpenAI key is still correctly redacted
+    fake_key = "sk-proj-abcdef1234567890abcdef1234567890"
+    assert mask_secrets(fake_key) == "<masked-openai-key>"

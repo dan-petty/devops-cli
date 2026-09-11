@@ -34,6 +34,7 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `CONTENT_FILTER_TRIGGERED` | `19` | Ai | Raised when a model response is filtered or refused by upstream content safety filters. |
 | `CONTEXT_BUDGET_EXCEEDED` | `11` | Ai | Raised when prompt token payload exceeds model context window limits. |
 | `DEPENDENCY_MISSING` | `1` | Tools | Raised when a required external binary/dependency is missing from the system PATH. |
+| `DOC_COMPACTION_ERROR` | `1` | Docs | Exception raised when documentation compaction fails. |
 | `DOCKER_ERROR` | `1` | Docker | Base exception for Docker operations. |
 | `DOCKER_SANDBOX_ERROR` | `1` | Docker | Raised when docker sandbox execution, container creation, or termination fails. |
 | `DOCS_INGESTION_ERROR` | `1` | Ai | Base exception for documentation ingestion errors. |

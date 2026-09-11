@@ -1546,6 +1546,7 @@ class ReviewPipelineOrchestrator:
                 payload.ai_scratchpad.setdefault("thoughts", []).append(
                     f"Review failed for {fpath}: {exc}"
                 )
+                self.errored_files[fpath] = f"Review: {exc}"
 
             sanitized_name = _sanitize_filename(fpath) + ".json"
             json_target = self.files_dir / sanitized_name
@@ -1567,11 +1568,18 @@ class ReviewPipelineOrchestrator:
             except TypeError, ValueError:
                 sec_str = "0.00s"
 
-            print_info(
-                f"[{idx}/{total_files}] Reviewed [bold]{fpath}[/bold] "
-                f"({n_findings} finding(s)) [dim]handled by {handled_by} {sec_str}[/dim]",
-                prefix=False,
-            )
+            if fpath in self.errored_files:
+                print_info(
+                    f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped errored file:[/bold red] "
+                    f"[bold]{fpath}[/bold] [dim]({self.errored_files[fpath]})[/dim]",
+                    prefix=False,
+                )
+            else:
+                print_info(
+                    f"[{idx}/{total_files}] Reviewed [bold]{fpath}[/bold] "
+                    f"({n_findings} finding(s)) [dim]handled by {handled_by} {sec_str}[/dim]",
+                    prefix=False,
+                )
 
     def _safe_review_file_payload(
         self,
@@ -2011,6 +2019,7 @@ class ReviewPipelineOrchestrator:
                 reportable_findings=reportable_findings,
                 all_deps=all_deps,
                 all_nets=all_nets,
+                errored_files=self.errored_files,
             )
         )
         lines.extend(

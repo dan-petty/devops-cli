@@ -206,7 +206,7 @@ def create_repository_issue(
         raise GitHubOperationError(
             f"Failed to create GitHub issue: {res.stderr or res.stdout}",
             operation="create_issue",
-            details={"repo": repo, "title": title},
+            details={"repo": repo, "title": title[:256]},
         )
     return _parse_created_issue(res.stdout, title, milestone, labels)
 

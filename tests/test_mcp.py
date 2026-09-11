@@ -260,6 +260,7 @@ class TestAllMcpToolsDirectly:
             config_output,
             config_show,
             docker_stats,
+            docs_compact,
             grafana_dashboards,
             k8s_bootstrap,
             k8s_create_tls_secret,
@@ -321,6 +322,7 @@ class TestAllMcpToolsDirectly:
             assert config_output() == "mock_output"
             assert ci_run(check="all") == "mock_output"
             assert release_status() == "mock_output"
+            assert docs_compact(series="v0.2", dry_run=True, check=True) == "mock_output"
             assert tf_plan("tf/aws") == "mock_output"
             assert tf_apply("tf/aws") == "mock_output"
             assert tf_output("tf/aws") == "mock_output"

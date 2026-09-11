@@ -244,6 +244,14 @@ _CODE_CONFIG_PREFIXES = (
     "uvicorn.",
     "httpx.",
     "httpx2.",
+    "rich.",
+    "pydantic.",
+    "pytest.",
+    "unittest.",
+    "docker.",
+    "fastapi.",
+    "typer.",
+    "click.",
 )
 
 _COMMON_PROPERTY_SUFFIXES = {
@@ -738,7 +746,9 @@ def _extract_url_reference(
         host = (parsed.hostname or "").lower()
         if is_package_repository_asset(clean_token, host):
             return None
-        is_local_host = is_private_or_local_ip(host) or is_local_or_reserved_domain(host)
+        is_local_host = (
+            is_private_or_local_ip(host) or is_local_or_reserved_domain(host) or ("." not in host)
+        )
         if is_local_host and not include_local:
             return None
         return NetworkReference(
@@ -801,10 +811,27 @@ def _extract_domain_reference(
         and "@" not in clean_token
         and "$" not in clean_token
         and "=" not in clean_token
+        and "*" not in clean_token
     ):
         return None
 
     domain_candidate = clean_token.lower()
+    if domain_candidate.endswith((".example", ".sample")) and any(
+        kw in domain_candidate
+        for kw in (
+            "tfvars",
+            "env",
+            "config",
+            "yml",
+            "yaml",
+            "json",
+            "toml",
+            "ini",
+            "conf",
+            "template",
+        )
+    ):
+        return None
 
     # Validate hostname format via standard library urllib.parse
     try:

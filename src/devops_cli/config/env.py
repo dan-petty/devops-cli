@@ -417,7 +417,7 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             ENV_AI_RAG_EMBEDDING_URL,
             opt.AI_RAG_EMBEDDING_URL,
             False,
-            "Dedicated endpoint URL for RAG dense vector embedding generation (e.g. http://10.0.0.10:11434)",
+            "Dedicated endpoint URL for RAG dense vector embedding generation (e.g. http://192.0.2.10:11434)",
         ),
         EnvVarSpec(
             ENV_QDRANT_URL,

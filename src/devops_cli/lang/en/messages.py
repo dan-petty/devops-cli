@@ -311,6 +311,19 @@ class DocsMessages:
     unsupported_format: str = (
         "Unsupported documentation format: {format}. Supported: markdown, json"
     )
+    compacting_docs: str = "Compacting documentation for series [cyan]{series}[/cyan]..."
+    compacted_success: str = (
+        "✓ Successfully compacted documentation for series [bold cyan]{series}[/bold cyan] "
+        "({bytes_saved} bytes saved)."
+    )
+    compacted_up_to_date: str = (
+        "✓ Documentation is already compacted for series [cyan]{series}[/cyan]."
+    )
+    compact_check_failed: str = (
+        "✗ Documentation compaction required for series [bold red]{series}[/bold red]. "
+        "Run 'devops docs compact --series {series}' to compact."
+    )
+    archive_created: str = "✓ Historical sprint log archived to: {path}"
 
 
 @dataclass(frozen=True)

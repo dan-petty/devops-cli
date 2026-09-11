@@ -432,6 +432,9 @@ def test_extract_network_references_function_calls_and_workspace_files() -> None
     file3 = "logging.py"
     file4 = "test_reference_extractor.py"
     file5 = "review.py"
+    template1 = "*.tfvars.example"
+    template2 = "*.env.example"
+    lib_symbol = "rich.live.Live"
 
     # Legitimate external domain and URL
     legit_domain = "metrics.telemetry-cloud.io"
@@ -445,12 +448,15 @@ def test_extract_network_references_function_calls_and_workspace_files() -> None
     assert "service.client.call" not in targets
     assert "helper.utils.format" not in targets
 
-    # Workspace files must NOT be matched as external domains
+    # Workspace files and wildcard templates must NOT be matched as external domains
     assert "auth.py" not in targets
     assert "server.py" not in targets
     assert "logging.py" not in targets
     assert "test_reference_extractor.py" not in targets
     assert "review.py" not in targets
+    assert "*.tfvars.example" not in targets
+    assert "*.env.example" not in targets
+    assert "rich.live.live" not in targets
 
     # Legitimate external references must be extracted
     assert any(t == "metrics.telemetry-cloud.io" for t in targets)
@@ -917,8 +923,21 @@ def test_reference_extractor_advanced_edge_cases(tmp_path: Path) -> None:
     assert isinstance(exact, set)
     assert isinstance(all_p, tuple)
 
-    # 3. is_code_or_config_reference single letter and stdlib
+    # 3. is_code_or_config_reference single letter, stdlib, and library prefixes
     assert is_code_or_config_reference("m.group") is True
     assert is_code_or_config_reference("sys.path") is True
     assert is_code_or_config_reference("devops_cli.security") is True
     assert is_code_or_config_reference("single") is True
+    assert is_code_or_config_reference("rich.live.Live") is True
+    assert is_code_or_config_reference("rich.live.live") is True
+
+    # 4. Extract network references with mock single-label URL
+    from devops_cli.security.reference_extractor import extract_network_references
+
+    mock_refs = extract_network_references(
+        "url = 'http://node1:11434'", "test.py", include_local=True
+    )
+    assert any(
+        r.target == "http://node1:11434" and r.is_local is True and r.scope == "local"
+        for r in mock_refs
+    )

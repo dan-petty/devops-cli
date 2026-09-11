@@ -56,3 +56,26 @@ devops docs sync-readme [OPTIONS]
 | `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
 
 ---
+
+## `devops docs compact`
+
+**Compact historical documentation for completed release series.**
+
+```bash
+devops docs compact [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--series`, `-s` | `string` | `v0.2` | Release series prefix to compact (e.g., 'v0.2', 'v0.1'). |
+| `--docs-dir`, `-d` | `path` | - | Path to repository docs/ directory (default: docs/). |
+| `--archive-dir`, `-a` | `path` | - | Path to historical archive directory (default: docs/agent/archive/). |
+| `--check` | `boolean` | - | Check if documentation compaction would make changes without modifying files. |
+| `--roadmap-only` | `boolean` | - | Only compact docs/ROADMAP.md. |
+| `--release-notes-only` | `boolean` | - | Only compact docs/RELEASE_NOTES.md. |
+| `--log-only` | `boolean` | - | Only compact docs/LOG.md. |
+| `--dry-run` | `boolean` | - | Show debug output of commands and AI requests without executing delegated subcommands or external write actions. |
+
+---
