@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -56,14 +57,16 @@ def _build_feedback_record(f: dict[str, Any], session_id: str, f_status: str) ->
 
 def _extract_session_feedback_records(
     s_dir: Path, status_filter: str | None
-) -> list[FeedbackRecord]:
-    """Parse findings.json from a review session and extract matching FeedbackRecords."""
+) -> Iterator[FeedbackRecord]:
+    """Parse findings.json from a review session and yield matching FeedbackRecords incrementally."""
+    findings_file = s_dir / "findings.json"
     try:
-        data: dict[str, Any] = json.loads((s_dir / "findings.json").read_text(encoding="utf-8"))
+        if not findings_file.is_file() or findings_file.stat().st_size > 50 * 1024 * 1024:
+            return
+        data: dict[str, Any] = json.loads(findings_file.read_text(encoding="utf-8"))
     except Exception:
-        return []
+        return
 
-    records: list[FeedbackRecord] = []
     session_id = data.get("session_id", s_dir.name)
     filter_upper = status_filter.upper() if status_filter else None
 
@@ -71,9 +74,7 @@ def _extract_session_feedback_records(
         f_status = str(f.get("status", "")).upper()
         if filter_upper is not None and filter_upper != "ALL" and f_status != filter_upper:
             continue
-        records.append(_build_feedback_record(f, session_id, f_status))
-
-    return records
+        yield _build_feedback_record(f, session_id, f_status)
 
 
 def export_invalidated_feedback(

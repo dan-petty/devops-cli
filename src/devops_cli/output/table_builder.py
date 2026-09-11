@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 from rich.table import Table
 
+from devops_cli.output.formatters.tables import render_table
 from devops_cli.output.markup import escape_text
 
 
@@ -33,20 +34,10 @@ def build_structured_table(
             results.append(record)
         return results
 
-    table = Table(title=escape_text(title) if title else title)
-    for col in columns:
-        if isinstance(col, tuple):
-            table.add_column(escape_text(col[0]), style=col[1])
-        else:
-            table.add_column(escape_text(col))
-
     if not rows:
-        placeholder = [f"[italic]{escape_text(empty_message)}[/italic]"] + [""] * (len(columns) - 1)
-        table.add_row(*placeholder)
-        return table
+        placeholder: list[list[str]] = [
+            [f"[italic]{escape_text(empty_message)}[/italic]"] + [""] * (len(columns) - 1)
+        ]
+        return render_table(title=title, columns=columns, rows=placeholder, safe=False)
 
-    for row in rows:
-        str_row = [escape_text(str(cell)) for cell in row]
-        table.add_row(*str_row)
-
-    return table
+    return render_table(title=title, columns=columns, rows=rows, safe=True)

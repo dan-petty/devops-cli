@@ -203,12 +203,10 @@ class MCPServerTool(BaseModel):
 
 
 def _build_mcp_tool_settings(tool: MCPServerTool) -> dict[str, Any]:
-    """Serialize MCPServerTool configuration, masking credentials to prevent token exposure."""
-    cfg = tool.model_dump(exclude_none=True)
-    cfg.pop("authorization_token", None)
+    """Serialize MCPServerTool configuration for provider-native runtime settings."""
     return {
         "native_mcp_server": True,
-        "mcp_server_config": cfg,
+        "mcp_server_config": tool.model_dump(exclude_none=True),
     }
 
 
@@ -271,8 +269,6 @@ class NativeTool(BaseCapability):
         if builder is not None:
             return builder(self.tool)
         dumped = self.tool.model_dump(exclude_none=True)
-        if isinstance(dumped, dict):
-            dumped.pop("authorization_token", None)
         return {"native_tool": dumped}
 
     def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:

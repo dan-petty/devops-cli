@@ -723,7 +723,7 @@ async def test_mcp_toolset_and_capability() -> None:
     mcp_server_cap = MCP(native=server_tool)
     server_settings = mcp_server_cap.get_model_settings()
     assert server_settings["mcp_server_config"]["url"] == "https://mcp.prod.cloud/sse"
-    assert "authorization_token" not in server_settings["mcp_server_config"]
+    assert server_settings["mcp_server_config"]["authorization_token"] == "secret-token-value"
 
     # 5. Tool prefixing and from_config loading
     mcp_prefix = MCPToolset(

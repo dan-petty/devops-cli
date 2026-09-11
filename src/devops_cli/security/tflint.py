@@ -28,20 +28,61 @@ def _build_unrestricted_cidr_finding(rel_str: str, idx: int) -> Finding:
     )
 
 
+def _is_security_context_line(lower_line: str) -> bool:
+    """Return True if line indicates security group or ingress rule context."""
+    return any(
+        kw in lower_line
+        for kw in (
+            "security_group",
+            "ingress",
+            "aws_security_group",
+            "azurerm_network_security_rule",
+            "google_compute_firewall",
+        )
+    )
+
+
+class _TfBlockContext:
+    """Tracks HCL security group and CIDR block nesting context across lines."""
+
+    def __init__(self) -> None:
+        self.in_security: bool = False
+        self.in_cidr: bool = False
+        self.sec_brace_depth: int = 0
+        self.brace_depth: int = 0
+
+    def update(self, line: str, lower_line: str) -> bool:
+        """Update context from line and return True if 0.0.0.0/0 matches unrestricted rule."""
+        if _is_security_context_line(lower_line):
+            self.in_security = True
+            self.sec_brace_depth = self.brace_depth
+
+        if "cidr_blocks" in lower_line or "cidr" in lower_line:
+            self.in_cidr = True
+
+        matches = "0.0.0.0/0" in line and (self.in_cidr or self.in_security or "cidr" in lower_line)
+
+        self.brace_depth += line.count("{") - line.count("}")
+        if "]" in line:
+            self.in_cidr = False
+        if self.brace_depth <= self.sec_brace_depth:
+            self.in_security = False
+
+        return matches
+
+
 def _inspect_tf_file_fallback(f: Path, rel_root: Path) -> list[Finding]:
     """Check single Terraform file for open CIDR blocks and exposed security groups."""
     findings: list[Finding] = []
     try:
         rel_str = str(f.relative_to(rel_root)) if f.is_relative_to(rel_root) else f.name
+        ctx = _TfBlockContext()
         with f.open("r", encoding="utf-8", errors="replace") as fp:
             for idx, line in enumerate(fp, start=1):
                 stripped = line.strip()
-                is_open_cidr = "0.0.0.0/0" in stripped and (
-                    "cidr_blocks" in stripped
-                    or "security_group" in stripped
-                    or "ingress" in stripped
-                )
-                if is_open_cidr:
+                if not stripped or stripped.startswith(("#", "//")):
+                    continue
+                if ctx.update(stripped, stripped.lower()):
                     findings.append(_build_unrestricted_cidr_finding(rel_str, idx))
     except Exception as exc:
         logger.debug("Failed reading %s in tflint fallback: %s", f, exc)

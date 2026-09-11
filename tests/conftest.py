@@ -12,13 +12,19 @@ import pytest
 @pytest.fixture(autouse=True, scope="session")
 def prevent_external_network_calls():
     """Guarantee that tests never hit external APIs or endpoints."""
+    import ipaddress
     import socket
 
     orig_connect = socket.socket.connect
     orig_connect_ex = socket.socket.connect_ex
 
     def _is_loopback(host: str) -> bool:
-        return host in ("127.0.0.1", "localhost", "::1", "0.0.0.0")
+        if host == "localhost":
+            return True
+        try:
+            return ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            return False
 
     def guarded_connect(self, address):
         if isinstance(address, tuple) and len(address) >= 2:

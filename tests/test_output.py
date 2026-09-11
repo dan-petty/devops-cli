@@ -844,6 +844,42 @@ def test_print_step_escapes_markup() -> None:
     out = buf.getvalue()
     assert "[bold red]injected[/bold red]" in out
     assert "[dim]tag[/dim]" in out
+    # Verify that ANSI color escape sequences for red and dim are NOT applied to the escaped text
+    assert "\x1b[31m" not in out
+    assert "\x1b[1;31m" not in out
+    assert "\x1b[2m" not in out
+
+
+def test_print_safe_escapes_markup_across_levels() -> None:
+    """Verify print_safe escapes Rich markup in content and details across all levels."""
+    from io import StringIO
+
+    from rich.console import Console
+
+    from devops_cli.output.console import print as d_print
+    from devops_cli.output.console import print_safe
+
+    for lvl in ("error", "warning", "info", "success", "muted"):
+        buf = StringIO()
+        test_console = Console(file=buf, force_terminal=True)
+        print_safe("[bold red]injected[/bold red]", level=lvl, console=test_console)
+        out = buf.getvalue()
+        assert "[bold red]injected[/bold red]" in out
+        # Rich should not have styled "injected" as a separate red token
+        assert "\x1b[1;31minjected\x1b[0m" not in out
+
+    # Verify print with safe=True on table rendering
+    buf_tbl = StringIO()
+    test_console_tbl = Console(file=buf_tbl, force_terminal=True)
+    d_print(
+        columns=["[bold red]Col[/bold red]"],
+        rows=[["[dim]val[/dim]"]],
+        console=test_console_tbl,
+        safe=True,
+    )
+    tbl_out = buf_tbl.getvalue()
+    assert "[bold red]Col[/bold red]" in tbl_out
+    assert "[dim]val[/dim]" in tbl_out
 
 
 def test_format_link_and_badges_escape_markup() -> None:

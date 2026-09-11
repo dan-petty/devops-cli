@@ -115,3 +115,15 @@ def test_span_handle_record_exception_masks_secrets() -> None:
     assert "<masked-github-token>" in span._attributes.get("exception.message", "")
     assert "ghp_supersecretaccesstoken" not in span._attributes.get("exception.stacktrace", "")
     assert "<masked-github-token>" in span._attributes.get("exception.stacktrace", "")
+
+
+def test_stage_pipeline_error_length_bounding() -> None:
+    """StagePipeline error formatting must strictly bound length to <= 256 characters with ellipsis."""
+    from devops_cli.pipeline.pipeline import _MAX_ERROR_LENGTH, _format_stage_error
+
+    oversized_exc = ValueError("A" * 500)
+    formatted = _format_stage_error(oversized_exc)
+
+    assert len(formatted) == _MAX_ERROR_LENGTH
+    assert formatted.endswith("...")
+    assert len(formatted) <= 256

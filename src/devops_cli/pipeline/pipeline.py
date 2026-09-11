@@ -25,7 +25,7 @@ def _format_stage_error(exc: Exception) -> str:
     """Sanitize and truncate exception string to prevent information leakage (CWE-209)."""
     raw = mask_secrets(str(exc))
     if len(raw) > _MAX_ERROR_LENGTH:
-        return f"{raw[:_MAX_ERROR_LENGTH]}..."
+        return f"{raw[: _MAX_ERROR_LENGTH - 3]}..."
     return raw
 
 

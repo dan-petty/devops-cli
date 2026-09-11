@@ -13,7 +13,7 @@ from typing import Any
 import httpx2
 
 from devops_cli.core.process import run_subprocess
-from devops_cli.core.validation import validate_url_egress
+from devops_cli.core.validation import is_valid_k8s_name, validate_url_egress
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.exceptions import ValidationError
 from devops_cli.exceptions.k8s import KubernetesLoggingError
@@ -22,12 +22,6 @@ from devops_cli.telemetry.tracer import trace_span
 logger = logging.getLogger(__name__)
 
 DEFAULT_LOKI_URL = "http://localhost:3100"
-_K8S_NAME_REGEX = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
-
-
-def _is_valid_k8s_name(name: str) -> bool:
-    """Validate resource name against RFC 1123 DNS subdomain label pattern."""
-    return bool(name and not name.startswith("-") and _K8S_NAME_REGEX.fullmatch(name))
 
 
 _TRACE_ID_REGEX = re.compile(
@@ -294,11 +288,11 @@ def execute_kubectl_logql(
 ) -> LogQueryResult:
     """Query logs via kubectl across matching pods with in-memory LogQL filtering."""
     ns = query.selectors.get("namespace", namespace)
-    if not _is_valid_k8s_name(ns):
+    if not is_valid_k8s_name(ns, namespace=True):
         raise ValidationError(f"Invalid Kubernetes namespace identifier: '{ns}'")
     if "pod" in query.selectors:
         raw_pod = query.selectors["pod"].removeprefix("pod/")
-        if not _is_valid_k8s_name(raw_pod):
+        if not is_valid_k8s_name(raw_pod):
             raise ValidationError(f"Invalid Kubernetes pod identifier: '{raw_pod}'")
         pods = [raw_pod]
     else:
@@ -318,7 +312,7 @@ def execute_kubectl_logql(
     all_entries: list[LogEntry] = []
     for raw_pod in pods[:5]:
         pod = raw_pod.removeprefix("pod/")
-        if not _is_valid_k8s_name(pod):
+        if not is_valid_k8s_name(pod):
             continue
         cmd = ["kubectl", "logs", pod, "-n", ns, f"--tail={limit}"]
         if since:

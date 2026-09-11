@@ -798,7 +798,7 @@ def test_mcp_capability_and_native_server_tool() -> None:
     settings = native_cap.get_model_settings()
     assert settings["native_mcp_server"] is True
     assert settings["mcp_server_config"]["id"] == "cluster-mcp"
-    assert "authorization_token" not in settings["mcp_server_config"]
+    assert settings["mcp_server_config"]["authorization_token"] == "bearer-token-123"
 
     # 2. Adaptive MCP capability with local tools
     def sample_mcp_tool(x: int) -> int:
