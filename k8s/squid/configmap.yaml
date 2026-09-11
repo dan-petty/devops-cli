@@ -1,0 +1,132 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: squid-config
+  namespace: squid
+  labels:
+    app.kubernetes.io/name: squid
+    app.kubernetes.io/part-of: devops-cli-stack
+data:
+  squid.conf: |
+    # =========================================================================
+    # Squid Forward Caching Proxy Configuration
+    # Tuned for Kubernetes Outbound Traffic & Ollama 70B Model Caching (100GB)
+    # =========================================================================
+
+    # -------------------------------------------------------------------------
+    # Network & SSL-Bump Configuration
+    # -------------------------------------------------------------------------
+    http_port 3128 ssl-bump cert=/var/spool/squid/ssl/ca.pem key=/var/spool/squid/ssl/ca.key generate-host-certificates=on dynamic_cert_mem_cache_size=16MB sslflags=NO_DEFAULT_CA
+
+    sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/spool/squid/ssl_db -M 16MB
+    sslcrtd_children 16 startup=4 idle=2
+
+    acl step1 at_step SslBump1
+    ssl_bump peek step1
+    ssl_bump bump all
+
+    # -------------------------------------------------------------------------
+    # Access Control Lists (ACLs)
+    # -------------------------------------------------------------------------
+    acl localhost src 127.0.0.1/32 ::1
+    acl localnet src 0.0.0.1-0.255.255.255  # RFC 1122
+    acl localnet src 10.0.0.0/8             # RFC 1918 & K3s Pod/Node networks
+    acl localnet src 100.64.0.0/10          # RFC 6598
+    acl localnet src 172.16.0.0/12          # RFC 1918
+    acl localnet src 192.168.0.0/16         # RFC 1918
+    acl localnet src fc00::/7               # RFC 4193
+    acl localnet src fe80::/10              # RFC 4291
+
+    # Ports
+    acl SSL_ports port 443
+    acl Safe_ports port 80          # http
+    acl Safe_ports port 21          # ftp
+    acl Safe_ports port 443         # https
+    acl Safe_ports port 70          # gopher
+    acl Safe_ports port 210         # wais
+    acl Safe_ports port 1025-65535  # unregistered ports
+    acl Safe_ports port 280         # http-mgmt
+    acl Safe_ports port 488         # gss-http
+    acl Safe_ports port 591         # filemaker
+    acl Safe_ports port 777         # multiling http
+    acl CONNECT method CONNECT
+
+    # Cache Manager & SNMP ACLs (Observability)
+    acl manager proto cache_object
+    http_access allow manager localhost
+    http_access deny manager
+
+    # Deny requests to unsafe ports
+    http_access deny !Safe_ports
+    http_access deny CONNECT !SSL_ports
+
+    # Allow local network & cluster pod access
+    http_access allow localnet
+    http_access allow localhost
+    http_access deny all
+
+    # -------------------------------------------------------------------------
+    # Cache Storage & 100 GB Massive Object Sizing
+    # -------------------------------------------------------------------------
+    # Maximum single object size set to 100 GB for 70B LLM weights
+    maximum_object_size 100 GB
+    minimum_object_size 0 KB
+
+    # Memory cache: 2GB hot memory, but cap individual memory objects to 32MB
+    # to avoid OOM when streaming multi-gigabyte layers
+    cache_mem 2048 MB
+    maximum_object_size_in_memory 32 MB
+
+    # 200 GB disk cache in UFS directory structure (backed by 250Gi PVC)
+    cache_dir ufs /var/spool/squid/cache 200000 16 256
+
+    # Eviction & Dynamic Aging Policy: LFUDA preserves massive layers over small files
+    cache_replacement_policy heap LFUDA
+    memory_replacement_policy heap GDSF
+
+    # Proactive disk watermarks (prune from 92% down to 85% in background)
+    cache_swap_low 85
+    cache_swap_high 92
+
+    # -------------------------------------------------------------------------
+    # Streaming, Range Requests & Resumed Pulls
+    # -------------------------------------------------------------------------
+    # Force full object download on range requests (critical for chunked model downloads)
+    range_offset_limit -1
+    quick_abort_min -1
+    quick_abort_max -1
+    read_ahead_gap 64 MB
+
+    # -------------------------------------------------------------------------
+    # Refresh Patterns & Content-Addressable Blob Caching
+    # -------------------------------------------------------------------------
+    # OCI / Registry / Ollama content-addressable immutable blobs (never expire)
+    refresh_pattern -i /v2/.*/blobs/sha256:[a-f0-9]+$ 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
+    refresh_pattern -i /v2/.*blobs.* 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
+    refresh_pattern -i (registry\.ollama\.ai|huggingface\.co|github\.com)/.* 10080 80% 43200 override-expire ignore-reload
+
+    # Default refresh pattern
+    refresh_pattern . 0 20% 4320
+
+    # -------------------------------------------------------------------------
+    # Observability & Structured Logging
+    # -------------------------------------------------------------------------
+    # JSON structured access logs emitted directly to stdout for Fluent Bit / Loki
+    logformat json_k8s {"timestamp":"%tl","client_ip":">a","duration_ms":%tr,"cache_status":"%Ss","http_status":%03>Hs,"bytes_sent":%<st,"method":">rm","uri":">ru","mime_type":"%mt","upstream":"%Sh/%<a"}
+    access_log stdio:/dev/stdout json_k8s
+    logfile_rotate 0
+
+    # SNMP Observability
+    snmp_port 3401
+    acl snmppublic snmp_community public
+    snmp_access allow snmppublic localhost
+    snmp_access allow snmppublic localnet
+    snmp_access deny all
+
+    # -------------------------------------------------------------------------
+    # Operational Tuning
+    # -------------------------------------------------------------------------
+    coredump_dir /var/spool/squid/cache
+    shutdown_lifetime 3 seconds
+    pinger_enable off

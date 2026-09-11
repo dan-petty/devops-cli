@@ -48,6 +48,14 @@ spec:
               value: "all"
             - name: NVIDIA_DRIVER_CAPABILITIES
               value: "compute,utility"
+            - name: HTTP_PROXY
+              value: "http://squid.squid.svc.cluster.local:3128"
+            - name: HTTPS_PROXY
+              value: "http://squid.squid.svc.cluster.local:3128"
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc,.cluster.local"
+            - name: SSL_CERT_DIR
+              value: "/etc/ssl/certs"
           ports:
             - name: http
               containerPort: 11434
@@ -64,6 +72,10 @@ spec:
           volumeMounts:
             - name: ollama-data
               mountPath: /root/.ollama
+            - name: squid-ca-cert
+              mountPath: /etc/ssl/certs/squid-ca.pem
+              subPath: squid-ca.pem
+              readOnly: true
           startupProbe:
             httpGet:
               path: /
@@ -95,6 +107,10 @@ spec:
           nfs:
             server: 10.0.0.10
             path: /srv/nfs/ollama
+        - name: squid-ca-cert
+          configMap:
+            name: squid-ca-cert
+            optional: false
 ---
 apiVersion: v1
 kind: Service
