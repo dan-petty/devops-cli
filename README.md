@@ -23,6 +23,15 @@
 
 ---
 
+## Software Maturity, Lifecycle & Versioning Policy
+
+> [!IMPORTANT]
+> **Pre-1.0 Alpha Software Status**: `devops-cli` is active **alpha software** prior to release `1.0.0`. Until at least release `1.0.0`, there is **no intention of maintaining backwards compatibility**. The codebase is intentionally kept clean of legacy references, obsolete shims, and compatibility remnants at all times so that it can reach architectural maturity at a reasonable rate.
+>
+> **Post-1.0 Semantic Versioning**: Any version released after `1.0.0` will strictly adhere to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) (`MAJOR.MINOR.PATCH`) and follow enterprise change management best practices, including runtime feature flags, structured multi-release deprecation cycles, and automated migration functionality.
+
+---
+
 ## Architectural & Governance Documentation
 
 - [**System Architecture & Technical Design (`ARCHITECTURE.md`)**](ARCHITECTURE.md) — Subsystem topologies, multi-agent sequence diagrams, and lifecycle hooks.

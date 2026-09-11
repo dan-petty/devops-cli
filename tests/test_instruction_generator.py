@@ -75,6 +75,10 @@ def test_generate_pointer_stub() -> None:
     assert "Claude Code" in claude_stub
     assert "[AGENTS.md](./AGENTS.md)" in claude_stub
     assert "devops ai agents" in claude_stub
+    assert "Pre-1.0 Alpha Notice" in claude_stub
+    assert "alpha software prior to release" in claude_stub
+    assert "no backwards compatibility guarantees" in claude_stub
+    assert "Semantic Versioning" in claude_stub
 
 
 def test_generate_agents_md_contains_required_sections() -> None:
@@ -103,6 +107,8 @@ def test_generate_agents_md_contains_required_sections() -> None:
     assert "GitHub Projects, Issues & Views Governance" in content
     assert "API Rate Limit Honor, Resilient Backoff & Quota Budgeting" in content
     assert "gh api rate_limit" in content
+    assert "Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee" in content
+    assert "Clean Solutions Over Legacy Remnants (Zero Zombie Code)" in content
     assert "GraphQL queries to targeted REST endpoints" in content
     assert "exponential backoff with random jitter" in content
     assert "AI Inference Rate Limit & Token Budget Management" in content
