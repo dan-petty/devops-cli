@@ -146,9 +146,9 @@ graph TD
    - If Squid hangs or stops responding to proxy requests, kube-proxy strips the pod IP from the Service endpoints within 10 seconds.
 2. **High Availability Deployment Topologies**:
    - **Topology A: Active/Passive Deployment with Fast Re-scheduling**:
-     - Single active replica backed by local-path PVC on the high-capacity node (`condor`, 1.8 TB NVMe).
+     - Single active replica backed by local-path PVC on a dedicated high-capacity storage node.
      - Kubernetes automatically restarts or re-schedules the container upon crash.
-     - Suitable for workstation/homelab clusters where managing multi-master storage is unwarranted.
+     - Suitable for standalone workstation or edge clusters where managing multi-master storage is unwarranted.
    - **Topology B: Multi-Replica StatefulSet with CARP (Cache Array Routing Protocol)**:
      - Squid instances run as a 2-pod StatefulSet (`squid-0`, `squid-1`), each with its own 250 GiB PVC.
      - Instances are peered via CARP:

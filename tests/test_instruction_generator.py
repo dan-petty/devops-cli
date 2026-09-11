@@ -114,6 +114,8 @@ def test_generate_agents_md_contains_required_sections() -> None:
     assert "AI Inference Rate Limit & Token Budget Management" in content
     assert "Tokens-Per-Minute / TPM and Requests-Per-Minute / RPM" in content
     assert "asyncio.Semaphore(5)" in content
+    assert "Comprehensive Sanitization of Internal Systems & Homelab Data" in content
+    assert "<storage-node>" in content
 
 
 def test_scaffold_agent_instructions(tmp_path: Path) -> None:

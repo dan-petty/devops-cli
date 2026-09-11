@@ -1,4 +1,4 @@
-# Task 141: Resolve Squid Proxy Root CA, Build Image, and Enable Proxy Across K3s Cluster
+# Task 141: Resolve Squid Proxy Root CA, Build Image, and Enable Proxy Across Kubernetes Cluster
 
 **Issue**: [#141](https://github.com/dan-petty/devops-cli/issues/141)
 **PR**: [#143](https://github.com/dan-petty/devops-cli/pull/143)
@@ -11,10 +11,10 @@
 
 ## 1. Description & Architectural Objectives
 
-Fix and operationalize the in-cluster Squid forward caching proxy with SSL-Bump and Prometheus observability across the K3s homelab cluster.
+Fix and operationalize the in-cluster Squid forward caching proxy with SSL-Bump and Prometheus observability across the Kubernetes cluster.
 
 ### Problems & Remediation Steps
-1. **Container Image**: Build `<registry-host>:30500/squid:0.2.16` containing `squid-openssl` and push to in-cluster registry.
+1. **Container Image**: Build `ghcr.io/dan-petty/squid:0.2.16` containing `squid-openssl` and push to registry.
 2. **Cryptographic Root CA & Trust Distribution**:
    - Generate matching `ca.key` and `ca.pem` for SSL-Bump certificate generation.
    - Provision Secret `squid-ca-secret` in namespace `squid` (consumed by Squid container).
@@ -37,11 +37,11 @@ Fix and operationalize the in-cluster Squid forward caching proxy with SSL-Bump 
 
 - [x] Ground issue in GitHub tracking (#141) under milestone `v0.2.16`.
 - [x] Create task tracking document `docs/agent/tasks/task-141-squid-proxy-cluster-enablement.md`.
-- [x] Build and push `<registry-host>:30500/squid:0.2.16` to in-cluster registry.
+- [x] Build and push `ghcr.io/dan-petty/squid:0.2.16` to registry.
 - [x] Generate matching Root CA keypair (`ca.key` and `ca.pem`).
 - [x] Create Secret `squid-ca-secret` in `squid` namespace.
 - [x] Synchronize `ca-configmap.yaml` in `k8s/squid/` and `k8s/llm/` with generated CA certificate.
-- [x] Deploy `k8s/squid/` stack to K3s cluster.
+- [x] Deploy `k8s/squid/` stack to Kubernetes cluster.
 - [x] Verify Squid pod readiness (`2/2 Running`) and metrics scraping (`:9301/metrics`).
 - [x] Re-enable `HTTP_PROXY` and `squid-ca-cert` volume mount in `k8s/llm/ollama-daemonset.yaml`.
 - [x] Apply updated DaemonSet to cluster and verify Ollama pods restart cleanly.

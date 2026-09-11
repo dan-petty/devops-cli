@@ -202,6 +202,13 @@ codebase or reviewing target repositories.
   - Never leak or extract information from hidden, private, or `.gitignored` files (`.env*`,
     `.ssh/`, `.data/`, `~/.gemini/`, local credentials, private keys) into any documents,
     changelogs, review findings, public commits, or code artifacts.
+  - **Comprehensive Sanitization of Internal Systems & Homelab Data**: Never record or expose concrete
+    internal hostnames (`*.lan`, `*.local`, physical machine names), private RFC 1918 IP addresses
+    (`192.168.0.0/16`, `10.0.0.0/8`, `172.16.0.0/12`), private container registries, non-standard local
+    NodePort endpoints, physical storage devices/mount paths (`/mnt/nvme*`, `/dev/sd*`), or private cluster
+    topology details in task tracking (`docs/agent/tasks/`), documentation, roadmaps, tests, manifests (`k8s/`),
+    or configuration templates (`config.yaml`). Always use abstract roles (`<storage-node>`, `<gpu-node>`,
+    `<worker-node>`, `<host>`), RFC 5737 documentation IPs (`192.0.2.0/24`), and standard localhost endpoints.
   - When constructing documentation, reviews, prompt context, or code examples, always redact,
     mask, or generalize any sensitive local environments, file system trees, or user identifiers.
   - Mitigate Server-Side Request Forgery (SSRF) and network egress risks by validating destination

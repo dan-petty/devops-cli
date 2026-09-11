@@ -20,7 +20,7 @@ Design, deploy, and integrate a centralized, high-performance OpenAI-compatible 
    - Virtual model aliases (`devops-chat`, `devops-coder`, `devops-reasoning`, `devops-embedding`).
    - Valkey distributed rate limiting and Squid egress proxying for outbound model pulls.
 2. **vLLM Continuous Batching & Tensor-Parallel Serving (`k8s/llm/vllm/`)**:
-   - Multi-GPU Tensor Parallelism ($TP=2$) on `condor` dual RTX 3090 (48GB VRAM) for 70B models (`llama-3.3-70b-instruct`, `qwen2.5-coder-32b`).
+   - Multi-GPU Tensor Parallelism ($TP=2$) on high-capacity worker nodes (48GB VRAM) for 70B models (`llama-3.3-70b-instruct`, `qwen2.5-coder-32b`).
    - PagedAttention and continuous batching for 5-10x throughput over Ollama during multi-file reviews.
 3. **Context-Window & VRAM-Aware Dynamic Router (`devops_cli.ai.router.gateway`)**:
    - Prompt context token inspection: $\le 16\text{k}$ to fast single-GPU nodes, $\ge 32\text{k}-64\text{k}$ to multi-GPU vLLM.
@@ -35,7 +35,7 @@ Design, deploy, and integrate a centralized, high-performance OpenAI-compatible 
 - [x] Ground issue in GitHub tracking (#142) under milestone `v0.2.18`.
 - [x] Integrate roadmap specification into `docs/ROADMAP.md`.
 - [ ] Author Kubernetes / Helm manifests for LiteLLM Gateway (`k8s/llm/gateway/`).
-- [ ] Author Kubernetes manifests for vLLM Tensor Parallelism on `condor` (`k8s/llm/vllm/`).
+- [ ] Author Kubernetes manifests for vLLM Tensor Parallelism on multi-GPU nodes (`k8s/llm/vllm/`).
 - [ ] Implement client routing integration and fallback in `src/devops_cli/ai/client/`.
 - [ ] Author FastMCP tools and cluster GPU resource in `src/devops_cli/mcp/`.
 - [ ] Add unit and integration tests with $\ge 90\%$ code coverage.

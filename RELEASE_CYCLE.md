@@ -15,8 +15,8 @@ This document defines the end-to-end lifecycle for implementing features, verify
 ### Post-1.0 Semantic Versioning & Enterprise Change Management
 Any version released after `1.0.0` will strictly adhere to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) (`MAJOR.MINOR.PATCH`):
 - **MAJOR (`X.0.0`)**: Incompatible API or breaking CLI command syntax changes.
-- **MINOR (`1.Y.0`)**: Backward-compatible new functionality (e.g., new subcommands, security scanners, or FastMCP tools).
-- **PATCH (`1.Y.Z`)**: Backward-compatible bug fixes, performance optimizations, or prompt refinements.
+- **MINOR (`X.Y.0`)**: Backward-compatible new functionality (e.g., new subcommands, security scanners, or FastMCP tools).
+- **PATCH (`X.Y.Z`)**: Backward-compatible bug fixes, performance optimizations, or prompt refinements.
 - **Change Management Best Practices**: Post-1.0 releases will utilize all enterprise change management mechanisms, including runtime feature flags, structured multi-release deprecation warnings (emitted for at least one minor release cycle before removal), and automated migration tooling.
 
 ### Ecosystem & Runtime Alignment

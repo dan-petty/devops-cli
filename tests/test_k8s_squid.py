@@ -139,16 +139,16 @@ def test_squid_deployment_and_sidecar_exporter() -> None:
     assert 9301 in exporter_ports
     assert "-listen" in exporter_c.get("command", [])
 
-    # Storage node affinity verification (prefers high-capacity condor node)
+    # Storage node affinity verification (prefers high-capacity storage node)
     affinity = pod_spec.get("affinity", {})
     node_aff = affinity.get("nodeAffinity", {})
     preferred = node_aff.get("preferredDuringSchedulingIgnoredDuringExecution", [])
-    has_condor_affinity = any(
-        "condor" in expr.get("values", [])
+    has_storage_affinity = any(
+        "storage-node" in expr.get("values", [])
         for p in preferred
         for expr in p.get("preference", {}).get("matchExpressions", [])
     )
-    assert has_condor_affinity is True
+    assert has_storage_affinity is True
 
     # Squid CA volume must be non-optional (fail-fast security requirement)
     squid_ca_vol = next(v for v in pod_spec.get("volumes", []) if v["name"] == "squid-ca")

@@ -33,7 +33,7 @@ spec:
                   - key: kubernetes.io/hostname
                     operator: In
                     values:
-                      - condor
+                      - storage-node
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
@@ -50,7 +50,7 @@ spec:
         # Primary Squid Caching Proxy Container
         # ---------------------------------------------------------------------
         - name: squid
-          image: 192.168.1.4:30500/squid:0.2.16
+          image: ghcr.io/dan-petty/squid:0.2.16
           imagePullPolicy: IfNotPresent
           ports:
             - name: http-proxy
