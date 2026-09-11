@@ -6,10 +6,18 @@ This document defines the end-to-end lifecycle for implementing features, verify
 
 ## 1. Release Philosophy & Versioning Scheme
 
-`devops-cli` adheres strictly to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) (`MAJOR.MINOR.PATCH`):
+### Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee
+`devops-cli` is active **alpha software** prior to release `1.0.0`:
+- **Zero Backwards Compatibility Guarantee**: Until at least release `1.0.0`, there is **no intention of maintaining backwards compatibility**. Breaking changes, interface evolutions, parameter alterations, and schema redesigns may occur across any release cycle without legacy shims.
+- **Zero Legacy Remnants**: The codebase must remain clean of legacy references, obsolete shims, deprecated aliases, and vestigial fallback paths at all times so that it can reach architectural maturity at a reasonable rate.
+- **Clean Solutions Over Zombie Code**: Features and interfaces are designed cleanly for current and future needs rather than burdened with compatibility workarounds.
+
+### Post-1.0 Semantic Versioning & Enterprise Change Management
+Any version released after `1.0.0` will strictly adhere to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) (`MAJOR.MINOR.PATCH`):
 - **MAJOR (`X.0.0`)**: Incompatible API or breaking CLI command syntax changes.
-- **MINOR (`0.Y.0`)**: Backward-compatible new functionality (e.g., new subcommands, security scanners, or FastMCP tools).
-- **PATCH (`0.0.Z`)**: Backward-compatible bug fixes, performance optimizations, or prompt refinements.
+- **MINOR (`X.Y.0`)**: Backward-compatible new functionality (e.g., new subcommands, security scanners, or FastMCP tools).
+- **PATCH (`X.Y.Z`)**: Backward-compatible bug fixes, performance optimizations, or prompt refinements.
+- **Change Management Best Practices**: Post-1.0 releases will utilize all enterprise change management mechanisms, including runtime feature flags, structured multi-release deprecation warnings (emitted for at least one minor release cycle before removal), and automated migration tooling.
 
 ### Ecosystem & Runtime Alignment
 - **Bleeding-Edge Python**: Builds track Python 3.14+ runtime features (e.g., modern syntax, typing improvements, `pydantic v2`).

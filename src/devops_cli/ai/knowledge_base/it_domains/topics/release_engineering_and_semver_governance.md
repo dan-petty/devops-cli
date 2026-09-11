@@ -19,10 +19,12 @@ graph TD
 
 ## 2. Key Concepts & Theoretical Foundations
 
-- **Semantic Versioning (SemVer 2.0.0)**:
-  - `MAJOR`: Breaking API, CLI argument, or schema modifications.
-  - `MINOR`: Backwards-compatible new features, subcommands, and tool additions.
-  - `PATCH`: Backwards-compatible bug fixes and security remediations.
+- **Pre-1.0 Alpha Lifecycle vs Post-1.0 Semantic Versioning**:
+  - **Pre-1.0 Alpha Policy (Prior to `1.0.0`)**: Active alpha software with **zero backwards compatibility guarantee**. Breaking changes, interface evolutions, parameter changes, and schema redesigns may occur across any pre-1.0 release cycle without legacy shims. The codebase must remain clean of legacy references, obsolete shims, and compatibility remnants at all times so that it can reach maturity rapidly.
+  - **Post-1.0 Governance (SemVer 2.0.0)**: Releases after `1.0.0` strictly follow SemVer 2.0.0 (`MAJOR.MINOR.PATCH`) with enterprise change management (feature flags, multi-release deprecation warnings, and automated migration tooling):
+    - `MAJOR (`X.0.0`)`: Incompatible breaking API, CLI argument, or schema modifications.
+    - `MINOR (`X.Y.0`)`: Backwards-compatible new features, subcommands, and tool additions.
+    - `PATCH (`X.Y.Z`)`: Backwards-compatible bug fixes and security remediations.
 - **Git Branch Hierarchy & Topic Isolation**:
   - **Zero Direct Commits to `main`**: All work occurs on topic branches (`feat/*`, `fix/*`, `docs/*`, `refactor/*`).
   - **Base Branch Targeting**: Feature, fix, and refactoring PRs target the active release branch (`--base release/v<version>`).

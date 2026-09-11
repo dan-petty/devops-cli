@@ -14,6 +14,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 8. **Auditable Multi-Persona Code Reviews**: Domain-specialized personas (`devsecops`, `architect`, `pm`, `auditor`, `qa`) with deterministic static metadata extraction (`SegmentMeta`), prompt boundary isolation, and closed-loop finding verification.
 9. **Zero Boilerplate & Standard Library Leverage**: Expressive integration of modern standard library utilities (`pathlib`, `ast`, `collections`, `itertools`, `functools`), Pydantic v2 schemas, and strict indentation budgets (<6 levels).
 10. **Complete Observability Triad & Centralized Kubernetes Logging**: Unified telemetry integrating Prometheus client metrics, Jaeger/OTel distributed tracing, and Grafana Loki centralized log aggregation with LogQL CLI querying and agentic incident diagnosis.
+11. **Pre-1.0 Alpha Velocity & Post-1.0 SemVer Change Management**: Until at least release `1.0.0`, `devops-cli` is active alpha software with no intention of maintaining backwards compatibility. The codebase must remain clean of legacy references and obsolete shims at all times so that it can reach maturity at a reasonable rate. Any version after `1.0.0` will follow strict semantic versioning conventions, and use all change management best practices including feature flags, deprecations, and migration functionality.
 
 ---
 
@@ -335,12 +336,12 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Model Aliasing & Virtual Tiering*: Maps abstract workload aliases (`devops-chat`, `devops-coder`, `devops-reasoning`, `devops-embedding`) across candidate backends, decoupling client configurations from physical GPU hostnames and model file names.
   - *Egress & Cache Integration*: Integrates with in-cluster Valkey (`valkey.llm.svc.cluster.local:6379`) for distributed token-bucket rate limiting and response caching, while routing outbound model pulls through Squid proxy (`http://squid.squid.svc.cluster.local:3128`).
 - [ ] **vLLM Continuous Batching & Tensor-Parallel Serving Stack (`k8s/llm/vllm/`) (P0 - Critical)**:
-  - *Context & Rationale*: Dedicated Kubernetes deployment orchestrating vLLM with PagedAttention and multi-GPU Tensor Parallelism ($TP=2$) on high-capacity nodes (`condor` dual RTX 3090 24GB).
+  - *Context & Rationale*: Dedicated Kubernetes deployment orchestrating vLLM with PagedAttention and multi-GPU Tensor Parallelism ($TP=2$) on high-capacity multi-GPU worker nodes.
   - *Continuous Batching & High-Throughput Inference*: Serves massive 70B parameter models (e.g. `llama-3.3-70b-instruct`, `qwen2.5-coder-32b`, `deepseek-coder-v2-lite`) with dynamic continuous batching, achieving 5-10x throughput over Ollama for parallel multi-file code reviews.
   - *Quantization & VRAM Optimization*: Supports FP8, AWQ, and GPTQ quantization with strict GPU memory utilization caps (`--gpu-memory-utilization 0.90`) and proactive KV-cache pre-allocation, eliminating runtime VRAM fragmentation and out-of-memory crashes.
 - [ ] **Context-Window & VRAM-Aware Dynamic Model Router (`devops_cli.ai.router.gateway`) (P1 - High)**:
   - *Context & Rationale*: Enhances `devops-cli` client and gateway routing logic with real-time context-window and VRAM topology awareness.
-  - *Adaptive Context Routing*: Automatically inspects incoming request token size before dispatch: requests requiring $\le 16\text{k}$ context route to fast single-GPU nodes (`hawk` RTX 5070 Ti 16GB), while deep prompts requiring $\ge 32\text{k}-64\text{k}$ context (e.g. whole-repo code reviews, extensive AST maps) route exclusively to multi-GPU vLLM (`condor` 48GB VRAM), preventing node eviction cascades.
+  - *Adaptive Context Routing*: Automatically inspects incoming request token size before dispatch: requests requiring $\le 16\text{k}$ context route to fast single-GPU nodes, while deep prompts requiring $\ge 32\text{k}-64\text{k}$ context (e.g. whole-repo code reviews, extensive AST maps) route exclusively to multi-GPU vLLM nodes (48GB VRAM), preventing node eviction cascades.
   - *Dynamic Prewarming & Slot Management*: Coordinates background model prewarming (`/v1/models/load` or generate ping) across target nodes without blocking client turns, tracking GPU resident models and evicting idle weights gracefully.
 - [ ] **FastMCP LLM Gateway Tools & Cluster Health Resource (P1 - High)**:
   - *Context & Rationale*: Exposes FastMCP tools (`ai_gateway_status`, `ai_gateway_routes`, `ai_gateway_failover`, `ai_vllm_scale`) and dynamic system resource (`resource://ai/gateway/status`, `resource://ai/cluster/gpus`) enabling AI coding assistants to monitor GPU memory utilization, inspect active backend routes, trigger model prewarming, and verify gateway health.
@@ -348,7 +349,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: End-to-end telemetry propagation exporting gateway Prometheus metrics (`litellm_requests_total`, `litellm_request_latency_seconds`, `litellm_tokens_total`) and injecting W3C `traceparent` headers to link gateway routing hops with client CLI spans, Jaeger trace waterfalls, and Loki access logs.
 
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
-- [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.
+- [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-premise and multi-cloud Kubernetes clusters with automatic service mesh routing.
 - [ ] **Autonomous Self-Healing Agent Pipeline**: Closed-loop diagnostic engine capable of discovering cluster incidents, generating corrective patches, running CI gates, and executing rollback.
 - [ ] **Cloud-Native Ephemeral Test Environment Provisioner (`devops env ephemeral up/down`)**: Automated provisioning of isolated namespace staging environments with seeded mock databases, synthetic datasets, and TLS ingresses on minikube or cloud clusters.
 - [ ] **Zero-Trust Git Commit & Tag Cryptographic Verification (`devops release verify-signatures`)**: Automated verification of SSH/GPG and Sigstore keyless commit signatures across repository history and pull requests.

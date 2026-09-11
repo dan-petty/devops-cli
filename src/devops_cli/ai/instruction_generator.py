@@ -123,6 +123,11 @@ def generate_pointer_stub(
 > environment & modernization policy, and security notes — live in
 > [AGENTS.md]({canonical_relpath}). Read that file. Regenerate both via
 > `devops ai agents`; do not duplicate content here.
+>
+> **Pre-1.0 Alpha Notice**: This codebase is alpha software prior to release `1.0.0`
+> with no backwards compatibility guarantees. The codebase must remain clean of legacy
+> references and obsolete shims at all times. Post-1.0 releases adhere strictly to
+> Semantic Versioning and enterprise change management (feature flags, deprecations, migrations).
 """
 
 
@@ -197,6 +202,13 @@ codebase or reviewing target repositories.
   - Never leak or extract information from hidden, private, or `.gitignored` files (`.env*`,
     `.ssh/`, `.data/`, `~/.gemini/`, local credentials, private keys) into any documents,
     changelogs, review findings, public commits, or code artifacts.
+  - **Comprehensive Sanitization of Internal Systems & Homelab Data**: Never record or expose concrete
+    internal hostnames (`*.lan`, `*.local`, physical machine names), private RFC 1918 IP addresses
+    (`192.168.0.0/16`, `10.0.0.0/8`, `172.16.0.0/12`), private container registries, non-standard local
+    NodePort endpoints, physical storage devices/mount paths (`/mnt/nvme*`, `/dev/sd*`), or private cluster
+    topology details in task tracking (`docs/agent/tasks/`), documentation, roadmaps, tests, manifests (`k8s/`),
+    or configuration templates (`config.yaml`). Always use abstract roles (`<storage-node>`, `<gpu-node>`,
+    `<worker-node>`, `<host>`), RFC 5737 documentation IPs (`192.0.2.0/24`), and standard localhost endpoints.
   - When constructing documentation, reviews, prompt context, or code examples, always redact,
     mask, or generalize any sensitive local environments, file system trees, or user identifiers.
   - Mitigate Server-Side Request Forgery (SSRF) and network egress risks by validating destination
@@ -240,6 +252,15 @@ codebase or reviewing target repositories.
   semaphores (`asyncio.Semaphore(5)` for 4–8 concurrent workers) to prevent overloading inference endpoints. On HTTP 429 or
   provider overload errors, implement exponential backoff with jitter and retry reflection rather than
   unthrottled burst retries.
+- **Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee**: Prior to release 1.0.0,
+  this codebase is active alpha software with no intention of maintaining backwards compatibility.
+  The codebase must remain clean of legacy references, obsolete shims, and compatibility remnants
+  at all times so that it can reach maturity at a reasonable rate. Releases after 1.0.0 will strictly
+  follow Semantic Versioning conventions with feature flags, formal deprecations, and migration tooling.
+- **Clean Solutions Over Legacy Remnants (Zero Zombie Code)**: When modifying, refactoring, or
+  replacing features, schemas, configurations, or interfaces, implement clean, complete solutions
+  and ruthlessly remove obsolete code, variables, aliases, fallback shims, and legacy workarounds.
+  Never leave remnants or vestigial fallback paths.
 
 
 

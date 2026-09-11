@@ -17,7 +17,8 @@ DevOps CLI follows an uncompromising quality-first, test-driven engineering cult
   - All domain error states must raise strongly typed exceptions inheriting from `DevOpsCLIError` under `src/devops_cli/exceptions/`.
   - Raising bare Python built-in exceptions (`ValueError`, `RuntimeError`, `TypeError`) is strictly prohibited.
 - **Minimum 90% Code Coverage**: Continuous quality gate enforced by `devops ci` across all `src/` modules.
-- **Zero Zombie Code**: Ruthlessly remove obsolete shims, legacy workarounds, and deprecated aliases.
+- **Pre-1.0 Alpha Status & Zero Backwards Compatibility**: DevOps CLI is pre-1.0 alpha software. Until at least release `1.0.0`, there is no intention of maintaining backwards compatibility. The codebase must remain clean of legacy references and obsolete shims at all times so that it can reach maturity at a reasonable rate. Any version after `1.0.0` will follow strict semantic versioning conventions, and employ all change management best practices including feature flags, deprecations, and migration functionality.
+- **Zero Zombie Code & Legacy Remnants**: Ruthlessly remove obsolete shims, legacy workarounds, and deprecated aliases. Never introduce compatibility shims during the pre-1.0 development cycle.
 
 ---
 
