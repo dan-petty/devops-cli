@@ -1,8 +1,8 @@
 # Task 146: Remove Obsolete Development Log and Redundant Pending Features Docs (`docs/LOG.md`, `docs/PENDING_FEATURES.md`)
 
 **Issue**: [#146](https://github.com/dan-petty/devops-cli/issues/146)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#147](https://github.com/dan-petty/devops-cli/pull/147)
+**Status**: In Review
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p3-low`
 **Scope**: `scope/cli`
