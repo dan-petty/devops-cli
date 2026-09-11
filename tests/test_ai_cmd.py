@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -71,6 +72,35 @@ def test_ai_chat_and_agent(tmp_path: Path) -> None:
 
         res_preload = runner.invoke(ai_app, ["preload"])
         assert res_preload.exit_code == 0
+
+
+def test_ai_chat_model_task_and_cli_overrides() -> None:
+    """Verify ai chat respects tasks.chat.model and CLI --model override."""
+    settings = Settings()
+    settings.ai.model = "base-model:latest"
+    settings.ai.tasks.chat.model = "chat-override-model:20b"
+
+    with (
+        patch("devops_cli.config.settings.load_settings", return_value=settings),
+        patch("devops_cli.config.settings.get_ai_api_key", return_value=""),
+    ):
+        res_task = runner.invoke(ai_app, ["chat", "--no-prewarm", "--no-rag"], input="exit\n")
+        assert res_task.exit_code == 0
+        assert "chat-override-model:20b" in res_task.output
+
+        res_cli = runner.invoke(
+            ai_app, ["chat", "--model", "cli-model:7b", "--no-prewarm", "--no-rag"], input="exit\n"
+        )
+        assert res_cli.exit_code == 0
+        assert "cli-model:7b" in res_cli.output
+
+
+def test_llm_client_model_property() -> None:
+    """Verify LLMClient.model exposes the active model identifier."""
+    from devops_cli.config.settings import AIConfig
+
+    client = LLMClient(config=AIConfig(model="gpt-oss:20b"))
+    assert client.model == "gpt-oss:20b"
 
 
 def test_ai_token_count_and_route(tmp_path: Path) -> None:
@@ -302,7 +332,7 @@ def test_ai_extended_commands(tmp_path: Path) -> None:
     assert "Task Name" in res_route.output or "AI Task Dynamic Routing" in res_route.output
 
     # 4. pipeline live execution with mock
-    mock_res = MultiAgentPipelineResult(
+    mock_res: MultiAgentPipelineResult = MultiAgentPipelineResult(
         final_content="Security audit passed cleanly.",
         steps=[
             PipelineStepResult(
@@ -412,7 +442,7 @@ def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
         mock_exp_chat.assert_called_once_with("rag")
 
     # 11. chat command interactive session with exit input
-    mock_run_res: AgentResponse = AgentResponse(
+    mock_run_res: AgentResponse[Any] = AgentResponse(
         content="Hello! How can I help you?",
         tool_calls=[],
         turns=1,
@@ -470,7 +500,6 @@ def test_ai_chat_persona_orange_rendering() -> None:
 
 def test_ai_chat_markdown_response_rendering() -> None:
     """Verify devops ai chat formats responses containing Markdown syntax using Rich Markdown."""
-    from typing import Any
     from unittest.mock import MagicMock, patch
 
     from devops_cli.ai.agents.pydantic_agent import AgentResponse

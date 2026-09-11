@@ -2425,6 +2425,7 @@ devops ai chat [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa, challenger |
+| `--model`, `-m` | `string` | - | AI model identifier. |
 | `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md). |
 | `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
 | `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens. |

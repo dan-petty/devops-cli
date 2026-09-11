@@ -328,6 +328,25 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **FastMCP Sandbox Tools & Dynamic System Resources (P1 - High)**:
   - *Context & Rationale*: Exposes FastMCP tools (`sandbox_deploy`, `sandbox_probe`, `sandbox_metrics`, `sandbox_fuzz`, `sandbox_scan`, `sandbox_iterate`, `sandbox_evaluate`, `sandbox_history`) and dynamic system resources (`resource://sandbox/status`, `resource://sandbox/metrics`, `resource://sandbox/incidents`, `resource://sandbox/sessions`) enabling AI assistants to operate, evaluate, and heal workloads in isolated sandboxes autonomously.
 
+### High-Throughput LLM Gateway, vLLM Tensor Parallelism & Distributed Inference Mesh (v0.2.18 - Scheduled)
+- [ ] **Unified LLM Gateway & Distributed Model Routing Service (`k8s/llm/gateway/`, `devops ai gateway`) (P0 - Critical)**:
+  - *Context & Rationale*: Production deployment of a high-performance, OpenAI-compliant routing proxy (LiteLLM Proxy / AI Gateway) in the `llm` namespace. Fronts both the heterogeneous Ollama daemonset cluster and future dedicated vLLM server instances, providing a single cluster-internal endpoint (`http://llm-gateway.llm.svc.cluster.local:4000/v1`) and external ingress.
+  - *Load Balancing & Resilience*: Implements least-latency and least-busy routing with automatic retry loops, exponential backoff, health-probe-driven failover, and dynamic circuit breakers (automatically cooling down unreachable or degraded backend nodes).
+  - *Model Aliasing & Virtual Tiering*: Maps abstract workload aliases (`devops-chat`, `devops-coder`, `devops-reasoning`, `devops-embedding`) across candidate backends, decoupling client configurations from physical GPU hostnames and model file names.
+  - *Egress & Cache Integration*: Integrates with in-cluster Valkey (`valkey.llm.svc.cluster.local:6379`) for distributed token-bucket rate limiting and response caching, while routing outbound model pulls through Squid proxy (`http://squid.squid.svc.cluster.local:3128`).
+- [ ] **vLLM Continuous Batching & Tensor-Parallel Serving Stack (`k8s/llm/vllm/`) (P0 - Critical)**:
+  - *Context & Rationale*: Dedicated Kubernetes deployment orchestrating vLLM with PagedAttention and multi-GPU Tensor Parallelism ($TP=2$) on high-capacity nodes (`condor` dual RTX 3090 24GB).
+  - *Continuous Batching & High-Throughput Inference*: Serves massive 70B parameter models (e.g. `llama-3.3-70b-instruct`, `qwen2.5-coder-32b`, `deepseek-coder-v2-lite`) with dynamic continuous batching, achieving 5-10x throughput over Ollama for parallel multi-file code reviews.
+  - *Quantization & VRAM Optimization*: Supports FP8, AWQ, and GPTQ quantization with strict GPU memory utilization caps (`--gpu-memory-utilization 0.90`) and proactive KV-cache pre-allocation, eliminating runtime VRAM fragmentation and out-of-memory crashes.
+- [ ] **Context-Window & VRAM-Aware Dynamic Model Router (`devops_cli.ai.router.gateway`) (P1 - High)**:
+  - *Context & Rationale*: Enhances `devops-cli` client and gateway routing logic with real-time context-window and VRAM topology awareness.
+  - *Adaptive Context Routing*: Automatically inspects incoming request token size before dispatch: requests requiring $\le 16\text{k}$ context route to fast single-GPU nodes (`hawk` RTX 5070 Ti 16GB), while deep prompts requiring $\ge 32\text{k}-64\text{k}$ context (e.g. whole-repo code reviews, extensive AST maps) route exclusively to multi-GPU vLLM (`condor` 48GB VRAM), preventing node eviction cascades.
+  - *Dynamic Prewarming & Slot Management*: Coordinates background model prewarming (`/v1/models/load` or generate ping) across target nodes without blocking client turns, tracking GPU resident models and evicting idle weights gracefully.
+- [ ] **FastMCP LLM Gateway Tools & Cluster Health Resource (P1 - High)**:
+  - *Context & Rationale*: Exposes FastMCP tools (`ai_gateway_status`, `ai_gateway_routes`, `ai_gateway_failover`, `ai_vllm_scale`) and dynamic system resource (`resource://ai/gateway/status`, `resource://ai/cluster/gpus`) enabling AI coding assistants to monitor GPU memory utilization, inspect active backend routes, trigger model prewarming, and verify gateway health.
+- [ ] **Gateway Telemetry, W3C Distributed Tracing & Token Cost Accounting (P1 - High)**:
+  - *Context & Rationale*: End-to-end telemetry propagation exporting gateway Prometheus metrics (`litellm_requests_total`, `litellm_request_latency_seconds`, `litellm_tokens_total`) and injecting W3C `traceparent` headers to link gateway routing hops with client CLI spans, Jaeger trace waterfalls, and Loki access logs.
+
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.
 - [ ] **Autonomous Self-Healing Agent Pipeline**: Closed-loop diagnostic engine capable of discovering cluster incidents, generating corrective patches, running CI gates, and executing rollback.
@@ -487,6 +506,9 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Agentic Sandbox Iteration Orchestration Loop (`devops sandbox iterate`) | PydanticAI / Docker / Evaluators | High | High | v0.2.17 | 📋 Scheduled (P0) |
 | | Regression Lock Engine & State Tracker (`IterationState`) | AST / Git / Pytest | High | Medium | v0.2.17 | 📋 Scheduled (P1) |
 | | Dynamic Application Security Testing (DAST) & Egress Scanner | OWASP ZAP / Nuclei / Subprocess | High | Medium | v0.2.17 | 📋 Scheduled (P1) |
+| | Unified LLM Gateway & Distributed Model Routing Service | LiteLLM Proxy / AI Gateway | High | Medium | v0.2.18 | 📋 Scheduled (P0) |
+| | vLLM Continuous Batching & Tensor-Parallel Serving Stack | vLLM / PyTorch / CUDA | High | Medium | v0.2.18 | 📋 Scheduled (P0) |
+| | Context-Window & VRAM-Aware Dynamic Model Router | RouteLLM / Pydantic | High | Low | v0.2.18 | 📋 Scheduled (P1) |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 | | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |
@@ -510,5 +532,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Sandbox Chaos Fault & Resource Exhaustion Injection | `tc` / cgroups / Signals | Medium | Medium | v0.2.17 | 📋 Scheduled (P1) |
 | | Sandbox Iteration Audit Trail & Replay Logger | JSONL / `.data/sandbox` | Medium | Low | v0.2.17 | 📋 Scheduled (P1) |
 | | FastMCP Sandbox Tools & Dynamic System Resources | FastMCP / PydanticAI | High | Low | v0.2.17 | 📋 Scheduled (P1) |
+| | FastMCP LLM Gateway Tools & Cluster Health Resource | FastMCP / PydanticAI | High | Low | v0.2.18 | 📋 Scheduled (P1) |
+| | Gateway Telemetry, W3C Distributed Tracing & Token Accounting | OpenTelemetry / Prometheus | Medium | Low | v0.2.18 | 📋 Scheduled (P1) |
 | **De-prioritized** | Bare-Metal OS Installers | Shell scripts | Low | High | — | ❌ Rejected (DevContainer native) |
 | | Heavyweight Monolithic Orchestrators | Full LangChain | Low | High | — | ❌ Rejected (FastMCP + PydanticAI) |
