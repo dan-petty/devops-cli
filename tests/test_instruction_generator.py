@@ -128,6 +128,17 @@ def test_generate_agents_md_contains_required_sections() -> None:
     assert "Comprehensive Sanitization of Internal Systems & Homelab Data" in content
     assert "<storage-node>" in content
 
+    # Verify external/generic project AGENTS.md omits pre-1.0 alpha lifecycle block
+    meta_generic = ProjectMetadata(
+        name="external-app",
+        description="Generic user application",
+        version="1.0.0",
+        requires_python=">=3.14",
+        is_devops_cli=False,
+    )
+    generic_content = generate_agents_md(meta_generic)
+    assert "Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee" not in generic_content
+
 
 def test_scaffold_agent_instructions(tmp_path: Path) -> None:
     """Verify scaffold_agent_instructions writes all default files."""
