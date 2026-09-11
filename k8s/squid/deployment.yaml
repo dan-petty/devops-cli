@@ -86,6 +86,12 @@ spec:
             - name: squid-config
               mountPath: /etc/squid/squid.conf
               subPath: squid.conf
+            - name: squid-config
+              mountPath: /etc/squid/storeid_rewrite.conf
+              subPath: storeid_rewrite.conf
+            - name: squid-config
+              mountPath: /etc/squid/url_rewrite.pl
+              subPath: url_rewrite.pl
             - name: squid-ca
               mountPath: /etc/squid/ssl-ca
               readOnly: true

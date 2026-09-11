@@ -77,6 +77,15 @@ def test_squid_conf_caching_and_observability_directives() -> None:
     assert "/v2/.*/blobs/sha256:" in conf_text
     assert ".*/blobs/sha256/.*" in conf_text
     assert r".*\.r2\.cloudflarestorage\.com/.*/blobs/sha256/.*" in conf_text
+    assert r".*\.r2\.cloudflarestorage\.com/.* 1440 20% 10080" in conf_text
+    assert "ollama-cache\\.local/blobs/sha256/" in conf_text
+
+    # Store-ID & URL Rewriting for In-Cluster Workloads & Presigned S3/R2 Layers
+    assert "store_id_program /usr/lib/squid/storeid_file_rewrite" in conf_text
+    assert "url_rewrite_program /usr/bin/perl /etc/squid/url_rewrite.pl" in conf_text
+    assert "ssl_bump splice to_localnet" in conf_text
+    assert "storeid_rewrite.conf" in cm_doc.get("data", {})
+    assert "url_rewrite.pl" in cm_doc.get("data", {})
 
     # Observability & Structured JSON Logging
     assert "strip_query_terms on" in conf_text
@@ -115,6 +124,14 @@ def test_squid_deployment_and_sidecar_exporter() -> None:
     assert squid_c["readinessProbe"].get("tcpSocket", {}).get("port") == 3128
     assert squid_c["readinessProbe"]["failureThreshold"] == 2
     assert squid_c["readinessProbe"]["periodSeconds"] == 5
+
+    # Config volume mounts for squid.conf, storeid, and url rewriter
+    mount_paths = {
+        vm["mountPath"]: vm["subPath"] for vm in squid_c.get("volumeMounts", []) if "subPath" in vm
+    }
+    assert mount_paths.get("/etc/squid/squid.conf") == "squid.conf"
+    assert mount_paths.get("/etc/squid/storeid_rewrite.conf") == "storeid_rewrite.conf"
+    assert mount_paths.get("/etc/squid/url_rewrite.pl") == "url_rewrite.pl"
 
     # Exporter sidecar verification
     exporter_c = next(c for c in containers if c["name"] == "squid-exporter")

@@ -53,7 +53,7 @@ spec:
             - name: HTTPS_PROXY
               value: "http://squid.squid.svc.cluster.local:3128"
             - name: NO_PROXY
-              value: "localhost,127.0.0.1,10.42.0.0/16,10.43.0.0/16,.svc,.cluster.local"
+              value: "localhost,127.0.0.1"
             - name: SSL_CERT_DIR
               value: "/etc/ssl/certs:/etc/ssl/squid-ca"
           ports:

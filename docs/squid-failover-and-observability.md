@@ -15,6 +15,8 @@ Without centralized proxy caching:
 
 The Kubernetes Squid proxy deployment provides:
 - **Massive Layer Caching**: Up to 100 GB single object size (`maximum_object_size 100 GB`) backed by a dedicated 250 GiB PVC.
+- **Store-ID URL Normalization**: Normalizes ephemeral Cloudflare R2 presigned S3 URLs (`?X-Amz-Signature=...`) into canonical content-addressable cache keys (`http://ollama-cache.local/blobs/sha256/<hash>`), guaranteeing `TCP_HIT` cache reuse across all GPU nodes.
+- **In-Cluster Proxying & Loopback Resolution**: Proxies in-cluster traffic (`.svc`, `.cluster.local`, `10.43.0.0/16`) without requiring blanket `NO_PROXY` subnet exclusions, splicing internal TLS (`ssl_bump splice to_localnet`) and transparently translating container loopback / `0.0.0.0:11434` requests to the calling pod's IP via `url_rewrite.pl`.
 - **SSL-Bump TLS Interception**: Terminates TLS for outbound HTTPS registry connections, inspects `GET /v2/.*/blobs/sha256:...` requests, and caches cryptographic content-addressable layers locally.
 - **Comprehensive Observability**: Prometheus scraping sidecar (`squid-exporter`), Cache Manager API, and structured JSON access logs streamed directly to stdout.
 - **Multi-Tier Failover Resilience**: Rapid health probing, dynamic LFUDA eviction against disk exhaustion, and WAN outage immunity.
@@ -163,10 +165,11 @@ graph TD
 
 **Mitigation**:
 - Ollama layers are distributed as content-addressable cryptographic blobs:
-  `https://registry.ollama.ai/v2/library/<model>/blobs/sha256:<hash>`
-- Because the SHA-256 hash guarantees immutability, cached layers never expire or change.
+  `https://registry.ollama.ai/v2/library/<model>/blobs/sha256:<hash>` (redirecting to Cloudflare R2 presigned S3 URLs).
+- Because upstream S3 presigned URLs append ephemeral authorization query strings (`?X-Amz-Signature=...`), standard proxy caches treat each pull as a distinct object. Squid uses `store_id_program` with `/etc/squid/storeid_rewrite.conf` to strip transient parameters and normalize the cache storage key to `http://ollama-cache.local/blobs/sha256/<hash>`.
 - In `squid.conf`, aggressive refresh patterns prevent Squid from contacting upstream servers on cache hits:
   ```squid
+  refresh_pattern -i ollama-cache\.local/blobs/sha256/[a-f0-9]+$ 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
   refresh_pattern -i /v2/.*/blobs/sha256:[a-f0-9]+$ 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
   ```
 - **Outcome**: Even when the external internet is completely severed, any cluster node can pull previously downloaded 70B models directly from the Squid cache at full LAN speed (~10 Gbps).

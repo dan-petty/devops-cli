@@ -46,17 +46,21 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Allow outbound internet egress to registries on HTTP/HTTPS
+    # Allow outbound internet egress to registries on HTTP/HTTPS with cloud metadata SSRF protection
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
               - 169.254.169.254/32
       ports:
         - protocol: TCP
           port: 80
         - protocol: TCP
           port: 443
+    # Allow in-cluster egress to services and pods across all namespaces
+    - to:
+        - namespaceSelector: {}
+    # Allow local LAN egress to cluster nodes (hostPorts, nodePorts, registry)
+    - to:
+        - ipBlock:
+            cidr: 192.168.0.0/16
