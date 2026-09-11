@@ -137,9 +137,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 - [RELEASE_NOTES.md](docs/RELEASE_NOTES.md) — Version release notes and highlights.
 - [CHANGELOG.md](CHANGELOG.md) — Historical release and version changes.
 - [ROADMAP.md](docs/ROADMAP.md) — Vision, principles, and phased deliverables.
-- [PENDING_FEATURES.md](docs/PENDING_FEATURES.md) — Active proposals and feature specifications.
 - [KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — Operational edge cases and intentional design trade-offs.
-- [LOG.md](docs/LOG.md) — Active chronological development and refactoring log.
 
 ---
 

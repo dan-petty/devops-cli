@@ -70,7 +70,6 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
 2. **Roadmap & Backlog Synchronization**:
    - Register milestones and strategic features in the Master Strategic Roadmap ([`docs/ROADMAP.md`](ROADMAP.md)).
    - Prioritize deliverables using the **Value vs. Effort Prioritization Matrix** (Quick Wins, Major Projects, Fill-Ins, Reconsider).
-   - Synchronize pending milestones in [`docs/PENDING_FEATURES.md`](PENDING_FEATURES.md).
 3. **Active Milestone GitHub Resource Population**:
    - When cutting a new release branch or activating a milestone, proactively create GitHub tracking issues for all scheduled features from [`docs/ROADMAP.md`](ROADMAP.md).
    - Link each issue to the active release milestone, apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`), and synchronize to GitHub Projects v2 board (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`).
@@ -335,7 +334,6 @@ flowchart TD
 - **Routine Operations Manual**: [`docs/ROUTINE_TASKS.md`](ROUTINE_TASKS.md)
 - **Release Management Runbook**: [`docs/RELEASE_RUNBOOK.md`](RELEASE_RUNBOOK.md)
 - **Master Strategic Roadmap**: [`docs/ROADMAP.md`](ROADMAP.md)
-- **Pending Features & Milestones**: [`docs/PENDING_FEATURES.md`](PENDING_FEATURES.md)
 - **Contributing Guidelines**: [`CONTRIBUTING.md`](../CONTRIBUTING.md)
 - **Enterprise Security Policy**: [`SECURITY.md`](../SECURITY.md)
 - **AI Agent Instructions & Invariants**: [`AGENTS.md`](../AGENTS.md)
