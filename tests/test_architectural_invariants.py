@@ -178,3 +178,101 @@ def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
     assert not violations, "Prohibited generic exceptions raised in domain modules:\n" + "\n".join(
         violations
     )
+
+
+def test_no_circular_imports_in_decoupled_subsystems() -> None:
+    """Ensure decoupled subsystems (k8s commands, output, ai.review, config) have zero circular imports."""
+    import ast
+    from collections import defaultdict
+
+    subsystems = [
+        Path("src/devops_cli/commands/k8s"),
+        Path("src/devops_cli/output"),
+        Path("src/devops_cli/ai/review"),
+        Path("src/devops_cli/config"),
+    ]
+
+    for root in subsystems:
+        assert root.is_dir(), f"Directory {root} does not exist"
+        graph: dict[str, set[str]] = defaultdict(set)
+        module_files: dict[str, Path] = {}
+
+        for py_file in root.rglob("*.py"):
+            rel = py_file.relative_to(Path("src"))
+            parts = list(rel.with_suffix("").parts)
+            if parts[-1] == "__init__":
+                parts = parts[:-1]
+            mod = ".".join(parts)
+            module_files[mod] = py_file
+
+        for mod, py_file in module_files.items():
+            tree = ast.parse(py_file.read_text(encoding="utf-8"))
+            rel = py_file.relative_to(Path("src"))
+            pkg_parts = list(rel.parent.parts)
+            for node in tree.body:
+                for sub in ast.walk(node):
+                    if isinstance(sub, ast.Import):
+                        for alias in sub.names:
+                            name = alias.name
+                            while name and name not in module_files and "." in name:
+                                name = name.rsplit(".", 1)[0]
+                            if name in module_files and name != mod:
+                                graph[mod].add(name)
+                    elif isinstance(sub, ast.ImportFrom):
+                        target = None
+                        if sub.level > 0:
+                            level = sub.level - 1
+                            base = (
+                                pkg_parts[: len(pkg_parts) - level]
+                                if level <= len(pkg_parts)
+                                else []
+                            )
+                            parts = base + (sub.module.split(".") if sub.module else [])
+                            target = ".".join(parts)
+                        elif sub.module:
+                            target = sub.module
+                        if target:
+                            while target and target not in module_files and "." in target:
+                                target = target.rsplit(".", 1)[0]
+                            if target in module_files and target != mod:
+                                graph[mod].add(target)
+
+        # Tarjan's SCC
+        index = 0
+        indices: dict[str, int] = {}
+        lowlinks: dict[str, int] = {}
+        on_stack: set[str] = set()
+        stack: list[str] = []
+        cycles: list[list[str]] = []
+
+        def strongconnect(v: str) -> None:
+            nonlocal index
+            indices[v] = index
+            lowlinks[v] = index
+            index += 1
+            stack.append(v)
+            on_stack.add(v)
+
+            for w in graph.get(v, []):
+                if w not in indices:
+                    strongconnect(w)
+                    lowlinks[v] = min(lowlinks[v], lowlinks[w])
+                elif w in on_stack:
+                    lowlinks[v] = min(lowlinks[v], indices[w])
+
+            if lowlinks[v] == indices[v]:
+                scc: list[str] = []
+                while True:
+                    w = stack.pop()
+                    on_stack.remove(w)
+                    scc.append(w)
+                    if w == v:
+                        break
+                if len(scc) > 1:
+                    cycles.append(scc)
+
+        for node in list(module_files.keys()):
+            if node not in indices:
+                strongconnect(node)
+
+        assert not cycles, f"Import cycles detected in {root}: {cycles}"

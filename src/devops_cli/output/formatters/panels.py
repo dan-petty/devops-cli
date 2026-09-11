@@ -15,12 +15,12 @@ from devops_cli.output.formatters.tables import (
     format_network_references_table,
     format_review_findings_table,
 )
+from devops_cli.output.markup import escape_text
 from devops_cli.output.models import PanelPayload
 
 
 def format_finding_panel(finding: Any, finding_index: int = 1) -> PanelPayload:
     """Build a structured PanelPayload with description and suggested remediation for a finding."""
-    from devops_cli.output.console import escape_text
 
     sev = getattr(finding, "severity", "INFO")
     sev_upper = str(sev).upper()
@@ -62,7 +62,7 @@ def format_finding_panel(finding: Any, finding_index: int = 1) -> PanelPayload:
 
 def render_review_result(persona: Any, result: Any) -> None:
     """Render a structured ReviewResult object using tables, panels, and Markdown blocks."""
-    from devops_cli.output.console import escape_text, print, write_stdout
+    from devops_cli.output.console import print, write_stdout
     from devops_cli.output.models import MarkdownPayload
 
     rec = getattr(result, "recommendation", "APPROVE")
@@ -106,7 +106,7 @@ def render_review_result(persona: Any, result: Any) -> None:
 
 def render_review_raw(persona: Any, raw: str) -> None:
     """Render a raw string review response using Panel and Markdown."""
-    from devops_cli.output.console import escape_text, print
+    from devops_cli.output.console import print
 
     persona_title = getattr(persona, "title", str(persona))
     panel_payload = PanelPayload(

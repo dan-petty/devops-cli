@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from devops_cli.ai.text_utils import unique_lines
 from devops_cli.output import escape_text, get_console
 
 DEFAULT_TAGS: tuple[str, str] = ("<think>", "</think>")
@@ -198,16 +199,12 @@ class ThinkingStreamProcessor:
     @property
     def unique_thinking(self) -> str:
         """Return accumulated thinking content with duplicate lines removed using a set."""
-        from devops_cli.ai.review_schema import unique_lines
-
         return unique_lines(self.thinking_content)
 
     def to_model_response(self, model_name: str | None = None) -> Any:
         """Construct a ModelResponse from accumulated thinking and content."""
         from pydantic_ai.messages import ModelResponse, TextPart, ThinkingPart
         from pydantic_ai.usage import RequestUsage
-
-        from devops_cli.ai.review_schema import unique_lines
 
         parts: list[Any] = []
         if self.thinking_content.strip():

@@ -31,6 +31,10 @@ from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.personas import PERSONAS
 from devops_cli.ai.review.flags import ReviewStageFlags
+from devops_cli.ai.review.review_environment import (
+    _get_reviews_base_dir,
+    _read_candidate_conventions_file,
+)
 from devops_cli.ai.review.sanitization import (
     _escape_backticks,
     _sanitize_filename,
@@ -668,18 +672,6 @@ def _format_network_ref_table_row(n: NetworkReference) -> list[str]:
         f"[{color}]{n.security_status}[/{color}]",
         n.location or "—",
     ]
-
-
-def _get_reviews_base_dir() -> Path:
-    from devops_cli.config.settings import load_settings
-    from devops_cli.core.repo import find_top_level_repo_root
-
-    settings = load_settings()
-    d = settings.data.reviews_dir
-    if not d.is_absolute():
-        d = (find_top_level_repo_root() / d).resolve()
-    d.mkdir(parents=True, exist_ok=True)
-    return d
 
 
 def _format_error_detail(stage: str, exc: Exception, max_len: int = 256) -> str:
@@ -1329,8 +1321,6 @@ class ReviewPipelineOrchestrator:
     # ── Multi-Persona Code Content Review ──────────────────────────────────────
     def _read_target_conventions(self) -> str:
         """Read and sanitize conventions from target repository."""
-        from devops_cli.ai.review.runner import _read_candidate_conventions_file
-
         raw_conventions = _read_candidate_conventions_file(self.target_dir)
         if not raw_conventions:
             return ""

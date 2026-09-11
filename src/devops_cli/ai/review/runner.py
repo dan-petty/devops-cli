@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from collections.abc import Callable
 from concurrent.futures import as_completed
@@ -22,6 +21,12 @@ from devops_cli.ai.review.chunker import (
     _split_source_file_blocks,
 )
 from devops_cli.ai.review.flags import ReviewStageFlags
+from devops_cli.ai.review.review_environment import (
+    _get_reviews_base_dir as _get_reviews_base_dir,
+)
+from devops_cli.ai.review.review_environment import (
+    _read_candidate_conventions_file as _read_candidate_conventions_file,
+)
 from devops_cli.ai.review.verification import (
     _merge_segment_results,
     _reconcile_verified,
@@ -37,7 +42,6 @@ from devops_cli.ai.review_schema import (
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
-    CONST_AGENTS_MD_FILENAME,
     CONST_GIT_MAIN_BRANCH,
     CONST_GITIGNORE_DIRS,
     CONST_REVIEW_GENERATED_FILES,
@@ -80,31 +84,6 @@ _PAGINATED_REVIEW_PROTOCOL = load_task_prompt("paginated_review_protocol.md")
 _REVIEW_OUTPUT_INSTRUCTION = "\n" + load_task_prompt("review_output_instruction.md")
 _GUARDRAILS_PROMPT = "\n\n" + load_task_prompt("guardrails_isolation.md")
 _PATH_REVIEW_PROMPT_TEMPLATE = load_task_prompt("path_review_prompt.md")
-
-_TARGET_CONVENTIONS_CANDIDATES: tuple[str, ...] = (
-    CONST_AGENTS_MD_FILENAME,
-    "CLAUDE.md",
-    ".github/copilot-instructions.md",
-    ".cursorrules",
-    ".cursor/rules",
-)
-
-
-def _read_candidate_conventions_file(directory: Path | None) -> str:
-    """Read first matching project conventions file from directory."""
-    if not directory or not directory.is_dir():
-        return ""
-    for name in _TARGET_CONVENTIONS_CANDIDATES:
-        cand = directory / name
-        if not cand.is_file():
-            continue
-        try:
-            content = cand.read_text(encoding="utf-8")
-            if content.strip():
-                return content
-        except OSError:
-            continue
-    return ""
 
 
 class ReviewClients(BaseModel):
@@ -391,22 +370,6 @@ def _fallback_join(reviews: list[str]) -> str:
             lines.append(line)
         lines.append("")
     return "\n".join(lines).strip()
-
-
-def _get_reviews_base_dir() -> Path:
-    from devops_cli.core.repo import find_top_level_repo_root
-
-    env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
-    if env_data_dir:
-        d = Path(env_data_dir) / "reviews"
-    else:
-        settings = load_settings()
-        d = settings.data.reviews_dir
-    if not d.is_absolute():
-        d = find_top_level_repo_root() / d
-    d = d.resolve()
-    d.mkdir(parents=True, exist_ok=True)
-    return d
 
 
 def _find_session_dir(session_arg: str | None) -> Path | None:

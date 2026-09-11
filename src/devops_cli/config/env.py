@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from devops_cli.config import options as opt
+import devops_cli.config.options as opt
 
 ENV_DEVOPS_CLI_CONFIG = "DEVOPS_CLI_CONFIG"
 

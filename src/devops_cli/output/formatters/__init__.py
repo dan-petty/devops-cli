@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from devops_cli.output.formatters.dispatcher import format_output
 from devops_cli.output.formatters.panels import (
     format_argo_app_status_panel,
     format_finding_panel,
@@ -20,7 +21,6 @@ from devops_cli.output.formatters.scalars import (
     format_latency,
     format_link,
     format_location,
-    format_output,
     format_repo_map_text,
     format_review_recommendation,
     format_serialized,

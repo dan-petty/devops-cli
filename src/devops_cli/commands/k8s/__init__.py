@@ -3,7 +3,22 @@
 from __future__ import annotations
 
 import shutil
+import sys
+import types
+from typing import Any
 
+from devops_cli.commands.k8s import (
+    cluster_context as _cluster_context,
+)
+from devops_cli.commands.k8s import (
+    cluster_runtime as _cluster_runtime,
+)
+from devops_cli.commands.k8s import (
+    networking as _networking,
+)
+from devops_cli.commands.k8s import (
+    stack_lifecycle as _stack_lifecycle,
+)
 from devops_cli.commands.k8s.bootstrap import bootstrap
 from devops_cli.commands.k8s.cluster_context import (
     apply,
@@ -149,3 +164,60 @@ __all__ = [
     "_verify_url_reachability",
     "VALID_STACKS",
 ]
+
+_RUNTIME_ATTRS = {
+    "_run_cmd",
+    "_cluster_reachable",
+    "_minikube_running",
+    "_k8s_clients",
+    "_validate_k8s_identifier",
+}
+_NETWORKING_ATTRS = {
+    "_detect_service_url",
+    "_resolve_accessible_url",
+    "_verify_url_reachability",
+    "_resolve_stacks",
+    "port_forward",
+    "configure_urls",
+}
+_STACK_ATTRS = {
+    "deploy_stack",
+    "bootstrap_openwebui",
+    "sync_secrets",
+    "teardown_stack",
+    "_adopt_helm_resource_if_conflict",
+    "_bootstrap_openwebui_account",
+}
+
+
+_PATCH_TARGET_MAP: dict[str, tuple[types.ModuleType, ...]] = {
+    "run_subprocess": (_cluster_runtime, _cluster_context, _networking),
+    "shutil": (_stack_lifecycle,),
+}
+
+
+def _forward_submodule_attr(name: str, value: Any) -> None:
+    targets = _PATCH_TARGET_MAP.get(name)
+    if targets is not None:
+        for mod in targets:
+            setattr(mod, name, value)
+        return
+    if name in _RUNTIME_ATTRS:
+        setattr(_cluster_runtime, name, value)
+        return
+    if name in _NETWORKING_ATTRS:
+        setattr(_networking, name, value)
+        return
+    if name in _STACK_ATTRS:
+        setattr(_stack_lifecycle, name, value)
+
+
+class _K8sModule(types.ModuleType):
+    """Custom module forwarding patched attributes to underlying submodules."""
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        super().__setattr__(name, value)
+        _forward_submodule_attr(name, value)
+
+
+sys.modules[__name__].__class__ = _K8sModule

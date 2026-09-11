@@ -7,7 +7,8 @@ from typing import Annotated
 
 import typer
 
-import devops_cli.commands.k8s as k8s
+import devops_cli.commands.k8s.cluster_runtime as runtime
+import devops_cli.commands.k8s.stack_lifecycle as stack_life
 from devops_cli.config.defaults import (
     DEFAULT_K8S_ALL_STACK,
     DEFAULT_K8S_DIR,
@@ -40,23 +41,23 @@ def bootstrap(
     ] = DEFAULT_K8S_ALL_STACK,
 ) -> None:
     """Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack."""
-    if not k8s._minikube_running():
+    if not runtime._minikube_running():
         if auto_start:
             print_info(MESSAGES.k8s.starting_minikube, prefix=False)
             has_gpu = check_binary("nvidia-smi")
             started = False
             if has_gpu:
-                start_res = k8s._run_cmd(
+                start_res = runtime._run_cmd(
                     ["minikube", "start", "--driver=docker", "--gpus=all"], check=False
                 )
-                started = start_res.returncode == 0 and k8s._minikube_running()
+                started = start_res.returncode == 0 and runtime._minikube_running()
             if not started:
-                start_res = k8s._run_cmd(["minikube", "start", "--driver=docker"], check=False)
-                started = start_res.returncode == 0 and k8s._minikube_running()
+                start_res = runtime._run_cmd(["minikube", "start", "--driver=docker"], check=False)
+                started = start_res.returncode == 0 and runtime._minikube_running()
             if not started:
                 print_error(MESSAGES.k8s.failed_start_minikube, prefix=False)
                 raise typer.Exit(1)
-            k8s._run_cmd(["minikube", "update-context"], check=False)
+            runtime._run_cmd(["minikube", "update-context"], check=False)
         else:
             print_error(
                 MESSAGES.k8s.minikube_not_running,
@@ -64,6 +65,6 @@ def bootstrap(
             )
             raise typer.Exit(1)
     else:
-        k8s._run_cmd(["minikube", "update-context"], check=False)
+        runtime._run_cmd(["minikube", "update-context"], check=False)
 
-    k8s.deploy_stack(k8s_dir=k8s_dir, stack=stack)
+    stack_life.deploy_stack(k8s_dir=k8s_dir, stack=stack)
