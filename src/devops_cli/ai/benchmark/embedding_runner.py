@@ -161,7 +161,7 @@ class EmbeddingBenchmarkRunner:
         ai_kwargs: dict[str, Any] = {
             "provider": resolved_provider,
             "allow_private_network": allow_priv,
-            "rag": {"embedding_model": clean_model},
+            "tasks": {"embedding": {"model": clean_model}},
         }
 
         if endpoint:

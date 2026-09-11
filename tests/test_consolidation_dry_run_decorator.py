@@ -138,3 +138,34 @@ def test_dry_run_command_restores_state_after_execution() -> None:
 
     sample_command(dry_run=True)
     assert not is_dry_run()
+
+
+def test_command_dry_run_result_details_bounding() -> None:
+    """CommandDryRunResult must bound nested strings, collections, recursion depth, and keys."""
+    from devops_cli.dry_run.models import (
+        _MAX_DRY_RUN_COLLECTION_ITEMS,
+        _MAX_DRY_RUN_DETAILS_KEYS,
+        _MAX_DRY_RUN_STRING_LENGTH,
+        CommandDryRunResult,
+    )
+
+    # 1. Oversized string
+    long_str = "x" * 2000
+    res = CommandDryRunResult(command="test", details={"long": long_str})
+    assert len(res.details["long"]) == _MAX_DRY_RUN_STRING_LENGTH
+    assert res.details["long"].endswith("...")
+
+    # 2. Oversized collections
+    large_list = list(range(100))
+    res_list = CommandDryRunResult(command="test", details={"items": large_list})
+    assert len(res_list.details["items"]) == _MAX_DRY_RUN_COLLECTION_ITEMS
+
+    # 3. Deeply nested structure
+    deep = {"l1": {"l2": {"l3": {"l4": "too deep"}}}}
+    res_deep = CommandDryRunResult(command="test", details=deep)
+    assert res_deep.details["l1"]["l2"]["l3"] == "<truncated: depth exceeded>"
+
+    # 4. Oversized keys count
+    too_many_keys = {f"k_{i}": i for i in range(200)}
+    res_keys = CommandDryRunResult(command="test", details=too_many_keys)
+    assert len(res_keys.details) == _MAX_DRY_RUN_DETAILS_KEYS

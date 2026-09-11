@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from devops_cli.config.commands import build_kubectl_cmd
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.validation import validate_k8s_identifier
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.output import print_info, print_success, print_warning
 from devops_cli.telemetry.tracer import trace_span
@@ -34,6 +35,8 @@ def execute_chaos_experiment(
     dry_run: bool = False,
 ) -> ChaosExperimentResult:
     """Execute a controlled resilience and chaos experiment against a target deployment."""
+    validate_k8s_identifier(namespace, "namespace", namespace=True)
+    validate_k8s_identifier(target_deployment, "deployment")
     if dry_run or is_dry_run():
         result = ChaosExperimentResult(
             experiment_name=experiment_name,
@@ -86,6 +89,7 @@ def execute_chaos_experiment(
             )
 
         target_pod = pod_names[0]
+        validate_k8s_identifier(target_pod.removeprefix("pod/"), "pod")
         print_info(f"Targeting pod '{target_pod}' for disruption...", prefix=False)
 
         # 2. Delete target pod to simulate sudden failure

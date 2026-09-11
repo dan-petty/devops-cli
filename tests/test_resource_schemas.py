@@ -207,7 +207,7 @@ def test_k8s_resource_models_roundtrip() -> None:
         success=True,
         cluster_name="minikube",
         driver="docker",
-        ip_address="192.168.49.2",
+        ip_address="192.0.2.49",
         kubeconfig_path="~/.kube/config",
         duration_seconds=15.2,
     )

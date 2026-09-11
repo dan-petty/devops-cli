@@ -47,20 +47,81 @@ mimetypes.add_type("application/x-gem+tar", ".gem")
 mimetypes.add_type("application/java-archive", ".war")
 mimetypes.add_type("application/java-archive", ".ear")
 
-_TLD_EXTRACTOR = tldextract.TLDExtract(cache_dir=None)
+_TLD_EXTRACTOR = tldextract.TLDExtract(suffix_list_urls=(), fallback_to_snapshot=True)
 
-# Standard RFC 2606 and RFC 6761 reserved domain suffixes
-_RESERVED_DOMAINS = {
-    "example.com",
-    "example.org",
-    "example.net",
-    "localhost",
-    "local",
-    "test",
-    "example",
-    "invalid",
-    "internal",
-}
+# Standard RFC 2606, RFC 6761, and special-use reserved domain suffixes and TLDs
+_RFC2606_RESERVED_TLDS = frozenset(
+    {
+        "test",
+        "example",
+        "invalid",
+        "localhost",
+    }
+)
+
+_RFC2606_RESERVED_DOMAINS = frozenset(
+    {
+        "example.com",
+        "example.org",
+        "example.net",
+        "example.edu",
+    }
+)
+
+_SPECIAL_USE_TLDS = frozenset(
+    {
+        "local",
+        "internal",
+        "lan",
+        "corp",
+        "home.arpa",
+        "onion",
+        "arpa",
+        "cluster.local",
+        "localdomain",
+        "svc",
+    }
+)
+
+_RESERVED_DOMAINS = _RFC2606_RESERVED_TLDS | _RFC2606_RESERVED_DOMAINS | _SPECIAL_USE_TLDS
+
+# RFC 5737 and RFC 3849 documentation / example IP subnets
+_RFC5737_IPV4_EXAMPLE_NETWORKS = (
+    ipaddress.ip_network("192.0.2.0/24"),  # TEST-NET-1 (RFC 5737)
+    ipaddress.ip_network("198.51.100.0/24"),  # TEST-NET-2 (RFC 5737)
+    ipaddress.ip_network("203.0.113.0/24"),  # TEST-NET-3 (RFC 5737)
+)
+_RFC3849_IPV6_EXAMPLE_NETWORKS = (
+    ipaddress.ip_network("2001:db8::/32"),  # Documentation (RFC 3849)
+)
+
+# RFC 6890 / RFC 2544 / RFC 5180 / RFC 6666 / RFC 6598 special-purpose networks
+_RFC6890_IPV4_SPECIAL_NETWORKS = (
+    ipaddress.ip_network("0.0.0.0/8"),  # "This host on this network" (RFC 1122)
+    ipaddress.ip_network("100.64.0.0/10"),  # Shared Address Space / CGNAT (RFC 6598)
+    ipaddress.ip_network("192.0.0.0/24"),  # IETF Protocol Assignments (RFC 6890)
+    ipaddress.ip_network("192.0.2.0/24"),  # TEST-NET-1 (RFC 5737)
+    ipaddress.ip_network("192.88.99.0/24"),  # 6to4 Relay Anycast (RFC 3068 / RFC 7526)
+    ipaddress.ip_network("198.18.0.0/15"),  # Benchmarking (RFC 2544)
+    ipaddress.ip_network("198.51.100.0/24"),  # TEST-NET-2 (RFC 5737)
+    ipaddress.ip_network("203.0.113.0/24"),  # TEST-NET-3 (RFC 5737)
+    ipaddress.ip_network("240.0.0.0/4"),  # Reserved for future use (RFC 1112)
+    ipaddress.ip_network("255.255.255.255/32"),  # Limited Broadcast (RFC 919)
+)
+_RFC6890_IPV6_SPECIAL_NETWORKS = (
+    ipaddress.ip_network("100::/64"),  # Discard-Only (RFC 6666)
+    ipaddress.ip_network("2001::/23"),  # IETF Protocol Assignments (RFC 2928)
+    ipaddress.ip_network("2001:2::/48"),  # Benchmarking (RFC 5180)
+    ipaddress.ip_network("2001:db8::/32"),  # Documentation (RFC 3849)
+    ipaddress.ip_network("2002::/16"),  # 6to4 (RFC 3056)
+)
+
+_NANPA_EXAMPLE_PHONE_REGEX = re.compile(
+    r"""^(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?555[-.\s]?01\d{2}$"""
+)
+_OFCOM_EXAMPLE_PHONE_REGEX = re.compile(
+    r"""^(?:\+?44[-.\s]?|0)(?:1632[-.\s]?(?:960\d{3}|496\d{3,4}|\d{4,6})|20[-.\s]?7946[-.\s]?0\d{3}|7700[-.\s]?900\d{3}|8081[-.\s]?570\d{3}|909[-.\s]?879[-.\s]?0\d{3}|(?:\d{2,4}[-.\s]?)?496[-.\s]?(?:0\d{3}|\d{4}|\d{3}))(?:\s*#.*)?$"""
+)
 
 _EXCLUDED_PUBLIC_REGISTRIES = {
     "schema.org",
@@ -120,6 +181,11 @@ __all__ = [
     "extract_dependencies_from_text",
     "extract_network_references",
     "is_code_or_config_reference",
+    "is_example_ip",
+    "is_example_or_invalid_domain",
+    "is_example_or_invalid_network_target",
+    "is_example_or_reserved_ip",
+    "is_example_phone_number",
     "is_file_reference",
     "is_local_or_reserved_domain",
     "is_lockfile_or_ignore_file",
@@ -131,10 +197,85 @@ __all__ = [
 
 
 @functools.lru_cache(maxsize=4096)
+def is_example_ip(ip_or_str: str | ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Check if an IP address belongs to RFC 5737 or RFC 3849 documentation/example subnets."""
+    try:
+        ip = ipaddress.ip_address(ip_or_str) if isinstance(ip_or_str, str) else ip_or_str
+        if ip.version == 4:
+            return any(ip in net for net in _RFC5737_IPV4_EXAMPLE_NETWORKS)
+        return any(ip in net for net in _RFC3849_IPV6_EXAMPLE_NETWORKS)
+    except ValueError:
+        return False
+
+
+@functools.lru_cache(maxsize=4096)
+def is_example_or_reserved_ip(
+    ip_or_str: str | ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    """Check if an IP address belongs to RFC 6890 special-purpose, example, or benchmarking subnets."""
+    try:
+        ip = ipaddress.ip_address(ip_or_str) if isinstance(ip_or_str, str) else ip_or_str
+        if ip.version == 4:
+            return any(ip in net for net in _RFC6890_IPV4_SPECIAL_NETWORKS)
+        return any(ip in net for net in _RFC6890_IPV6_SPECIAL_NETWORKS)
+    except ValueError:
+        return False
+
+
+@functools.lru_cache(maxsize=4096)
+def is_example_or_invalid_domain(target: str) -> bool:
+    """Check if domain is an RFC 2606 reserved TLD, example domain, or invalid namespace."""
+    clean = target.strip().rstrip(".,;)>]\"'").lower()
+    if not clean or clean.startswith("-") or clean.endswith("-") or "_" in clean:
+        return False
+    if clean in _RESERVED_DOMAINS:
+        return True
+    if any(clean.endswith("." + d) for d in _RESERVED_DOMAINS):
+        return True
+    ext = _TLD_EXTRACTOR(clean)
+    if ext.suffix and ext.suffix.lower() in _RESERVED_DOMAINS:
+        return True
+    return False
+
+
+@functools.lru_cache(maxsize=2048)
+def is_example_phone_number(phone_str: str) -> bool:
+    """Check if string matches ATIS-0300115 (NANPA 555-01xx) or UK Ofcom drama phone numbers."""
+    clean = phone_str.strip()
+    if not clean:
+        return False
+    return bool(_NANPA_EXAMPLE_PHONE_REGEX.match(clean) or _OFCOM_EXAMPLE_PHONE_REGEX.match(clean))
+
+
+@functools.lru_cache(maxsize=4096)
+def is_example_or_invalid_network_target(target: str) -> bool:
+    """Check if any network target (URL, IP, domain, phone) is a documented example or invalid reference."""
+    clean = target.strip().rstrip(".,;)>]\"'")
+    if not clean:
+        return False
+    if is_example_phone_number(clean):
+        return True
+    if clean.lower().startswith(("http://", "https://", "ftp://")):
+        try:
+            parsed = urllib.parse.urlsplit(clean)
+            host = (parsed.hostname or "").lower()
+            if not host:
+                return False
+            return is_example_or_reserved_ip(host) or is_example_or_invalid_domain(host)
+        except ValueError:
+            return False
+    if is_example_or_reserved_ip(clean):
+        return True
+    return is_example_or_invalid_domain(clean)
+
+
+@functools.lru_cache(maxsize=4096)
 def is_public_ip(ip_str: str) -> bool:
     """Check whether an IP string is a valid public, globally routable IP address."""
     try:
         ip = ipaddress.ip_address(ip_str.strip())
+        if is_example_or_reserved_ip(ip):
+            return False
         return (
             ip.is_global
             and not ip.is_private
@@ -153,6 +294,8 @@ def is_private_or_local_ip(ip_str: str) -> bool:
     """Check whether an IP string is a private, loopback, link-local, or reserved IP address."""
     try:
         ip = ipaddress.ip_address(ip_str.strip())
+        if is_example_or_reserved_ip(ip):
+            return True
         return (
             ip.is_private
             or ip.is_loopback
@@ -170,30 +313,10 @@ def is_local_or_reserved_domain(target: str) -> bool:
     clean = target.strip().rstrip(".,;)>]\"'").lower()
     if not clean or clean.startswith("-") or clean.endswith("-") or "_" in clean:
         return False
-    if clean in _RESERVED_DOMAINS:
-        return True
-    if any(clean.endswith("." + d) for d in _RESERVED_DOMAINS):
+    if is_example_or_invalid_domain(clean):
         return True
     ext = _TLD_EXTRACTOR(clean)
     if ext.suffix and ext.suffix.lower() in _RESERVED_DOMAINS:
-        return True
-    if any(
-        clean.endswith(ext_name)
-        for ext_name in (
-            ".local",
-            ".internal",
-            ".lan",
-            ".home.arpa",
-            ".cluster.local",
-            ".localhost",
-            ".localdomain",
-            ".svc",
-            ".corp",
-            ".test",
-            ".example",
-            ".invalid",
-        )
-    ):
         return True
     return False
 
@@ -737,7 +860,11 @@ def is_package_repository_asset(url: str, host: str = "") -> bool:
 
 
 def _extract_url_reference(
-    clean_token: str, source_file: str, line_idx: int, include_local: bool
+    clean_token: str,
+    source_file: str,
+    line_idx: int,
+    include_local: bool,
+    exclude_examples: bool = False,
 ) -> NetworkReference | None:
     """Parse and validate URL network reference."""
     if not clean_token.lower().startswith(("http://", "https://", "ftp://")):
@@ -749,31 +876,50 @@ def _extract_url_reference(
         host = (parsed.hostname or "").lower()
         if is_package_repository_asset(clean_token, host):
             return None
+        is_example = is_example_or_invalid_domain(host) or is_example_or_reserved_ip(host)
+        if is_example and exclude_examples:
+            return None
         is_local_host = (
-            is_private_or_local_ip(host) or is_local_or_reserved_domain(host) or ("." not in host)
+            is_example
+            or is_private_or_local_ip(host)
+            or is_local_or_reserved_domain(host)
+            or ("." not in host)
         )
         if is_local_host and not include_local:
             return None
+        status = (
+            "✓ Safe (Documented Example)"
+            if is_example
+            else ("✓ Safe (Local)" if is_local_host else "✓ Safe")
+        )
         return NetworkReference(
             target=clean_token,
             reference_type="url",
             source_file=source_file,
             line_number=line_idx,
             is_local=is_local_host,
+            is_example=is_example,
             scope="local" if is_local_host else "external",
-            security_status="✓ Safe (Local)" if is_local_host else "✓ Safe",
+            security_status=status,
         )
     except ValueError:
         return None
 
 
 def _extract_ip_reference(
-    clean_token: str, source_file: str, line_idx: int, include_local: bool
+    clean_token: str,
+    source_file: str,
+    line_idx: int,
+    include_local: bool,
+    exclude_examples: bool = False,
 ) -> NetworkReference | None:
     """Parse and validate IP address network reference."""
     try:
         ip = ipaddress.ip_address(clean_token)
         ip_str = str(ip)
+        is_example = is_example_or_reserved_ip(ip)
+        if is_example and exclude_examples:
+            return None
         if is_public_ip(clean_token):
             return NetworkReference(
                 target=ip_str,
@@ -781,18 +927,22 @@ def _extract_ip_reference(
                 source_file=source_file,
                 line_number=line_idx,
                 is_local=False,
+                is_example=False,
                 scope="external",
                 security_status="✓ Safe",
             )
-        if is_private_or_local_ip(clean_token) and include_local:
+        is_local = is_private_or_local_ip(clean_token)
+        if is_local and include_local:
+            status = "✓ Safe (Documented Example)" if is_example else "✓ Safe (Local)"
             return NetworkReference(
                 target=ip_str,
                 reference_type="ip",
                 source_file=source_file,
                 line_number=line_idx,
                 is_local=True,
+                is_example=is_example,
                 scope="local",
-                security_status="✓ Safe (Local)",
+                security_status=status,
             )
     except ValueError:
         return None
@@ -805,6 +955,7 @@ def _extract_domain_reference(
     source_file: str,
     line_idx: int,
     include_local: bool,
+    exclude_examples: bool = False,
 ) -> NetworkReference | None:
     """Parse and validate domain/hostname network reference."""
     if not (
@@ -860,17 +1011,23 @@ def _extract_domain_reference(
     if is_code_or_config_reference(domain_candidate, source_file=source_file):
         return None
 
-    if is_local_or_reserved_domain(domain_candidate):
+    is_example = is_example_or_invalid_domain(domain_candidate)
+    if is_example and exclude_examples:
+        return None
+
+    if is_example or is_local_or_reserved_domain(domain_candidate):
         if not include_local:
             return None
+        status = "✓ Safe (Documented Example)" if is_example else "✓ Safe (Local)"
         return NetworkReference(
             target=domain_candidate,
             reference_type="domain",
             source_file=source_file,
             line_number=line_idx,
             is_local=True,
+            is_example=is_example,
             scope="local",
-            security_status="✓ Safe (Local)",
+            security_status=status,
         )
 
     if is_network_domain(domain_candidate, source_file=source_file):
@@ -880,6 +1037,7 @@ def _extract_domain_reference(
             source_file=source_file,
             line_number=line_idx,
             is_local=False,
+            is_example=False,
             scope="external",
             security_status="✓ Safe",
         )
@@ -888,7 +1046,10 @@ def _extract_domain_reference(
 
 
 def extract_network_references(
-    content: str, source_file: str = "", include_local: bool = True
+    content: str,
+    source_file: str = "",
+    include_local: bool = True,
+    exclude_examples: bool = False,
 ) -> list[NetworkReference]:
     """Extract external and local network references (IPs, URLs, and domains) from source code."""
     results: list[NetworkReference] = []
@@ -911,8 +1072,17 @@ def extract_network_references(
             if not clean_token:
                 continue
 
+            if exclude_examples and is_example_or_invalid_network_target(clean_token):
+                continue
+
             # 1. URL Reference
-            url_ref = _extract_url_reference(clean_token, source_file, line_idx, include_local)
+            url_ref = _extract_url_reference(
+                clean_token,
+                source_file,
+                line_idx,
+                include_local,
+                exclude_examples=exclude_examples,
+            )
             if url_ref:
                 if url_ref.target not in seen:
                     seen.add(url_ref.target)
@@ -920,7 +1090,13 @@ def extract_network_references(
                 continue
 
             # 2. IP Address Reference
-            ip_ref = _extract_ip_reference(clean_token, source_file, line_idx, include_local)
+            ip_ref = _extract_ip_reference(
+                clean_token,
+                source_file,
+                line_idx,
+                include_local,
+                exclude_examples=exclude_examples,
+            )
             if ip_ref:
                 if ip_ref.target not in seen:
                     seen.add(ip_ref.target)
@@ -929,7 +1105,12 @@ def extract_network_references(
 
             # 3. Domain Reference
             dom_ref = _extract_domain_reference(
-                clean_token, text_segment, source_file, line_idx, include_local
+                clean_token,
+                text_segment,
+                source_file,
+                line_idx,
+                include_local,
+                exclude_examples=exclude_examples,
             )
             if dom_ref:
                 if dom_ref.target not in seen:

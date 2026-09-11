@@ -274,3 +274,17 @@ def test_validate_url_egress() -> None:
             validate_url_egress("http://unresolvable.hostname.internal/manifest.yaml")
     # Verify global socket timeout was not mutated
     assert socket.getdefaulttimeout() == initial_timeout
+
+
+def test_network_guard_blocks_external_socket_calls() -> None:
+    """Verify that tests are prevented from making unmocked external socket connections."""
+    import socket
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        with pytest.raises(
+            RuntimeError, match="External network call blocked during test execution"
+        ):
+            sock.connect(("192.0.2.1", 80))
+    finally:
+        sock.close()

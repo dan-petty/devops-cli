@@ -71,12 +71,13 @@ def create_app(
         headers_dict = dict(request.headers)
         tracer = get_tracer()
 
+        safe_url = str(request.url.replace(query=""))
         with tracer.span(
             span_name,
             kind="server",
             attributes={
                 "http.request.method": request.method,
-                "url.full": str(request.url),
+                "url.full": safe_url,
                 "url.path": request.url.path,
                 "url.scheme": request.url.scheme,
                 "server.address": request.url.hostname or "localhost",

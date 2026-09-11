@@ -85,8 +85,9 @@ ai:
       temperature: 0.2
       max_tokens: 2048
   rag:
-    embedding_url: http://192.0.2.10:11434
-    embedding_model: qwen3-embedding:0.6b
+    enabled: true
+    top_k: 5
+    score_threshold: 0.35
 ```
 
 ---
@@ -105,13 +106,12 @@ devops config set ai.provider ollama
 devops config set ai.model qwen3.8:27b
 devops config set ai.reasoning_effort low
 devops config set ai.allow_private_network true
-devops config set ai.rag.embedding_url http://192.0.2.10:11434
 devops config set ai.tasks.embedding.ollama_urls http://192.0.2.10:11434
 devops config set github.default_org my-org
 
 # Get specific configuration values
 devops config get ai.provider
-devops config get ai.rag.embedding_url
+devops config get ai.tasks.embedding.ollama_urls
 devops config get github.token
 
 # Audit configuration for unencrypted plaintext credentials

@@ -17,6 +17,7 @@
 | [#139](https://github.com/dan-petty/devops-cli/issues/139) | [#140](https://github.com/dan-petty/devops-cli/pull/140) | Refine AI Chat Streaming Markdown Formatting & Thinking Display | `Done` | [`task-139-ai-chat-markdown-formatting.md`](tasks/task-139-ai-chat-markdown-formatting.md) |
 | [#141](https://github.com/dan-petty/devops-cli/issues/141) | [#143](https://github.com/dan-petty/devops-cli/pull/143) | Resolve Squid Proxy Root CA, Build Image, and Enable Proxy Across Cluster | `Done` | [`task-141-squid-proxy-cluster-enablement.md`](tasks/task-141-squid-proxy-cluster-enablement.md) |
 | [#142](https://github.com/dan-petty/devops-cli/issues/142) | TBD | High-Throughput LLM Gateway & Distributed Model Router | `Ready` | [`task-142-llm-gateway-distributed-router.md`](tasks/task-142-llm-gateway-distributed-router.md) |
+| [#154](https://github.com/dan-petty/devops-cli/issues/154) | [#155](https://github.com/dan-petty/devops-cli/pull/155) | Remediate DevSecOps Review Findings & Enhance Self-Improvement Loop | `In Review` | [`task-154-remediate-devsecops-review-findings.md`](tasks/task-154-remediate-devsecops-review-findings.md) |
 
 ---
 

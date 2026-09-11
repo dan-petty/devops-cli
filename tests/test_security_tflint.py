@@ -25,6 +25,31 @@ def test_tflint_fallback_cidr_check(tmp_path: Path) -> None:
     assert findings[0].location == "main.tf:2"
 
 
+def test_tflint_fallback_multiline_cidr_check(tmp_path: Path) -> None:
+    """Verify multiline cidr_blocks and security group blocks detect 0.0.0.0/0."""
+    tf_file = tmp_path / "security_groups.tf"
+    tf_file.write_text(
+        """resource "aws_security_group" "web" {
+  name = "web-sg"
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [
+      "0.0.0.0/0"
+    ]
+  }
+}
+""",
+        encoding="utf-8",
+    )
+
+    findings = _run_native_fallback_tf_lint(tmp_path)
+    assert len(findings) == 1
+    assert "CIDR" in findings[0].title
+    assert findings[0].location == "security_groups.tf:8"
+
+
 def test_tflint_scan_mocked_binary(tmp_path: Path) -> None:
     fake_output = json.dumps(
         {

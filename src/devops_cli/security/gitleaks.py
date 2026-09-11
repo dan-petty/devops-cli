@@ -81,15 +81,14 @@ def _scan_file_native_secrets(file_path: Path) -> list[Finding]:
     if not file_path.exists() or not file_path.is_file():
         return []
 
+    findings: list[Finding] = []
     try:
-        content = file_path.read_text(encoding="utf-8", errors="replace")
+        with file_path.open("r", encoding="utf-8", errors="replace") as f:
+            for line_idx, line in enumerate(f, start=1):
+                findings.extend(_scan_line_for_secrets(line, file_path, line_idx))
     except Exception as exc:
         logger.debug("Failed reading %s for native secret scan: %s", file_path, exc)
         return []
-
-    findings: list[Finding] = []
-    for line_idx, line in enumerate(content.splitlines(), start=1):
-        findings.extend(_scan_line_for_secrets(line, file_path, line_idx))
     return findings
 
 

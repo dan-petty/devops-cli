@@ -154,6 +154,7 @@ def print(
     theme: str | None = None,
     detail: str = "",
     console: Any = None,
+    safe: bool = False,
     **kwargs: Any,
 ) -> PrintResult:
     """Unified polymorphic console output engine supporting Pydantic payloads, Rich renderables, and styled text."""
@@ -232,6 +233,7 @@ def print(
             rows=rows or [],
             border_style=border_style or DEFAULT_TABLE_BORDER_STYLE,
             box_style=box_style,
+            safe=safe,
         )
         active_console.print(rendered_table)
         return PrintResult(success=True, level=level, stream=stream_name, rendered_type="table")
@@ -274,12 +276,14 @@ def print(
 
     # 8. Step format
     if level == "step":
-        detail_suffix = f" [dim]({detail})[/dim]" if detail else ""
-        active_console.print(f"[bold blue]➔[/bold blue] [bold]{content}[/bold]{detail_suffix}")
+        esc_content = escape_text(str(content))
+        detail_suffix = f" [dim]({escape_text(detail)})[/dim]" if detail else ""
+        active_console.print(f"[bold blue]➔[/bold blue] [bold]{esc_content}[/bold]{detail_suffix}")
         return PrintResult(success=True, level="step", stream=stream_name, rendered_type="step")
 
     # 9. Leveled / Plain string messaging
-    formatted_message = str(content)
+    raw_message = str(content)
+    formatted_message = escape_text(raw_message) if safe else raw_message
     if level == "raw":
         active_console.print(formatted_message)
         return PrintResult(success=True, level="raw", stream=stream_name, rendered_type="text")
@@ -324,6 +328,49 @@ def print(
     return PrintResult(success=True, level=level, stream=stream_name, rendered_type="message")
 
 
+def print_safe(
+    content: Any = "",
+    *,
+    level: MessageLevel = "raw",
+    prefix: bool | str | None = None,
+    to_stderr: bool = False,
+    style: str | None = None,
+    title: str | None = None,
+    border_style: str | None = None,
+    columns: Sequence[Any] | None = None,
+    rows: Sequence[Sequence[Any]] | None = None,
+    box_style: Any = None,
+    language: str | None = None,
+    line_numbers: bool | None = None,
+    start_line: int = CONST_DEFAULT_LINE_NUMBER,
+    theme: str | None = None,
+    detail: str = "",
+    console: Any = None,
+    **kwargs: Any,
+) -> PrintResult:
+    """Print user-controlled or untrusted content safely, escaping any embedded Rich markup tags."""
+    return print(
+        content,
+        level=level,
+        prefix=prefix,
+        to_stderr=to_stderr,
+        style=style,
+        title=title,
+        border_style=border_style,
+        columns=columns,
+        rows=rows,
+        box_style=box_style,
+        language=language,
+        line_numbers=line_numbers,
+        start_line=start_line,
+        theme=theme,
+        detail=detail,
+        console=console,
+        safe=True,
+        **kwargs,
+    )
+
+
 def print_message(
     message: str,
     *,
@@ -332,9 +379,18 @@ def print_message(
     to_stderr: bool = False,
     style: str | None = None,
     console: Any = None,
+    safe: bool = False,
 ) -> None:
     """Print a styled, leveled console message with optional prefix and stream targeting."""
-    print(message, level=level, prefix=prefix, to_stderr=to_stderr, style=style, console=console)
+    print(
+        message,
+        level=level,
+        prefix=prefix,
+        to_stderr=to_stderr,
+        style=style,
+        console=console,
+        safe=safe,
+    )
 
 
 def print_success(
@@ -342,9 +398,10 @@ def print_success(
     *,
     prefix: bool = True,
     console: Any = None,
+    safe: bool = False,
 ) -> None:
     """Print a success message with green styling."""
-    print(message, level="success", prefix=prefix, console=console)
+    print(message, level="success", prefix=prefix, console=console, safe=safe)
 
 
 def print_error(
@@ -353,9 +410,10 @@ def print_error(
     prefix: bool = True,
     to_stderr: bool = False,
     console: Any = None,
+    safe: bool = False,
 ) -> None:
     """Print an error message with red styling."""
-    print(message, level="error", prefix=prefix, to_stderr=to_stderr, console=console)
+    print(message, level="error", prefix=prefix, to_stderr=to_stderr, console=console, safe=safe)
 
 
 def print_warning(
@@ -364,9 +422,10 @@ def print_warning(
     prefix: bool = True,
     to_stderr: bool = False,
     console: Any = None,
+    safe: bool = False,
 ) -> None:
     """Print a warning message with yellow styling."""
-    print(message, level="warning", prefix=prefix, to_stderr=to_stderr, console=console)
+    print(message, level="warning", prefix=prefix, to_stderr=to_stderr, console=console, safe=safe)
 
 
 def print_info(
@@ -374,9 +433,10 @@ def print_info(
     *,
     prefix: bool = True,
     console: Any = None,
+    safe: bool = False,
 ) -> None:
     """Print an informational message with cyan styling."""
-    print(message, level="info", prefix=prefix, console=console)
+    print(message, level="info", prefix=prefix, console=console, safe=safe)
 
 
 def print_muted(
@@ -384,9 +444,17 @@ def print_muted(
     *,
     to_stderr: bool = False,
     console: Any = None,
+    safe: bool = False,
 ) -> None:
     """Print a muted/dim message."""
-    print(message, level="muted", prefix=False, to_stderr=to_stderr, console=console)
+    print(
+        message,
+        level="muted",
+        prefix=False,
+        to_stderr=to_stderr,
+        console=console,
+        safe=safe,
+    )
 
 
 def print_step(
@@ -394,9 +462,10 @@ def print_step(
     detail: str = "",
     *,
     console: Any = None,
+    safe: bool = True,
 ) -> None:
     """Print a structured execution step."""
-    print(step, level="step", detail=detail, console=console)
+    print(step, level="step", detail=detail, console=console, safe=safe)
 
 
 def print_section(
@@ -726,6 +795,7 @@ __all__ = [
     "print_message",
     "print_muted",
     "print_panel",
+    "print_safe",
     "print_section",
     "print_step",
     "print_success",

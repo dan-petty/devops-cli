@@ -379,3 +379,15 @@ def test_cataloged_hallucinations_matching() -> None:
     stream_match = is_common_hallucination(stream_finding, threshold=0.4)
     assert stream_match is not None
     assert stream_match.hallucination.id == "HALLUCINATION-STREAM-EVENT-TIMESTAMP"
+
+    # Local File Read or Bounded In-Memory Collection False CWE-400 Claim
+    cwe400_finding = Finding(
+        title="Uncontrolled resource consumption CWE-400 in read_text()",
+        description="Using read_text() on pyproject.toml causes denial of service memory exhaustion.",
+        location="commands/review.py:10",
+        severity="HIGH",
+        status="UNVERIFIED",
+    )
+    cwe400_match = is_common_hallucination(cwe400_finding, threshold=0.4)
+    assert cwe400_match is not None
+    assert cwe400_match.hallucination.id == "HALLUCINATION-LOCAL-FILE-OR-COLLECTION-CWE400"

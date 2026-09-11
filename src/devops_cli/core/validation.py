@@ -314,10 +314,31 @@ def validate_safe_directory_path(dir_path: Path | str, *, label: str = "Director
     return Path(dir_path)
 
 
+def is_valid_k8s_name(value: str, *, namespace: bool = False) -> bool:
+    """Check whether a string conforms to Kubernetes RFC 1123 label or DNS subdomain rules."""
+    if not value or value.startswith("-"):
+        return False
+    pattern = CONST_K8S_LABEL_RE if namespace else CONST_K8S_SUBDOMAIN_RE
+    return bool(pattern.fullmatch(value))
+
+
+def validate_k8s_identifier(value: str, label: str = "resource", *, namespace: bool = False) -> str:
+    """Validate Kubernetes resource identifier, raising ValidationError on failure."""
+    if not is_valid_k8s_name(value, namespace=namespace):
+        rule = (
+            "RFC 1123 label (up to 63 chars)"
+            if namespace
+            else "RFC 1123 subdomain (up to 253 chars)"
+        )
+        raise ValidationError(
+            f"Invalid Kubernetes {label} identifier '{value}'. Must match {rule}."
+        )
+    return value
+
+
 def validate_k8s_name(value: str, label: str = "resource", *, namespace: bool = False) -> str:
     """Validate that a string conforms to Kubernetes RFC 1123 naming rules."""
-    pattern = CONST_K8S_LABEL_RE if namespace else CONST_K8S_SUBDOMAIN_RE
-    if not pattern.match(value):
+    if not is_valid_k8s_name(value, namespace=namespace):
         print_error(f"Invalid {label}: {value!r}. Must be a valid RFC 1123 name.", prefix=False)
         raise typer.Exit(1)
     return value

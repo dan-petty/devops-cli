@@ -947,3 +947,146 @@ def test_reference_extractor_advanced_edge_cases(tmp_path: Path) -> None:
         r.target == "http://node1:11434" and r.is_local is True and r.scope == "local"
         for r in mock_refs
     )
+
+
+def test_reference_extractor_documented_examples_and_rfc_exclusions() -> None:
+    """Verify RFC 2606/6761/6890/5737/3849 example domains, IPs, and phone exclusions."""
+    from devops_cli.security.reference_extractor import (
+        is_example_ip,
+        is_example_or_invalid_domain,
+        is_example_or_invalid_network_target,
+        is_example_or_reserved_ip,
+        is_example_phone_number,
+        is_public_ip,
+    )
+
+    # 1. RFC 2606 & RFC 6761 reserved domains and TLDs
+    rfc2606_domains = [
+        "example.com",
+        "api.example.com",
+        "sub.deep.example.net",
+        "sample.example.org",
+        "test.example.edu",
+        "service.example",
+        "broken.invalid",
+        "staging.test",
+        "app.localhost",
+        "secret.onion",
+        "gateway.home.arpa",
+        "worker.internal",
+    ]
+    for d in rfc2606_domains:
+        assert is_example_or_invalid_domain(d) is True, f"Failed for domain: {d}"
+        assert is_example_or_invalid_network_target(d) is True, f"Failed network target: {d}"
+
+    # Non-example domains must return False
+    assert is_example_or_invalid_domain("github.com") is False
+    assert is_example_or_invalid_domain("api.cloudflare.com") is False
+    assert is_example_or_invalid_domain("openai.com") is False
+
+    # 2. RFC 5737 IPv4 documentation spaces
+    test_net_ips = [
+        "192.0.2.1",  # TEST-NET-1
+        "192.0.2.254",
+        "198.51.100.1",  # TEST-NET-2
+        "198.51.100.50",
+        "203.0.113.1",  # TEST-NET-3
+        "203.0.113.254",
+    ]
+    for ip in test_net_ips:
+        assert is_example_ip(ip) is True, f"Failed is_example_ip: {ip}"
+        assert is_example_or_reserved_ip(ip) is True, f"Failed is_example_or_reserved_ip: {ip}"
+        assert is_public_ip(ip) is False, f"Should not be public IP: {ip}"
+        assert is_example_or_invalid_network_target(ip) is True
+
+    # 3. RFC 3849 & IAB Statement IPv6 documentation spaces
+    ipv6_doc_ips = [
+        "2001:db8::1",
+        "2001:db8:85a3::8a2e:370:7334",
+        "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff",
+    ]
+    for ip in ipv6_doc_ips:
+        assert is_example_ip(ip) is True, f"Failed IPv6 is_example_ip: {ip}"
+        assert is_example_or_reserved_ip(ip) is True
+        assert is_public_ip(ip) is False
+        assert is_example_or_invalid_network_target(ip) is True
+
+    # 4. RFC 6890 / Special IPv4 & IPv6 blocks (CGNAT, Benchmarking, Discard)
+    special_ips = [
+        "100.64.0.1",  # CGNAT RFC 6598
+        "100.127.255.254",
+        "198.18.0.1",  # Benchmarking RFC 2544
+        "198.19.255.254",
+        "100::1",  # Discard prefix RFC 6666
+        "2001:2::1",  # IPv6 Benchmarking RFC 5180
+    ]
+    for ip in special_ips:
+        assert is_example_or_reserved_ip(ip) is True, f"Failed special IP: {ip}"
+        assert is_public_ip(ip) is False
+        assert is_example_or_invalid_network_target(ip) is True
+
+    # 5. Public IPs must be recognized correctly
+    public_ips = ["8.8.8.8", "1.1.1.1", "93.184.216.34"]
+    for ip in public_ips:
+        assert is_example_ip(ip) is False
+        assert is_example_or_reserved_ip(ip) is False
+        assert is_public_ip(ip) is True
+        assert is_example_or_invalid_network_target(ip) is False
+
+    # 6. ATIS-0300115 / NANPA and UK Ofcom fictitious phone numbers
+    fictitious_phones = [
+        "555-0142",
+        "+1-212-555-0199",
+        "1-800-555-0100",
+        "(212) 555-0123",
+        "01632 960001",
+        "+44 1632 4960123",
+    ]
+    for phone in fictitious_phones:
+        assert is_example_phone_number(phone) is True, f"Failed phone: {phone}"
+
+    # Real/ordinary numbers
+    assert is_example_phone_number("212-555-1212") is False
+    assert is_example_phone_number("1-800-222-3333") is False
+
+    # 7. extract_network_references with exclude_examples=True vs exclude_examples=False
+    sample_doc = """
+    # Example Configuration
+    Documentation URL: https://api.example.com/v1/health
+    Example IP: 192.0.2.1
+    Benchmarking IP: 198.18.1.10
+    IPv6 Doc IP: 2001:db8::42
+    Real Public IP: 93.184.216.34
+    Real Service: https://api.custom-service.io/v1
+    Contact: +1-212-555-0142
+    """
+
+    # With exclude_examples=False (default): example targets tagged with is_example=True
+    refs_all = extract_network_references(sample_doc, "sample.md", exclude_examples=False)
+    target_map = {r.target: r for r in refs_all}
+
+    assert "https://api.example.com/v1/health" in target_map
+    assert target_map["https://api.example.com/v1/health"].is_example is True
+    assert (
+        "✓ Safe (Documented Example)"
+        in target_map["https://api.example.com/v1/health"].security_status
+    )
+
+    assert "192.0.2.1" in target_map
+    assert target_map["192.0.2.1"].is_example is True
+    assert "✓ Safe (Documented Example)" in target_map["192.0.2.1"].security_status
+
+    assert "93.184.216.34" in target_map
+    assert target_map["93.184.216.34"].is_example is False
+    assert "https://api.custom-service.io/v1" in target_map
+
+    # With exclude_examples=True: example targets completely omitted
+    refs_filtered = extract_network_references(sample_doc, "sample.md", exclude_examples=True)
+    filtered_targets = {r.target for r in refs_filtered}
+
+    assert "https://api.example.com/v1/health" not in filtered_targets
+    assert "192.0.2.1" not in filtered_targets
+    assert "198.18.1.10" not in filtered_targets
+    assert "2001:db8::42" not in filtered_targets
+    assert "93.184.216.34" in filtered_targets
+    assert "https://api.custom-service.io/v1" in filtered_targets

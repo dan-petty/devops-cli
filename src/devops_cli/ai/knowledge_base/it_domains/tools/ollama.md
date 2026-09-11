@@ -34,8 +34,6 @@ devops config set ai.reasoning_effort low
 
 # Route dense vector embedding generation to a dedicated remote host (e.g. http://192.0.2.10:11434)
 devops config set ai.allow_private_network true
-devops config set ai.rag.embedding_url http://192.0.2.10:11434
-# OR via per-task override:
 devops config set ai.tasks.embedding.ollama_urls http://192.0.2.10:11434
 
 # Bundle and pull required models for local AI workflows

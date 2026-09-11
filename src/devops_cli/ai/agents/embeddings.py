@@ -244,7 +244,7 @@ class Embedder(PydanticEmbedder):
         elif clean_model.lower().startswith("openai:"):
             clean_model = clean_model[7:]
             cfg.provider = "openai"
-        cfg.rag.embedding_model = clean_model
+        cfg.tasks.embedding.model = clean_model
         eng = EmbeddingsEngine(cfg)
         if self.dimensions is not None:
             eng._dimension = self.dimensions

@@ -13,14 +13,17 @@ from typing import Any
 import httpx2
 
 from devops_cli.core.process import run_subprocess
-from devops_cli.core.validation import validate_url_egress
+from devops_cli.core.validation import is_valid_k8s_name, validate_url_egress
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.exceptions import ValidationError
 from devops_cli.exceptions.k8s import KubernetesLoggingError
 from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_LOKI_URL = "http://localhost:3100"
+
+
 _TRACE_ID_REGEX = re.compile(
     r'(?:trace_id|traceId|traceID)[=:"\s]+([0-9a-fA-F]{16,32})', re.IGNORECASE
 )
@@ -285,8 +288,13 @@ def execute_kubectl_logql(
 ) -> LogQueryResult:
     """Query logs via kubectl across matching pods with in-memory LogQL filtering."""
     ns = query.selectors.get("namespace", namespace)
+    if not is_valid_k8s_name(ns, namespace=True):
+        raise ValidationError(f"Invalid Kubernetes namespace identifier: '{ns}'")
     if "pod" in query.selectors:
-        pods = [query.selectors["pod"]]
+        raw_pod = query.selectors["pod"].removeprefix("pod/")
+        if not is_valid_k8s_name(raw_pod):
+            raise ValidationError(f"Invalid Kubernetes pod identifier: '{raw_pod}'")
+        pods = [raw_pod]
     else:
         pods = _get_matching_pods(ns, query.selectors)
 
@@ -302,7 +310,10 @@ def execute_kubectl_logql(
         pods = _get_matching_pods(ns, {})
 
     all_entries: list[LogEntry] = []
-    for pod in pods[:5]:
+    for raw_pod in pods[:5]:
+        pod = raw_pod.removeprefix("pod/")
+        if not is_valid_k8s_name(pod):
+            continue
         cmd = ["kubectl", "logs", pod, "-n", ns, f"--tail={limit}"]
         if since:
             cmd.append(f"--since={since}")

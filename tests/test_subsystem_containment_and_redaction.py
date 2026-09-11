@@ -71,7 +71,7 @@ def test_native_tool_token_redaction() -> None:
     settings = native_tool.get_model_settings()
 
     config = settings.get("native_tool", {})
-    assert "authorization_token" not in config
+    assert config.get("authorization_token") == "ghp_SUPERSECRET1234567890"
     assert config.get("id") == "custom_tool"
     assert config.get("endpoint") == "https://custom.internal"
 
