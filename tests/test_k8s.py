@@ -752,30 +752,42 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
     repo_root = Path(__file__).resolve().parent.parent
 
-    # 1. Ollama DaemonSet: no hard memory limit, requests 8Gi, robust startup and liveness probes
+    # 1. Ollama DaemonSet: bounded memory limit (26Gi), requests 8Gi, robust startup and liveness probes
     ollama_path = repo_root / "k8s" / "llm" / "ollama-daemonset.yaml"
     assert ollama_path.is_file()
     ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
     daemonset = next(d for d in ollama_docs if d and d.get("kind") == "DaemonSet")
     container = daemonset["spec"]["template"]["spec"]["containers"][0]
     resources = container.get("resources", {})
-    assert "limits" not in resources or "memory" not in resources.get("limits", {})
+    assert resources["limits"]["memory"] == "26Gi"
     assert resources["requests"]["memory"] == "8Gi"
     assert resources["requests"]["cpu"] == "3000m"
 
-    # Probes
+    # Probes: verify exact probe contracts
     assert "startupProbe" in container
-    assert container["startupProbe"]["failureThreshold"] >= 30
-    assert container["livenessProbe"]["timeoutSeconds"] >= 10
-    assert container["livenessProbe"]["failureThreshold"] >= 5
-    assert container["readinessProbe"]["timeoutSeconds"] >= 5
+    assert container["startupProbe"]["initialDelaySeconds"] == 10
+    assert container["startupProbe"]["periodSeconds"] == 5
+    assert container["startupProbe"]["timeoutSeconds"] == 5
+    assert container["startupProbe"]["failureThreshold"] == 60
 
-    # 2. Ollama Helm values: no hard limits
+    assert "readinessProbe" in container
+    assert container["readinessProbe"]["initialDelaySeconds"] == 5
+    assert container["readinessProbe"]["periodSeconds"] == 10
+    assert container["readinessProbe"]["timeoutSeconds"] == 5
+    assert container["readinessProbe"]["failureThreshold"] == 3
+
+    assert "livenessProbe" in container
+    assert container["livenessProbe"]["initialDelaySeconds"] == 15
+    assert container["livenessProbe"]["periodSeconds"] == 15
+    assert container["livenessProbe"]["timeoutSeconds"] == 10
+    assert container["livenessProbe"]["failureThreshold"] == 6
+
+    # 2. Ollama Helm values: bounded memory limit
     values_ollama = yaml.safe_load(
         (repo_root / "k8s" / "llm" / "values-ollama.yaml").read_text(encoding="utf-8")
     )
-    assert "limits" not in values_ollama.get("resources", {})
     assert values_ollama["resources"]["requests"]["memory"] == "4Gi"
+    assert values_ollama["resources"]["limits"]["memory"] == "26Gi"
 
     # 3. Valkey: memory limit >= 2048Mi
     valkey_docs = list(
@@ -811,3 +823,31 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert argo_values["repoServer"]["resources"]["limits"]["memory"] == "2048Mi"
     assert argo_values["server"]["resources"]["limits"]["memory"] == "1024Mi"
     assert argo_values["redis"]["resources"]["limits"]["memory"] == "1024Mi"
+
+    # 7. Open WebUI values: elevated CPU and memory limits
+    webui_values = yaml.safe_load(
+        (repo_root / "k8s" / "llm" / "values-open-webui.yaml").read_text(encoding="utf-8")
+    )
+    assert webui_values["resources"]["limits"]["cpu"] == "4000m"
+    assert webui_values["resources"]["limits"]["memory"] == "4Gi"
+
+    # 8. OTel values: elevated CPU and memory limits
+    otel_values = yaml.safe_load(
+        (repo_root / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
+    )
+    assert otel_values["resources"]["limits"]["cpu"] == "1000m"
+    assert otel_values["resources"]["limits"]["memory"] == "1024Mi"
+
+    # 9. Loki values: elevated singleBinary limits
+    loki_values = yaml.safe_load(
+        (repo_root / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
+    )
+    assert loki_values["singleBinary"]["resources"]["limits"]["cpu"] == "1000m"
+    assert loki_values["singleBinary"]["resources"]["limits"]["memory"] == "2048Mi"
+
+    # 10. Fluent Bit values: elevated daemonset limits
+    fb_values = yaml.safe_load(
+        (repo_root / "k8s" / "logging" / "fluent-bit-values.yaml").read_text(encoding="utf-8")
+    )
+    assert fb_values["resources"]["limits"]["cpu"] == "500m"
+    assert fb_values["resources"]["limits"]["memory"] == "512Mi"

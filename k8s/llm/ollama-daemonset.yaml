@@ -59,6 +59,8 @@ spec:
             requests:
               cpu: 3000m
               memory: 8Gi
+            limits:
+              memory: 26Gi
           volumeMounts:
             - name: ollama-data
               mountPath: /root/.ollama

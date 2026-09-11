@@ -1,6 +1,7 @@
 # Task 135: Review Pod Restarts, Eliminate Cgroup OOM Kills & Optimize Resource Limits
 
 **Issue**: [#135](https://github.com/dan-petty/devops-cli/issues/135)
+**PR**: [#136](https://github.com/dan-petty/devops-cli/pull/136)
 **Status**: In Review
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p1-high`
@@ -40,12 +41,12 @@ During cluster operation, multiple pods across nodes experienced terminations an
 ## 2. Planned Changes & Architectural Solution
 
 1. **`k8s/llm/ollama-daemonset.yaml`**:
-   - Remove `limits.memory` completely; keep `requests.cpu: 3000m` and `requests.memory: 8Gi`.
+   - Configure bounded `limits.memory: 26Gi` (leaving 5Gi node headroom for OS, kubelet, and system daemons on 31Gi nodes to avoid node-level OOM), with `requests.cpu: 3000m` and `requests.memory: 8Gi`.
    - Add `startupProbe` with `failureThreshold: 60`, `periodSeconds: 5` (up to 5 min startup grace).
    - Relax `livenessProbe` to `timeoutSeconds: 10`, `periodSeconds: 15`, `failureThreshold: 6`.
    - Relax `readinessProbe` to `timeoutSeconds: 5`, `periodSeconds: 10`, `failureThreshold: 3`.
 2. **`k8s/llm/values-ollama.yaml`**:
-   - Update Helm values to match daemonset: remove limits, `requests.cpu: 1000m`, `requests.memory: 4Gi`.
+   - Update Helm values to match daemonset: `requests.cpu: 1000m`, `requests.memory: 4Gi`, `limits.memory: 26Gi`.
 3. **`k8s/llm/values-open-webui.yaml`**:
    - Raise memory limits to `4Gi` and CPU limits to `4000m`.
 4. **`k8s/llm/valkey.yaml`**:
@@ -57,9 +58,7 @@ During cluster operation, multiple pods across nodes experienced terminations an
    - Raise Registry memory limit to `2048Mi`.
 7. **`k8s/argocd/values.yaml`**:
    - Raise controller limits to `2048Mi`, repoServer to `2048Mi`, server to `1024Mi`, redis to `1024Mi`.
-8. **`k8s/squid/deployment.yaml`**:
-   - Raise Squid memory limit to `16Gi` and squid-exporter limit to `256Mi`.
-9. **Cluster Application**:
+8. **Cluster Application**:
    - Apply updated manifests directly to the cluster (`kubectl apply`).
 
 ---
