@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
@@ -745,3 +746,108 @@ def test_k8s_deploy_stack_no_wait() -> None:
             cmd = call_args[0][0]
             if isinstance(cmd, list) and "helm" in cmd and "upgrade" in cmd:
                 assert "--wait" not in cmd
+
+
+def test_k8s_workload_resource_limits_and_probes() -> None:
+    """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
+    repo_root = Path(__file__).resolve().parent.parent
+
+    # 1. Ollama DaemonSet: bounded memory limit (26Gi), requests 8Gi, robust startup and liveness probes
+    ollama_path = repo_root / "k8s" / "llm" / "ollama-daemonset.yaml"
+    assert ollama_path.is_file()
+    ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
+    daemonset = next(d for d in ollama_docs if d and d.get("kind") == "DaemonSet")
+    container = daemonset["spec"]["template"]["spec"]["containers"][0]
+    resources = container.get("resources", {})
+    assert resources["limits"]["memory"] == "26Gi"
+    assert resources["requests"]["memory"] == "8Gi"
+    assert resources["requests"]["cpu"] == "3000m"
+
+    # Probes: verify exact probe contracts
+    assert "startupProbe" in container
+    assert container["startupProbe"]["initialDelaySeconds"] == 10
+    assert container["startupProbe"]["periodSeconds"] == 5
+    assert container["startupProbe"]["timeoutSeconds"] == 5
+    assert container["startupProbe"]["failureThreshold"] == 60
+
+    assert "readinessProbe" in container
+    assert container["readinessProbe"]["initialDelaySeconds"] == 5
+    assert container["readinessProbe"]["periodSeconds"] == 10
+    assert container["readinessProbe"]["timeoutSeconds"] == 5
+    assert container["readinessProbe"]["failureThreshold"] == 3
+
+    assert "livenessProbe" in container
+    assert container["livenessProbe"]["initialDelaySeconds"] == 15
+    assert container["livenessProbe"]["periodSeconds"] == 15
+    assert container["livenessProbe"]["timeoutSeconds"] == 10
+    assert container["livenessProbe"]["failureThreshold"] == 6
+
+    # 2. Ollama Helm values: bounded memory limit
+    values_ollama = yaml.safe_load(
+        (repo_root / "k8s" / "llm" / "values-ollama.yaml").read_text(encoding="utf-8")
+    )
+    assert values_ollama["resources"]["requests"]["memory"] == "4Gi"
+    assert values_ollama["resources"]["limits"]["memory"] == "26Gi"
+
+    # 3. Valkey: memory limit >= 2048Mi
+    valkey_docs = list(
+        yaml.safe_load_all((repo_root / "k8s" / "llm" / "valkey.yaml").read_text(encoding="utf-8"))
+    )
+    valkey_dep = next(d for d in valkey_docs if d and d.get("kind") == "Deployment")
+    valkey_res = valkey_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert valkey_res["limits"]["memory"] == "2048Mi"
+
+    # 4. Jaeger: memory limit >= 2048Mi
+    jaeger_docs = list(
+        yaml.safe_load_all((repo_root / "k8s" / "otel" / "jaeger.yaml").read_text(encoding="utf-8"))
+    )
+    jaeger_dep = next(d for d in jaeger_docs if d and d.get("kind") == "Deployment")
+    jaeger_res = jaeger_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert jaeger_res["limits"]["memory"] == "2048Mi"
+
+    # 5. Registry: memory limit >= 2048Mi
+    reg_docs = list(
+        yaml.safe_load_all(
+            (repo_root / "k8s" / "registry" / "deployment.yaml").read_text(encoding="utf-8")
+        )
+    )
+    reg_dep = next(d for d in reg_docs if d and d.get("kind") == "Deployment")
+    reg_res = reg_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert reg_res["limits"]["memory"] == "2048Mi"
+
+    # 6. ArgoCD values: elevated memory limits
+    argo_values = yaml.safe_load(
+        (repo_root / "k8s" / "argocd" / "values.yaml").read_text(encoding="utf-8")
+    )
+    assert argo_values["controller"]["resources"]["limits"]["memory"] == "2048Mi"
+    assert argo_values["repoServer"]["resources"]["limits"]["memory"] == "2048Mi"
+    assert argo_values["server"]["resources"]["limits"]["memory"] == "1024Mi"
+    assert argo_values["redis"]["resources"]["limits"]["memory"] == "1024Mi"
+
+    # 7. Open WebUI values: elevated CPU and memory limits
+    webui_values = yaml.safe_load(
+        (repo_root / "k8s" / "llm" / "values-open-webui.yaml").read_text(encoding="utf-8")
+    )
+    assert webui_values["resources"]["limits"]["cpu"] == "4000m"
+    assert webui_values["resources"]["limits"]["memory"] == "4Gi"
+
+    # 8. OTel values: elevated CPU and memory limits
+    otel_values = yaml.safe_load(
+        (repo_root / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
+    )
+    assert otel_values["resources"]["limits"]["cpu"] == "1000m"
+    assert otel_values["resources"]["limits"]["memory"] == "1024Mi"
+
+    # 9. Loki values: elevated singleBinary limits
+    loki_values = yaml.safe_load(
+        (repo_root / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
+    )
+    assert loki_values["singleBinary"]["resources"]["limits"]["cpu"] == "1000m"
+    assert loki_values["singleBinary"]["resources"]["limits"]["memory"] == "2048Mi"
+
+    # 10. Fluent Bit values: elevated daemonset limits
+    fb_values = yaml.safe_load(
+        (repo_root / "k8s" / "logging" / "fluent-bit-values.yaml").read_text(encoding="utf-8")
+    )
+    assert fb_values["resources"]["limits"]["cpu"] == "500m"
+    assert fb_values["resources"]["limits"]["memory"] == "512Mi"
