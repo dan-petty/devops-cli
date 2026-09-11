@@ -112,8 +112,19 @@ def generate_pointer_stub(
     tool_name: str,
     filename: str,
     canonical_relpath: str,
+    *,
+    is_devops_cli: bool = False,
 ) -> str:
     """Generate a thin pointer stub that redirects tools to the canonical AGENTS.md."""
+    alpha_notice = (
+        "\n>\n"
+        "> **Pre-1.0 Alpha Notice**: This codebase is active alpha software prior to release `1.0.0`\n"
+        "> with no backwards compatibility guarantees. The codebase must remain clean of legacy\n"
+        "> references and obsolete shims at all times. Post-1.0 releases adhere strictly to\n"
+        "> Semantic Versioning and enterprise change management (feature flags, deprecations, migrations)."
+        if is_devops_cli
+        else ""
+    )
     return f"""\
 # {title}
 
@@ -122,12 +133,7 @@ def generate_pointer_stub(
 > overview, build/test commands, code conventions, architecture, AI features,
 > environment & modernization policy, and security notes — live in
 > [AGENTS.md]({canonical_relpath}). Read that file. Regenerate both via
-> `devops ai agents`; do not duplicate content here.
->
-> **Pre-1.0 Alpha Notice**: This codebase is alpha software prior to release `1.0.0`
-> with no backwards compatibility guarantees. The codebase must remain clean of legacy
-> references and obsolete shims at all times. Post-1.0 releases adhere strictly to
-> Semantic Versioning and enterprise change management (feature flags, deprecations, migrations).
+> `devops ai agents`; do not duplicate content here.{alpha_notice}
 """
 
 
@@ -161,6 +167,16 @@ devops --help                        # Access global DevOps automation CLI
         "- **DevContainer Environment**: Configured with pre-baked Python runtime\n"
         "  and DevOps tooling (`uv`, `docker`, `kubectl`, `helm`, `devops`).\n"
         if meta.has_devcontainer
+        else ""
+    )
+
+    alpha_lifecycle_block = (
+        "- **Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee**: Prior to release 1.0.0,\n"
+        "  this codebase is active alpha software with no intention of maintaining backwards compatibility.\n"
+        "  The codebase must remain clean of legacy references, obsolete shims, and compatibility remnants\n"
+        "  at all times so that it can reach maturity at a reasonable rate. Releases after 1.0.0 will strictly\n"
+        "  follow Semantic Versioning conventions with feature flags, formal deprecations, and migration tooling.\n"
+        if meta.is_devops_cli
         else ""
     )
 
@@ -252,12 +268,7 @@ codebase or reviewing target repositories.
   semaphores (`asyncio.Semaphore(5)` for 4–8 concurrent workers) to prevent overloading inference endpoints. On HTTP 429 or
   provider overload errors, implement exponential backoff with jitter and retry reflection rather than
   unthrottled burst retries.
-- **Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee**: Prior to release 1.0.0,
-  this codebase is active alpha software with no intention of maintaining backwards compatibility.
-  The codebase must remain clean of legacy references, obsolete shims, and compatibility remnants
-  at all times so that it can reach maturity at a reasonable rate. Releases after 1.0.0 will strictly
-  follow Semantic Versioning conventions with feature flags, formal deprecations, and migration tooling.
-- **Clean Solutions Over Legacy Remnants (Zero Zombie Code)**: When modifying, refactoring, or
+{alpha_lifecycle_block}- **Clean Solutions Over Legacy Remnants (Zero Zombie Code)**: When modifying, refactoring, or
   replacing features, schemas, configurations, or interfaces, implement clean, complete solutions
   and ruthlessly remove obsolete code, variables, aliases, fallback shims, and legacy workarounds.
   Never leave remnants or vestigial fallback paths.
@@ -301,6 +312,7 @@ def generate_instruction_content(target_file: str, meta: ProjectMetadata) -> str
             tool_name="Claude Code",
             filename="CLAUDE.md",
             canonical_relpath="./AGENTS.md",
+            is_devops_cli=meta.is_devops_cli,
         )
     if "copilot" in target_file:
         return generate_pointer_stub(
@@ -308,6 +320,7 @@ def generate_instruction_content(target_file: str, meta: ProjectMetadata) -> str
             tool_name="GitHub Copilot",
             filename=".github/copilot-instructions.md",
             canonical_relpath="../AGENTS.md",
+            is_devops_cli=meta.is_devops_cli,
         )
     return generate_agents_md(meta)
 
