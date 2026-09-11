@@ -75,15 +75,55 @@ class TablePayload(BaseModel):
 
     def render(self) -> Table:
         """Render this payload into a Rich Table instance."""
-        from devops_cli.output.formatter import render_table
+        from rich.table import Table
 
-        return render_table(
+        table = Table(
             title=self.title,
-            columns=self.columns,
-            rows=self.rows,
             border_style=self.border_style,
-            box_style=self.box_style,
+            box=self.box_style,
+            title_style="bold cyan",
+            header_style="bold",
         )
+        for col in self.columns:
+            _add_table_column_to_table(table, col)
+        for row in self.rows:
+            table.add_row(*[str(cell) for cell in row])
+        return table
+
+
+def _add_sequence_column(table: Any, col: tuple[Any, ...] | list[Any]) -> None:
+    """Add a column to a table from a tuple or list definition."""
+    if not col:
+        return
+    if len(col) == 1:
+        table.add_column(str(col[0]))
+        return
+    name, style = col[0], col[1]
+    if isinstance(style, int):
+        table.add_column(str(name), width=style)
+        return
+    style_str = str(style).lower()
+    if style_str in ("left", "center", "right", "full"):
+        table.add_column(str(name), justify=style_str)
+        return
+    table.add_column(str(name), style=str(style))
+
+
+def _add_table_column_to_table(table: Any, col: Any) -> None:
+    """Add an individual column definition to a Rich Table instance."""
+    if hasattr(col, "header"):
+        table.add_column(
+            col.header,
+            style=getattr(col, "style", None),
+            justify=getattr(col, "justify", "left"),
+            width=getattr(col, "width", None),
+            no_wrap=getattr(col, "no_wrap", False),
+        )
+        return
+    if isinstance(col, (tuple, list)):
+        _add_sequence_column(table, col)
+        return
+    table.add_column(str(col))
 
 
 class KeyValuePayload(BaseModel):
@@ -126,7 +166,7 @@ class StatusBadge(BaseModel):
 
     def render(self) -> str:
         """Render Rich markup status string."""
-        from devops_cli.output.formatter import format_status_badge
+        from devops_cli.output.formatters.scalars import format_status_badge
 
         return format_status_badge(
             self.status,

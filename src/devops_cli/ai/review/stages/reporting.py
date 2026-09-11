@@ -7,7 +7,7 @@ import json
 import re
 from pathlib import Path
 
-from devops_cli.ai.review.pipeline import _get_reviews_base_dir
+from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.ai.review_schema import SavedFinding
 from devops_cli.exceptions import SecurityError
 from devops_cli.models.vulnerability import DependencySpec, NetworkReference

@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import Any
+
+from rich.table import Table
 
 from devops_cli.config.defaults import DEFAULT_TABLE_BORDER_STYLE
 from devops_cli.lang import MESSAGES
 from devops_cli.output.formatters.scalars import (
     SEV_COLOR_MAP,
     format_duration,
+    format_status_badge,
     format_timestamp_age,
 )
-
-if TYPE_CHECKING:
-    from rich.table import Table
-
-    from devops_cli.output.models import TablePayload
+from devops_cli.output.markup import escape_text
+from devops_cli.output.models import TableColumn, TablePayload
 
 
 def _add_table_column(table: Any, col: Any) -> None:
@@ -56,7 +56,6 @@ def render_table(
     box_style: Any = None,
 ) -> Table:
     """Construct a styled Rich Table from columns and rows or TablePayload."""
-    from rich.table import Table
 
     if hasattr(title, "render") and callable(getattr(title, "render")):
         rendered = title.render()
@@ -93,8 +92,6 @@ def render_table(
 
 def format_review_findings_table(findings: list[Any]) -> TablePayload:
     """Build a structured TablePayload of code review findings."""
-    from devops_cli.output.console import escape_text
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Sev"),
@@ -130,8 +127,6 @@ def format_review_findings_table(findings: list[Any]) -> TablePayload:
 
 def format_dependencies_table(deps: list[Any]) -> TablePayload:
     """Build a structured TablePayload of audited external dependencies."""
-    from devops_cli.output.console import escape_text
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Severity"),
@@ -170,8 +165,6 @@ def format_dependencies_table(deps: list[Any]) -> TablePayload:
 
 def format_network_references_table(refs: list[Any]) -> TablePayload:
     """Build a structured TablePayload of audited network and egress references."""
-    from devops_cli.output.console import escape_text
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Status"),
@@ -207,7 +200,6 @@ def format_network_references_table(refs: list[Any]) -> TablePayload:
 
 def format_benchmark_leaderboard_table(report: Any) -> TablePayload:
     """Build a structured TablePayload for an AI benchmark leaderboard."""
-    from devops_cli.output.models import TablePayload
 
     columns: list[Any] = [
         ("Rank", "bold"),
@@ -309,7 +301,6 @@ def _format_suite_leaderboard_row(rank_index: int, m: Any) -> list[str]:
 
 def format_benchmark_suite_table(report: Any) -> TablePayload:
     """Build structured TablePayload for multi-model benchmark evaluation suite leaderboard."""
-    from devops_cli.output.models import TablePayload
 
     columns: list[Any] = [
         ("Rank", "bold"),
@@ -339,7 +330,6 @@ def format_benchmark_suite_table(report: Any) -> TablePayload:
 
 def format_benchmark_category_table(report: Any) -> TablePayload | None:
     """Build a structured TablePayload for domain category breakdown."""
-    from devops_cli.output.models import TablePayload
 
     tasks_run = getattr(report, "tasks_run", [])
     if len(tasks_run) <= 1:
@@ -369,7 +359,6 @@ def format_benchmark_category_table(report: Any) -> TablePayload | None:
 
 def format_benchmark_server_table(report: Any) -> TablePayload | None:
     """Build a structured TablePayload for Ollama server hardware & node performance."""
-    from devops_cli.output.models import TablePayload
 
     servers = getattr(report, "server_benchmarks", [])
     if not servers:
@@ -434,7 +423,6 @@ def format_benchmark_server_table(report: Any) -> TablePayload | None:
 
 def format_k8s_pods_table(pods: Sequence[Any]) -> TablePayload:
     """Build a structured TablePayload for Kubernetes pod status."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Namespace", style="dim"),
@@ -488,7 +476,6 @@ def format_k8s_pods_table(pods: Sequence[Any]) -> TablePayload:
 
 def format_k8s_contexts_table(contexts: Sequence[Any], active_name: str = "") -> TablePayload:
     """Build a structured TablePayload for Kubernetes cluster contexts."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="", width=2),
@@ -527,7 +514,6 @@ def format_k8s_contexts_table(contexts: Sequence[Any], active_name: str = "") ->
 def format_k8s_nodes_table(nodes: Sequence[Any]) -> TablePayload:
     """Build a structured TablePayload for Kubernetes cluster nodes."""
     from devops_cli.config.constants import CONST_K8S_NODE_ROLE_LABEL_PREFIX
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Name", style="cyan"),
@@ -578,7 +564,6 @@ def format_k8s_nodes_table(nodes: Sequence[Any]) -> TablePayload:
 
 def format_k8s_rbac_table(rows: list[list[str]]) -> TablePayload:
     """Build a structured TablePayload for Kubernetes RBAC audit findings."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Namespace", style="cyan"),
@@ -595,7 +580,6 @@ def format_k8s_rbac_table(rows: list[list[str]]) -> TablePayload:
 
 def format_k8s_lint_table(findings: list[Any], target_name: str) -> TablePayload:
     """Build a structured TablePayload for Kube-linter security audit findings."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Severity", style="bold yellow"),
@@ -621,7 +605,6 @@ def format_k8s_lint_table(findings: list[Any], target_name: str) -> TablePayload
 
 def format_k8s_schema_table(findings: list[Any], target_name: str) -> TablePayload:
     """Build a structured TablePayload for Kubeconform schema validation issues."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Severity", style="bold red"),
@@ -647,7 +630,6 @@ def format_k8s_schema_table(findings: list[Any], target_name: str) -> TablePaylo
 
 def format_k8s_policy_table(report: Any) -> TablePayload:
     """Build a structured TablePayload for admission policy violation reports."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Policy"),
@@ -680,7 +662,6 @@ def format_k8s_policy_table(report: Any) -> TablePayload:
 
 def format_k8s_service_targets_table(configured: dict[str, str], stack: str) -> TablePayload:
     """Build a structured TablePayload for detected Kubernetes service endpoints."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Config Key / Service", style="cyan"),
@@ -696,7 +677,6 @@ def format_k8s_service_targets_table(configured: dict[str, str], stack: str) -> 
 
 def format_k8s_tls_secrets_table(results: list[Any]) -> TablePayload:
     """Build a structured TablePayload for deployed Kubernetes TLS secrets."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Namespace", style="cyan"),
@@ -720,7 +700,6 @@ def format_k8s_tls_secrets_table(results: list[Any]) -> TablePayload:
 
 def format_docker_stats_table(rows: list[list[str]]) -> TablePayload:
     """Build a structured TablePayload for live Docker container stats."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Container", style="cyan", no_wrap=True),
@@ -739,7 +718,6 @@ def format_docker_stats_table(rows: list[list[str]]) -> TablePayload:
 
 def format_argo_apps_table(rows: list[list[str]]) -> TablePayload:
     """Build a structured TablePayload for ArgoCD applications."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Name", style="cyan"),
@@ -760,8 +738,6 @@ def format_argo_apps_table(rows: list[list[str]]) -> TablePayload:
 def format_ssh_keys_table(keys: Sequence[Any], rotation_days: int) -> TablePayload:
     """Build a structured TablePayload for managed SSH keys."""
     from devops_cli.config.constants import CONST_SSH_GRACE_DAYS
-    from devops_cli.output.formatters.scalars import format_status_badge
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Key", style="cyan"),
@@ -807,7 +783,6 @@ def format_tf_status_table(
     has_state: bool,
 ) -> TablePayload:
     """Build a structured TablePayload for OpenTofu / Terraform status."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Property", style="bold white"),
@@ -830,7 +805,6 @@ def format_tf_status_table(
 
 def format_tflint_table(findings: Sequence[Any], target_name: str) -> TablePayload:
     """Build a structured TablePayload for TFLint findings."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Severity", style="bold"),
@@ -860,7 +834,6 @@ def format_tflint_table(findings: Sequence[Any], target_name: str) -> TablePaylo
 
 def format_argo_fleet_sync_table(result: Any) -> TablePayload:
     """Build a structured TablePayload for Argo multi-cluster fleet synchronization."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Cluster", style="bold cyan"),
@@ -895,7 +868,6 @@ def format_argo_fleet_sync_table(result: Any) -> TablePayload:
 
 def format_argo_rollout_analysis_table(result: Any) -> TablePayload:
     """Build a structured TablePayload for Argo Rollout metric gate analysis."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
         TableColumn(header="Metric", style="bold cyan"),
@@ -936,7 +908,6 @@ def format_tf_cost_table(
     title: str | None = None,
 ) -> TablePayload:
     """Build a structured TablePayload for Infracost FinOps cost breakdown."""
-    from devops_cli.output.models import TableColumn, TablePayload
 
     tbl_title = (
         title

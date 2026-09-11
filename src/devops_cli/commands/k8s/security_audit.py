@@ -7,7 +7,7 @@ from typing import Annotated
 
 import typer
 
-import devops_cli.commands.k8s as k8s
+import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_KUBECONFORM_VERSION,
@@ -35,7 +35,7 @@ def rbac_audit(
 ) -> None:
     """Audit RBAC RoleBindings and ServiceAccounts for overprivileged access."""
     if namespace:
-        k8s._validate_k8s_identifier(namespace, "namespace", namespace=True)
+        runtime._validate_k8s_identifier(namespace, "namespace", namespace=True)
 
     if is_dry_run():
         render_dry_run_result(

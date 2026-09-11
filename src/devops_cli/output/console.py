@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, Literal
 from rich.console import Console as _RichConsole
 from rich.console import RenderableType as _RichRenderableType
 from rich.markdown import Markdown as _RichMarkdown
-from rich.markup import escape as _rich_escape
 from rich.panel import Panel as _RichPanel
 from rich.progress import (
     BarColumn as _RichBarColumn,
@@ -45,6 +44,7 @@ from devops_cli.config.defaults import (
     DEFAULT_TABLE_BORDER_STYLE,
     DEFAULT_VALUE_STYLE,
 )
+from devops_cli.output.markup import escape_text
 
 if TYPE_CHECKING:
     from devops_cli.output.models import (
@@ -136,11 +136,6 @@ def write_stderr(text: str, *, flush: bool = True) -> None:
     write_stream(text, stream="stderr", flush=flush)
 
 
-def escape_text(text: str) -> str:
-    """Escape Rich markup tags in string."""
-    return _rich_escape(text)
-
-
 def print(
     content: Any = "",
     *,
@@ -229,7 +224,7 @@ def print(
 
     # 5. Table parameters passed directly
     if columns is not None or rows is not None:
-        from devops_cli.output.formatter import render_table
+        from devops_cli.output.formatters.tables import render_table
 
         rendered_table = render_table(
             title=title or (content if isinstance(content, str) else ""),

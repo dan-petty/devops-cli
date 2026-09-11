@@ -7,7 +7,8 @@ from typing import Annotated
 
 import typer
 
-import devops_cli.commands.k8s as k8s
+import devops_cli.commands.k8s.cluster_runtime as runtime
+import devops_cli.commands.k8s.networking as net
 from devops_cli.config.constants import (
     CONST_SERVER_CERT_NAME,
     CONST_SERVER_KEY_NAME,
@@ -55,9 +56,9 @@ def create_tls_secret(
 ) -> None:
     """Create or update a kubernetes.io/tls secret from certificate and private key files."""
     if context:
-        k8s._validate_k8s_identifier(context, "context")
-    k8s._validate_k8s_identifier(namespace, "namespace", namespace=True)
-    k8s._validate_k8s_identifier(secret_name, "secret_name")
+        runtime._validate_k8s_identifier(context, "context")
+    runtime._validate_k8s_identifier(namespace, "namespace", namespace=True)
+    runtime._validate_k8s_identifier(secret_name, "secret_name")
 
     if is_dry_run():
         render_dry_run_result(
@@ -84,12 +85,14 @@ def create_tls_secret(
     kubectl_ctx = ["--context", context] if context else []
 
     # Ensure namespace exists
-    ns_check = k8s._run_cmd(["kubectl", "get", "namespace", namespace] + kubectl_ctx, check=False)
+    ns_check = runtime._run_cmd(
+        ["kubectl", "get", "namespace", namespace] + kubectl_ctx, check=False
+    )
     if ns_check.returncode != 0:
-        k8s._run_cmd(["kubectl", "create", "namespace", namespace] + kubectl_ctx, check=True)
+        runtime._run_cmd(["kubectl", "create", "namespace", namespace] + kubectl_ctx, check=True)
 
     # Delete existing secret to allow clean recreation
-    k8s._run_cmd(
+    runtime._run_cmd(
         ["kubectl", "delete", "secret", secret_name, "-n", namespace] + kubectl_ctx,
         check=False,
     )
@@ -106,7 +109,7 @@ def create_tls_secret(
         namespace,
     ] + kubectl_ctx
 
-    rc = k8s._run_cmd(create_cmd, check=False)
+    rc = runtime._run_cmd(create_cmd, check=False)
     if rc.returncode == 0:
         print_success(
             f"Created TLS secret [cyan]{secret_name}[/cyan] "
@@ -144,9 +147,9 @@ def enable_tls_stack(
 ) -> None:
     """Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces."""
     if context:
-        k8s._validate_k8s_identifier(context, "context")
+        runtime._validate_k8s_identifier(context, "context")
 
-    selected_stacks = k8s._resolve_stacks(stack)
+    selected_stacks = net._resolve_stacks(stack)
 
     # Resolve target namespaces based on selected stacks
     namespaces_to_target: list[str] = [DEFAULT_K8S_NAMESPACE]
@@ -183,7 +186,7 @@ def enable_tls_stack(
 
     for ns in namespaces_to_target:
         # Check if namespace exists before attempting secret creation
-        ns_check = k8s._run_cmd(["kubectl", "get", "namespace", ns] + kubectl_ctx, check=False)
+        ns_check = runtime._run_cmd(["kubectl", "get", "namespace", ns] + kubectl_ctx, check=False)
         if ns_check.returncode != 0:
             results.append(
                 KubernetesTLSSecretResult(
@@ -199,7 +202,7 @@ def enable_tls_stack(
 
         # Delete existing secret if overwrite requested
         if overwrite:
-            k8s._run_cmd(
+            runtime._run_cmd(
                 ["kubectl", "delete", "secret", secret_name, "-n", ns] + kubectl_ctx,
                 check=False,
             )
@@ -216,7 +219,7 @@ def enable_tls_stack(
             ns,
         ] + kubectl_ctx
 
-        rc = k8s._run_cmd(create_cmd, check=False)
+        rc = runtime._run_cmd(create_cmd, check=False)
         results.append(
             KubernetesTLSSecretResult(
                 secret_name=secret_name,

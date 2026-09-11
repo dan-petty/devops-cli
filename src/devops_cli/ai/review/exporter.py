@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from devops_cli.ai.review.pipeline import _get_reviews_base_dir
+from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.config.constants import (
     CONST_STATUS_INVALIDATED,
 )

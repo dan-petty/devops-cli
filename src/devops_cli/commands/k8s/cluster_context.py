@@ -7,7 +7,7 @@ from typing import Annotated, Any
 
 import typer
 
-import devops_cli.commands.k8s as k8s
+import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.config.defaults import DEFAULT_K8S_LOGS_TAIL, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.validation import validate_url_egress
@@ -32,7 +32,7 @@ def contexts() -> None:
             details={"contexts": ["minikube"], "active": "minikube"},
         )
         return
-    k8s_config, _ = k8s._k8s_clients()
+    k8s_config, _ = runtime._k8s_clients()
     try:
         ctx_list, active = k8s_config.list_kube_config_contexts()
     except Exception as exc:
@@ -56,9 +56,9 @@ def switch_context(
         )
         return
 
-    k8s._validate_k8s_identifier(name, "context name")
+    runtime._validate_k8s_identifier(name, "context name")
     cmd = ["kubectl", "config", "use-context", name]
-    k8s._run_cmd(cmd, check=True)
+    runtime._run_cmd(cmd, check=True)
     msg = MESSAGES.k8s.switched_context.format(context=name)
     print_success(msg, prefix=False)
 
@@ -72,7 +72,7 @@ def status() -> None:
             details={"nodes": 1, "status": "Ready"},
         )
         return
-    k8s_config, k8s_client = k8s._k8s_clients()
+    k8s_config, k8s_client = runtime._k8s_clients()
     try:
         k8s_config.load_kube_config()
         core_v1_api = k8s_client.CoreV1Api()
@@ -108,7 +108,7 @@ def apply(
         )
 
     if namespace:
-        k8s._validate_k8s_identifier(namespace, "namespace", namespace=True)
+        runtime._validate_k8s_identifier(namespace, "namespace", namespace=True)
     cmd = ["kubectl", "apply", "-f", path]
     if dry_run or is_dry_run():
         cmd += ["--dry-run=client"]
@@ -122,7 +122,7 @@ def apply(
             details={"cmd": " ".join(cmd), "namespace": namespace},
         )
         return
-    k8s._run_cmd(cmd, check=True)
+    runtime._run_cmd(cmd, check=True)
 
 
 def _is_logql_request(pod: str, query: str | None, query_arg: str | None = None) -> bool:
@@ -188,11 +188,11 @@ def _execute_legacy_kubectl_logs(
     tail: int,
 ) -> None:
     """Execute standard kubectl logs command against a single pod."""
-    k8s._validate_k8s_identifier(pod, "pod name")
+    runtime._validate_k8s_identifier(pod, "pod name")
     if container:
-        k8s._validate_k8s_identifier(container, "container name")
+        runtime._validate_k8s_identifier(container, "container name")
     if namespace:
-        k8s._validate_k8s_identifier(namespace, "namespace", namespace=True)
+        runtime._validate_k8s_identifier(namespace, "namespace", namespace=True)
     bounded_tail = max(1, min(tail, 10000))
     cmd = ["kubectl", "logs", pod, f"--tail={bounded_tail}"]
     if container:
@@ -210,14 +210,14 @@ def _execute_legacy_kubectl_logs(
         )
         return
     if follow:
-        k8s.run_subprocess(
+        runtime.run_subprocess(
             cmd,
             check=True,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
             capture_output=False,
         )
     else:
-        k8s._run_cmd(cmd, check=True)
+        runtime._run_cmd(cmd, check=True)
 
 
 def logs(
