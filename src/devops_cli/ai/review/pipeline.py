@@ -682,6 +682,14 @@ def _get_reviews_base_dir() -> Path:
     return d
 
 
+def _format_error_detail(stage: str, exc: Exception, max_len: int = 256) -> str:
+    """Format, sanitize, and bound exception detail string for logging, display, and reports."""
+    msg = mask_secrets(f"{stage}: {exc}").strip()
+    if len(msg) > max_len:
+        return msg[: max_len - 3] + "..."
+    return msg
+
+
 class ReviewPipelineOrchestrator:
     """Orchestrates 6-stage multi-agent code reviews with per-file payloads and AI scratchpads."""
 
@@ -1226,8 +1234,9 @@ class ReviewPipelineOrchestrator:
             )
         except Exception as exc:
             logger.error("Error creating review payload for %s: %s", fpath, exc)
-            self.errored_files[fpath] = f"Initialization: {exc}"
-            warn_msg = f"  [yellow]• [bold red]Skipped errored file during init:[/bold red] [bold]{fpath}[/bold] [dim]({exc})[/dim][/yellow]"
+            err_desc = _format_error_detail("Initialization", exc)
+            self.errored_files[fpath] = err_desc
+            warn_msg = f"  [yellow]• [bold red]Skipped errored file during init:[/bold red] [bold]{fpath}[/bold] [dim]({err_desc})[/dim][/yellow]"
             print_info(warn_msg, prefix=False)
             return None
 
@@ -1540,12 +1549,14 @@ class ReviewPipelineOrchestrator:
                 payload.ai_scratchpad["step_count"] = total_step_count
 
             except Exception as exc:
+                err_desc = _format_error_detail("Review", exc)
                 payload.findings = []
                 payload.ai_scratchpad["stage"] = "failed"
-                payload.ai_scratchpad["error"] = str(exc)
+                payload.ai_scratchpad["error"] = err_desc
                 payload.ai_scratchpad.setdefault("thoughts", []).append(
-                    f"Review failed for {fpath}: {exc}"
+                    f"Review failed for {fpath}: {err_desc}"
                 )
+                self.errored_files[fpath] = err_desc
 
             sanitized_name = _sanitize_filename(fpath) + ".json"
             json_target = self.files_dir / sanitized_name
@@ -1567,11 +1578,18 @@ class ReviewPipelineOrchestrator:
             except TypeError, ValueError:
                 sec_str = "0.00s"
 
-            print_info(
-                f"[{idx}/{total_files}] Reviewed [bold]{fpath}[/bold] "
-                f"({n_findings} finding(s)) [dim]handled by {handled_by} {sec_str}[/dim]",
-                prefix=False,
-            )
+            if fpath in self.errored_files:
+                print_info(
+                    f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped errored file:[/bold red] "
+                    f"[bold]{fpath}[/bold] [dim]({self.errored_files[fpath]})[/dim]",
+                    prefix=False,
+                )
+            else:
+                print_info(
+                    f"[{idx}/{total_files}] Reviewed [bold]{fpath}[/bold] "
+                    f"({n_findings} finding(s)) [dim]handled by {handled_by} {sec_str}[/dim]",
+                    prefix=False,
+                )
 
     def _safe_review_file_payload(
         self,
@@ -1601,13 +1619,14 @@ class ReviewPipelineOrchestrator:
             )
         except Exception as exc:
             logger.error("Error reviewing file %s: %s", payload.file_path, exc)
+            err_desc = _format_error_detail("Review", exc)
             payload.findings = []
             payload.ai_scratchpad["stage"] = "failed"
-            payload.ai_scratchpad["error"] = str(exc)
-            self.errored_files[payload.file_path] = f"Review: {exc}"
+            payload.ai_scratchpad["error"] = err_desc
+            self.errored_files[payload.file_path] = err_desc
             print_info(
                 f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped errored file:[/bold red] "
-                f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]",
+                f"[bold]{payload.file_path}[/bold] [dim]({err_desc})[/dim]",
                 prefix=False,
             )
 
@@ -1724,12 +1743,13 @@ class ReviewPipelineOrchestrator:
             )
         except Exception as exc:
             logger.error("Error verifying file %s: %s", payload.file_path, exc)
+            err_desc = _format_error_detail("Verification", exc)
             payload.ai_scratchpad["stage"] = "failed"
-            payload.ai_scratchpad["error"] = str(exc)
-            self.errored_files[payload.file_path] = f"Verification: {exc}"
+            payload.ai_scratchpad["error"] = err_desc
+            self.errored_files[payload.file_path] = err_desc
             print_info(
                 f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped verification on errored file:[/bold red] "
-                f"[bold]{payload.file_path}[/bold] [dim]({exc})[/dim]",
+                f"[bold]{payload.file_path}[/bold] [dim]({err_desc})[/dim]",
                 prefix=False,
             )
 
@@ -1948,7 +1968,7 @@ class ReviewPipelineOrchestrator:
                     self._rerank_single_file_payload(payload)
                 except Exception as exc:
                     logger.error("Error re-ranking findings for %s: %s", payload.file_path, exc)
-                    self.errored_files[payload.file_path] = f"Reranking: {exc}"
+                    self.errored_files[payload.file_path] = _format_error_detail("Reranking", exc)
 
             total_reportable = sum(
                 len([f for f in p.findings if f.reportable and f.status != "INVALIDATED"])
@@ -2011,6 +2031,7 @@ class ReviewPipelineOrchestrator:
                 reportable_findings=reportable_findings,
                 all_deps=all_deps,
                 all_nets=all_nets,
+                errored_files=self.errored_files,
             )
         )
         lines.extend(

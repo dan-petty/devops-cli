@@ -36,6 +36,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
 | [`docker_sandbox`](#docker-sandbox) | Execute command inside an isolated Docker container sandbox. |
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
+| [`docs_compact`](#docs-compact) | Compact historical release series documentation (v0.2.x -> v0.3.x). |
 | [`gh_issue_create`](#gh-issue-create) | Create a new GitHub issue linking milestone and taxonomy labels. |
 | [`gh_issue_list`](#gh-issue-list) | List repository issues with milestone, taxonomy labels, and status. |
 | [`gh_issue_status`](#gh-issue-status) | Display aggregated issue counts by priority, type, and milestone. |
@@ -442,6 +443,21 @@ Execute command inside an isolated Docker container sandbox.
 List local Docker images and display container information.
 
 *No parameters required.*
+
+### `docs_compact`
+
+Compact historical release series documentation (v0.2.x -> v0.3.x).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `series` | `string` | No | `v0.2` | - |
+| `dry_run` | `boolean` | No | `True` | - |
+| `check` | `boolean` | No | `False` | - |
+| `roadmap_only` | `boolean` | No | `False` | - |
+| `release_notes_only` | `boolean` | No | `False` | - |
+| `log_only` | `boolean` | No | `False` | - |
 
 ### `gh_issue_create`
 

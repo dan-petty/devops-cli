@@ -549,6 +549,18 @@ class DocsCommandHelp:
     readme_path: str = "Path to README.md file (default: workspace root README.md)."
     validate_only: str = "Validate that existing documentation is up to date without writing files."
     check_sync: str = "Verify README.md Command Matrix synchronization as well."
+    compact: str = (
+        "Compact historical documentation for completed release series (e.g. v0.2.x -> v0.3.x)."
+    )
+    series: str = "Release series prefix to compact (e.g., 'v0.2', 'v0.1')."
+    docs_dir: str = "Path to repository docs/ directory (default: docs/)."
+    archive_dir: str = "Path to historical archive directory (default: docs/agent/archive/)."
+    check_compact: str = (
+        "Check if documentation compaction would make changes without modifying files."
+    )
+    roadmap_only: str = "Only compact docs/ROADMAP.md."
+    release_notes_only: str = "Only compact docs/RELEASE_NOTES.md."
+    log_only: str = "Only compact docs/LOG.md."
 
 
 @dataclass(frozen=True)

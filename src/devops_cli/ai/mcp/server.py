@@ -485,6 +485,31 @@ def release_status() -> str:
 
 
 @mcp.tool()
+def docs_compact(
+    series: str = "v0.2",
+    dry_run: bool = True,
+    check: bool = False,
+    roadmap_only: bool = False,
+    release_notes_only: bool = False,
+    log_only: bool = False,
+) -> str:
+    """Compact historical release series documentation (v0.2.x -> v0.3.x)."""
+    _validate_mcp_arg("series", series)
+    cmd = ["uv", "run", "devops", "docs", "compact", "--series", series]
+    if dry_run:
+        cmd.append("--dry-run")
+    if check:
+        cmd.append("--check")
+    if roadmap_only:
+        cmd.append("--roadmap-only")
+    if release_notes_only:
+        cmd.append("--release-notes-only")
+    if log_only:
+        cmd.append("--log-only")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def tf_plan(directory: str = ".", var_file: str = "") -> str:
     """Generate and inspect an OpenTofu / Terraform execution plan."""
     _validate_mcp_arg("directory", directory)

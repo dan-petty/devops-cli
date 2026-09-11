@@ -95,6 +95,7 @@ def synthesize_report_executive_summary(
     reportable_findings: list[SavedFinding],
     all_deps: list[DependencySpec] | None = None,
     all_nets: list[NetworkReference] | None = None,
+    errored_files: dict[str, str] | None = None,
 ) -> list[str]:
     """Construct Markdown lines for the Executive Summary section at the top of the review report."""
     crit = sum(1 for f in reportable_findings if f.severity.upper() == "CRITICAL")
@@ -102,7 +103,14 @@ def synthesize_report_executive_summary(
     med = sum(1 for f in reportable_findings if f.severity.upper() == "MEDIUM")
     low = sum(1 for f in reportable_findings if f.severity.upper() == "LOW")
 
-    if not reportable_findings:
+    if errored_files:
+        summary_stmt = (
+            f"The automated review encountered errors on **{len(errored_files)} file(s)** "
+            f"(e.g. AI provider offline or communication failure). "
+            f"Review could not be completed for those files. "
+            f"Across successfully analyzed files, **{len(reportable_findings)} reportable finding(s)** were identified."
+        )
+    elif not reportable_findings:
         summary_stmt = (
             "The automated multi-persona review evaluated the target scope with **0 reportable defects**. "
             "The codebase demonstrates exceptional engineering quality, strict invariant adherence, "

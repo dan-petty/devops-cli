@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
+
+if TYPE_CHECKING:
+    from devops_cli.docs.compactor import DocCompactionResult
 
 import typer
 
@@ -17,7 +20,7 @@ from devops_cli.config.defaults import (
     DEFAULT_DOCS_FORMAT,
 )
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_text_file
 
@@ -234,3 +237,170 @@ def sync_readme_cmd(
     else:
         print_error(f"Failed to synchronize README Command Matrix in {target}", prefix=False)
         raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: compact
+# =============================================================================
+
+
+def _resolve_compaction_flags(
+    roadmap_only: bool, release_notes_only: bool, log_only: bool
+) -> tuple[bool, bool, bool]:
+    """Determine which doc targets to compact based on user flags."""
+    if roadmap_only:
+        return True, False, False
+    if release_notes_only:
+        return False, True, False
+    if log_only:
+        return False, False, True
+    return True, True, True
+
+
+def _handle_compact_result(result: DocCompactionResult, series: str) -> None:
+    """Print user-facing outcome messages for documentation compaction."""
+    if not result.modified_files:
+        print_success(MESSAGES.docs.compacted_up_to_date.format(series=series), prefix=False)
+        return
+
+    print_success(
+        MESSAGES.docs.compacted_success.format(series=series, bytes_saved=result.bytes_saved),
+        prefix=False,
+    )
+    for path in result.modified_files:
+        print_success(MESSAGES.docs.generated_file.format(path=path), prefix=False)
+    if result.archive_file_path:
+        print_success(
+            MESSAGES.docs.archive_created.format(path=result.archive_file_path),
+            prefix=False,
+        )
+
+
+@app.command(name="compact")
+def compact_cmd(
+    series: Annotated[
+        str,
+        typer.Option(
+            "--series",
+            "-s",
+            help=HELP.docs.series,
+        ),
+    ] = "v0.2",
+    docs_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--docs-dir",
+            "-d",
+            help=HELP.docs.docs_dir,
+        ),
+    ] = None,
+    archive_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--archive-dir",
+            "-a",
+            help=HELP.docs.archive_dir,
+        ),
+    ] = None,
+    check: Annotated[
+        bool,
+        typer.Option(
+            "--check",
+            help=HELP.docs.check_compact,
+        ),
+    ] = False,
+    roadmap_only: Annotated[
+        bool,
+        typer.Option(
+            "--roadmap-only",
+            help=HELP.docs.roadmap_only,
+        ),
+    ] = False,
+    release_notes_only: Annotated[
+        bool,
+        typer.Option(
+            "--release-notes-only",
+            help=HELP.docs.release_notes_only,
+        ),
+    ] = False,
+    log_only: Annotated[
+        bool,
+        typer.Option(
+            "--log-only",
+            help=HELP.docs.log_only,
+        ),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help=HELP.main.dry_run,
+        ),
+    ] = False,
+) -> None:
+    """Compact historical documentation for completed release series."""
+    from devops_cli.docs.compactor import DocCompactor
+
+    target_docs_dir = (docs_dir or _get_default_docs_dir()).resolve()
+    target_archive_dir = (archive_dir or (target_docs_dir / "agent" / "archive")).resolve()
+
+    do_roadmap, do_notes, do_log = _resolve_compaction_flags(
+        roadmap_only, release_notes_only, log_only
+    )
+    compactor = DocCompactor()
+
+    if check:
+        res = compactor.compact_all(
+            docs_dir=target_docs_dir,
+            archive_dir=target_archive_dir,
+            series=series,
+            check=True,
+            compact_roadmap=do_roadmap,
+            compact_release_notes=do_notes,
+            compact_log=do_log,
+        )
+        if res.modified_files:
+            print_error(MESSAGES.docs.compact_check_failed.format(series=series), prefix=False)
+            raise typer.Exit(1)
+        print_success(MESSAGES.docs.compacted_up_to_date.format(series=series), prefix=False)
+        return
+
+    if is_dry_run() or dry_run:
+        original_dry_run = is_dry_run()
+        set_dry_run(True)
+        try:
+            res = compactor.compact_all(
+                docs_dir=target_docs_dir,
+                archive_dir=target_archive_dir,
+                series=series,
+                dry_run=True,
+                compact_roadmap=do_roadmap,
+                compact_release_notes=do_notes,
+                compact_log=do_log,
+            )
+            render_dry_run_result(
+                command=f"devops docs compact --series {series}",
+                action="compact_documentation_series",
+                target=str(target_docs_dir),
+                details={
+                    "series": series,
+                    "docs_dir": str(target_docs_dir),
+                    "archive_dir": str(target_archive_dir),
+                    "bytes_saved": res.bytes_saved,
+                    "modified_files": res.modified_files,
+                },
+            )
+            return
+        finally:
+            set_dry_run(original_dry_run)
+
+    result = compactor.compact_all(
+        docs_dir=target_docs_dir,
+        archive_dir=target_archive_dir,
+        series=series,
+        dry_run=False,
+        compact_roadmap=do_roadmap,
+        compact_release_notes=do_notes,
+        compact_log=do_log,
+    )
+    _handle_compact_result(result, series)

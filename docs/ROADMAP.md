@@ -301,21 +301,32 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: Automatic W3C Trace Context (`traceparent`, `tracestate`) header injection into synthetic probes, linking test executions directly with internal application spans received by local OpenTelemetry Collector, Jaeger, and Logfire. Provides terminal waterfall visualization of cross-service latencies.
 - [ ] **Streaming Diagnostic Log Aggregator & Panic Detector (`devops sandbox logs`) (P1 - High)**:
   - *Context & Rationale*: Multiplexed stdout/stderr log streaming with follow mode (`-f`), buffer management, and automated regex panic detection (Python tracebacks, Go panics, Java stacktraces, Rust panics, segfaults), archiving structured incident records in `.data/sandbox/incidents/<id>.json`.
+- [ ] **Deterministic Evaluator Battery & Structured Diagnostic Feedback (`devops sandbox evaluate`) (P0 - Critical)**:
+  - *Context & Rationale*: Deterministic evaluator stack serving as the authoritative verification oracle for sandbox iterations. Orchestrates multi-tool evaluations (`pytest` for logic/contract assertions, `ruff` for lint/syntax, `mypy` for strict type adherence, `bandit` for Python SAST, `gitleaks` for secret detection, `trivy` for CVEs, `kubeconform` for manifest validation, and `checkov` for IaC security).
+  - *Structured Diagnostic Feedback*: Replaces uninformative scalar scores with actionable, structured diagnostic context (tool identifier, failure count, target file path, 1-indexed line numbers, exact assertion diffs, and concrete remediation hints) formatted for immediate AI model consumption and prompt injection.
+- [ ] **Zero-Trust Filesystem & Credential Boundary Sandbox (`ai/harness/filesystem.py`, `ai/harness/sandbox.py`) (P1 - High)**:
+  - *Context & Rationale*: Hardened L2 sandbox isolation layer enforcing zero-trust boundaries: strict path containment via `Path.resolve().is_relative_to()` (mitigating CWE-22 path traversal and prefix collision attacks), symlink escape guards, read-only root filesystems with tmpfs, and bounded execution timeouts (`DEFAULT_SUBPROCESS_TIMEOUT_SECONDS`).
+  - *Agent Credential Protection*: Ephemeral memory-only token management (`_EPHEMERAL_CI_SECRETS`) ensuring the AI agent operates strictly as a proposer, while the execution layer injects credentials at the subprocess level without exposing tokens to agent prompt context or environment variables.
 
 ### Dynamic API Fuzzing, Runtime Security DAST & Autonomous Remediation Iteration (v0.2.17 - Scheduled)
 - [ ] **OpenAPI & Schema-Driven Dynamic API Fuzzing Engine (`devops sandbox fuzz`) (P0 - Critical)**:
   - *Context & Rationale*: Systematic security and robustness fuzzer generating mutational, boundary, and injection payloads derived directly from OpenAPI schemas.
   - *Payload Generators*: Boundary values (null bytes, extreme string lengths 10KB-10MB, integer overflows, format strings), security injections (SQLi, command injection, path traversal, XXE, SSRF), and stateful CRUD sequence chaos.
   - *Minimal Repro Generator*: Isolates failing payloads into standalone `curl` scripts and machine-readable reproduction files (`.data/sandbox/repros/<fuzz_id>.json`).
-- [ ] **Autonomous Closed-Loop Debugging & Iterative Code Patch Engine (`devops sandbox iterate`) (P0 - Critical)**:
-  - *Context & Rationale*: Unified closed-loop workflow: `deploy` $\to$ `probe` $\to$ `fuzz` $\to$ `diagnose` $\to$ `synthesize patch` $\to$ `re-deploy` $\to$ `verify green`. Connects fuzzing crashes back to workspace AST locations, invokes `devsecops`/`qa` personas to author drop-in code fixes, and asserts zero regressions.
+- [ ] **Agentic Sandbox Iteration Orchestration Loop (`devops sandbox iterate`) (P0 - Critical)**:
+  - *Context & Rationale*: Bounded, deterministic agentic loop (`action` $\to$ `sandbox execution` $\to$ `evaluator judging` $\to$ `structured feedback` $\to$ `re-action`) refining code patches, configs, and commands until 100% evaluators pass or iteration budgets are exhausted.
+  - *Iteration Budget & Convergence*: Hard limits via `SandboxIterationConfig` (`max_iterations=5`, `max_wall_time_seconds=300`, `max_token_budget=50_000`, `convergence_threshold=1.0`). Detects and handles convergence patterns (monotonic, oscillating, plateau, divergent) with graceful failure escalation.
+  - *Regression Lock Engine (`IterationState`)*: Active freeze tracking of previously passing tests and evaluators. Automatically detects regressions and aborts with `RegressionError` if an iteration re-breaks green checks, preventing the oscillation anti-pattern.
+  - *Clean Slate Isolation*: Fresh container instances or automated git tree rollback (`git checkout .`) per iteration cycle to prevent state leakage and side-effect pollution between passes.
   - *Watch Mode*: `devops sandbox iterate --watch` continuously validates and patches code as local files are modified.
+- [ ] **Sandbox Iteration Audit Trail & Replay Logger (`devops sandbox history|replay`) (P1 - High)**:
+  - *Context & Rationale*: Persistent session ledger logging all iteration cycles (generated artifacts, sandbox stdout/stderr, evaluator diagnostics, regression diffs, token consumption, wall-clock latencies) under `.data/sandbox/sessions/<session_id>/` for auditing, deterministic replay, and review feedback dataset export (`devops review export-feedback`).
 - [ ] **Dynamic Application Security Testing (DAST) & Egress Scanner (`devops sandbox scan`) (P1 - High)**:
   - *Context & Rationale*: Evaluates runtime perimeter defenses using OWASP ZAP and Nuclei templates against sandbox endpoints; audits container filesystem mutations via `docker diff`; monitors socket egress for unauthorized outbound connections or SSRF attempts; verifies process privilege boundaries.
 - [ ] **Chaos Fault & Resource Exhaustion Injection (`devops sandbox chaos`) (P1 - High)**:
   - *Context & Rationale*: Stress-tests application resilience under hostile conditions: memory ballooning to verify OOM behavior, CPU throttling, network latency/packet drop injection via `tc`, and graceful signal handling (`SIGTERM`, `SIGHUP`).
 - [ ] **FastMCP Sandbox Tools & Dynamic System Resources (P1 - High)**:
-  - *Context & Rationale*: Exposes 6 FastMCP tools (`sandbox_deploy`, `sandbox_probe`, `sandbox_metrics`, `sandbox_fuzz`, `sandbox_scan`, `sandbox_iterate`) and 3 dynamic system resources (`resource://sandbox/status`, `resource://sandbox/metrics`, `resource://sandbox/incidents`) enabling AI assistants to operate and heal sandbox workloads autonomously.
+  - *Context & Rationale*: Exposes FastMCP tools (`sandbox_deploy`, `sandbox_probe`, `sandbox_metrics`, `sandbox_fuzz`, `sandbox_scan`, `sandbox_iterate`, `sandbox_evaluate`, `sandbox_history`) and dynamic system resources (`resource://sandbox/status`, `resource://sandbox/metrics`, `resource://sandbox/incidents`, `resource://sandbox/sessions`) enabling AI assistants to operate, evaluate, and heal workloads in isolated sandboxes autonomously.
 
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-prem homelab and multi-cloud Kubernetes clusters with automatic service mesh routing.
@@ -469,10 +480,12 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Sigstore Cosign Container Provenance (`devops docker sign|verify`) | `cosign` CLI / OS Keyring | High | Medium | v0.2.15 | 📋 Scheduled (P1) |
 | | Falco eBPF Runtime Security & Anomaly Streamer | `falco` / eBPF | High | Medium | v0.2.15 | 📋 Scheduled (P2) |
 | | Ephemeral Workload Sandbox Lifecycle Engine (`devops sandbox`) | Docker SDK / Rootless Containers | High | Medium | v0.2.16 | 📋 Scheduled (P0) |
+| | Deterministic Evaluator Battery & Structured Diagnostic Feedback | `pytest` / `ruff` / `mypy` / `bandit` / `trivy` | High | Medium | v0.2.16 | 📋 Scheduled (P0) |
 | | Cgroup Metrics & Prometheus Scraping Subsystem | `prometheus-client` / cgroups | High | Medium | v0.2.16 | 📋 Scheduled (P1) |
 | | W3C Traceparent Propagation & Distributed Trace Correlation | OpenTelemetry SDK / Jaeger | High | Medium | v0.2.16 | 📋 Scheduled (P1) |
 | | OpenAPI & Schema-Driven Dynamic API Fuzzer (`devops sandbox fuzz`) | `hypothesis` / OpenAPI / Mutators | High | Medium | v0.2.17 | 📋 Scheduled (P0) |
-| | Autonomous Closed-Loop Debugging & Iterative Patch Engine | PydanticAI / AST / Subprocess | High | High | v0.2.17 | 📋 Scheduled (P0) |
+| | Agentic Sandbox Iteration Orchestration Loop (`devops sandbox iterate`) | PydanticAI / Docker / Evaluators | High | High | v0.2.17 | 📋 Scheduled (P0) |
+| | Regression Lock Engine & State Tracker (`IterationState`) | AST / Git / Pytest | High | Medium | v0.2.17 | 📋 Scheduled (P1) |
 | | Dynamic Application Security Testing (DAST) & Egress Scanner | OWASP ZAP / Nuclei / Subprocess | High | Medium | v0.2.17 | 📋 Scheduled (P1) |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
@@ -493,7 +506,9 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Local GitOps Project Orchestration Pipeline | Git Daemon / ArgoCD App-of-Apps | High | Medium | v0.2.15 | 📋 Scheduled (P1) |
 | | Core Dependency Ecosystem Alignment | `uv lock --upgrade` / PyPI | Medium | Low | v0.2.15 | 📋 Scheduled (P2) |
 | | Streaming Diagnostic Log Aggregator & Stacktrace Detector | `rich.live` / Regex | Medium | Low | v0.2.16 | 📋 Scheduled (P1) |
+| | Zero-Trust Filesystem & Credential Boundary Sandbox | `Path.is_relative_to` / Keyring | High | Low | v0.2.16 | 📋 Scheduled (P1) |
 | | Sandbox Chaos Fault & Resource Exhaustion Injection | `tc` / cgroups / Signals | Medium | Medium | v0.2.17 | 📋 Scheduled (P1) |
+| | Sandbox Iteration Audit Trail & Replay Logger | JSONL / `.data/sandbox` | Medium | Low | v0.2.17 | 📋 Scheduled (P1) |
 | | FastMCP Sandbox Tools & Dynamic System Resources | FastMCP / PydanticAI | High | Low | v0.2.17 | 📋 Scheduled (P1) |
 | **De-prioritized** | Bare-Metal OS Installers | Shell scripts | Low | High | — | ❌ Rejected (DevContainer native) |
 | | Heavyweight Monolithic Orchestrators | Full LangChain | Low | High | — | ❌ Rejected (FastMCP + PydanticAI) |

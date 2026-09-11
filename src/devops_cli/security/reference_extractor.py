@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import builtins
 import functools
+import importlib.util
 import io
 import ipaddress
 import json
@@ -233,17 +234,12 @@ def _get_workspace_filenames(root_dir_str: str = "") -> tuple[set[str], tuple[st
 _CODE_CONFIG_PREFIXES = (
     "self.",
     "cls.",
-    "os.",
-    "sys.",
     "process.",
     "ci.step.",
     "telemetry.",
     "logger.",
     "log.",
     "mcp.",
-    "uvicorn.",
-    "httpx.",
-    "httpx2.",
 )
 
 _COMMON_PROPERTY_SUFFIXES = {
@@ -263,6 +259,17 @@ _COMMON_PROPERTY_SUFFIXES = {
     "executable",
     "runtime",
 }
+
+
+@functools.lru_cache(maxsize=1024)
+def _is_known_python_module(name: str) -> bool:
+    """Check if identifier maps to an installed Python distribution or standard library module."""
+    if not name.isidentifier():
+        return False
+    try:
+        return importlib.util.find_spec(name) is not None
+    except ImportError, AttributeError, ValueError:
+        return False
 
 
 @functools.lru_cache(maxsize=4096)
@@ -376,8 +383,12 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     builtin_names = set(dir(builtins))
     stdlib_names = getattr(sys, "stdlib_module_names", set()) | set(sys.builtin_module_names)
 
-    # If first segment is a language keyword or stdlib root module (e.g. subprocess.run, os.path)
-    if keyword.iskeyword(first_seg) or first_seg in stdlib_names:
+    # If first segment is a language keyword, stdlib root module, or installed package
+    if (
+        keyword.iskeyword(first_seg)
+        or first_seg in stdlib_names
+        or _is_known_python_module(first_seg)
+    ):
         return True
 
     # If last segment is a keyword or builtin attribute in 2-segment expression
@@ -738,7 +749,9 @@ def _extract_url_reference(
         host = (parsed.hostname or "").lower()
         if is_package_repository_asset(clean_token, host):
             return None
-        is_local_host = is_private_or_local_ip(host) or is_local_or_reserved_domain(host)
+        is_local_host = (
+            is_private_or_local_ip(host) or is_local_or_reserved_domain(host) or ("." not in host)
+        )
         if is_local_host and not include_local:
             return None
         return NetworkReference(
@@ -801,10 +814,27 @@ def _extract_domain_reference(
         and "@" not in clean_token
         and "$" not in clean_token
         and "=" not in clean_token
+        and "*" not in clean_token
     ):
         return None
 
     domain_candidate = clean_token.lower()
+    if domain_candidate.endswith((".example", ".sample")) and any(
+        kw in domain_candidate
+        for kw in (
+            "tfvars",
+            "env",
+            "config",
+            "yml",
+            "yaml",
+            "json",
+            "toml",
+            "ini",
+            "conf",
+            "template",
+        )
+    ):
+        return None
 
     # Validate hostname format via standard library urllib.parse
     try:

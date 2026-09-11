@@ -701,6 +701,44 @@ def test_ollama_streaming_and_failover(monkeypatch: pytest.MonkeyPatch) -> None:
     tokens_failover = list(client_ollama.chat_stream("system", "prompt"))
     assert "".join(tokens_failover) == "Ollama stream"
 
+    # 3. Failover on HTTP 404 model not found (streaming)
+    call_404 = 0
+
+    def mock_404_stream(*args: Any, **kwargs: Any) -> MockOllamaStreamResponse:
+        nonlocal call_404
+        call_404 += 1
+        if call_404 == 1:
+            resp_404 = httpx2.Response(
+                404,
+                text='{"error":"model \'llama3\' not found"}',
+                request=httpx2.Request("POST", "http://localhost:11434/api/chat"),
+            )
+            raise httpx2.HTTPStatusError("Not Found", request=resp_404.request, response=resp_404)
+        return MockOllamaStreamResponse()
+
+    monkeypatch.setattr(httpx2.Client, "stream", mock_404_stream)
+    tokens_404 = list(client_ollama.chat_stream("system", "prompt"))
+    assert "".join(tokens_404) == "Ollama stream"
+
+    # 4. Failover on HTTP 404 model not found (non-streaming)
+    call_post_404 = 0
+
+    def mock_post_404(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        nonlocal call_post_404
+        call_post_404 += 1
+        if call_post_404 == 1:
+            resp = httpx2.Response(
+                404,
+                text='{"error":"model \'llama3\' not found"}',
+                request=httpx2.Request("POST", url),
+            )
+            raise httpx2.HTTPStatusError("Not Found", request=resp.request, response=resp)
+        return _make_resp(200, {"message": {"content": "Ollama failover success"}})
+
+    monkeypatch.setattr(httpx2.Client, "post", mock_post_404)
+    res_non_stream = client_ollama.chat(system="system", user="prompt")
+    assert "Ollama failover success" in str(res_non_stream)
+
 
 def test_copilot_and_openai_streaming_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     # 1. Copilot streaming with reasoning effort

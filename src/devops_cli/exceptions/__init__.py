@@ -39,6 +39,7 @@ from devops_cli.exceptions.docker import (
     DockerError,
     DockerSandboxError,
 )
+from devops_cli.exceptions.docs import DocCompactionError
 from devops_cli.exceptions.git import (
     BranchAlreadyExistsError,
     GitHubOperationError,
@@ -104,6 +105,7 @@ __all__ = [
     "DevOpsCLIError",
     "DockerError",
     "DockerSandboxError",
+    "DocCompactionError",
     "DocsIngestionError",
     "GitHubOperationError",
     "GitOperationError",

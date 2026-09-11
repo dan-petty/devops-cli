@@ -8,7 +8,9 @@ from urllib.parse import urlsplit, urlunsplit
 
 _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
-        re.compile(r"(?:ghp_[A-Za-z0-9_]{10,}|gho_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{20,})"),
+        re.compile(
+            r"(?<![a-zA-Z0-9-])(?:ghp_[A-Za-z0-9_]{10,}|gho_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{20,})"
+        ),
         "<masked-github-token>",
     ),
     (
@@ -18,8 +20,8 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         "password=<masked-password>",
     ),
-    (re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"), "<masked-anthropic-key>"),
-    (re.compile(r"sk-[A-Za-z0-9_-]{20,}"), "<masked-openai-key>"),
+    (re.compile(r"(?<![a-zA-Z0-9-])sk-ant-[A-Za-z0-9_-]{20,}"), "<masked-anthropic-key>"),
+    (re.compile(r"(?<![a-zA-Z0-9-])sk-[A-Za-z0-9_-]{20,}"), "<masked-openai-key>"),
     (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "<masked-aws-key-id>"),
     (
         re.compile(
@@ -42,7 +44,7 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
-            r"(?:gcloud[- ]?auth[- ]?token|google[-\s]?service[-\s]?account|gcp_[A-Za-z0-9_]{20,})"
+            r"\b(?:gcloud[- ]?auth[- ]?token|google[-\s]?service[-\s]?account|gcp_[A-Za-z0-9_]{20,})"
         ),
         "<masked-gcp-service-account>",
     ),
@@ -54,7 +56,7 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         "api_key=<masked-api-key>",
     ),
     (
-        re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+        re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
         "<masked-jwt>",
     ),
     (
