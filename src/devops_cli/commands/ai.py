@@ -811,9 +811,9 @@ def chat(
     )
 
     print_section(
-        f" [cyan]{persona_def.title}[/cyan] (Pydantic Agent)  "
+        f" [bold dark_orange]{persona_def.title}[/bold dark_orange] (Pydantic Agent)  "
         f"[dim]{client.backend_info} / {settings.ai.model}[/dim] ",
-        style="cyan",
+        style="dark_orange",
     )
     print_info(
         "[dim]Type your message and press Enter. Ctrl+C or [bold]exit[/bold] to quit.[/dim]\n",
@@ -842,7 +842,9 @@ def chat(
                 effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
 
         try:
-            write_stdout(f"\n{persona_def.title}: ")
+            get_console().print(
+                f"\n[bold dark_orange]{persona_def.title}:[/bold dark_orange] ", end=""
+            )
             sys.stdout.flush()
 
             from devops_cli.ai.thinking_stream import strip_think_blocks
