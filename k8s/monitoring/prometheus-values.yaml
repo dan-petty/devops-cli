@@ -13,8 +13,10 @@ prometheus:
 
     resources:
       requests:
-        cpu: 200m
-        memory: 512Mi
+        cpu: 250m
+        memory: 1024Mi
+      limits:
+        memory: 4096Mi
 
     # Enable remote write receiver so OTEL Collector can push metrics
     enableRemoteWriteReceiver: true
@@ -49,8 +51,11 @@ grafana:
 
   resources:
     requests:
-      cpu: 100m
-      memory: 512Mi
+      cpu: 150m
+      memory: 768Mi
+    limits:
+      cpu: 1000m
+      memory: 2048Mi
 
   additionalDataSources:
     - name: Jaeger
@@ -123,6 +128,13 @@ grafana:
 # ── Node Exporter — minimal for local dev ─────────────────────────────────────
 nodeExporter:
   enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
 
 # ── kube-state-metrics ────────────────────────────────────────────────────────
 kubeStateMetrics:
@@ -131,3 +143,6 @@ kubeStateMetrics:
     requests:
       cpu: 50m
       memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi

@@ -58,8 +58,15 @@ During cluster operation, multiple pods across nodes experienced terminations an
    - Raise Registry memory limit to `2048Mi`.
 7. **`k8s/argocd/values.yaml`**:
    - Raise controller limits to `2048Mi`, repoServer to `2048Mi`, server to `1024Mi`, redis to `1024Mi`.
-8. **Cluster Application**:
-   - Apply updated manifests directly to the cluster (`kubectl apply`).
+8. **`k8s/monitoring/prometheus-values.yaml`**:
+   - Prometheus: Elevate `requests.memory: 1024Mi`, set `limits.memory: 4096Mi`, and unthrottle CPU limits.
+   - Node Exporter: Elevate to Burstable QoS with `requests: {cpu: 50m, memory: 64Mi}` and `limits: {cpu: 200m, memory: 256Mi}`.
+   - Grafana: Elevate `requests.memory: 768Mi`, `limits.memory: 2048Mi`.
+   - Kube-State-Metrics: Elevate `limits: {cpu: 200m, memory: 256Mi}`.
+9. **`k8s/gpu-feature-discovery/daemonset.yaml`**:
+   - Elevate GPU Feature Discovery DaemonSet from `BestEffort` to `Burstable` QoS with `requests: {cpu: 50m, memory: 64Mi}` and `limits: {cpu: 200m, memory: 256Mi}` to eliminate kernel OOM kills.
+10. **Cluster Application**:
+    - Apply updated manifests directly to the cluster (`kubectl patch`).
 
 ---
 
@@ -67,6 +74,8 @@ During cluster operation, multiple pods across nodes experienced terminations an
 - [x] Pod restart audit completed across all namespaces.
 - [x] Node boot logs and uptime inspected (5h uptime following mount repair).
 - [x] Manifest updates authored and verified with unit tests (`tests/test_k8s.py`, `tests/test_k8s_valkey_stack.py`, `tests/test_k8s_jaeger.py`).
-- [x] Live cluster updated via strategic patch / resource commands (`ollama`, `valkey`, `jaeger`, `registry`, `argocd`).
+- [x] Live cluster updated via strategic patch / resource commands (`ollama`, `valkey`, `jaeger`, `registry`, `argocd`, `gpu-feature-discovery`, `prometheus`, `node-exporter`, `grafana`, `kube-state-metrics`).
 - [x] Ollama DaemonSet pods rolled out and verified healthy across `condor`, `workhorse`, and `hog` with version API returning `0.32.14`.
+- [x] GPU Feature Discovery DaemonSet pods verified 4/4 Running with Burstable QoS and 0 restarts across `hog`, `condor`, `workhorse`, `hawk`.
+- [x] Prometheus stack pods (Prometheus StatefulSet, Node Exporter DaemonSet, Grafana, Kube-State-Metrics) verified Running with Burstable QoS and 0 restarts.
 - [x] Full CI suite passing (`devops ci`).
