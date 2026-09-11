@@ -744,6 +744,14 @@ def chat(
             help=f"Persona to chat with: {', '.join(_PERSONA_NAMES)}",
         ),
     ] = Persona.ARCHITECT,
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            "-m",
+            help=HELP.options.model,
+        ),
+    ] = None,
     context_file: Annotated[
         Path | None,
         typer.Option(
@@ -793,14 +801,17 @@ def chat(
         system = system + "\n\n## Project Context\n\n" + context_file.read_text(encoding="utf-8")
 
     settings = load_settings()
-    client = LLMClient(settings.ai.for_task("chat"), api_key=get_ai_api_key(settings))
+    task_config = settings.ai.for_task("chat")
+    if model:
+        task_config = task_config.model_copy(update={"model": model})
+    client = LLMClient(task_config, api_key=get_ai_api_key(settings))
 
     if prewarm and client._config.provider == "ollama":
         ollama_urls = client._config.get_ollama_urls
         if ollama_urls:
             n_nodes = len(ollama_urls)
             print_info(
-                f"[dim]Prewarming model '{settings.ai.model}' in background across "
+                f"[dim]Prewarming model '{client.model}' in background across "
                 f"{n_nodes} node(s)...[/dim]",
                 prefix=False,
             )
@@ -813,7 +824,7 @@ def chat(
 
     print_section(
         f" [bold dark_orange]{persona_def.title}[/bold dark_orange] (Pydantic Agent)  "
-        f"[dim]{client.backend_info} / {settings.ai.model}[/dim] ",
+        f"[dim]{client.backend_info} / {client.model}[/dim] ",
         style="dark_orange",
     )
     print_info(

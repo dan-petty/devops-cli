@@ -75,10 +75,22 @@ def test_squid_conf_caching_and_observability_directives() -> None:
     assert "ssl_bump peek step1" in conf_text
     assert "ssl_bump bump all" in conf_text
     assert "/v2/.*/blobs/sha256:" in conf_text
+    assert ".*/blobs/sha256/.*" in conf_text
+    assert r".*\.r2\.cloudflarestorage\.com/.*/blobs/sha256/.*" in conf_text
+    assert r".*\.r2\.cloudflarestorage\.com/.* 1440 20% 10080" in conf_text
+    assert "ollama-cache\\.local/blobs/sha256/" in conf_text
+
+    # Store-ID & URL Rewriting for In-Cluster Workloads & Presigned S3/R2 Layers
+    assert "store_id_program /usr/lib/squid/storeid_file_rewrite" in conf_text
+    assert "url_rewrite_program /usr/bin/perl /etc/squid/url_rewrite.pl" in conf_text
+    assert "ssl_bump splice to_localnet" in conf_text
+    assert "storeid_rewrite.conf" in cm_doc.get("data", {})
+    assert "url_rewrite.pl" in cm_doc.get("data", {})
 
     # Observability & Structured JSON Logging
+    assert "strip_query_terms on" in conf_text
     assert "logformat json_k8s" in conf_text
-    assert "access_log stdio:/dev/stdout json_k8s" in conf_text
+    assert "access_log /var/log/squid/access.log json_k8s" in conf_text
     assert "acl manager proto cache_object" in conf_text
     assert "http_access allow manager localhost" in conf_text
     assert "snmp_port 3401" in conf_text
@@ -113,6 +125,14 @@ def test_squid_deployment_and_sidecar_exporter() -> None:
     assert squid_c["readinessProbe"]["failureThreshold"] == 2
     assert squid_c["readinessProbe"]["periodSeconds"] == 5
 
+    # Config volume mounts for squid.conf, storeid, and url rewriter
+    mount_paths = {
+        vm["mountPath"]: vm["subPath"] for vm in squid_c.get("volumeMounts", []) if "subPath" in vm
+    }
+    assert mount_paths.get("/etc/squid/squid.conf") == "squid.conf"
+    assert mount_paths.get("/etc/squid/storeid_rewrite.conf") == "storeid_rewrite.conf"
+    assert mount_paths.get("/etc/squid/url_rewrite.pl") == "url_rewrite.pl"
+
     # Exporter sidecar verification
     exporter_c = next(c for c in containers if c["name"] == "squid-exporter")
     exporter_ports = [p["containerPort"] for p in exporter_c.get("ports", [])]
@@ -129,6 +149,10 @@ def test_squid_deployment_and_sidecar_exporter() -> None:
         for expr in p.get("preference", {}).get("matchExpressions", [])
     )
     assert has_condor_affinity is True
+
+    # Squid CA volume must be non-optional (fail-fast security requirement)
+    squid_ca_vol = next(v for v in pod_spec.get("volumes", []) if v["name"] == "squid-ca")
+    assert squid_ca_vol.get("secret", {}).get("optional") is False
 
 
 def test_squid_pvc_and_service_spec() -> None:
@@ -157,14 +181,21 @@ def test_ollama_daemonset_proxy_integration() -> None:
     env_map = {e["name"]: e["value"] for e in ollama_c.get("env", []) if "value" in e}
     assert env_map.get("HTTP_PROXY") == "http://squid.squid.svc.cluster.local:3128"
     assert env_map.get("HTTPS_PROXY") == "http://squid.squid.svc.cluster.local:3128"
+    assert env_map.get("SSL_CERT_DIR") == "/etc/ssl/certs:/etc/ssl/squid-ca"
     assert "localhost" in env_map.get("NO_PROXY", "")
 
     volume_mounts = {vm["name"]: vm["mountPath"] for vm in ollama_c.get("volumeMounts", [])}
-    assert "squid-ca-cert" in volume_mounts
+    assert volume_mounts.get("squid-ca-cert") == "/etc/ssl/squid-ca"
 
     volumes = {v["name"]: v for v in daemonset_doc["spec"]["template"]["spec"]["volumes"]}
     assert "squid-ca-cert" in volumes
     assert volumes["squid-ca-cert"].get("configMap", {}).get("optional") is False
+
+    # Node-local NVMe hostPath storage contract
+    assert "ollama-data" in volumes
+    ollama_data_vol = volumes["ollama-data"]
+    assert ollama_data_vol.get("hostPath", {}).get("path") == "/var/lib/ollama"
+    assert ollama_data_vol.get("hostPath", {}).get("type") == "DirectoryOrCreate"
 
 
 def test_squid_networkpolicy_security_and_ca_distribution() -> None:
@@ -195,3 +226,4 @@ def test_squid_networkpolicy_security_and_ca_distribution() -> None:
     entrypoint_text = (DOCKER_DIR / "entrypoint.sh").read_text(encoding="utf-8")
     assert ".initialized" in entrypoint_text
     assert "/etc/squid/ssl-ca" in entrypoint_text
+    assert "FATAL: Pre-provisioned Root CA missing" in entrypoint_text

@@ -22,9 +22,33 @@ data:
     sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/spool/squid/ssl_db -M 16MB
     sslcrtd_children 16 startup=4 idle=2
 
+    # Destination ACLs for in-cluster & local networks
+    acl to_localnet dst 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
     acl step1 at_step SslBump1
     ssl_bump peek step1
+    ssl_bump splice to_localnet
     ssl_bump bump all
+
+    # -------------------------------------------------------------------------
+    # Store-ID URL Rewriter for Content-Addressable Blob Caching
+    # Normalizes ephemeral presigned query strings to canonical SHA256 keys
+    # -------------------------------------------------------------------------
+    store_id_program /usr/lib/squid/storeid_file_rewrite /etc/squid/storeid_rewrite.conf
+    store_id_children 16 startup=4 idle=2 concurrency=0
+    acl blob_url url_regex -i /blobs/sha256
+    store_id_access allow blob_url
+    store_id_access deny all
+
+    # -------------------------------------------------------------------------
+    # URL Rewriter for Pod Loopback & Localhost Aliases
+    # Rewrites 0.0.0.0 / 127.0.0.1 / localhost requests to caller pod IP
+    # -------------------------------------------------------------------------
+    url_rewrite_program /usr/bin/perl /etc/squid/url_rewrite.pl
+    url_rewrite_children 8 startup=2 idle=1 concurrency=0
+    acl loopback_url url_regex -i ^https?://(0\.0\.0\.0|127\.0\.0\.1|localhost)
+    url_rewrite_access allow loopback_url
+    url_rewrite_access deny all
 
     # -------------------------------------------------------------------------
     # Access Control Lists (ACLs)
@@ -39,7 +63,10 @@ data:
     acl localnet src fe80::/10              # RFC 4291
 
     # Ports
-    acl SSL_ports port 443
+    acl SSL_ports port 443          # https
+    acl SSL_ports port 8443         # alt https / k8s api
+    acl SSL_ports port 11434        # ollama api
+    acl SSL_ports port 8080         # open-webui
     acl Safe_ports port 80          # http
     acl Safe_ports port 21          # ftp
     acl Safe_ports port 443         # https
@@ -102,8 +129,12 @@ data:
     # Refresh Patterns & Content-Addressable Blob Caching
     # -------------------------------------------------------------------------
     # OCI / Registry / Ollama content-addressable immutable blobs (never expire)
+    refresh_pattern -i ollama-cache\.local/blobs/sha256/[a-f0-9]+$ 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
     refresh_pattern -i /v2/.*/blobs/sha256:[a-f0-9]+$ 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
     refresh_pattern -i /v2/.*blobs.* 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
+    refresh_pattern -i .*/blobs/sha256/.* 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
+    refresh_pattern -i .*\.r2\.cloudflarestorage\.com/.*/blobs/sha256/.* 525600 100% 525600 override-expire override-lastmod ignore-no-cache ignore-no-store ignore-reload ignore-private
+    refresh_pattern -i .*\.r2\.cloudflarestorage\.com/.* 1440 20% 10080 override-expire
     refresh_pattern -i (registry\.ollama\.ai|huggingface\.co|github\.com)/.* 10080 80% 43200 override-expire ignore-reload
 
     # Default refresh pattern
@@ -112,9 +143,12 @@ data:
     # -------------------------------------------------------------------------
     # Observability & Structured Logging
     # -------------------------------------------------------------------------
-    # JSON structured access logs emitted directly to stdout for Fluent Bit / Loki
-    logformat json_k8s {"timestamp":"%tl","client_ip":">a","duration_ms":%tr,"cache_status":"%Ss","http_status":%03>Hs,"bytes_sent":%<st,"method":">rm","uri":">ru","mime_type":"%mt","upstream":"%Sh/%<a"}
-    access_log stdio:/dev/stdout json_k8s
+    # Strip sensitive query terms (SAS tokens, API keys, signatures) from access logs
+    strip_query_terms on
+
+    # JSON structured access logs streamed to /var/log/squid/access.log (tailed to stdout)
+    logformat json_k8s {"timestamp":"%tl","client_ip":"%>a","duration_ms":%tr,"cache_status":"%Ss","http_status":%03>Hs,"bytes_sent":%<st,"method":"%>rm","uri":"%>ru","mime_type":"%mt","upstream":"%Sh/%<a"}
+    access_log /var/log/squid/access.log json_k8s
     logfile_rotate 0
 
     # SNMP Observability
@@ -130,3 +164,32 @@ data:
     coredump_dir /var/spool/squid/cache
     shutdown_lifetime 3 seconds
     pinger_enable off
+  storeid_rewrite.conf: |
+    ^https?://[^/]+\.r2\.cloudflarestorage\.com/.*blobs/sha256/[a-f0-9]{2}/([a-f0-9]{64})/data.*	http://ollama-cache.local/blobs/sha256/$1
+    ^https?://registry\.ollama\.ai/v2/.*/blobs/sha256:([a-f0-9]{64})	http://ollama-cache.local/blobs/sha256/$1
+    ^https?://.*/blobs/sha256[:/]([a-f0-9]{64}).*	http://ollama-cache.local/blobs/sha256/$1
+  url_rewrite.pl: |
+    #!/usr/bin/perl
+    use strict;
+    use warnings;
+    $|=1;
+
+    while (<STDIN>) {
+        chomp;
+        my ($channel, $url, $client, $ident, $method, $kv) = split(/\s+/, $_, 6);
+        if ($channel !~ /^\d+$/) {
+            $kv = $method; $method = $ident; $ident = $client; $client = $url; $url = $channel; $channel = "";
+        } else {
+            $channel = "$channel ";
+        }
+        my $client_ip = $client;
+        $client_ip =~ s/\/.*$//;
+        if ($url =~ m{^https?://(?:0\.0\.0\.0|127\.0\.0\.1|localhost)(?::(\d+))?(.*)$}) {
+            my $port = $1 ? ":$1" : "";
+            my $path = $2;
+            my $scheme = ($url =~ m{^https}) ? "https" : "http";
+            print "${channel}OK rewrite-url=$scheme://$client_ip$port$path\n";
+        } else {
+            print "${channel}ERR\n";
+        }
+    }

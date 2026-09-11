@@ -86,6 +86,12 @@ spec:
             - name: squid-config
               mountPath: /etc/squid/squid.conf
               subPath: squid.conf
+            - name: squid-config
+              mountPath: /etc/squid/storeid_rewrite.conf
+              subPath: storeid_rewrite.conf
+            - name: squid-config
+              mountPath: /etc/squid/url_rewrite.pl
+              subPath: url_rewrite.pl
             - name: squid-ca
               mountPath: /etc/squid/ssl-ca
               readOnly: true
@@ -97,13 +103,16 @@ spec:
           image: boynux/squid-exporter:v1.12.0
           imagePullPolicy: IfNotPresent
           command:
-            - /squid-exporter
+            - /usr/local/bin/squid-exporter
             - -squid-hostname
             - localhost
             - -squid-port
             - "3128"
             - -listen
             - :9301
+          env:
+            - name: SQUID_PORT
+              value: "3128"
           ports:
             - name: metrics
               containerPort: 9301
@@ -133,4 +142,4 @@ spec:
         - name: squid-ca
           secret:
             secretName: squid-ca-secret
-            optional: true
+            optional: false

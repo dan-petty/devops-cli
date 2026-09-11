@@ -770,6 +770,12 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert container["startupProbe"]["timeoutSeconds"] == 5
     assert container["startupProbe"]["failureThreshold"] == 60
 
+    # Storage: verify hostPath contract for node-local model persistence
+    volumes = daemonset["spec"]["template"]["spec"]["volumes"]
+    ollama_vol = next(v for v in volumes if v["name"] == "ollama-data")
+    assert ollama_vol["hostPath"]["path"] == "/var/lib/ollama"
+    assert ollama_vol["hostPath"]["type"] == "DirectoryOrCreate"
+
     assert "readinessProbe" in container
     assert container["readinessProbe"]["initialDelaySeconds"] == 5
     assert container["readinessProbe"]["periodSeconds"] == 10
@@ -851,3 +857,33 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     )
     assert fb_values["resources"]["limits"]["cpu"] == "500m"
     assert fb_values["resources"]["limits"]["memory"] == "512Mi"
+
+    # 11. Prometheus stack values: elevated requests and limits to eliminate OOM kills
+    prom_values = yaml.safe_load(
+        (repo_root / "k8s" / "monitoring" / "prometheus-values.yaml").read_text(encoding="utf-8")
+    )
+    assert (
+        prom_values["prometheus"]["prometheusSpec"]["resources"]["requests"]["memory"] == "1024Mi"
+    )
+    assert prom_values["prometheus"]["prometheusSpec"]["resources"]["limits"]["memory"] == "4096Mi"
+    assert prom_values["grafana"]["resources"]["requests"]["memory"] == "768Mi"
+    assert prom_values["grafana"]["resources"]["limits"]["memory"] == "2048Mi"
+    assert prom_values["nodeExporter"]["resources"]["requests"]["memory"] == "64Mi"
+    assert prom_values["nodeExporter"]["resources"]["limits"]["memory"] == "256Mi"
+    assert prom_values["kubeStateMetrics"]["resources"]["requests"]["memory"] == "64Mi"
+    assert prom_values["kubeStateMetrics"]["resources"]["limits"]["memory"] == "256Mi"
+
+    # 12. GPU Feature Discovery DaemonSet: Burstable QoS requests and limits
+    gfd_docs = list(
+        yaml.safe_load_all(
+            (repo_root / "k8s" / "gpu-feature-discovery" / "daemonset.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+    gfd_ds = next(d for d in gfd_docs if d and d.get("kind") == "DaemonSet")
+    gfd_res = gfd_ds["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert gfd_res["requests"]["cpu"] == "50m"
+    assert gfd_res["requests"]["memory"] == "64Mi"
+    assert gfd_res["limits"]["cpu"] == "200m"
+    assert gfd_res["limits"]["memory"] == "256Mi"
