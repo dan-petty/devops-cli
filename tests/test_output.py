@@ -744,3 +744,85 @@ def test_print_panel_fallback_on_exception() -> None:
 
     # Should not raise; catches exception and renders via fallback Text
     print_panel(FailingRenderable(), title="Fallback Panel")
+
+
+def test_is_markdown_syntax_detection() -> None:
+    """Verify is_markdown_syntax accurately detects Markdown syntax elements and ignores plain text."""
+    from devops_cli.output.console import is_markdown_syntax
+
+    # Plain text / empty
+    assert not is_markdown_syntax("")
+    assert not is_markdown_syntax("   ")
+    assert not is_markdown_syntax("Hello, how can I help you today?")
+    assert not is_markdown_syntax("Check cluster status with devops k8s status.")
+    assert not is_markdown_syntax("Variable snake_case_name and kebab-case are not markdown.")
+
+    # Fenced code blocks
+    assert is_markdown_syntax("```bash\ndevops k8s pods\n```")
+    assert is_markdown_syntax("~~~python\nprint(1)\n~~~")
+
+    # Inline code
+    assert is_markdown_syntax("Run `devops k8s pods` to see pod states.")
+
+    # Headers
+    assert is_markdown_syntax("# Heading 1")
+    assert is_markdown_syntax("## Heading 2\nBody content")
+    assert is_markdown_syntax("### Step 3: Deploy")
+
+    # Unordered lists
+    assert is_markdown_syntax("- First point\n- Second point")
+    assert is_markdown_syntax("* Asterisk point")
+    assert is_markdown_syntax("+ Plus point")
+
+    # Ordered lists
+    assert is_markdown_syntax("1. First step\n2. Second step")
+
+    # Blockquotes
+    assert is_markdown_syntax("> This is a quoted note.")
+
+    # Tables
+    assert is_markdown_syntax("| Col 1 | Col 2 |\n|---|---|")
+
+    # Bold / Italic
+    assert is_markdown_syntax("This is **critical** to configure.")
+    assert is_markdown_syntax("This is __important__.")
+
+    # Links
+    assert is_markdown_syntax("See [documentation](https://docs.example.com) for details.")
+    assert is_markdown_syntax("![Image](https://example.com/logo.png)")
+
+    # Horizontal rules
+    assert is_markdown_syntax("---\nNext section")
+    assert is_markdown_syntax("***")
+
+
+def test_render_chat_response_plain_and_markdown() -> None:
+    """Verify render_chat_response outputs plain text and Rich Markdown appropriately."""
+    from io import StringIO
+
+    from rich.console import Console
+
+    from devops_cli.output.console import render_chat_response
+
+    # 1. Plain text response
+    plain_buf = StringIO()
+    plain_console = Console(file=plain_buf, force_terminal=False)
+    render_chat_response("Hello, I am the DevSecOps Architect.", console=plain_console)
+    plain_out = plain_buf.getvalue()
+    assert "Hello, I am the DevSecOps Architect." in plain_out
+
+    # 2. Markdown response
+    md_buf = StringIO()
+    md_console = Console(file=md_buf, force_terminal=False)
+    md_input = "Here is the solution:\n```bash\ndevops k8s pods\n```\n- Point 1\n- Point 2"
+    render_chat_response(md_input, console=md_console)
+    md_out = md_buf.getvalue()
+    assert "Here is the solution:" in md_out
+    assert "devops k8s pods" in md_out
+    assert "Point 1" in md_out
+
+    # 3. Empty or whitespace response
+    empty_buf = StringIO()
+    empty_console = Console(file=empty_buf, force_terminal=False)
+    render_chat_response("   \n\t  ", console=empty_console)
+    assert empty_buf.getvalue() == ""

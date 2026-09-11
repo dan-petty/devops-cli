@@ -63,6 +63,7 @@ from devops_cli.output import (
     print_success,
     print_table,
     print_warning,
+    render_chat_response,
     write_stdout,
     write_text_file,
 )
@@ -722,7 +723,7 @@ def _stream_interactive_chat_turn(
         agent_res = agent.run(effective_prompt, enable_thinking=thinking)
         reply = strip_think_blocks(agent_res.content)
         if reply.strip():
-            print_info(f"{reply.strip()}\n", prefix=False)
+            render_chat_response(reply.strip())
         return
     write_stdout("\n\n")
     agent.memory.add_interaction("assistant", reply)
@@ -861,7 +862,7 @@ def chat(
 
                 reply = strip_think_blocks(agent_res.content)
                 if reply.strip():
-                    print_info(f"{reply.strip()}\n", prefix=False)
+                    render_chat_response(reply.strip())
 
         except KeyboardInterrupt:
             print_info("\n[dim]Interrupted.[/dim]\n", prefix=False)

@@ -151,6 +151,11 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 self._ollama_thinking_supported = False
                 with track_ollama_url(candidate_url, max_parallel=max_par):
                     return self._ollama_request(base, system, messages, think=False)
+            if exc.response.status_code == 404 and "not found" in exc.response.text.lower():
+                raise httpx2.RequestError(
+                    f"Model '{self._config.model}' not found on {candidate_url}: {exc.response.text.strip()}",
+                    request=exc.request,
+                ) from exc
             msg_text = mask_secrets(exc.response.text[:300].strip()) or "(empty)"
             raise AIClientError(
                 f"Ollama returned HTTP {exc.response.status_code}. Response: {msg_text}"
@@ -308,6 +313,11 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 with track_ollama_url(candidate_url, max_parallel=max_par):
                     yield from self._ollama_stream_request(base, system, messages, think=False)
                     return
+            if exc.response.status_code == 404 and "not found" in exc.response.text.lower():
+                raise httpx2.RequestError(
+                    f"Model '{self._config.model}' not found on {candidate_url}: {exc.response.text.strip()}",
+                    request=exc.request,
+                ) from exc
             body = mask_secrets(exc.response.text[:300].strip())
             msg_text = body or "(empty)"
             raise AIClientError(

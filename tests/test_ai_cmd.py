@@ -468,6 +468,39 @@ def test_ai_chat_persona_orange_rendering() -> None:
     assert "You:" in rendered
 
 
+def test_ai_chat_markdown_response_rendering() -> None:
+    """Verify devops ai chat formats responses containing Markdown syntax using Rich Markdown."""
+    from typing import Any
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.ai.agents.pydantic_agent import AgentResponse
+
+    mock_run_res: AgentResponse[Any] = AgentResponse(
+        content="Here is the solution:\n```bash\ndevops k8s pods\n```\n- Point 1: Fast\n- Point 2: Secure",
+        tool_calls=[],
+        turns=1,
+    )
+    with (
+        patch("devops_cli.ai.agents.PydanticAgent.run", return_value=mock_run_res),
+        patch("devops_cli.commands.ai.get_console") as mock_get_console,
+        patch("devops_cli.output.console.get_console") as mock_output_console,
+    ):
+        mock_console = MagicMock()
+        mock_console.input.side_effect = ["How do I list pods?", "exit"]
+        mock_get_console.return_value = mock_console
+        mock_output_console.return_value = mock_console
+
+        res_chat = runner.invoke(ai_app, ["chat", "--persona", "architect", "--no-stream"])
+        assert res_chat.exit_code == 0
+        from rich.markdown import Markdown
+
+        has_md = any(
+            len(c.args) > 0 and isinstance(c.args[0], Markdown)
+            for c in mock_console.print.call_args_list
+        )
+        assert has_md
+
+
 def test_ai_token_count_route_pipeline_bundle(tmp_path: Path) -> None:
     """Verify ai token-count, route, pipeline, and bundle-models commands."""
     from unittest.mock import MagicMock, patch

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Generator, Iterable, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
@@ -428,6 +429,56 @@ def print_markdown(
         active_console.print(_RichMarkdown(markdown_text))
     else:
         print(markdown_text, console=console)
+
+
+_MARKDOWN_SYNTAX_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # Fenced code block: ``` or ~~~
+    re.compile(r"^(?:```|~~~)", re.MULTILINE),
+    # Inline code with backticks
+    re.compile(r"`[^`\n]+`"),
+    # Headers: #, ##, ### at start of line
+    re.compile(r"^#{1,6}\s+\S", re.MULTILINE),
+    # Unordered list: - item, * item, + item at start of line
+    re.compile(r"^\s*[-*+]\s+\S", re.MULTILINE),
+    # Ordered list: 1. item, 2. item at start of line
+    re.compile(r"^\s*\d+\.\s+\S", re.MULTILINE),
+    # Blockquote: > quote at start of line
+    re.compile(r"^\s*>\s+\S", re.MULTILINE),
+    # Markdown table separator or row: | ... |
+    re.compile(r"^\s*\|.+?\|\s*$", re.MULTILINE),
+    # Bold: **bold** or __bold__
+    re.compile(r"(?:\*\*|__)[^\s*_\n].*?(?:\*\*|__)"),
+    # Markdown links or images: [text](url) or ![alt](url)
+    re.compile(r"!?\[.+?\]\([^\s)]+\)"),
+    # Horizontal rule: ---, ***, ___ on own line
+    re.compile(r"^\s*([-*_]){3,}\s*$", re.MULTILINE),
+)
+
+
+def is_markdown_syntax(text: str) -> bool:
+    """Determine whether a given text contains Markdown syntax elements."""
+    if not text or not text.strip():
+        return False
+    return any(pattern.search(text) is not None for pattern in _MARKDOWN_SYNTAX_PATTERNS)
+
+
+def render_chat_response(
+    reply: str,
+    *,
+    console: Any = None,
+) -> None:
+    """Render an AI chat response, formatting as Rich Markdown if markdown syntax is present."""
+    clean_reply = reply.strip()
+    if not clean_reply:
+        return
+
+    active_console = console or get_console()
+    if is_markdown_syntax(clean_reply):
+        active_console.print()
+        active_console.print(_RichMarkdown(clean_reply))
+        active_console.print()
+    else:
+        active_console.print(clean_reply)
 
 
 def print_syntax(
