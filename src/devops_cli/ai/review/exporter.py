@@ -131,14 +131,13 @@ def export_invalidated_feedback(
         return 0, out_path
 
     session_dirs = [d for d in r_dir.iterdir() if d.is_dir() and (d / "findings.json").exists()]
-    records: list[FeedbackRecord] = []
-
-    for s_dir in session_dirs:
-        records.extend(_extract_session_feedback_records(s_dir, status_filter))
+    count = 0
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as f:
-        for rec in records:
-            f.write(rec.model_dump_json() + "\n")
+        for s_dir in session_dirs:
+            for rec in _extract_session_feedback_records(s_dir, status_filter):
+                f.write(rec.model_dump_json() + "\n")
+                count += 1
 
-    return len(records), out_path
+    return count, out_path

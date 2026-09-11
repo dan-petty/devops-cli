@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from devops_cli.k8s.logql import (
     FilterOp,
     LogQLFilter,
@@ -359,3 +361,16 @@ def test_execute_logql_query_fallback_passes_since() -> None:
         mock_fallback.assert_called_once()
         assert mock_fallback.call_args[1]["since"] == "2h"
         assert mock_fallback.call_args[1]["limit"] == 50
+
+
+def test_execute_kubectl_logql_rejects_invalid_namespace_or_pod() -> None:
+    """Test execute_kubectl_logql rejects argument injection in namespace or pod."""
+    from devops_cli.exceptions import ValidationError
+
+    query = parse_logql_query('{app="web"}')
+    with pytest.raises(ValidationError, match="Invalid Kubernetes namespace identifier"):
+        execute_kubectl_logql(query, namespace="--all-namespaces")
+
+    bad_pod_query = parse_logql_query('{pod="--field-selector=foo"}')
+    with pytest.raises(ValidationError, match="Invalid Kubernetes pod identifier"):
+        execute_kubectl_logql(bad_pod_query, namespace="default")

@@ -9,6 +9,46 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+@pytest.fixture(autouse=True, scope="session")
+def prevent_external_network_calls():
+    """Guarantee that tests never hit external APIs or endpoints."""
+    import socket
+
+    orig_connect = socket.socket.connect
+    orig_connect_ex = socket.socket.connect_ex
+
+    def _is_loopback(host: str) -> bool:
+        return host in ("127.0.0.1", "localhost", "::1", "0.0.0.0")
+
+    def guarded_connect(self, address):
+        if isinstance(address, tuple) and len(address) >= 2:
+            host = str(address[0])
+            if _is_loopback(host):
+                return orig_connect(self, address)
+            raise RuntimeError(
+                f"External network call blocked during test execution: attempt to connect to {host}:{address[1]}. "
+                "All external APIs and endpoints must be mocked in tests."
+            )
+        return orig_connect(self, address)
+
+    def guarded_connect_ex(self, address):
+        if isinstance(address, tuple) and len(address) >= 2:
+            host = str(address[0])
+            if _is_loopback(host):
+                return orig_connect_ex(self, address)
+            raise RuntimeError(
+                f"External network call blocked during test execution: attempt to connect to {host}:{address[1]}. "
+                "All external APIs and endpoints must be mocked in tests."
+            )
+        return orig_connect_ex(self, address)
+
+    with (
+        patch.object(socket.socket, "connect", guarded_connect),
+        patch.object(socket.socket, "connect_ex", guarded_connect_ex),
+    ):
+        yield
+
+
 @pytest.fixture(autouse=True)
 def reset_dry_run_state():
     """Ensure dry-run environment variable is cleared and terminal width/color is standardized."""

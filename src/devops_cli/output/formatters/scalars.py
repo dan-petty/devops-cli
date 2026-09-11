@@ -16,6 +16,7 @@ from devops_cli.config.defaults import (
     DEFAULT_JSON_INDENT,
 )
 from devops_cli.lang import MESSAGES
+from devops_cli.output.markup import escape_text
 
 SEV_COLOR_MAP: dict[str, str] = {
     "CRITICAL": "red",
@@ -97,7 +98,7 @@ def format_status_badge(
             if label is not None
             else (MESSAGES.badges.active if status else MESSAGES.badges.disabled)
         )
-        return f"[{color}]{text}[/{color}]"
+        return f"[{color}]{escape_text(str(text))}[/{color}]"
 
     norm = str(status).strip().lower()
     if norm in (
@@ -118,13 +119,13 @@ def format_status_badge(
         color = fail_color
 
     text = label if label is not None else str(status)
-    return f"[{color}]{text}[/{color}]"
+    return f"[{color}]{escape_text(str(text))}[/{color}]"
 
 
 def format_link(url: str, text: str | None = None) -> str:
     """Format a clickable terminal hyperlink in Rich markup syntax."""
     display = text or url
-    return f"[link={url}]{display}[/link]"
+    return f"[link={escape_text(url)}]{escape_text(display)}[/link]"
 
 
 def _format_seconds(seconds: float, precision: int) -> str:

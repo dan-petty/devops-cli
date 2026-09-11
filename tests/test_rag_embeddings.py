@@ -32,7 +32,7 @@ def test_dynamic_probe_ollama_embed(monkeypatch: pytest.MonkeyPatch) -> None:
     ai_cfg = AIConfig(
         provider="ollama", ollama_urls=["http://localhost:11434"], allow_private_network=True
     )
-    ai_cfg.rag.embedding_model = "unknown-custom-model"
+    ai_cfg.tasks.embedding.model = "unknown-custom-model"
     engine = EmbeddingsEngine(ai_cfg)
     assert engine.dimension == 512
 
@@ -49,7 +49,7 @@ def test_dynamic_probe_ollama_show_metadata(monkeypatch: pytest.MonkeyPatch) -> 
     ai_cfg = AIConfig(
         provider="ollama", ollama_urls=["http://localhost:11434"], allow_private_network=True
     )
-    ai_cfg.rag.embedding_model = "custom-ollama-model"
+    ai_cfg.tasks.embedding.model = "custom-ollama-model"
     engine = EmbeddingsEngine(ai_cfg)
     assert engine.dimension == 1024
 
@@ -64,7 +64,7 @@ def test_dynamic_probe_openai_embeddings(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
     ai_cfg = AIConfig(provider="openai", allow_private_network=True)
-    ai_cfg.rag.embedding_model = "arbitrary-openai-model"
+    ai_cfg.tasks.embedding.model = "arbitrary-openai-model"
     engine = EmbeddingsEngine(ai_cfg, api_key="test-key")
     assert engine.dimension == 1536
 
@@ -77,7 +77,7 @@ def test_runtime_dimension_cache_and_learning(monkeypatch: pytest.MonkeyPatch) -
     ai_cfg = AIConfig(
         provider="ollama", ollama_urls=["http://localhost:11434"], allow_private_network=True
     )
-    ai_cfg.rag.embedding_model = "dynamic-cached-model"
+    ai_cfg.tasks.embedding.model = "dynamic-cached-model"
     engine1 = EmbeddingsEngine(ai_cfg)
     embs = engine1.embed_texts(["sample"])
     assert len(embs[0]) == 256
@@ -85,7 +85,7 @@ def test_runtime_dimension_cache_and_learning(monkeypatch: pytest.MonkeyPatch) -
 
     # Second instance with same model reuses cached dimension
     ai_offline = AIConfig(provider="ollama", ollama_urls=[], allow_private_network=True)
-    ai_offline.rag.embedding_model = "dynamic-cached-model"
+    ai_offline.tasks.embedding.model = "dynamic-cached-model"
     engine2 = EmbeddingsEngine(ai_offline)
     assert engine2.dimension == 256
 
@@ -335,8 +335,8 @@ def test_embeddings_engine_timeout_configuration() -> None:
     engine = EmbeddingsEngine(ai_cfg)
     assert engine.timeout == DEFAULT_RAG_EMBEDDING_TIMEOUT
 
-    # Custom RAG timeout in config
-    ai_cfg.rag.embedding_timeout = 8.0
+    # Custom embedding task timeout in config
+    ai_cfg.tasks.embedding.timeout = 8.0
     engine2 = EmbeddingsEngine(ai_cfg)
     assert engine2.timeout == 8.0
 

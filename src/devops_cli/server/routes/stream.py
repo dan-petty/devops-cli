@@ -72,12 +72,18 @@ async def stream_agent_events(
     )
 
 
+_MAX_WEBSOCKET_MESSAGE_BYTES: int = 1024 * 1024  # 1MB bounded payload limit
+
+
 @router.websocket("/ws/reasoning")
 async def websocket_reasoning_endpoint(websocket: WebSocket) -> None:
     """WebSocket duplex stream for real-time agent reasoning steps."""
     await websocket.accept()
     try:
         data = await websocket.receive_text()
+        if len(data) > _MAX_WEBSOCKET_MESSAGE_BYTES:
+            await websocket.close(code=1009, reason="Message too large")
+            return
         req = json.loads(data) if data else {}
         persona = str(req.get("persona", DEFAULT_STREAM_PERSONA)).lower().strip()
         if persona not in DEFAULT_ALLOWED_STREAM_PERSONAS:

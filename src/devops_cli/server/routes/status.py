@@ -55,13 +55,7 @@ async def get_system_status() -> SystemStatusResponse:
     tool_status: dict[str, ToolStatus] = {}
     for tool in tools_to_check:
         tool_path = shutil.which(tool)
-        masked_path: str | None = None
-        if tool_path:
-            p = Path(tool_path)
-            if any(part in ("home", "Users", "root") for part in p.parts):
-                masked_path = f"[bin]/{p.name}"
-            else:
-                masked_path = tool_path
+        masked_path = f"[bin]/{Path(tool_path).name}" if tool_path else None
         tool_status[tool] = ToolStatus(
             installed=tool_path is not None,
             path=masked_path,

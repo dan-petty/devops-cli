@@ -22,6 +22,8 @@ class MetricSample(BaseModel):
 
 
 _MAX_HISTOGRAM_SAMPLES = 10_000
+_MAX_METRIC_NAMES: int = 1000
+_MAX_LABEL_COMBINATIONS_PER_METRIC: int = 5000
 
 
 def _format_prometheus_labels(labels_items: Any) -> str:
@@ -65,7 +67,12 @@ class InMemoryMetricsRegistry:
         """Increment a counter by the specified value (default 1.0)."""
         key = self._freeze_labels(labels)
         with self._lock:
-            self._counters[name][key] += value
+            if len(self._counters) >= _MAX_METRIC_NAMES and name not in self._counters:
+                return
+            metric_store = self._counters[name]
+            if len(metric_store) >= _MAX_LABEL_COMBINATIONS_PER_METRIC and key not in metric_store:
+                return
+            metric_store[key] += value
 
     def set_gauge(
         self,
@@ -76,7 +83,12 @@ class InMemoryMetricsRegistry:
         """Set a gauge value for a metric."""
         key = self._freeze_labels(labels)
         with self._lock:
-            self._gauges[name][key] = value
+            if len(self._gauges) >= _MAX_METRIC_NAMES and name not in self._gauges:
+                return
+            metric_store = self._gauges[name]
+            if len(metric_store) >= _MAX_LABEL_COMBINATIONS_PER_METRIC and key not in metric_store:
+                return
+            metric_store[key] = value
 
     def record_histogram(
         self,
@@ -87,7 +99,12 @@ class InMemoryMetricsRegistry:
         """Record an observation in a histogram with bounded sample retention."""
         key = self._freeze_labels(labels)
         with self._lock:
-            self._histograms[name][key].append(value)
+            if len(self._histograms) >= _MAX_METRIC_NAMES and name not in self._histograms:
+                return
+            metric_store = self._histograms[name]
+            if len(metric_store) >= _MAX_LABEL_COMBINATIONS_PER_METRIC and key not in metric_store:
+                return
+            metric_store[key].append(value)
 
     def get_counter(
         self,

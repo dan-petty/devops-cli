@@ -202,6 +202,16 @@ class MCPServerTool(BaseModel):
     description: str | None = None
 
 
+def _build_mcp_tool_settings(tool: MCPServerTool) -> dict[str, Any]:
+    """Serialize MCPServerTool configuration, masking credentials to prevent token exposure."""
+    cfg = tool.model_dump(exclude_none=True)
+    cfg.pop("authorization_token", None)
+    return {
+        "native_mcp_server": True,
+        "mcp_server_config": cfg,
+    }
+
+
 _NATIVE_TOOL_SETTINGS_BUILDERS: dict[type, Callable[[Any], dict[str, Any]]] = {
     WebSearchTool: lambda t: {
         "native_web_search": True,
@@ -215,10 +225,7 @@ _NATIVE_TOOL_SETTINGS_BUILDERS: dict[type, Callable[[Any], dict[str, Any]]] = {
         "native_code_execution": True,
         "code_execution_config": t.model_dump(exclude_none=True),
     },
-    MCPServerTool: lambda t: {
-        "native_mcp_server": True,
-        "mcp_server_config": t.model_dump(exclude_none=True),
-    },
+    MCPServerTool: _build_mcp_tool_settings,
 }
 
 _NATIVE_TOOL_PROMPT_BUILDERS: dict[type, Callable[[Any], list[str]]] = {
@@ -300,10 +307,7 @@ class MCP(BaseCapability):
     ) -> dict[str, Any]:
         if self.native:
             if isinstance(self.native, MCPServerTool):
-                return {
-                    "native_mcp_server": True,
-                    "mcp_server_config": self.native.model_dump(exclude_none=True),
-                }
+                return _build_mcp_tool_settings(self.native)
             return {
                 "native_mcp_server": True,
                 "mcp_server_config": {"url": self.url} if self.url else {},

@@ -33,13 +33,16 @@ def _inspect_tf_file_fallback(f: Path, rel_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     try:
         rel_str = str(f.relative_to(rel_root)) if f.is_relative_to(rel_root) else f.name
-        content = f.read_text(encoding="utf-8", errors="replace")
-        for idx, line in enumerate(content.splitlines(), start=1):
-            stripped = line.strip()
-            is_open_cidr = "0.0.0.0/0" in stripped and "cidr_blocks" in stripped
-            is_sg_open = "0.0.0.0/0" in stripped and "aws_security_group" in content
-            if is_open_cidr or is_sg_open:
-                findings.append(_build_unrestricted_cidr_finding(rel_str, idx))
+        with f.open("r", encoding="utf-8", errors="replace") as fp:
+            for idx, line in enumerate(fp, start=1):
+                stripped = line.strip()
+                is_open_cidr = "0.0.0.0/0" in stripped and (
+                    "cidr_blocks" in stripped
+                    or "security_group" in stripped
+                    or "ingress" in stripped
+                )
+                if is_open_cidr:
+                    findings.append(_build_unrestricted_cidr_finding(rel_str, idx))
     except Exception as exc:
         logger.debug("Failed reading %s in tflint fallback: %s", f, exc)
     return findings

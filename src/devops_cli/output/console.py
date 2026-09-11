@@ -274,8 +274,9 @@ def print(
 
     # 8. Step format
     if level == "step":
-        detail_suffix = f" [dim]({detail})[/dim]" if detail else ""
-        active_console.print(f"[bold blue]➔[/bold blue] [bold]{content}[/bold]{detail_suffix}")
+        esc_content = escape_text(str(content))
+        detail_suffix = f" [dim]({escape_text(detail)})[/dim]" if detail else ""
+        active_console.print(f"[bold blue]➔[/bold blue] [bold]{esc_content}[/bold]{detail_suffix}")
         return PrintResult(success=True, level="step", stream=stream_name, rendered_type="step")
 
     # 9. Leveled / Plain string messaging

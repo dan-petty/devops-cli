@@ -826,3 +826,33 @@ def test_render_chat_response_plain_and_markdown() -> None:
     empty_console = Console(file=empty_buf, force_terminal=False)
     render_chat_response("   \n\t  ", console=empty_console)
     assert empty_buf.getvalue() == ""
+
+
+def test_print_step_escapes_markup() -> None:
+    """Verify print with level='step' escapes markup tags in content and detail."""
+    from io import StringIO
+
+    from rich.console import Console
+
+    from devops_cli.output.console import print as d_print
+
+    buf = StringIO()
+    test_console = Console(file=buf, force_terminal=True)
+    d_print(
+        "[bold red]injected[/bold red]", level="step", detail="[dim]tag[/dim]", console=test_console
+    )
+    out = buf.getvalue()
+    assert "[bold red]injected[/bold red]" in out
+    assert "[dim]tag[/dim]" in out
+
+
+def test_format_link_and_badges_escape_markup() -> None:
+    """Verify format_link and format_status_badge escape Rich markup characters."""
+    from devops_cli.output.formatters.scalars import format_link, format_status_badge
+
+    link = format_link("http://example.com/[id]?a=1", text="[bold]Click Here[/bold]")
+    assert r"\[bold]Click Here\[/bold]" in link
+    assert r"http://example.com/\[id]?a=1" in link
+
+    badge = format_status_badge("ok", label="[bold]Status: OK[/bold]")
+    assert r"\[bold]Status: OK\[/bold]" in badge

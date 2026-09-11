@@ -649,6 +649,12 @@ def verify_ground_truth_hallucination(
         content = file_path.read_text(encoding="utf-8", errors="replace")
         return "default_factory" in content
 
+    if entry.category == HallucinationCategory.BOUNDARY_ERRORS:
+        finding_text = f"{finding.title} {finding.description or ''}".lower()
+        if any(pat in finding_text for pat in ("cwe-400", "cwe400", "read_text", "exhaustion")):
+            return file_path.is_file()
+        return False
+
     return False
 
 
@@ -840,7 +846,18 @@ def _infer_hallucination_category(title: str, reason: str) -> HallucinationCateg
         ({"typosquat", "httpx2"}, HallucinationCategory.DEPENDENCY_ECOSYSTEM),
         ({"anti-pattern", "educational"}, HallucinationCategory.DOCUMENTATION_CONTEXT),
         ({"default_factory", "pydantic_field"}, HallucinationCategory.MUTABLE_DEFAULTS),
-        ({"eof", "out_of_bounds"}, HallucinationCategory.BOUNDARY_ERRORS),
+        (
+            {
+                "eof",
+                "out_of_bounds",
+                "cwe_400",
+                "cwe-400",
+                "cwe400",
+                "read_text",
+                "uncontrolled_resource_consumption",
+            },
+            HallucinationCategory.BOUNDARY_ERRORS,
+        ),
     ]
     for keywords, category in dispatch_rules:
         if any(kw in combined for kw in keywords):

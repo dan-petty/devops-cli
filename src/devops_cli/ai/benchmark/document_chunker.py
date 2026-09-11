@@ -224,7 +224,7 @@ def _get_domain_knowledge_base_index() -> dict[str, tuple[set[str], set[str]]]:
             idf = math.log((num_domains + 1) / (doc_freq + 0.5)) + 1.0
             scores[word] = count * idf
 
-        top_terms = set(sorted(scores, key=lambda w: scores.get(w, 0.0), reverse=True)[:250])
+        top_terms = set(sorted(scores, key=lambda w: scores.get(w, 0.0), reverse=True)[:1000])
         domain_index[domain] = (phrases, top_terms)
 
     return domain_index

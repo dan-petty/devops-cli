@@ -47,7 +47,7 @@ mimetypes.add_type("application/x-gem+tar", ".gem")
 mimetypes.add_type("application/java-archive", ".war")
 mimetypes.add_type("application/java-archive", ".ear")
 
-_TLD_EXTRACTOR = tldextract.TLDExtract(cache_dir=None)
+_TLD_EXTRACTOR = tldextract.TLDExtract(suffix_list_urls=(), fallback_to_snapshot=True)
 
 # Standard RFC 2606 and RFC 6761 reserved domain suffixes
 _RESERVED_DOMAINS = {

@@ -114,7 +114,7 @@ def test_k8s_configure_urls_success(
     """k8s configure-urls must query service URLs and update configuration."""
 
     def fake_detect(service: str, ns: str, context: str | None = None) -> str | None:
-        return f"http://192.168.49.2:{30000 + len(service)}"
+        return f"http://192.0.2.49:{30000 + len(service)}"
 
     set_dry_run(False)
     mock_detect.side_effect = fake_detect
@@ -143,7 +143,7 @@ def test_resolve_accessible_url_fallback(mock_verify: MagicMock) -> None:
         return "localhost" in url
 
     mock_verify.side_effect = fake_verify
-    res = _resolve_accessible_url("http://192.168.49.2:30080")
+    res = _resolve_accessible_url("http://192.0.2.49:30080")
     assert res == "http://localhost:30080"
 
 
@@ -435,7 +435,7 @@ def test_k8s_apply_logs_and_urls(tmp_path: Path) -> None:
     with (
         patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
         patch(
-            "devops_cli.commands.k8s._detect_service_url", return_value="http://192.168.49.2:30080"
+            "devops_cli.commands.k8s._detect_service_url", return_value="http://192.0.2.49:30080"
         ),
         patch(
             "devops_cli.commands.k8s._resolve_accessible_url", return_value="http://localhost:8080"
@@ -457,8 +457,8 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
 
     # 1. _parse_minikube_service_url
     assert (
-        _parse_minikube_service_url("Starting...\nhttp://192.168.49.2:30000\nDone")
-        == "http://192.168.49.2:30000"
+        _parse_minikube_service_url("Starting...\nhttp://192.0.2.49:30000\nDone")
+        == "http://192.0.2.49:30000"
     )
     assert _parse_minikube_service_url("No URLs here") is None
 
@@ -466,12 +466,12 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
     node_data = {
         "status": {
             "addresses": [
-                {"type": "InternalIP", "address": "192.168.49.2"},
+                {"type": "InternalIP", "address": "192.0.2.49"},
                 {"type": "Hostname", "address": "minikube"},
             ]
         }
     }
-    assert _extract_first_node_ip(node_data) == "192.168.49.2"
+    assert _extract_first_node_ip(node_data) == "192.0.2.49"
     assert _extract_first_node_ip({}) is None
 
     # 3. _resolve_k8s_node_port_url
@@ -482,15 +482,15 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
         "devops_cli.commands.k8s.run_subprocess", return_value=_mock_proc(0, mock_nodes_json)
     ):
         url = _resolve_k8s_node_port_url([], 30080)
-        assert url == "http://192.168.49.2:30080"
+        assert url == "http://192.0.2.49:30080"
 
     # 4. _detect_service_url with fallback
     with patch(
         "devops_cli.commands.k8s.run_subprocess",
-        return_value=_mock_proc(0, "http://192.168.49.2:31434"),
+        return_value=_mock_proc(0, "http://192.0.2.49:31434"),
     ):
         res_svc = _detect_service_url("ollama", "llm")
-        assert res_svc == "http://192.168.49.2:31434"
+        assert res_svc == "http://192.0.2.49:31434"
 
     # 5. rbac-audit
     res_rbac = runner.invoke(app, ["rbac-audit", "--namespace", "kube-system"])
@@ -613,27 +613,27 @@ def test_k8s_service_url_helpers() -> None:
     # 1. _parse_minikube_service_url
     assert _parse_minikube_service_url("") is None
     assert (
-        _parse_minikube_service_url("Starting tunnel\nhttp://192.168.49.2:30001\nDone")
-        == "http://192.168.49.2:30001"
+        _parse_minikube_service_url("Starting tunnel\nhttp://192.0.2.49:30001\nDone")
+        == "http://192.0.2.49:30001"
     )
 
     # 2. _extract_first_node_ip
     node_data_ext = {
         "status": {
             "addresses": [
-                {"type": "InternalIP", "address": "192.168.49.2"},
+                {"type": "InternalIP", "address": "192.0.2.49"},
                 {"type": "Hostname", "address": "minikube"},
             ]
         }
     }
-    assert _extract_first_node_ip(node_data_ext) == "192.168.49.2"
+    assert _extract_first_node_ip(node_data_ext) == "192.0.2.49"
     assert _extract_first_node_ip({}) is None
 
     # 3. _resolve_k8s_node_port_url
     nodes_json = json.dumps({"items": [node_data_ext]})
     with patch("devops_cli.commands.k8s.run_subprocess", return_value=_mock_proc(0, nodes_json)):
         url = _resolve_k8s_node_port_url([], 30080)
-        assert url == "http://192.168.49.2:30080"
+        assert url == "http://192.0.2.49:30080"
 
     # 4. _verify_url_reachability
     with patch("socket.create_connection", side_effect=OSError):
@@ -643,10 +643,10 @@ def test_k8s_service_url_helpers() -> None:
     assert _resolve_accessible_url(None) is None
     with patch("devops_cli.commands.k8s._verify_url_reachability", return_value=True):
         assert (
-            _resolve_accessible_url("http://192.168.49.2:3000", preferred_localhost_ports=[3000])
+            _resolve_accessible_url("http://192.0.2.49:3000", preferred_localhost_ports=[3000])
             == "http://localhost:3000"
         )
-        assert _resolve_accessible_url("http://192.168.49.2:3000") == "http://192.168.49.2:3000"
+        assert _resolve_accessible_url("http://192.0.2.49:3000") == "http://192.0.2.49:3000"
 
 
 def test_k8s_bootstrap_openwebui() -> None:
