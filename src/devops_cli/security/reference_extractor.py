@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import builtins
 import functools
+import importlib.util
 import io
 import ipaddress
 import json
@@ -233,25 +234,12 @@ def _get_workspace_filenames(root_dir_str: str = "") -> tuple[set[str], tuple[st
 _CODE_CONFIG_PREFIXES = (
     "self.",
     "cls.",
-    "os.",
-    "sys.",
     "process.",
     "ci.step.",
     "telemetry.",
     "logger.",
     "log.",
     "mcp.",
-    "uvicorn.",
-    "httpx.",
-    "httpx2.",
-    "rich.",
-    "pydantic.",
-    "pytest.",
-    "unittest.",
-    "docker.",
-    "fastapi.",
-    "typer.",
-    "click.",
 )
 
 _COMMON_PROPERTY_SUFFIXES = {
@@ -271,6 +259,17 @@ _COMMON_PROPERTY_SUFFIXES = {
     "executable",
     "runtime",
 }
+
+
+@functools.lru_cache(maxsize=1024)
+def _is_known_python_module(name: str) -> bool:
+    """Check if identifier maps to an installed Python distribution or standard library module."""
+    if not name.isidentifier():
+        return False
+    try:
+        return importlib.util.find_spec(name) is not None
+    except ImportError, AttributeError, ValueError:
+        return False
 
 
 @functools.lru_cache(maxsize=4096)
@@ -384,8 +383,12 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     builtin_names = set(dir(builtins))
     stdlib_names = getattr(sys, "stdlib_module_names", set()) | set(sys.builtin_module_names)
 
-    # If first segment is a language keyword or stdlib root module (e.g. subprocess.run, os.path)
-    if keyword.iskeyword(first_seg) or first_seg in stdlib_names:
+    # If first segment is a language keyword, stdlib root module, or installed package
+    if (
+        keyword.iskeyword(first_seg)
+        or first_seg in stdlib_names
+        or _is_known_python_module(first_seg)
+    ):
         return True
 
     # If last segment is a keyword or builtin attribute in 2-segment expression

@@ -366,29 +366,33 @@ def compact_cmd(
         return
 
     if is_dry_run() or dry_run:
+        original_dry_run = is_dry_run()
         set_dry_run(True)
-        res = compactor.compact_all(
-            docs_dir=target_docs_dir,
-            archive_dir=target_archive_dir,
-            series=series,
-            dry_run=True,
-            compact_roadmap=do_roadmap,
-            compact_release_notes=do_notes,
-            compact_log=do_log,
-        )
-        render_dry_run_result(
-            command=f"devops docs compact --series {series}",
-            action="compact_documentation_series",
-            target=str(target_docs_dir),
-            details={
-                "series": series,
-                "docs_dir": str(target_docs_dir),
-                "archive_dir": str(target_archive_dir),
-                "bytes_saved": res.bytes_saved,
-                "modified_files": res.modified_files,
-            },
-        )
-        return
+        try:
+            res = compactor.compact_all(
+                docs_dir=target_docs_dir,
+                archive_dir=target_archive_dir,
+                series=series,
+                dry_run=True,
+                compact_roadmap=do_roadmap,
+                compact_release_notes=do_notes,
+                compact_log=do_log,
+            )
+            render_dry_run_result(
+                command=f"devops docs compact --series {series}",
+                action="compact_documentation_series",
+                target=str(target_docs_dir),
+                details={
+                    "series": series,
+                    "docs_dir": str(target_docs_dir),
+                    "archive_dir": str(target_archive_dir),
+                    "bytes_saved": res.bytes_saved,
+                    "modified_files": res.modified_files,
+                },
+            )
+            return
+        finally:
+            set_dry_run(original_dry_run)
 
     result = compactor.compact_all(
         docs_dir=target_docs_dir,

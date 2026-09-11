@@ -325,3 +325,13 @@ def test_mask_secrets_preserves_task_file_paths() -> None:
     # Verify genuine OpenAI key is still correctly redacted
     fake_key = "sk-proj-abcdef1234567890abcdef1234567890"
     assert mask_secrets(fake_key) == "<masked-openai-key>"
+
+    # Verify underscore-delimited tokens/keys are correctly redacted
+    underscore_ghp = "my_github_token_ghp_1234567890abcdef1234"
+    assert mask_secrets(underscore_ghp) == "my_github_token_<masked-github-token>"
+
+    underscore_sk = "service_openai_key_sk-proj-1234567890abcdef12345678"
+    assert mask_secrets(underscore_sk) == "service_openai_key_<masked-openai-key>"
+
+    underscore_ant = "service_anthropic_key_sk-ant-1234567890abcdef12345678"
+    assert mask_secrets(underscore_ant) == "service_anthropic_key_<masked-anthropic-key>"

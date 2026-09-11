@@ -333,6 +333,9 @@ def test_cli_docs_compact_dry_run(tmp_path: Path, runner: CliRunner) -> None:
     assert "devops docs compact" in result.output
     assert (docs_dir / "ROADMAP.md").read_text(encoding="utf-8") == SAMPLE_ROADMAP_MD
     assert not archive_dir.exists()
+    from devops_cli.dry_run.state import is_dry_run
+
+    assert is_dry_run() is False
 
 
 def test_cli_docs_compact_check_mode(tmp_path: Path, runner: CliRunner) -> None:
@@ -359,3 +362,61 @@ def test_cli_docs_compact_check_mode(tmp_path: Path, runner: CliRunner) -> None:
         ],
     )
     assert result.exit_code == 1
+
+
+def test_doc_compaction_error_bounds_details() -> None:
+    """Verify DocCompactionError bounds series, target_file, and details to 256 chars."""
+    from devops_cli.exceptions.docs import DocCompactionError
+
+    huge_series = "v" + "0" * 300
+    huge_path = "/path/to/" + "a" * 300
+    huge_detail = "x" * 500
+
+    err = DocCompactionError(
+        "Compaction failed",
+        series=huge_series,
+        target_file=huge_path,
+        details={"huge_field": huge_detail, "int_val": 42},
+    )
+    assert len(err.details["series"]) == 256
+    assert len(err.details["target_file"]) == 256
+    assert len(err.details["huge_field"]) == 256
+    assert err.details["int_val"] == 42
+
+
+def test_doc_compactor_invalid_series_syntax(compactor: DocCompactor) -> None:
+    """Verify DocCompactionError is raised for invalid series syntax or traversal attempts."""
+    from devops_cli.exceptions.docs import DocCompactionError
+
+    for bad_series in ["../../outside", "v0.2/../../etc", "invalid!series", "v0.2;rm -rf /"]:
+        with pytest.raises(DocCompactionError):
+            compactor.compact_roadmap("# Roadmap", series=bad_series)
+
+
+def test_compact_log_preserves_other_series(compactor: DocCompactor) -> None:
+    """Ensure compact_log with series='v0.2' does NOT archive v0.1 entries."""
+    compacted_log, archive_content = compactor.compact_log(SAMPLE_LOG_MD, series="v0.2")
+
+    # Release v0.1.0 belongs to v0.1 and must remain in retained log
+    assert "Release v0.1.0 Foundation & Core Modernization" in compacted_log
+    assert "Release v0.1.0" not in archive_content
+
+
+def test_doc_compactor_section_counters(tmp_path: Path, compactor: DocCompactor) -> None:
+    """Verify DocCompactionResult populates roadmap and release notes section counters."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir(parents=True)
+    archive_dir = docs_dir / "agent" / "archive"
+
+    (docs_dir / "ROADMAP.md").write_text(SAMPLE_ROADMAP_MD, encoding="utf-8")
+    (docs_dir / "RELEASE_NOTES.md").write_text(SAMPLE_RELEASE_NOTES_MD, encoding="utf-8")
+    (docs_dir / "LOG.md").write_text(SAMPLE_LOG_MD, encoding="utf-8")
+
+    res = compactor.compact_all(
+        docs_dir=docs_dir,
+        archive_dir=archive_dir,
+        series="v0.2",
+        dry_run=True,
+    )
+    assert res.roadmap_sections_count > 0
+    assert res.release_notes_sections_count > 0

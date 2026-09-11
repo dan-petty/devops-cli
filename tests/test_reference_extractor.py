@@ -435,6 +435,9 @@ def test_extract_network_references_function_calls_and_workspace_files() -> None
     template1 = "*.tfvars.example"
     template2 = "*.env.example"
     lib_symbol = "rich.live.Live"
+    pydantic_symbol = "pydantic.BaseModel"
+    pytest_symbol = "pytest.mark.asyncio"
+    click_symbol = "click.command"
 
     # Legitimate external domain and URL
     legit_domain = "metrics.telemetry-cloud.io"
@@ -448,7 +451,7 @@ def test_extract_network_references_function_calls_and_workspace_files() -> None
     assert "service.client.call" not in targets
     assert "helper.utils.format" not in targets
 
-    # Workspace files and wildcard templates must NOT be matched as external domains
+    # Workspace files, wildcard templates, and installed packages must NOT be matched as external domains
     assert "auth.py" not in targets
     assert "server.py" not in targets
     assert "logging.py" not in targets
@@ -457,6 +460,9 @@ def test_extract_network_references_function_calls_and_workspace_files() -> None
     assert "*.tfvars.example" not in targets
     assert "*.env.example" not in targets
     assert "rich.live.live" not in targets
+    assert "pydantic.basemodel" not in targets
+    assert "pytest.mark.asyncio" not in targets
+    assert "click.command" not in targets
 
     # Legitimate external references must be extracted
     assert any(t == "metrics.telemetry-cloud.io" for t in targets)

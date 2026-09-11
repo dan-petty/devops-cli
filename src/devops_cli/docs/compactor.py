@@ -11,6 +11,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from devops_cli.exceptions import DocCompactionError
 from devops_cli.output import write_text_file
 
 _SERIES_SUMMARY_TITLES: dict[str, str] = {
@@ -76,14 +77,41 @@ class DocCompactionResult(BaseModel):
     bytes_saved: int = 0
 
 
+_SERIES_REGEX = re.compile(r"^v?[0-9]+(?:\.[0-9]+)?(?:\.x)?$")
+_SERIES_PHASE_RANGES: dict[str, tuple[float, float]] = {
+    "v0.2": (41.0, 55.0),
+}
+
+
 def _normalize_series(series: str) -> str:
-    """Normalize release series string, e.g. 'v0.2.x' -> 'v0.2'."""
+    """Normalize release series string, e.g. 'v0.2.x' -> 'v0.2'.
+
+    Raises:
+        DocCompactionError: If the release series syntax is invalid or contains traversal characters.
+    """
     clean = series.strip().lower()
+    if not _SERIES_REGEX.match(clean):
+        raise DocCompactionError(
+            f"Invalid release series syntax: {series!r}. Expected format like 'v0.2' or 'v0.2.x'.",
+            series=series,
+        )
     if clean.endswith(".x"):
         clean = clean[:-2]
     if not clean.startswith("v"):
         clean = f"v{clean}"
     return clean
+
+
+def _resolve_safe_archive_file(archive_dir: Path, filename: str) -> Path:
+    """Resolve archive file path and ensure strict containment within archive_dir."""
+    resolved_dir = archive_dir.resolve()
+    target = (resolved_dir / filename).resolve()
+    if not target.is_relative_to(resolved_dir):
+        raise DocCompactionError(
+            f"Archive file path {target} escapes archive directory {resolved_dir}",
+            target_file=str(target),
+        )
+    return target
 
 
 def _version_matches_series(version_str: str, series: str) -> bool:
@@ -111,13 +139,38 @@ def _flush_log_block(
 
 
 def _is_historical_log_header(header_line: str, normalized_series: str) -> bool:
-    """Determine if a log section header corresponds to historical series milestones."""
-    return (
-        f"Release {normalized_series}." in header_line
-        or "Phase 4" in header_line
-        or "Phase 5" in header_line
-        or "v0.1." in header_line
+    """Determine if a log section header corresponds to target series milestones."""
+    # 1. Extract explicit release version strings from header (e.g. 'Release v0.2.12', 'v0.1.0')
+    found_versions = re.findall(
+        r"(?:Release\s+|(?<=\s)v|^v)(\d+\.\d+(?:\.\d+)?)", header_line, re.IGNORECASE
     )
+    if found_versions:
+        matches_other = any(
+            not _version_matches_series(v, normalized_series) for v in found_versions
+        )
+        matches_target = any(_version_matches_series(v, normalized_series) for v in found_versions)
+        if matches_target and not matches_other:
+            return True
+        if matches_other:
+            return False
+
+    # 2. Check if header explicitly references the target series name (e.g. 'v0.2' or 'v0.2.x')
+    series_pattern = rf"\b{re.escape(normalized_series)}(?:\.[0-9x]+)?\b"
+    if re.search(series_pattern, header_line, re.IGNORECASE):
+        return True
+
+    # 3. Check for phase ranges specific to series if defined
+    phase_match = re.search(r"\bPhase\s+(\d+(?:\.\d+)?)", header_line, re.IGNORECASE)
+    if phase_match:
+        try:
+            phase_num = float(phase_match.group(1))
+            phase_range = _SERIES_PHASE_RANGES.get(normalized_series)
+            if phase_range and phase_range[0] <= phase_num <= phase_range[1]:
+                return True
+        except ValueError:
+            pass
+
+    return False
 
 
 def _is_matrix_series_row(line: str, normalized_series: str) -> bool:
@@ -228,12 +281,24 @@ class DocCompactor:
 
     def compact_roadmap(self, content: str, series: str = "v0.2") -> str:
         """Compact both milestone subsections and matrix rows in ROADMAP.md."""
-        content, _, _ = self._compact_roadmap_subsections(content, series)
+        compacted, _ = self.compact_roadmap_with_count(content, series)
+        return compacted
+
+    def compact_roadmap_with_count(self, content: str, series: str = "v0.2") -> tuple[str, int]:
+        """Compact milestone subsections and matrix rows and return (compacted_content, count)."""
+        content, _, count = self._compact_roadmap_subsections(content, series)
         content, _ = self._compact_roadmap_matrix(content, series)
-        return content
+        return content, count
 
     def compact_release_notes(self, content: str, series: str = "v0.2") -> str:
         """Consolidate granular Highlights of vX.Y.Z sections into a single series block."""
+        compacted, _ = self.compact_release_notes_with_count(content, series)
+        return compacted
+
+    def compact_release_notes_with_count(
+        self, content: str, series: str = "v0.2"
+    ) -> tuple[str, int]:
+        """Consolidate granular Highlights sections and return (compacted_content, count)."""
         normalized_series = _normalize_series(series)
         pattern = re.compile(
             r"## 🚀 Highlights of (v\d+\.\d+\.\d+)\n\n(.*?)(?=\n## 🚀|\n## 🛠️|\Z)",
@@ -245,7 +310,7 @@ class DocCompactor:
         ]
 
         if not matching_sections:
-            return content
+            return content, 0
 
         matched_versions = [m.group(1) for m in matching_sections]
         start_ver = matched_versions[-1] if matched_versions else f"{normalized_series}.0"
@@ -268,7 +333,7 @@ class DocCompactor:
         )
 
         compacted = content[:first_span_start] + series_block + content[last_span_end:]
-        return compacted
+        return compacted, len(matching_sections)
 
     def compact_log(self, log_content: str, series: str = "v0.2") -> tuple[str, str]:
         """Separate historical log entries for series into archive content and compacted log."""
@@ -339,8 +404,9 @@ class DocCompactor:
         if compact_roadmap and roadmap_path.exists():
             orig_text = roadmap_path.read_text(encoding="utf-8")
             total_orig_bytes += len(orig_text.encode("utf-8"))
-            new_text = self.compact_roadmap(orig_text, normalized_series)
+            new_text, roadmap_count = self.compact_roadmap_with_count(orig_text, normalized_series)
             total_new_bytes += len(new_text.encode("utf-8"))
+            result.roadmap_sections_count = roadmap_count
             if new_text != orig_text:
                 result.roadmap_compacted = True
                 modified_files.append(str(roadmap_path))
@@ -351,8 +417,11 @@ class DocCompactor:
         if compact_release_notes and notes_path.exists():
             orig_text = notes_path.read_text(encoding="utf-8")
             total_orig_bytes += len(orig_text.encode("utf-8"))
-            new_text = self.compact_release_notes(orig_text, normalized_series)
+            new_text, notes_count = self.compact_release_notes_with_count(
+                orig_text, normalized_series
+            )
             total_new_bytes += len(new_text.encode("utf-8"))
+            result.release_notes_sections_count = notes_count
             if new_text != orig_text:
                 result.release_notes_compacted = True
                 modified_files.append(str(notes_path))
@@ -367,7 +436,9 @@ class DocCompactor:
             total_new_bytes += len(compacted_log.encode("utf-8"))
             if compacted_log != orig_text:
                 result.log_compacted = True
-                archive_file = archive_dir / f"historical-phases-{normalized_series}.x.md"
+                archive_file = _resolve_safe_archive_file(
+                    archive_dir, f"historical-phases-{normalized_series}.x.md"
+                )
                 result.archive_file_path = str(archive_file)
                 modified_files.append(str(log_path))
                 if not dry_run and not check:

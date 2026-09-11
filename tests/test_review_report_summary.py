@@ -135,3 +135,23 @@ def test_consolidated_markdown_report_with_errored_files(tmp_path: Path) -> None
     assert "## Skipped / Errored Files" in report_md
     assert "`src/devops_cli/commands/ai.py`" in report_md
     assert "Cannot connect to Ollama" in report_md
+
+
+def test_format_error_detail_sanitizes_and_bounds() -> None:
+    """Verify _format_error_detail masks secrets and bounds error strings to <= 256 chars."""
+    from devops_cli.ai.review.pipeline import _format_error_detail
+
+    # 1. Credential masking
+    secret_exc = ValueError(
+        "Failed with token ghp_1234567890abcdef1234 and pass password='secret_pwd_1234!'"
+    )
+    cleaned = _format_error_detail("Review", secret_exc)
+    assert "ghp_1234567890abcdef1234" not in cleaned
+    assert "<masked-github-token>" in cleaned
+    assert "secret_pwd_1234!" not in cleaned
+
+    # 2. Length bounding to <= 256 chars
+    huge_exc = RuntimeError("Server returned huge body: " + "A" * 500)
+    bounded = _format_error_detail("Initialization", huge_exc, max_len=256)
+    assert len(bounded) <= 256
+    assert bounded.endswith("...")
