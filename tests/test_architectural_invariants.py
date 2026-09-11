@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -180,9 +181,53 @@ def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
     )
 
 
+def _resolve_import_edge(
+    sub: ast.Import,
+    mod: str,
+    module_files: dict[str, Path],
+    graph: dict[str, set[str]],
+) -> None:
+    for alias in sub.names:
+        name = alias.name
+        while name and name not in module_files and "." in name:
+            name = name.rsplit(".", 1)[0]
+        if name in module_files and name != mod:
+            graph[mod].add(name)
+
+
+def _resolve_import_from_edge(
+    sub: ast.ImportFrom,
+    mod: str,
+    pkg_parts: list[str],
+    module_files: dict[str, Path],
+    graph: dict[str, set[str]],
+) -> None:
+    target = None
+    if sub.level > 0:
+        level = sub.level - 1
+        base = pkg_parts[: len(pkg_parts) - level] if level <= len(pkg_parts) else []
+        parts = base + (sub.module.split(".") if sub.module else [])
+        target = ".".join(parts)
+    elif sub.module:
+        target = sub.module
+
+    if not target:
+        return
+
+    base_target = target
+    while base_target and base_target not in module_files and "." in base_target:
+        base_target = base_target.rsplit(".", 1)[0]
+    if base_target in module_files and base_target != mod:
+        graph[mod].add(base_target)
+
+    for alias in sub.names:
+        child_mod = f"{target}.{alias.name}"
+        if child_mod in module_files and child_mod != mod:
+            graph[mod].add(child_mod)
+
+
 def test_no_circular_imports_in_decoupled_subsystems() -> None:
     """Ensure decoupled subsystems (k8s commands, output, ai.review, config) have zero circular imports."""
-    import ast
     from collections import defaultdict
 
     subsystems = [
@@ -212,30 +257,9 @@ def test_no_circular_imports_in_decoupled_subsystems() -> None:
             for node in tree.body:
                 for sub in ast.walk(node):
                     if isinstance(sub, ast.Import):
-                        for alias in sub.names:
-                            name = alias.name
-                            while name and name not in module_files and "." in name:
-                                name = name.rsplit(".", 1)[0]
-                            if name in module_files and name != mod:
-                                graph[mod].add(name)
+                        _resolve_import_edge(sub, mod, module_files, graph)
                     elif isinstance(sub, ast.ImportFrom):
-                        target = None
-                        if sub.level > 0:
-                            level = sub.level - 1
-                            base = (
-                                pkg_parts[: len(pkg_parts) - level]
-                                if level <= len(pkg_parts)
-                                else []
-                            )
-                            parts = base + (sub.module.split(".") if sub.module else [])
-                            target = ".".join(parts)
-                        elif sub.module:
-                            target = sub.module
-                        if target:
-                            while target and target not in module_files and "." in target:
-                                target = target.rsplit(".", 1)[0]
-                            if target in module_files and target != mod:
-                                graph[mod].add(target)
+                        _resolve_import_from_edge(sub, mod, pkg_parts, module_files, graph)
 
         # Tarjan's SCC
         index = 0
