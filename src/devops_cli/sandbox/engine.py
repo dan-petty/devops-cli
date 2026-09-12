@@ -141,7 +141,7 @@ class WorkloadSandboxEngine:
             "security_opt": ["no-new-privileges:true"],
             "pids_limit": 256,
             "read_only": config.read_only,
-            "tmpfs": {"/tmp": "size=64m,noexec"},
+            "tmpfs": {"/tmp": "size=64m,noexec"},  # nosec B108
             "detach": True,
         }
 
@@ -218,8 +218,10 @@ class WorkloadSandboxEngine:
             if container is not None:
                 try:
                     container.remove(force=True)
-                except Exception:
-                    pass
+                except Exception as cleanup_err:
+                    logger.debug(
+                        "Container removal failed during fallback cleanup: %s", cleanup_err
+                    )
             logger.debug("Docker SDK create/start failed (%s); falling back to CLI subprocess", exc)
             return self._spawn_via_subprocess(config, ws_resolved, port_bindings)
 
