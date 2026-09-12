@@ -629,11 +629,6 @@ def test_cli_sandbox_metrics_url_target(mock_engine_cls: MagicMock, prom_server:
     assert "Prometheus" in result.output
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 8. PR #164 Review Findings Remediation Tests
-# ─────────────────────────────────────────────────────────────────────────────
-
-
 def test_cli_sandbox_metrics_help_metrics_timeout() -> None:
     """Test CLI metrics --help displays dedicated Prometheus scrape timeout description."""
     result = runner.invoke(app, ["sandbox", "metrics", "--help"])
