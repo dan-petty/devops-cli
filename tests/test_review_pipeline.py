@@ -868,7 +868,9 @@ def test_review_pipeline_orchestrator_extended_helpers(tmp_path: Path) -> None:
     assert str(tmp_path) in str(traversal_p)
 
     # 3. Server info
-    cfg = AIConfig(provider="ollama", model="qwen2.5-coder:14b", ollama_urls=["http://node1:11434"])
+    cfg = AIConfig(
+        provider="ollama", model="qwen2.5-coder:14b", ollama_urls=["http://example.com:11434"]
+    )
     client = LLMClient(cfg)
     orchestrator_llm = ReviewPipelineOrchestrator(
         session_id="llm-info-test", llm_client=client, target_dir=tmp_path

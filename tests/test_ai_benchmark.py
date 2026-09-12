@@ -175,7 +175,7 @@ def test_benchmark_cli_command(tmp_path: Path) -> None:
         [
             "benchmark",
             "--models",
-            "model-1@http://server1:11434,model-2@http://server2:11434",
+            "model-1@http://example.com:11434,model-2@http://example.com:11435",
             "--servers",
             "http://localhost:11434",
             "--tasks",
@@ -197,19 +197,19 @@ def test_benchmark_cli_command(tmp_path: Path) -> None:
 def test_benchmark_runner_concurrent_execution() -> None:
     """Verify concurrent execution across models with custom endpoint overrides."""
     tasks = [BENCHMARK_TASKS[0]]
-    models = ["model-a@http://server-a:11434", "model-b@http://server-b:11434"]
+    models = ["model-a@http://example.com:11434", "model-b@http://example.com:11435"]
     b_runner = BenchmarkRunner(
         models=models,
         tasks=tasks,
         is_dry_run=True,
         concurrency=2,
-        servers=["http://server-a:11434", "http://server-b:11434"],
+        servers=["http://example.com:11434", "http://example.com:11435"],
     )
 
     # Test client configuration for parsed endpoints
-    client_a = b_runner._client_for_model("model-a@http://server-a:11434")
+    client_a = b_runner._client_for_model("model-a@http://example.com:11434")
     assert client_a._config.model == "model-a"
-    assert client_a._config.ollama_urls == ["http://server-a:11434"]
+    assert client_a._config.ollama_urls == ["http://example.com:11434"]
 
     report = b_runner.execute()
     assert report.is_dry_run is True
@@ -388,7 +388,7 @@ def test_benchmark_to_markdown_and_print_report(tmp_path: Path) -> None:
     tasks = BENCHMARK_TASKS[:2]
     models = ["model-a", "model-b"]
     b_runner = BenchmarkRunner(
-        models=models, tasks=tasks, servers=["http://node1:11434", "http://node2:11434"]
+        models=models, tasks=tasks, servers=["http://example.com:11434", "http://example.com:11435"]
     )
 
     sum_a = ModelBenchmarkSummary(
@@ -421,7 +421,7 @@ def test_benchmark_to_markdown_and_print_report(tmp_path: Path) -> None:
     )
 
     srv_1 = ServerBenchmarkSummary(
-        server="http://node1:11434",
+        server="http://example.com:11434",
         generation_duration_avg=1.5,
         total_duration_seconds=3.0,
         tasks_generated_count=2,
@@ -430,7 +430,7 @@ def test_benchmark_to_markdown_and_print_report(tmp_path: Path) -> None:
         model_latencies={"model-a": 1.5},
     )
     srv_2 = ServerBenchmarkSummary(
-        server="http://node2:11434",
+        server="http://example.com:11435",
         generation_duration_avg=2.1,
         total_duration_seconds=4.2,
         tasks_generated_count=2,
@@ -501,7 +501,7 @@ def test_embedding_benchmark_runner_and_metrics(tmp_path: Path) -> None:
     # 3. EmbeddingBenchmarkRunner in dry-run mode
     emb_runner = EmbeddingBenchmarkRunner(
         models=["nomic-embed-text", "all-minilm"],
-        servers=["http://server1:11434", "http://server2:11434"],
+        servers=["http://example.com:11434", "http://example.com:11435"],
         is_dry_run=True,
     )
     report = emb_runner.run()
@@ -559,7 +559,7 @@ def test_embedding_benchmark_runner_full_run() -> None:
 
     mock_res_1 = EmbeddingBenchmarkResult(
         model="model-a",
-        server="http://server1:11434",
+        server="http://example.com:11434",
         dimension=384,
         recall_at_1=90.0,
         recall_at_3=95.0,
@@ -577,7 +577,7 @@ def test_embedding_benchmark_runner_full_run() -> None:
     )
     mock_res_2 = EmbeddingBenchmarkResult(
         model="model-b",
-        server="http://server2:11434",
+        server="http://example.com:11435",
         dimension=768,
         recall_at_1=80.0,
         recall_at_3=88.0,
@@ -596,7 +596,7 @@ def test_embedding_benchmark_runner_full_run() -> None:
 
     runner = EmbeddingBenchmarkRunner(
         models=["model-a", "model-b"],
-        servers=["http://server1:11434", "http://server2:11434"],
+        servers=["http://example.com:11434", "http://example.com:11435"],
         is_dry_run=False,
     )
     mock_task = MagicMock()

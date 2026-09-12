@@ -97,10 +97,10 @@ def test_validation_exceptions() -> None:
     assert val_err.exit_code == 1
     assert val_err.details["field"] == "endpoint"
 
-    url_err = InvalidURLError("ftp://insecure.local", "Unsupported scheme")
+    url_err = InvalidURLError("ftp://example.com", "Unsupported scheme")
     assert isinstance(url_err, ValidationError)
     assert url_err.error_code == "INVALID_URL"
-    assert "ftp://insecure.local" in str(url_err)
+    assert "ftp://example.com" in str(url_err)
 
     ver_err = InvalidVersionError("bad-version", tool_name="terraform")
     assert isinstance(ver_err, ValidationError)

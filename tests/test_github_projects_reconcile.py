@@ -79,8 +79,8 @@ def test_infer_item_category_value_effort_from_labels() -> None:
 
 def test_reconcile_project_custom_fields_dry_run() -> None:
     res = reconcile_project_custom_fields(
-        owner="dan-petty",
-        repo="dan-petty/devops-cli",
+        owner="owner",
+        repo="owner/repo",
         project_number=2,
         dry_run=True,
     )
@@ -90,19 +90,17 @@ def test_reconcile_project_custom_fields_dry_run() -> None:
 
 
 def test_reconcile_project_custom_fields_live() -> None:
-    existing_items_resp = {
-        "items": [
-            {
-                "id": "item_1",
-                "content": {"url": "https://github.com/dan-petty/devops-cli/issues/74"},
-            }
-        ]
-    }
+    existing_items_resp = [
+        {
+            "id": "item_1",
+            "content": {"url": "https://example.com/owner/repo/issues/74"},
+        }
+    ]
     issues_resp = [
         {
             "number": 74,
             "title": "feat(ai): Tree-sitter AST Graph",
-            "url": "https://github.com/dan-petty/devops-cli/issues/74",
+            "url": "https://example.com/owner/repo/issues/74",
             "state": "OPEN",
             "labels": [{"name": "priority/p1-high"}, {"name": "status/in-progress"}],
         }
@@ -111,22 +109,26 @@ def test_reconcile_project_custom_fields_live() -> None:
     def mock_run_subprocess(cmd: list[str], **kwargs: object) -> MagicMock:
         res = MagicMock()
         res.returncode = 0
-        if "item-list" in cmd:
+        cmd_str = " ".join(cmd)
+        if "items" in cmd_str:
             res.stdout = json.dumps(existing_items_resp)
-        elif "repos/dan-petty/devops-cli/issues" in " ".join(cmd):
+        elif "repos/owner/repo/issues" in cmd_str:
             res.stdout = json.dumps(issues_resp)
-        elif "repos/dan-petty/devops-cli/pulls" in " ".join(cmd):
+        elif "repos/owner/repo/pulls" in cmd_str:
             res.stdout = json.dumps([])
         else:
             res.stdout = ""
         return res
 
-    with patch(
-        "devops_cli.github.projects.run_subprocess", side_effect=mock_run_subprocess
-    ) as mock_cmd:
+    with (
+        patch("devops_cli.github.projects._get_authenticated_user", return_value="owner"),
+        patch(
+            "devops_cli.github.projects.run_subprocess", side_effect=mock_run_subprocess
+        ) as mock_cmd,
+    ):
         res = reconcile_project_custom_fields(
-            owner="dan-petty",
-            repo="dan-petty/devops-cli",
+            owner="owner",
+            repo="owner/repo",
             project_number=2,
             dry_run=False,
         )

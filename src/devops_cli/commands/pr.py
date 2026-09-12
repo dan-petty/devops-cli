@@ -239,6 +239,9 @@ def _handle_monitor_exit(result: Any, pr_number: int) -> None:
         raise typer.Exit(1)
 
     if result.exit_code == 2:
+        if getattr(result.status, "is_draft", False):
+            print_warning(result.message)
+            raise typer.Exit(2)
         print_error(
             ERRORS.pr.unresolved_threads.format(
                 number=pr_number,

@@ -449,8 +449,11 @@ def test_provision_remote_project_fields() -> None:
         ),
         ProjectField(name="Category", type="text"),
     ]
-    with patch("devops_cli.github.projects.run_subprocess", mock_proc):
-        provisioned = provision_remote_project_fields(2, "dan-petty", fields)
+    with (
+        patch("devops_cli.github.projects._get_authenticated_user", return_value="owner"),
+        patch("devops_cli.github.projects.run_subprocess", mock_proc),
+    ):
+        provisioned = provision_remote_project_fields(2, "owner", fields)
         assert "Priority" in provisioned
         assert "Category" in provisioned
         assert "Status" not in provisioned
@@ -695,12 +698,10 @@ def test_sync_repository_issues_to_project() -> None:
 
     from devops_cli.github.projects import sync_repository_issues_to_project
 
-    existing_items = [
-        {"content": {"html_url": "https://github.com/dan-petty/devops-cli/issues/75"}}
-    ]
+    existing_items = [{"content": {"html_url": "https://example.com/owner/repo/issues/75"}}]
     repo_issues = [
-        {"html_url": "https://github.com/dan-petty/devops-cli/issues/75", "number": 75},
-        {"html_url": "https://github.com/dan-petty/devops-cli/issues/78", "number": 78},
+        {"html_url": "https://example.com/owner/repo/issues/75", "number": 75},
+        {"html_url": "https://example.com/owner/repo/issues/78", "number": 78},
     ]
 
     mock_proc = MagicMock(
@@ -711,12 +712,148 @@ def test_sync_repository_issues_to_project() -> None:
         ]
     )
     with patch("devops_cli.github.projects.run_subprocess", mock_proc):
-        added = sync_repository_issues_to_project(
-            "dan-petty", "dan-petty/devops-cli", 2, dry_run=False
-        )
+        added = sync_repository_issues_to_project("owner", "owner/repo", 2, dry_run=False)
         assert added == 1
 
     # Dry run should immediately return 0
-    assert (
-        sync_repository_issues_to_project("dan-petty", "dan-petty/devops-cli", 2, dry_run=True) == 0
+    assert sync_repository_issues_to_project("owner", "owner/repo", 2, dry_run=True) == 0
+
+
+def test_resolve_project_owner_arg() -> None:
+    """_resolve_project_owner_arg maps personal login to @me and leaves org unchanged."""
+    from unittest.mock import patch
+
+    import devops_cli.github.projects as projects_mod
+    from devops_cli.github.projects import _resolve_project_owner_arg
+
+    # Reset cache
+    projects_mod._CURRENT_USER_CACHE = None
+
+    # When owner is already @me
+    assert _resolve_project_owner_arg("@me") == "@me"
+
+    # When authenticated user matches owner
+    with patch("devops_cli.github.projects._get_authenticated_user", return_value="alice"):
+        assert _resolve_project_owner_arg("alice") == "@me"
+        assert _resolve_project_owner_arg("ALICE") == "@me"
+        assert _resolve_project_owner_arg("my-org") == "my-org"
+
+
+def test_sync_single_select_field_options() -> None:
+    """_sync_single_select_field_options updates remote options via GraphQL mutation."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.github.projects import (
+        ProjectField,
+        ProjectFieldOption,
+        _sync_single_select_field_options,
     )
+
+    template_field = ProjectField(
+        name="Status",
+        type="single_select",
+        options=[
+            ProjectFieldOption(name="Todo", color="GRAY"),
+            ProjectFieldOption(name="In Progress", color="BLUE"),
+            ProjectFieldOption(name="In Review", color="PURPLE"),
+            ProjectFieldOption(name="Done", color="GREEN"),
+        ],
+    )
+
+    # All options already present -> returns True without calling GraphQL
+    existing_all = {
+        "id": "field_123",
+        "options": [
+            {"name": "Todo", "color": "GRAY"},
+            {"name": "In Progress", "color": "BLUE"},
+            {"name": "In Review", "color": "PURPLE"},
+            {"name": "Done", "color": "GREEN"},
+        ],
+    }
+    assert _sync_single_select_field_options(existing_all, template_field) is True
+
+    # Missing option -> triggers GraphQL mutation
+    existing_partial = {
+        "id": "field_123",
+        "options": [
+            {"name": "Todo", "color": "GRAY"},
+            {"name": "In Progress", "color": "BLUE"},
+            {"name": "Done", "color": "GREEN"},
+        ],
+    }
+    with patch("devops_cli.github.projects.run_subprocess") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
+        assert _sync_single_select_field_options(existing_partial, template_field) is True
+        assert mock_run.call_count == 1
+        call_args = mock_run.call_args
+        assert "graphql" in call_args[0][0]
+        payload = json.loads(call_args[1]["input"])
+        option_names = [opt["name"] for opt in payload["variables"]["options"]]
+        assert "In Review" in option_names
+
+
+def test_paginated_project_fetch_helpers() -> None:
+    """_fetch_project_item_urls, _fetch_repository_issues, and _fetch_repository_prs handle multi-page JSON."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.github.projects import (
+        _fetch_project_item_urls,
+        _fetch_repository_issues,
+        _fetch_repository_prs,
+    )
+
+    page1 = [
+        {"content": {"html_url": "https://example.com/owner/repo/issues/10"}},
+        {"content": {"url": "https://example.com/owner/repo/pull/11"}},
+    ]
+    page2 = [
+        {"content": {"html_url": "https://example.com/owner/repo/issues/12"}},
+    ]
+    paginated_stdout = f"{json.dumps(page1)}\n{json.dumps(page2)}"
+
+    with patch(
+        "devops_cli.github.projects.run_subprocess",
+        return_value=MagicMock(returncode=0, stdout=paginated_stdout, stderr=""),
+    ):
+        urls = _fetch_project_item_urls("owner", 1)
+        assert urls == {
+            "https://example.com/owner/repo/issues/10",
+            "https://example.com/owner/repo/pull/11",
+            "https://example.com/owner/repo/issues/12",
+        }
+
+    issues_page1 = [
+        {"number": 1, "title": "First", "html_url": "https://example.com/owner/repo/issues/1"}
+    ]
+    issues_page2 = [
+        {"number": 2, "title": "Second", "html_url": "https://example.com/owner/repo/issues/2"}
+    ]
+    paginated_issues = f"{json.dumps(issues_page1)}\n{json.dumps(issues_page2)}"
+
+    with patch(
+        "devops_cli.github.projects.run_subprocess",
+        return_value=MagicMock(returncode=0, stdout=paginated_issues, stderr=""),
+    ):
+        issues = _fetch_repository_issues("owner/repo")
+        assert len(issues) == 2
+        assert issues[0]["number"] == 1
+        assert issues[1]["number"] == 2
+
+    prs_page1 = [
+        {"number": 3, "title": "PR 3", "html_url": "https://example.com/owner/repo/pull/3"}
+    ]
+    prs_page2 = [
+        {"number": 4, "title": "PR 4", "html_url": "https://example.com/owner/repo/pull/4"}
+    ]
+    paginated_prs = f"{json.dumps(prs_page1)}\n{json.dumps(prs_page2)}"
+
+    with patch(
+        "devops_cli.github.projects.run_subprocess",
+        return_value=MagicMock(returncode=0, stdout=paginated_prs, stderr=""),
+    ):
+        prs = _fetch_repository_prs("owner/repo")
+        assert len(prs) == 2
+        assert prs[0]["number"] == 3
+        assert prs[1]["number"] == 4

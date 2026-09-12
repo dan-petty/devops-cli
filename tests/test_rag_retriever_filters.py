@@ -42,7 +42,7 @@ def test_retriever_faceted_filtering() -> None:
             ]
 
     retriever = SemanticRetriever(
-        qdrant=DummyQdrant(base_url="http://mock:6333", allow_private_network=True),
+        qdrant=DummyQdrant(base_url="http://example.com:6333", allow_private_network=True),
         embedder=EmbeddingsEngine(),
     )
 

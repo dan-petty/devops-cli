@@ -83,8 +83,8 @@ def test_config_show_includes_allow_private_network_and_active_path(
         "ai:\n"
         "  allow_private_network: true\n"
         "  ollama_urls:\n"
-        "    - http://node1.example.test:11434\n"
-        "    - http://node2.example.test:11435\n",
+        "    - http://example.com:11434\n"
+        "    - http://example.com:11435\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(custom_cfg))
@@ -93,7 +93,7 @@ def test_config_show_includes_allow_private_network_and_active_path(
     assert result.exit_code == 0
     assert "ai.allow_private_network" in result.stdout
     assert "ai.ollama_urls" in result.stdout
-    assert "http://node1.example.test:11434, http://node2.example.test:11435" in result.stdout
+    assert "http://example.com:11434, http://example.com:11435" in result.stdout
     assert "True" in result.stdout
     assert str(custom_cfg) in result.stdout
 
@@ -137,7 +137,7 @@ def test_config_commands_comprehensive(tmp_path: Path) -> None:
         assert res_headless_bad.exit_code == 1
 
         with patch("devops_cli.core.audit.stream_audit_records", return_value=5):
-            res_stream = runner.invoke(app, ["audit-stream", "https://siem.example.com/ingest"])
+            res_stream = runner.invoke(app, ["audit-stream", "https://example.com/ingest"])
             assert res_stream.exit_code == 0
 
 

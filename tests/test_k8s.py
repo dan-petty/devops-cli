@@ -644,7 +644,7 @@ def test_k8s_service_url_helpers() -> None:
 
     # 4. _verify_url_reachability
     with patch("socket.create_connection", side_effect=OSError):
-        assert _verify_url_reachability("http://nonexistent.local:80") is False
+        assert _verify_url_reachability("http://example.com:80") is False
 
     # 5. _resolve_accessible_url
     assert _resolve_accessible_url(None) is None

@@ -64,7 +64,7 @@ def test_multi_project_indexing(tmp_path: Path) -> None:
             return [0.1] * 384
 
     indexer = WorkspaceIndexer(
-        qdrant=DummyQdrant(base_url="http://mock:6333", allow_private_network=True),
+        qdrant=DummyQdrant(base_url="http://example.com:6333", allow_private_network=True),
         embedder=DummyEmbedder(),
         code_collection="test_code",
         docs_collection="test_docs",

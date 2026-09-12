@@ -692,42 +692,42 @@ async def test_mcp_toolset_and_capability() -> None:
     tool1 = AgentTool(
         name="mcp_query", description="Query remote MCP", func=lambda q: f"Result: {q}"
     )
-    mcp_ts = MCPToolset(url="https://mcp.internal.net/api", tools=[tool1])
+    mcp_ts = MCPToolset(url="https://example.com/api", tools=[tool1])
 
     assert len(mcp_ts.get_tools()) == 1
     assert mcp_ts.get_tools()[0].name == "mcp_query"
     instructions = mcp_ts.get_instructions()
     assert len(instructions) == 1
-    assert "https://mcp.internal.net/api" in instructions[0]
+    assert "https://example.com/api" in instructions[0]
 
     # Context manager lifecycle
     async with mcp_ts as ts:
         assert len(ts.get_tools()) == 1
 
     # 2. MCP capability with MCPToolset as local
-    mcp_cap = MCP(url="https://mcp.internal.net/api", local=mcp_ts)
+    mcp_cap = MCP(url="https://example.com/api", local=mcp_ts)
     tools = mcp_cap.get_tools()
     assert len(tools) == 1
     assert tools[0].name == "mcp_query"
 
     # 3. MCP capability with native=True
-    mcp_native = MCP(url="https://mcp.internal.net/api", native=True)
+    mcp_native = MCP(url="https://example.com/api", native=True)
     settings = mcp_native.get_model_settings()
     assert settings.get("native_mcp_server") is True
-    assert settings["mcp_server_config"]["url"] == "https://mcp.internal.net/api"
+    assert settings["mcp_server_config"]["url"] == "https://example.com/api"
 
     # 4. MCP capability with MCPServerTool instance
     server_tool = MCPServerTool(
-        url="https://mcp.prod.cloud/sse", id="prod_mcp", authorization_token="secret-token-value"
+        url="https://example.com/sse", id="prod_mcp", authorization_token="secret-token-value"
     )
     mcp_server_cap = MCP(native=server_tool)
     server_settings = mcp_server_cap.get_model_settings()
-    assert server_settings["mcp_server_config"]["url"] == "https://mcp.prod.cloud/sse"
+    assert server_settings["mcp_server_config"]["url"] == "https://example.com/sse"
     assert server_settings["mcp_server_config"]["authorization_token"] == "secret-token-value"
 
     # 5. Tool prefixing and from_config loading
     mcp_prefix = MCPToolset(
-        "https://mcp.internal.net/api",
+        "https://example.com/api",
         tool_prefix="slack",
         tools=[tool1],
     )

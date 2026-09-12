@@ -259,11 +259,11 @@ def test_ai_multi_server_test_and_agents_validation(tmp_path: Path) -> None:
     with (
         patch(
             "devops_cli.commands.ai._test_single_ollama_endpoint",
-            return_value=("http://node1", False, "error", "0s"),
+            return_value=("http://example.com", False, "error", "0s"),
         ),
         pytest.raises(Exception),
     ):
-        _run_ollama_server_tests(["http://node1"], "sys", "user", st)
+        _run_ollama_server_tests(["http://example.com"], "sys", "user", st)
 
     # 3. agents path outside repo
     res_outside = runner.invoke(
@@ -281,20 +281,20 @@ def test_ai_test_disables_cache_and_targets_url() -> None:
     st = Settings()
     st.ai.provider = "ollama"
     st.ai.ollama_urls = [
-        "http://node-1.example.internal:11434",
-        "http://node-2.example.internal:11434",
+        "http://example.com:11434",
+        "http://example.com:11435",
     ]
 
     mock_resp = MagicMock()
     mock_resp.__str__.return_value = "Hello live"
     mock_resp.wall_seconds = 0.5
-    mock_resp.backend_info = "ollama (node-2.example.internal:11434)"
+    mock_resp.backend_info = "ollama (example.com:11435)"
 
     with (
         patch("devops_cli.config.settings.load_settings", return_value=st),
         patch.object(LLMClient, "chat", return_value=mock_resp) as mock_chat,
     ):
-        res = runner.invoke(ai_app, ["test", "-u", "http://node-2.example.internal:11434"])
+        res = runner.invoke(ai_app, ["test", "-u", "http://example.com:11435"])
         assert res.exit_code == 0
         assert "Hello live" in res.output
         mock_chat.assert_called_once()
@@ -419,12 +419,12 @@ def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
     # 8. preload with ollama provider
     st_ollama = Settings()
     st_ollama.ai.provider = "ollama"
-    st_ollama.ai.ollama_urls = ["http://node1:11434"]
+    st_ollama.ai.ollama_urls = ["http://example.com:11434"]
     with (
         patch("devops_cli.config.settings.load_settings", return_value=st_ollama),
         patch(
             "devops_cli.ai.client.LLMClient.preload_models",
-            return_value={"http://node1:11434": True},
+            return_value={"http://example.com:11434": True},
         ),
     ):
         res_pre_ok = runner.invoke(ai_app, ["preload"])

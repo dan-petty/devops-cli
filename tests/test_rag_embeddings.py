@@ -349,7 +349,7 @@ def test_ollama_batch_fast_failover(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify failed/timing-out candidate node automatically fails over to next candidate."""
     ai_cfg = AIConfig(
         provider="ollama",
-        ollama_urls=["http://node1:11434", "http://node2:11434"],
+        ollama_urls=["http://example.com:11434", "http://example.com:11435"],
         allow_private_network=True,
     )
     engine = EmbeddingsEngine(ai_cfg)
@@ -358,8 +358,8 @@ def test_ollama_batch_fast_failover(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def fake_query_node(base_url: str, batch_texts: list[str]) -> list[list[float]] | None:
         calls.append(base_url)
-        if "node1" in base_url:
-            raise httpx2.ReadTimeout("Simulated node1 read timeout")
+        if ":11434" in base_url:
+            raise httpx2.ReadTimeout("Simulated read timeout")
         return [[0.2] * 384 for _ in batch_texts]
 
     monkeypatch.setattr(engine, "_query_ollama_node_batch", fake_query_node)
@@ -368,4 +368,4 @@ def test_ollama_batch_fast_failover(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(results) == 1
     assert len(results[0]) == 384
     assert results[0] == [0.2] * 384
-    assert calls == ["http://node1:11434", "http://node2:11434"]
+    assert calls == ["http://example.com:11434", "http://example.com:11435"]

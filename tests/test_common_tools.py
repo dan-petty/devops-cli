@@ -121,5 +121,5 @@ def test_web_fetch_tool_blocks_post_redirect_to_private_host() -> None:
     mock_client.get.return_value = mock_resp
 
     with patch("devops_cli.ai.common_tools.new_http_client", return_value=mock_client):
-        res = fn("https://public-redirector.com/forward")
+        res = fn("https://example.com/forward")
         assert "blocked" in res.lower() or "error" in res.lower() or "ssrf" in res.lower()
