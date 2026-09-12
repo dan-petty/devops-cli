@@ -638,7 +638,8 @@ def test_cli_sandbox_metrics_help_metrics_timeout() -> None:
     """Test CLI metrics --help displays dedicated Prometheus scrape timeout description."""
     result = runner.invoke(app, ["sandbox", "metrics", "--help"])
     assert result.exit_code == 0
-    assert "HTTP timeout in seconds for Prometheus metrics scraping" in result.output
+    normalized_output = " ".join(result.output.split())
+    assert "HTTP timeout in seconds for Prometheus metrics scraping" in normalized_output
 
 
 def test_telemetry_tracing_instrumentation() -> None:
