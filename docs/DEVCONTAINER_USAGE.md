@@ -546,14 +546,7 @@ devops k8s switch-context <cluster-name>
 #### Private Endpoints & Egress Safety
 When connecting to private cloud Kubernetes clusters (e.g. within an AWS VPC, GCP Private Service Connect, or Azure VNet):
 - **VPN / Direct Connect**: Ensure your workstation host is connected to the appropriate corporate VPN or interconnect before launching the Dev Container.
-- **Private Network Permission**: If your internal cluster endpoint uses private IP spaces or internal DNS zones, enable private network egress in DevOps CLI:
-  ```bash
-  devops config set ai.allow_private_network true
-  ```
-  or set via environment variable:
-  ```bash
-  export DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true
-  ```
+- **Network Routing & Internal DNS**: Ensure your host network or container bridge routes traffic to private API server subnets. If using private DNS zones (e.g. Route 53 Private Hosted Zones, Cloud DNS, or Azure Private DNS), configure host/container DNS resolution (`/etc/resolv.conf`) so that `kubectl` can resolve private cluster endpoints.
 - **Zero Information Leakage Compliance**: Never commit private IP addresses (RFC 1918), corporate internal hostnames, or cluster access tokens into `config.yaml` templates, manifests, or task tracking. Always use abstract placeholders (`<cluster-name>`, `<region>`, `arn:aws:eks:...`).
 
 ---

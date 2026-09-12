@@ -776,19 +776,13 @@ def _wait_for_docker_daemon(timeout_seconds: int = 45) -> bool:
 
 
 def _start_minikube_cluster(dry_run: bool) -> tuple[bool, str]:
-    """Start Minikube cluster with GPU support if nvidia-smi is available, otherwise CPU."""
-    has_gpu = bool(shutil.which("nvidia-smi"))
-    start_cmd = ["minikube", "start", "--driver=docker"]
-    if has_gpu:
-        start_cmd.append("--gpus=all")
-    if not dry_run:
-        start_res = run_subprocess(start_cmd, check=False, quiet=True)
-        if start_res.returncode == 0:
-            gpu_str = " (--driver=docker --gpus=all)" if has_gpu else " (--driver=docker)"
-            return True, f"Started Minikube cluster{gpu_str}"
-        return False, "Warning: Failed to start Minikube cluster"
-    gpu_str = " (--driver=docker --gpus=all)" if has_gpu else " (--driver=docker)"
-    return True, f"Started Minikube cluster{gpu_str}"
+    """Start Minikube cluster with GPU support fallback to CPU."""
+    from devops_cli.commands.k8s.cluster_runtime import _start_minikube
+
+    success, msg = _start_minikube(dry_run=dry_run)
+    if not success and not msg.startswith("Warning:"):
+        return False, f"Warning: {msg}"
+    return success, msg
 
 
 def _auto_deploy_k8s_stack(workspace_dir: Path, stack: str, dry_run: bool) -> str | None:

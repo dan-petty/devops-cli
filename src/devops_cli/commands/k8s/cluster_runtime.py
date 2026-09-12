@@ -17,6 +17,12 @@ def _validate_k8s_identifier(val: str, label: str, *, namespace: bool = False) -
     validate_k8s_name(val, label, namespace=namespace)
 
 
+def _validate_kubeconfig_context_name(val: str, label: str = "context name") -> None:
+    from devops_cli.core.validation import validate_k8s_context_name
+
+    validate_k8s_context_name(val, label=label)
+
+
 def _k8s_clients() -> tuple[Any, Any]:
     try:
         from kubernetes import client as k8s_client  # type: ignore[import-untyped]
@@ -97,21 +103,28 @@ def should_autostart_minikube(target_context: str | None = None) -> bool:
         try:
             effective_ctx = load_settings().k8s.context
         except Exception:
-            effective_ctx = "minikube"
+            # If configuration cannot be loaded, fail closed to prevent accidental start
+            return False
 
     return bool(effective_ctx and effective_ctx.strip().lower() == "minikube")
 
 
+def resolve_effective_context(context: str | None = None) -> str | None:
+    """Resolve the effective Kubernetes context from parameter or configuration."""
+    if context and context.strip():
+        return context.strip()
+    try:
+        from devops_cli.config.settings import load_settings
+
+        configured = load_settings().k8s.context
+        return configured.strip() if configured and configured.strip() else None
+    except Exception:
+        return None
+
+
 def _cluster_reachable(context: str | None = None) -> bool:
     """Return True if the target Kubernetes cluster (or Minikube) is reachable."""
-    from devops_cli.config.settings import load_settings
-
-    effective_context = context
-    if effective_context is None:
-        try:
-            effective_context = load_settings().k8s.context
-        except Exception:
-            effective_context = "minikube"
+    effective_context = resolve_effective_context(context)
 
     cmd = ["kubectl", "cluster-info", "--request-timeout=5s"]
     if effective_context:

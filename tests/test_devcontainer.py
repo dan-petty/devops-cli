@@ -221,10 +221,17 @@ class TestDevcontainerCli:
             import subprocess
 
             if cmd[:2] == ["minikube", "status"]:
+                if any(c[:2] == ["minikube", "start"] for c in calls):
+                    return subprocess.CompletedProcess(
+                        cmd, returncode=0, stdout="Running", stderr=""
+                    )
                 return subprocess.CompletedProcess(cmd, returncode=1, stdout="Stopped", stderr="")
             return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        monkeypatch.setattr(
+            "devops_cli.commands.k8s.cluster_runtime.run_subprocess", mock_run_subprocess
+        )
         monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
 
         result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path), "--no-deploy"])
@@ -243,10 +250,17 @@ class TestDevcontainerCli:
             import subprocess
 
             if cmd[:2] == ["minikube", "status"]:
+                if any(c[:2] == ["minikube", "start"] for c in calls):
+                    return subprocess.CompletedProcess(
+                        cmd, returncode=0, stdout="Running", stderr=""
+                    )
                 return subprocess.CompletedProcess(cmd, returncode=1, stdout="Stopped", stderr="")
             return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+        monkeypatch.setattr(
+            "devops_cli.commands.k8s.cluster_runtime.run_subprocess", mock_run_subprocess
+        )
         monkeypatch.setattr(
             "shutil.which",
             lambda prog: f"/usr/local/bin/{prog}" if prog != "nvidia-smi" else None,
@@ -1009,3 +1023,29 @@ class TestDevcontainerCli:
 
         assert "must be a JSON object" in _validate_manifest_content("string", tmp_path)[0]
         assert "Missing or empty required field" in _validate_manifest_content({}, tmp_path)[0]
+
+    def test_start_minikube_cluster_delegates_to_shared_runtime(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify _start_minikube_cluster delegates to cluster_runtime._start_minikube with fallback."""
+        from unittest.mock import patch
+
+        from devops_cli.commands.devcontainer import _start_minikube_cluster
+
+        with patch(
+            "devops_cli.commands.k8s.cluster_runtime._start_minikube",
+            return_value=(True, "Started Minikube cluster (--driver=docker)"),
+        ) as mock_start:
+            ok, msg = _start_minikube_cluster(dry_run=False)
+            assert ok is True
+            assert "Started Minikube cluster" in msg
+            mock_start.assert_called_once_with(dry_run=False)
+
+        with patch(
+            "devops_cli.commands.k8s.cluster_runtime._start_minikube",
+            return_value=(False, "Failed to start Minikube cluster"),
+        ) as mock_start_fail:
+            ok, msg = _start_minikube_cluster(dry_run=False)
+            assert ok is False
+            assert "Warning: Failed to start Minikube cluster" in msg
+            mock_start_fail.assert_called_once_with(dry_run=False)
