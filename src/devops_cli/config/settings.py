@@ -168,7 +168,10 @@ class TelemetryConfig(BaseModel):
 
 class KubernetesConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
-    context: str = "minikube"
+    context: str = Field(
+        default="minikube",
+        description="Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context)",
+    )
 
 
 class AIRAGConfig(BaseModel):

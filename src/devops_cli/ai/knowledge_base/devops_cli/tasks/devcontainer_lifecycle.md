@@ -27,7 +27,7 @@ graph TD
 - **Lifecycle Phases**:
   1. `init`: Scaffolds `.devcontainer/devcontainer.json`, `.vscode/mcp.json`, and agent instruction files.
   2. `post-create`: Pure Python setup of volume mount permissions (`/tmp` 1777, `.venv`/`.data`/caches user ownership), persistent bash/zsh history, environment paths, config directories, and agent instructions.
-  3. `post-start`: Pure Python verification of volume mount permissions, Git defaults, SSH key commit signing, MCP server JSON synchronization, and Minikube auto-start.
+  3. `post-start`: Pure Python verification of volume mount permissions, Git defaults, SSH key commit signing, MCP server JSON synchronization, and conditional Minikube auto-start (governed by `k8s.context` setting and `DEVOPS_MINIKUBE_AUTOSTART`).
 
 ---
 
@@ -56,6 +56,7 @@ devops devcontainer post-start --dry-run
 2. **Pure Python Lifecycle**: Keep lifecycle scripts in pure Python (`_run_post_create_lifecycle`, `_run_post_start_lifecycle`) rather than brittle inline shell scripts.
 3. **Idempotent Hooks**: Ensure all post-create and post-start hooks can execute repeatedly without generating duplicate configuration entries.
 4. **Synchronize MCP Servers**: Automatically sync `.vscode/mcp.json` to `.gemini/config/mcp_config.json` during post-start to ensure AI agents have access to CLI tools.
+5. **Cluster Context Control**: Configure `k8s.context` (`minikube`, `docker-desktop`, `kind-<name>`, or cloud cluster) to ensure embedded Minikube only starts when targeting the local container cluster, saving host CPU and memory when using external clusters.
 
 ---
 

@@ -33,28 +33,34 @@ graph TD
 
 ### Stack Deployment Commands
 ```bash
-# 1. Bootstrap local Minikube cluster with GPU passthrough
+# 1. Inspect available contexts and switch to target cluster
+devops k8s contexts
+devops k8s switch-context docker-desktop  # Target Docker Desktop
+# Or switch to Minikube (autostarts cluster if stopped)
+devops k8s switch-context minikube
+
+# 2. Bootstrap local Minikube cluster explicitly with GPU passthrough
 devops k8s bootstrap
 
-# 2. Deploy complete monitoring and observability stack
+# 3. Deploy complete monitoring and observability stack
 devops k8s deploy-stack monitoring
 
-# 3. Deploy GitOps continuous delivery stack (ArgoCD)
+# 4. Deploy GitOps continuous delivery stack (ArgoCD)
 devops k8s deploy-stack gitops
 
-# 4. Deploy local LLM stack (Ollama, Open-WebUI, Qdrant, Valkey)
+# 5. Deploy local LLM stack (Ollama, Open-WebUI, Qdrant, Valkey)
 devops k8s deploy-stack llm
 
-# 5. Deploy OpenTelemetry & Jaeger distributed tracing stack
+# 6. Deploy OpenTelemetry & Jaeger distributed tracing stack
 devops k8s deploy-stack otel
 
-# 6. Deploy all stacks simultaneously with automatic port-forwarding
+# 7. Deploy all stacks simultaneously with automatic port-forwarding
 devops k8s deploy-stack all
 
-# 7. Check deployed pod health across all namespaces
+# 8. Check deployed pod health across all namespaces
 devops k8s pods --all-namespaces
 
-# 8. Teardown stack cleanly
+# 9. Teardown stack cleanly
 devops k8s teardown-stack llm
 ```
 
@@ -67,6 +73,7 @@ devops k8s teardown-stack llm
 3. **Idempotent Deployments**: `deploy-stack` uses `helm upgrade --install --atomic` so commands can be safely re-run without causing resource conflicts.
 4. **Clean Teardown**: Run `teardown-stack` before deleting clusters to allow Helm hooks and finalizers to release external resources cleanly.
 5. **Multi-Namespace Root Kustomization**: The root `k8s/kustomization.yaml` coordinates child namespaces without setting a single top-level `namespace:` override.
+6. **Cluster Target Verification**: Run `devops k8s contexts` or `devops k8s status` before executing `deploy-stack` to ensure workloads are deployed to the intended cluster context (e.g. Minikube vs. Docker Desktop vs. Cloud EKS).
 
 ---
 

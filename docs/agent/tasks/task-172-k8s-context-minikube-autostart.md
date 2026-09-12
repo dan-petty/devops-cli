@@ -1,7 +1,7 @@
 # Task 172: Configurable K8s Context Setting & Conditional Minikube Autostart
 
 **Issue**: [#172](https://github.com/dan-petty/devops-cli/issues/172)
-**PR**: TBD
+**PR**: [#174](https://github.com/dan-petty/devops-cli/pull/174)
 **Status**: In Progress
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
@@ -57,4 +57,8 @@ Implement configurable Kubernetes cluster context setting (`k8s.context`) across
 - [x] Update `config.example.yaml` and `config.yaml`
 - [x] Update `.devcontainer/devcontainer.json` and `templates/devcontainer.json.j2`
 - [x] Run `devops docs generate --sync-readme`
+- [x] Document DevContainer Minikube lifecycle and conditional autostart in `docs/DEVCONTAINER_USAGE.md`
+- [x] Document external cluster connectivity (Docker Desktop, kind/k3s, cloud EKS/GKE/AKS) in `docs/DEVCONTAINER_USAGE.md`
+- [x] Update Knowledge Base domain topics and tools (`cloud_native_kubernetes_and_gitops.md`, `minikube.md`, `kubectl.md`, `k8s_stack_deployment.md`, `devcontainer_lifecycle.md`)
+- [x] Synchronize `docs/CONFIGURATION.md` with field descriptions for `k8s.context`
 - [x] Validate entire CI suite via `uv run devops ci`
