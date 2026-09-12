@@ -63,8 +63,8 @@ Each task file should follow this standard format:
 Task statuses align with GitHub Projects v2 and Kanban board views:
 - **Backlog**: Queued deliverable, awaiting assignment or active milestone start.
 - **Ready**: Scoped with concrete acceptance criteria and tests designed.
-- **In Progress (WIP)**: Active work item currently being authored.
-- **In Review**: Pull Request opened with automated review and CI running.
+- **In Progress (WIP)**: Active work item currently being authored. If an early PR is opened to share work, it must be a Draft Pull Request (`--draft`).
+- **In Review**: Pull Request opened and marked ready for review (or converted from draft via `gh pr ready`), with automated review and CI running.
 - **Done**: Pull Request merged, remote CI checks green, and issue closed.
 
 ---

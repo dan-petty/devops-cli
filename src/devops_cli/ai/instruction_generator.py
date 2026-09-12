@@ -292,6 +292,13 @@ codebase or reviewing target repositories.
 - **Pull Request Governance & Code Review Remediation**:
   - AI agents prepare clean commits, open/update PRs, monitor remote CI checks, and leave merge
     approval to maintainers.
+  - **Mandatory Draft Pull Requests for In-Progress Work**: Whenever opening any pull request that is
+    not yet fully implemented, tested, and ready for review, AI agents MUST create the pull request as
+    a draft (`gh pr create --draft` or passing `draft: true` via API). A draft pull request signals active
+    work in progress, prevents premature review cycles, avoids false merge-readiness assumptions, while
+    satisfying the requirement that every remote topic branch have an open pull request. Once all code,
+    tests, and documentation are complete and CI quality gates pass, convert it to ready for review
+    (`gh pr ready <pr_number>`).
   - **Always Monitor and Fix CI Checks**: Whenever creating a pull request or pushing to a pull request branch,
     always actively monitor remote CI checks (`gh pr checks`). If any check fails, immediately inspect failed logs,
     diagnose root causes, apply test-first fixes, push, and re-monitor until all checks are 100% green.

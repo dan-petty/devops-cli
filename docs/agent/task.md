@@ -18,6 +18,7 @@
 | [#114](https://github.com/dan-petty/devops-cli/issues/114) | TBD | Declarative branch protection auditor and repository secret synchronization | `Ready` | Backlog |
 | [#115](https://github.com/dan-petty/devops-cli/issues/115) | TBD | Core dependency ecosystem alignment and lockfile synchronization | `Ready` | Backlog |
 | [#121](https://github.com/dan-petty/devops-cli/issues/121) | TBD | Centralized logging perimeter hardening and Fluent Bit namespace scoping | `Ready` | Backlog |
+| [#165](https://github.com/dan-petty/devops-cli/issues/165) | [#166](https://github.com/dan-petty/devops-cli/pull/166) | Require draft pull requests for in-progress work | `In Review` | [`task-165-require-draft-prs-for-in-progress-work.md`](tasks/task-165-require-draft-prs-for-in-progress-work.md) |
 
 ---
 
