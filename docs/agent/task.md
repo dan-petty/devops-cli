@@ -6,7 +6,22 @@
 
 ---
 
-## Active Milestone: v0.2.16
+## Active Milestone: v0.2.17 (Sandbox Runtime Observability, Dynamic Probing & Telemetry Correlation)
+
+| Issue | PR | Title | Status | Task File |
+| :--- | :--- | :--- | :--- | :--- |
+| [#107](https://github.com/dan-petty/devops-cli/issues/107) | TBD | Protocol-agnostic endpoint readiness and health probing subsystem (`devops sandbox probe`) | `In Progress` | [`task-107-sandbox-probe-subsystem.md`](tasks/task-107-sandbox-probe-subsystem.md) |
+| [#108](https://github.com/dan-petty/devops-cli/issues/108) | TBD | Cgroup v2 metrics collection and Prometheus application scraping (`devops sandbox metrics`) | `Ready` | Backlog |
+| [#109](https://github.com/dan-petty/devops-cli/issues/109) | TBD | W3C traceparent propagation and distributed trace correlation (`devops sandbox traces`) | `Ready` | Backlog |
+| [#110](https://github.com/dan-petty/devops-cli/issues/110) | TBD | Streaming diagnostic log aggregator and panic detector (`devops sandbox logs`) | `Ready` | Backlog |
+| [#111](https://github.com/dan-petty/devops-cli/issues/111) | TBD | Automated GitOps drift detection and webhook synchronization (`devops argo gitops watch`) | `Ready` | Backlog |
+| [#114](https://github.com/dan-petty/devops-cli/issues/114) | TBD | Declarative branch protection auditor and repository secret synchronization | `Ready` | Backlog |
+| [#115](https://github.com/dan-petty/devops-cli/issues/115) | TBD | Core dependency ecosystem alignment and lockfile synchronization | `Ready` | Backlog |
+| [#121](https://github.com/dan-petty/devops-cli/issues/121) | TBD | Centralized logging perimeter hardening and Fluent Bit namespace scoping | `Ready` | Backlog |
+
+---
+
+## Completed Milestone: v0.2.16
 
 | Issue | PR | Title | Status | Task File |
 | :--- | :--- | :--- | :--- | :--- |
@@ -25,21 +40,6 @@
 | [#106](https://github.com/dan-petty/devops-cli/issues/106) | [#157](https://github.com/dan-petty/devops-cli/pull/157) | Long-Running Workload Sandbox Lifecycle Engine (`devops sandbox`) | `Done` | [`task-106-workload-sandbox-lifecycle-engine.md`](tasks/task-106-workload-sandbox-lifecycle-engine.md) |
 | [#140](https://github.com/dan-petty/devops-cli/issues/140) | [#160](https://github.com/dan-petty/devops-cli/pull/160) | Add release notes extraction fallback and enforce changelog version check | `Done` | [`task-140-release-notes-extraction-fallback-and-changelog-check.md`](tasks/task-140-release-notes-extraction-fallback-and-changelog-check.md) |
 | [#158](https://github.com/dan-petty/devops-cli/issues/158) | [#159](https://github.com/dan-petty/devops-cli/pull/159) | Automatically Apply Formatting and Linting Across CLI and CI Commands | `Done` | [`task-158-automatically-apply-formatting-and-linting.md`](tasks/task-158-automatically-apply-formatting-and-linting.md) |
-
----
-
-## Scheduled Milestone: v0.2.17 (Sandbox Runtime Observability, Dynamic Probing & Telemetry Correlation)
-
-| Issue | PR | Title | Status | Task File |
-| :--- | :--- | :--- | :--- | :--- |
-| [#107](https://github.com/dan-petty/devops-cli/issues/107) | TBD | Protocol-agnostic endpoint readiness and health probing subsystem (`devops sandbox probe`) | `Ready` | Backlog |
-| [#108](https://github.com/dan-petty/devops-cli/issues/108) | TBD | Cgroup v2 metrics collection and Prometheus application scraping (`devops sandbox metrics`) | `Ready` | Backlog |
-| [#109](https://github.com/dan-petty/devops-cli/issues/109) | TBD | W3C traceparent propagation and distributed trace correlation (`devops sandbox traces`) | `Ready` | Backlog |
-| [#110](https://github.com/dan-petty/devops-cli/issues/110) | TBD | Streaming diagnostic log aggregator and panic detector (`devops sandbox logs`) | `Ready` | Backlog |
-| [#111](https://github.com/dan-petty/devops-cli/issues/111) | TBD | Automated GitOps drift detection and webhook synchronization (`devops argo gitops watch`) | `Ready` | Backlog |
-| [#114](https://github.com/dan-petty/devops-cli/issues/114) | TBD | Declarative branch protection auditor and repository secret synchronization | `Ready` | Backlog |
-| [#115](https://github.com/dan-petty/devops-cli/issues/115) | TBD | Core dependency ecosystem alignment and lockfile synchronization | `Ready` | Backlog |
-| [#121](https://github.com/dan-petty/devops-cli/issues/121) | TBD | Centralized logging perimeter hardening and Fluent Bit namespace scoping | `Ready` | Backlog |
 
 ---
 

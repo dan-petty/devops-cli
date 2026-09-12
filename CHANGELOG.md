@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.17] - Unreleased
+
+### Added
+- Protocol-agnostic endpoint readiness and health probing subsystem (`devops sandbox probe`).
+- Cgroup v2 metrics collection and Prometheus application scraping (`devops sandbox metrics`).
+- W3C traceparent propagation and distributed trace correlation (`devops sandbox traces`).
+- Streaming diagnostic log aggregator and panic detector (`devops sandbox logs`).
+- Automated GitOps drift detection and webhook synchronization (`devops argo gitops watch`).
+- Declarative branch protection auditor and repository secret synchronization (`devops gh branch-protection`, `secrets`).
+- Core dependency ecosystem alignment and lockfile synchronization (`pyproject.toml`).
+
+### Fixed & Hardened
+- Centralized logging perimeter hardening and Fluent Bit namespace scoping (`k8s/logging/`).
+
 ## [0.2.16] - 2026-09-12
 
 ### Added
