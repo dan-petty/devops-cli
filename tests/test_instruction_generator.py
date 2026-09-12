@@ -267,3 +267,17 @@ def test_instruction_generator_devops_cli_and_force_modes(tmp_path: Path) -> Non
     written_force = scaffold_agent_instructions(target_dir, files=["AGENTS.md"], force=True)
     assert len(written_force) == 1
     assert "AI Agent Instructions" in (target_dir / "AGENTS.md").read_text(encoding="utf-8")
+
+
+def test_generate_agents_md_enforces_draft_pull_requests() -> None:
+    """Verify generated AGENTS.md mandates draft pull requests for in-progress work."""
+    meta = ProjectMetadata(
+        name="sample-project",
+        description="Sample project testing draft PR rules",
+        version="0.2.0",
+        requires_python=">=3.14",
+    )
+    content = generate_agents_md(meta)
+    assert "Draft Pull Requests for In-Progress Work" in content
+    assert "gh pr create --draft" in content
+    assert "gh pr ready" in content
