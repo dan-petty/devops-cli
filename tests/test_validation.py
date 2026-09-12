@@ -243,6 +243,12 @@ def test_validate_url_egress() -> None:
         == "http://127.0.0.1/manifest.yaml"
     )
 
+    # Cloud metadata service blocked even with allow_private=True
+    from devops_cli.core.validation import validate_url
+
+    with pytest.raises(SSRFBlockedError, match="prohibited"):
+        validate_url("http://169.254.169.254/latest/meta-data", allow_private=True)
+
     # Custom error class
     with pytest.raises(CustomContextError, match="resolves to private or reserved IP"):
         validate_url_egress(

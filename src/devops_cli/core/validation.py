@@ -213,8 +213,19 @@ def validate_url(
     }
     permitted_private = allow_private or allow_env
 
-    if not permitted_private and parsed.hostname:
-        _enforce_non_private_ssrf(clean_url, parsed.hostname, parsed.scheme, parsed.port, purpose)
+    if parsed.hostname:
+        raw_host = parsed.hostname.strip("[]").lower()
+        if raw_host in ("169.254.169.254", "metadata.google.internal") or raw_host.startswith(
+            "169.254."
+        ):
+            raise SSRFBlockedError(
+                clean_url,
+                reason=f"Access to link-local or cloud metadata services ({parsed.hostname}) is prohibited.",
+            )
+        if not permitted_private:
+            _enforce_non_private_ssrf(
+                clean_url, parsed.hostname, parsed.scheme, parsed.port, purpose
+            )
 
     return clean_url
 
