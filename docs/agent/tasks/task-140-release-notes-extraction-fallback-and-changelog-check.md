@@ -2,7 +2,7 @@
 
 **Issue**: [#140](https://github.com/dan-petty/devops-cli/issues/140)
 **PR**: [#160](https://github.com/dan-petty/devops-cli/pull/160)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/cli`
@@ -48,5 +48,6 @@ Resolve release orchestration failures where release notes extraction fails due 
 - [x] Test-First Specification in `tests/test_release.py`
 - [x] Implementation in `src/devops_cli/commands/release.py`
 - [x] Hardening in `.github/workflows/release.yml`
-- [ ] Verification of Quality Gates (`uv run devops ci`)
-- [ ] Pull Request authoring & CI monitoring
+- [x] Verification of Quality Gates (`uv run devops ci`)
+- [x] Pull Request authoring & CI monitoring
+- [x] Squash Merge to `release/v0.2.16` & Issue Closure (#140, #160)
