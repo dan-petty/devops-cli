@@ -1,8 +1,8 @@
 # Task 106: Long-Running Workload Sandbox Lifecycle Engine
 
 **Issue**: [#106](https://github.com/dan-petty/devops-cli/issues/106)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#157](https://github.com/dan-petty/devops-cli/pull/157)
+**Status**: In Review
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p0-critical`
 **Scope**: `scope/cli`
@@ -61,4 +61,4 @@ Implement a foundational execution tier orchestrating isolated, long-running roo
 - [x] Implement Typer CLI command group `devops sandbox`.
 - [x] Implement FastMCP sandbox tools and dynamic resource.
 - [x] Validate quality gates (29 tests passing, 97.35% coverage, lint, format, typecheck, docs, complexity <= 10).
-- [ ] Open Pull Request targeting `release/v0.2.16`.
+- [x] Open Pull Request targeting `release/v0.2.16` ([#157](https://github.com/dan-petty/devops-cli/pull/157)).
