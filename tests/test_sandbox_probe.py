@@ -522,3 +522,51 @@ def test_run_sandbox_probes_with_openapi_and_grpc() -> None:
             timeout=1.0,
         )
         assert report.total_probes >= 2
+
+
+def test_probe_http_w3c_traceparent_propagation() -> None:
+    """Verify probe_http automatically propagates W3C traceparent headers."""
+    captured_headers: dict[str, str] = {}
+
+    class MockResp:
+        status_code = 200
+        text = '{"status": "ok"}'
+
+    class MockClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def __enter__(self) -> MockClient:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+        def get(self, url: str, headers: dict[str, str] | None = None, **kwargs: Any) -> Any:
+            nonlocal captured_headers
+            if headers:
+                captured_headers = dict(headers)
+            return MockResp()
+
+    with patch("httpx2.Client", MockClient):
+        result = probe_http("http://example.com/health")
+        assert result.status == ProbeStatus.PASS
+        assert "traceparent" in captured_headers
+        assert captured_headers["traceparent"].startswith("00-")
+        assert result.details.get("traceparent") == captured_headers["traceparent"]
+        assert "trace_id" in result.details
+
+
+def test_run_sandbox_probes_generates_and_links_trace_id() -> None:
+    """Verify run_sandbox_probes generates and correlates trace_id in report."""
+    with patch("devops_cli.sandbox.probe.probe_tcp") as mock_tcp:
+        mock_tcp.return_value = EndpointProbeResult(
+            protocol=ProbeProtocol.TCP,
+            target="127.0.0.1:8080",
+            status=ProbeStatus.PASS,
+            latency_ms=1.5,
+        )
+        report = run_sandbox_probes("127.0.0.1:8080", protocols=[ProbeProtocol.TCP])
+        assert report.overall_status == ProbeStatus.PASS
+        assert report.trace_id is not None
+        assert len(report.trace_id) > 0

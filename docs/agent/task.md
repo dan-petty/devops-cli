@@ -12,7 +12,7 @@
 | :--- | :--- | :--- | :--- | :--- |
 | [#107](https://github.com/dan-petty/devops-cli/issues/107) | [#163](https://github.com/dan-petty/devops-cli/pull/163) | Protocol-agnostic endpoint readiness and health probing subsystem (`devops sandbox probe`) | `Done` | [`task-107-sandbox-probe-subsystem.md`](tasks/task-107-sandbox-probe-subsystem.md) |
 | [#108](https://github.com/dan-petty/devops-cli/issues/108) | [#164](https://github.com/dan-petty/devops-cli/pull/164) | Cgroup v2 metrics collection and Prometheus application scraping (`devops sandbox metrics`) | `Done` | [`task-108-sandbox-metrics-cgroup-prom.md`](tasks/task-108-sandbox-metrics-cgroup-prom.md) |
-| [#109](https://github.com/dan-petty/devops-cli/issues/109) | TBD | W3C traceparent propagation and distributed trace correlation (`devops sandbox traces`) | `Ready` | Backlog |
+| [#109](https://github.com/dan-petty/devops-cli/issues/109) | [#178](https://github.com/dan-petty/devops-cli/pull/178) | W3C traceparent propagation and distributed trace correlation (`devops sandbox traces`) | `In Progress` | [`task-109-sandbox-traces-w3c-waterfall.md`](tasks/task-109-sandbox-traces-w3c-waterfall.md) |
 | [#110](https://github.com/dan-petty/devops-cli/issues/110) | TBD | Streaming diagnostic log aggregator and panic detector (`devops sandbox logs`) | `Ready` | Backlog |
 | [#111](https://github.com/dan-petty/devops-cli/issues/111) | TBD | Automated GitOps drift detection and webhook synchronization (`devops argo gitops watch`) | `Ready` | Backlog |
 | [#114](https://github.com/dan-petty/devops-cli/issues/114) | TBD | Declarative branch protection auditor and repository secret synchronization | `Ready` | Backlog |

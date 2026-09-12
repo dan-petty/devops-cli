@@ -975,6 +975,15 @@ class SandboxCommandHelp:
     latency_sla_ms: str = (
         "Maximum acceptable average HTTP request latency SLA in milliseconds (disabled by default)."
     )
+    traces: str = (
+        "Visualize distributed trace waterfall and cross-service latency for sandbox workloads."
+    )
+    trace_id: str = "Specific OpenTelemetry trace ID to retrieve and visualize."
+    last_trace: str = "Visualize spans for the most recently executed trace."
+    probe_before_trace: str = (
+        "Execute an endpoint health probe before visualizing the resulting trace."
+    )
+    jaeger_url: str = "Override Jaeger Query HTTP endpoint (default: http://localhost:16686)."
 
 
 @dataclass(frozen=True)

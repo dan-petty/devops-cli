@@ -161,3 +161,30 @@ devops sandbox metrics [OPTIONS] <identifier>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
+
+## `devops sandbox traces`
+
+**Visualize distributed trace waterfall and cross-service latency for sandbox workloads.**
+
+```bash
+devops sandbox traces [OPTIONS] <identifier>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<identifier>` | `string` | No | Unique instance ID or name of the sandbox. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--trace-id`, `-t` | `string` | - | Specific OpenTelemetry trace ID to retrieve and visualize. |
+| `--last`, `-l` | `boolean` | - | Visualize spans for the most recently executed trace. |
+| `--probe` | `boolean` | - | Execute an endpoint health probe before visualizing the resulting trace. |
+| `--jaeger-url` | `string` | - | Override Jaeger Query HTTP endpoint (default: http://localhost:16686). |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---

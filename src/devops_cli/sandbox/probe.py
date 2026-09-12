@@ -18,6 +18,12 @@ from devops_cli.sandbox.models import (
     SandboxInstance,
     SandboxProbeReport,
 )
+from devops_cli.telemetry.context import (
+    extract_traceparent,
+    generate_trace_id,
+    inject_traceparent_headers,
+)
+from devops_cli.telemetry.tracer import get_current_span_context, trace_span
 
 _MAX_ERROR_LEN = 256
 _DEFAULT_HTTP_PATHS = ["/healthz", "/health", "/ready", "/live"]
@@ -101,9 +107,21 @@ def probe_http(
         )
 
     start = time.perf_counter()
+    req_headers = inject_traceparent_headers(
+        {"User-Agent": "devops-cli-prober"},
+        auto_generate=True,
+    )
+    trace_info = extract_traceparent(req_headers.get("traceparent"))
+    trace_details: dict[str, Any] = {}
+    if req_headers.get("traceparent"):
+        trace_details["traceparent"] = req_headers["traceparent"]
+    if trace_info:
+        trace_details["trace_id"] = trace_info.get("trace_id")
+        trace_details["span_id"] = trace_info.get("parent_span_id")
+
     try:
         with httpx2.Client(timeout=timeout) as client:
-            resp = client.get(url, headers={"User-Agent": "devops-cli-prober"})
+            resp = client.get(url, headers=req_headers)
             latency = (time.perf_counter() - start) * 1000.0
             return _evaluate_http_response(
                 url=url,
@@ -113,6 +131,7 @@ def probe_http(
                 expected=expected,
                 regex=regex,
                 latency_budget_ms=latency_budget_ms,
+                trace_details=trace_details,
             )
     except httpx2.TimeoutException as exc:
         latency = (time.perf_counter() - start) * 1000.0
@@ -122,6 +141,7 @@ def probe_http(
             status=ProbeStatus.TIMEOUT,
             latency_ms=round(latency, 2),
             message=_truncate(f"HTTP probe timed out after {timeout}s: {exc}"),
+            details=trace_details,
         )
     except (httpx2.RequestError, OSError) as exc:
         latency = (time.perf_counter() - start) * 1000.0
@@ -131,6 +151,7 @@ def probe_http(
             status=ProbeStatus.FAIL,
             latency_ms=round(latency, 2),
             message=_truncate(f"HTTP probe connection error: {exc}"),
+            details=trace_details,
         )
 
 
@@ -142,8 +163,10 @@ def _evaluate_http_response(
     expected: list[int],
     regex: str | None,
     latency_budget_ms: float | None,
+    trace_details: dict[str, Any] | None = None,
 ) -> EndpointProbeResult:
     """Evaluate HTTP probe invariants: status code, latency SLA, and regex matching."""
+    base_details = dict(trace_details or {})
     if status_code not in expected:
         return EndpointProbeResult(
             protocol=ProbeProtocol.HTTP,
@@ -152,6 +175,7 @@ def _evaluate_http_response(
             latency_ms=round(latency, 2),
             status_code=status_code,
             message=f"HTTP status {status_code} not in expected {expected}",
+            details=base_details,
         )
 
     if latency_budget_ms is not None and latency > latency_budget_ms:
@@ -162,9 +186,11 @@ def _evaluate_http_response(
             latency_ms=round(latency, 2),
             status_code=status_code,
             message=f"Latency SLA exceeded: {latency:.1f}ms > {latency_budget_ms:.1f}ms budget",
+            details=base_details,
         )
 
     if regex and not re.search(regex, body):
+        base_details["body_preview"] = _truncate(body, 128)
         return EndpointProbeResult(
             protocol=ProbeProtocol.HTTP,
             target=url,
@@ -172,9 +198,10 @@ def _evaluate_http_response(
             latency_ms=round(latency, 2),
             status_code=status_code,
             message=_truncate(f"Response body failed regex assertion: {regex}"),
-            details={"body_preview": _truncate(body, 128)},
+            details=base_details,
         )
 
+    base_details["body_preview"] = _truncate(body, 64)
     return EndpointProbeResult(
         protocol=ProbeProtocol.HTTP,
         target=url,
@@ -182,7 +209,7 @@ def _evaluate_http_response(
         latency_ms=round(latency, 2),
         status_code=status_code,
         message=f"HTTP {status_code} OK",
-        details={"body_preview": _truncate(body, 64)},
+        details=base_details,
     )
 
 
@@ -263,6 +290,42 @@ def probe_grpc(
     )
 
 
+def _resolve_probe_target(
+    target_or_instance: SandboxInstance | str,
+) -> tuple[str | None, str, list[tuple[str, int]]]:
+    """Resolve target instance ID, display name, and network endpoints."""
+    if isinstance(target_or_instance, SandboxInstance):
+        instance_id = target_or_instance.instance_id
+        target_display = target_or_instance.name or target_or_instance.instance_id
+        endpoints = [("127.0.0.1", b.host_port) for b in target_or_instance.port_bindings]
+        return instance_id, target_display, endpoints
+
+    target_display = str(target_or_instance)
+    parsed = _parse_target_endpoint(target_display)
+    return None, target_display, [parsed]
+
+
+def _resolve_report_trace_id(
+    active_trace_id: str | None, results: list[EndpointProbeResult]
+) -> str:
+    """Resolve active trace ID from span context, probe results, or generator."""
+    if active_trace_id:
+        return active_trace_id
+    for r in results:
+        if r.details and "trace_id" in r.details:
+            return str(r.details["trace_id"])
+    return generate_trace_id()
+
+
+def _compute_overall_probe_status(passed: int, failed: int) -> ProbeStatus:
+    """Determine aggregate status based on passed and failed probe counts."""
+    if passed > 0 and failed == 0:
+        return ProbeStatus.PASS
+    if failed > 0:
+        return ProbeStatus.FAIL
+    return ProbeStatus.SKIPPED
+
+
 def run_sandbox_probes(
     target_or_instance: SandboxInstance | str,
     protocols: list[ProbeProtocol] | None = None,
@@ -275,51 +338,47 @@ def run_sandbox_probes(
     """Orchestrate protocol-agnostic probing matrix across a sandbox or raw target."""
     selected_protocols = protocols or [ProbeProtocol.TCP, ProbeProtocol.HTTP]
     start_time = time.perf_counter()
-
-    instance_id: str | None = None
-    target_endpoints: list[tuple[str, int]] = []
-
-    if isinstance(target_or_instance, SandboxInstance):
-        instance_id = target_or_instance.instance_id
-        target_display = target_or_instance.name or target_or_instance.instance_id
-        for binding in target_or_instance.port_bindings:
-            target_endpoints.append(("127.0.0.1", binding.host_port))
-    else:
-        target_display = str(target_or_instance)
-        parsed = _parse_target_endpoint(target_display)
-        target_endpoints.append(parsed)
+    instance_id, target_display, target_endpoints = _resolve_probe_target(target_or_instance)
 
     all_results: list[EndpointProbeResult] = []
-    for host, port in target_endpoints:
-        _dispatch_probes_for_port(
-            host=host,
-            port=port,
-            protocols=selected_protocols,
-            http_paths=http_paths or _DEFAULT_HTTP_PATHS,
-            expected_statuses=expected_statuses,
-            regex=regex,
-            timeout=timeout,
-            latency_budget_ms=latency_budget_ms,
-            collector=all_results,
-        )
+    active_trace_id: str | None = None
+
+    with trace_span(
+        "sandbox.probe",
+        attributes={
+            "sandbox.target": target_display,
+            "sandbox.instance_id": str(instance_id or ""),
+        },
+    ):
+        ctx = get_current_span_context()
+        active_trace_id = ctx.get("trace_id") if ctx else None
+
+        for host, port in target_endpoints:
+            _dispatch_probes_for_port(
+                host=host,
+                port=port,
+                protocols=selected_protocols,
+                http_paths=http_paths or _DEFAULT_HTTP_PATHS,
+                expected_statuses=expected_statuses,
+                regex=regex,
+                timeout=timeout,
+                latency_budget_ms=latency_budget_ms,
+                collector=all_results,
+            )
 
     duration = time.perf_counter() - start_time
     passed = sum(1 for r in all_results if r.status == ProbeStatus.PASS)
     failed = sum(1 for r in all_results if r.status in (ProbeStatus.FAIL, ProbeStatus.TIMEOUT))
-    overall = (
-        ProbeStatus.PASS
-        if (passed > 0 and failed == 0)
-        else (ProbeStatus.FAIL if failed > 0 else ProbeStatus.SKIPPED)
-    )
 
     return SandboxProbeReport(
         instance_id=instance_id,
         target=target_display,
-        overall_status=overall,
+        overall_status=_compute_overall_probe_status(passed, failed),
         total_probes=len(all_results),
         passed_probes=passed,
         failed_probes=failed,
         duration_seconds=round(duration, 3),
+        trace_id=_resolve_report_trace_id(active_trace_id, all_results),
         results=all_results,
     )
 

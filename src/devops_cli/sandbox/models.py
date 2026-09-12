@@ -153,6 +153,7 @@ class SandboxProbeReport(BaseModel):
     passed_probes: int = 0
     failed_probes: int = 0
     duration_seconds: float = 0.0
+    trace_id: str | None = None
     results: list[EndpointProbeResult] = Field(default_factory=list)
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
