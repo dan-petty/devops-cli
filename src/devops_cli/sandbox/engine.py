@@ -23,6 +23,7 @@ from devops_cli.sandbox.models import (
     SandboxDeployConfig,
     SandboxExecResult,
     SandboxInstance,
+    SandboxMetricsSnapshot,
     SandboxProbeReport,
     SandboxStatus,
 )
@@ -463,6 +464,31 @@ class WorkloadSandboxEngine:
             regex=regex,
             timeout=timeout,
             latency_budget_ms=latency_budget_ms,
+        )
+
+    def metrics(
+        self,
+        identifier: str,
+        prom_endpoint: str = "/metrics",
+        timeout: float = 5.0,
+        memory_threshold_pct: float = 80.0,
+        cpu_threshold_pct: float = 85.0,
+    ) -> SandboxMetricsSnapshot:
+        """Capture real-time cgroup v2 metrics and scrape Prometheus application metrics."""
+        inst = self.registry.get_instance(identifier)
+        if not inst:
+            raise SandboxNotFoundError(
+                f"Cannot capture metrics; sandbox instance '{identifier}' not found",
+                identifier=identifier,
+            )
+        from devops_cli.sandbox.metrics import collect_sandbox_metrics
+
+        return collect_sandbox_metrics(
+            instance_or_target=inst,
+            prom_endpoint=prom_endpoint,
+            timeout=timeout,
+            memory_threshold_pct=memory_threshold_pct,
+            cpu_threshold_pct=cpu_threshold_pct,
         )
 
 

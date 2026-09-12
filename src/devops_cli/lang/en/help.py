@@ -958,6 +958,10 @@ class SandboxCommandHelp:
     probe_expected_status: str = "Expected HTTP response status code(s)."
     probe_regex: str = "Regex pattern to assert against HTTP response body."
     probe_latency_sla: str = "Maximum acceptable response latency budget in milliseconds."
+    metrics: str = "Capture real-time cgroup v2 metrics and scrape Prometheus application metrics."
+    metrics_endpoint: str = "Prometheus metrics scrape path (default /metrics)."
+    warn_memory_pct: str = "Warning threshold percentage for container memory consumption."
+    warn_cpu_pct: str = "Warning threshold percentage for container CPU utilization."
 
 
 @dataclass(frozen=True)

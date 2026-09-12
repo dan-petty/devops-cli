@@ -157,14 +157,73 @@ class SandboxProbeReport(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
+class CgroupV2Metrics(BaseModel):
+    """Container resource telemetry extracted from cgroup v2 controllers."""
+
+    cpu_percent: float = 0.0
+    memory_current_bytes: int = 0
+    memory_peak_bytes: int | None = None
+    memory_limit_bytes: int | None = None
+    memory_usage_percent: float | None = None
+    page_faults_total: int = 0
+    pids_current: int = 0
+    io_read_bytes: int = 0
+    io_write_bytes: int = 0
+    network_rx_bytes: int = 0
+    network_tx_bytes: int = 0
+
+    @property
+    def memory_current_mb(self) -> float:
+        """Return current memory consumption in megabytes."""
+        return round(self.memory_current_bytes / (1024 * 1024), 2)
+
+    @property
+    def memory_limit_mb(self) -> float | None:
+        """Return configured memory limit in megabytes if bounded."""
+        return (
+            round(self.memory_limit_bytes / (1024 * 1024), 2)
+            if self.memory_limit_bytes is not None
+            else None
+        )
+
+
+class PrometheusMetric(BaseModel):
+    """Single Prometheus metric sample with labels and value."""
+
+    name: str
+    metric_type: str = "untyped"
+    labels: dict[str, str] = Field(default_factory=dict)
+    value: float = 0.0
+    timestamp: str | None = None
+
+
+class SandboxMetricsSnapshot(BaseModel):
+    """Point-in-time container resource telemetry and application metrics snapshot."""
+
+    instance_id: str | None = None
+    target: str
+    cgroup: CgroupV2Metrics | None = None
+    prometheus_metrics: list[PrometheusMetric] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    @property
+    def is_healthy(self) -> bool:
+        """Check if snapshot has no threshold warnings."""
+        return len(self.warnings) == 0
+
+
 __all__ = [
+    "CgroupV2Metrics",
     "EndpointProbeResult",
     "PortBinding",
     "ProbeProtocol",
     "ProbeStatus",
+    "PrometheusMetric",
     "SandboxDeployConfig",
     "SandboxExecResult",
     "SandboxInstance",
+    "SandboxMetricsSnapshot",
     "SandboxProbeReport",
     "SandboxStatus",
 ]
