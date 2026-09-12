@@ -963,6 +963,9 @@ class SandboxCommandHelp:
     metrics_timeout: str = "HTTP timeout in seconds for Prometheus metrics scraping (default: 5.0)."
     warn_memory_pct: str = "Warning threshold percentage for container memory consumption."
     warn_cpu_pct: str = "Warning threshold percentage for container CPU utilization."
+    latency_sla_ms: str = (
+        "Maximum acceptable average HTTP request latency SLA in milliseconds (disabled by default)."
+    )
 
 
 @dataclass(frozen=True)

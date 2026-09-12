@@ -473,6 +473,7 @@ class WorkloadSandboxEngine:
         timeout: float = 5.0,
         memory_threshold_pct: float = 80.0,
         cpu_threshold_pct: float = 85.0,
+        latency_sla_ms: float | None = None,
     ) -> SandboxMetricsSnapshot:
         """Capture real-time cgroup v2 metrics and scrape Prometheus application metrics."""
         inst = self.registry.get_instance(identifier)
@@ -497,6 +498,7 @@ class WorkloadSandboxEngine:
                 timeout=timeout,
                 memory_threshold_pct=memory_threshold_pct,
                 cpu_threshold_pct=cpu_threshold_pct,
+                latency_sla_ms=latency_sla_ms,
             )
             record_metric(
                 "devops_cli.sandbox.metrics_collected",

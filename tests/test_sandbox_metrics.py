@@ -778,7 +778,7 @@ def test_preserve_scrape_error_state_and_unhealthy() -> None:
             snapshot.scrape_error
             == "HTTP 502 Bad Gateway response from http://127.0.0.1:8080/metrics"
         )
-        assert any("502" in w for w in snapshot.warnings)
+        assert len(snapshot.warnings) == 0
         assert snapshot.is_healthy is False
 
 
@@ -876,3 +876,132 @@ def test_evaluate_threshold_warnings_status_label_5xx() -> None:
     warnings = evaluate_threshold_warnings(None, prom_metrics)
     assert len(warnings) >= 1
     assert any("5xx" in w for w in warnings)
+
+
+def test_calculate_memory_percent_zero_current() -> None:
+    """Test _calculate_memory_percent returns 0.0 when current bytes is 0."""
+    from devops_cli.sandbox.metrics import _calculate_memory_percent
+
+    assert _calculate_memory_percent(0, 1000) == 0.0
+    assert _calculate_memory_percent(100, 1000) == 10.0
+    assert _calculate_memory_percent(None, 1000) is None
+    assert _calculate_memory_percent(100, None) is None
+    assert _calculate_memory_percent(100, 0) is None
+
+
+def test_prometheus_exposition_timestamp_preservation() -> None:
+    """Test parse_prometheus_exposition preserves exposition timestamp."""
+    text = "http_requests_total 42.0 1716300000000\n"
+    metrics = parse_prometheus_exposition(text)
+    assert len(metrics) == 1
+    assert metrics[0].name == "http_requests_total"
+    assert metrics[0].value == 42.0
+    assert metrics[0].timestamp == "1716300000000"
+
+
+def test_scrape_prometheus_metrics_sanitizes_credentials_and_errors() -> None:
+    """Test scrape_prometheus_metrics masks credentials in scrape target and error message."""
+    url = "http://admin:supersecret@127.0.0.1:65530/metrics"
+    res = scrape_prometheus_metrics(url, timeout=0.5)
+    assert res.error is not None
+    assert "supersecret" not in res.error
+    assert "admin:***@" in res.error
+
+
+def test_parse_open_fds_cgroup_and_docker(tmp_path: Path) -> None:
+    """Test parsing open file descriptors count from cgroup stat files and docker stats."""
+    from devops_cli.sandbox.metrics import _build_metrics_from_docker_dict, _parse_open_fds
+
+    cgroup_dir = tmp_path / "cgroup" / "fds-test"
+    cgroup_dir.mkdir(parents=True)
+    (cgroup_dir / "fds.current").write_text("38\n")
+    assert _parse_open_fds(cgroup_dir) == 38
+
+    parsed = parse_cgroup_v2_directory(cgroup_dir)
+    assert parsed is not None
+    assert parsed.open_fds_count == 38
+
+    # From docker dict
+    data = {"PIDs": "4", "FDs": "64"}
+    metrics = _build_metrics_from_docker_dict(data)
+    assert metrics.open_fds_count == 64
+
+
+def test_evaluate_threshold_warnings_optional_latency_sla() -> None:
+    """Test latency SLA is only evaluated when explicitly configured."""
+    prom_metrics = [
+        PrometheusMetric(
+            name="http_request_duration_seconds_sum",
+            metric_type="histogram",
+            value=100.0,
+        ),
+        PrometheusMetric(
+            name="http_request_duration_seconds_count",
+            metric_type="histogram",
+            value=10.0,
+        ),
+    ]
+    # No latency SLA configured (None) -> no warnings generated
+    warnings_none = evaluate_threshold_warnings(
+        cgroup=None,
+        prom_metrics=prom_metrics,
+        latency_threshold_ms=None,
+    )
+    assert len(warnings_none) == 0
+
+    # Configured SLA (5000ms < 10000ms average) -> warning generated
+    warnings_configured = evaluate_threshold_warnings(
+        cgroup=None,
+        prom_metrics=prom_metrics,
+        latency_threshold_ms=5000.0,
+    )
+    assert len(warnings_configured) == 1
+    assert "High average request latency" in warnings_configured[0]
+
+
+@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
+def test_cli_sandbox_metrics_renders_open_fds_and_scrape_warning(
+    mock_engine_cls: MagicMock,
+) -> None:
+    """Test CLI renders open FDs and separate scrape warnings."""
+    mock_engine = MagicMock()
+    mock_engine.metrics.return_value = SandboxMetricsSnapshot(
+        instance_id="sandbox-test-fds",
+        target="fds-svc",
+        cgroup=CgroupV2Metrics(cpu_percent=10.0, open_fds_count=42),
+        prometheus_metrics=[],
+        scrape_error="HTTP 503 Service Unavailable from http://127.0.0.1:8080/metrics",
+        warnings=[],
+    )
+    mock_engine_cls.return_value = mock_engine
+
+    result = runner.invoke(app, ["sandbox", "metrics", "sandbox-test-fds"])
+    assert result.exit_code == 0
+    assert "Open File Descriptors" in result.output
+    assert "42" in result.output
+    assert "SCRAPE WARNING" in result.output
+    assert "HTTP 503" in result.output
+
+
+@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
+def test_cli_sandbox_metrics_latency_sla_option(
+    mock_engine_cls: MagicMock,
+) -> None:
+    """Test CLI metrics with --latency-sla-ms flag."""
+    mock_engine = MagicMock()
+    mock_engine.metrics.return_value = SandboxMetricsSnapshot(
+        instance_id="sandbox-test-sla",
+        target="sla-svc",
+        cgroup=CgroupV2Metrics(cpu_percent=10.0),
+        prometheus_metrics=[],
+        warnings=[],
+    )
+    mock_engine_cls.return_value = mock_engine
+
+    result = runner.invoke(
+        app,
+        ["sandbox", "metrics", "sandbox-test-sla", "--latency-sla-ms", "250.0"],
+    )
+    assert result.exit_code == 0
+    mock_engine.metrics.assert_called_once()
+    assert mock_engine.metrics.call_args.kwargs["latency_sla_ms"] == 250.0

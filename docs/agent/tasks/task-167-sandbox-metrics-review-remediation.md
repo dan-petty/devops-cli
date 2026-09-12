@@ -1,7 +1,7 @@
 # Task 167: Remediate PR #164 Review Findings on Sandbox Metrics Collection
 
 **Issue**: [#167](https://github.com/dan-petty/devops-cli/issues/167)
-**PR**: TBD
+**PR**: [#168](https://github.com/dan-petty/devops-cli/pull/168)
 **Status**: In Review
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
@@ -37,30 +37,40 @@ Remediate all 9 code review findings identified on PR #164 (`feat(telemetry): cg
 9. **Status Label Support in Prometheus HTTP Evaluator**:
    - Support `status` labels (e.g. `status="500"`, `status=~"5.."`) in addition to `code` for detecting 5xx error rate spikes.
 
+### Additional PR #168 Review Refinements
+- URL & Error Credential Sanitization: Apply `mask_uri_credentials` and `redact_text` in `scrape_prometheus_metrics`.
+- Zero Memory Current Handling: Fix `_calculate_memory_percent` with `is not None` to correctly return `0.0%`.
+- Prometheus Exposition Timestamp: Preserve timestamp in `_parse_metric_line`.
+- Open File Descriptors Metric: Add `open_fds_count` to `CgroupV2Metrics` and table display.
+- Configured / Optional Latency SLA: Add `--latency-sla-ms` option and evaluate only when configured.
+- Separate Scrape Errors from Threshold Warnings: Keep scrape failures in `snapshot.scrape_error` and render distinct `SCRAPE WARNING`.
+
 ---
 
 ## 2. Planned Changes
 
 1. **`src/devops_cli/lang/en/help.py`**:
-   - Add `metrics_timeout` to `SandboxHelp`.
+   - Add `metrics_timeout` and `latency_sla_ms` to `SandboxHelp`.
 2. **`src/devops_cli/commands/sandbox.py`**:
-   - Update `metrics` command option help to `HELP.sandbox.metrics_timeout`.
+   - Update `metrics` command option help to `HELP.sandbox.metrics_timeout` and add `--latency-sla-ms`.
    - Wrap CLI execution in `trace_span("sandbox.metrics", ...)`.
+   - Render open FDs and distinct scrape warnings in table output.
 3. **`src/devops_cli/sandbox/engine.py`**:
    - Wrap `WorkloadSandboxEngine.metrics()` in `trace_span("sandbox.engine.metrics", ...)`.
+   - Add `latency_sla_ms` parameter.
 4. **`src/devops_cli/sandbox/models.py`**:
-   - Add `scrape_error: str | None = None` and `cpu_usage_usec: int | None = None` to models.
+   - Add `scrape_error: str | None = None`, `cpu_usage_usec: int | None = None`, and `open_fds_count: int | None = None`.
    - Update `SandboxMetricsSnapshot.is_healthy` logic to check `scrape_error`.
 5. **`src/devops_cli/sandbox/metrics.py`**:
-   - Unescape Prometheus labels.
+   - Unescape Prometheus labels and preserve sample timestamps.
    - Calculate CPU percent over sample interval / delta.
-   - Validate SSRF on metrics scrape URLs.
-   - Preserve scrape errors in snapshot and emit scrape warnings.
-   - Evaluate memory leak trajectory and histogram latency in threshold evaluator.
-   - Populate network I/O bytes.
+   - Validate SSRF and mask credentials/redact errors on metrics scrape URLs.
+   - Preserve scrape errors in snapshot, separate from threshold warnings.
+   - Evaluate memory leak trajectory and optional latency SLA in threshold evaluator.
+   - Populate network I/O bytes and open FDs.
    - Support `status` label in HTTP metrics error rate calculation.
 6. **`tests/test_sandbox_metrics.py`**:
-   - Add comprehensive tests covering all 9 remediations.
+   - Add comprehensive tests covering all 9 remediations and 6 refinements.
 7. **Documentation**:
    - Run `devops docs generate --sync-readme`.
 
@@ -71,7 +81,7 @@ Remediate all 9 code review findings identified on PR #164 (`feat(telemetry): cg
 - [x] Ground issue in GitHub tracking (#167) and set status to `status/in-progress`.
 - [x] Author task tracking file `docs/agent/tasks/task-167-sandbox-metrics-review-remediation.md`.
 - [x] Create dedicated topic branch `fix/167-sandbox-metrics-review-remediation`.
-- [x] Add unit tests in `tests/test_sandbox_metrics.py` covering all 9 remediation items.
+- [x] Add unit tests in `tests/test_sandbox_metrics.py` covering all 9 remediation items and 6 refinements.
 - [x] Update `src/devops_cli/lang/en/help.py`.
 - [x] Update `src/devops_cli/sandbox/models.py`.
 - [x] Update `src/devops_cli/sandbox/metrics.py`.
@@ -79,4 +89,4 @@ Remediate all 9 code review findings identified on PR #164 (`feat(telemetry): cg
 - [x] Update `src/devops_cli/commands/sandbox.py`.
 - [x] Regenerate documentation (`devops docs generate --sync-readme`).
 - [x] Run test suite and full CI quality gate (`devops ci`).
-- [ ] Author Pull Request targeting `release/v0.2.17`.
+- [x] Author Pull Request targeting `release/v0.2.17` ([#168](https://github.com/dan-petty/devops-cli/pull/168)).

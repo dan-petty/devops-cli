@@ -447,19 +447,25 @@ def _render_cgroup_table(target: str, cgroup: CgroupV2Metrics) -> None:
         ["Memory Usage %", mem_pct, "< 80.0%", mem_badge],
         ["Active Tasks (PIDs)", str(cgroup.pids_current), "-", "[dim]ACTIVE[/dim]"],
         ["Page Faults Total", str(cgroup.page_faults_total), "-", "[dim]NORMAL[/dim]"],
-        [
-            "Block I/O (R/W)",
-            f"{cgroup.io_read_bytes / (1024 * 1024):.1f} MB / {cgroup.io_write_bytes / (1024 * 1024):.1f} MB",
-            "-",
-            "[dim]I/O[/dim]",
-        ],
-        [
-            "Network I/O (Rx/Tx)",
-            f"{cgroup.network_rx_bytes / (1024 * 1024):.1f} MB / {cgroup.network_tx_bytes / (1024 * 1024):.1f} MB",
-            "-",
-            "[dim]NET[/dim]",
-        ],
     ]
+    if cgroup.open_fds_count is not None:
+        rows.append(["Open File Descriptors", str(cgroup.open_fds_count), "-", "[dim]ACTIVE[/dim]"])
+    rows.extend(
+        [
+            [
+                "Block I/O (R/W)",
+                f"{cgroup.io_read_bytes / (1024 * 1024):.1f} MB / {cgroup.io_write_bytes / (1024 * 1024):.1f} MB",
+                "-",
+                "[dim]I/O[/dim]",
+            ],
+            [
+                "Network I/O (Rx/Tx)",
+                f"{cgroup.network_rx_bytes / (1024 * 1024):.1f} MB / {cgroup.network_tx_bytes / (1024 * 1024):.1f} MB",
+                "-",
+                "[dim]NET[/dim]",
+            ],
+        ]
+    )
     print_table(f"Cgroup v2 Resource Telemetry: {target}", columns, rows)
 
 
@@ -487,11 +493,18 @@ def _render_metrics_snapshot(snapshot: SandboxMetricsSnapshot) -> None:
     if snapshot.prometheus_metrics:
         _render_prom_table(snapshot.target, snapshot.prometheus_metrics)
 
+    if snapshot.scrape_error:
+        print_warning(f"SCRAPE WARNING: {snapshot.scrape_error}")
+
     for warning in snapshot.warnings:
         print_warning(f"THRESHOLD ALERT: {warning}")
 
     if snapshot.is_healthy:
         print_success(f"Workload '{snapshot.target}' operating within normal performance bounds.")
+    elif snapshot.scrape_error and not snapshot.warnings:
+        print_error(
+            f"Workload '{snapshot.target}' encountered telemetry collection error: {snapshot.scrape_error}"
+        )
     else:
         print_error(
             f"Workload '{snapshot.target}' exceeded {len(snapshot.warnings)} operating threshold(s)."
@@ -527,6 +540,13 @@ def metrics(
             help=HELP.sandbox.warn_cpu_pct,
         ),
     ] = 85.0,
+    latency_sla_ms: Annotated[
+        float | None,
+        typer.Option(
+            "--latency-sla-ms",
+            help=HELP.sandbox.latency_sla_ms,
+        ),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.sandbox.json_output)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
@@ -557,6 +577,7 @@ def metrics(
                     "timeout": timeout,
                     "warn_memory_pct": warn_memory_pct,
                     "warn_cpu_pct": warn_cpu_pct,
+                    "latency_sla_ms": latency_sla_ms,
                 },
             )
             return None
@@ -569,6 +590,7 @@ def metrics(
                 timeout=timeout,
                 memory_threshold_pct=warn_memory_pct,
                 cpu_threshold_pct=warn_cpu_pct,
+                latency_sla_ms=latency_sla_ms,
             )
         except SandboxNotFoundError:
             if "://" in identifier or ":" in identifier:
@@ -580,6 +602,7 @@ def metrics(
                     timeout=timeout,
                     memory_threshold_pct=warn_memory_pct,
                     cpu_threshold_pct=warn_cpu_pct,
+                    latency_sla_ms=latency_sla_ms,
                 )
             else:
                 print_error(f"Sandbox instance '{identifier}' not found.")

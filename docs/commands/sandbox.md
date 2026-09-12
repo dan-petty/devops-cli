@@ -156,6 +156,7 @@ devops sandbox metrics [OPTIONS] <identifier>
 | `--timeout`, `-t` | `float` | `5.0` | HTTP timeout in seconds for Prometheus metrics scraping (default: 5.0). |
 | `--warn-memory-pct` | `float` | `80.0` | Warning threshold percentage for container memory consumption. |
 | `--warn-cpu-pct` | `float` | `85.0` | Warning threshold percentage for container CPU utilization. |
+| `--latency-sla-ms` | `float` | - | Maximum acceptable average HTTP request latency SLA in milliseconds (disabled by default). |
 | `--json` | `boolean` | - | Output details in structured JSON format. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

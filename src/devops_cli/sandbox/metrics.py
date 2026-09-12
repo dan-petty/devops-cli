@@ -18,6 +18,7 @@ from devops_cli.sandbox.models import (
     SandboxInstance,
     SandboxMetricsSnapshot,
 )
+from devops_cli.security.sanitizer import mask_uri_credentials, redact_text
 
 _MAX_ERROR_LEN = 256
 _METRIC_LINE_REGEX = re.compile(
@@ -56,8 +57,24 @@ def _calculate_memory_percent(
     limit_bytes: int | None,
 ) -> float | None:
     """Calculate memory consumption percentage against cgroup limit."""
-    if current_bytes and limit_bytes and limit_bytes > 0:
+    if current_bytes is not None and limit_bytes is not None and limit_bytes > 0:
         return round((current_bytes / limit_bytes) * 100.0, 2)
+    return None
+
+
+def _parse_open_fds(base: Path) -> int | None:
+    """Parse open file descriptors count if controller or stat file exists."""
+    for candidate in ("fds.current", "fd.stat", "open_fds"):
+        stat_file = base / candidate
+        val = _read_int_file(stat_file)
+        if val is not None:
+            return val
+    fd_dir = base / "fd"
+    if fd_dir.is_dir():
+        try:
+            return len(list(fd_dir.iterdir()))
+        except OSError:
+            pass
     return None
 
 
@@ -78,6 +95,7 @@ def parse_cgroup_v2_directory(
     mem_pct = _calculate_memory_percent(mem_current, mem_limit)
 
     pids_current = _read_int_file(base / "pids.current") or 0
+    open_fds = _parse_open_fds(base)
     cpu_stats = _parse_key_value_file(base / "cpu.stat")
     mem_stats = _parse_key_value_file(base / "memory.stat")
     io_bytes = _parse_io_stat(base / "io.stat")
@@ -96,6 +114,7 @@ def parse_cgroup_v2_directory(
         memory_usage_percent=mem_pct,
         page_faults_total=page_faults,
         pids_current=pids_current,
+        open_fds_count=open_fds,
         io_read_bytes=io_bytes[0],
         io_write_bytes=io_bytes[1],
         network_rx_bytes=net_io[0],
@@ -237,12 +256,19 @@ def _build_metrics_from_docker_dict(data: dict[str, Any]) -> CgroupV2Metrics:
     net_io_str = str(data.get("NetIO", ""))
     rx_bytes, tx_bytes = _parse_docker_net_io(net_io_str)
 
+    open_fds: int | None = None
+    for fd_key in ("FDs", "OpenFDs", "FileDescriptors"):
+        if fd_key in data:
+            open_fds = _safe_int(str(data[fd_key]))
+            break
+
     return CgroupV2Metrics(
         cpu_percent=cpu_val,
         memory_current_bytes=mem_curr,
         memory_limit_bytes=mem_lim,
         memory_usage_percent=mem_pct,
         pids_current=pids_val,
+        open_fds_count=open_fds,
         network_rx_bytes=rx_bytes,
         network_tx_bytes=tx_bytes,
     )
@@ -327,6 +353,7 @@ def _parse_metric_line(line: str, type_map: dict[str, str]) -> PrometheusMetric 
     name = match.group("name")
     val_str = match.group("value")
     labels_str = match.group("labels")
+    ts = match.group("ts")
 
     try:
         val = float(val_str)
@@ -345,6 +372,7 @@ def _parse_metric_line(line: str, type_map: dict[str, str]) -> PrometheusMetric 
         metric_type=metric_type,
         labels=labels,
         value=val,
+        timestamp=ts,
     )
 
 
@@ -374,6 +402,7 @@ def scrape_prometheus_metrics(
     timeout: float = 5.0,
 ) -> PrometheusScrapeResult:
     """Scrape Prometheus metrics endpoint over HTTP and parse exposition text."""
+    safe_url = mask_uri_credentials(metrics_url)
     try:
         validated_url = validate_url_egress(
             metrics_url,
@@ -381,9 +410,10 @@ def scrape_prometheus_metrics(
             allow_private=True,
         )
     except Exception as exc:
+        err_msg = redact_text(str(exc))
         return PrometheusScrapeResult(
             [],
-            error=_truncate(f"SSRF validation blocked scrape URL: {exc}"),
+            error=_truncate(f"SSRF validation blocked scrape URL: {err_msg}"),
         )
 
     try:
@@ -392,14 +422,15 @@ def scrape_prometheus_metrics(
             if resp.status_code != 200:
                 return PrometheusScrapeResult(
                     [],
-                    error=_truncate(f"HTTP {resp.status_code} response from {metrics_url}"),
+                    error=_truncate(f"HTTP {resp.status_code} response from {safe_url}"),
                 )
             metrics = parse_prometheus_exposition(resp.text)
             return PrometheusScrapeResult(metrics, error=None)
     except Exception as exc:
+        err_msg = redact_text(mask_uri_credentials(str(exc)))
         return PrometheusScrapeResult(
             [],
-            error=_truncate(f"Scrape request failed for {metrics_url}: {exc}"),
+            error=_truncate(f"Scrape request failed for {safe_url}: {err_msg}"),
         )
 
 
@@ -409,7 +440,7 @@ def evaluate_threshold_warnings(
     memory_threshold_pct: float = 80.0,
     cpu_threshold_pct: float = 85.0,
     previous_cgroup: CgroupV2Metrics | None = None,
-    latency_threshold_ms: float = 500.0,
+    latency_threshold_ms: float | None = None,
 ) -> list[str]:
     """Evaluate container and application metrics against operating thresholds."""
     warnings: list[str] = []
@@ -470,11 +501,12 @@ def _evaluate_cgroup_thresholds(
 def _evaluate_prom_thresholds(
     prom_metrics: list[PrometheusMetric],
     warnings: list[str],
-    latency_threshold_ms: float = 500.0,
+    latency_threshold_ms: float | None = None,
 ) -> None:
     """Evaluate application error rates and latency SLAs from scraped Prometheus metrics."""
     _evaluate_prom_error_rate(prom_metrics, warnings)
-    _evaluate_prom_latency(prom_metrics, latency_threshold_ms, warnings)
+    if latency_threshold_ms is not None and latency_threshold_ms > 0:
+        _evaluate_prom_latency(prom_metrics, latency_threshold_ms, warnings)
 
 
 def _evaluate_prom_error_rate(
@@ -543,6 +575,7 @@ def collect_sandbox_metrics(
     previous_cgroup: CgroupV2Metrics | None = None,
     previous_cpu_usec: int | None = None,
     elapsed_sec: float | None = None,
+    latency_sla_ms: float | None = None,
 ) -> SandboxMetricsSnapshot:
     """Execute end-to-end sandbox metrics collection pipeline."""
     if isinstance(instance_or_target, SandboxInstance):
@@ -572,9 +605,8 @@ def collect_sandbox_metrics(
         memory_threshold_pct=memory_threshold_pct,
         cpu_threshold_pct=cpu_threshold_pct,
         previous_cgroup=previous_cgroup,
+        latency_threshold_ms=latency_sla_ms,
     )
-    if scrape_error:
-        warnings.append(f"Prometheus scrape warning: {scrape_error}")
 
     return SandboxMetricsSnapshot(
         instance_id=instance_id,

@@ -168,6 +168,7 @@ class CgroupV2Metrics(BaseModel):
     memory_usage_percent: float | None = None
     page_faults_total: int = 0
     pids_current: int = 0
+    open_fds_count: int | None = None
     io_read_bytes: int = 0
     io_write_bytes: int = 0
     network_rx_bytes: int = 0
