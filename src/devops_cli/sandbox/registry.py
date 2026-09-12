@@ -203,7 +203,7 @@ class SandboxRegistry:
         name: str,
         image: str,
         workspace_dir: str,
-        requested_ports: list[int | str],
+        requested_ports: list[int],
         now_str: str,
     ) -> tuple[SandboxInstance, list[PortBinding]]:
         """Atomically discover free ports, reserve them, and persist pending sandbox instance."""
