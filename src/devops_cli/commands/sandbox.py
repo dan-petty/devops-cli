@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -19,6 +19,7 @@ from devops_cli.exceptions.sandbox import (
 from devops_cli.lang import HELP
 from devops_cli.output import (
     print_error,
+    print_info,
     print_success,
     print_table,
     print_warning,
@@ -319,6 +320,11 @@ def _render_probe_report(report: SandboxProbeReport) -> None:
         print_success(summary)
     else:
         print_error(summary)
+    if report.trace_id:
+        print_info(
+            f"[dim]Trace ID: {report.trace_id} (Visualize with: devops sandbox traces --trace-id {report.trace_id})[/dim]",
+            prefix=False,
+        )
 
 
 @app.command("probe")
@@ -619,6 +625,182 @@ def metrics(
 
         _render_metrics_snapshot(snapshot)
         return None
+
+
+def _render_sandbox_trace_waterfall(
+    trace_id: str,
+    target: str | None,
+    spans: list[dict[str, Any]],
+    jaeger_url: str | None = None,
+) -> None:
+    """Render terminal waterfall Gantt table for OpenTelemetry trace spans."""
+    from devops_cli.output import format_latency
+    from devops_cli.telemetry.tracer import build_span_waterfall_tree
+    from devops_cli.telemetry.waterfall import flatten_waterfall_tree, render_waterfall_bar
+
+    tree = build_span_waterfall_tree(spans)
+    if not tree:
+        return
+
+    flattened = flatten_waterfall_tree(tree)
+    columns = [
+        ("Span / Operation", "cyan"),
+        ("Duration", "yellow"),
+        ("Offset", "dim"),
+        ("Execution Waterfall", "white"),
+        ("Status", "bold"),
+    ]
+    rows: list[list[str]] = []
+    for node, prefix in flattened:
+        name_display = f"{prefix}[bold]{node.name}[/bold]"
+        dur_display = format_latency(node.duration_ms)
+        is_err = "ERROR" in getattr(node, "status_code", "").upper()
+        bar_display = render_waterfall_bar(
+            node.relative_offset_pct, node.relative_duration_pct, is_error=is_err
+        )
+        status_badge = "[red]ERROR[/red]" if is_err else "[green]OK[/green]"
+        rows.append(
+            [
+                name_display,
+                dur_display,
+                f"{node.relative_offset_pct:.0f}%",
+                bar_display,
+                status_badge,
+            ]
+        )
+
+    target_title = f" [{target}]" if target else ""
+    print_table(f"Trace Waterfall{target_title}: {trace_id}", columns, rows)
+
+    min_start = min((int(s.get("startTimeUnixNano", 0)) for s in spans), default=0)
+    max_end = max((int(s.get("endTimeUnixNano", 0)) for s in spans), default=0)
+    total_dur_ms = max(0.0, (max_end - min_start) / 1e6)
+    j_url = (jaeger_url or "http://localhost:16686").rstrip("/")
+
+    print_info(
+        f"[bold]Trace Summary:[/bold] {len(spans)} span(s), total duration {format_latency(total_dur_ms)} | "
+        f"[dim]Jaeger: {j_url}/trace/{trace_id}[/dim]",
+        prefix=False,
+    )
+
+
+def _render_sandbox_trace_json(
+    trace_id: str,
+    target: str | None,
+    spans: list[dict[str, Any]],
+) -> None:
+    """Render trace waterfall as structured JSON payload."""
+    from devops_cli.telemetry.tracer import build_span_waterfall_tree
+
+    tree = build_span_waterfall_tree(spans)
+    min_start = min((int(s.get("startTimeUnixNano", 0)) for s in spans), default=0)
+    max_end = max((int(s.get("endTimeUnixNano", 0)) for s in spans), default=0)
+    total_dur_ms = max(0.0, (max_end - min_start) / 1e6)
+    payload = {
+        "trace_id": trace_id,
+        "target": target,
+        "total_duration_ms": round(total_dur_ms, 2),
+        "span_count": len(spans),
+        "waterfall": [n.to_dict() for n in tree],
+    }
+    typer.echo(json.dumps(payload, indent=2))
+
+
+def _execute_sandbox_probe_before_trace(identifier: str) -> tuple[str, str | None]:
+    """Execute dynamic probe against target or sandbox instance and return (target, trace_id)."""
+    from devops_cli.sandbox.probe import run_sandbox_probes
+
+    engine = WorkloadSandboxEngine()
+    target_obj: SandboxInstance | str = identifier
+    try:
+        instances = engine.status(identifier=identifier)
+        if instances:
+            target_obj = instances[0]
+    except SandboxError, OSError:
+        pass
+
+    report = run_sandbox_probes(target_obj)
+    return report.target, report.trace_id
+
+
+def _resolve_spans_for_traces(
+    trace_id: str | None, last: bool, jaeger_url: str | None
+) -> tuple[str, list[dict[str, Any]]]:
+    """Retrieve trace spans matching trace_id or fallback to most recent buffer spans."""
+    from devops_cli.telemetry.tracer import get_trace_spans
+    from devops_cli.telemetry.waterfall import resolve_trace_spans
+
+    active_id, spans = resolve_trace_spans(trace_id=trace_id, jaeger_url=jaeger_url)
+    if not spans and (last or not trace_id):
+        buffered = get_trace_spans(None)
+        if buffered:
+            return str(buffered[0].get("traceId", "unknown")), buffered
+
+    return active_id, spans
+
+
+@app.command("traces")
+def traces(
+    identifier: Annotated[
+        str | None,
+        typer.Argument(help=HELP.sandbox.instance_id),
+    ] = None,
+    trace_id: Annotated[
+        str | None,
+        typer.Option("--trace-id", "-t", help=HELP.sandbox.trace_id),
+    ] = None,
+    last: Annotated[
+        bool,
+        typer.Option("--last", "-l", help=HELP.sandbox.last_trace),
+    ] = False,
+    probe: Annotated[
+        bool,
+        typer.Option("--probe", help=HELP.sandbox.probe_before_trace),
+    ] = False,
+    jaeger_url: Annotated[
+        str | None,
+        typer.Option("--jaeger-url", help=HELP.sandbox.jaeger_url),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Visualize distributed trace waterfall and cross-service latency for sandbox workloads."""
+    set_dry_run(dry_run)
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops sandbox traces",
+            action="visualize_sandbox_traces",
+            details={
+                "identifier": identifier,
+                "trace_id": trace_id or "latest",
+                "probe": probe,
+                "jaeger_url": jaeger_url,
+            },
+        )
+        return None
+
+    resolved_trace_id = trace_id
+    target_display = identifier
+    if probe and identifier:
+        target_display, resolved_trace_id = _execute_sandbox_probe_before_trace(identifier)
+
+    active_id, spans = _resolve_spans_for_traces(resolved_trace_id, last, jaeger_url)
+    if not spans:
+        print_warning(f"No telemetry spans recorded for trace '{resolved_trace_id or active_id}'.")
+        return None
+
+    if json_output:
+        _render_sandbox_trace_json(active_id, target_display, spans)
+        return None
+
+    _render_sandbox_trace_waterfall(active_id, target_display, spans, jaeger_url=jaeger_url)
+    return None
 
 
 __all__ = ["app"]

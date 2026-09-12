@@ -528,5 +528,26 @@ class WorkloadSandboxEngine:
             )
             return snapshot
 
+    def traces(
+        self,
+        identifier: str | None = None,
+        trace_id: str | None = None,
+        last: bool = False,
+        jaeger_url: str | None = None,
+    ) -> tuple[str, list[dict[str, Any]]]:
+        """Retrieve distributed trace spans for a sandbox instance or trace ID."""
+        from devops_cli.telemetry.waterfall import resolve_trace_spans
+
+        target_trace_id = trace_id
+        if not target_trace_id and identifier:
+            try:
+                instances = self.status(identifier=identifier)
+                if instances:
+                    target_trace_id = instances[0].metadata.get("trace_id")
+            except SandboxError, OSError:
+                pass
+
+        return resolve_trace_spans(trace_id=target_trace_id, jaeger_url=jaeger_url)
+
 
 __all__ = ["WorkloadSandboxEngine"]
