@@ -38,6 +38,8 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops sandbox`](#devops-sandbox) — Isolated workload sandbox container lifecycle engine.
 - [`devops dashboard`](#devops-dashboard) — Interactive terminal UI dashboard for workstation situational awareness.
 - [`devops tui`](#devops-tui) — Interactive terminal UI dashboard (alias)
+- [`devops format`](#devops-format) — Automatically apply code formatting in-place (ruff format).
+- [`devops lint`](#devops-lint) — Run static analysis checks and automatically apply fixes (ruff check --fix).
 
 ---
 
@@ -1964,7 +1966,7 @@ devops ci coverage [OPTIONS]
 
 ### `devops ci lint`
 
-**Run ruff linter across the project.**
+**Run ruff linter across the project, automatically applying fixes by default.**
 
 ```bash
 devops ci lint [OPTIONS]
@@ -1974,12 +1976,13 @@ devops ci lint [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix` | `boolean` | - | Auto-fix violations where possible. |
+| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
+| `--check` | `boolean` | - | Check linting without applying automated fixes. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci format`
 
-**Check (or apply) code formatting with ruff format.**
+**Format codebase with ruff format (or verify in check-only mode with --check).**
 
 ```bash
 devops ci format [OPTIONS]
@@ -1989,7 +1992,8 @@ devops ci format [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix` | `boolean` | - | Apply formatting changes in-place. |
+| `--check` | `boolean` | - | Check formatting without writing changes to files. |
+| `--fix`, `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci typecheck`
@@ -5819,5 +5823,53 @@ devops tui [OPTIONS]
 | `--refresh-interval`, `-r` | `integer` | `5` | Auto-refresh interval in seconds for live dashboard updates. |
 | `--tab`, `-t` | `string` | `k8s` | Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=ai, 5=valkey). |
 | `--dry-run` | `boolean` | - | Simulate dashboard launch and print static summary. |
+
+---
+
+## devops format
+
+Automatically apply code formatting in-place (ruff format).
+
+Format codebase with ruff format (or verify in check-only mode with --check).
+
+### `devops format`
+
+**Format codebase with ruff format (or verify in check-only mode with --check).**
+
+```bash
+devops format [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--check` | `boolean` | - | Check formatting without writing changes to files. |
+| `--fix`, `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## devops lint
+
+Run static analysis checks and automatically apply fixes (ruff check --fix).
+
+Run ruff linter across the project, automatically applying fixes by default.
+
+### `devops lint`
+
+**Run ruff linter across the project, automatically applying fixes by default.**
+
+```bash
+devops lint [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
+| `--check` | `boolean` | - | Check linting without applying automated fixes. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

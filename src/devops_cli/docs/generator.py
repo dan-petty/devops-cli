@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import re
 from importlib import import_module
 from pathlib import Path
@@ -275,6 +276,30 @@ class DocGenerator:
             hidden=bool(getattr(cmd, "hidden", False)),
         )
 
+    def _introspect_leaf_or_group(
+        self, click_cmd: Any, name: str, module_path: str, summary: str
+    ) -> CommandGroupDoc:
+        """Introspect a command as either a leaf command alias or a command group."""
+        if hasattr(click_cmd, "commands") and name in click_cmd.commands:
+            leaf_cmd = click_cmd.commands[name]
+            doc = self.introspect_command(leaf_cmd, parent_path="devops", override_name=name)
+            return CommandGroupDoc(
+                name=name,
+                module_path=module_path,
+                summary=summary or doc.summary,
+                description=doc.description or summary,
+                commands=[doc],
+            )
+        doc = self.introspect_command(click_cmd, parent_path="devops", override_name=name)
+        commands_list = doc.subcommands if doc.is_group else [doc]
+        return CommandGroupDoc(
+            name=name,
+            module_path=module_path,
+            summary=summary or doc.summary,
+            description=doc.description or summary,
+            commands=commands_list,
+        )
+
     def _introspect_single_group(
         self, name: str, module_path: str, summary: str
     ) -> CommandGroupDoc | None:
@@ -287,16 +312,7 @@ class DocGenerator:
             if app_obj is None:
                 return None
             click_cmd = typer.main.get_command(app_obj)
-            doc = self.introspect_command(click_cmd, parent_path="devops", override_name=name)
-            desc = doc.description or summary
-            commands_list = doc.subcommands if doc.is_group else [doc]
-            return CommandGroupDoc(
-                name=name,
-                module_path=module_path,
-                summary=summary or doc.summary,
-                description=desc,
-                commands=commands_list,
-            )
+            return self._introspect_leaf_or_group(click_cmd, name, module_path, summary)
         except Exception as exc:
             return CommandGroupDoc(
                 name=name,
@@ -327,7 +343,7 @@ class DocGenerator:
             from devops_cli.ai.mcp.server import mcp
 
             async def _get_tools() -> list[MCPToolDoc]:
-                tools = await mcp.list_tools()
+                tools = await asyncio.wait_for(mcp.list_tools(), timeout=10.0)
                 return [_mcp_tool_to_doc(tool) for tool in tools]
 
             try:
@@ -336,8 +352,12 @@ class DocGenerator:
                 loop = None
 
             if loop and loop.is_running():
-                future = asyncio.run_coroutine_threadsafe(_get_tools(), loop)
-                return future.result()
+                pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                try:
+                    fut = pool.submit(asyncio.run, _get_tools())
+                    return fut.result(timeout=15.0)
+                finally:
+                    pool.shutdown(wait=False, cancel_futures=True)
             return asyncio.run(_get_tools())
         except Exception:
             return []

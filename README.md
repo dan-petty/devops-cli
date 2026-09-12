@@ -248,8 +248,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops config audit-keys [OPTIONS]` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. |
 | **ci** | `devops ci test [OPTIONS]` | Run the pytest test suite in parallel leveraging all CPU cores. |
 |  | `devops ci coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
-|  | `devops ci lint [OPTIONS]` | Run ruff linter across the project. |
-|  | `devops ci format [OPTIONS]` | Check (or apply) code formatting with ruff format. |
+|  | `devops ci lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
+|  | `devops ci format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
 |  | `devops ci typecheck [OPTIONS]` | Run mypy static type-checker strictly targeting Python 3.14 over src/. |
 |  | `devops ci audit [OPTIONS]` | Run uv audit to check for known package vulnerabilities. |
 |  | `devops ci security [OPTIONS]` | Run bandit static security vulnerability analysis over src/. |
@@ -381,6 +381,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops sandbox exec [OPTIONS] <instance_id> <command>` | Execute a command inside an active sandbox container. |
 | **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
+| **format** | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
+| **lint** | `devops lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 
 <!-- COMMAND_MATRIX_END -->
 

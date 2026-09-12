@@ -63,6 +63,8 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
     "sandbox": ("devops_cli.commands.sandbox", HELP.sandbox.app),
     "dashboard": ("devops_cli.commands.dashboard", HELP.dashboard.app),
     "tui": ("devops_cli.commands.dashboard", "Interactive terminal UI dashboard (alias)"),
+    "format": ("devops_cli.commands.ci", HELP.ci.format_cmd),
+    "lint": ("devops_cli.commands.ci", HELP.ci.lint),
 }
 
 
@@ -79,25 +81,29 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
     module_app = module.app
     command = typer.main.get_command(module_app)
 
+    effective_args = [command_name, *args] if command_name in ("format", "lint") else list(args)
+
+    prog = "devops" if command_name in ("format", "lint") else f"devops {command_name}"
+
     # Fast dispatch for help queries to avoid importing telemetry/OTLP network exporters
     if any(a in ("-h", "--help") for a in args):
         command.main(
-            args=args,
-            prog_name=f"devops {command_name}",
+            args=effective_args,
+            prog_name=prog,
             standalone_mode=False,
         )
         return
 
     from devops_cli.telemetry import record_metric, trace_span
 
-    args_summary = " ".join(args) if args else ""
+    args_summary = " ".join(effective_args) if effective_args else ""
     start_time = time.perf_counter()
     with trace_span(
         f"cli.{command_name}",
         attributes={
             "cli.command": command_name,
             "cli.args": args_summary,
-            "cli.args_count": len(args),
+            "cli.args_count": len(effective_args),
             "cli.module": module_path,
             "cli.version": __version__,
             "cli.is_dry_run": is_dry_run(),
@@ -106,8 +112,8 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
         span_h.add_event("command_delegated", {"command": command_name, "module": module_path})
         try:
             result = command.main(
-                args=args,
-                prog_name=f"devops {command_name}",
+                args=effective_args,
+                prog_name=prog,
                 standalone_mode=False,
             )
             dur = time.perf_counter() - start_time

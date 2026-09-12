@@ -249,6 +249,8 @@ def test_all_command_specs_registered() -> None:
         "sandbox",
         "dashboard",
         "tui",
+        "format",
+        "lint",
     }
     assert set(_COMMAND_SPECS.keys()) == expected_commands
 
