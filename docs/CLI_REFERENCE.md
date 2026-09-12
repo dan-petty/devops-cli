@@ -5776,6 +5776,33 @@ devops sandbox exec [OPTIONS] <instance_id> <command>
 |---|---|---|---|
 | `--workdir`, `-w` | `string` | - | Working directory inside the container for command execution. |
 
+### `devops sandbox probe`
+
+**Probe endpoint readiness and service health across network protocols.**
+
+```bash
+devops sandbox probe [OPTIONS] <identifier>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<identifier>` | `string` | Yes | Unique instance ID or name of the sandbox. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--protocol`, `-p` | `string` | - | Network protocol(s) to probe (tcp, http, openapi, grpc). |
+| `--path` | `string` | - | HTTP request path(s) to probe for readiness. |
+| `--expected-status` | `string` | - | Expected HTTP response status code(s). |
+| `--regex`, `-r` | `string` | - | Regex pattern to assert against HTTP response body. |
+| `--latency-sla` | `float` | - | Maximum acceptable response latency budget in milliseconds. |
+| `--timeout`, `-t` | `float` | `5.0` | Graceful stop timeout in seconds before SIGKILL. |
+| `--json` | `boolean` | - | Output details in structured JSON format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## devops dashboard

@@ -19,9 +19,11 @@ from devops_cli.exceptions.sandbox import (
 )
 from devops_cli.sandbox.models import (
     PortBinding,
+    ProbeProtocol,
     SandboxDeployConfig,
     SandboxExecResult,
     SandboxInstance,
+    SandboxProbeReport,
     SandboxStatus,
 )
 from devops_cli.sandbox.ports import allocate_ports
@@ -432,6 +434,35 @@ class WorkloadSandboxEngine:
             stdout=proc.stdout,
             stderr=proc.stderr,
             duration_seconds=duration,
+        )
+
+    def probe(
+        self,
+        identifier: str,
+        protocols: list[ProbeProtocol] | None = None,
+        http_paths: list[str] | None = None,
+        expected_statuses: list[int] | None = None,
+        regex: str | None = None,
+        timeout: float = 5.0,
+        latency_budget_ms: float | None = None,
+    ) -> SandboxProbeReport:
+        """Run health and readiness probes against a deployed sandbox instance."""
+        inst = self.registry.get_instance(identifier)
+        if not inst:
+            raise SandboxNotFoundError(
+                f"Cannot probe; sandbox instance '{identifier}' not found",
+                identifier=identifier,
+            )
+        from devops_cli.sandbox.probe import run_sandbox_probes
+
+        return run_sandbox_probes(
+            target_or_instance=inst,
+            protocols=protocols,
+            http_paths=http_paths,
+            expected_statuses=expected_statuses,
+            regex=regex,
+            timeout=timeout,
+            latency_budget_ms=latency_budget_ms,
         )
 
 
