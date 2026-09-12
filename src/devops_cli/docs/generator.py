@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import re
 from importlib import import_module
 from pathlib import Path
@@ -336,8 +337,8 @@ class DocGenerator:
                 loop = None
 
             if loop and loop.is_running():
-                future = asyncio.run_coroutine_threadsafe(_get_tools(), loop)
-                return future.result()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    return pool.submit(asyncio.run, _get_tools()).result(timeout=15.0)
             return asyncio.run(_get_tools())
         except Exception:
             return []

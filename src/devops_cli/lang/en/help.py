@@ -416,8 +416,8 @@ class CICommandHelp:
     remote: str = "Inspect and watch remote GitHub Actions CI workflow runs."
     test_cmd: str = "Run unit and integration test suite via pytest."
     coverage: str = "Run test suite and calculate code coverage percentage."
-    lint: str = "Run static analysis checks (ruff, actionlint, security audit)."
-    format_cmd: str = "Check or apply automated code formatting (ruff format)."
+    lint: str = "Run static analysis checks and automatically apply fixes (ruff check --fix)."
+    format_cmd: str = "Automatically apply code formatting in-place (ruff format)."
     typecheck: str = "Run strict static type analysis (mypy)."
     audit: str = "Audit installed dependencies for known vulnerabilities."
     filter_keyword: str = "Filter tests by keyword expression."
@@ -427,6 +427,11 @@ class CICommandHelp:
     xml_report: str = "Generate XML coverage report in .data/coverage.xml."
     auto_fix: str = "Auto-fix violations where possible."
     format_fix: str = "Apply formatting changes in-place."
+    format_check: str = "Check formatting without writing changes to files."
+    lint_check: str = "Check linting without applying automated fixes."
+    check_all: str = (
+        "Run in check-only mode without automatically applying formatting or lint fixes."
+    )
     min_severity: str = "Minimum severity threshold (low, medium, high)."
     fix_all: str = "Auto-fix lint/format before reporting status."
     fix_sync: str = "Automatically synchronize dependencies and lockfile."

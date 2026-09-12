@@ -236,7 +236,9 @@ async def _run_all_checks_async(
 
         generator = DocGenerator()
         docs_target = _get_project_root() / DEFAULT_DOCS_DIR
-        docs_up_to_date, _ = generator.check_docs(docs_target, check_readme_table=True)
+        docs_up_to_date, _ = await asyncio.to_thread(
+            generator.check_docs, docs_target, check_readme_table=True
+        )
         if not docs_up_to_date:
             await _execute_check_async(
                 "docs_fix",
@@ -343,7 +345,7 @@ async def _run_all_checks_async(
 
 
 def _run_all_checks(
-    *, lint_fix: bool, format_fix: bool, docs_fix: bool = False
+    *, lint_fix: bool = True, format_fix: bool = True, docs_fix: bool = False
 ) -> list[tuple[str, bool]]:
     """Synchronous entrypoint for executing CI pipeline."""
     results = asyncio.run(
@@ -390,6 +392,10 @@ def all_checks(
     fix: Annotated[
         bool,
         typer.Option("--fix/--no-fix", help=HELP.ci.fix_all),
+    ] = True,
+    check: Annotated[
+        bool,
+        typer.Option("--check", help=HELP.ci.check_all),
     ] = False,
     dry_run: Annotated[
         bool,
@@ -402,8 +408,13 @@ def all_checks(
     if dry_run:
         set_dry_run(True)
 
+    effective_fix = fix and not check
     start_time = time.perf_counter()
-    results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix, docs_fix=fix))
+    results = asyncio.run(
+        _run_all_checks_async(
+            lint_fix=effective_fix, format_fix=effective_fix, docs_fix=effective_fix
+        )
+    )
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - start_time)
 
@@ -484,19 +495,23 @@ def coverage(
 
 @app.command()
 def lint(
-    fix: Annotated[bool, typer.Option("--fix", help=HELP.ci.auto_fix)] = False,
+    fix: Annotated[bool, typer.Option("--fix/--no-fix", help=HELP.ci.auto_fix)] = True,
+    check: Annotated[
+        bool,
+        typer.Option("--check", help=HELP.ci.lint_check),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Run ruff linter across the project."""
+    """Run ruff linter across the project, automatically applying fixes by default."""
     if dry_run:
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     cmd = ["uv", "run", "ruff", "check", "."]
-    if fix:
+    if fix and not check:
         cmd.append("--fix")
     if not _run(cmd):
         raise typer.Exit(1)
@@ -504,19 +519,23 @@ def lint(
 
 @app.command(name="format")
 def fmt(
-    fix: Annotated[bool, typer.Option("--fix", help=HELP.ci.format_fix)] = False,
+    check: Annotated[
+        bool,
+        typer.Option("--check", help=HELP.ci.format_check),
+    ] = False,
+    fix: Annotated[bool, typer.Option("--fix/--no-fix", help=HELP.ci.format_fix)] = True,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Check (or apply) code formatting with ruff format."""
+    """Format codebase with ruff format (or verify in check-only mode with --check)."""
     if dry_run:
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
     cmd = ["uv", "run", "ruff", "format"]
-    if not fix:
+    if check or not fix:
         cmd.append("--check")
     cmd.append(".")
     if not _run(cmd):

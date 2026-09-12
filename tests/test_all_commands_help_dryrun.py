@@ -53,7 +53,13 @@ COMMAND_SPECS = [
     (argo_app, ["--help"]),
     (mcp_app, ["--help"]),
     (mcp_app, ["tools", "--help"]),
+    (main_app, ["--dry-run", "format"]),
+    (main_app, ["--dry-run", "lint"]),
+    (main_app, ["format", "--help"]),
+    (main_app, ["lint", "--help"]),
     (ci_app, ["--help"]),
+    (ci_app, ["format", "--help"]),
+    (ci_app, ["lint", "--help"]),
 ]
 
 

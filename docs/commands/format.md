@@ -1,15 +1,15 @@
-# `devops ci`
+# `devops format`
 
-Run tests, linting, formatting, and type-checks.
+Automatically apply code formatting in-place (ruff format).
 
 ## Commands
 
-## `devops ci test`
+## `devops format test`
 
 **Run the pytest test suite in parallel leveraging all CPU cores.**
 
 ```bash
-devops ci test [OPTIONS]
+devops format test [OPTIONS]
 ```
 
 **Options:**
@@ -24,12 +24,12 @@ devops ci test [OPTIONS]
 
 ---
 
-## `devops ci coverage`
+## `devops format coverage`
 
 **Run pytest with parallel code coverage analysis over src/.**
 
 ```bash
-devops ci coverage [OPTIONS]
+devops format coverage [OPTIONS]
 ```
 
 **Options:**
@@ -43,12 +43,12 @@ devops ci coverage [OPTIONS]
 
 ---
 
-## `devops ci lint`
+## `devops format lint`
 
 **Run ruff linter across the project, automatically applying fixes by default.**
 
 ```bash
-devops ci lint [OPTIONS]
+devops format lint [OPTIONS]
 ```
 
 **Options:**
@@ -61,12 +61,12 @@ devops ci lint [OPTIONS]
 
 ---
 
-## `devops ci format`
+## `devops format format`
 
 **Format codebase with ruff format (or verify in check-only mode with --check).**
 
 ```bash
-devops ci format [OPTIONS]
+devops format format [OPTIONS]
 ```
 
 **Options:**
@@ -79,12 +79,12 @@ devops ci format [OPTIONS]
 
 ---
 
-## `devops ci typecheck`
+## `devops format typecheck`
 
 **Run mypy static type-checker strictly targeting Python 3.14 over src/.**
 
 ```bash
-devops ci typecheck [OPTIONS]
+devops format typecheck [OPTIONS]
 ```
 
 **Options:**
@@ -95,12 +95,12 @@ devops ci typecheck [OPTIONS]
 
 ---
 
-## `devops ci audit`
+## `devops format audit`
 
 **Run uv audit to check for known package vulnerabilities.**
 
 ```bash
-devops ci audit [OPTIONS]
+devops format audit [OPTIONS]
 ```
 
 **Options:**
@@ -111,12 +111,12 @@ devops ci audit [OPTIONS]
 
 ---
 
-## `devops ci security`
+## `devops format security`
 
 **Run bandit static security vulnerability analysis over src/.**
 
 ```bash
-devops ci security [OPTIONS]
+devops format security [OPTIONS]
 ```
 
 **Options:**
@@ -128,12 +128,12 @@ devops ci security [OPTIONS]
 
 ---
 
-## `devops ci actionlint`
+## `devops format actionlint`
 
 **Run actionlint to validate GitHub Actions workflows for syntax and schema errors.**
 
 ```bash
-devops ci actionlint [OPTIONS]
+devops format actionlint [OPTIONS]
 ```
 
 **Options:**
@@ -144,12 +144,12 @@ devops ci actionlint [OPTIONS]
 
 ---
 
-## `devops ci docs`
+## `devops format docs`
 
 **Verify (or update with --fix) that documentation is up to date with CLI commands and configuration.**
 
 ```bash
-devops ci docs [OPTIONS]
+devops format docs [OPTIONS]
 ```
 
 **Options:**
@@ -161,12 +161,12 @@ devops ci docs [OPTIONS]
 
 ---
 
-## `devops ci maintain`
+## `devops format maintain`
 
 **Run automated toolchain, dependency freshness, and lockfile maintenance checks.**
 
 ```bash
-devops ci maintain [OPTIONS]
+devops format maintain [OPTIONS]
 ```
 
 **Options:**
@@ -178,12 +178,12 @@ devops ci maintain [OPTIONS]
 
 ---
 
-## `devops ci run`
+## `devops format run`
 
 **Run full CI and return a single pass/fail status.**
 
 ```bash
-devops ci run [OPTIONS]
+devops format run [OPTIONS]
 ```
 
 **Options:**
