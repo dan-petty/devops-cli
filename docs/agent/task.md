@@ -23,6 +23,8 @@
 | [#172](https://github.com/dan-petty/devops-cli/issues/172) | [#174](https://github.com/dan-petty/devops-cli/pull/174) | Configurable K8s context setting and conditional Minikube autostart | `Done` | [`task-172-k8s-context-minikube-autostart.md`](tasks/task-172-k8s-context-minikube-autostart.md) |
 | [#175](https://github.com/dan-petty/devops-cli/issues/175) | [#173](https://github.com/dan-petty/devops-cli/pull/173) | Project field options synchronization, complete pagination & generic owner resolution | `Done` | [`task-175-project-field-sync-pagination.md`](tasks/task-175-project-field-sync-pagination.md) |
 | [#176](https://github.com/dan-petty/devops-cli/issues/176) | [#177](https://github.com/dan-petty/devops-cli/pull/177) | Remediate DevSecOps review findings & enhance review self-improvement loop | `In Review` | [`task-176-review-findings-self-improvement.md`](tasks/task-176-review-findings-self-improvement.md) |
+| [#183](https://github.com/dan-petty/devops-cli/issues/183) | TBD | Resolve Helm Stack Deploy SSA Conflicts, Loki Validation, and PodSecurity Failures | `In Progress` | [`task-183-stack-deploy-conflicts.md`](tasks/task-183-stack-deploy-conflicts.md) |
+
 
 ---
 

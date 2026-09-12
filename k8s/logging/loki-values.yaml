@@ -60,3 +60,13 @@ chunksCache:
 
 resultsCache:
   enabled: false
+
+# Zero out scalable targets to satisfy SingleBinary deploymentMode validation
+read:
+  replicas: 0
+
+write:
+  replicas: 0
+
+backend:
+  replicas: 0
