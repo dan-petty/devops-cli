@@ -519,6 +519,56 @@ devops gh pr checks [OPTIONS] <number>
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
+### `devops gh pr wait`
+
+**Monitor PR checks, Copilot review sessions, and unresolved threads until ready.**
+
+```bash
+devops gh pr wait [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
+| `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
+| `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
+| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+### `devops gh pr monitor`
+
+**Monitor PR checks, Copilot review sessions, and unresolved threads until ready.**
+
+```bash
+devops gh pr monitor [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
+| `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
+| `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
+| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
 ### `devops gh pr edit`
 
 **Edit pull request base branch, title, or body.**

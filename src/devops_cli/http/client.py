@@ -34,7 +34,7 @@ def new_http_client(
         timeout
         if isinstance(timeout, httpx2.Timeout)
         else (
-            httpx2.Timeout(timeout, connect=DEFAULT_CONNECT_TIMEOUT_SECONDS)
+            request_timeout(read=float(timeout))
             if isinstance(timeout, (int, float))
             else request_timeout(read=read_timeout)
         )
@@ -54,7 +54,7 @@ def new_async_http_client(
         timeout
         if isinstance(timeout, httpx2.Timeout)
         else (
-            httpx2.Timeout(timeout, connect=DEFAULT_CONNECT_TIMEOUT_SECONDS)
+            request_timeout(read=float(timeout))
             if isinstance(timeout, (int, float))
             else request_timeout(read=read_timeout)
         )

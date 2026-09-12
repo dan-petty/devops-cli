@@ -22,7 +22,14 @@ graph TD
 - **Packaging & Composition Patterns**:
   - **Helm**: Parameterized packaging, semantic release versioning, atomic rollback capabilities.
   - **Kustomize**: Template-free overlay inheritance (`base/` + `overlays/<env>/`) using strategic merge patches.
-- **Local Workstation Cluster Abstraction**: Running single-node Kubernetes clusters locally via Minikube with the Docker container driver, enabling developers to test cloud-native architectures locally before staging deployment.
+- **Kubernetes Cluster Topologies & Targeting**:
+  - **Embedded DevContainer Minikube**: Local single-node cluster using the Docker-in-Docker driver (`--driver=docker`) with GPU passthrough and conditional autostart governed by `k8s.context == "minikube"`.
+  - **Docker Desktop Kubernetes (`docker-desktop`)**: Local workstation cluster running on macOS/Windows host, accessed via bind-mounted `~/.kube` and `host.docker.internal:6443`.
+  - **Local Host Clusters (`kind`, `k3s`, `k3d`)**: Containerized or lightweight local clusters running on the workstation host without consuming DevContainer resources.
+  - **Cloud-Managed Clusters (Amazon EKS, Google GKE, Azure AKS)**: Remote enterprise clusters authenticated via cloud provider CLIs (`aws`, `gcloud`, `az`) and IAM credentials forwarded into the container.
+- **Dynamic Context Routing**:
+  - `k8s.context` configuration setting and `DEVOPS_CLI_K8S_CONTEXT` environment variable dictate the target cluster.
+  - Context switching (`devops k8s switch-context <name>`) dynamically updates active kubeconfig and persists settings, automatically starting Minikube if selected and stopped.
 - **Pod Security Standards (PSS)**: Restricting privileged containers, enforcing non-root users, and enforcing read-only root filesystems across namespaces.
 
 ---
@@ -38,10 +45,21 @@ graph TD
 
 ### Common Commands
 ```bash
-# Bootstrap local Minikube cluster
+# List available Kubernetes contexts and identify active cluster
+devops k8s contexts
+
+# Switch active context (autostarts Minikube if stopped and targeted)
+devops k8s switch-context minikube
+devops k8s switch-context docker-desktop
+devops k8s switch-context kind-dev-cluster
+
+# Check cluster status and node readiness for active context
+devops k8s status
+
+# Bootstrap local Minikube cluster explicitly
 devops k8s bootstrap
 
-# Deploy all observability and GitOps stacks
+# Deploy all observability and GitOps stacks to active context
 devops k8s deploy-stack all
 
 # Real-time pod monitoring across namespaces

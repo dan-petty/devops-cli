@@ -788,7 +788,7 @@ def test_is_markdown_syntax_detection() -> None:
     assert is_markdown_syntax("This is __important__.")
 
     # Links
-    assert is_markdown_syntax("See [documentation](https://docs.example.com) for details.")
+    assert is_markdown_syntax("See [documentation](https://example.com) for details.")
     assert is_markdown_syntax("![Image](https://example.com/logo.png)")
 
     # Horizontal rules

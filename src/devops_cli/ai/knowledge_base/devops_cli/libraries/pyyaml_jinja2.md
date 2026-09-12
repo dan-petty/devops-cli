@@ -7,7 +7,7 @@
 | **Official Documentation** | [pyyaml.org](https://pyyaml.org/) • [jinja.palletsprojects.com](https://jinja.palletsprojects.com/) |
 | **Public Git Repository** | [github.com/yaml/pyyaml](https://github.com/yaml/pyyaml) • [github.com/pallets/jinja](https://github.com/pallets/jinja) |
 | **Official PyPI Package** | [pypi.org/project/PyYAML](https://pypi.org/project/PyYAML/) (`6.0.3`) • [pypi.org/project/jinja2](https://pypi.org/project/jinja2/) (`3.1.6`) |
-| **DevOps CLI Integration** | [`src/devops_cli/commands/devcontainer.py`](file:///workspaces/devops-cli/src/devops_cli/commands/devcontainer.py) • [`src/devops_cli/k8s/`](file:///workspaces/devops-cli/src/devops_cli/k8s/) |
+| **DevOps CLI Integration** | [`src/devops_cli/commands/devcontainer.py`](../../../../../src/devops_cli/commands/devcontainer.py) • [`src/devops_cli/k8s/`](../../../../../src/devops_cli/k8s/) |
 
 ---
 

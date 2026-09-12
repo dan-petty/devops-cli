@@ -188,7 +188,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops workspace clean [OPTIONS]` | Clean stale review sessions, old analysis caches, and temporary traces under .data/. |
 | **install-tools** | `devops install-tools status [OPTIONS]` | Show installation status and versions for all managed tools. |
 | **k8s** | `devops k8s contexts` | List kubeconfig contexts and mark the active one. |
-|  | `devops k8s switch-context <name>` | Switch active kubeconfig context. |
+|  | `devops k8s switch-context <name>` | Switch active kubeconfig context and ensure cluster is running. |
 |  | `devops k8s status` | Show node and pod summary for the current context. |
 |  | `devops k8s apply [OPTIONS] <path>` | Apply a Kubernetes manifest (delegates to kubectl). |
 |  | `devops k8s logs [OPTIONS] <pod> <query_arg>` | Stream pod logs or execute LogQL queries across cluster log streams. |
@@ -324,6 +324,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 | **pr** | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
+|  | `devops pr wait [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
+|  | `devops pr monitor [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
 |  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, or body. |
 |  | `devops pr create [OPTIONS]` | Create a pull request with automatic release branch target validation. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
@@ -379,6 +381,9 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops sandbox status [OPTIONS] <instance_id>` | Inspect status of deployed sandbox containers. |
 |  | `devops sandbox stop [OPTIONS] <instance_id>` | Gracefully stop and tear down a sandbox container. |
 |  | `devops sandbox exec [OPTIONS] <instance_id> <command>` | Execute a command inside an active sandbox container. |
+|  | `devops sandbox probe [OPTIONS] <identifier>` | Probe endpoint readiness and service health across network protocols. |
+|  | `devops sandbox metrics [OPTIONS] <identifier>` | Capture real-time cgroup v2 metrics and scrape Prometheus application metrics. |
+|  | `devops sandbox traces [OPTIONS] <identifier>` | Visualize distributed trace waterfall and cross-service latency for sandbox workloads. |
 | **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **format** | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |

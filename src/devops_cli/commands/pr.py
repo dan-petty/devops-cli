@@ -13,9 +13,10 @@ from devops_cli.config.defaults import DEFAULT_PR_LIMIT, DEFAULT_PR_STATE
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
-from devops_cli.lang import HELP, MESSAGES
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     print_error,
+    print_info,
     print_success,
     print_table,
     print_warning,
@@ -178,6 +179,270 @@ def pr_checks(
 ) -> None:
     """Check remote CI quality gate status on a pull request."""
     _run_gh_pr_command("checks", number, repo)
+
+
+# =============================================================================
+# Command: devops pr monitor (alias: wait)
+# =============================================================================
+
+
+def _format_check_badge(check: Any) -> str:
+    """Format check status badge with color coding."""
+    if check.is_success:
+        return "[green]✓ Success[/green]"
+    if check.is_failure:
+        return f"[bold red]✗ {check.conclusion}[/bold red]"
+    return f"[yellow]● {check.status}[/yellow]"
+
+
+def _render_monitor_summary(status: Any) -> None:
+    """Render structured checks summary table."""
+    if not status.checks:
+        return
+    rows = [[c.name, c.workflow or "-", _format_check_badge(c), c.url] for c in status.checks]
+    print_table(
+        title=f"CI Quality Gate Checks (PR #{status.number})",
+        columns=["Check", "Workflow", "Status", "URL"],
+        rows=rows,
+    )
+
+
+def _render_unresolved_threads_summary(threads: list[Any]) -> None:
+    """Render table of unresolved review discussion threads."""
+    from devops_cli.security.sanitizer import sanitize_secrets
+
+    rows = []
+    for t in threads:
+        author = t.comments[0].author if t.comments else "unknown"
+        loc = f"{t.path}:{t.line}" if t.line else t.path
+        body = sanitize_secrets(t.comments[0].body) if t.comments else ""
+        first_comment = (body[:60] + "...") if len(body) > 60 else body
+        first_comment = first_comment.replace("\n", " ")
+        rows.append([t.id, loc, author, first_comment])
+    print_table(
+        title="Unresolved Review Discussion Threads",
+        columns=["Thread ID", "Location", "Reviewer", "Comment"],
+        rows=rows,
+    )
+
+
+def _handle_monitor_exit(result: Any, pr_number: int) -> None:
+    """Handle non-zero exit states for devops pr monitor."""
+    if result.exit_code == 1:
+        print_error(
+            ERRORS.pr.checks_failed.format(
+                number=pr_number,
+                failed_count=len(result.status.failing_checks),
+            )
+        )
+        print_warning("Inspect failed job logs via: gh run view --log-failed <run_id>")
+        raise typer.Exit(1)
+
+    if result.exit_code == 2:
+        if getattr(result.status, "is_draft", False):
+            print_warning(result.message)
+            raise typer.Exit(2)
+        print_error(
+            ERRORS.pr.unresolved_threads.format(
+                number=pr_number,
+                count=len(result.status.unresolved_threads),
+            )
+        )
+        _render_unresolved_threads_summary(result.status.unresolved_threads)
+        print_warning(
+            "Remediate issues with test-first fixes, reply in-thread via:\n"
+            '  devops pr threads reply <thread_id> "<reply>"\n'
+            "and resolve via:\n"
+            "  devops pr threads resolve <thread_id>"
+        )
+        raise typer.Exit(2)
+
+    print_error(result.message)
+    raise typer.Exit(3)
+
+
+def _sanitize_threads_for_output(status_dict: dict[str, Any]) -> dict[str, Any]:
+    """Apply secret masking to review comment bodies in status dictionary."""
+    from devops_cli.security.sanitizer import sanitize_secrets
+
+    for thread in status_dict.get("unresolved_threads", []):
+        for comment in thread.get("comments", []):
+            if "body" in comment and isinstance(comment["body"], str):
+                comment["body"] = sanitize_secrets(comment["body"])
+    return status_dict
+
+
+def _format_markdown_monitor_summary(result: Any, pr_number: int) -> str:
+    """Format markdown output representation for PR monitoring."""
+    from devops_cli.security.sanitizer import sanitize_secrets
+
+    md_lines = [
+        f"# PR #{pr_number} Monitoring Status",
+        "",
+        f"**State**: {'Ready for Merging' if result.success else 'Action Required'}",
+        f"**Exit Code**: {result.exit_code}",
+        f"**Message**: {result.message}",
+        "",
+        "## CI Quality Gate Checks",
+        "",
+        "| Check | Workflow | Status | URL |",
+        "| :--- | :--- | :--- | :--- |",
+    ]
+    for c in result.status.checks:
+        badge = (
+            "✓ Success"
+            if c.is_success
+            else (f"✗ {c.conclusion}" if c.is_failure else f"● {c.status}")
+        )
+        md_lines.append(f"| {c.name} | {c.workflow or '-'} | {badge} | {c.url} |")
+    if result.status.unresolved_threads:
+        md_lines.extend(
+            [
+                "",
+                "## Unresolved Discussion Threads",
+                "",
+                "| Thread ID | Location | Reviewer | Comment |",
+                "| :--- | :--- | :--- | :--- |",
+            ]
+        )
+        for t in result.status.unresolved_threads:
+            auth = t.comments[0].author if t.comments else "unknown"
+            loc = f"{t.path}:{t.line}" if t.line else t.path
+            body = sanitize_secrets(t.comments[0].body) if t.comments else ""
+            short_b = (
+                (body[:60] + "...").replace("\n", " ")
+                if len(body) > 60
+                else body.replace("\n", " ")
+            )
+            md_lines.append(f"| `{t.id}` | {loc} | {auth} | {short_b} |")
+    return "\n".join(md_lines)
+
+
+@app.command("monitor")
+@app.command("wait")
+def monitor_pr_command(
+    number: Annotated[
+        int | None,
+        typer.Argument(help=HELP.pr.number),
+    ] = None,
+    interval: Annotated[
+        int,
+        typer.Option("--interval", "-i", min=1, help=HELP.pr.monitor_interval),
+    ] = 60,
+    timeout: Annotated[
+        int,
+        typer.Option("--timeout", "-t", min=1, help=HELP.pr.monitor_timeout),
+    ] = 300,
+    settle_timeout: Annotated[
+        int,
+        typer.Option("--settle-timeout", "-s", min=0, help=HELP.pr.settle_timeout),
+    ] = 60,
+    require_reviews: Annotated[
+        bool,
+        typer.Option("--require-reviews/--no-require-reviews", help=HELP.pr.require_reviews),
+    ] = True,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = "table",
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
+    ] = None,
+) -> None:
+    """Monitor PR checks, Copilot review sessions, and unresolved threads until ready."""
+    _require_gh_cli()
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.exceptions.git import GitHubOperationError
+    from devops_cli.github.pr_monitor import monitor_pr, resolve_branch_pr_number
+
+    valid_formats = {"table", "json", "yaml", "markdown"}
+    if output_format not in valid_formats:
+        print_error(
+            f"Unsupported format: '{output_format}'. Supported formats: {', '.join(sorted(valid_formats))}."
+        )
+        raise typer.Exit(1)
+
+    if interval < 1:
+        print_error("Polling interval must be at least 1 second.")
+        raise typer.Exit(1)
+    if timeout < 1:
+        print_error("Timeout must be at least 1 second.")
+        raise typer.Exit(1)
+
+    target_repo = repo or get_repo_origin_name()
+    if not target_repo or "/" not in target_repo:
+        print_error("Target repository must be in OWNER/REPO format.")
+        raise typer.Exit(1)
+
+    owner, repo_name = target_repo.split("/", 1)
+    pr_number = number
+    if pr_number is None:
+        try:
+            pr_number = resolve_branch_pr_number(owner=owner, repo=repo_name)
+        except GitHubOperationError as exc:
+            print_error(str(exc))
+            raise typer.Exit(1) from exc
+
+    if output_format == "table":
+        print_info(MESSAGES.pr.monitoring_pr.format(number=pr_number))
+
+    last_reported = -1
+
+    def _status_cb(st: Any, elapsed: int) -> None:
+        nonlocal last_reported
+        if st.completed_checks != last_reported:
+            last_reported = st.completed_checks
+            copilot_info = (
+                f" | Copilot: {st.copilot_status.state}"
+                if st.copilot_status.is_active or st.copilot_status.state != "idle"
+                else ""
+            )
+            print_info(
+                f"[{elapsed}s] Checks: {st.successful_checks}/{st.total_checks} passed "
+                f"({st.completed_checks}/{st.total_checks} done){copilot_info}"
+            )
+
+    result = monitor_pr(
+        owner=owner,
+        repo=repo_name,
+        pr_number=pr_number,
+        timeout=timeout,
+        interval=interval,
+        settle_timeout=settle_timeout,
+        require_reviews=require_reviews,
+        status_callback=_status_cb if output_format == "table" else None,
+    )
+
+    if output_format in {"json", "yaml", "markdown"}:
+        from devops_cli.output import print as print_out
+
+        sanitized_payload = {
+            "success": result.success,
+            "exit_code": result.exit_code,
+            "message": result.message,
+            "status": _sanitize_threads_for_output(result.status.model_dump()),
+        }
+        if output_format == "json":
+            print_out(json.dumps(sanitized_payload, indent=2))
+        elif output_format == "yaml":
+            import yaml
+
+            print_out(yaml.safe_dump(sanitized_payload, sort_keys=False))
+        elif output_format == "markdown":
+            print_out(_format_markdown_monitor_summary(result, pr_number))
+
+        if result.exit_code != 0:
+            raise typer.Exit(result.exit_code)
+        return
+
+    _render_monitor_summary(result.status)
+
+    if result.exit_code == 0:
+        print_success(MESSAGES.pr.pr_ready_success.format(number=pr_number))
+        return
+
+    _handle_monitor_exit(result, pr_number)
 
 
 # =============================================================================

@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devops_cli.config.settings import load_settings
+from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.valkey.client import ValkeyClient
 
@@ -182,7 +183,14 @@ def _get_latest_review_session_dir() -> Path | None:
             raw_data_dir = str(load_settings().data.dir)
         except Exception:
             raw_data_dir = "./.data"
-    reviews_dir = Path(raw_data_dir) / "reviews"
+    try:
+        validate_no_path_traversal(raw_data_dir, label="DEVOPS_CLI_DATA_DIR")
+        data_path = Path(raw_data_dir).resolve()
+        if is_forbidden_system_path(data_path):
+            return None
+    except Exception:
+        return None
+    reviews_dir = data_path / "reviews"
     if not (reviews_dir.exists() and reviews_dir.is_dir()):
         return None
     sessions = sorted(

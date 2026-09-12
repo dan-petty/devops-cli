@@ -36,21 +36,21 @@ workspace:
 # ── Grafana ───────────────────────────────────────────────────────────────────
 grafana:
   # Grafana instance base URL.
-  # Example: https://grafana.example.com
+  # Example: https://example.com:3000
   url: null
   # Token: devops config set grafana.token <value>
 
 # ── Prometheus ────────────────────────────────────────────────────────────────
 prometheus:
   # Prometheus base URL.
-  # Example: https://prometheus.example.com
+  # Example: https://example.com:9090
   # Note: set DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true for cluster-internal URLs.
   url: null
 
 # ── ArgoCD ────────────────────────────────────────────────────────────────────
 argocd:
   # ArgoCD server base URL.
-  # Example: https://argocd.example.com
+  # Example: https://example.com:8080
   # Note: set DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true for cluster-internal URLs.
   url: null
   # Token: devops config set argocd.token <value>
@@ -58,14 +58,14 @@ argocd:
 # ── Qdrant Vector Store ───────────────────────────────────────────────────────
 qdrant:
   # Qdrant server base URL for Retrieval-Augmented Generation (RAG).
-  # Example: http://localhost:6333 or https://qdrant.example.com
+  # Example: http://localhost:6333 or https://example.com:6333
   url: http://localhost:6333
   collection_prefix: devops
 
 # ── Jaeger Tracing ────────────────────────────────────────────────────────────
 jaeger:
   # Jaeger Query UI base URL for viewing OpenTelemetry traces.
-  # Example: http://localhost:16686 or https://jaeger.example.com
+  # Example: http://localhost:16686 or https://example.com:16686
   url: http://localhost:16686
 
 # ── Telemetry ─────────────────────────────────────────────────────────────────
@@ -116,3 +116,9 @@ ai:
   #       - http://localhost:11434
 
   # API key: devops config set ai.api_key <value>
+
+# ── Kubernetes ────────────────────────────────────────────────────────────────
+k8s:
+  # Target Kubernetes cluster context (e.g. minikube, kind-cluster, remote cluster).
+  # When set to minikube, minikube autostarts on container startup or context switch if stopped.
+  context: minikube

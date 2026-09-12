@@ -69,6 +69,7 @@ ENV_VALKEY_PASSWORD = "DEVOPS_CLI_VALKEY_PASSWORD"
 ENV_VALKEY_DB = "DEVOPS_CLI_VALKEY_DB"
 ENV_VALKEY_TIMEOUT = "DEVOPS_CLI_VALKEY_TIMEOUT"
 ENV_AI_CACHE_BACKEND = "DEVOPS_CLI_AI_CACHE_BACKEND"
+ENV_K8S_CONTEXT = "DEVOPS_CLI_K8S_CONTEXT"
 
 # Data Storage & Artifact Path environment variables
 ENV_DATA_DIR = "DEVOPS_CLI_DATA_DIR"
@@ -138,6 +139,7 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.VALKEY_DB: ENV_VALKEY_DB,
     opt.VALKEY_TIMEOUT: ENV_VALKEY_TIMEOUT,
     opt.AI_CACHE_BACKEND: ENV_AI_CACHE_BACKEND,
+    opt.K8S_CONTEXT: ENV_K8S_CONTEXT,
     opt.DATA_DIR: ENV_DATA_DIR,
     opt.DATA_ANALYSIS_DIR: ENV_DATA_ANALYSIS_DIR,
     opt.DATA_REVIEWS_DIR: ENV_DATA_REVIEWS_DIR,
@@ -470,6 +472,12 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.AI_CACHE_BACKEND,
             False,
             "AI cache storage backend: 'memory', 'disk', or 'valkey' (default: disk)",
+        ),
+        EnvVarSpec(
+            ENV_K8S_CONTEXT,
+            opt.K8S_CONTEXT,
+            False,
+            "Active Kubernetes cluster context (e.g. minikube, kind, or remote cluster)",
         ),
         EnvVarSpec(
             ENV_DATA_DIR,

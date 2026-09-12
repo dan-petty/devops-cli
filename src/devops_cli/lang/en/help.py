@@ -594,6 +594,15 @@ class PRCommandHelp:
     thread_ids: str = "One or more review thread GraphQL IDs to resolve."
     unresolved_only: str = "Filter to display only unresolved review discussion threads."
     reply_body: str = "Reply message text to append directly to the review thread."
+    monitor: str = (
+        "Monitor PR checks, Copilot review sessions, and unresolved threads until ready for merge."
+    )
+    monitor_interval: str = "Polling interval in seconds between check queries."
+    monitor_timeout: str = "Maximum time in seconds to wait for checks and reviews."
+    settle_timeout: str = "Grace period in seconds to allow Copilot review sessions to initialize."
+    require_reviews: str = (
+        "Wait for active Copilot review sessions to conclude and check for unresolved threads."
+    )
 
 
 @dataclass(frozen=True)
@@ -952,6 +961,29 @@ class SandboxCommandHelp:
     timeout: str = "Graceful stop timeout in seconds before SIGKILL."
     workdir: str = "Working directory inside the container for command execution."
     json_output: str = "Output details in structured JSON format."
+    probe: str = "Probe endpoint readiness and service health across network protocols."
+    probe_protocol: str = "Network protocol(s) to probe (tcp, http, openapi, grpc)."
+    probe_path: str = "HTTP request path(s) to probe for readiness."
+    probe_expected_status: str = "Expected HTTP response status code(s)."
+    probe_regex: str = "Regex pattern to assert against HTTP response body."
+    probe_latency_sla: str = "Maximum acceptable response latency budget in milliseconds."
+    metrics: str = "Capture real-time cgroup v2 metrics and scrape Prometheus application metrics."
+    metrics_endpoint: str = "Prometheus metrics scrape path (default /metrics)."
+    metrics_timeout: str = "HTTP timeout in seconds for Prometheus metrics scraping (default: 5.0)."
+    warn_memory_pct: str = "Warning threshold percentage for container memory consumption."
+    warn_cpu_pct: str = "Warning threshold percentage for container CPU utilization."
+    latency_sla_ms: str = (
+        "Maximum acceptable average HTTP request latency SLA in milliseconds (disabled by default)."
+    )
+    traces: str = (
+        "Visualize distributed trace waterfall and cross-service latency for sandbox workloads."
+    )
+    trace_id: str = "Specific OpenTelemetry trace ID to retrieve and visualize."
+    last_trace: str = "Visualize spans for the most recently executed trace."
+    probe_before_trace: str = (
+        "Execute an endpoint health probe before visualizing the resulting trace."
+    )
+    jaeger_url: str = "Override Jaeger Query HTTP endpoint (default: http://localhost:16686)."
 
 
 @dataclass(frozen=True)

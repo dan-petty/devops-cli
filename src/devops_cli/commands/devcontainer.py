@@ -776,19 +776,13 @@ def _wait_for_docker_daemon(timeout_seconds: int = 45) -> bool:
 
 
 def _start_minikube_cluster(dry_run: bool) -> tuple[bool, str]:
-    """Start Minikube cluster with GPU support if nvidia-smi is available, otherwise CPU."""
-    has_gpu = bool(shutil.which("nvidia-smi"))
-    start_cmd = ["minikube", "start", "--driver=docker"]
-    if has_gpu:
-        start_cmd.append("--gpus=all")
-    if not dry_run:
-        start_res = run_subprocess(start_cmd, check=False, quiet=True)
-        if start_res.returncode == 0:
-            gpu_str = " (--driver=docker --gpus=all)" if has_gpu else " (--driver=docker)"
-            return True, f"Started Minikube cluster{gpu_str}"
-        return False, "Warning: Failed to start Minikube cluster"
-    gpu_str = " (--driver=docker --gpus=all)" if has_gpu else " (--driver=docker)"
-    return True, f"Started Minikube cluster{gpu_str}"
+    """Start Minikube cluster with GPU support fallback to CPU."""
+    from devops_cli.commands.k8s.cluster_runtime import _start_minikube
+
+    success, msg = _start_minikube(dry_run=dry_run)
+    if not success and not msg.startswith("Warning:"):
+        return False, f"Warning: {msg}"
+    return success, msg
 
 
 def _auto_deploy_k8s_stack(workspace_dir: Path, stack: str, dry_run: bool) -> str | None:
@@ -974,7 +968,9 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
             actions.append(f"Scaffolded AI agent instructions (AGENTS.md) in {workspace_dir}")
 
     # 6. Minikube autostart & K8s deploy status evaluation (background supervisor)
-    auto_start = os.getenv("DEVOPS_MINIKUBE_AUTOSTART", "true").lower() in ("true", "1")
+    from devops_cli.commands.k8s.cluster_runtime import should_autostart_minikube
+
+    auto_start = should_autostart_minikube()
     auto_deploy = os.getenv("DEVOPS_K8S_AUTO_DEPLOY", "false").lower() in ("true", "1")
     stack = os.getenv("DEVOPS_K8S_STACK", "infra")
 

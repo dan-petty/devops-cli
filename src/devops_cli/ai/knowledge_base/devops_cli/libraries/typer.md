@@ -7,7 +7,7 @@
 | **Official Documentation** | [typer.tiangolo.com](https://typer.tiangolo.com/) • [click.palletsprojects.com](https://click.palletsprojects.com/) |
 | **Public Git Repository** | [github.com/tiangolo/typer](https://github.com/tiangolo/typer) • [github.com/pallets/click](https://github.com/pallets/click) |
 | **Official PyPI Package** | [pypi.org/project/typer](https://pypi.org/project/typer/) (`0.27.1`) • [pypi.org/project/click](https://pypi.org/project/click/) (`8.4.2`) |
-| **DevOps CLI Integration** | [`src/devops_cli/core/cli.py`](file:///workspaces/devops-cli/src/devops_cli/core/cli.py) • [`src/devops_cli/commands/`](file:///workspaces/devops-cli/src/devops_cli/commands/) |
+| **DevOps CLI Integration** | [`src/devops_cli/core/cli.py`](../../../../../src/devops_cli/core/cli.py) • [`src/devops_cli/commands/`](../../../../../src/devops_cli/commands/) |
 
 ---
 

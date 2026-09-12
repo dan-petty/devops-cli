@@ -26,6 +26,7 @@ This document provides foundational context, architectural principles, and opera
       - IP Addresses: RFC 5737 documentation blocks (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) or loopback (`127.0.0.1` / `localhost`). Never publish concrete private RFC 1918 IP addresses in documentation.
       - Registry Endpoints: `ghcr.io/<org>/<image>:<tag>` or `<registry-host>:<port>/<image>:<tag>`.
       - Storage Mount Paths: `<storage-mount-path>`, `<fast-storage>`, standard Kubernetes PersistentVolumeClaims.
+      - **Mandatory Mock/Dummy Test Value Hostname Standardization**: Use the exact same hostname/domain name with no subdomain (`example.com`) for all mock/dummy test values across all tests, fixtures, mocks, and examples. Never introduce subdomains (such as `api.example.com`, `vault.example.com`, `test.example.com`, or `k8s.example.com`) for mock test endpoints or dummy data.
     - **Configuration Template Hygiene (`config.example.yaml`) vs. User Runtime Config (`config.yaml`)**:
       - Committed configuration templates (`config.example.yaml`) and documentation must strictly use generic documentation or localhost endpoints (`http://localhost:11434`, `http://localhost:6333`, `http://localhost:8080`), never private LAN hostnames, homelab endpoints, or internal IP addresses.
       - **Strict Protection of User Runtime Config (`config.yaml`)**: The local `config.yaml` is uncommitted, gitignored, and belongs exclusively to the user's active runtime environment. AI agents and automated workflows **MUST NEVER** overwrite, sanitize, or reset the user's designated `ollama_urls`, inference hostnames, or custom ports in `config.yaml` to localhost. Sanitization rules apply solely to repository templates, committed code, tests, documentation, and task tracking files.
@@ -54,6 +55,7 @@ This document provides foundational context, architectural principles, and opera
 - **Mandatory Backup for Files Outside Workspace**: Whenever modifying, overwriting, editing, or truncating any file located outside the project workspace directory (e.g. `~/.ssh/`, `~/.bashrc`, `~/.zshrc`, `/etc/`), AI agents **MUST ALWAYS** create a timestamped backup named `<original-filepath>.bak-<YYYYMMDD-HHMMSS>` prior to making edits.
 - **Mandatory Defect Filing on CLI Errors & Warnings (Zero Unrecorded Issues)**: Whenever an AI agent or automated workflow encounters an unhandled error, subcommand failure, exception, crash, diagnostic warning, or unexpected output while executing `devops` CLI commands, the agent **MUST ALWAYS PROMPTLY CREATE A FORMAL BUG/ISSUE ENTRY** in GitHub Issues and synchronize it into GitHub Projects tracking. Suppressing, ignoring, bypassing, or silently working around CLI errors or warnings without formal defect tracking is strictly prohibited.
 - **Mandatory PR Check Monitoring & Review Thread Resolution (Zero Unmonitored PRs & Unresolved Threads)**:
+  - **Mandatory Draft PRs for In-Progress Work**: Whenever opening any pull request that is not fully implemented, tested, and ready for review, AI agents MUST create it as a draft pull request (`gh pr create --draft` or passing `draft: true` via API). Only convert it to ready for review (`gh pr ready <pr_number>`) once all implementation code, tests ($\ge 90\%$ coverage), and CI quality gates pass.
   - **Always Monitor & Fix CI Checks**: Whenever creating a pull request or pushing commits to a pull request branch, AI agents **MUST ALWAYS** actively monitor remote CI checks (`gh pr checks <pr_number>`) until all checks pass. If any check fails, immediately inspect failed job logs (`gh run view --log-failed`), diagnose root causes, apply test-first fixes, push corrective commits, and re-verify until 100% green. Never abandon a PR or conclude work with failing checks.
   - **Always Check & Address Review Comments**: When working on any pull request branch, AI agents **MUST ALWAYS** check for pull request comments and review discussion threads (`devops pr threads list <pr_number> --unresolved-only` or `gh api`), author test-first fixes, reply directly within the review thread on the exact comment being addressed (`devops pr threads reply <thread_id> "<body>"` or GraphQL mutation `addPullRequestReviewThreadReply`), and resolve each thread (`devops pr threads resolve <thread_id>` or GraphQL mutation `resolveReviewThread`) when all issues in the thread have been addressed.
 - **Unambiguous, Purpose-Driven Naming & Zero Namespace Confusion**:
@@ -92,8 +94,8 @@ All work follows a test-first progressive verification strategy to optimize deve
   - Maintain bidirectional synchronization between `docs/agent/tasks/` and GitHub Projects v2 cards across five unambiguous lifecycle states:
     - **Backlog**: Queued deliverables, backlog requirements, and upcoming milestone items awaiting assignment.
     - **Ready**: Scoped items with concrete acceptance criteria and tests designed, awaiting active development.
-    - **In Progress (WIP)**: Active work items currently being authored or edited. **Card must be moved to In Progress before modifying code in `src/`**. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: In Progress` or `### In-Progress Tasks (WIP)`.
-    - **In Review**: Pull Request opened with automated review, CI checks running, and peer feedback in progress. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: In Review`.
+    - **In Progress (WIP)**: Active work items currently being authored or edited. **Card must be moved to In Progress before modifying code in `src/`**. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: In Progress` or `### In-Progress Tasks (WIP)`. If an early pull request is opened to pair or satisfy remote branch tracking, it MUST be opened as a **Draft Pull Request** (`--draft`).
+    - **In Review**: Pull Request opened and marked ready for review (or converted from draft via `gh pr ready`), with automated review, CI checks running, and peer feedback in progress. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: In Review`.
     - **Done**: Pull Request squash-merged into release branch, remote CI checks green, issue closed, and milestone ratios updated. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: Done` or `### Completed Tasks`.
 - **Mandatory Custom Field Reconciliation (`devops gh project sync`)**:
   - Ground all task lifecycles, issue tracking, and sprint planning in GitHub Projects v2 (`.github/project-template.json`) and roadmap milestones (`docs/ROADMAP.md`).
@@ -112,6 +114,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
 - **Mandatory Documentation Synchronization**: Update documentation, command matrix, and README (`devops docs generate --sync-readme`, `docs/`, `AGENTS.md`) after every change to prevent documentation drift.
 - **Mandatory CLI Defect Filing**: If `devops` CLI commands emit unexpected errors, traceback failures, or warnings during local development or routine tasks, immediately file a tracking issue and sync to GitHub Projects before continuing.
 - **Mandatory Telemetry, Log & CLI Output Review**: AI agents must routinely review devops CLI command outputs, application logs (under `.data/logs/`), metrics, and OpenTelemetry tracing data (`@trace_span` / Logfire) for performance issues, latency bottlenecks, misconfigurations, unhandled exceptions, and diagnostic warnings. Any detected regression, error, or warning must be remediated and formally tracked in GitHub project tracking.
+- **Continuous Review, Feedback & Self-Improvement Loop**: Maintain an active closed-loop review and self-improvement cycle as detailed in [`docs/SELF_IMPROVEMENT.md`](docs/SELF_IMPROVEMENT.md). When addressing review findings, write tests first matching verification criteria, apply clean remediations that satisfy architectural invariants (complexity $\le 10$, nesting depth $\le 5$), export verified review feedback (`devops review export-feedback` $\rightarrow$ `feedback_dataset.jsonl`), and continuously update anti-hallucination datasets (`common_hallucinations.json`) and task manuals.
 
 
 ### Build, Lint & Test Commands
@@ -135,12 +138,13 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - **PR Base Branch Targeting**: Feature, fix, and refactoring PRs must target the active release branch (`--base release/v<version>`). Release branches target `main` when cutting an official release.
   - **Branch Freshness**: Always branch off fresh upstream tracking branches (`git fetch origin`).
   - **Strict Remote Branch Lifecycle & PR Governance (Zero Orphan Remote Branches)**:
-    - Every remote topic or feature branch on `origin` MUST have an associated, open Pull Request targeting the active release branch (`release/v<version>`) or `main` (for official release PRs).
+    - Every remote topic or feature branch on `origin` MUST have an associated, open Pull Request targeting the active release branch (`release/v<version>`) or `main` (for official release PRs). If work on the branch is actively in progress or not yet fully implemented and ready for review, the pull request MUST be opened as a **Draft Pull Request** (`gh pr create --draft` or passing `draft: true` via API).
     - **Immediate Deletion of Merged or Superseded Branches**: Once a PR is merged into its target branch, or if a branch's changes have been incorporated or superseded, the remote branch MUST be deleted immediately (`git push origin --delete <branch>`) and local tracking references pruned (`git fetch --prune origin`).
     - **No Orphan Remote Branches**: Remote branches without an active PR or active development purpose are strictly prohibited. If updates from an old or dormant branch are still required, apply or cherry-pick them to the current active release branch / active PR, and delete the obsolete remote branch immediately.
 - **Commit Standards**:
-  - Follow **Conventional Commits** (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
-  - **Atomic Commits by Default**: Break multi-faceted work into small, logically self-contained commits with precise messages.
+  - Follow **Conventional Commits** format (`feat(scope): <effect>`, `fix(scope): <effect>`, `refactor(scope): <effect>`, `docs(scope): <effect>`).
+  - **Concise, Effect-Driven Commit Messages**: Commit messages MUST be concise and simply state the direct effect of the specific change. Avoid overly verbose summaries, compound multi-clause sentences, redundant narrative preambles, or sprawling lists in commit subjects. State clearly and directly what the change accomplishes.
+  - **Atomic Commits by Default**: Break multi-faceted work into small, logically self-contained commits with precise, concise messages.
   - **No Internal References or Numeric IDs in Commit Messages**: Commit messages and PR titles MUST describe the technical or functional change using standard, descriptive engineering terminology. NEVER include internal session timestamps (e.g. `164259`, `003105`), review session numbers, subagent IDs, prompt phase numbers (e.g. `Phase 48.5`), or arbitrary numeric identifiers in commit subjects or messages.
   - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking documentation under `docs/agent/` (such as `docs/agent/tasks/` or `docs/agent/task.md`) MUST NEVER be committed as standalone one-off commits. They must always be bundled atomically into the corresponding feature, fix, or refactoring commit that delivers the actual code changes, or kept in local workspace state until bundled with functional deliverable commits.
 - **Pull Request Governance & Title Conventions**:
@@ -150,11 +154,46 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
   - **Pre-1.0 vs Post-1.0 Release Governance**:
     - **Pre-1.0 (`0.y.z`)**: Active alpha software with no backwards compatibility guarantees. The codebase remains clean of legacy remnants at all times to reach maturity rapidly.
     - **Post-1.0 (`X.Y.Z`)**: Strict adherence to Semantic Versioning 2.0.0 and enterprise change management (feature flags, multi-release deprecation cycles, and automated migrations).
-  - **Human-in-the-Loop Merging**: AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`gh pr checks`), and leave merge approval to maintainers. Never merge autonomously.
-  - **Mandatory CI Check Monitoring & Remediation on PR Creation and Branch Pushes**:
-    - AI agents **MUST ALWAYS** actively monitor remote CI checks whenever creating a pull request (`gh pr create`) or pushing commits to a branch that has an active pull request (`git push`).
-    - Actively monitor remote GitHub Actions status (`gh pr checks <pr-number>` or `gh run watch`) until all checks complete.
-    - If any check fails, AI agents **MUST IMMEDIATELY** inspect the failure logs (`gh run view --log-failed`), diagnose the root cause, author test-first corrective commits, push to the branch, and re-verify checks until all checks are 100% green. Never abandon a pull request or conclude an agent turn with failing CI checks.
+  - **Mandatory Draft Pull Requests for In-Progress Work & Two-Stage Review Lifecycle**:
+    - **Stage 1: In-Progress Draft PR Creation**:
+      - Whenever opening any pull request that is not yet fully implemented, tested, and ready for review, AI agents and contributors **MUST ALWAYS CREATE THE PULL REQUEST AS A DRAFT** (`gh pr create --draft` or passing `draft: true` via GitHub REST/GraphQL API).
+      - A draft pull request communicates that work is actively in progress, prevents premature review cycles, avoids false merge-readiness assumptions, and ensures compliance with the zero orphan remote branches policy.
+      - During development, actively monitor remote CI checks (`devops pr monitor <pr-number>` or `gh pr checks <pr-number>`) on every push. Remediate any failures immediately with test-first commits.
+    - **Stage 2: Transition to Ready for Review & Post-Ready Review Remediation**:
+      - **Mandatory Conversion to Ready for Review**: Once all implementation logic, test-first coverage ($\ge 90\%$), documentation synchronization (`devops docs generate --sync-readme`), and local/remote CI quality gates pass cleanly, and all initial review comments are addressed, AI agents **MUST PROGRAMMATICALLY MARK THE PULL REQUEST AS READY FOR REVIEW** (`gh pr ready <pr-number>` or GraphQL mutation `markPullRequestReadyForReview`).
+      - **Post-Ready Secondary Review & Copilot Monitoring Gate (Zero Premature Completions)**:
+        - Marking a pull request as ready for review transitions it to public review state and **triggers automated GitHub Copilot review sessions, CodeQL scans, and reviewer notifications**.
+        - AI agents are **STRICTLY PROHIBITED** from concluding a task, declaring completion, or asking maintainers to merge immediately after marking a PR ready.
+        - **5-Minute Completion Allowance & 60-Second Polling Interval**:
+          - AI agents **MUST ALLOW AT LEAST 5 MINUTES (300 SECONDS)** for pull request CI checks, CodeQL scans, and Copilot review sessions to complete.
+          - AI agents **MUST WAIT AT LEAST A FULL MINUTE (60 SECONDS) BETWEEN REQUEST CYCLES** when monitoring pull request status. Polling in tight loops or intervals shorter than 60 seconds is strictly prohibited to prevent hammering GitHub APIs, avoid secondary rate limits, and allow asynchronous automated review bots to execute.
+        - Actively monitor pull requests via `devops pr monitor <pr-number>` (or FastMCP `pr_monitor`) or check for newly submitted review comments and discussion threads (`devops pr threads list <pr-number> --unresolved-only` or `gh api`).
+        - If Copilot or reviewers submit review comments:
+          1. Remediate all feedback iteratively using Test-First Development (author/update tests in `tests/`, implement clean fixes in `src/`).
+          2. Commit with concise Conventional Commit messages and push to the branch.
+          3. Reply **directly within each specific review thread** on the exact comment addressed (`devops pr threads reply <thread-id> "<body>"`).
+          4. Programmatically resolve each thread (`devops pr threads resolve <thread-id>`).
+        - Re-verify that all remote CI checks remain 100% green (`devops pr monitor <pr-number>`).
+      - **Task Completion Guarantee**: A pull request task is ONLY completed and ready for maintainer squash-merge when:
+        1. The pull request is marked ready for review (`draft: false`).
+        2. All remote CI checks are 100% green (completed, conclusion=SUCCESS).
+        3. Copilot post-ready review sessions have settled.
+        4. 0 unresolved review discussion threads remain.
+  - **Human-in-the-Loop Merging**: AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`devops pr monitor`), and leave merge approval to maintainers. Never merge autonomously.
+  - **Mandatory PR Monitoring Gate (`devops pr monitor`) (Zero Premature Completions & Unmonitored PRs)**:
+    - AI agents **MUST ALWAYS** actively monitor pull requests by running `devops pr monitor <pr-number>` (or FastMCP `pr_monitor`) immediately after opening a PR (`gh pr create`) or pushing commits to any branch with an active PR (`git push`).
+    - **Strict Prohibition of Premature Completion**: AI agents are **STRICTLY PROHIBITED** from concluding a turn, declaring a task done, switching branches, or asking the user to review or merge while CI checks are pending, failing, or while automated code review sessions (such as GitHub Copilot code review) are in progress or unresolved.
+    - **Cadence & Timeout Standards**: Allow at least 5 minutes (300s) for remote CI checks and review bots to complete, and wait at least a full minute (60s) between request cycles when monitoring check status. Never poll in rapid or sub-minute intervals.
+    - **Wait for Copilot Review Sessions to Settle**: Automated code review bots submit reviews asynchronously. `devops pr monitor` automatically enforces settling windows and checks timeline activity. Agents must wait for this review session to complete.
+    - **Remediate Check Failures Immediately**: If any CI check fails (exit code 1), AI agents **MUST IMMEDIATELY** inspect the failed job logs (`gh run view --log-failed`), diagnose the root cause, author test-first corrective commits with concise effect-driven messages, push to the branch, and re-run `devops pr monitor <pr-number>`.
+    - **Remediate Review Feedback In-Thread & Resolve**: If Copilot or reviewers leave review comments (exit code 2), AI agents **MUST ALWAYS**:
+      1. Inspect all open threads: `devops pr threads list <pr-number> --unresolved-only` (or FastMCP `pr_threads_list`).
+      2. Author test-first fixes in `src/` and `tests/`.
+      3. Commit with concise message stating the direct effect of the change and push to the branch.
+      4. Post a direct in-thread reply to each specific comment addressed: `devops pr threads reply <thread-id> "<body>"` (or FastMCP `pr_thread_reply`). Top-level PR summary comments alone are strictly prohibited.
+      5. Programmatically mark each thread resolved: `devops pr threads resolve <thread-id>` (or FastMCP `pr_thread_resolve`).
+      6. Re-run `devops pr monitor <pr-number>` and verify that exit code 0 is achieved.
+    - **Merge Readiness Guarantee**: A pull request is ONLY ready for merging when `devops pr monitor` exits with code 0: confirming all CI checks are 100% green (completed, conclusion=SUCCESS), Copilot review session has concluded, and 0 unresolved review discussion threads remain.
   - **Mandatory PR Review Comment Inspection, In-Thread Replies & Thread Resolution**:
     - When working on any pull request branch, AI agents **MUST ALWAYS** check for pull request review comments and discussion threads (`devops pr threads list <pr-number> --unresolved-only`, FastMCP `pr_threads_list`, or `gh api`).
     - Actively inspect, evaluate, and address all code review feedback (from GitHub Copilot, CodeQL, security scanners, or human reviewers).
@@ -163,7 +202,7 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
     - Every in-thread reply must clearly articulate the concrete code modification, architectural rationale, or test addition implemented to resolve the reviewer's finding.
     - **Mandatory Thread Resolution**: Once all issues in a review discussion thread have been addressed and verified, AI agents **MUST PROGRAMMATICALLY RESOLVE THE THREAD** on GitHub (`devops pr threads resolve <thread-id>`, FastMCP `pr_thread_resolve`, or GraphQL mutation `resolveReviewThread(input: { threadId: $threadId })`). Never leave addressed review threads unresolved.
     - **Closed-Loop Feedback Dataset Calibration**: Whenever remediating review findings from automated review sessions (`.data/reviews/<session>/findings.json`), AI agents MUST update the status to `MITIGATED` or `INVALIDATED` with explicit step-by-step rationale, export the feedback dataset via `devops review export-feedback --status ALL --output .data/reviews/feedback_dataset.jsonl` (or FastMCP `review_export_feedback`), synchronize prompt task instructions (`src/devops_cli/ai/tasks/`) to prevent recurrence, and synchronize the knowledge base to ensure verified remediations permanently reinforce the self-improvement training loop.
-    - Always re-verify local quality gates (`devops ci`) and monitor remote GitHub Actions status (`gh pr checks`) until 100% green.
+    - Always re-verify local quality gates (`devops ci`) and monitor remote status via `devops pr monitor <pr-number>` until 100% green.
 - **GitHub Projects, Issues, Views, Milestones & Label Governance (Project Management Integration)**:
   - **Active Milestone GitHub Resource & Issue Population Mandate**:
     - When cutting a new release branch or transitioning to a new active milestone, AI agents **MUST PROACTIVELY POPULATE GITHUB RESOURCES** (milestones, issues, project items, labels) for that active milestone.
@@ -219,8 +258,8 @@ Before planning, implementing, debugging, refactoring, or reviewing code, consul
       - Manage state transitions strictly (`Backlog` $\to$ `Ready` $\to$ `In Progress` $\to$ `In Review` $\to$ `Done`) across issues and tasks in [`docs/agent/tasks/`](docs/agent/tasks/README.md):
         - `Backlog`: Queued items awaiting milestone assignment or scheduling.
         - `Ready`: Scoped items ready for immediate development with designed test specifications.
-        - `In Progress`: Active work items currently being authored or edited. **Card MUST be transitioned to In Progress before making edits in `src/`**. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: In Progress`.
-        - `In Review`: Pull Request opened with CI checks running and code reviews in progress. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: In Review`.
+        - `In Progress`: Active work items currently being authored or edited. **Card MUST be transitioned to In Progress before making edits in `src/`**. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: In Progress`. If an early pull request is opened to pair or satisfy remote branch tracking, it MUST be opened as a **Draft Pull Request** (`--draft`).
+        - `In Review`: Pull Request opened and marked ready for review (or converted from draft via `gh pr ready`), with CI checks running and code reviews in progress. Mirrored in `docs/agent/tasks/task-<issue>-<slug>.md` under `**Status**: In Review`.
         - `Done`: Pull Request squash-merged by maintainer into release branch, remote CI verified, and issue closed.
       - **Zero Disconnected PRs**: Every PR MUST link to an active tracking issue (`Closes #<id>`, `Fixes #<id>`), be added as a project item to the project board, and possess taxonomy labels (`type/*`, `scope/*`) so that its custom fields (`Category`, `Value`, `Effort`) are data-driven and automatically populated.
     - **Active Triage & Quality Queue Monitoring**: AI agents must routinely inspect and populate the *Triage & Quality Table* (`type/bug`, `status/blocked`, `status/triage`) to promptly triage, remediate, and track incoming bugs, review findings, and pipeline failures.

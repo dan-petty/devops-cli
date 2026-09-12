@@ -7,7 +7,7 @@
 | **Official Documentation** | [github.com/openai/tiktoken](https://github.com/openai/tiktoken) |
 | **Public Git Repository** | [github.com/openai/tiktoken](https://github.com/openai/tiktoken) |
 | **Official PyPI Package** | [pypi.org/project/tiktoken](https://pypi.org/project/tiktoken/) (`0.14.0`) |
-| **DevOps CLI Integration** | [`src/devops_cli/ai/context_budget.py`](file:///workspaces/devops-cli/src/devops_cli/ai/context_budget.py) • [`src/devops_cli/commands/ai.py`](file:///workspaces/devops-cli/src/devops_cli/commands/ai.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/ai/context_budget.py`](../../../../../src/devops_cli/ai/context_budget.py) • [`src/devops_cli/commands/ai.py`](../../../../../src/devops_cli/commands/ai.py) |
 
 ---
 

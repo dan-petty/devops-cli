@@ -7,7 +7,7 @@
 | **Official Documentation** | [ai.pydantic.dev](https://ai.pydantic.dev/) |
 | **Public Git Repository** | [github.com/pydantic/pydantic-ai](https://github.com/pydantic/pydantic-ai) |
 | **Official PyPI Package** | [pypi.org/project/pydantic-ai](https://pypi.org/project/pydantic-ai/) (`2.35.0`) |
-| **DevOps CLI Integration** | [`src/devops_cli/ai/agents/`](file:///workspaces/devops-cli/src/devops_cli/ai/agents/) • [`src/devops_cli/ai/review/`](file:///workspaces/devops-cli/src/devops_cli/ai/review/) |
+| **DevOps CLI Integration** | [`src/devops_cli/ai/agents/`](../../../../../src/devops_cli/ai/agents/) • [`src/devops_cli/ai/review/`](../../../../../src/devops_cli/ai/review/) |
 
 ---
 

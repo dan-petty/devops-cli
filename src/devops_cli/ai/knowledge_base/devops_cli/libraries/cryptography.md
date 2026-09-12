@@ -7,7 +7,7 @@
 | **Official Documentation** | [cryptography.io](https://cryptography.io/) |
 | **Public Git Repository** | [github.com/pyca/cryptography](https://github.com/pyca/cryptography) |
 | **Official PyPI Package** | [pypi.org/project/cryptography](https://pypi.org/project/cryptography/) (`50.0.1`) |
-| **DevOps CLI Integration** | [`src/devops_cli/crypto/tls_certificates.py`](file:///workspaces/devops-cli/src/devops_cli/crypto/tls_certificates.py) • [`src/devops_cli/commands/ssh.py`](file:///workspaces/devops-cli/src/devops_cli/commands/ssh.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/crypto/tls_certificates.py`](../../../../../src/devops_cli/crypto/tls_certificates.py) • [`src/devops_cli/commands/ssh.py`](../../../../../src/devops_cli/commands/ssh.py) |
 
 ---
 

@@ -14,7 +14,7 @@ def test_public_https_url_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
     mock_addr = [(2, 1, 6, "", ("93.184.216.34", 443))]
     with patch("socket.getaddrinfo", return_value=mock_addr):
-        validate_service_url("https://grafana.example.com", "Grafana")
+        validate_service_url("https://example.com", "Grafana")
 
 
 def test_public_http_url_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -23,7 +23,7 @@ def test_public_http_url_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
     mock_addr = [(2, 1, 6, "", ("93.184.216.34", 8080))]
     with patch("socket.getaddrinfo", return_value=mock_addr):
-        validate_service_url("http://argocd.example.com:8080", "ArgoCD")
+        validate_service_url("http://example.com:8080", "ArgoCD")
 
 
 @pytest.mark.parametrize(
@@ -73,11 +73,21 @@ def test_http_client_options() -> None:
     t1 = request_timeout(read=30.0)
     assert t1.read == 30.0
 
+    from devops_cli.config.defaults import DEFAULT_CONNECT_TIMEOUT_SECONDS
+    from devops_cli.http.client import new_async_http_client
+
     c1 = new_http_client(read_timeout=15.0)
     assert c1.timeout.read == 15.0
+    assert c1.timeout.connect == DEFAULT_CONNECT_TIMEOUT_SECONDS
 
     c2 = new_http_client(timeout=10.0)
     assert c2.timeout.read == 10.0
+    assert c2.timeout.connect == DEFAULT_CONNECT_TIMEOUT_SECONDS
 
     c3 = new_http_client(timeout=t1)
     assert c3.timeout.read == 30.0
+    assert c3.timeout.connect == DEFAULT_CONNECT_TIMEOUT_SECONDS
+
+    ac1 = new_async_http_client(timeout=12.0)
+    assert ac1.timeout.read == 12.0
+    assert ac1.timeout.connect == DEFAULT_CONNECT_TIMEOUT_SECONDS

@@ -68,8 +68,8 @@ class TestPydanticAITemplateSubsystem:
 
         # 2. TemplateStr instance
         tmpl = TemplateStr("Database: {{db_host}}")
-        res2 = render_template(tmpl, {"db_host": "db.internal"})
-        assert res2 == "Database: db.internal"
+        res2 = render_template(tmpl, {"db_host": "example.com"})
+        assert res2 == "Database: example.com"
 
         # 3. None deps returns unrendered string
         assert render_template("Static text {{placeholder}}", None) == "Static text {{placeholder}}"

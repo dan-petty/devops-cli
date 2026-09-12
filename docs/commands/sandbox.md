@@ -104,3 +104,87 @@ devops sandbox exec [OPTIONS] <instance_id> <command>
 | `--workdir`, `-w` | `string` | - | Working directory inside the container for command execution. |
 
 ---
+
+## `devops sandbox probe`
+
+**Probe endpoint readiness and service health across network protocols.**
+
+```bash
+devops sandbox probe [OPTIONS] <identifier>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<identifier>` | `string` | Yes | Unique instance ID or name of the sandbox. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--protocol`, `-p` | `string` | - | Network protocol(s) to probe (tcp, http, openapi, grpc). |
+| `--path` | `string` | - | HTTP request path(s) to probe for readiness. |
+| `--expected-status` | `string` | - | Expected HTTP response status code(s). |
+| `--regex`, `-r` | `string` | - | Regex pattern to assert against HTTP response body. |
+| `--latency-sla` | `float` | - | Maximum acceptable response latency budget in milliseconds. |
+| `--timeout`, `-t` | `float` | `5.0` | Graceful stop timeout in seconds before SIGKILL. |
+| `--json` | `boolean` | - | Output details in structured JSON format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops sandbox metrics`
+
+**Capture real-time cgroup v2 metrics and scrape Prometheus application metrics.**
+
+```bash
+devops sandbox metrics [OPTIONS] <identifier>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<identifier>` | `string` | Yes | Unique instance ID or name of the sandbox. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--prom-endpoint`, `-p`, `--path` | `string` | `/metrics` | Prometheus metrics scrape path (default /metrics). |
+| `--timeout`, `-t` | `float` | `5.0` | HTTP timeout in seconds for Prometheus metrics scraping (default: 5.0). |
+| `--warn-memory-pct` | `float` | `80.0` | Warning threshold percentage for container memory consumption. |
+| `--warn-cpu-pct` | `float` | `85.0` | Warning threshold percentage for container CPU utilization. |
+| `--latency-sla-ms` | `float` | - | Maximum acceptable average HTTP request latency SLA in milliseconds (disabled by default). |
+| `--json` | `boolean` | - | Output details in structured JSON format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops sandbox traces`
+
+**Visualize distributed trace waterfall and cross-service latency for sandbox workloads.**
+
+```bash
+devops sandbox traces [OPTIONS] <identifier>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<identifier>` | `string` | No | Unique instance ID or name of the sandbox. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--trace-id`, `-t` | `string` | - | Specific OpenTelemetry trace ID to retrieve and visualize. |
+| `--last`, `-l` | `boolean` | - | Visualize spans for the most recently executed trace. |
+| `--probe` | `boolean` | - | Execute an endpoint health probe before visualizing the resulting trace. |
+| `--jaeger-url` | `string` | - | Override Jaeger Query HTTP endpoint (default: http://localhost:16686). |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---

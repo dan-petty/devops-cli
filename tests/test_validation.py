@@ -130,7 +130,7 @@ def test_validate_ssrf_egress_and_dns_resolution(monkeypatch: pytest.MonkeyPatch
     with patch("socket.getaddrinfo", return_value=mock_addrinfo):
         with pytest.raises(SSRFBlockedError):
             _enforce_non_private_ssrf(
-                "http://internal.service.corp:8080", "internal.service.corp", "http", 8080, "test"
+                "http://example.com:8080", "example.com", "http", 8080, "test"
             )
 
     # Hostname resolving to public IP succeeds
@@ -174,23 +174,17 @@ def test_validation_edge_cases() -> None:
     mock_invalid_ip_addrinfo = [(2, 1, 6, "", ("invalid_ip_format", 80))]
     with patch("socket.getaddrinfo", return_value=mock_invalid_ip_addrinfo):
         with pytest.raises(SSRFBlockedError):
-            _enforce_non_private_ssrf(
-                "http://hostname.test", "hostname.test", "http", 80, "service"
-            )
+            _enforce_non_private_ssrf("http://example.com", "example.com", "http", 80, "service")
 
     import socket
 
     with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")):
         with pytest.raises(SSRFBlockedError):
-            _enforce_non_private_ssrf(
-                "http://unresolvable.invalid", "unresolvable.invalid", "http", 80, "service"
-            )
+            _enforce_non_private_ssrf("http://example.com", "example.com", "http", 80, "service")
 
     with patch("socket.getaddrinfo", side_effect=TimeoutError("DNS query timed out")):
         with pytest.raises(SSRFBlockedError):
-            _enforce_non_private_ssrf(
-                "http://timeout.invalid", "timeout.invalid", "http", 80, "service"
-            )
+            _enforce_non_private_ssrf("http://example.com", "example.com", "http", 80, "service")
 
 
 def test_is_loopback_or_private_host() -> None:
@@ -249,6 +243,12 @@ def test_validate_url_egress() -> None:
         == "http://127.0.0.1/manifest.yaml"
     )
 
+    # Cloud metadata service blocked even with allow_private=True
+    from devops_cli.core.validation import validate_url
+
+    with pytest.raises(SSRFBlockedError, match="prohibited"):
+        validate_url("http://169.254.169.254/latest/meta-data", allow_private=True)
+
     # Custom error class
     with pytest.raises(CustomContextError, match="resolves to private or reserved IP"):
         validate_url_egress(
@@ -271,7 +271,7 @@ def test_validate_url_egress() -> None:
     initial_timeout = socket.getdefaulttimeout()
     with patch("socket.getaddrinfo", side_effect=socket.gaierror):
         with pytest.raises(SSRFBlockedError, match="DNS resolution failed"):
-            validate_url_egress("http://unresolvable.hostname.internal/manifest.yaml")
+            validate_url_egress("http://example.com/manifest.yaml")
     # Verify global socket timeout was not mutated
     assert socket.getdefaulttimeout() == initial_timeout
 

@@ -242,7 +242,7 @@ class TestValkeyClient:
             with pytest.raises(
                 ValkeyConnectionError, match="link-local metadata endpoints are prohibited"
             ):
-                ValkeyClient(host="metadata.local", port=6379)
+                ValkeyClient(host="example.com", port=6379)
 
     def test_hostname_resolving_to_private_rejected_when_not_allowed(self) -> None:
         with patch(
@@ -250,12 +250,12 @@ class TestValkeyClient:
             return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 6379))],
         ):
             with pytest.raises(ValkeyConnectionError, match="non-public IP disallowed"):
-                ValkeyClient(host="internal.valkey.service", allow_private_network=False)
+                ValkeyClient(host="example.com", allow_private_network=False)
 
     def test_hostname_dns_failure_rejected_when_private_not_allowed(self) -> None:
         with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")):
             with pytest.raises(ValkeyConnectionError, match="DNS resolution failed"):
-                ValkeyClient(host="unresolvable.valkey.internal", allow_private_network=False)
+                ValkeyClient(host="example.com", allow_private_network=False)
 
     def test_scan_and_scan_iter(self) -> None:
         client = ValkeyClient(host="127.0.0.1", port=6379)

@@ -50,6 +50,15 @@ def test_ssrf_blocked_error() -> None:
     assert err.details["target_url"] == "http://192.168.1.1:8000/api"
 
 
+def test_ssrf_blocked_error_credentials_and_length_bounded() -> None:
+    """Verify SSRFBlockedError masks embedded credentials and bounds details length <= 256."""
+    long_path = "a" * 500
+    err = SSRFBlockedError(f"http://user:supersecret@10.0.0.1:8080/{long_path}")
+    assert "supersecret" not in err.details["target_url"]
+    assert "<auth>@" in err.details["target_url"]
+    assert len(err.details["target_url"]) <= 256
+
+
 def test_keyring_unavailable_error() -> None:
     err = KeyringUnavailableError()
     assert err.exit_code == 3
@@ -97,10 +106,10 @@ def test_validation_exceptions() -> None:
     assert val_err.exit_code == 1
     assert val_err.details["field"] == "endpoint"
 
-    url_err = InvalidURLError("ftp://insecure.local", "Unsupported scheme")
+    url_err = InvalidURLError("ftp://example.com", "Unsupported scheme")
     assert isinstance(url_err, ValidationError)
     assert url_err.error_code == "INVALID_URL"
-    assert "ftp://insecure.local" in str(url_err)
+    assert "ftp://example.com" in str(url_err)
 
     ver_err = InvalidVersionError("bad-version", tool_name="terraform")
     assert isinstance(ver_err, ValidationError)

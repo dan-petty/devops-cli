@@ -10,7 +10,9 @@ Minikube is an open-source tool that implements a local single-node Kubernetes c
 
 - **Driver Architecture**: Uses the Docker container driver (`--driver=docker`) inside development workstations, enabling seamless Kubernetes lifecycle management within DevContainers.
 - **Automated Bootstrap**: `devops k8s bootstrap` automates cluster creation, driver configuration, resource allocation, and add-on enablement.
-- **GPU Acceleration**: Automatically passes host NVIDIA GPUs into the Minikube cluster (`--gpus all`) when GPU drivers (`nvidia-smi`) are available.
+- **Conditional Autostart**: Governed by the `k8s.context` setting (`devops config set k8s.context minikube`). During DevContainer startup (`post-start`), Minikube only autostarts if `k8s.context` is set to `minikube` (or overridden via `DEVOPS_MINIKUBE_AUTOSTART=true`). If configured for an external cluster, Minikube stays stopped to save resources.
+- **Context-Switching Auto-Launch**: Switching to the `minikube` context via `devops k8s switch-context minikube` checks whether the cluster is running and automatically starts it if stopped.
+- **GPU Acceleration & CPU Fallback**: Automatically passes host NVIDIA GPUs into the Minikube cluster (`--gpus all`) when GPU drivers (`nvidia-smi`) are available, with transparent fallback to CPU mode if GPU initialization fails.
 - **Add-on Suite**: Automatically provisions essential add-ons including `ingress`, `metrics-server`, `dashboard`, and `default-storageclass`.
 
 ---
@@ -78,7 +80,8 @@ minikube delete --all --purge
 
 ## 6. General Standards & Reference Guidelines
 
-- **Environment Control**: Respect `DEVOPS_MINIKUBE_AUTOSTART=true` environment variable during container post-create hooks.
+- **Context-Governed Autostart**: Configuration setting `k8s.context` determines whether Minikube autostarts on DevContainer initialization (`post-start`). Defaults to `minikube`.
+- **Environment Override**: Respect `DEVOPS_MINIKUBE_AUTOSTART=true` or `false` to explicitly force or suppress autostart regardless of configured context.
 - **Kubernetes Version Alignment**: Track stable Kubernetes minor releases (`--kubernetes-version=v1.31.0`).
 
 ---

@@ -98,7 +98,7 @@ def test_normalize_ollama_base_url_ssrf_and_invalid_schemes(
 
         mock_dns.return_value = [ipaddress.ip_address("169.254.169.254")]
         with pytest.raises(SSRFBlockedError, match="cloud instance metadata service"):
-            normalize_ollama_base_url("http://custom-metadata-alias.net:11434")
+            normalize_ollama_base_url("http://example.com:11434")
 
     # Private network policy enforcement when allow_private=False
     monkeypatch.delenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", raising=False)
@@ -135,10 +135,7 @@ def test_get_recommended_output_mode() -> None:
 
     # Self-hosted Ollama (v0.5.0+) supports grammar-constrained JSON schema decoding
     assert get_recommended_output_mode("http://localhost:11434/v1", "qwen2.5-coder") == "native"
-    assert (
-        get_recommended_output_mode("http://node-1.example.internal:11434", "deepseek-r1")
-        == "native"
-    )
+    assert get_recommended_output_mode("http://example.com:11434", "deepseek-r1") == "native"
 
     # Ollama Cloud accepts json_schema without error but does not enforce it upstream yet
     assert get_recommended_output_mode("https://ollama.com/v1", "llama3.2") == "tool"
@@ -157,19 +154,19 @@ def test_create_ollama_provider() -> None:
     assert p1.base_url == "http://localhost:11434/v1/"
 
     # 2. From cluster URLs list
-    p2 = create_ollama_provider(urls=["http://node1.lan:11434", "http://node2.lan:11434"])
+    p2 = create_ollama_provider(urls=["http://example.com:11434", "http://example.com:11435"])
     assert isinstance(p2, OllamaProvider)
-    assert p2.base_url in {"http://node1.lan:11434/v1/", "http://node2.lan:11434/v1/"}
+    assert p2.base_url in {"http://example.com:11434/v1/", "http://example.com:11435/v1/"}
 
     # 3. With API key for authenticated proxies or Ollama Cloud
-    p3 = create_ollama_provider(base_url="https://ollama.com", api_key="test-key-123")
+    p3 = create_ollama_provider(base_url="https://example.com", api_key="test-key-123")
     assert isinstance(p3, OllamaProvider)
-    assert p3.base_url == "https://ollama.com/v1/"
+    assert p3.base_url == "https://example.com/v1/"
 
     # 4. Fallback to OLLAMA_BASE_URL environment variable
-    with patch.dict(os.environ, {"OLLAMA_BASE_URL": "http://env-host:11434/v1"}):
+    with patch.dict(os.environ, {"OLLAMA_BASE_URL": "http://example.com:11434/v1"}):
         p4 = create_ollama_provider()
-        assert p4.base_url == "http://env-host:11434/v1/"
+        assert p4.base_url == "http://example.com:11434/v1/"
 
 
 def test_create_ollama_model() -> None:

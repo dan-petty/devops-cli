@@ -52,9 +52,9 @@ def test_generate_server_certificate_ca_signed(tmp_path: Path) -> None:
     """generate_server_certificate creates a leaf cert signed by CA with SANs."""
     ca_cert, ca_key = generate_ca_certificate(output_dir=tmp_path, validity_days=60)
 
-    sans = ["*.homelab.local", "homelab.local", "192.168.1.50", "127.0.0.1", "::1"]
+    sans = ["example.com", "192.0.2.50", "127.0.0.1", "::1"]
     srv_cert, srv_key, fullchain = generate_server_certificate(
-        common_name="*.homelab.local",
+        common_name="example.com",
         sans=sans,
         ca_cert_path=ca_cert,
         ca_key_path=ca_key,
@@ -70,9 +70,8 @@ def test_generate_server_certificate_ca_signed(tmp_path: Path) -> None:
     info = inspect_certificate(srv_cert)
     assert info.is_ca is False
     assert info.is_expired is False
-    assert "*.homelab.local" in info.sans_dns
-    assert "homelab.local" in info.sans_dns
-    assert "192.168.1.50" in info.sans_ip
+    assert "example.com" in info.sans_dns
+    assert "192.0.2.50" in info.sans_ip
     assert "127.0.0.1" in info.sans_ip
     assert "::1" in info.sans_ip
 
@@ -84,8 +83,8 @@ def test_generate_server_certificate_ca_signed(tmp_path: Path) -> None:
 def test_generate_server_certificate_self_signed(tmp_path: Path) -> None:
     """generate_server_certificate creates valid self-signed cert when CA is omitted."""
     srv_cert, srv_key, fullchain = generate_server_certificate(
-        common_name="standalone.local",
-        sans=["standalone.local", "127.0.0.1"],
+        common_name="example.com",
+        sans=["example.com", "127.0.0.1"],
         output_dir=tmp_path,
         validity_days=10,
     )
@@ -96,16 +95,16 @@ def test_generate_server_certificate_self_signed(tmp_path: Path) -> None:
 
     info = inspect_certificate(srv_cert)
     assert info.is_ca is False
-    assert info.subject.get("commonName") == "standalone.local"
-    assert info.issuer.get("commonName") == "standalone.local"
+    assert info.subject.get("commonName") == "example.com"
+    assert info.issuer.get("commonName") == "example.com"
 
 
 def test_generate_homelab_tls_bundle(tmp_path: Path) -> None:
     """generate_homelab_tls_bundle produces Root CA and wildcard cert covering stack services."""
     summary = generate_homelab_tls_bundle(
         output_dir=tmp_path,
-        custom_domains=["custom.myhome.net"],
-        custom_ips=["10.0.0.15"],
+        custom_domains=["example.com"],
+        custom_ips=["192.0.2.15"],
     )
 
     assert Path(summary.ca_cert_path).exists()
@@ -119,8 +118,8 @@ def test_generate_homelab_tls_bundle(tmp_path: Path) -> None:
         assert svc in summary.services_configured
 
     # Verify custom additions
-    assert any(san == "custom.myhome.net" for san in summary.sans)
-    assert any(san == "10.0.0.15" for san in summary.sans)
+    assert any(san == "example.com" for san in summary.sans)
+    assert any(san == "192.0.2.15" for san in summary.sans)
 
     # Cryptographically verify the server cert against the generated CA
     assert verify_certificate(summary.server_cert_path, summary.ca_cert_path) is True
@@ -135,7 +134,7 @@ def test_verify_certificate_tampered(tmp_path: Path) -> None:
     ca_cert_2, _ = generate_ca_certificate(output_dir=ca_dir_2, common_name="CA Two")
 
     srv_cert, _, _ = generate_server_certificate(
-        common_name="app.local",
+        common_name="example.com",
         ca_cert_path=ca_cert_1,
         ca_key_path=ca_key_1,
         output_dir=ca_dir_1,
@@ -150,8 +149,8 @@ def test_inspect_and_verify_certificate_sources_and_ips(tmp_path: Path) -> None:
     """Verify inspect_certificate and verify_certificate with bytes, raw PEM strings, and IP SANs."""
     ca_cert, ca_key = generate_ca_certificate(output_dir=tmp_path, common_name="IP CA")
     srv_cert, _, _ = generate_server_certificate(
-        common_name="service.local",
-        sans=["service.local", "127.0.0.1", "10.0.0.1"],
+        common_name="example.com",
+        sans=["example.com", "127.0.0.1", "192.0.2.1"],
         ca_cert_path=ca_cert,
         ca_key_path=ca_key,
         output_dir=tmp_path,
@@ -160,7 +159,7 @@ def test_inspect_and_verify_certificate_sources_and_ips(tmp_path: Path) -> None:
     # 1. Inspect with bytes and path string
     cert_bytes = srv_cert.read_bytes()
     info_bytes = inspect_certificate(cert_bytes)
-    assert "service.local" in info_bytes.sans_dns
+    assert "example.com" in info_bytes.sans_dns
     assert "127.0.0.1" in info_bytes.sans_ip
     assert info_bytes.is_ca is False
     assert info_bytes.is_expired is False
@@ -189,9 +188,9 @@ def test_tls_edge_cases_and_cached_returns(tmp_path: Path) -> None:
     assert ca_key1 == ca_key2
 
     # 2. Existing Server Cert without overwrite and with duplicate/empty SANs
-    sans_with_dups = ["", "test.local", "test.local", "127.0.0.1", "127.0.0.1"]
+    sans_with_dups = ["", "example.com", "example.com", "127.0.0.1", "127.0.0.1"]
     srv_cert1, srv_key1, chain1 = generate_server_certificate(
-        common_name="test.local",
+        common_name="example.com",
         sans=sans_with_dups,
         ca_cert_path=ca_cert1,
         ca_key_path=ca_key1,
@@ -199,7 +198,7 @@ def test_tls_edge_cases_and_cached_returns(tmp_path: Path) -> None:
         overwrite=False,
     )
     srv_cert2, srv_key2, chain2 = generate_server_certificate(
-        common_name="test.local",
+        common_name="example.com",
         sans=sans_with_dups,
         ca_cert_path=ca_cert1,
         ca_key_path=ca_key1,
@@ -254,7 +253,7 @@ def test_verify_certificate_expired_and_non_rsa(tmp_path: Path) -> None:
 
     ca_cert, ca_key = generate_ca_certificate(output_dir=tmp_path, validity_days=30)
     srv_cert, _, _ = generate_server_certificate(
-        common_name="test.local",
+        common_name="example.com",
         ca_cert_path=ca_cert,
         ca_key_path=ca_key,
         output_dir=tmp_path,
