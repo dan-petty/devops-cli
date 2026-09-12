@@ -1,8 +1,8 @@
 # Task 108: Cgroup v2 Metrics Collection & Prometheus Application Scraping
 
 **Issue**: [#108](https://github.com/dan-petty/devops-cli/issues/108)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#164](https://github.com/dan-petty/devops-cli/pull/164)
+**Status**: Done
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/telemetry`
@@ -65,4 +65,4 @@ Implement real-time container resource telemetry capturing cgroup v2 metrics and
 - [x] Update language help strings in `src/devops_cli/lang/en/help.py`.
 - [x] Verify test suite, complexity, Bandit, and full CI gate (`devops ci`).
 - [x] Synchronize documentation (`devops docs generate --sync-readme`).
-- [ ] Author Pull Request targeting `release/v0.2.17` and verify CI checks pass.
+- [x] Author Pull Request targeting `release/v0.2.17` and verify CI checks pass.
