@@ -24,7 +24,7 @@
 | [#154](https://github.com/dan-petty/devops-cli/issues/154) | [#155](https://github.com/dan-petty/devops-cli/pull/155) | Remediate DevSecOps Review Findings & Enhance Self-Improvement Loop | `Done` | [`task-154-remediate-devsecops-review-findings.md`](tasks/task-154-remediate-devsecops-review-findings.md) |
 | [#106](https://github.com/dan-petty/devops-cli/issues/106) | [#157](https://github.com/dan-petty/devops-cli/pull/157) | Long-Running Workload Sandbox Lifecycle Engine (`devops sandbox`) | `Done` | [`task-106-workload-sandbox-lifecycle-engine.md`](tasks/task-106-workload-sandbox-lifecycle-engine.md) |
 | [#140](https://github.com/dan-petty/devops-cli/issues/140) | TBD | Add release notes extraction fallback and enforce changelog version check | `Ready` | Backlog |
-| [#158](https://github.com/dan-petty/devops-cli/issues/158) | [#159](https://github.com/dan-petty/devops-cli/pull/159) | Automatically Apply Formatting and Linting Across CLI and CI Commands | `In Review` | [`task-158-automatically-apply-formatting-and-linting.md`](tasks/task-158-automatically-apply-formatting-and-linting.md) |
+| [#158](https://github.com/dan-petty/devops-cli/issues/158) | [#159](https://github.com/dan-petty/devops-cli/pull/159) | Automatically Apply Formatting and Linting Across CLI and CI Commands | `Done` | [`task-158-automatically-apply-formatting-and-linting.md`](tasks/task-158-automatically-apply-formatting-and-linting.md) |
 
 ---
 
