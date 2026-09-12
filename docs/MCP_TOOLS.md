@@ -92,6 +92,10 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
+| [`sandbox_deploy`](#sandbox-deploy) | Deploy an isolated workload container sandbox with security containment and port allocation. |
+| [`sandbox_exec`](#sandbox-exec) | Execute a command inside an active sandbox container. |
+| [`sandbox_status`](#sandbox-status) | Inspect status of deployed sandbox containers. |
+| [`sandbox_stop`](#sandbox-stop) | Gracefully stop and remove a sandbox container. |
 | [`scan_aibom`](#scan-aibom) | Generate an AI Bill of Materials (AIBOM) cataloging models, datasets, and licenses. |
 | [`scan_checkov`](#scan-checkov) | Scan Infrastructure-as-Code (Terraform, Helm, Kubernetes, Dockerfile) via Checkov. |
 | [`scan_complexity`](#scan-complexity) | Inspect Python codebase for cyclomatic complexity and excessive indentation depth. |
@@ -1021,6 +1025,59 @@ Fetch GitHub PR diff and review using specified persona; optionally post comment
 View accuracy metrics and false-positive rates per reviewer persona.
 
 *No parameters required.*
+
+### `sandbox_deploy`
+
+Deploy an isolated workload container sandbox with security containment and port allocation.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | `string` | No | `python:3.14-slim` | - |
+| `name` | `string` | No | - | - |
+| `ports` | `array` | No | - | - |
+| `workspace` | `string` | No | `.` | - |
+| `memory` | `string` | No | `2g` | - |
+| `cpus` | `number` | No | `2.0` | - |
+| `network` | `string` | No | `bridge` | - |
+| `read_only` | `boolean` | No | `True` | - |
+| `command` | `array` | No | - | - |
+
+### `sandbox_exec`
+
+Execute a command inside an active sandbox container.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `instance_id` | `string` | Yes | - | - |
+| `command` | `array` | Yes | - | - |
+| `workdir` | `string` | No | - | - |
+
+### `sandbox_status`
+
+Inspect status of deployed sandbox containers.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `instance_id` | `string` | No | - | - |
+| `all_instances` | `boolean` | No | `False` | - |
+
+### `sandbox_stop`
+
+Gracefully stop and remove a sandbox container.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `instance_id` | `string` | No | - | - |
+| `all_instances` | `boolean` | No | `False` | - |
+| `timeout` | `integer` | No | `10` | - |
 
 ### `scan_aibom`
 

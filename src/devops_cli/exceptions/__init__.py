@@ -52,6 +52,12 @@ from devops_cli.exceptions.k8s import (
     KubernetesDeployError,
     KubernetesError,
 )
+from devops_cli.exceptions.sandbox import (
+    SandboxError,
+    SandboxNotFoundError,
+    SandboxPortAllocationError,
+    SandboxValidationError,
+)
 from devops_cli.exceptions.security import (
     KeyringUnavailableError,
     SecretExposureError,
@@ -132,6 +138,10 @@ __all__ = [
     "ReviewPoolError",
     "RunCancelled",
     "SSRFBlockedError",
+    "SandboxError",
+    "SandboxNotFoundError",
+    "SandboxPortAllocationError",
+    "SandboxValidationError",
     "SecretExposureError",
     "SecurityError",
     "SuspendedResponseExpired",

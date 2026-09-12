@@ -22,6 +22,7 @@
 | [#150](https://github.com/dan-petty/devops-cli/issues/150) | [#151](https://github.com/dan-petty/devops-cli/pull/151) | Document Pre-1.0 Alpha Status, Zero Backwards Compatibility Policy & Post-1.0 SemVer Governance | `Done` | [`task-150-pre-1-0-alpha-backwards-compatibility-policy.md`](tasks/task-150-pre-1-0-alpha-backwards-compatibility-policy.md) |
 | [#152](https://github.com/dan-petty/devops-cli/issues/152) | [#153](https://github.com/dan-petty/devops-cli/pull/153) | Sanitize Internal Homelab Hostnames, IPs, and Mount Paths & Strengthen Agent Instructions | `Done` | [`task-152-sanitize-internal-systems-and-strengthen-instructions.md`](tasks/task-152-sanitize-internal-systems-and-strengthen-instructions.md) |
 | [#154](https://github.com/dan-petty/devops-cli/issues/154) | [#155](https://github.com/dan-petty/devops-cli/pull/155) | Remediate DevSecOps Review Findings & Enhance Self-Improvement Loop | `Done` | [`task-154-remediate-devsecops-review-findings.md`](tasks/task-154-remediate-devsecops-review-findings.md) |
+| [#106](https://github.com/dan-petty/devops-cli/issues/106) | TBD | Long-Running Workload Sandbox Lifecycle Engine (`devops sandbox`) | `In Progress` | [`task-106-workload-sandbox-lifecycle-engine.md`](tasks/task-106-workload-sandbox-lifecycle-engine.md) |
 
 ---
 

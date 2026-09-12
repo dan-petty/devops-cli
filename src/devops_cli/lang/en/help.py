@@ -927,6 +927,29 @@ class DashboardCommandHelp:
 
 
 @dataclass(frozen=True)
+class SandboxCommandHelp:
+    app: str = "Isolated workload sandbox container lifecycle engine."
+    deploy: str = "Deploy an isolated background container sandbox with security containment."
+    status: str = "Inspect status of deployed sandbox containers."
+    stop: str = "Gracefully stop and tear down a sandbox container."
+    exec_cmd: str = "Execute a command inside an active sandbox container."
+    image: str = "Container image for the sandbox workload."
+    name: str = "Friendly identifier name for the sandbox instance."
+    port: str = "Container port(s) to dynamically expose on available host ports."
+    workspace: str = "Host workspace path to mount into container /workspace."
+    memory: str = "Memory limit for the container (e.g. 512m, 2g)."
+    cpus: str = "CPU quota limit for the container (e.g. 1.0, 2.0)."
+    read_only: str = "Mount root filesystem as read-only with a tmpfs /tmp."
+    network: str = "Docker network mode (bridge | host | none)."
+    env: str = "Environment variable in KEY=VALUE format."
+    instance_id: str = "Unique instance ID or name of the sandbox."
+    all_instances: str = "Apply operation across all registered sandbox instances."
+    timeout: str = "Graceful stop timeout in seconds before SIGKILL."
+    workdir: str = "Working directory inside the container for command execution."
+    json_output: str = "Output details in structured JSON format."
+
+
+@dataclass(frozen=True)
 class HelpCatalog:
     main: MainHelp = field(default_factory=MainHelp)
     options: OptionHelp = field(default_factory=OptionHelp)
@@ -966,6 +989,7 @@ class HelpCatalog:
     test: TestCommandHelp = field(default_factory=TestCommandHelp)
     pipeline: PipelineCommandHelp = field(default_factory=PipelineCommandHelp)
     dashboard: DashboardCommandHelp = field(default_factory=DashboardCommandHelp)
+    sandbox: SandboxCommandHelp = field(default_factory=SandboxCommandHelp)
 
 
 HELP = HelpCatalog()

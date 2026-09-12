@@ -375,6 +375,10 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops valkey flush [OPTIONS]` | Flush and purge keys from current or all databases. |
 |  | `devops valkey backup [OPTIONS]` | Trigger background RDB persistence snapshot (BGSAVE). |
 |  | `devops valkey cli [OPTIONS] <command_args>` | Execute raw Valkey commands directly against the server. |
+| **sandbox** | `devops sandbox deploy [OPTIONS] <command>` | Deploy an isolated background container sandbox with security containment. |
+|  | `devops sandbox status [OPTIONS] <instance_id>` | Inspect status of deployed sandbox containers. |
+|  | `devops sandbox stop [OPTIONS] <instance_id>` | Gracefully stop and tear down a sandbox container. |
+|  | `devops sandbox exec [OPTIONS] <instance_id> <command>` | Execute a command inside an active sandbox container. |
 | **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 
