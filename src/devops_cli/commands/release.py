@@ -129,12 +129,51 @@ def _extract_changelog_notes(root: Path, version: str) -> str | None:
     if not changelog_file.exists():
         return None
     content = changelog_file.read_text(encoding="utf-8")
-    # Match ## [version] ... up to the next ## [ or end of string
-    pattern = rf"^##\s+\[{re.escape(version)}\][^\n]*\n(.*?)(?=^##\s+\[|\Z)"
+    cleaned_ver = version.lstrip("v")
+    pattern = rf"^##\s+\[v?{re.escape(cleaned_ver)}\][^\n]*\n(.*?)(?=^##\s+\[|\Z)"
     match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
-    if match:
-        return match.group(1).strip()
+    return match.group(1).strip() if match else None
+
+
+def _extract_docs_release_notes(root: Path, version: str) -> str | None:
+    """Extract release notes for a specific version from docs/RELEASE_NOTES.md."""
+    rel_notes_file = _resolve_safe_project_path(
+        root, Path(CONST_DOCS_DIR_NAME) / "RELEASE_NOTES.md"
+    )
+    if not rel_notes_file.exists():
+        return None
+    content = rel_notes_file.read_text(encoding="utf-8")
+    cleaned_ver = version.lstrip("v")
+    pattern = rf"^##\s+[^\n]*?v?{re.escape(cleaned_ver)}\b[^\n]*\n(.*?)(?=^##\s+|\Z)"
+    match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
+    return match.group(1).strip() if match else None
+
+
+def _extract_git_commit_notes(root: Path, version: str) -> str | None:
+    """Extract commit log messages as fallback release notes."""
+    prev_tag = _get_latest_git_tag(root)
+    log_args = [f"{prev_tag}..HEAD"] if prev_tag else ["-n", "20"]
+    cmd = ["git", "log", *log_args, "--pretty=format:* %s (%h)"]
+    proc = _get("run_subprocess")(
+        cmd,
+        cwd=root,
+        capture_output=True,
+        check=False,
+        quiet=True,
+    )
+    if proc.returncode == 0 and proc.stdout and proc.stdout.strip():
+        cleaned_ver = version.lstrip("v")
+        return f"### Changes in v{cleaned_ver}\n\n{proc.stdout.strip()}"
     return None
+
+
+def _resolve_release_notes(root: Path, version: str) -> str | None:
+    """Resolve release notes via CHANGELOG.md, docs/RELEASE_NOTES.md, or git commit history."""
+    return (
+        _extract_changelog_notes(root, version)
+        or _extract_docs_release_notes(root, version)
+        or _extract_git_commit_notes(root, version)
+    )
 
 
 def _get_latest_changelog_version(root: Path) -> str | None:
@@ -655,6 +694,81 @@ def release_pr(
 # =============================================================================
 
 
+def _verify_release_versions(repo_root: Path) -> str:
+    """Verify version consistency across pyproject.toml, __init__.py, and CHANGELOG.md."""
+    pyproject_ver = _get_pyproject_version(repo_root)
+    init_ver = _get_init_version(repo_root)
+    changelog_ver = _get_latest_changelog_version(repo_root)
+
+    if not pyproject_ver or pyproject_ver != init_ver:
+        _get("print_error")(
+            f"Version mismatch: pyproject.toml ({pyproject_ver}) != "
+            f"src/devops_cli/__init__.py ({init_ver})",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    if not changelog_ver or changelog_ver != pyproject_ver:
+        _get("print_error")(
+            f"Version mismatch: CHANGELOG.md ({changelog_ver or 'missing'}) does not match "
+            f"pyproject.toml ({pyproject_ver}). Update CHANGELOG.md before releasing.",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    return pyproject_ver
+
+
+def _verify_release_docs(repo_root: Path) -> None:
+    """Verify documentation freshness before releasing."""
+    generator = _get("DocGenerator")(root_dir=repo_root)
+    docs_ok, diffs = generator.check_docs(repo_root / "docs", check_readme_table=True)
+    if not docs_ok:
+        _get("print_error")(
+            "Documentation is out of sync. "
+            "Run 'devops release prepare' or 'devops docs generate --sync-readme'",
+            prefix=False,
+        )
+        for d in diffs:
+            _get("print_error")(f"  - {d}", prefix=False)
+        raise typer.Exit(1)
+
+
+def _run_release_ci_gate(
+    repo_root: Path, pyproject_ver: str, skip_ci: bool, allow_dirty: bool
+) -> None:
+    """Execute release CI gate checks or render dry-run summary."""
+    if skip_ci:
+        return
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops release check",
+            action="verify_release_readiness",
+            target=pyproject_ver,
+            details={
+                "version": pyproject_ver,
+                "skip_ci": skip_ci,
+                "allow_dirty": allow_dirty,
+                "status": "VERIFIED_DRY_RUN",
+            },
+        )
+        return
+
+    _get("print_info")("Running CI quality gate...", prefix=False)
+    proc = _get("run_subprocess")(
+        ["uv", "run", "devops", "ci", "run"],
+        cwd=repo_root,
+        capture_output=False,
+        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS * 4,
+    )
+    if proc.returncode != 0:
+        _get("print_error")(
+            "CI Quality Gate checks failed. Resolve errors before releasing.", prefix=False
+        )
+        raise typer.Exit(1)
+
+
 @app.command("check")
 def release_check(
     skip_ci: Annotated[
@@ -672,27 +786,8 @@ def release_check(
 ) -> None:
     """Verify release readiness (version consistency, docs freshness, and CI quality gates)."""
     repo_root = _get_project_root(root)
-    pyproject_ver = _get_pyproject_version(repo_root)
-    init_ver = _get_init_version(repo_root)
-    changelog_ver = _get_latest_changelog_version(repo_root)
+    pyproject_ver = _verify_release_versions(repo_root)
 
-    # 1. Version Consistency
-    if not pyproject_ver or pyproject_ver != init_ver:
-        _get("print_error")(
-            f"Version mismatch: pyproject.toml ({pyproject_ver}) != "
-            f"src/devops_cli/__init__.py ({init_ver})",
-            prefix=False,
-        )
-        raise typer.Exit(1)
-
-    if changelog_ver and changelog_ver != pyproject_ver:
-        _get("print_warning")(
-            f"Warning: Latest CHANGELOG.md version ({changelog_ver}) differs from "
-            f"pyproject version ({pyproject_ver})",
-            prefix=False,
-        )
-
-    # 2. Git Cleanliness Check
     if not allow_dirty and not _is_git_clean(repo_root):
         _get("print_error")(
             "Git working directory is dirty. Commit or stash changes before releasing.",
@@ -700,48 +795,8 @@ def release_check(
         )
         raise typer.Exit(1)
 
-    # 3. Documentation Freshness Check
-    generator = _get("DocGenerator")(root_dir=repo_root)
-    docs_ok, diffs = generator.check_docs(repo_root / "docs", check_readme_table=True)
-    if not docs_ok:
-        _get("print_error")(
-            "Documentation is out of sync. "
-            "Run 'devops release prepare' or 'devops docs generate --sync-readme'",
-            prefix=False,
-        )
-        for d in diffs:
-            _get("print_error")(f"  - {d}", prefix=False)
-        raise typer.Exit(1)
-
-    # 4. CI Quality Gate
-    if not skip_ci:
-        if is_dry_run():
-            render_dry_run_result(
-                command="devops release check",
-                action="verify_release_readiness",
-                target=pyproject_ver,
-                details={
-                    "version": pyproject_ver,
-                    "skip_ci": skip_ci,
-                    "allow_dirty": allow_dirty,
-                    "status": "VERIFIED_DRY_RUN",
-                },
-            )
-            return
-
-        _get("print_info")("Running CI quality gate...", prefix=False)
-        proc = _get("run_subprocess")(
-            ["uv", "run", "devops", "ci", "run"],
-            cwd=repo_root,
-            capture_output=False,
-            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS * 4,
-        )
-        if proc.returncode != 0:
-            _get("print_error")(
-                "CI Quality Gate checks failed. Resolve errors before releasing.", prefix=False
-            )
-            raise typer.Exit(1)
-
+    _verify_release_docs(repo_root)
+    _run_release_ci_gate(repo_root, pyproject_ver, skip_ci, allow_dirty)
     _get("print_success")(MESSAGES.release.verification_passed, prefix=False)
 
 
@@ -779,7 +834,7 @@ def release_notes(
         print_error("Could not determine target release version.", prefix=False)
         raise typer.Exit(1)
 
-    notes = _extract_changelog_notes(repo_root, target_ver)
+    notes = _resolve_release_notes(repo_root, target_ver)
     if not notes:
         print_warning(MESSAGES.release.notes_not_found.format(version=target_ver), prefix=False)
         raise typer.Exit(1)

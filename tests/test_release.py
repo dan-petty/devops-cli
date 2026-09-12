@@ -552,3 +552,72 @@ def test_release_notes_tag_and_check_extended(sample_project_dir: Path) -> None:
     res_mismatch = runner.invoke(app, ["check", "--root", str(sample_project_dir)])
     assert res_mismatch.exit_code == 1
     assert "Version mismatch" in res_mismatch.output
+
+
+def test_release_check_changelog_version_mismatch(sample_project_dir: Path) -> None:
+    """Verify release check fails when CHANGELOG.md version differs from pyproject.toml."""
+    changelog = sample_project_dir / "CHANGELOG.md"
+    changelog.write_text(
+        "# Changelog\n\n## [0.1.6] - 2026-08-10\n\n- Old feature\n", encoding="utf-8"
+    )
+
+    with (
+        patch("devops_cli.commands.release._is_git_clean", return_value=True),
+        patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])),
+    ):
+        result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--skip-ci"])
+        assert result.exit_code == 1
+        assert "Version mismatch: CHANGELOG.md" in result.output
+        assert "0.1.6" in result.output
+        assert "0.1.7" in result.output
+
+
+def test_release_check_changelog_missing(sample_project_dir: Path) -> None:
+    """Verify release check fails when CHANGELOG.md does not exist."""
+    changelog = sample_project_dir / "CHANGELOG.md"
+    if changelog.exists():
+        changelog.unlink()
+
+    with (
+        patch("devops_cli.commands.release._is_git_clean", return_value=True),
+        patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])),
+    ):
+        result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--skip-ci"])
+        assert result.exit_code == 1
+        assert "Version mismatch: CHANGELOG.md (missing)" in result.output
+
+
+def test_release_notes_fallback_to_docs(sample_project_dir: Path) -> None:
+    """Verify release notes extracts from docs/RELEASE_NOTES.md when absent in CHANGELOG.md."""
+    # CHANGELOG only has 0.1.7
+    docs_rel_notes = sample_project_dir / "docs" / "RELEASE_NOTES.md"
+    docs_rel_notes.write_text(
+        "# Release Notes\n\n## 🚀 Highlights of v0.1.8\n\n- Fallback Doc Feature\n- Security hardening\n\n## Highlights of v0.1.7\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app, ["notes", "--version", "0.1.8", "--raw", "--root", str(sample_project_dir)]
+    )
+    assert result.exit_code == 0
+    assert "Fallback Doc Feature" in result.output
+    assert "Security hardening" in result.output
+
+
+def test_release_notes_fallback_to_git_log(sample_project_dir: Path) -> None:
+    """Verify release notes falls back to git commit log when absent in changelog and docs."""
+    mock_git_log = subprocess.CompletedProcess(
+        args=["git", "log"],
+        returncode=0,
+        stdout="* feat: commit log item 1 (abc1234)\n* fix: commit log item 2 (def5678)\n",
+        stderr="",
+    )
+
+    with patch("devops_cli.commands.release.run_subprocess", return_value=mock_git_log):
+        result = runner.invoke(
+            app, ["notes", "--version", "0.1.9", "--raw", "--root", str(sample_project_dir)]
+        )
+        assert result.exit_code == 0
+        assert "Changes in v0.1.9" in result.output
+        assert "commit log item 1" in result.output
+        assert "commit log item 2" in result.output

@@ -83,7 +83,10 @@ jobs:
       - name: Extract Release Notes
         id: notes
         run: |
-          uv run devops release notes --raw -v "${{ steps.ver.outputs.version }}" > release_notes.txt
+          if ! uv run devops release notes --raw -v "${{ steps.ver.outputs.version }}" > release_notes.txt || [ ! -s release_notes.txt ]; then
+            echo "Release notes extraction failed or empty; falling back to commit log"
+            git log -n 20 --pretty=format:"* %s (%h)" > release_notes.txt
+          fi
           echo "notes_file=release_notes.txt" >> "$GITHUB_OUTPUT"
 
       - name: Create Git Tag (upon PR merge to main)
