@@ -28,7 +28,10 @@ def test_infer_item_status() -> None:
     assert infer_item_status("OPEN", [{"name": "status/in-review"}]) == "In Review"
     assert infer_item_status("OPEN", ["status/ready"]) == "Ready"
     assert infer_item_status("OPEN", ["status/blocked"]) == "Blocked"
-    assert infer_item_status("OPEN", []) == "Todo"
+    assert infer_item_status("OPEN", ["status/backlog"]) == "Backlog"
+    assert infer_item_status("OPEN", [], is_pr=True) == "In Review"
+    assert infer_item_status("OPEN", [], has_open_pr=True) == "In Review"
+    assert infer_item_status("OPEN", []) == "Ready"
 
 
 def test_infer_item_category_value_effort() -> None:

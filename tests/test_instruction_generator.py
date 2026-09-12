@@ -281,3 +281,31 @@ def test_generate_agents_md_enforces_draft_pull_requests() -> None:
     assert "Draft Pull Requests for In-Progress Work" in content
     assert "gh pr create --draft" in content
     assert "gh pr ready" in content
+
+
+def test_generate_agents_md_enforces_pr_monitor_and_concise_commits() -> None:
+    """Verify generated AGENTS.md mandates concise commit messages and devops pr monitor gate."""
+    meta = ProjectMetadata(
+        name="sample-project",
+        description="Sample project testing PR monitoring and commit standards",
+        version="0.2.0",
+        requires_python=">=3.14",
+    )
+    content = generate_agents_md(meta)
+    assert "Concise, Effect-Driven Commit Messages" in content
+    assert "Mandatory PR Monitoring Gate (`devops pr monitor`)" in content
+    assert "devops pr monitor <pr_number>" in content
+    assert "Wait for Copilot Review Sessions to Settle" in content
+    assert "Stage 2: Transition to Ready for Review" in content
+    assert "Post-Ready Secondary Review & Copilot Monitoring Gate" in content
+    assert "triggers automated GitHub Copilot review sessions" in content
+    assert "gh pr ready <pr_number>" in content
+    assert "5-Minute Completion Allowance & 60-Second Polling Interval" in content
+    assert (
+        "Allow at least 5 minutes (300 seconds) for pull request checks or reviews to complete"
+        in content
+    )
+    assert (
+        "Wait at least a full minute (60 seconds) between request cycles when monitoring pull request status"
+        in content
+    )

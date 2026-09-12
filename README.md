@@ -324,6 +324,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 | **pr** | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
+|  | `devops pr wait [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
+|  | `devops pr monitor [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
 |  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, or body. |
 |  | `devops pr create [OPTIONS]` | Create a pull request with automatic release branch target validation. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
