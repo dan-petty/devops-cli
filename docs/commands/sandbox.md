@@ -133,3 +133,30 @@ devops sandbox probe [OPTIONS] <identifier>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
+
+## `devops sandbox metrics`
+
+**Capture real-time cgroup v2 metrics and scrape Prometheus application metrics.**
+
+```bash
+devops sandbox metrics [OPTIONS] <identifier>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<identifier>` | `string` | Yes | Unique instance ID or name of the sandbox. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--prom-endpoint`, `-p`, `--path` | `string` | `/metrics` | Prometheus metrics scrape path (default /metrics). |
+| `--timeout`, `-t` | `float` | `5.0` | Graceful stop timeout in seconds before SIGKILL. |
+| `--warn-memory-pct` | `float` | `80.0` | Warning threshold percentage for container memory consumption. |
+| `--warn-cpu-pct` | `float` | `85.0` | Warning threshold percentage for container CPU utilization. |
+| `--json` | `boolean` | - | Output details in structured JSON format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
