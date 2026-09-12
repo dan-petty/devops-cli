@@ -260,7 +260,10 @@ gitGraph
 - **Zero Direct Commits to `main`**: All work occurs on dedicated topic branches (`feat/<desc>`, `fix/<desc>`, `docs/<desc>`, `refactor/<desc>`).
 - **PR Base Branch Targeting**: Topic PRs must target the active release branch (`--base release/vX.Y.Z`). Only release preparation PRs target `main`, titled strictly `feat(release): v<version>`.
 - **Strict Remote Branch Lifecycle Governance**: Every remote branch on `origin` must have an associated open Pull Request targeting the active release branch or `main`. Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`). Orphan remote branches are strictly prohibited.
-- **Atomic Conventional Commits & PR Titles**: All commit messages and PR titles must follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `refactor(scope): ...`, `chore(scope): ...`. Release PR titles strictly follow `feat(release): v<version>`.
+- **Atomic Conventional Commits & PR Titles**: All commit messages and PR titles must follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `refactor(scope): ...`, `chore(scope): ...`.
+  - **Concise, Effect-Driven Commit Messages**: Commit messages MUST be concise and simply state the direct effect of the specific change. Avoid verbose summaries, compound multi-clause sentences, redundant narrative preambles, or sprawling lists in commit subjects.
+  - **No Internal References or Numeric IDs**: Never include internal review session timestamps (e.g. `164259`, `003105`), review IDs, subagent IDs, or arbitrary numbers.
+  - Release PR titles strictly follow `feat(release): v<version>`.
 - **Declarative Code Ownership (`.github/CODEOWNERS`)**: Pull requests automatically assign reviews based on touched file paths (Core CLI, AI/MCP, K8s, Security, CI/CD).
 - **Automated Dependency Updates (`.github/dependabot.yml`)**: Dependabot monitors `github-actions` and `pip` dependencies weekly, targeting active release branches with prefix `chore(deps)`.
 - **GitHub Project Governance, Views & Labeling Standards**:
@@ -268,12 +271,13 @@ gitGraph
   - **Roadmap-Linked Milestones (`docs/ROADMAP.md`)**: Release branches and topic PRs associate directly with release milestones extracted from `ROADMAP.md` and reconciled via `devops gh milestones sync`.
   - **Standardized Projects v2 & Issues Views (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**: Four standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) track features across lifecycles (`Backlog` -> `Ready` -> `In Progress` -> `In Review` -> `Done`), audited via `devops gh views list` / `spec` and synced via `devops gh project sync` with mandatory repository board linkage (`devops gh project link <number>`) so projects appear under `https://github.com/dan-petty/devops-cli/projects` and views under `https://github.com/dan-petty/devops-cli/issues/views`.
 - **Human-in-the-Loop Merging**: AI agents prepare PRs, monitor remote GitHub Actions CI, and remediate failures. AI agents **never merge PRs autonomously**. Maintainers approve and squash-merge.
-- **Automated & Peer Code Review Remediation Mandate**:
-  - AI agents and developers must actively evaluate all review feedback (from GitHub Copilot, linters, or human reviewers) on open pull requests.
-  - Review feedback must be addressed iteratively via Test-First Development (author/update tests first in `tests/`, implement clean fixes in `src/`, ensuring zero zombie code).
-  - **Mandatory Direct In-Thread Replies**: AI agents MUST reply **directly within each specific review discussion thread** on the exact comment being addressed (`gh api repos/:owner/:repo/pulls/:number/comments/:comment_id/replies` or GraphQL `addPullRequestReviewThreadReply`). Never post solely a general, top-level PR summary comment.
-  - **Conversation Resolution**: Once committed, pushed, and verified, AI agents MUST resolve the conversation thread on GitHub via GraphQL `resolveReviewThread`.
-  - **Continuous Quality Gate Verification**: Re-verify local quality gates (`devops ci`) and monitor remote GitHub Actions status (`gh pr checks`) until 100% green.
+- **Mandatory PR Monitoring Gate (`devops pr monitor`) & Review Remediation Mandate**:
+  - AI agents and developers **MUST ALWAYS** monitor remote CI checks and Copilot reviews via `devops pr monitor <pr_number>` (or `devops pr wait <pr_number>`) immediately after opening or updating PRs.
+  - **Zero Premature Completions**: Never conclude a turn or declare a task done while CI checks are pending/failing or Copilot review sessions are unresolved.
+  - **Wait for Copilot Reviews to Settle**: `devops pr monitor` enforces settling windows to ensure asynchronous Copilot review sessions complete.
+  - **Remediate Check Failures Immediately**: Inspect failed logs (`gh run view --log-failed`), apply concise test-first fixes, push, and re-monitor.
+  - **Mandatory Direct In-Thread Replies & Resolution**: When review comments are submitted (exit code 2), inspect threads via `devops pr threads list <pr_number> --unresolved-only`, author test-first fixes, reply **directly within each specific review discussion thread** (`devops pr threads reply <thread_id> "<body>"`), and resolve the thread (`devops pr threads resolve <thread_id>`). Never post solely top-level summary comments.
+  - **Merge Readiness Guarantee**: A PR is ready for merging ONLY when `devops pr monitor` exits with code 0 (all checks green, Copilot review settled, 0 unresolved threads).
 
 ---
 

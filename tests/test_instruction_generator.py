@@ -281,3 +281,18 @@ def test_generate_agents_md_enforces_draft_pull_requests() -> None:
     assert "Draft Pull Requests for In-Progress Work" in content
     assert "gh pr create --draft" in content
     assert "gh pr ready" in content
+
+
+def test_generate_agents_md_enforces_pr_monitor_and_concise_commits() -> None:
+    """Verify generated AGENTS.md mandates concise commit messages and devops pr monitor gate."""
+    meta = ProjectMetadata(
+        name="sample-project",
+        description="Sample project testing PR monitoring and commit standards",
+        version="0.2.0",
+        requires_python=">=3.14",
+    )
+    content = generate_agents_md(meta)
+    assert "Concise, Effect-Driven Commit Messages" in content
+    assert "Mandatory PR Monitoring Gate (`devops pr monitor`)" in content
+    assert "devops pr monitor <pr_number>" in content
+    assert "Wait for Copilot Review Sessions to Settle" in content

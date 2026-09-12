@@ -75,6 +75,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_validate`](#k8s-validate) | Validate Kubernetes manifest syntax and schemas against OpenAPI specifications. |
 | [`pr_checks`](#pr-checks) | Inspect detailed status of GitHub Actions CI checks for a pull request. |
 | [`pr_list`](#pr-list) | List GitHub pull requests with review approval state and CI check summaries. |
+| [`pr_monitor`](#pr-monitor) | Monitor PR CI checks, Copilot reviews, and review threads until ready for merge. |
 | [`pr_thread_reply`](#pr-thread-reply) | Post an in-thread reply directly to a pull request review discussion thread. |
 | [`pr_thread_resolve`](#pr-thread-resolve) | Programmatically mark a pull request review discussion thread as resolved. |
 | [`pr_threads_list`](#pr-threads-list) | List review discussion threads, file locations, and comments on a pull request. |
@@ -853,6 +854,19 @@ List GitHub pull requests with review approval state and CI check summaries.
 |---|---|---|---|---|
 | `limit` | `integer` | No | `10` | - |
 | `state` | `string` | No | `open` | - |
+
+### `pr_monitor`
+
+Monitor PR CI checks, Copilot reviews, and review threads until ready for merge.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pr_number` | `integer` | No | - | - |
+| `timeout` | `integer` | No | `300` | - |
+| `interval` | `integer` | No | `10` | - |
+| `settle_timeout` | `integer` | No | `60` | - |
 
 ### `pr_thread_reply`
 

@@ -13,9 +13,10 @@ from devops_cli.config.defaults import DEFAULT_PR_LIMIT, DEFAULT_PR_STATE
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
-from devops_cli.lang import HELP, MESSAGES
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     print_error,
+    print_info,
     print_success,
     print_table,
     print_warning,
@@ -178,6 +179,189 @@ def pr_checks(
 ) -> None:
     """Check remote CI quality gate status on a pull request."""
     _run_gh_pr_command("checks", number, repo)
+
+
+# =============================================================================
+# Command: devops pr monitor (alias: wait)
+# =============================================================================
+
+
+def _format_check_badge(check: Any) -> str:
+    """Format check status badge with color coding."""
+    if check.is_success:
+        return "[green]✓ Success[/green]"
+    if check.is_failure:
+        return f"[bold red]✗ {check.conclusion}[/bold red]"
+    return f"[yellow]● {check.status}[/yellow]"
+
+
+def _render_monitor_summary(status: Any) -> None:
+    """Render structured checks summary table."""
+    if not status.checks:
+        return
+    rows = [[c.name, c.workflow or "-", _format_check_badge(c), c.url] for c in status.checks]
+    print_table(
+        title=f"CI Quality Gate Checks (PR #{status.number})",
+        columns=["Check", "Workflow", "Status", "URL"],
+        rows=rows,
+    )
+
+
+def _render_unresolved_threads_summary(threads: list[Any]) -> None:
+    """Render table of unresolved review discussion threads."""
+    rows = []
+    for t in threads:
+        author = t.comments[0].author if t.comments else "unknown"
+        loc = f"{t.path}:{t.line}" if t.line else t.path
+        body = t.comments[0].body if t.comments else ""
+        first_comment = (body[:60] + "...") if len(body) > 60 else body
+        first_comment = first_comment.replace("\n", " ")
+        rows.append([t.id, loc, author, first_comment])
+    print_table(
+        title="Unresolved Review Discussion Threads",
+        columns=["Thread ID", "Location", "Reviewer", "Comment"],
+        rows=rows,
+    )
+
+
+def _handle_monitor_exit(result: Any, pr_number: int) -> None:
+    """Handle non-zero exit states for devops pr monitor."""
+    if result.exit_code == 1:
+        print_error(
+            ERRORS.pr.checks_failed.format(
+                number=pr_number,
+                failed_count=len(result.status.failing_checks),
+            )
+        )
+        print_warning("Inspect failed job logs via: gh run view --log-failed <run_id>")
+        raise typer.Exit(1)
+
+    if result.exit_code == 2:
+        print_error(
+            ERRORS.pr.unresolved_threads.format(
+                number=pr_number,
+                count=len(result.status.unresolved_threads),
+            )
+        )
+        _render_unresolved_threads_summary(result.status.unresolved_threads)
+        print_warning(
+            "Remediate issues with test-first fixes, reply in-thread via:\n"
+            '  devops pr threads reply <thread_id> "<reply>"\n'
+            "and resolve via:\n"
+            "  devops pr threads resolve <thread_id>"
+        )
+        raise typer.Exit(2)
+
+    print_error(result.message)
+    raise typer.Exit(3)
+
+
+@app.command("monitor")
+@app.command("wait")
+def monitor_pr_command(
+    number: Annotated[
+        int | None,
+        typer.Argument(help=HELP.pr.number),
+    ] = None,
+    interval: Annotated[
+        int,
+        typer.Option("--interval", "-i", help=HELP.pr.monitor_interval),
+    ] = 10,
+    timeout: Annotated[
+        int,
+        typer.Option("--timeout", "-t", help=HELP.pr.monitor_timeout),
+    ] = 600,
+    settle_timeout: Annotated[
+        int,
+        typer.Option("--settle-timeout", "-s", help=HELP.pr.settle_timeout),
+    ] = 60,
+    require_reviews: Annotated[
+        bool,
+        typer.Option("--require-reviews/--no-require-reviews", help=HELP.pr.require_reviews),
+    ] = True,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = "table",
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
+    ] = None,
+) -> None:
+    """Monitor PR checks, Copilot review sessions, and unresolved threads until ready."""
+    _require_gh_cli()
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.exceptions.git import GitHubOperationError
+    from devops_cli.github.pr_monitor import monitor_pr, resolve_branch_pr_number
+
+    target_repo = repo or get_repo_origin_name()
+    if not target_repo or "/" not in target_repo:
+        print_error("Target repository must be in OWNER/REPO format.")
+        raise typer.Exit(1)
+
+    pr_number = number
+    if pr_number is None:
+        try:
+            pr_number = resolve_branch_pr_number()
+        except GitHubOperationError as exc:
+            print_error(str(exc))
+            raise typer.Exit(1) from exc
+
+    owner, repo_name = target_repo.split("/", 1)
+    print_info(MESSAGES.pr.monitoring_pr.format(number=pr_number))
+
+    last_reported = -1
+
+    def _status_cb(st: Any, elapsed: int) -> None:
+        nonlocal last_reported
+        if st.completed_checks != last_reported:
+            last_reported = st.completed_checks
+            copilot_info = (
+                f" | Copilot: {st.copilot_status.state}"
+                if st.copilot_status.is_active or st.copilot_status.state != "idle"
+                else ""
+            )
+            print_info(
+                f"[{elapsed}s] Checks: {st.successful_checks}/{st.total_checks} passed "
+                f"({st.completed_checks}/{st.total_checks} done){copilot_info}"
+            )
+
+    result = monitor_pr(
+        owner=owner,
+        repo=repo_name,
+        pr_number=pr_number,
+        timeout=timeout,
+        interval=interval,
+        settle_timeout=settle_timeout,
+        require_reviews=require_reviews,
+        status_callback=_status_cb if output_format == "table" else None,
+    )
+
+    if output_format == "json":
+        from devops_cli.output import print as print_out
+
+        print_out(
+            json.dumps(
+                {
+                    "success": result.success,
+                    "exit_code": result.exit_code,
+                    "message": result.message,
+                    "status": result.status.model_dump(),
+                },
+                indent=2,
+            )
+        )
+        if result.exit_code != 0:
+            raise typer.Exit(result.exit_code)
+        return
+
+    _render_monitor_summary(result.status)
+
+    if result.exit_code == 0:
+        print_success(MESSAGES.pr.pr_ready_success.format(number=pr_number))
+        return
+
+    _handle_monitor_exit(result, pr_number)
 
 
 # =============================================================================

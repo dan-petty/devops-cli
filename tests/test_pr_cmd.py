@@ -188,3 +188,131 @@ class TestPrCommands:
             res = runner.invoke(app, ["threads", "unresolve", "PRRT_1"])
             assert res.exit_code == 0
             assert "reopened (unresolved)" in res.output
+
+    def test_pr_monitor_ready(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_monitor import (
+            CopilotReviewStatus,
+            PRCheckRun,
+            PRMonitorResult,
+            PRMonitorStatus,
+        )
+
+        mock_status = PRMonitorStatus(
+            number=168,
+            title="fix: all green",
+            checks=[PRCheckRun(name="CI", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+        )
+        mock_result = PRMonitorResult(
+            success=True,
+            exit_code=0,
+            message="Ready",
+            status=mock_status,
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
+        ):
+            res = runner.invoke(app, ["monitor", "168"])
+            assert res.exit_code == 0
+            assert "100% READY FOR MERGING" in res.output
+
+    def test_pr_monitor_failing_checks(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_monitor import (
+            CopilotReviewStatus,
+            PRCheckRun,
+            PRMonitorResult,
+            PRMonitorStatus,
+        )
+
+        mock_status = PRMonitorStatus(
+            number=168,
+            title="fix: broken",
+            checks=[PRCheckRun(name="CI", status="COMPLETED", conclusion="FAILURE")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+        )
+        mock_result = PRMonitorResult(
+            success=False,
+            exit_code=1,
+            message="Failed",
+            status=mock_status,
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
+        ):
+            res = runner.invoke(app, ["monitor", "168"])
+            assert res.exit_code == 1
+            assert "Remote CI checks failed" in res.output
+
+    def test_pr_monitor_unresolved_threads(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_monitor import (
+            CopilotReviewStatus,
+            PRCheckRun,
+            PRMonitorResult,
+            PRMonitorStatus,
+        )
+        from devops_cli.github.pr_threads import ReviewComment, ReviewThread
+
+        thread = ReviewThread(
+            id="PRRT_1",
+            is_resolved=False,
+            path="main.py",
+            comments=[ReviewComment(id="C1", body="Fix this issue", author="copilot")],
+        )
+        mock_status = PRMonitorStatus(
+            number=168,
+            title="fix: comments",
+            checks=[PRCheckRun(name="CI", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[thread],
+        )
+        mock_result = PRMonitorResult(
+            success=False,
+            exit_code=2,
+            message="Unresolved threads",
+            status=mock_status,
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
+        ):
+            res = runner.invoke(app, ["monitor", "168"])
+            assert res.exit_code == 2
+            assert "unresolved review discussion thread" in res.output
+
+    def test_pr_monitor_auto_detect_branch(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_monitor import (
+            CopilotReviewStatus,
+            PRCheckRun,
+            PRMonitorResult,
+            PRMonitorStatus,
+        )
+
+        mock_status = PRMonitorStatus(
+            number=168,
+            title="fix: branch pr",
+            checks=[PRCheckRun(name="CI", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+        )
+        mock_result = PRMonitorResult(
+            success=True,
+            exit_code=0,
+            message="Ready",
+            status=mock_status,
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.github.pr_monitor.resolve_branch_pr_number", return_value=168),
+            patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
+        ):
+            res = runner.invoke(app, ["monitor"])
+            assert res.exit_code == 0
+            assert "PR #168" in res.output

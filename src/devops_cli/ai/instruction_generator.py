@@ -288,9 +288,11 @@ codebase or reviewing target repositories.
 - **Commit Standards**:
   - Follow **Conventional Commits** format (`feat(scope): ...`, `fix(scope): ...`,
     `refactor(scope): ...`, `docs(scope): ...`).
+  - **Concise, Effect-Driven Commit Messages**: Commit messages MUST be concise and simply state the direct effect of the specific change. Avoid overly verbose summaries, compound multi-clause sentences, redundant narrative preambles, or sprawling lists in commit subjects. State clearly and directly what the change accomplishes.
   - Maintain atomic, cohesive commits with clean commit messages.
+  - **No Internal References or Numeric IDs**: Commit messages and PR titles must describe technical changes using descriptive engineering terminology, never internal session timestamps, review numbers, subagent IDs, or prompt phase numbers.
 - **Pull Request Governance & Code Review Remediation**:
-  - AI agents prepare clean commits, open/update PRs, monitor remote CI checks, and leave merge
+  - AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`devops pr monitor`), and leave merge
     approval to maintainers.
   - **Mandatory Draft Pull Requests for In-Progress Work**: Whenever opening any pull request that is
     not yet fully implemented, tested, and ready for review, AI agents MUST create the pull request as
@@ -299,16 +301,19 @@ codebase or reviewing target repositories.
     satisfying the requirement that every remote topic branch have an open pull request. Once all code,
     tests, and documentation are complete and CI quality gates pass, convert it to ready for review
     (`gh pr ready <pr_number>`).
-  - **Always Monitor and Fix CI Checks**: Whenever creating a pull request or pushing to a pull request branch,
-    always actively monitor remote CI checks (`gh pr checks`). If any check fails, immediately inspect failed logs,
-    diagnose root causes, apply test-first fixes, push, and re-monitor until all checks are 100% green.
-  - **Check and Address Review Comments**: When working on a pull request branch, always check for review comments
-    and threads (`devops pr threads list <pr_number> --unresolved-only`).
-  - Remediate all feedback iteratively using Test-First Development (author/update tests first).
-  - Reply directly within each specific review thread on the exact comment addressed with concrete technical details;
-    never rely solely on top-level PR comments.
-  - Resolve review threads on GitHub (`devops pr threads resolve <thread_id>` or GraphQL `resolveReviewThread`)
-    once all issues in the thread have been addressed and verified.
+  - **Mandatory PR Monitoring Gate (`devops pr monitor`) (Zero Premature Completions & Unmonitored PRs)**:
+    - AI agents **MUST ALWAYS** actively monitor pull requests by running `devops pr monitor <pr_number>` (or FastMCP `pr_monitor`) immediately after opening a PR (`gh pr create`) or pushing commits to any branch with an active PR (`git push`).
+    - **Strict Prohibition of Premature Completion**: Never conclude a turn, declare a task done, switch branches, or ask the user to review or merge while CI checks are pending, failing, or while automated code review sessions (such as GitHub Copilot code review) are in progress or unresolved.
+    - **Wait for Copilot Review Sessions to Settle**: Automated code review bots submit reviews asynchronously. `devops pr monitor` automatically enforces settling windows and checks timeline activity. Agents must wait for this review session to complete.
+    - **Remediate Check Failures Immediately**: If any CI check fails (exit code 1), immediately inspect failed logs (`gh run view --log-failed`), diagnose root causes, apply test-first fixes with concise effect-driven commit messages, push, and re-run `devops pr monitor <pr_number>`.
+    - **Remediate Review Feedback In-Thread & Resolve**: If Copilot or reviewers leave review comments (exit code 2):
+      1. Inspect all open threads: `devops pr threads list <pr_number> --unresolved-only`.
+      2. Author test-first fixes in `src/` and `tests/`.
+      3. Commit with concise message stating the direct effect and push.
+      4. Post direct in-thread replies: `devops pr threads reply <thread_id> "<body>"`. Never rely solely on top-level PR summary comments.
+      5. Resolve threads: `devops pr threads resolve <thread_id>`.
+      6. Re-run `devops pr monitor <pr_number>` until exit code 0 is achieved.
+    - **Merge Readiness Guarantee**: A PR is ONLY ready for merging when `devops pr monitor` exits with code 0: all CI checks are 100% green, Copilot review session is settled, and 0 unresolved review discussion threads remain.
 - **GitHub Projects, Issues & Views Governance**:
   - Proactively author and populate tracking issues for all scheduled roadmap deliverables upon milestone activation; the open issues queue (`issues?q=is:issue+state:open`), projects tab (`projects`), and issue views (`issues/views`) must never be left empty.
   - Link project boards conforming to `.github/project-template.json` to the repository (`devops gh project link <number>`) and synchronize items and custom fields via `devops gh project sync`.

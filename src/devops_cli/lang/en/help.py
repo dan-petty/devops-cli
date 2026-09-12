@@ -594,6 +594,15 @@ class PRCommandHelp:
     thread_ids: str = "One or more review thread GraphQL IDs to resolve."
     unresolved_only: str = "Filter to display only unresolved review discussion threads."
     reply_body: str = "Reply message text to append directly to the review thread."
+    monitor: str = (
+        "Monitor PR checks, Copilot review sessions, and unresolved threads until ready for merge."
+    )
+    monitor_interval: str = "Polling interval in seconds between check queries."
+    monitor_timeout: str = "Maximum time in seconds to wait for checks and reviews."
+    settle_timeout: str = "Grace period in seconds to allow Copilot review sessions to initialize."
+    require_reviews: str = (
+        "Wait for active Copilot review sessions to conclude and check for unresolved threads."
+    )
 
 
 @dataclass(frozen=True)

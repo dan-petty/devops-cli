@@ -578,23 +578,36 @@ def infer_item_priority(labels: list[Any]) -> str:
     return "P2-Medium"
 
 
-def infer_item_status(state: str, labels: list[Any]) -> str:
-    """Infer GitHub Projects Status field from state and taxonomy labels."""
+def infer_item_status(
+    state: str,
+    labels: list[Any],
+    is_pr: bool = False,
+    has_open_pr: bool = False,
+) -> str:
+    """Infer GitHub Projects Status field from state, PR presence, and taxonomy labels."""
     st_upper = state.upper()
     if st_upper in ("CLOSED", "MERGED"):
         return "Done"
+
+    # Open PRs and issues with active open PRs are In Review
+    if is_pr or has_open_pr:
+        return "In Review"
+
     names = [lbl.get("name", "") if isinstance(lbl, dict) else str(lbl) for lbl in labels]
     for n in names:
         n_lower = n.lower()
         if "status/blocked" in n_lower:
             return "Blocked"
-        if "status/in-progress" in n_lower:
-            return "In Progress"
         if "status/in-review" in n_lower:
             return "In Review"
+        if "status/in-progress" in n_lower:
+            return "In Progress"
         if "status/ready" in n_lower:
             return "Ready"
-    return "Todo"
+        if "status/backlog" in n_lower:
+            return "Backlog"
+
+    return "Ready"
 
 
 TAXONOMY_CATEGORY_MAPPING: dict[str, tuple[str, str, str]] = {
@@ -710,6 +723,7 @@ def _reconcile_single_item(
     project_number: int,
     item: dict[str, Any],
     dry_run: bool,
+    has_open_pr: bool = False,
 ) -> bool:
     """Infer and apply all custom fields to a single candidate project item."""
     url = item.get("html_url") or item.get("url") or ""
@@ -719,8 +733,9 @@ def _reconcile_single_item(
     state = str(item.get("state", "OPEN"))
     labels = item.get("labels", [])
 
+    is_pr = "/pull/" in url or "pull_request" in item
     priority = infer_item_priority(labels)
-    status = infer_item_status(state, labels)
+    status = infer_item_status(state, labels, is_pr=is_pr, has_open_pr=has_open_pr)
     category, val, eff = infer_item_category_value_effort(title, priority, labels=labels)
 
     if dry_run:
@@ -750,6 +765,16 @@ def reconcile_project_custom_fields(
     prs = _fetch_repository_prs(repo)
     candidates = issues + prs
 
+    open_pr_issue_numbers: set[int] = set()
+    for pr in prs:
+        if str(pr.get("state", "")).upper() == "OPEN":
+            txt = f"{pr.get('title', '')} {pr.get('body', '')}"
+            for num_str in re.findall(r"#(\d+)", txt):
+                try:
+                    open_pr_issue_numbers.add(int(num_str))
+                except ValueError:
+                    continue
+
     if not dry_run:
         for it in candidates:
             url = it.get("html_url") or it.get("url")
@@ -773,7 +798,9 @@ def reconcile_project_custom_fields(
 
     reconciled_count = 0
     for it in candidates:
-        if _reconcile_single_item(owner, project_number, it, dry_run):
+        it_num = int(it.get("number", 0))
+        has_pr = it_num in open_pr_issue_numbers
+        if _reconcile_single_item(owner, project_number, it, dry_run, has_open_pr=has_pr):
             reconciled_count += 1
 
     return {

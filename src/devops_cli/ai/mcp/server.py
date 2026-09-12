@@ -61,11 +61,18 @@ def _validate_mcp_arg(name: str, value: str) -> None:
         )
 
 
-def _validate_mcp_int_bound(name: str, value: int, min_val: int = 1) -> None:
-    """Reject integer MCP arguments below min_val to prevent negative flag-like injection or invalid arguments."""
+def _validate_mcp_int_bound(
+    name: str, value: int, min_val: int = 1, max_val: int | None = None
+) -> None:
+    """Reject integer MCP arguments outside bounds to prevent negative flag-like injection or invalid arguments."""
     if value < min_val:
         raise ValidationError(
             ERRORS.mcp.integer_below_minimum.format(name=name, value=value, min_val=min_val),
+            field=name,
+        )
+    if max_val is not None and value > max_val:
+        raise ValidationError(
+            ERRORS.mcp.integer_above_maximum.format(name=name, value=value, max_val=max_val),
             field=name,
         )
 
@@ -1817,6 +1824,36 @@ def pr_thread_resolve(thread_id: str) -> str:
         ["uv", "run", "devops", "pr", "threads", "resolve", thread_id],
         timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
     )
+
+
+@mcp.tool()
+def pr_monitor(
+    pr_number: int | None = None,
+    timeout: int = 300,
+    interval: int = 10,
+    settle_timeout: int = 60,
+) -> str:
+    """Monitor PR CI checks, Copilot reviews, and review threads until ready for merge."""
+    _validate_mcp_int_bound("timeout", timeout, min_val=10, max_val=1800)
+    _validate_mcp_int_bound("interval", interval, min_val=2, max_val=120)
+    _validate_mcp_int_bound("settle_timeout", settle_timeout, min_val=0, max_val=300)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "pr",
+        "monitor",
+        "--timeout",
+        str(timeout),
+        "--interval",
+        str(interval),
+        "--settle-timeout",
+        str(settle_timeout),
+    ]
+    if pr_number is not None:
+        _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+        cmd.append(str(pr_number))
+    return _run_mcp_cmd(cmd, timeout=float(timeout + 30))
 
 
 @mcp.tool()
