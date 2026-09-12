@@ -49,4 +49,5 @@ Provide automated formatting and linting by default across DevOps CLI developer 
 - [x] Documentation synchronization & drift check (`devops docs generate --sync-readme`, `devops docs check`)
 - [x] Architectural invariant validation (`tests/test_architectural_invariants.py`)
 - [x] Quality gate verification (`devops ci`)
-- [ ] Pull Request authoring & CI monitoring
+- [x] Pull Request authoring & CI monitoring ([#159](https://github.com/dan-petty/devops-cli/pull/159))
+- [x] Address PR #159 review feedback (executor non-blocking cleanup, leaf alias introspection, Jekyll links and default layout)

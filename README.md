@@ -381,28 +381,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops sandbox exec [OPTIONS] <instance_id> <command>` | Execute a command inside an active sandbox container. |
 | **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
-| **format** | `devops format test [OPTIONS]` | Run the pytest test suite in parallel leveraging all CPU cores. |
-|  | `devops format coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
-|  | `devops format lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
-|  | `devops format format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
-|  | `devops format typecheck [OPTIONS]` | Run mypy static type-checker strictly targeting Python 3.14 over src/. |
-|  | `devops format audit [OPTIONS]` | Run uv audit to check for known package vulnerabilities. |
-|  | `devops format security [OPTIONS]` | Run bandit static security vulnerability analysis over src/. |
-|  | `devops format actionlint [OPTIONS]` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
-|  | `devops format docs [OPTIONS]` | Verify (or update with --fix) that documentation is up to date with CLI commands and configuration. |
-|  | `devops format maintain [OPTIONS]` | Run automated toolchain, dependency freshness, and lockfile maintenance checks. |
-|  | `devops format run [OPTIONS]` | Run full CI and return a single pass/fail status. |
-| **lint** | `devops lint test [OPTIONS]` | Run the pytest test suite in parallel leveraging all CPU cores. |
-|  | `devops lint coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
-|  | `devops lint lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
-|  | `devops lint format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
-|  | `devops lint typecheck [OPTIONS]` | Run mypy static type-checker strictly targeting Python 3.14 over src/. |
-|  | `devops lint audit [OPTIONS]` | Run uv audit to check for known package vulnerabilities. |
-|  | `devops lint security [OPTIONS]` | Run bandit static security vulnerability analysis over src/. |
-|  | `devops lint actionlint [OPTIONS]` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
-|  | `devops lint docs [OPTIONS]` | Verify (or update with --fix) that documentation is up to date with CLI commands and configuration. |
-|  | `devops lint maintain [OPTIONS]` | Run automated toolchain, dependency freshness, and lockfile maintenance checks. |
-|  | `devops lint run [OPTIONS]` | Run full CI and return a single pass/fail status. |
+| **format** | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
+| **lint** | `devops lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 
 <!-- COMMAND_MATRIX_END -->
 
