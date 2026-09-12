@@ -160,7 +160,7 @@ class SandboxProbeReport(BaseModel):
 class CgroupV2Metrics(BaseModel):
     """Container resource telemetry extracted from cgroup v2 controllers."""
 
-    cpu_percent: float = 0.0
+    cpu_percent: float | None = None
     cpu_usage_usec: int = 0
     memory_current_bytes: int = 0
     memory_peak_bytes: int | None = None

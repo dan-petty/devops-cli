@@ -716,11 +716,11 @@ def test_parse_cgroup_v2_cpu_delta_calculation(tmp_path: Path) -> None:
     cgroup_dir.mkdir(parents=True)
     (cgroup_dir / "cpu.stat").write_text("usage_usec 2500000\n")
 
-    # Initial sample without prior interval -> 0.0% but records usage_usec
+    # Initial sample without prior interval -> None (unknown) but records usage_usec
     first_sample = parse_cgroup_v2_directory(cgroup_dir)
     assert first_sample is not None
     assert first_sample.cpu_usage_usec == 2500000
-    assert first_sample.cpu_percent == 0.0
+    assert first_sample.cpu_percent is None
 
     # Second sample: previous was 2,000,000 usec, elapsed 1.0 sec -> delta = 500,000 usec -> 50.0%
     second_sample = parse_cgroup_v2_directory(
@@ -761,6 +761,17 @@ def test_scrape_prometheus_metrics_ssrf_protection() -> None:
     res_bad_host = scrape_prometheus_metrics("http:///missing-host")
     assert len(res_bad_host) == 0
     assert res_bad_host.error is not None
+
+    # Cloud metadata and RFC1918 private IPs are blocked
+    res_metadata = scrape_prometheus_metrics("http://169.254.169.254/latest/meta-data")
+    assert len(res_metadata) == 0
+    assert res_metadata.error is not None
+    assert "SSRF" in res_metadata.error or "private" in res_metadata.error.lower()
+
+    res_rfc1918 = scrape_prometheus_metrics("http://10.0.0.1/metrics")
+    assert len(res_rfc1918) == 0
+    assert res_rfc1918.error is not None
+    assert "SSRF" in res_rfc1918.error or "private" in res_rfc1918.error.lower()
 
 
 def test_preserve_scrape_error_state_and_unhealthy() -> None:
@@ -1005,3 +1016,59 @@ def test_cli_sandbox_metrics_latency_sla_option(
     assert result.exit_code == 0
     mock_engine.metrics.assert_called_once()
     assert mock_engine.metrics.call_args.kwargs["latency_sla_ms"] == 250.0
+
+
+def test_read_cgroup_v2_metrics_fallback_when_path_invalid(tmp_path: Path) -> None:
+    """Test read_cgroup_v2_metrics falls back to container_id when cgroup_path is invalid."""
+    # When cgroup_path does not exist, it should not abort but check container_id
+    with patch("devops_cli.sandbox.metrics._read_container_stats_fallback") as mock_docker_fallback:
+        mock_docker_fallback.return_value = CgroupV2Metrics(cpu_percent=55.0)
+        res = read_cgroup_v2_metrics(
+            container_id="cont-fallback-1",
+            cgroup_path=tmp_path / "nonexistent",
+        )
+        assert res is not None
+        assert res.cpu_percent == 55.0
+        mock_docker_fallback.assert_called_once_with("cont-fallback-1")
+
+
+def test_workload_sandbox_engine_persists_and_threads_samples() -> None:
+    """Test WorkloadSandboxEngine persists samples and calculates CPU delta on consecutive calls."""
+    from devops_cli.sandbox.engine import WorkloadSandboxEngine
+    from devops_cli.sandbox.metrics import PrometheusScrapeResult
+
+    engine = WorkloadSandboxEngine()
+    engine._prior_samples.clear()
+
+    inst = SandboxInstance(
+        instance_id="sandbox-delta-inst",
+        container_id="cont-delta-1",
+        name="delta-svc",
+        image="test:latest",
+        status=SandboxStatus.RUNNING,
+        port_bindings=[PortBinding(container_port=8080, host_port=18080)],
+        workspace_dir="/tmp",
+        created_at="2026-09-12T13:00:00Z",
+    )
+
+    with patch.object(engine.registry, "get_instance", return_value=inst):
+        with patch("devops_cli.sandbox.metrics.scrape_prometheus_metrics") as mock_scrape:
+            mock_scrape.return_value = PrometheusScrapeResult([])
+            with patch("devops_cli.sandbox.metrics.read_cgroup_v2_metrics") as mock_read:
+                # First call returns usage_usec = 1,000,000 without prior delta -> cpu_percent is None
+                mock_read.side_effect = [
+                    CgroupV2Metrics(cpu_usage_usec=1000000, cpu_percent=None),
+                    CgroupV2Metrics(cpu_usage_usec=1500000, cpu_percent=50.0),
+                ]
+                first = engine.metrics("sandbox-delta-inst")
+                assert first.cgroup is not None
+                assert first.cgroup.cpu_percent is None
+
+                # Second call should thread previous sample
+                second = engine.metrics("sandbox-delta-inst")
+                assert second.cgroup is not None
+                assert second.cgroup.cpu_percent == 50.0
+                assert mock_read.call_count == 2
+                # Verify second call received previous_cpu_usec = 1000000
+                second_kwargs = mock_read.call_args_list[1].kwargs
+                assert second_kwargs.get("previous_cpu_usec") == 1000000

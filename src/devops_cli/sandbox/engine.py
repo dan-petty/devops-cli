@@ -18,6 +18,7 @@ from devops_cli.exceptions.sandbox import (
     SandboxValidationError,
 )
 from devops_cli.sandbox.models import (
+    CgroupV2Metrics,
     PortBinding,
     ProbeProtocol,
     SandboxDeployConfig,
@@ -64,6 +65,8 @@ def _resolve_user_string(rootless: bool) -> str | None:
 
 class WorkloadSandboxEngine:
     """Orchestrator for managing isolated background Docker container sandboxes."""
+
+    _prior_samples: dict[str, tuple[float, CgroupV2Metrics]] = {}
 
     def __init__(self, registry: SandboxRegistry | None = None) -> None:
         self.registry = registry or SandboxRegistry()
@@ -484,6 +487,17 @@ class WorkloadSandboxEngine:
             )
         from devops_cli.sandbox.metrics import collect_sandbox_metrics
 
+        now = time.monotonic()
+        prior_key = inst.container_id or identifier
+        prev_entry = self._prior_samples.get(prior_key)
+        prev_cpu: int | None = None
+        prev_cgroup: CgroupV2Metrics | None = None
+        elapsed: float | None = None
+        if prev_entry is not None:
+            prev_ts, prev_cgroup = prev_entry
+            elapsed = max(0.001, now - prev_ts)
+            prev_cpu = prev_cgroup.cpu_usage_usec
+
         with trace_span(
             "sandbox.engine.metrics",
             attributes={
@@ -499,7 +513,13 @@ class WorkloadSandboxEngine:
                 memory_threshold_pct=memory_threshold_pct,
                 cpu_threshold_pct=cpu_threshold_pct,
                 latency_sla_ms=latency_sla_ms,
+                previous_cgroup=prev_cgroup,
+                previous_cpu_usec=prev_cpu,
+                elapsed_sec=elapsed,
             )
+            if snapshot.cgroup is not None:
+                self._prior_samples[prior_key] = (now, snapshot.cgroup)
+
             record_metric(
                 "devops_cli.sandbox.metrics_collected",
                 1.0,

@@ -430,7 +430,12 @@ def _render_cgroup_table(target: str, cgroup: CgroupV2Metrics) -> None:
         ("Limit / Baseline", "yellow"),
         ("Status", "bold"),
     ]
-    cpu_badge = "[red]HIGH[/red]" if cgroup.cpu_percent > 85.0 else "[green]HEALTHY[/green]"
+    cpu_badge = (
+        "[red]HIGH[/red]"
+        if (cgroup.cpu_percent or 0.0) > 85.0
+        else ("[green]HEALTHY[/green]" if cgroup.cpu_percent is not None else "[dim]UNKNOWN[/dim]")
+    )
+    cpu_str = f"{cgroup.cpu_percent:.1f}%" if cgroup.cpu_percent is not None else "-"
     mem_lim_str = f"{cgroup.memory_limit_mb:.1f} MB" if cgroup.memory_limit_mb else "unbounded"
     mem_pct = (
         f"{cgroup.memory_usage_percent:.1f}%" if cgroup.memory_usage_percent is not None else "-"
@@ -442,7 +447,7 @@ def _render_cgroup_table(target: str, cgroup: CgroupV2Metrics) -> None:
     )
 
     rows = [
-        ["CPU Utilization", f"{cgroup.cpu_percent:.1f}%", "< 85.0%", cpu_badge],
+        ["CPU Utilization", cpu_str, "< 85.0%", cpu_badge],
         ["Memory (RSS)", f"{cgroup.memory_current_mb:.1f} MB", mem_lim_str, mem_badge],
         ["Memory Usage %", mem_pct, "< 80.0%", mem_badge],
         ["Active Tasks (PIDs)", str(cgroup.pids_current), "-", "[dim]ACTIVE[/dim]"],

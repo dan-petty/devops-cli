@@ -8,6 +8,7 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx2
 
@@ -44,12 +45,12 @@ def _calculate_cpu_percent(
     cpu_usec: int,
     previous_cpu_usec: int | None,
     elapsed_sec: float | None,
-) -> float:
+) -> float | None:
     """Calculate CPU percentage from cumulative microseconds delta."""
     if previous_cpu_usec is not None and elapsed_sec is not None and elapsed_sec > 0:
         delta_usec = max(0, cpu_usec - previous_cpu_usec)
         return round(min((delta_usec / (elapsed_sec * 1_000_000.0)) * 100.0, 100.0), 2)
-    return 0.0
+    return None
 
 
 def _calculate_memory_percent(
@@ -284,7 +285,7 @@ def read_cgroup_v2_metrics(
     has_delta = previous_cpu_usec is not None or elapsed_sec is not None
 
     if cgroup_path:
-        return (
+        metrics = (
             parse_cgroup_v2_directory(
                 cgroup_path,
                 previous_cpu_usec=previous_cpu_usec,
@@ -293,6 +294,8 @@ def read_cgroup_v2_metrics(
             if has_delta
             else parse_cgroup_v2_directory(cgroup_path)
         )
+        if metrics is not None:
+            return metrics
 
     if container_id:
         standard_paths = [
@@ -397,6 +400,28 @@ class PrometheusScrapeResult(list[PrometheusMetric]):
         self.error = error
 
 
+_ALLOWED_LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _validate_scrape_url(metrics_url: str) -> str:
+    """Validate scrape URL ensuring scheme is http/https and blocking SSRF targets."""
+    parsed = urlparse(metrics_url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Invalid scrape URL scheme '{parsed.scheme}': must be http or https")
+    host = parsed.hostname or ""
+    if not host:
+        raise ValueError(f"Invalid scrape URL: missing valid hostname in '{metrics_url}'")
+
+    if host.lower() in _ALLOWED_LOCAL_HOSTS:
+        return metrics_url
+
+    return validate_url_egress(
+        metrics_url,
+        purpose="Prometheus metrics scrape",
+        allow_private=False,
+    )
+
+
 def scrape_prometheus_metrics(
     metrics_url: str,
     timeout: float = 5.0,
@@ -404,11 +429,7 @@ def scrape_prometheus_metrics(
     """Scrape Prometheus metrics endpoint over HTTP and parse exposition text."""
     safe_url = mask_uri_credentials(metrics_url)
     try:
-        validated_url = validate_url_egress(
-            metrics_url,
-            purpose="Prometheus metrics scrape",
-            allow_private=True,
-        )
+        validated_url = _validate_scrape_url(metrics_url)
     except Exception as exc:
         err_msg = redact_text(str(exc))
         return PrometheusScrapeResult(
@@ -479,7 +500,7 @@ def _evaluate_cgroup_thresholds(
             )
         )
 
-    if cgroup.cpu_percent > cpu_thresh:
+    if cgroup.cpu_percent is not None and cgroup.cpu_percent > cpu_thresh:
         warnings.append(
             _truncate(
                 f"CPU utilization ({cgroup.cpu_percent:.1f}%) exceeds warning threshold ({cpu_thresh:.1f}%)"
