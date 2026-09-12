@@ -182,6 +182,34 @@ class TestDevcontainerCli:
         assert result.exit_code == 0
         assert "Spawned background Minikube & Kubernetes bootstrap" in result.output
 
+    def test_post_start_skips_bootstrap_when_context_is_not_minikube(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """devops devcontainer post-start must NOT spawn bootstrap when context is not minikube unless forced."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("DEVOPS_CLI_K8S_CONTEXT", "production-cloud")
+        monkeypatch.delenv("DEVOPS_MINIKUBE_AUTOSTART", raising=False)
+        monkeypatch.delenv("DEVOPS_K8S_AUTOSTART_MINIKUBE", raising=False)
+
+        monkeypatch.setattr("shutil.which", lambda prog: f"/usr/local/bin/{prog}")
+        mock_proc = MagicMock()
+        mock_proc.__enter__.return_value = mock_proc
+        mock_proc.communicate.return_value = ("", "")
+        mock_proc.returncode = 0
+        monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: mock_proc)
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "Spawned background Minikube & Kubernetes bootstrap" not in result.output
+
+        # When explicitly set via env var, it must spawn
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "true")
+        result2 = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+        assert result2.exit_code == 0
+        assert "Spawned background Minikube & Kubernetes bootstrap" in result2.output
+
     def test_bootstrap_k8s_autostarts_minikube_when_stopped(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -591,7 +591,7 @@ devops k8s contexts
 
 ### `devops k8s switch-context`
 
-**Switch active kubeconfig context.**
+**Switch active kubeconfig context and ensure cluster is running.**
 
 ```bash
 devops k8s switch-context <name>

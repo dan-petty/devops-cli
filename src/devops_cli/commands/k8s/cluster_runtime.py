@@ -56,11 +56,66 @@ def _minikube_running() -> bool:
         return False
 
 
+def _start_minikube(dry_run: bool = False) -> tuple[bool, str]:
+    """Start Minikube cluster with GPU support fallback and context refresh."""
+    import shutil
+
+    has_gpu = bool(shutil.which("nvidia-smi"))
+    gpu_suffix = " (--driver=docker --gpus=all)" if has_gpu else " (--driver=docker)"
+    if dry_run:
+        return True, f"Started Minikube cluster{gpu_suffix}"
+
+    if has_gpu:
+        start_res = _run_cmd(["minikube", "start", "--driver=docker", "--gpus=all"], check=False)
+        if start_res.returncode == 0 and _minikube_running():
+            _run_cmd(["minikube", "update-context"], check=False)
+            return True, f"Started Minikube cluster{gpu_suffix}"
+
+    fallback_res = _run_cmd(["minikube", "start", "--driver=docker"], check=False)
+    if fallback_res.returncode == 0 and _minikube_running():
+        _run_cmd(["minikube", "update-context"], check=False)
+        return True, "Started Minikube cluster (--driver=docker)"
+
+    return False, "Failed to start Minikube cluster"
+
+
+def should_autostart_minikube(target_context: str | None = None) -> bool:
+    """Determine whether Minikube should autostart based on target context and env overrides."""
+    import os
+
+    from devops_cli.config.settings import load_settings
+
+    env_val = os.getenv("DEVOPS_MINIKUBE_AUTOSTART")
+    if env_val is None:
+        env_val = os.getenv("DEVOPS_K8S_AUTOSTART_MINIKUBE")
+
+    if env_val is not None:
+        return env_val.strip().lower() in ("true", "1", "yes", "on")
+
+    effective_ctx = target_context
+    if not effective_ctx:
+        try:
+            effective_ctx = load_settings().k8s.context
+        except Exception:
+            effective_ctx = "minikube"
+
+    return bool(effective_ctx and effective_ctx.strip().lower() == "minikube")
+
+
 def _cluster_reachable(context: str | None = None) -> bool:
     """Return True if the target Kubernetes cluster (or Minikube) is reachable."""
+    from devops_cli.config.settings import load_settings
+
+    effective_context = context
+    if effective_context is None:
+        try:
+            effective_context = load_settings().k8s.context
+        except Exception:
+            effective_context = "minikube"
+
     cmd = ["kubectl", "cluster-info", "--request-timeout=5s"]
-    if context:
-        cmd.extend(["--context", context])
+    if effective_context:
+        cmd.extend(["--context", effective_context])
     try:
         res = _run_cmd(cmd, check=False, capture=True)
         if res.returncode == 0:
@@ -68,6 +123,6 @@ def _cluster_reachable(context: str | None = None) -> bool:
     except FileNotFoundError, OSError, subprocess.SubprocessError:
         pass
 
-    if not context or context == "minikube":
+    if effective_context and effective_context.strip().lower() == "minikube":
         return _minikube_running()
     return False

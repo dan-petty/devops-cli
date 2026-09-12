@@ -48,6 +48,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_GITHUB_TOKEN` | `github.token` | 🔒 Yes | GitHub Personal Access Token (stored in OS keyring) |
 | `DEVOPS_CLI_GRAFANA_TOKEN` | `grafana.token` | 🔒 Yes | Grafana API token (stored in OS keyring) |
 | `DEVOPS_CLI_GRAFANA_URL` | `grafana.url` | No | Grafana service URL |
+| `DEVOPS_CLI_K8S_CONTEXT` | `k8s.context` | No | Active Kubernetes cluster context (e.g. minikube, kind, or remote cluster) |
 | `DEVOPS_CLI_PROMETHEUS_URL` | `prometheus.url` | No | Prometheus service URL |
 | `DEVOPS_CLI_QDRANT_API_KEY` | `qdrant.api_key` | 🔒 Yes | Qdrant API key (stored in OS keyring) |
 | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | `qdrant.collection_prefix` | No | Prefix for Qdrant collection names |

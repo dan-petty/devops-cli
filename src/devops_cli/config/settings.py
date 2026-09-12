@@ -166,6 +166,11 @@ class TelemetryConfig(BaseModel):
     logfire_send_to_logfire: bool | str = "if-token-present"
 
 
+class KubernetesConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    context: str = "minikube"
+
+
 class AIRAGConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
     enabled: bool = True
@@ -386,6 +391,7 @@ class Settings(BaseSettings):
     valkey: ValkeyConfig = ValkeyConfig()
     jaeger: JaegerConfig = JaegerConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
+    k8s: KubernetesConfig = KubernetesConfig()
     ai: AIConfig = AIConfig()
     data: DataConfig = DataConfig()
 

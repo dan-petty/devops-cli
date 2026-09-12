@@ -974,7 +974,9 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
             actions.append(f"Scaffolded AI agent instructions (AGENTS.md) in {workspace_dir}")
 
     # 6. Minikube autostart & K8s deploy status evaluation (background supervisor)
-    auto_start = os.getenv("DEVOPS_MINIKUBE_AUTOSTART", "true").lower() in ("true", "1")
+    from devops_cli.commands.k8s.cluster_runtime import should_autostart_minikube
+
+    auto_start = should_autostart_minikube()
     auto_deploy = os.getenv("DEVOPS_K8S_AUTO_DEPLOY", "false").lower() in ("true", "1")
     stack = os.getenv("DEVOPS_K8S_STACK", "infra")
 

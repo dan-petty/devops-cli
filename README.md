@@ -188,7 +188,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops workspace clean [OPTIONS]` | Clean stale review sessions, old analysis caches, and temporary traces under .data/. |
 | **install-tools** | `devops install-tools status [OPTIONS]` | Show installation status and versions for all managed tools. |
 | **k8s** | `devops k8s contexts` | List kubeconfig contexts and mark the active one. |
-|  | `devops k8s switch-context <name>` | Switch active kubeconfig context. |
+|  | `devops k8s switch-context <name>` | Switch active kubeconfig context and ensure cluster is running. |
 |  | `devops k8s status` | Show node and pod summary for the current context. |
 |  | `devops k8s apply [OPTIONS] <path>` | Apply a Kubernetes manifest (delegates to kubectl). |
 |  | `devops k8s logs [OPTIONS] <pod> <query_arg>` | Stream pod logs or execute LogQL queries across cluster log streams. |

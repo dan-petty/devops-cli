@@ -19,6 +19,7 @@ from devops_cli.output import (
     format_k8s_nodes_table,
     print,
     print_error,
+    print_info,
     print_success,
 )
 
@@ -43,22 +44,50 @@ def contexts() -> None:
     print(format_k8s_contexts_table(ctx_list, active_name=active_name))
 
 
+def _sync_configured_k8s_context(name: str) -> None:
+    """Synchronize switched context name into devops-cli configuration settings."""
+    try:
+        from devops_cli.config.settings import load_settings, save_settings
+
+        settings = load_settings()
+        if settings.k8s.context != name:
+            settings.k8s.context = name
+            save_settings(settings)
+    except Exception:
+        pass
+
+
 def switch_context(
     name: Annotated[str, typer.Argument(help=HELP.k8s.context_target)],
 ) -> None:
-    """Switch active kubeconfig context."""
+    """Switch active kubeconfig context and ensure cluster is running."""
+    is_minikube = name.strip().lower() == "minikube"
+    minikube_needs_start = is_minikube and not runtime._minikube_running()
+
     if is_dry_run():
         render_dry_run_result(
             command="devops k8s switch-context",
             target=name,
             action="switch_kube_config_context",
-            details={"target_context": name},
+            details={"target_context": name, "start_minikube": minikube_needs_start},
         )
         return
 
     runtime._validate_k8s_identifier(name, "context name")
+
+    if minikube_needs_start:
+        print_info(MESSAGES.k8s.starting_minikube, prefix=False)
+        started, start_msg = runtime._start_minikube()
+        if not started:
+            print_error(MESSAGES.k8s.failed_start_minikube, prefix=False)
+            raise typer.Exit(1)
+        print_info(start_msg, prefix=False)
+
     cmd = ["kubectl", "config", "use-context", name]
     runtime._run_cmd(cmd, check=True)
+
+    _sync_configured_k8s_context(name)
+
     msg = MESSAGES.k8s.switched_context.format(context=name)
     print_success(msg, prefix=False)
 

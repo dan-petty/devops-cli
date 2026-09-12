@@ -19,8 +19,8 @@
 | [#115](https://github.com/dan-petty/devops-cli/issues/115) | TBD | Core dependency ecosystem alignment and lockfile synchronization | `Ready` | Backlog |
 | [#121](https://github.com/dan-petty/devops-cli/issues/121) | TBD | Centralized logging perimeter hardening and Fluent Bit namespace scoping | `Ready` | Backlog |
 | [#165](https://github.com/dan-petty/devops-cli/issues/165) | [#166](https://github.com/dan-petty/devops-cli/pull/166) | Require draft pull requests for in-progress work | `In Review` | [`task-165-require-draft-prs-for-in-progress-work.md`](tasks/task-165-require-draft-prs-for-in-progress-work.md) |
-| [#170](https://github.com/dan-petty/devops-cli/issues/170) | TBD | Automated PR monitoring for CI checks, Copilot reviews & review threads | `In Progress` | [`task-170-pr-monitor-copilot-checks.md`](tasks/task-170-pr-monitor-copilot-checks.md) |
-
+| [#170](https://github.com/dan-petty/devops-cli/issues/170) | [#171](https://github.com/dan-petty/devops-cli/pull/171) | Automated PR monitoring for CI checks, Copilot reviews & review threads | `Done` | [`task-170-pr-monitor-copilot-checks.md`](tasks/task-170-pr-monitor-copilot-checks.md) |
+| [#172](https://github.com/dan-petty/devops-cli/issues/172) | TBD | Configurable K8s context setting and conditional Minikube autostart | `In Progress` | [`task-172-k8s-context-minikube-autostart.md`](tasks/task-172-k8s-context-minikube-autostart.md) |
 
 ---
 
