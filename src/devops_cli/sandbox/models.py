@@ -219,9 +219,63 @@ class SandboxMetricsSnapshot(BaseModel):
         return len(self.warnings) == 0
 
 
+class PanicType(StrEnum):
+    """Categorization of detected runtime crashes, panics, and stacktraces."""
+
+    PYTHON_TRACEBACK = "python_traceback"
+    GO_PANIC = "go_panic"
+    JAVA_STACKTRACE = "java_stacktrace"
+    RUST_PANIC = "rust_panic"
+    SEGFAULT = "segfault"
+    UNKNOWN = "unknown"
+
+
+class PanicIncident(BaseModel):
+    """Structured diagnostic incident record captured from workload container logs."""
+
+    incident_id: str
+    instance_id: str
+    container_id: str
+    panic_type: PanicType
+    message: str
+    stacktrace: list[str] = Field(default_factory=list)
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    log_stream: str = "stderr"
+    archived_path: str | None = None
+
+    @field_validator("message")
+    @classmethod
+    def enforce_message_length_cap(cls, v: str) -> str:
+        """Cap incident message length to 256 chars to prevent log bloat and injection."""
+        return v[:256] if len(v) > 256 else v
+
+
+class SandboxLogLine(BaseModel):
+    """Parsed single line of sandbox container log output."""
+
+    timestamp: str | None = None
+    stream: str = "stdout"
+    content: str
+    is_panic: bool = False
+    panic_type: PanicType | None = None
+
+
+class SandboxLogsReport(BaseModel):
+    """Aggregated container logs, statistics, and detected panic incident collection."""
+
+    instance_id: str
+    container_id: str
+    total_lines: int = 0
+    panics_detected: int = 0
+    incidents: list[PanicIncident] = Field(default_factory=list)
+    lines: list[SandboxLogLine] = Field(default_factory=list)
+
+
 __all__ = [
     "CgroupV2Metrics",
     "EndpointProbeResult",
+    "PanicIncident",
+    "PanicType",
     "PortBinding",
     "ProbeProtocol",
     "ProbeStatus",
@@ -229,6 +283,8 @@ __all__ = [
     "SandboxDeployConfig",
     "SandboxExecResult",
     "SandboxInstance",
+    "SandboxLogLine",
+    "SandboxLogsReport",
     "SandboxMetricsSnapshot",
     "SandboxProbeReport",
     "SandboxStatus",

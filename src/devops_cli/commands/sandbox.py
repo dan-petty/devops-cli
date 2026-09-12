@@ -18,6 +18,9 @@ from devops_cli.exceptions.sandbox import (
 )
 from devops_cli.lang import HELP
 from devops_cli.output import (
+    Console,
+    Panel,
+    Table,
     print_error,
     print_info,
     print_success,
@@ -28,11 +31,14 @@ from devops_cli.output import (
 from devops_cli.sandbox.engine import WorkloadSandboxEngine
 from devops_cli.sandbox.models import (
     CgroupV2Metrics,
+    PanicIncident,
     ProbeProtocol,
     ProbeStatus,
     PrometheusMetric,
     SandboxDeployConfig,
     SandboxInstance,
+    SandboxLogLine,
+    SandboxLogsReport,
     SandboxMetricsSnapshot,
     SandboxProbeReport,
     SandboxStatus,
@@ -800,6 +806,145 @@ def traces(
         return None
 
     _render_sandbox_trace_waterfall(active_id, target_display, spans, jaeger_url=jaeger_url)
+    return None
+
+
+def _resolve_sandbox_identifier(
+    engine: WorkloadSandboxEngine, identifier: str | None
+) -> str | None:
+    """Resolve single instance identifier or prompt error if ambiguous."""
+    if identifier:
+        return identifier
+    instances = engine.status()
+    if not instances:
+        print_error("No running or deployed sandbox instances found.")
+        return None
+    if len(instances) == 1:
+        return instances[0].instance_id
+    print_error("Multiple sandboxes running. Specify an instance identifier.")
+    return None
+
+
+def _render_incident_alert_panel(incident: PanicIncident) -> None:
+    """Display rich alert panel when a runtime panic is detected."""
+    table = Table.grid(padding=(0, 2))
+    table.add_column("Key", style="bold red")
+    table.add_column("Value", style="yellow")
+
+    table.add_row("Panic Type:", incident.panic_type.value)
+    table.add_row("Instance:", incident.instance_id)
+    table.add_row("Message:", incident.message)
+    table.add_row("Incident ID:", incident.incident_id)
+    if incident.archived_path:
+        table.add_row("Archived Record:", incident.archived_path)
+
+    console = Console()
+    console.print(
+        Panel(
+            table,
+            title="[bold red]🚨 CRITICAL PANIC DETECTED[/bold red]",
+            border_style="red",
+            expand=False,
+        )
+    )
+
+
+def _render_single_log_line(line: SandboxLogLine, incident: PanicIncident | None) -> None:
+    """Print formatted log line and alert panel if panic triggered."""
+    console = Console()
+    prefix = f"[dim cyan]{line.timestamp}[/dim cyan] " if line.timestamp else ""
+    if line.is_panic:
+        console.print(f"{prefix}[bold red]{line.content}[/bold red]")
+    elif line.stream == "stderr":
+        console.print(f"{prefix}[yellow]{line.content}[/yellow]")
+    else:
+        console.print(f"{prefix}{line.content}")
+
+    if incident:
+        _render_incident_alert_panel(incident)
+
+
+def _render_logs_json(report: SandboxLogsReport) -> None:
+    """Output structured JSON log report."""
+    print(json.dumps(report.model_dump(), indent=2))
+
+
+def _render_logs_output(report: SandboxLogsReport) -> None:
+    """Display collected log lines and any detected panic incident alert panels."""
+    for line in report.lines:
+        _render_single_log_line(line, incident=None)
+    for incident in report.incidents:
+        _render_incident_alert_panel(incident)
+
+
+@app.command("logs")
+def logs(
+    identifier: Annotated[str | None, typer.Argument(help=HELP.sandbox.instance_id)] = None,
+    follow: Annotated[bool, typer.Option("--follow", "-f", help=HELP.sandbox.follow)] = False,
+    tail: Annotated[int, typer.Option("--tail", "-n", help=HELP.sandbox.tail)] = 100,
+    timestamps: Annotated[
+        bool, typer.Option("--timestamps", "-t", help=HELP.sandbox.timestamps)
+    ] = True,
+    detect_panics: Annotated[
+        bool, typer.Option("--detect-panics/--no-detect-panics", help=HELP.sandbox.detect_panics)
+    ] = True,
+    archive_incidents: Annotated[
+        bool,
+        typer.Option(
+            "--archive-incidents/--no-archive-incidents",
+            help="Archive incident records to JSON files",
+        ),
+    ] = True,
+    incident_dir: Annotated[
+        Path | None, typer.Option("--incident-dir", help=HELP.sandbox.incident_dir)
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Stream stdout/stderr container logs with automated panic and crash detection."""
+    set_dry_run(dry_run)
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops sandbox logs",
+            action="stream_sandbox_logs",
+            details={
+                "identifier": identifier or "auto",
+                "follow": follow,
+                "tail": tail,
+                "timestamps": timestamps,
+                "detect_panics": detect_panics,
+            },
+        )
+        return None
+
+    engine = WorkloadSandboxEngine()
+    target_id = _resolve_sandbox_identifier(engine, identifier)
+    if not target_id:
+        return None
+
+    callback = _render_single_log_line if follow and not json_output else None
+    report = engine.logs(
+        identifier=target_id,
+        follow=follow,
+        tail=tail,
+        timestamps=timestamps,
+        detect_panics_flag=detect_panics,
+        archive_incidents=archive_incidents,
+        incident_dir=incident_dir,
+        line_callback=callback,
+    )
+
+    if json_output:
+        _render_logs_json(report)
+        return None
+
+    if not follow:
+        _render_logs_output(report)
+
+    if report.panics_detected > 0:
+        print_warning(f"Detected {report.panics_detected} critical panic incidents in log stream.")
+    else:
+        print_success(f"Stream closed ({report.total_lines} lines).")
     return None
 
 
