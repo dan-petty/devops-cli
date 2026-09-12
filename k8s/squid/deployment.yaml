@@ -50,7 +50,7 @@ spec:
         # Primary Squid Caching Proxy Container
         # ---------------------------------------------------------------------
         - name: squid
-          image: ghcr.io/dan-petty/squid:0.2.16
+          image: registry.local:5000/squid:0.2.16
           imagePullPolicy: IfNotPresent
           ports:
             - name: http-proxy

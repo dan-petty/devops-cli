@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -331,3 +332,78 @@ def test_gh_pr_threads_alias() -> None:
         )
         assert result.exit_code == 0
         assert "No review threads found" in result.output
+
+
+def test_gh_rate_limit_table() -> None:
+    """devops gh rate-limit displays formatted rate limit table."""
+    mock_rate_limit = json.dumps(
+        {
+            "resources": {
+                "core": {"limit": 5000, "used": 10, "remaining": 4990, "reset": 1789249509},
+                "graphql": {"limit": 5000, "used": 5000, "remaining": 0, "reset": 1789246767},
+                "search": {"limit": 30, "used": 2, "remaining": 28, "reset": 1789245969},
+            }
+        }
+    )
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(returncode=0, stdout=mock_rate_limit, stderr=""),
+        ),
+    ):
+        result = runner.invoke(app, ["rate-limit"])
+        assert result.exit_code == 0
+        assert "GitHub API Rate Limits" in result.output
+        assert "graphql" in result.output
+        assert "4990" in result.output
+
+
+def test_gh_runs_list() -> None:
+    """devops gh runs list renders recent workflow runs table."""
+    mock_runs = json.dumps(
+        [
+            {
+                "databaseId": 12345678,
+                "name": "CI Quality Gate",
+                "status": "completed",
+                "conclusion": "success",
+                "headBranch": "feat/181",
+                "event": "push",
+                "url": "https://example.com/org/repo/actions/runs/12345678",
+            }
+        ]
+    )
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(returncode=0, stdout=mock_runs, stderr=""),
+        ),
+    ):
+        result = runner.invoke(app, ["runs", "list"])
+        assert result.exit_code == 0
+        assert "CI Quality Gate" in result.output
+        assert "12345678" in result.output
+
+
+def test_gh_runs_view_failed_logs() -> None:
+    """devops gh runs view with --log-failed fetches failed workflow logs."""
+    mock_log = "Error: Step failed with exit code 1"
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(returncode=0, stdout=mock_log, stderr=""),
+        ) as mock_subprocess,
+    ):
+        result = runner.invoke(app, ["runs", "view", "12345678", "--log-failed"])
+        assert result.exit_code == 0
+        assert "Step failed" in result.output
+        args = mock_subprocess.call_args[0][0]
+        assert "run" in args
+        assert "view" in args
+        assert "12345678" in args
+        assert "--log-failed" in args

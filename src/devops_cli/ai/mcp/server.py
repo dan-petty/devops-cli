@@ -1857,6 +1857,100 @@ def pr_monitor(
 
 
 @mcp.tool()
+def pr_ready(
+    pr_number: int,
+    monitor: bool = False,
+    repo: str | None = None,
+) -> str:
+    """Mark a draft pull request as ready for review and optionally begin monitoring."""
+    _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+    cmd = ["uv", "run", "devops", "pr", "ready", str(pr_number)]
+    if monitor:
+        cmd.append("--monitor")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def pr_diff(pr_number: int, repo: str | None = None) -> str:
+    """View the unified git diff for a pull request."""
+    _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+    cmd = ["uv", "run", "devops", "pr", "diff", str(pr_number)]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def pr_close(
+    pr_number: int,
+    comment: str | None = None,
+    delete_branch: bool = False,
+    repo: str | None = None,
+) -> str:
+    """Close a pull request with optional comment and remote branch deletion."""
+    _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+    cmd = ["uv", "run", "devops", "pr", "close", str(pr_number)]
+    if comment:
+        _validate_mcp_arg("comment", comment)
+        cmd.extend(["--comment", comment])
+    if delete_branch:
+        cmd.append("--delete-branch")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_rate_limit(format_type: str = "table") -> str:
+    """Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."""
+    _validate_mcp_arg("format_type", format_type)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "rate-limit", "--format", format_type],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def gh_runs_list(
+    limit: int = 10,
+    branch: str | None = None,
+    repo: str | None = None,
+) -> str:
+    """List recent GitHub Actions CI/CD workflow runs."""
+    _validate_mcp_int_bound("limit", limit, min_val=1, max_val=100)
+    cmd = ["uv", "run", "devops", "gh", "runs", "list", "--limit", str(limit)]
+    if branch:
+        _validate_mcp_arg("branch", branch)
+        cmd.extend(["--branch", branch])
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_run_view(
+    run_id: int,
+    log_failed: bool = True,
+    repo: str | None = None,
+) -> str:
+    """View details and diagnostic failure logs of a specific GitHub Actions workflow run."""
+    _validate_mcp_int_bound("run_id", run_id, min_val=1)
+    cmd = ["uv", "run", "devops", "gh", "runs", "view", str(run_id)]
+    if log_failed:
+        cmd.append("--log-failed")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def valkey_ping() -> str:
     """Test connection and measure latency to the workstation Valkey server."""
     return _run_mcp_cmd(

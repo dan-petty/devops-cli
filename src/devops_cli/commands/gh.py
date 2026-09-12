@@ -68,6 +68,7 @@ project_app = new_typer(help=HELP.gh.project_app, no_args_is_help=True)
 views_app = new_typer(help=HELP.gh.views_app, no_args_is_help=True)
 pages_app = new_typer(help=HELP.gh.pages_app, no_args_is_help=True)
 issues_app = new_typer(help=HELP.gh.issues_app, no_args_is_help=True)
+runs_app = new_typer(help=HELP.gh.runs_app, no_args_is_help=True)
 
 app.add_typer(labels_app, name="labels")
 app.add_typer(milestones_app, name="milestones")
@@ -75,6 +76,7 @@ app.add_typer(project_app, name="project")
 app.add_typer(views_app, name="views")
 app.add_typer(pages_app, name="pages")
 app.add_typer(issues_app, name="issues")
+app.add_typer(runs_app, name="runs")
 app.add_typer(pr_app, name="pr")
 
 
@@ -944,3 +946,172 @@ def issues_status_cmd(
         ["By Milestone", m_str or "none"],
     ]
     print_table(f"GitHub Issues Status Summary ({target_repo})", columns, rows)
+
+
+# =============================================================================
+# Command: devops gh rate-limit
+# =============================================================================
+
+
+def _format_reset_time(epoch_seconds: int) -> str:
+    """Format an epoch timestamp into a human-readable UTC string and countdown."""
+    import datetime
+    import time
+
+    now = time.time()
+    diff = int(epoch_seconds - now)
+    dt_str = datetime.datetime.fromtimestamp(epoch_seconds, datetime.UTC).strftime("%H:%M:%S UTC")
+    if diff <= 0:
+        return f"{dt_str} (ready)"
+    mins, secs = divmod(diff, 60)
+    return f"{dt_str} (in {mins}m {secs}s)"
+
+
+@app.command("rate-limit", help=HELP.gh.rate_limit)
+@app.command("rate_limit", hidden=True)
+def rate_limit_cmd(
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = "table",
+) -> None:
+    """Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."""
+    res = run_subprocess([CONST_GH_CLI, "api", "rate_limit"], check=False, quiet=True)
+    if res.returncode != 0:
+        print_error(f"Failed to query rate limits: {res.stderr.strip()}")
+        raise typer.Exit(res.returncode)
+
+    try:
+        data = json.loads(res.stdout) if res.stdout.strip() else {}
+    except json.JSONDecodeError:
+        data = {}
+
+    if output_format == "json":
+        from devops_cli.output import print as print_out
+
+        print_out(json.dumps(data, indent=2))
+        return
+
+    resources = data.get("resources", {})
+    rows: list[list[str]] = []
+    for res_name, info in sorted(resources.items()):
+        if not isinstance(info, dict):
+            continue
+        limit = str(info.get("limit", 0))
+        used = str(info.get("used", 0))
+        remaining = str(info.get("remaining", 0))
+        reset_epoch = info.get("reset", 0)
+        reset_str = _format_reset_time(reset_epoch) if reset_epoch else "-"
+        rows.append([res_name, limit, used, remaining, reset_str])
+
+    print_table(
+        title="GitHub API Rate Limits & Quotas",
+        columns=["Resource", "Limit", "Used", "Remaining", "Reset"],
+        rows=rows,
+    )
+
+
+# =============================================================================
+# Command Group: devops gh runs
+# =============================================================================
+
+
+def _format_run_status(status: str, conclusion: str) -> str:
+    """Format workflow run status badge."""
+    upper_conclusion = conclusion.upper()
+    if upper_conclusion == "SUCCESS":
+        return "[green]✓ Success[/green]"
+    if upper_conclusion in {"FAILURE", "TIMED_OUT", "STARTUP_FAILURE"}:
+        return f"[bold red]✗ {conclusion}[/bold red]"
+    if status.upper() == "COMPLETED":
+        return f"[dim]{conclusion or status}[/dim]"
+    return f"[yellow]● {status}[/yellow]"
+
+
+@runs_app.command("list", help=HELP.gh.runs_list)
+def runs_list_cmd(
+    limit: Annotated[int, typer.Option("--limit", "-n", help=HELP.options.limit)] = 10,
+    branch: Annotated[str | None, typer.Option("--branch", "-b", help="Filter by branch")] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = "table",
+) -> None:
+    """List recent GitHub Actions workflow runs."""
+    target_repo = repo or _resolve_repo()
+    cmd = [
+        CONST_GH_CLI,
+        "run",
+        "list",
+        "--limit",
+        str(limit),
+        "--json",
+        "databaseId,name,status,conclusion,headBranch,event,url",
+    ]
+    if branch:
+        cmd.extend(["--branch", branch])
+    if repo:
+        cmd.extend(["--repo", target_repo])
+
+    res = run_subprocess(cmd, check=False)
+    if res.returncode != 0:
+        print_error(f"Failed to list workflow runs: {res.stderr.strip()}")
+        raise typer.Exit(res.returncode)
+
+    try:
+        runs = json.loads(res.stdout) if res.stdout.strip() else []
+    except json.JSONDecodeError:
+        runs = []
+
+    if output_format == "json":
+        from devops_cli.output import print as print_out
+
+        print_out(json.dumps(runs, indent=2))
+        return
+
+    rows: list[list[str]] = []
+    for r in runs:
+        run_id = str(r.get("databaseId", ""))
+        name = str(r.get("name", ""))
+        st_badge = _format_run_status(str(r.get("status", "")), str(r.get("conclusion") or ""))
+        br = str(r.get("headBranch", ""))
+        evt = str(r.get("event", ""))
+        url = str(r.get("url", ""))
+        rows.append([run_id, name, st_badge, br, evt, url])
+
+    print_table(
+        title=f"Workflow Runs ({target_repo})",
+        columns=["Run ID", "Workflow", "Status", "Branch", "Event", "URL"],
+        rows=rows,
+    )
+
+
+@runs_app.command("view", help=HELP.gh.runs_view)
+def runs_view_cmd(
+    run_id: Annotated[int, typer.Argument(help="Workflow run database ID.")],
+    log_failed: Annotated[bool, typer.Option("--log-failed", help=HELP.gh.runs_log_failed)] = False,
+    full_log: Annotated[bool, typer.Option("--log", help=HELP.gh.runs_log)] = False,
+    job: Annotated[str | None, typer.Option("--job", "-j", help=HELP.gh.runs_job)] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """View details or failure logs of a specific workflow run."""
+    target_repo = repo or _resolve_repo()
+    cmd = [CONST_GH_CLI, "run", "view", str(run_id)]
+    if log_failed:
+        cmd.append("--log-failed")
+    elif full_log:
+        cmd.append("--log")
+    if job:
+        cmd.extend(["--job", job])
+    if repo:
+        cmd.extend(["--repo", target_repo])
+
+    res = run_subprocess(cmd, check=False)
+    if res.returncode != 0:
+        print_error(f"Failed to view workflow run #{run_id}: {res.stderr.strip()}")
+        raise typer.Exit(res.returncode)
+
+    if res.stdout:
+        from devops_cli.output import print as print_out
+
+        print_out(res.stdout.rstrip())

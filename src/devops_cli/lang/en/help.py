@@ -603,11 +603,27 @@ class PRCommandHelp:
     require_reviews: str = (
         "Wait for active Copilot review sessions to conclude and check for unresolved threads."
     )
+    ready: str = "Mark a draft pull request as ready for review."
+    close: str = "Close a pull request."
+    close_comment: str = "Comment text to include when closing the pull request."
+    delete_branch: str = "Delete remote topic branch upon closing."
+    ready_monitor: str = (
+        "Automatically transition to monitoring checks and reviews after marking ready."
+    )
 
 
 @dataclass(frozen=True)
 class GHCommandHelp:
     app: str = "GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation."
+    rate_limit: str = (
+        "Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."
+    )
+    runs_app: str = "Inspect GitHub Actions workflow runs and diagnostic failure logs."
+    runs_list: str = "List recent workflow runs for the repository or branch."
+    runs_view: str = "View details and failure logs of a specific workflow run."
+    runs_log_failed: str = "Display logs for failed jobs or steps in the workflow run."
+    runs_log: str = "Display full execution logs for the workflow run."
+    runs_job: str = "Filter workflow run logs to a specific job ID."
     labels_app: str = "Manage declarative repository labels and audit PR taxonomy."
     labels_list: str = "List all repository labels."
     labels_sync: str = "Synchronize repository labels against declarative schema."

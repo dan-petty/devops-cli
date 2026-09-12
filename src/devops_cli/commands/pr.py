@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import typer
 
@@ -540,6 +540,156 @@ def create_pr(
     if res.returncode != 0:
         raise typer.Exit(res.returncode)
     print_success(f"Pull request created successfully targeting base [bold]{target_base}[/bold]")
+
+
+# =============================================================================
+# Command: devops pr ready
+# =============================================================================
+
+
+def _fetch_pr_details(number: int, repo: str | None = None) -> dict[str, Any]:
+    """Fetch PR details via REST API (immune to GraphQL rate limit)."""
+    from devops_cli.core.repo import get_repo_origin_name
+
+    target = repo or get_repo_origin_name()
+    if not target or "/" not in target:
+        return {}
+    owner, repo_name = target.split("/", 1)
+    res = run_subprocess(
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls/{number}"],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode == 0 and res.stdout.strip():
+        try:
+            parsed = json.loads(res.stdout)
+            if isinstance(parsed, dict):
+                return cast(dict[str, Any], parsed)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _handle_pr_ready_failure(stderr_text: str, number: int) -> None:
+    """Handle and explain failures when marking a PR ready."""
+    clean_err = stderr_text.strip()
+    if "rate limit" in clean_err.lower():
+        print_error(
+            f"Failed to mark PR #{number} ready: GitHub GraphQL rate limit exceeded.\n"
+            f"Details: {clean_err}\n"
+            "Note: GitHub REST API PATCH /pulls does NOT support converting drafts. "
+            "Wait for the GraphQL rate limit window to reset or convert via the GitHub web UI."
+        )
+        return
+    print_error(f"Failed to mark PR #{number} ready: {clean_err or 'Unknown error'}")
+
+
+@app.command("ready")
+def ready_pr(
+    number: Annotated[int, typer.Argument(help=HELP.pr.number)],
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
+    ] = None,
+    monitor: Annotated[
+        bool,
+        typer.Option("--monitor", "-m", help=HELP.pr.ready_monitor),
+    ] = False,
+) -> None:
+    """Mark a draft pull request as ready for review."""
+    _require_gh_cli()
+    pr_data = _fetch_pr_details(number, repo)
+    if pr_data and not pr_data.get("draft", True):
+        print_info(MESSAGES.pr.pr_already_ready.format(number=number))
+        if monitor:
+            monitor_pr_command(number=number, repo=repo)
+        return
+
+    cmd = [CONST_GH_CLI, "pr", "ready", str(number)]
+    if repo:
+        cmd.extend(["--repo", repo])
+    res = run_subprocess(cmd, check=False)
+    if res.returncode != 0:
+        _handle_pr_ready_failure(res.stderr, number)
+        raise typer.Exit(1)
+
+    post_data = _fetch_pr_details(number, repo)
+    if post_data and post_data.get("draft", False):
+        print_error(MESSAGES.pr.pr_still_draft_error.format(number=number))
+        raise typer.Exit(1)
+
+    print_success(MESSAGES.pr.pr_marked_ready_success.format(number=number))
+    if monitor:
+        monitor_pr_command(number=number, repo=repo)
+
+
+# =============================================================================
+# Command: devops pr diff
+# =============================================================================
+
+
+@app.command("diff")
+def diff_pr(
+    number: Annotated[int, typer.Argument(help=HELP.pr.number)],
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
+    ] = None,
+    color: Annotated[
+        str,
+        typer.Option("--color", help="Whether to colorize diff (always, never, auto)."),
+    ] = "auto",
+) -> None:
+    """View diff of a pull request."""
+    _require_gh_cli()
+    cmd = [CONST_GH_CLI, "pr", "diff", str(number), "--color", color]
+    if repo:
+        cmd.extend(["--repo", repo])
+    res = run_subprocess(cmd, check=False)
+    if res.returncode != 0:
+        print_error(f"Failed to fetch diff for PR #{number}: {res.stderr.strip()}")
+        raise typer.Exit(res.returncode)
+    if res.stdout:
+        from devops_cli.output import print as print_out
+
+        print_out(res.stdout.rstrip())
+
+
+# =============================================================================
+# Command: devops pr close
+# =============================================================================
+
+
+@app.command("close")
+def close_pr(
+    number: Annotated[int, typer.Argument(help=HELP.pr.number)],
+    comment: Annotated[
+        str | None,
+        typer.Option("--comment", "-c", help=HELP.pr.close_comment),
+    ] = None,
+    delete_branch: Annotated[
+        bool,
+        typer.Option("--delete-branch", "-d", help=HELP.pr.delete_branch),
+    ] = False,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
+    ] = None,
+) -> None:
+    """Close a pull request."""
+    _require_gh_cli()
+    cmd = [CONST_GH_CLI, "pr", "close", str(number)]
+    if comment:
+        cmd.extend(["--comment", comment])
+    if delete_branch:
+        cmd.append("--delete-branch")
+    if repo:
+        cmd.extend(["--repo", repo])
+    res = run_subprocess(cmd, check=False)
+    if res.returncode != 0:
+        print_error(f"Failed to close PR #{number}: {res.stderr.strip()}")
+        raise typer.Exit(res.returncode)
+    print_success(MESSAGES.pr.pr_closed_success.format(number=number))
 
 
 # =============================================================================

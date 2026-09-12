@@ -451,3 +451,115 @@ class TestPrCommands:
             res_fmt = runner.invoke(app, ["monitor", "168", "--format", "invalid_fmt"])
             assert res_fmt.exit_code != 0
             assert "Unsupported format" in res_fmt.output
+
+    def test_pr_ready_success(self, runner: CliRunner) -> None:
+        """devops pr ready converts draft PR to ready and verifies draft: false."""
+        mock_preflight = json.dumps({"number": 179, "draft": True})
+        mock_post_verify = json.dumps({"number": 179, "draft": False})
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                side_effect=[
+                    MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
+                    MagicMock(returncode=0, stdout="", stderr=""),
+                    MagicMock(returncode=0, stdout=mock_post_verify, stderr=""),
+                ],
+            ),
+        ):
+            result = runner.invoke(app, ["ready", "179"])
+            assert result.exit_code == 0
+            assert "ready for review" in result.output.lower()
+
+    def test_pr_ready_already_ready(self, runner: CliRunner) -> None:
+        """devops pr ready exits cleanly if PR is already ready for review."""
+        mock_preflight = json.dumps({"number": 179, "draft": False})
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
+            ) as mock_subprocess,
+        ):
+            result = runner.invoke(app, ["ready", "179"])
+            assert result.exit_code == 0
+            assert "already marked ready for review" in result.output
+            assert mock_subprocess.call_count == 1
+
+    def test_pr_ready_graphql_rate_limited(self, runner: CliRunner) -> None:
+        """devops pr ready fails closed and informs user when GraphQL rate limit is exceeded."""
+        mock_preflight = json.dumps({"number": 179, "draft": True})
+        rate_limit_err = "GraphQL: API rate limit already exceeded for user ID 7726889."
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                side_effect=[
+                    MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
+                    MagicMock(returncode=1, stdout="", stderr=rate_limit_err),
+                ],
+            ),
+        ):
+            result = runner.invoke(app, ["ready", "179"])
+            assert result.exit_code == 1
+            assert "rate limit" in result.output.lower()
+
+    def test_pr_ready_verification_failed_closed(self, runner: CliRunner) -> None:
+        """devops pr ready fails closed if PR draft status remains true after command execution."""
+        mock_preflight = json.dumps({"number": 179, "draft": True})
+        mock_still_draft = json.dumps({"number": 179, "draft": True})
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                side_effect=[
+                    MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
+                    MagicMock(returncode=0, stdout="", stderr=""),
+                    MagicMock(returncode=0, stdout=mock_still_draft, stderr=""),
+                ],
+            ),
+        ):
+            result = runner.invoke(app, ["ready", "179"])
+            assert result.exit_code == 1
+            assert "still in draft state" in result.output
+
+    def test_pr_diff_success(self, runner: CliRunner) -> None:
+        """devops pr diff outputs unified diff."""
+        mock_diff = "diff --git a/file.py b/file.py\n+new line"
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=mock_diff, stderr=""),
+            ) as mock_subprocess,
+        ):
+            result = runner.invoke(app, ["diff", "179"])
+            assert result.exit_code == 0
+            assert "+new line" in result.output
+            args = mock_subprocess.call_args[0][0]
+            assert "diff" in args
+            assert "179" in args
+
+    def test_pr_close_success(self, runner: CliRunner) -> None:
+        """devops pr close closes a pull request with optional comment."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout="", stderr=""),
+            ) as mock_subprocess,
+        ):
+            result = runner.invoke(
+                app, ["close", "179", "--comment", "Superseded by new design", "--delete-branch"]
+            )
+            assert result.exit_code == 0
+            assert "closed successfully" in result.output
+            args = mock_subprocess.call_args[0][0]
+            assert "close" in args
+            assert "179" in args
+            assert "--comment" in args
+            assert "--delete-branch" in args
