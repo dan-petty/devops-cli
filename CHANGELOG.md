@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.16] - 2026-09-11
+## [0.2.16] - 2026-09-12
 
 ### Added
+- **Long-Running Workload Sandbox Lifecycle Engine (`devops sandbox`)**:
+  - Secure ephemeral Docker container sandboxes for long-running processes, dev servers, background tasks, and isolation testing.
+  - Full lifecycle orchestration: create, inspect, execute, stop, remove, clean, and interactive shell execution.
+  - Enforced memory limits, CPU bounds, read-only root filesystems, and bounded workspace mounts.
+- **Automated Formatting and Linting Commands (`devops format`, `devops lint`)**:
+  - Introduced top-level `devops format` and `devops lint` CLI commands with clean leaf command usage.
+  - Default `--fix` enabled across `devops ci`, `devops ci format`, and `devops ci lint`, with `--check` flag for non-mutating validation.
+  - Reorganized Jekyll documentation site under `docs/` for seamless GitHub Pages rendering.
 - **Squid Caching Forward Proxy & SSL-Bump Cluster Enablement (`k8s/squid/`)**:
   - Deployed Squid caching forward proxy in Minikube/Kubernetes cluster with SSL-Bump decryption, local CA generation (`devops tls generate-ca`), and signed endpoint certificates (`devops tls generate-cert`).
   - Enabled proxy cluster-wide, resolving root CA trust and accelerating external LLM model downloads and container registry image pulls.
@@ -30,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **v0.2.21**: *Iterative Agentic GitHub Project Manager & Autonomous Backlog Orchestration*
 
 ### Fixed & Hardened
+- **Release Notes Fallback Extraction & Fatal Changelog Check (`devops release notes`, `devops release check`)**:
+  - Strictly enforce matching version in `CHANGELOG.md` during `devops release check`, failing with exit code 1 if missing or mismatched.
+  - Layered fallback extraction across `CHANGELOG.md` -> `docs/RELEASE_NOTES.md` -> git commit history (`git log <prev_tag>..HEAD` or `git log -n 20`).
+  - Guarded `.github/workflows/release.yml` with a defensive fallback to commit logs in the release notes extraction step.
+  - Decomposed `release_check` into helper functions preserving cyclomatic complexity <= 10.
 - **DevSecOps Review Findings Remediation**:
   - **Credential Leakage Defenses**: Excluded `authorization_token` from serialized model settings in diagnostics while preserving runtime provider authentication in MCP tools (`NativeTool.get_model_settings`, `_build_mcp_tool_settings`).
   - **Argument & Command Injection Mitigation**: Centralized Kubernetes RFC 1123 resource name validation in `core/validation.py` for chaos testing (`k8s/chaos.py`) and log querying (`k8s/logql.py`).
