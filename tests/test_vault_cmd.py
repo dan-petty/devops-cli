@@ -44,11 +44,11 @@ def test_vault_status_healthy() -> None:
     )
     with patch("devops_cli.commands.vault.VaultSecretBroker") as mock_cls:
         broker = MagicMock()
-        broker.vault_addr = "http://vault.example.com:8200"
+        broker.vault_addr = "http://example.com:8200"
         broker.get_status.return_value = mock_status
         mock_cls.return_value = broker
 
-        res = runner.invoke(app, ["status", "--addr", "http://vault.example.com:8200"])
+        res = runner.invoke(app, ["status", "--addr", "http://example.com:8200"])
         assert res.exit_code == 0
         assert "Vault Address" in res.output
         assert "1.15.2" in res.output
@@ -65,7 +65,7 @@ def test_vault_status_degraded_with_error() -> None:
     )
     with patch("devops_cli.commands.vault.VaultSecretBroker") as mock_cls:
         broker = MagicMock()
-        broker.vault_addr = "http://vault.example.com:8200"
+        broker.vault_addr = "http://example.com:8200"
         broker.get_status.return_value = mock_status
         mock_cls.return_value = broker
 
@@ -97,7 +97,7 @@ def test_vault_get_dry_run() -> None:
 def test_vault_get_not_found() -> None:
     with patch("devops_cli.commands.vault.VaultSecretBroker") as mock_cls:
         broker = MagicMock()
-        broker.vault_addr = "http://vault:8200"
+        broker.vault_addr = "http://example.com:8200"
         broker.get_secret.return_value = None
         mock_cls.return_value = broker
 
@@ -110,7 +110,7 @@ def test_vault_get_dict_masked_and_show() -> None:
     mock_dict = {"api_key": "supersecret123", "db_password": "mypassword"}
     with patch("devops_cli.commands.vault.VaultSecretBroker") as mock_cls:
         broker = MagicMock()
-        broker.vault_addr = "http://vault:8200"
+        broker.vault_addr = "http://example.com:8200"
         broker.get_secret.return_value = mock_dict
         mock_cls.return_value = broker
 
@@ -129,7 +129,7 @@ def test_vault_get_dict_masked_and_show() -> None:
 def test_vault_get_scalar_masked_and_show() -> None:
     with patch("devops_cli.commands.vault.VaultSecretBroker") as mock_cls:
         broker = MagicMock()
-        broker.vault_addr = "http://vault:8200"
+        broker.vault_addr = "http://example.com:8200"
         broker.get_secret.return_value = "token_value_xyz"
         mock_cls.return_value = broker
 
@@ -165,7 +165,7 @@ def test_vault_set_dry_run() -> None:
 def test_vault_set_success() -> None:
     with patch("devops_cli.commands.vault.VaultSecretBroker") as mock_cls:
         broker = MagicMock()
-        broker.vault_addr = "http://vault:8200"
+        broker.vault_addr = "http://example.com:8200"
         broker.set_secret.return_value = True
         mock_cls.return_value = broker
 
@@ -177,7 +177,7 @@ def test_vault_set_success() -> None:
 def test_vault_set_failure() -> None:
     with patch("devops_cli.commands.vault.VaultSecretBroker") as mock_cls:
         broker = MagicMock()
-        broker.vault_addr = "http://vault:8200"
+        broker.vault_addr = "http://example.com:8200"
         broker.set_secret.return_value = False
         mock_cls.return_value = broker
 
@@ -201,7 +201,7 @@ def test_vault_sync_dry_run() -> None:
 def test_vault_sync_success() -> None:
     with patch("devops_cli.commands.vault.VaultSecretBroker") as mock_cls:
         broker = MagicMock()
-        broker.vault_addr = "http://vault:8200"
+        broker.vault_addr = "http://example.com:8200"
         broker.sync_to_keyring.return_value = 3
         mock_cls.return_value = broker
 

@@ -164,7 +164,7 @@ def test_vault_broker_error_branches() -> None:
 
 def test_vault_broker_validates_address_scheme() -> None:
     with pytest.raises(ValueError, match="scheme"):
-        VaultSecretBroker(vault_addr="ftp://vault.example.com:8200")
+        VaultSecretBroker(vault_addr="ftp://example.com:8200")
 
     with pytest.raises(ValueError, match="traversal|format|invalid"):
-        VaultSecretBroker(vault_addr="http://vault.example.com/../traversal")
+        VaultSecretBroker(vault_addr="http://example.com/../traversal")

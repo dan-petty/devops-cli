@@ -196,7 +196,7 @@ def test_ollama_provider_validates_urls() -> None:
     from devops_cli.ai.providers.ollama import OllamaProvider
 
     cfg_mock = MagicMock()
-    cfg_mock.get_ollama_urls = ["ftp://invalid-scheme.internal:11434"]
+    cfg_mock.get_ollama_urls = ["ftp://example.com:11434"]
     prov = OllamaProvider(cfg_mock)
     assert prov.is_available() is False
 

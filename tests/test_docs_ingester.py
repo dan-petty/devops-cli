@@ -114,7 +114,7 @@ def test_ingest_remote_docs_success(tmp_path: Path) -> None:
         patch("httpx2.Client.get", return_value=mock_resp),
     ):
         result = ingester.ingest_remote_docs(
-            "https://docs.example.com/api",
+            "https://example.com/api",
             output_dir=tmp_path,
         )
         assert result.total_pages == 1
@@ -169,7 +169,7 @@ def test_cli_ai_ingest_docs_remote(tmp_path: Path) -> None:
     ):
         result = runner.invoke(
             ai_app,
-            ["ingest", "docs", "https://docs.example.com/guide", "--output-dir", str(tmp_path)],
+            ["ingest", "docs", "https://example.com/guide", "--output-dir", str(tmp_path)],
         )
         assert result.exit_code == 0
         assert "Documentation Ingest" in result.output
@@ -207,12 +207,12 @@ def test_ingest_remote_docs_masks_credentials(tmp_path: Path) -> None:
     ):
         with pytest.raises(DocsIngestionError) as excinfo:
             ingester.ingest_remote_docs(
-                "https://alice:supersecret999@docs.example.com/api",
+                "https://alice:supersecret999@example.com/api",
                 output_dir=tmp_path,
             )
         err_msg = str(excinfo.value)
         assert "supersecret999" not in err_msg
-        assert "<masked-password>@docs.example.com" in err_msg or "***@docs.example.com" in err_msg
+        assert "<masked-password>@example.com" in err_msg or "***@example.com" in err_msg
 
 
 def test_ingest_remote_docs_multipage_traversal(tmp_path: Path) -> None:
@@ -222,7 +222,7 @@ def test_ingest_remote_docs_multipage_traversal(tmp_path: Path) -> None:
     page1_html = """<html><body>
     <h1>Page 1</h1>
     <a href="/subpage">Subpage</a>
-    <a href="https://external.com/other">External</a>
+    <a href="https://example.com:8080/other">External</a>
     </body></html>"""
 
     page2_html = """<html><body>
@@ -245,7 +245,7 @@ def test_ingest_remote_docs_multipage_traversal(tmp_path: Path) -> None:
         patch("httpx2.Client.get", side_effect=mock_get),
     ):
         result = ingester.ingest_remote_docs(
-            "https://docs.example.com/root",
+            "https://example.com/root",
             output_dir=tmp_path,
             max_pages=2,
         )

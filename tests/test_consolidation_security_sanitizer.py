@@ -121,7 +121,7 @@ def test_devops_cli_error_masks_message_and_details() -> None:
 
     raw_token = "ghp_1234567890abcdef1234"
     raw_pass = "password='SuperSecretPass123!'"
-    raw_url = "https://user:mypassword999@vault.internal:8200"
+    raw_url = "https://user:mypassword999@example.com:8200"
 
     err = DevOpsCLIError(
         f"Failed operation with token {raw_token}",

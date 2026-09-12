@@ -320,7 +320,7 @@ def test_switch_context_accepts_kubeconfig_names_and_rejects_injection(
         complex_names = [
             "arn:aws:eks:us-east-1:123456789012:cluster/my-cluster",
             "gke_project-123_us-central1_prod-cluster",
-            "admin@my-k8s-cluster.local",
+            "admin@example.com",
             "kind-local-cluster",
         ]
         for cname in complex_names:

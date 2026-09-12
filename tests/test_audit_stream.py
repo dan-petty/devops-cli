@@ -19,15 +19,13 @@ def test_stream_audit_records(tmp_path: Path) -> None:
         log_file=log_file,
     )
 
-    count = stream_audit_records("http://siem.example.test:8080", log_file=log_file)
+    count = stream_audit_records("http://example.com:8080", log_file=log_file)
     assert count == 1
 
 
 def test_stream_audit_records_nonexistent(tmp_path: Path) -> None:
     """Non-existent audit file returns 0 streamed records."""
-    assert (
-        stream_audit_records("http://siem.example.test", log_file=tmp_path / "missing.jsonl") == 0
-    )
+    assert stream_audit_records("http://example.com", log_file=tmp_path / "missing.jsonl") == 0
 
 
 def test_resolve_audit_log_dest_security_check(
@@ -65,12 +63,12 @@ def test_resolve_audit_log_dest_and_stream_default_settings(
         assert resolved == (tmp_path / ".data" / "audit.jsonl").resolve()
 
         # Stream with log_file=None (resolved from settings)
-        count = stream_audit_records("http://siem.example.test")
+        count = stream_audit_records("http://example.com")
         assert count == 0
 
     # 2. OSError handling during stream
     test_file = tmp_path / "test_audit.jsonl"
     test_file.write_text('{"event": "test"}\n', encoding="utf-8")
     with patch.object(Path, "open", side_effect=OSError("Read error")):
-        count_err = stream_audit_records("http://siem.example.test", log_file=test_file)
+        count_err = stream_audit_records("http://example.com", log_file=test_file)
         assert count_err == 0

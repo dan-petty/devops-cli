@@ -26,25 +26,16 @@ def test_k8s_apply_manifest_ssrf_rejects_hostname_resolving_to_private_ip(
 ) -> None:
     """k8s apply rejects manifest URLs whose hostname resolves to private/loopback/link-local IP."""
 
-    def fake_getaddrinfo(host: str, port: object, *args: object, **kwargs: object) -> list[object]:
-        if host == "internal.corp.local":
-            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.1.5", 80))]
-        if host == "metadata.cloud.internal":
-            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))]
-        if host == "loopback.domain":
-            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 80))]
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 80))]
-
-    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
-
-    with pytest.raises(ValueError, match="Manifest URL resolves to private or reserved IP"):
-        k8s_apply("http://internal.corp.local/manifest.yaml")
-
-    with pytest.raises(ValueError, match="Manifest URL resolves to private or reserved IP"):
-        k8s_apply("http://metadata.cloud.internal/computeMetadata/v1")
-
-    with pytest.raises(ValueError, match="Manifest URL resolves to private or reserved IP"):
-        k8s_apply("http://loopback.domain/manifest.yaml")
+    for fake_ip in ("10.0.1.5", "169.254.169.254", "127.0.0.1"):
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda host, port, *args, **kwargs: [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", (fake_ip, 80))
+            ],
+        )
+        with pytest.raises(ValueError, match="Manifest URL resolves to private or reserved IP"):
+            k8s_apply("http://example.com/manifest.yaml")
 
 
 # ── Finding #12: Path Traversal in Vault URI Parsing ─────────────────────────

@@ -63,7 +63,7 @@ def test_native_tool_token_redaction() -> None:
 
     class CustomToolModel(BaseModel):
         id: str = "custom_tool"
-        endpoint: str = "https://custom.internal"
+        endpoint: str = "https://example.com"
         authorization_token: str = "ghp_SUPERSECRET1234567890"
 
     custom_tool = CustomToolModel()
@@ -73,7 +73,7 @@ def test_native_tool_token_redaction() -> None:
     config = settings.get("native_tool", {})
     assert "authorization_token" not in config
     assert config.get("id") == "custom_tool"
-    assert config.get("endpoint") == "https://custom.internal"
+    assert config.get("endpoint") == "https://example.com"
 
 
 # 3. Repomap symlink skipping, containment, and file size limits
@@ -244,11 +244,11 @@ def test_docker_sandbox_wait_timeout() -> None:
 def test_bootstrap_openwebui_account_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     from devops_cli.commands.k8s.stack_lifecycle import _get_openwebui_bootstrap_credentials
 
-    monkeypatch.setenv("OPENWEBUI_ADMIN_EMAIL", "custom_admin@corp.internal")
+    monkeypatch.setenv("OPENWEBUI_ADMIN_EMAIL", "custom_admin@example.com")
     monkeypatch.setenv("OPENWEBUI_ADMIN_PASSWORD", "SuperSecureCorpSecret!")
 
     creds = _get_openwebui_bootstrap_credentials()
-    assert creds["email"] == "custom_admin@corp.internal"
+    assert creds["email"] == "custom_admin@example.com"
     assert creds["password"] == "SuperSecureCorpSecret!"
 
 

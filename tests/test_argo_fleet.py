@@ -272,7 +272,7 @@ def test_execute_cluster_sync_live() -> None:
     from devops_cli.argo.fleet import _execute_cluster_sync
 
     mock_settings = MagicMock()
-    mock_settings.argocd.url = "https://argocd.example.com"
+    mock_settings.argocd.url = "https://example.com"
     mock_settings.ai.allow_private_network = True
 
     with (
@@ -299,7 +299,7 @@ def test_execute_cluster_sync_masked_token() -> None:
     from devops_cli.argo.fleet import _execute_cluster_sync
 
     mock_settings = MagicMock()
-    mock_settings.argocd.url = "https://argocd.example.com"
+    mock_settings.argocd.url = "https://example.com"
     mock_settings.ai.allow_private_network = True
 
     with (
@@ -355,7 +355,7 @@ def test_fetch_metric_value_branches() -> None:
 
     # Case 2: valid response with value
     mock_settings = MagicMock()
-    mock_settings.prometheus.url = "http://prometheus.local:9090"
+    mock_settings.prometheus.url = "http://example.com:9090"
     mock_settings.ai.allow_private_network = True
     with (
         patch("devops_cli.config.load_settings", return_value=mock_settings),

@@ -30,7 +30,7 @@ class TestPrCommands:
             '[{"number": 13, "title": "fix(security): resolve review findings", '
             '"state": "OPEN", "headRefName": "feat/security", "baseRefName": "release/v0.1.12", '
             '"author": {"login": "devops-user"}, "updatedAt": "2026-08-18T15:00:00Z", '
-            '"url": "https://github.com/org/repo/pull/13"}]'
+            '"url": "https://example.com/org/repo/pull/13"}]'
         )
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
@@ -144,7 +144,7 @@ class TestPrCommands:
             )
         ]
         with (
-            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
                 "devops_cli.github.pr_threads.list_pr_review_threads",
                 return_value=mock_threads,
@@ -213,7 +213,7 @@ class TestPrCommands:
         )
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
-            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
         ):
             res = runner.invoke(app, ["monitor", "168"])
@@ -243,7 +243,7 @@ class TestPrCommands:
         )
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
-            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
         ):
             res = runner.invoke(app, ["monitor", "168"])
@@ -280,12 +280,44 @@ class TestPrCommands:
         )
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
-            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
         ):
             res = runner.invoke(app, ["monitor", "168"])
             assert res.exit_code == 2
             assert "unresolved review discussion thread" in res.output
+
+    def test_pr_monitor_draft_pr_warning(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_monitor import (
+            CopilotReviewStatus,
+            PRCheckRun,
+            PRMonitorResult,
+            PRMonitorStatus,
+        )
+
+        mock_status = PRMonitorStatus(
+            number=173,
+            title="fix: draft pr",
+            is_draft=True,
+            checks=[PRCheckRun(name="CI", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+        )
+        mock_result = PRMonitorResult(
+            success=False,
+            exit_code=2,
+            message="Pull request #173 is currently a draft.",
+            status=mock_status,
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
+        ):
+            res = runner.invoke(app, ["monitor", "173"])
+            assert res.exit_code == 2
+            assert "Pull request #173 is currently a draft" in res.output
+            assert "unresolved review discussion thread" not in res.output
 
     def test_pr_monitor_auto_detect_branch(self, runner: CliRunner) -> None:
         from devops_cli.github.pr_monitor import (
@@ -310,7 +342,7 @@ class TestPrCommands:
         )
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
-            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch("devops_cli.github.pr_monitor.resolve_branch_pr_number", return_value=168),
             patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
         ):
@@ -356,7 +388,7 @@ class TestPrCommands:
         )
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
-            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
         ):
             # YAML format
@@ -395,7 +427,7 @@ class TestPrCommands:
         )
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
-            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
         ):
             res = runner.invoke(app, ["monitor", "168", "--format", "json"])
@@ -408,7 +440,7 @@ class TestPrCommands:
     def test_pr_monitor_invalid_bounds_and_format(self, runner: CliRunner) -> None:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
-            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
         ):
             res_int = runner.invoke(app, ["monitor", "168", "--interval", "0"])
             assert res_int.exit_code != 0

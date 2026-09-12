@@ -410,7 +410,7 @@ def test_embedding_runner_report_rendering_and_markdown(tmp_path: Path) -> None:
 
     res_a = EmbeddingBenchmarkResult(
         model="model-a",
-        server="http://node1:11434",
+        server="http://example.com:11434",
         dimension=768,
         recall_at_1=90.0,
         recall_at_3=95.0,
@@ -424,7 +424,7 @@ def test_embedding_runner_report_rendering_and_markdown(tmp_path: Path) -> None:
     )
     res_b = EmbeddingBenchmarkResult(
         model="model-b",
-        server="http://node2:11434",
+        server="http://example.com:11435",
         dimension=1536,
         recall_at_1=85.0,
         recall_at_3=90.0,
@@ -438,7 +438,7 @@ def test_embedding_runner_report_rendering_and_markdown(tmp_path: Path) -> None:
     )
 
     srv_1 = EmbeddingServerSummary(
-        server="http://node1:11434",
+        server="http://example.com:11434",
         models_evaluated_count=1,
         avg_latency_p50_ms=12.5,
         avg_throughput_items_per_sec=80.0,
@@ -446,7 +446,7 @@ def test_embedding_runner_report_rendering_and_markdown(tmp_path: Path) -> None:
         top_score_model="model-a",
     )
     srv_2 = EmbeddingServerSummary(
-        server="http://node2:11434",
+        server="http://example.com:11435",
         models_evaluated_count=1,
         avg_latency_p50_ms=18.0,
         avg_throughput_items_per_sec=55.0,
