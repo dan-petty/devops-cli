@@ -1,8 +1,8 @@
 # Task 165: Require Draft Pull Requests for In-Progress Work
 
 **Issue**: [#165](https://github.com/dan-petty/devops-cli/issues/165)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#166](https://github.com/dan-petty/devops-cli/pull/166)
+**Status**: In Review
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/docs`
@@ -50,5 +50,5 @@ Establish an explicit policy and agent instruction mandating that whenever AI ag
 - [x] Update `src/devops_cli/ai/instruction_generator.py`.
 - [x] Add unit tests in `tests/test_instruction_generator.py`.
 - [x] Update `CONTRIBUTING.md` and `docs/ROUTINE_TASKS.md`.
-- [ ] Run test suite and full CI quality gate (`devops ci`).
-- [ ] Open Pull Request targeting `release/v0.2.17`.
+- [x] Run test suite and full CI quality gate (`devops ci`).
+- [x] Open Pull Request targeting `release/v0.2.17`.
