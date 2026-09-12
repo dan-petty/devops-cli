@@ -308,3 +308,23 @@ def test_cli_dashboard_non_tty_auto_summary() -> None:
         res = runner.invoke(dashboard_app, [])
         assert res.exit_code == 0
         assert "Workstation Dashboard Summary" in res.output
+
+
+def test_get_latest_review_session_dir_rejects_path_traversal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify _get_latest_review_session_dir rejects directory traversal sequences."""
+    from devops_cli.ui.data_providers import _get_latest_review_session_dir
+
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", "../../../outside")
+    assert _get_latest_review_session_dir() is None
+
+
+def test_get_latest_review_session_dir_rejects_forbidden_system_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify _get_latest_review_session_dir rejects forbidden system directories."""
+    from devops_cli.ui.data_providers import _get_latest_review_session_dir
+
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", "/etc")
+    assert _get_latest_review_session_dir() is None

@@ -7,7 +7,7 @@
 | **Official Documentation** | [github.com/kubernetes-client/python](https://github.com/kubernetes-client/python) |
 | **Public Git Repository** | [github.com/kubernetes-client/python](https://github.com/kubernetes-client/python) |
 | **Official PyPI Package** | [pypi.org/project/kubernetes](https://pypi.org/project/kubernetes/) (`36.0.3`) |
-| **DevOps CLI Integration** | [`src/devops_cli/commands/k8s/`](file:///workspaces/devops-cli/src/devops_cli/commands/k8s/) • [`src/devops_cli/k8s/`](file:///workspaces/devops-cli/src/devops_cli/k8s/) |
+| **DevOps CLI Integration** | [`src/devops_cli/commands/k8s/`](../../../../../src/devops_cli/commands/k8s/) • [`src/devops_cli/k8s/`](../../../../../src/devops_cli/k8s/) |
 
 ---
 

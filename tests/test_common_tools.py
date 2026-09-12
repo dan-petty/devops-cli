@@ -123,3 +123,11 @@ def test_web_fetch_tool_blocks_post_redirect_to_private_host() -> None:
     with patch("devops_cli.ai.common_tools.new_http_client", return_value=mock_client):
         res = fn("https://example.com/forward")
         assert "blocked" in res.lower() or "error" in res.lower() or "ssrf" in res.lower()
+
+
+def test_web_fetch_tool_blocks_dns_rebinding() -> None:
+    """Verify web_fetch_tool raises SSRFBlockedError if DNS resolves to a private IP (DNS rebinding)."""
+    tool = web_fetch_tool()
+    with patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("10.0.0.1", 443))]):
+        with pytest.raises(SSRFBlockedError):
+            tool.execute(url="https://example.com/sensitive")

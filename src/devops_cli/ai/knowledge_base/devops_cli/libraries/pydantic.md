@@ -7,7 +7,7 @@
 | **Official Documentation** | [docs.pydantic.dev](https://docs.pydantic.dev/latest/) • [docs.pydantic.dev/latest/concepts/pydantic_settings/](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) |
 | **Public Git Repository** | [github.com/pydantic/pydantic](https://github.com/pydantic/pydantic) • [github.com/pydantic/pydantic-settings](https://github.com/pydantic/pydantic-settings) |
 | **Official PyPI Package** | [pypi.org/project/pydantic](https://pypi.org/project/pydantic/) (`2.13.4`) • [pypi.org/project/pydantic-settings](https://pypi.org/project/pydantic-settings/) (`2.15.0`) |
-| **DevOps CLI Integration** | [`src/devops_cli/models/`](file:///workspaces/devops-cli/src/devops_cli/models/) • [`src/devops_cli/config/settings.py`](file:///workspaces/devops-cli/src/devops_cli/config/settings.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/models/`](../../../../../src/devops_cli/models/) • [`src/devops_cli/config/settings.py`](../../../../../src/devops_cli/config/settings.py) |
 
 ---
 

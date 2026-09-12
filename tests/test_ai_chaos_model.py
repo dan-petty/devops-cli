@@ -373,3 +373,20 @@ def test_fastmcp_ai_chaos_model_tool() -> None:
 
     with pytest.raises(ValidationError):
         ai_chaos_model(fallback_model="--injected")
+
+
+def test_chaos_injector_latency_delay_bounded() -> None:
+    """Verify _inject_latency_fault bounds sleep duration to at most 30 seconds when not dry_run."""
+    cfg = ChaosConfig(
+        mode=ChaosMode.LATENCY,
+        latency_ms=100_000,
+        dry_run=False,
+    )
+    injector = ModelChaosInjector(cfg)
+    with (
+        patch("time.sleep") as mock_sleep,
+        patch.object(injector, "_execute_fallback_recovery") as mock_rec,
+    ):
+        mock_rec.return_value = MagicMock()
+        injector._inject_latency_fault()
+        mock_sleep.assert_called_once_with(30.0)

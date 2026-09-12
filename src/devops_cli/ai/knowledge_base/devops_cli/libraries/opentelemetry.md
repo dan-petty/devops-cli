@@ -7,7 +7,7 @@
 | **Official Documentation** | [opentelemetry.io/docs/languages/python/](https://opentelemetry.io/docs/languages/python/) • [jaegertracing.io](https://www.jaegertracing.io/) |
 | **Public Git Repository** | [github.com/open-telemetry/opentelemetry-python](https://github.com/open-telemetry/opentelemetry-python) |
 | **Official PyPI Package** | [pypi.org/project/opentelemetry-exporter-otlp-proto-grpc](https://pypi.org/project/opentelemetry-exporter-otlp-proto-grpc/) (`1.44.0`) |
-| **DevOps CLI Integration** | [`src/devops_cli/telemetry/tracer.py`](file:///workspaces/devops-cli/src/devops_cli/telemetry/tracer.py) • [`src/devops_cli/commands/telemetry.py`](file:///workspaces/devops-cli/src/devops_cli/commands/telemetry.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/telemetry/tracer.py`](../../../../../src/devops_cli/telemetry/tracer.py) • [`src/devops_cli/commands/telemetry.py`](../../../../../src/devops_cli/commands/telemetry.py) |
 
 ---
 

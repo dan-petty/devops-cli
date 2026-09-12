@@ -26,6 +26,8 @@ from devops_cli.config.defaults import (
     DEFAULT_CONSTELLATION_DRAIN_TIMEOUT,
 )
 from devops_cli.config.settings import load_settings
+from devops_cli.core.paths import is_forbidden_system_path
+from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
@@ -56,11 +58,17 @@ devops_cli_ai_resumptions_total = _MetricCounterStub(_METRIC_RESUME_EVENTS)
 def _resolve_data_dir(custom_dir: Path | str | None = None) -> Path:
     """Resolve data directory adhering to environment and configuration overrides."""
     if custom_dir:
-        return Path(custom_dir).resolve()
-    env_override = os.environ.get("DEVOPS_CLI_DATA_DIR")
-    if env_override:
-        return Path(env_override).resolve()
-    return load_settings().data.dir.resolve()
+        candidate = Path(custom_dir).resolve()
+    elif env_override := os.environ.get("DEVOPS_CLI_DATA_DIR"):
+        candidate = Path(env_override).resolve()
+    else:
+        candidate = load_settings().data.dir.resolve()
+
+    if is_forbidden_system_path(candidate):
+        raise SecurityError(
+            f"Data directory cannot be located in forbidden system path: '{candidate}'."
+        )
+    return candidate
 
 
 def _read_snapshot_file(file_path: Path) -> QuiesceSnapshot | None:

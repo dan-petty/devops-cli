@@ -1,8 +1,8 @@
 # Task 176: Remediate DevSecOps Review Findings & Enhance Review Self-Improvement Loop
 
 **Issue**: [#176](https://github.com/dan-petty/devops-cli/issues/176)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#177](https://github.com/dan-petty/devops-cli/pull/177)
+**Status**: In Review
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/review`
@@ -38,10 +38,10 @@ Remediate verified security findings from review session `20260912-054338` (incl
 
 - [x] Ground issue [#176](https://github.com/dan-petty/devops-cli/issues/176) in GitHub Projects tracking
 - [x] Author dedicated task tracking file `docs/agent/tasks/task-176-review-findings-self-improvement.md`
-- [ ] Update `docs/agent/task.md` index
-- [ ] Create draft PR for remote branch tracking
-- [ ] Remediate critical and high security findings across codebase
-- [ ] Update review prompts, persona system instructions, and verification engine
-- [ ] Update review and self-improvement documentation
-- [ ] Author comprehensive regression tests
-- [ ] Validate with targeted `pytest` and full `devops ci` suite
+- [x] Update `docs/agent/task.md` index
+- [x] Create draft PR for remote branch tracking (Draft PR #177)
+- [x] Remediate critical and high security findings across codebase
+- [x] Update review prompts, persona system instructions, and verification engine
+- [x] Update review and self-improvement documentation (`docs/SELF_IMPROVEMENT.md`, `AGENTS.md`)
+- [x] Author comprehensive regression tests
+- [x] Validate with targeted `pytest` and full `devops ci` suite

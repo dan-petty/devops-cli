@@ -7,7 +7,7 @@
 | **Official Documentation** | [docs.astral.sh/ruff/](https://docs.astral.sh/ruff/) • [mypy.readthedocs.io](https://mypy.readthedocs.io/) • [docs.pytest.org](https://docs.pytest.org/) |
 | **Public Git Repository** | [github.com/astral-sh/ruff](https://github.com/astral-sh/ruff) • [github.com/python/mypy](https://github.com/python/mypy) • [github.com/pytest-dev/pytest](https://github.com/pytest-dev/pytest) |
 | **Official PyPI Packages** | `ruff==0.16.4`, `mypy==2.3.1`, `pytest==9.1.1`, `pytest-cov==7.1.0`, `pytest-xdist==3.8.0`, `pytest-asyncio==1.4.0`, `pytest-mock==3.15.1` |
-| **DevOps CLI Integration** | [`src/devops_cli/commands/ci.py`](file:///workspaces/devops-cli/src/devops_cli/commands/ci.py) • [`pyproject.toml`](file:///workspaces/devops-cli/pyproject.toml) |
+| **DevOps CLI Integration** | [`src/devops_cli/commands/ci.py`](../../../../../src/devops_cli/commands/ci.py) • [`pyproject.toml`](../../../../../pyproject.toml) |
 
 ---
 

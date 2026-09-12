@@ -7,7 +7,7 @@
 | **Official Documentation** | [github.com/mangiucugna/json_repair](https://github.com/mangiucugna/json_repair) |
 | **Public Git Repository** | [github.com/mangiucugna/json_repair](https://github.com/mangiucugna/json_repair) |
 | **Official PyPI Package** | [pypi.org/project/json-repair](https://pypi.org/project/json-repair/) (`0.63.4`) |
-| **DevOps CLI Integration** | [`src/devops_cli/ai/review/runner.py`](file:///workspaces/devops-cli/src/devops_cli/ai/review/runner.py) • [`src/devops_cli/ai/agents/`](file:///workspaces/devops-cli/src/devops_cli/ai/agents/) |
+| **DevOps CLI Integration** | [`src/devops_cli/ai/review/runner.py`](../../../../../src/devops_cli/ai/review/runner.py) • [`src/devops_cli/ai/agents/`](../../../../../src/devops_cli/ai/agents/) |
 
 ---
 
