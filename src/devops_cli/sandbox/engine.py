@@ -18,6 +18,7 @@ from devops_cli.exceptions.sandbox import (
     SandboxValidationError,
 )
 from devops_cli.sandbox.models import (
+    CgroupV2Metrics,
     PortBinding,
     ProbeProtocol,
     SandboxDeployConfig,
@@ -29,7 +30,7 @@ from devops_cli.sandbox.models import (
 )
 from devops_cli.sandbox.ports import allocate_ports
 from devops_cli.sandbox.registry import SandboxRegistry
-from devops_cli.telemetry import trace_span
+from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,8 @@ def _resolve_user_string(rootless: bool) -> str | None:
 
 class WorkloadSandboxEngine:
     """Orchestrator for managing isolated background Docker container sandboxes."""
+
+    _prior_samples: dict[str, tuple[float, CgroupV2Metrics]] = {}
 
     def __init__(self, registry: SandboxRegistry | None = None) -> None:
         self.registry = registry or SandboxRegistry()
@@ -473,6 +476,7 @@ class WorkloadSandboxEngine:
         timeout: float = 5.0,
         memory_threshold_pct: float = 80.0,
         cpu_threshold_pct: float = 85.0,
+        latency_sla_ms: float | None = None,
     ) -> SandboxMetricsSnapshot:
         """Capture real-time cgroup v2 metrics and scrape Prometheus application metrics."""
         inst = self.registry.get_instance(identifier)
@@ -483,13 +487,46 @@ class WorkloadSandboxEngine:
             )
         from devops_cli.sandbox.metrics import collect_sandbox_metrics
 
-        return collect_sandbox_metrics(
-            instance_or_target=inst,
-            prom_endpoint=prom_endpoint,
-            timeout=timeout,
-            memory_threshold_pct=memory_threshold_pct,
-            cpu_threshold_pct=cpu_threshold_pct,
-        )
+        now = time.monotonic()
+        prior_key = inst.container_id or identifier
+        prev_entry = self._prior_samples.get(prior_key)
+        prev_cpu: int | None = None
+        prev_cgroup: CgroupV2Metrics | None = None
+        elapsed: float | None = None
+        if prev_entry is not None:
+            prev_ts, prev_cgroup = prev_entry
+            elapsed = max(0.001, now - prev_ts)
+            prev_cpu = prev_cgroup.cpu_usage_usec
+
+        with trace_span(
+            "sandbox.engine.metrics",
+            attributes={
+                "sandbox.identifier": identifier,
+                "sandbox.container_id": inst.container_id or "",
+                "sandbox.prom_endpoint": prom_endpoint,
+            },
+        ):
+            snapshot = collect_sandbox_metrics(
+                instance_or_target=inst,
+                prom_endpoint=prom_endpoint,
+                timeout=timeout,
+                memory_threshold_pct=memory_threshold_pct,
+                cpu_threshold_pct=cpu_threshold_pct,
+                latency_sla_ms=latency_sla_ms,
+                previous_cgroup=prev_cgroup,
+                previous_cpu_usec=prev_cpu,
+                elapsed_sec=elapsed,
+            )
+            if snapshot.cgroup is not None:
+                self._prior_samples[prior_key] = (now, snapshot.cgroup)
+
+            record_metric(
+                "devops_cli.sandbox.metrics_collected",
+                1.0,
+                unit="1",
+                attributes={"healthy": snapshot.is_healthy},
+            )
+            return snapshot
 
 
 __all__ = ["WorkloadSandboxEngine"]

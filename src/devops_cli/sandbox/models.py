@@ -160,13 +160,15 @@ class SandboxProbeReport(BaseModel):
 class CgroupV2Metrics(BaseModel):
     """Container resource telemetry extracted from cgroup v2 controllers."""
 
-    cpu_percent: float = 0.0
+    cpu_percent: float | None = None
+    cpu_usage_usec: int = 0
     memory_current_bytes: int = 0
     memory_peak_bytes: int | None = None
     memory_limit_bytes: int | None = None
     memory_usage_percent: float | None = None
     page_faults_total: int = 0
     pids_current: int = 0
+    open_fds_count: int | None = None
     io_read_bytes: int = 0
     io_write_bytes: int = 0
     network_rx_bytes: int = 0
@@ -204,12 +206,15 @@ class SandboxMetricsSnapshot(BaseModel):
     target: str
     cgroup: CgroupV2Metrics | None = None
     prometheus_metrics: list[PrometheusMetric] = Field(default_factory=list)
+    scrape_error: str | None = None
     warnings: list[str] = Field(default_factory=list)
     timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     @property
     def is_healthy(self) -> bool:
-        """Check if snapshot has no threshold warnings."""
+        """Check if snapshot has no threshold warnings or scrape errors."""
+        if self.scrape_error is not None:
+            return False
         return len(self.warnings) == 0
 
 

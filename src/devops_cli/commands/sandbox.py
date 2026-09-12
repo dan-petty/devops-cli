@@ -36,6 +36,7 @@ from devops_cli.sandbox.models import (
     SandboxProbeReport,
     SandboxStatus,
 )
+from devops_cli.telemetry.tracer import record_metric, trace_span
 
 app = new_typer(help=HELP.sandbox.app, no_args_is_help=True)
 
@@ -429,7 +430,12 @@ def _render_cgroup_table(target: str, cgroup: CgroupV2Metrics) -> None:
         ("Limit / Baseline", "yellow"),
         ("Status", "bold"),
     ]
-    cpu_badge = "[red]HIGH[/red]" if cgroup.cpu_percent > 85.0 else "[green]HEALTHY[/green]"
+    cpu_badge = (
+        "[red]HIGH[/red]"
+        if (cgroup.cpu_percent or 0.0) > 85.0
+        else ("[green]HEALTHY[/green]" if cgroup.cpu_percent is not None else "[dim]UNKNOWN[/dim]")
+    )
+    cpu_str = f"{cgroup.cpu_percent:.1f}%" if cgroup.cpu_percent is not None else "-"
     mem_lim_str = f"{cgroup.memory_limit_mb:.1f} MB" if cgroup.memory_limit_mb else "unbounded"
     mem_pct = (
         f"{cgroup.memory_usage_percent:.1f}%" if cgroup.memory_usage_percent is not None else "-"
@@ -441,18 +447,30 @@ def _render_cgroup_table(target: str, cgroup: CgroupV2Metrics) -> None:
     )
 
     rows = [
-        ["CPU Utilization", f"{cgroup.cpu_percent:.1f}%", "< 85.0%", cpu_badge],
+        ["CPU Utilization", cpu_str, "< 85.0%", cpu_badge],
         ["Memory (RSS)", f"{cgroup.memory_current_mb:.1f} MB", mem_lim_str, mem_badge],
         ["Memory Usage %", mem_pct, "< 80.0%", mem_badge],
         ["Active Tasks (PIDs)", str(cgroup.pids_current), "-", "[dim]ACTIVE[/dim]"],
         ["Page Faults Total", str(cgroup.page_faults_total), "-", "[dim]NORMAL[/dim]"],
-        [
-            "Block I/O (R/W)",
-            f"{cgroup.io_read_bytes / (1024 * 1024):.1f} MB / {cgroup.io_write_bytes / (1024 * 1024):.1f} MB",
-            "-",
-            "[dim]I/O[/dim]",
-        ],
     ]
+    if cgroup.open_fds_count is not None:
+        rows.append(["Open File Descriptors", str(cgroup.open_fds_count), "-", "[dim]ACTIVE[/dim]"])
+    rows.extend(
+        [
+            [
+                "Block I/O (R/W)",
+                f"{cgroup.io_read_bytes / (1024 * 1024):.1f} MB / {cgroup.io_write_bytes / (1024 * 1024):.1f} MB",
+                "-",
+                "[dim]I/O[/dim]",
+            ],
+            [
+                "Network I/O (Rx/Tx)",
+                f"{cgroup.network_rx_bytes / (1024 * 1024):.1f} MB / {cgroup.network_tx_bytes / (1024 * 1024):.1f} MB",
+                "-",
+                "[dim]NET[/dim]",
+            ],
+        ]
+    )
     print_table(f"Cgroup v2 Resource Telemetry: {target}", columns, rows)
 
 
@@ -480,11 +498,18 @@ def _render_metrics_snapshot(snapshot: SandboxMetricsSnapshot) -> None:
     if snapshot.prometheus_metrics:
         _render_prom_table(snapshot.target, snapshot.prometheus_metrics)
 
+    if snapshot.scrape_error:
+        print_warning(f"SCRAPE WARNING: {snapshot.scrape_error}")
+
     for warning in snapshot.warnings:
         print_warning(f"THRESHOLD ALERT: {warning}")
 
     if snapshot.is_healthy:
         print_success(f"Workload '{snapshot.target}' operating within normal performance bounds.")
+    elif snapshot.scrape_error and not snapshot.warnings:
+        print_error(
+            f"Workload '{snapshot.target}' encountered telemetry collection error: {snapshot.scrape_error}"
+        )
     else:
         print_error(
             f"Workload '{snapshot.target}' exceeded {len(snapshot.warnings)} operating threshold(s)."
@@ -503,7 +528,9 @@ def metrics(
             help=HELP.sandbox.metrics_endpoint,
         ),
     ] = "/metrics",
-    timeout: Annotated[float, typer.Option("--timeout", "-t", help=HELP.sandbox.timeout)] = 5.0,
+    timeout: Annotated[
+        float, typer.Option("--timeout", "-t", help=HELP.sandbox.metrics_timeout)
+    ] = 5.0,
     warn_memory_pct: Annotated[
         float,
         typer.Option(
@@ -518,56 +545,80 @@ def metrics(
             help=HELP.sandbox.warn_cpu_pct,
         ),
     ] = 85.0,
+    latency_sla_ms: Annotated[
+        float | None,
+        typer.Option(
+            "--latency-sla-ms",
+            help=HELP.sandbox.latency_sla_ms,
+        ),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.sandbox.json_output)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Capture real-time cgroup v2 metrics and scrape Prometheus application metrics."""
     set_dry_run(dry_run)
 
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops sandbox metrics",
-            action="collect_sandbox_metrics",
-            details={
-                "identifier": identifier,
-                "prom_endpoint": prom_endpoint,
-                "timeout": timeout,
-                "warn_memory_pct": warn_memory_pct,
-                "warn_cpu_pct": warn_cpu_pct,
-            },
+    with trace_span(
+        "sandbox.metrics",
+        attributes={
+            "sandbox.identifier": identifier,
+            "sandbox.prom_endpoint": prom_endpoint,
+            "sandbox.dry_run": is_dry_run(),
+        },
+    ):
+        record_metric(
+            "devops_cli.sandbox.metrics_invoked",
+            1.0,
+            unit="1",
+            attributes={"dry_run": is_dry_run()},
         )
-        return None
+        if is_dry_run():
+            render_dry_run_result(
+                command="devops sandbox metrics",
+                action="collect_sandbox_metrics",
+                details={
+                    "identifier": identifier,
+                    "prom_endpoint": prom_endpoint,
+                    "timeout": timeout,
+                    "warn_memory_pct": warn_memory_pct,
+                    "warn_cpu_pct": warn_cpu_pct,
+                    "latency_sla_ms": latency_sla_ms,
+                },
+            )
+            return None
 
-    engine = WorkloadSandboxEngine()
-    try:
-        snapshot = engine.metrics(
-            identifier=identifier,
-            prom_endpoint=prom_endpoint,
-            timeout=timeout,
-            memory_threshold_pct=warn_memory_pct,
-            cpu_threshold_pct=warn_cpu_pct,
-        )
-    except SandboxNotFoundError:
-        if "://" in identifier or ":" in identifier:
-            from devops_cli.sandbox.metrics import collect_sandbox_metrics
-
-            snapshot = collect_sandbox_metrics(
-                instance_or_target=identifier,
+        engine = WorkloadSandboxEngine()
+        try:
+            snapshot = engine.metrics(
+                identifier=identifier,
                 prom_endpoint=prom_endpoint,
                 timeout=timeout,
                 memory_threshold_pct=warn_memory_pct,
                 cpu_threshold_pct=warn_cpu_pct,
+                latency_sla_ms=latency_sla_ms,
             )
-        else:
-            print_error(f"Sandbox instance '{identifier}' not found.")
-            raise typer.Exit(1)
+        except SandboxNotFoundError:
+            if "://" in identifier or ":" in identifier:
+                from devops_cli.sandbox.metrics import collect_sandbox_metrics
 
-    if json_output:
-        typer.echo(json.dumps(snapshot.model_dump(), indent=2))
+                snapshot = collect_sandbox_metrics(
+                    instance_or_target=identifier,
+                    prom_endpoint=prom_endpoint,
+                    timeout=timeout,
+                    memory_threshold_pct=warn_memory_pct,
+                    cpu_threshold_pct=warn_cpu_pct,
+                    latency_sla_ms=latency_sla_ms,
+                )
+            else:
+                print_error(f"Sandbox instance '{identifier}' not found.")
+                raise typer.Exit(1)
+
+        if json_output:
+            typer.echo(json.dumps(snapshot.model_dump(), indent=2))
+            return None
+
+        _render_metrics_snapshot(snapshot)
         return None
-
-    _render_metrics_snapshot(snapshot)
-    return None
 
 
 __all__ = ["app"]
