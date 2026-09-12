@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -111,10 +112,59 @@ class SandboxExecResult(BaseModel):
     duration_seconds: float = 0.0
 
 
+class ProbeProtocol(StrEnum):
+    """Supported network protocols for endpoint readiness and health probing."""
+
+    TCP = "tcp"
+    HTTP = "http"
+    OPENAPI = "openapi"
+    GRPC = "grpc"
+
+
+class ProbeStatus(StrEnum):
+    """Outcome status for individual probes and aggregated report."""
+
+    PASS = "pass"
+    FAIL = "fail"
+    TIMEOUT = "timeout"
+    SKIPPED = "skipped"
+
+
+class EndpointProbeResult(BaseModel):
+    """Individual probe outcome for a specific target endpoint and protocol."""
+
+    protocol: ProbeProtocol
+    target: str
+    status: ProbeStatus
+    latency_ms: float = 0.0
+    status_code: int | None = None
+    message: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+
+class SandboxProbeReport(BaseModel):
+    """Aggregated health and readiness report for a sandbox or target."""
+
+    instance_id: str | None = None
+    target: str
+    overall_status: ProbeStatus
+    total_probes: int = 0
+    passed_probes: int = 0
+    failed_probes: int = 0
+    duration_seconds: float = 0.0
+    results: list[EndpointProbeResult] = Field(default_factory=list)
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+
 __all__ = [
+    "EndpointProbeResult",
     "PortBinding",
+    "ProbeProtocol",
+    "ProbeStatus",
     "SandboxDeployConfig",
     "SandboxExecResult",
     "SandboxInstance",
+    "SandboxProbeReport",
     "SandboxStatus",
 ]

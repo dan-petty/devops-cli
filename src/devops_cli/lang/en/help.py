@@ -952,6 +952,12 @@ class SandboxCommandHelp:
     timeout: str = "Graceful stop timeout in seconds before SIGKILL."
     workdir: str = "Working directory inside the container for command execution."
     json_output: str = "Output details in structured JSON format."
+    probe: str = "Probe endpoint readiness and service health across network protocols."
+    probe_protocol: str = "Network protocol(s) to probe (tcp, http, openapi, grpc)."
+    probe_path: str = "HTTP request path(s) to probe for readiness."
+    probe_expected_status: str = "Expected HTTP response status code(s)."
+    probe_regex: str = "Regex pattern to assert against HTTP response body."
+    probe_latency_sla: str = "Maximum acceptable response latency budget in milliseconds."
 
 
 @dataclass(frozen=True)
