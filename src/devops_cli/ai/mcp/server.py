@@ -1112,6 +1112,105 @@ def docker_sandbox(
 
 
 @mcp.tool()
+def sandbox_deploy(
+    image: str = "python:3.14-slim",
+    name: str | None = None,
+    ports: list[int] | None = None,
+    workspace: str = ".",
+    memory: str = "2g",
+    cpus: float = 2.0,
+    network: str = "bridge",
+    read_only: bool = True,
+    command: list[str] | None = None,
+) -> str:
+    """Deploy an isolated workload container sandbox with security containment and port allocation."""
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "sandbox",
+        "deploy",
+        "--image",
+        image,
+        "--workspace",
+        workspace,
+        "--memory",
+        memory,
+        "--cpus",
+        str(cpus),
+        "--network",
+        network,
+    ]
+    if name:
+        cmd.extend(["--name", name])
+    if not read_only:
+        raise ValueError(
+            "Sandboxes strictly mandate a read-only root filesystem for containment integrity."
+        )
+    cmd.append("--read-only")
+    if ports:
+        for p in ports:
+            cmd.extend(["--port", str(p)])
+    if command:
+        cmd.append("--")
+        cmd.extend(command)
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def sandbox_status(
+    instance_id: str | None = None,
+    all_instances: bool = False,
+) -> str:
+    """Inspect status of deployed sandbox containers."""
+    cmd = ["uv", "run", "devops", "sandbox", "status", "--json"]
+    if all_instances:
+        cmd.append("--all")
+    if instance_id:
+        _validate_mcp_arg("instance_id", instance_id)
+        if instance_id.startswith("-"):
+            raise ValueError("instance_id cannot start with '-'")
+        cmd.append(instance_id)
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def sandbox_stop(
+    instance_id: str | None = None,
+    all_instances: bool = False,
+    timeout: int = 10,
+) -> str:
+    """Gracefully stop and remove a sandbox container."""
+    cmd = ["uv", "run", "devops", "sandbox", "stop", "--timeout", str(timeout)]
+    if all_instances:
+        cmd.append("--all")
+    elif instance_id:
+        _validate_mcp_arg("instance_id", instance_id)
+        if instance_id.startswith("-"):
+            raise ValueError("instance_id cannot start with '-'")
+        cmd.append(instance_id)
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def sandbox_exec(
+    instance_id: str,
+    command: list[str],
+    workdir: str | None = None,
+) -> str:
+    """Execute a command inside an active sandbox container."""
+    _validate_mcp_arg("instance_id", instance_id)
+    if instance_id.startswith("-"):
+        raise ValueError("instance_id cannot start with '-'")
+    cmd = ["uv", "run", "devops", "sandbox", "exec", instance_id]
+    if workdir:
+        cmd.extend(["--workdir", workdir])
+    cmd.append("--")
+    cmd.extend(command)
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def vault_status(vault_addr: str | None = None) -> str:
     """Check HashiCorp Vault cluster health and sealing status."""
     cmd = ["uv", "run", "devops", "vault", "status"]
@@ -2011,6 +2110,15 @@ def get_valkey_resource() -> str:
     """Return live Valkey caching server status, memory usage, and health."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "valkey", "stats"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.resource("resource://sandbox/instances")
+def get_sandbox_instances_resource() -> str:
+    """Return live inventory of registered and active sandbox container instances."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "sandbox", "status", "--all", "--json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 

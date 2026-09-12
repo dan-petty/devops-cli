@@ -104,6 +104,31 @@ def test_domain_specific_exceptions_exist() -> None:
     assert issubclass(EmbeddingsError, DevOpsCLIError)
     assert issubclass(EmbeddingsError, RuntimeError)
 
+    from devops_cli.exceptions.sandbox import (
+        SandboxError,
+        SandboxNotFoundError,
+        SandboxPortAllocationError,
+        SandboxValidationError,
+    )
+
+    assert issubclass(SandboxError, DevOpsCLIError)
+    assert issubclass(SandboxValidationError, SandboxError)
+    assert issubclass(SandboxPortAllocationError, SandboxError)
+    assert issubclass(SandboxNotFoundError, SandboxError)
+
+    sb_err = SandboxError("sandbox failed")
+    assert sb_err.error_code == "SANDBOX_ERROR"
+    assert sb_err.exit_code == 1
+
+    sb_val_err = SandboxValidationError("invalid mount path")
+    assert sb_val_err.error_code == "SANDBOX_VALIDATION_ERROR"
+
+    sb_port_err = SandboxPortAllocationError("port exhausted")
+    assert sb_port_err.error_code == "SANDBOX_PORT_ALLOCATION_ERROR"
+
+    sb_nf_err = SandboxNotFoundError("sandbox missing")
+    assert sb_nf_err.error_code == "SANDBOX_NOT_FOUND_ERROR"
+
 
 def test_test_model_pytest_collection_disabled() -> None:
     """Ensure TestModel in testing.py disables Pytest collection to avoid PytestCollectionWarning."""

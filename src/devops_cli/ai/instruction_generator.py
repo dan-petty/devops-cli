@@ -292,10 +292,16 @@ codebase or reviewing target repositories.
 - **Pull Request Governance & Code Review Remediation**:
   - AI agents prepare clean commits, open/update PRs, monitor remote CI checks, and leave merge
     approval to maintainers.
-  - Actively inspect and evaluate review feedback from GitHub Copilot and human reviewers.
-  - Remediate feedback iteratively using Test-First Development (author/update tests first).
-  - Reply directly within each specific review thread on the exact comment addressed with concrete technical details; never rely solely on top-level PR comments.
-  - Resolve review conversations on GitHub (via GitHub API / GraphQL resolveReviewThread) once verified.
+  - **Always Monitor and Fix CI Checks**: Whenever creating a pull request or pushing to a pull request branch,
+    always actively monitor remote CI checks (`gh pr checks`). If any check fails, immediately inspect failed logs,
+    diagnose root causes, apply test-first fixes, push, and re-monitor until all checks are 100% green.
+  - **Check and Address Review Comments**: When working on a pull request branch, always check for review comments
+    and threads (`devops pr threads list <pr_number> --unresolved-only`).
+  - Remediate all feedback iteratively using Test-First Development (author/update tests first).
+  - Reply directly within each specific review thread on the exact comment addressed with concrete technical details;
+    never rely solely on top-level PR comments.
+  - Resolve review threads on GitHub (`devops pr threads resolve <thread_id>` or GraphQL `resolveReviewThread`)
+    once all issues in the thread have been addressed and verified.
 - **GitHub Projects, Issues & Views Governance**:
   - Proactively author and populate tracking issues for all scheduled roadmap deliverables upon milestone activation; the open issues queue (`issues?q=is:issue+state:open`), projects tab (`projects`), and issue views (`issues/views`) must never be left empty.
   - Link project boards conforming to `.github/project-template.json` to the repository (`devops gh project link <number>`) and synchronize items and custom fields via `devops gh project sync`.
