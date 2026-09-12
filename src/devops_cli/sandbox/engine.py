@@ -7,6 +7,7 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Final
 
@@ -17,13 +18,17 @@ from devops_cli.exceptions.sandbox import (
     SandboxNotFoundError,
     SandboxValidationError,
 )
+from devops_cli.sandbox.logs import PanicDetector, parse_docker_log_line
 from devops_cli.sandbox.models import (
     CgroupV2Metrics,
+    PanicIncident,
     PortBinding,
     ProbeProtocol,
     SandboxDeployConfig,
     SandboxExecResult,
     SandboxInstance,
+    SandboxLogLine,
+    SandboxLogsReport,
     SandboxMetricsSnapshot,
     SandboxProbeReport,
     SandboxStatus,
@@ -548,6 +553,161 @@ class WorkloadSandboxEngine:
                 pass
 
         return resolve_trace_spans(trace_id=target_trace_id, jaeger_url=jaeger_url)
+
+    @trace_span("sandbox.logs")
+    def logs(
+        self,
+        identifier: str | None = None,
+        follow: bool = False,
+        tail: int | str = 100,
+        timestamps: bool = True,
+        detect_panics_flag: bool = True,
+        archive_incidents: bool = True,
+        incident_dir: Path | None = None,
+        line_callback: Callable[[SandboxLogLine, PanicIncident | None], None] | None = None,
+    ) -> SandboxLogsReport:
+        """Stream and collect container stdout/stderr logs with automated panic detection."""
+        instances = self.status(identifier=identifier)
+        if not instances:
+            raise SandboxNotFoundError(f"Sandbox instance '{identifier}' not found.")
+        inst = instances[0]
+
+        raw_output = _fetch_container_logs_raw(
+            container_id=inst.container_id,
+            tail=tail,
+            timestamps=timestamps,
+            follow=follow,
+        )
+
+        raw_lines = (
+            raw_output
+            if isinstance(raw_output, list)
+            else [chunk.decode("utf-8", errors="replace") for chunk in raw_output]
+        )
+
+        parsed_lines, incidents = _aggregate_log_lines(
+            raw_lines=raw_lines,
+            instance_id=inst.instance_id,
+            container_id=inst.container_id,
+            detect_panics=detect_panics_flag,
+            archive_incidents=archive_incidents,
+            incident_dir=incident_dir,
+            line_callback=line_callback,
+        )
+
+        record_metric(
+            "devops.sandbox.logs.lines",
+            float(len(parsed_lines)),
+            unit="1",
+            attributes={"instance_id": inst.instance_id},
+        )
+        if incidents:
+            record_metric(
+                "devops.sandbox.logs.panics",
+                float(len(incidents)),
+                unit="1",
+                attributes={"instance_id": inst.instance_id},
+            )
+
+        return SandboxLogsReport(
+            instance_id=inst.instance_id,
+            container_id=inst.container_id,
+            total_lines=len(parsed_lines),
+            panics_detected=len(incidents),
+            incidents=incidents,
+            lines=parsed_lines,
+        )
+
+
+def _fetch_logs_via_subprocess(
+    container_id: str,
+    tail: int | str,
+    timestamps: bool,
+) -> list[str]:
+    """Fallback to docker logs via CLI subprocess."""
+    cmd = ["docker", "logs"]
+    if timestamps:
+        cmd.append("--timestamps")
+    if tail != "all":
+        cmd.extend(["--tail", str(tail)])
+    cmd.append(container_id)
+    proc = run_subprocess(cmd, check=False)
+    out_lines = proc.stdout.splitlines() if proc.stdout else []
+    err_lines = proc.stderr.splitlines() if proc.stderr else []
+    return out_lines + err_lines
+
+
+def _fetch_container_logs_raw(
+    container_id: str,
+    tail: int | str,
+    timestamps: bool,
+    follow: bool,
+) -> list[str] | Any:
+    """Fetch logs from container using Docker SDK with fallback to CLI subprocess."""
+    try:
+        client = _get_docker_client()
+        container = client.containers.get(container_id)
+        raw = container.logs(
+            stdout=True,
+            stderr=True,
+            stream=follow,
+            follow=follow,
+            tail=tail,
+            timestamps=timestamps,
+        )
+        if isinstance(raw, (bytes, bytearray)):
+            return raw.decode("utf-8", errors="replace").splitlines()
+        if isinstance(raw, str):
+            return raw.splitlines()
+        return raw
+    except Exception as exc:
+        logger.debug("Docker SDK logs failed (%s); fallback to subprocess", exc)
+        return _fetch_logs_via_subprocess(container_id, tail, timestamps)
+
+
+def _aggregate_log_lines(
+    raw_lines: list[str],
+    instance_id: str,
+    container_id: str,
+    detect_panics: bool,
+    archive_incidents: bool,
+    incident_dir: Path | None,
+    line_callback: Callable[[SandboxLogLine, PanicIncident | None], None] | None,
+) -> tuple[list[SandboxLogLine], list[PanicIncident]]:
+    """Parse log lines and collect detected panics and parsed log line models."""
+    detector = (
+        PanicDetector(
+            instance_id=instance_id,
+            container_id=container_id,
+            archive=archive_incidents,
+            base_dir=incident_dir,
+        )
+        if detect_panics
+        else None
+    )
+    parsed_lines: list[SandboxLogLine] = []
+    incidents: list[PanicIncident] = []
+
+    for raw in raw_lines:
+        line_model = parse_docker_log_line(raw)
+        incident = detector.feed_line(line_model) if detector else None
+        if incident:
+            incidents.append(incident)
+        if line_callback:
+            line_callback(line_model, incident)
+        parsed_lines.append(line_model)
+
+    if detector:
+        flushed = detector.flush()
+        incidents.extend(flushed)
+        if line_callback:
+            for inc in flushed:
+                line_callback(
+                    SandboxLogLine(content=f"Incident finalized: {inc.incident_id}", is_panic=True),
+                    inc,
+                )
+
+    return parsed_lines, incidents
 
 
 __all__ = ["WorkloadSandboxEngine"]
