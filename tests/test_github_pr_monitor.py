@@ -292,3 +292,101 @@ class TestMonitorPR:
             assert result.success is False
             assert result.exit_code == 3
             assert "timed out" in result.message
+
+    def test_monitor_pr_changes_requested_returns_exit_code_2(self) -> None:
+        cr_status = PRMonitorStatus(
+            number=168,
+            title="fix: changes requested",
+            checks=[PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="changes_requested"),
+            unresolved_threads=[],
+        )
+        with patch("devops_cli.github.pr_monitor.get_pr_monitoring_status", return_value=cr_status):
+            result = monitor_pr(
+                "dan-petty",
+                "devops-cli",
+                168,
+                timeout=10,
+                interval=1,
+                settle_timeout=0,
+                require_reviews=True,
+            )
+            assert result.success is False
+            assert result.exit_code == 2
+            assert "Copilot review requested changes" in result.message
+
+    def test_monitor_pr_draft_returns_exit_code_2(self) -> None:
+        draft_status = PRMonitorStatus(
+            number=168,
+            title="feat: in-progress work",
+            is_draft=True,
+            checks=[PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+        )
+        with patch(
+            "devops_cli.github.pr_monitor.get_pr_monitoring_status", return_value=draft_status
+        ):
+            result = monitor_pr(
+                "dan-petty",
+                "devops-cli",
+                168,
+                timeout=10,
+                interval=1,
+                settle_timeout=0,
+                require_reviews=True,
+            )
+            assert result.success is False
+            assert result.exit_code == 2
+            assert "is still a draft" in result.message
+
+    def test_detect_copilot_status_uses_latest_review_state(self) -> None:
+        reviews_data = [
+            {
+                "user": {"login": "copilot-pull-request-reviewer[bot]"},
+                "state": "CHANGES_REQUESTED",
+                "submitted_at": "2026-09-12T13:00:00Z",
+            },
+            {
+                "user": {"login": "copilot-pull-request-reviewer[bot]"},
+                "state": "APPROVED",
+                "submitted_at": "2026-09-12T14:00:00Z",
+            },
+        ]
+        from devops_cli.github.pr_monitor import _detect_copilot_status
+
+        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+            mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews_data)
+            assert status.state == "completed"
+            assert status.is_active is False
+
+    def test_detect_copilot_status_human_review_does_not_clear_copilot(self) -> None:
+        reviews_data = [
+            {
+                "user": {"login": "copilot-pull-request-reviewer[bot]"},
+                "state": "COMMENTED",
+                "submitted_at": "2026-09-12T13:00:00Z",
+            }
+        ]
+        timeline = (
+            '{"event": "copilot_work_started", "created_at": "2026-09-12T13:00:00Z"}\n'
+            '{"event": "reviewed", "author": "human-developer", "submitted_at": "2026-09-12T13:05:00Z"}\n'
+        )
+        from devops_cli.github.pr_monitor import _detect_copilot_status
+
+        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+            mock_sub.return_value = MagicMock(returncode=0, stdout=timeline, stderr="")
+            status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews_data)
+            assert status.is_active is True
+            assert status.state == "working"
+
+    def test_get_pr_monitoring_status_bounds_oversized_errors(self) -> None:
+        huge_err = "x" * 500
+        mock_proc = MagicMock(returncode=1, stdout="", stderr=huge_err)
+        with patch("devops_cli.github.pr_monitor.run_subprocess", return_value=mock_proc):
+            with pytest.raises(GitHubOperationError) as exc_info:
+                get_pr_monitoring_status("dan-petty", "devops-cli", 168)
+            assert len(str(exc_info.value)) < 350
+            assert "x" * 256 in str(exc_info.value)
+            assert "x" * 257 not in str(exc_info.value)

@@ -118,6 +118,9 @@ def mask_secrets(text: str) -> str:
     return redact_text(text)
 
 
+sanitize_secrets = mask_secrets
+
+
 def mask_dict_secrets(data: Any) -> Any:
     """Recursively mask secrets in string values across dictionaries and lists."""
     if isinstance(data, dict):

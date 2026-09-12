@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -316,3 +317,105 @@ class TestPrCommands:
             res = runner.invoke(app, ["monitor"])
             assert res.exit_code == 0
             assert "PR #168" in res.output
+
+    def test_pr_monitor_yaml_and_markdown_formats_with_secret_masking(
+        self, runner: CliRunner
+    ) -> None:
+        from devops_cli.github.pr_monitor import (
+            CopilotReviewStatus,
+            PRCheckRun,
+            PRMonitorResult,
+            PRMonitorStatus,
+        )
+        from devops_cli.github.pr_threads import ReviewComment, ReviewThread
+
+        thread = ReviewThread(
+            id="PRRT_kw1",
+            is_resolved=False,
+            path="config.py",
+            comments=[
+                ReviewComment(
+                    id="C1",
+                    body="Token leaked: ghp_1234567890abcdefghij in config",
+                    author="copilot",
+                )
+            ],
+        )
+        mock_status = PRMonitorStatus(
+            number=168,
+            title="fix: secrets",
+            checks=[PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[thread],
+        )
+        mock_result = PRMonitorResult(
+            success=False,
+            exit_code=2,
+            message="Action required",
+            status=mock_status,
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
+        ):
+            # YAML format
+            res_yaml = runner.invoke(app, ["monitor", "168", "--format", "yaml"])
+            assert res_yaml.exit_code == 2
+            assert "<masked-github-token>" in res_yaml.output
+            assert "ghp_1234567890abcdefghij" not in res_yaml.output
+
+            # Markdown format
+            res_md = runner.invoke(app, ["monitor", "168", "--format", "markdown"])
+            assert res_md.exit_code == 2
+            assert "# PR #168 Monitoring Status" in res_md.output
+            assert "<masked-github-token>" in res_md.output
+            assert "ghp_1234567890abcdefghij" not in res_md.output
+
+    def test_pr_monitor_json_format_is_pure_json(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_monitor import (
+            CopilotReviewStatus,
+            PRCheckRun,
+            PRMonitorResult,
+            PRMonitorStatus,
+        )
+
+        mock_status = PRMonitorStatus(
+            number=168,
+            title="fix: clean json",
+            checks=[PRCheckRun(name="CI", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+        )
+        mock_result = PRMonitorResult(
+            success=True,
+            exit_code=0,
+            message="Clean JSON",
+            status=mock_status,
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
+        ):
+            res = runner.invoke(app, ["monitor", "168", "--format", "json"])
+            assert res.exit_code == 0
+            # Must parse as clean JSON with no text preceding it
+            parsed = json.loads(res.output.strip())
+            assert parsed["success"] is True
+            assert parsed["exit_code"] == 0
+
+    def test_pr_monitor_invalid_bounds_and_format(self, runner: CliRunner) -> None:
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+        ):
+            res_int = runner.invoke(app, ["monitor", "168", "--interval", "0"])
+            assert res_int.exit_code != 0
+
+            res_timeout = runner.invoke(app, ["monitor", "168", "--timeout", "0"])
+            assert res_timeout.exit_code != 0
+
+            res_fmt = runner.invoke(app, ["monitor", "168", "--format", "invalid_fmt"])
+            assert res_fmt.exit_code != 0
+            assert "Unsupported format" in res_fmt.output

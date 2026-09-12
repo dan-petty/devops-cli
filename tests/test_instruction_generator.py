@@ -296,3 +296,16 @@ def test_generate_agents_md_enforces_pr_monitor_and_concise_commits() -> None:
     assert "Mandatory PR Monitoring Gate (`devops pr monitor`)" in content
     assert "devops pr monitor <pr_number>" in content
     assert "Wait for Copilot Review Sessions to Settle" in content
+    assert "Stage 2: Transition to Ready for Review" in content
+    assert "Post-Ready Secondary Review & Copilot Monitoring Gate" in content
+    assert "triggers automated GitHub Copilot review sessions" in content
+    assert "gh pr ready <pr_number>" in content
+    assert "5-Minute Completion Allowance & 60-Second Polling Interval" in content
+    assert (
+        "Allow at least 5 minutes (300 seconds) for pull request checks or reviews to complete"
+        in content
+    )
+    assert (
+        "Wait at least a full minute (60 seconds) between request cycles when monitoring pull request status"
+        in content
+    )

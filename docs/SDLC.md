@@ -271,13 +271,24 @@ gitGraph
   - **Roadmap-Linked Milestones (`docs/ROADMAP.md`)**: Release branches and topic PRs associate directly with release milestones extracted from `ROADMAP.md` and reconciled via `devops gh milestones sync`.
   - **Standardized Projects v2 & Issues Views (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**: Four standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) track features across lifecycles (`Backlog` -> `Ready` -> `In Progress` -> `In Review` -> `Done`), audited via `devops gh views list` / `spec` and synced via `devops gh project sync` with mandatory repository board linkage (`devops gh project link <number>`) so projects appear under `https://github.com/dan-petty/devops-cli/projects` and views under `https://github.com/dan-petty/devops-cli/issues/views`.
 - **Human-in-the-Loop Merging**: AI agents prepare PRs, monitor remote GitHub Actions CI, and remediate failures. AI agents **never merge PRs autonomously**. Maintainers approve and squash-merge.
+- **Two-Stage PR Review Lifecycle & Post-Ready Copilot Monitoring**:
+  - **Stage 1 (In-Progress Draft)**: Pull requests for in-progress work are created as drafts (`gh pr create --draft`). CI checks are monitored on every push.
+  - **Stage 2 (Transition to Ready for Review)**: Once all work is completed, CI checks pass, and comments are addressed, agents convert the draft pull request to ready for review (`gh pr ready <pr_number>`).
+  - **Post-Ready Secondary Review & Copilot Gate**: Marking a pull request ready triggers automated GitHub Copilot code reviews, CodeQL scans, and reviewer notifications. Agents MUST NOT consider tasks complete upon marking ready; agents must allow at least 5 minutes (300 seconds) for checks and reviews to complete, wait at least a full minute (60 seconds) between request cycles when monitoring PR status, inspect open threads (`devops pr threads list <pr_number> --unresolved-only`), apply test-first fixes, reply directly in-thread, resolve threads, and re-verify checks until 100% green.
 - **Mandatory PR Monitoring Gate (`devops pr monitor`) & Review Remediation Mandate**:
   - AI agents and developers **MUST ALWAYS** monitor remote CI checks and Copilot reviews via `devops pr monitor <pr_number>` (or `devops pr wait <pr_number>`) immediately after opening or updating PRs.
+  - **Cadence & Timeout Standards**: Allow at least 5 minutes (300s) for remote CI checks and review bots to complete, and wait at least a full minute (60s) between request cycles when monitoring check status. Never poll in rapid or sub-minute intervals.
   - **Zero Premature Completions**: Never conclude a turn or declare a task done while CI checks are pending/failing or Copilot review sessions are unresolved.
   - **Wait for Copilot Reviews to Settle**: `devops pr monitor` enforces settling windows to ensure asynchronous Copilot review sessions complete.
   - **Remediate Check Failures Immediately**: Inspect failed logs (`gh run view --log-failed`), apply concise test-first fixes, push, and re-monitor.
   - **Mandatory Direct In-Thread Replies & Resolution**: When review comments are submitted (exit code 2), inspect threads via `devops pr threads list <pr_number> --unresolved-only`, author test-first fixes, reply **directly within each specific review discussion thread** (`devops pr threads reply <thread_id> "<body>"`), and resolve the thread (`devops pr threads resolve <thread_id>`). Never post solely top-level summary comments.
   - **Merge Readiness Guarantee**: A PR is ready for merging ONLY when `devops pr monitor` exits with code 0 (all checks green, Copilot review settled, 0 unresolved threads).
+- **Automated & Peer Code Review Remediation Mandate**:
+  - AI agents and developers must actively evaluate all review feedback (from GitHub Copilot, linters, or human reviewers) on open pull requests.
+  - Review feedback must be addressed iteratively via Test-First Development (author/update tests first in `tests/`, implement clean fixes in `src/`, ensuring zero zombie code).
+  - **Mandatory Direct In-Thread Replies**: AI agents MUST reply **directly within each specific review discussion thread** on the exact comment being addressed (`gh api repos/:owner/:repo/pulls/:number/comments/:comment_id/replies` or GraphQL `addPullRequestReviewThreadReply`). Never post solely a general, top-level PR summary comment.
+  - **Conversation Resolution**: Once committed, pushed, and verified, AI agents MUST resolve the conversation thread on GitHub via GraphQL `resolveReviewThread`.
+  - **Continuous Quality Gate Verification**: Re-verify local quality gates (`devops ci`) and monitor remote status via `devops pr monitor <pr_number>` until 100% green.
 
 ---
 

@@ -1830,7 +1830,7 @@ def pr_thread_resolve(thread_id: str) -> str:
 def pr_monitor(
     pr_number: int | None = None,
     timeout: int = 300,
-    interval: int = 10,
+    interval: int = 60,
     settle_timeout: int = 60,
 ) -> str:
     """Monitor PR CI checks, Copilot reviews, and review threads until ready for merge."""

@@ -1,8 +1,8 @@
 # Task 170: Automated PR Monitoring for CI Checks, Copilot Reviews & Review Threads
 
 **Issue**: [#170](https://github.com/dan-petty/devops-cli/issues/170)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#171](https://github.com/dan-petty/devops-cli/pull/171)
+**Status**: In Review
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p0-critical`
 **Scope**: `scope/github`

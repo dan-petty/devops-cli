@@ -195,8 +195,18 @@ sequenceDiagram
   - Every remote topic or feature branch on `origin` MUST have an associated, open Pull Request targeting the active release branch (`--base release/vX.Y.Z`) or `main` (for official release PRs). If work is actively in progress or not yet fully implemented and ready for review, open the PR as a draft (`gh pr create --draft` or `draft: true`).
   - **Immediate Deletion of Merged or Superseded Branches**: Once a PR is merged into its target branch, or if a branch's changes have been incorporated or superseded, the remote branch MUST be deleted immediately (`git push origin --delete <branch>`) and local tracking references pruned (`git fetch --prune origin`).
   - **No Orphan Remote Branches**: Remote branches without an active PR or active development purpose are strictly prohibited. If updates from an old or dormant branch are still required, apply or cherry-pick them to the active release branch / active PR, and delete the obsolete remote branch immediately.
-- **Mandatory Draft PRs for In-Progress Work**: Whenever opening a pull request for work that is not yet fully implemented, tested, and ready for review, agents MUST create it as a draft PR (`gh pr create --draft`). Convert to ready for review (`gh pr ready <pr_number>`) only once all code, tests, and CI quality gates pass cleanly.
+- **Mandatory Draft PRs for In-Progress Work & Two-Stage Review Lifecycle**:
+  - Whenever opening a pull request for work that is not yet fully implemented, tested, and ready for review, agents MUST create it as a draft PR (`gh pr create --draft`).
+  - **Transition to Ready for Review**: Once all implementation logic, tests (>= 90% coverage), docs synchronization (`devops docs generate --sync-readme`), and CI quality gates pass cleanly, and initial review comments are addressed, agents MUST convert the draft pull request to ready for review (`gh pr ready <pr_number>`).
 - **Agent Non-Merge Rule**: AI agents must push commits and create/update PRs, but never execute `gh pr merge`.
+- **Post-Ready Secondary Review & Copilot Monitoring Gate**:
+  - Marking a pull request as ready for review transitions it to public review and triggers automated GitHub Copilot review sessions, CodeQL scans, and reviewer notifications.
+  - Agents are strictly prohibited from concluding a task immediately after marking a PR ready.
+  - **5-Minute Completion Allowance & 60-Second Polling Interval**:
+    - AI agents **MUST ALLOW AT LEAST 5 MINUTES (300 SECONDS)** for pull request CI checks, CodeQL scans, and Copilot review sessions to complete.
+    - AI agents **MUST WAIT AT LEAST A FULL MINUTE (60 SECONDS) BETWEEN REQUEST CYCLES** when monitoring pull request status. Polling in tight loops or intervals shorter than 60 seconds is strictly prohibited to prevent hammering GitHub APIs, avoid secondary rate limits, and allow asynchronous automated review bots to execute.
+  - Actively monitor pull requests via `devops pr monitor <pr_number>` (or FastMCP `pr_monitor`), inspect open threads (`devops pr threads list <pr_number> --unresolved-only`), apply test-first fixes, reply in-thread (`devops pr threads reply <thread_id> "<body>"`), and programmatically resolve each thread (`devops pr threads resolve <thread_id>`).
+  - Verify that all remote CI checks remain 100% green (`devops pr monitor <pr_number>`) before considering the task complete.
 - **Active PR Monitoring Gate (`devops pr monitor`) (Zero Premature Completions & Unmonitored PRs)**:
   - After opening or pushing updates to a PR, agents and developers **MUST ALWAYS** actively monitor remote GitHub Actions status and code reviews via `devops pr monitor <pr_number>` (or `devops pr wait <pr_number>`).
   - **Strict Prohibition of Premature Completion**: Never conclude a turn or declare a task done while CI checks are pending/failing, or while automated code review sessions (e.g. GitHub Copilot code review) are in progress or unresolved.
@@ -206,8 +216,8 @@ sequenceDiagram
     1. Inspect all open threads: `devops pr threads list <pr_number> --unresolved-only`.
     2. Author test-first fixes in `src/` and `tests/`.
     3. Commit with concise message stating the direct effect and push.
-    4. Post direct in-thread replies to each specific comment addressed: `devops pr threads reply <thread_id> "<body>"`. Never rely solely on top-level PR summary comments.
-    5. Resolve threads: `devops pr threads resolve <thread_id>`.
+    4. Post direct in-thread replies to each specific comment addressed: `devops pr threads reply <thread_id> "<body>"` (never solely via top-level PR comments).
+    5. Resolve threads: `devops pr threads resolve <thread_id>` (GraphQL `resolveReviewThread`).
     6. Re-run `devops pr monitor <pr_number>` until exit code 0 is achieved.
   - **Merge Readiness Guarantee**: A PR is ONLY ready for merging when `devops pr monitor` exits with code 0: all CI checks are 100% green, Copilot review session is settled, and 0 unresolved review discussion threads remain.
 - **No Commits to Merged Branches**: Once a PR is merged, create a fresh topic branch from `origin/release/vX.Y.Z` for the next task.

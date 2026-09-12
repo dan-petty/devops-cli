@@ -753,6 +753,29 @@ def _reconcile_single_item(
     return True
 
 
+def _extract_linked_issue_numbers(prs: list[dict[str, Any]]) -> set[int]:
+    """Extract linked issue numbers from open pull requests."""
+    linked_numbers: set[int] = set()
+    keyword_pattern = re.compile(
+        r"(?:closes|close|closed|fixes|fix|fixed|resolves|resolve|resolved)\s+#(\d+)",
+        re.IGNORECASE,
+    )
+    title_pattern = re.compile(r"\(#(\d+)\)\s*$", re.IGNORECASE)
+
+    for pr in prs:
+        if str(pr.get("state", "")).upper() != "OPEN":
+            continue
+        text = f"{pr.get('title', '')} {pr.get('body', '')}"
+        for match in keyword_pattern.finditer(text):
+            if match.group(1).isdigit():
+                linked_numbers.add(int(match.group(1)))
+        for match in title_pattern.finditer(str(pr.get("title", ""))):
+            if match.group(1).isdigit():
+                linked_numbers.add(int(match.group(1)))
+
+    return linked_numbers
+
+
 def reconcile_project_custom_fields(
     owner: str,
     repo: str,
@@ -765,15 +788,7 @@ def reconcile_project_custom_fields(
     prs = _fetch_repository_prs(repo)
     candidates = issues + prs
 
-    open_pr_issue_numbers: set[int] = set()
-    for pr in prs:
-        if str(pr.get("state", "")).upper() == "OPEN":
-            txt = f"{pr.get('title', '')} {pr.get('body', '')}"
-            for num_str in re.findall(r"#(\d+)", txt):
-                try:
-                    open_pr_issue_numbers.add(int(num_str))
-                except ValueError:
-                    continue
+    open_pr_issue_numbers = _extract_linked_issue_numbers(prs)
 
     if not dry_run:
         for it in candidates:

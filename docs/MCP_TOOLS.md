@@ -865,7 +865,7 @@ Monitor PR CI checks, Copilot reviews, and review threads until ready for merge.
 |---|---|---|---|---|
 | `pr_number` | `integer` | No | - | - |
 | `timeout` | `integer` | No | `300` | - |
-| `interval` | `integer` | No | `10` | - |
+| `interval` | `integer` | No | `60` | - |
 | `settle_timeout` | `integer` | No | `60` | - |
 
 ### `pr_thread_reply`

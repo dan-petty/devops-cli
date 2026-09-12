@@ -108,12 +108,13 @@ class PRMonitorStatus(BaseModel):
     @property
     def is_ready_for_merge(self) -> bool:
         """Evaluate if PR is completely verified and ready for merge."""
+        draft_ok = not self.is_draft
         checks_ok = self.all_checks_completed and self.all_checks_passed
         threads_ok = len(self.unresolved_threads) == 0
         review_ok = (
             not self.copilot_status.is_active and self.copilot_status.state != "changes_requested"
         )
-        return checks_ok and threads_ok and review_ok
+        return draft_ok and checks_ok and threads_ok and review_ok
 
 
 class PRMonitorResult(BaseModel):
@@ -162,6 +163,8 @@ def resolve_branch_pr_number(
 
     # 2. Fallback to gh pr view
     cmd = [CONST_GH_CLI, "pr", "view", target_branch, "--json", "number", "--jq", ".number"]
+    if target_repo:
+        cmd.extend(["-R", target_repo])
     proc = run_subprocess(cmd)
     if proc.returncode != 0 or not proc.stdout.strip():
         raise GitHubOperationError(f"No open pull request found for branch '{target_branch}'.")
@@ -207,6 +210,31 @@ def _parse_check_runs(raw_checks: list[dict[str, Any]]) -> list[PRCheckRun]:
     return [_parse_check_run_node(item) for item in raw_checks if isinstance(item, dict)]
 
 
+def _parse_timeline_copilot_state(timeline_stdout: str) -> tuple[bool, str]:
+    """Parse timeline events to determine if Copilot is actively working."""
+    copilot_working = False
+    active_event = ""
+    for line in timeline_stdout.strip().splitlines():
+        line_str = line.strip()
+        if not line_str:
+            continue
+        try:
+            evt = json.loads(line_str)
+        except json.JSONDecodeError:
+            continue
+
+        evt_name = evt.get("event")
+        if evt_name == "copilot_work_started":
+            copilot_working = True
+            active_event = "copilot_work_started"
+        elif evt_name == "reviewed":
+            evt_author = str(evt.get("author", "")).lower()
+            if not evt_author or "copilot" in evt_author:
+                copilot_working = False
+                active_event = "reviewed"
+    return copilot_working, active_event
+
+
 def _detect_copilot_status(
     owner: str,
     repo_name: str,
@@ -218,44 +246,35 @@ def _detect_copilot_status(
         r
         for r in reviews
         if isinstance(r, dict)
-        and "copilot" in str(r.get("author", {}).get("login", "")).lower()
-        or "copilot" in str(r.get("user", {}).get("login", "")).lower()
+        and (
+            "copilot" in str(r.get("author", {}).get("login", "")).lower()
+            or "copilot" in str(r.get("user", {}).get("login", "")).lower()
+        )
     ]
-    has_changes_requested = any(
-        str(r.get("state", "")).upper() == "CHANGES_REQUESTED" for r in copilot_reviews
-    )
+    copilot_reviews.sort(key=lambda r: str(r.get("submittedAt") or r.get("submitted_at") or ""))
+    latest_review = copilot_reviews[-1] if copilot_reviews else None
+    latest_state = str(latest_review.get("state", "")).upper() if latest_review else ""
+    has_changes_requested = latest_state == "CHANGES_REQUESTED"
     last_review_time = (
-        copilot_reviews[-1].get("submittedAt") or copilot_reviews[-1].get("submitted_at") or ""
-        if copilot_reviews
+        str(latest_review.get("submittedAt") or latest_review.get("submitted_at") or "")
+        if latest_review
         else ""
     )
 
     cmd = [
         CONST_GH_CLI,
         "api",
+        "--paginate",
         f"repos/{owner}/{repo_name}/issues/{pr_number}/timeline",
         "--jq",
-        '.[] | select(.event | test("copilot|reviewed")) | {event: .event, created_at: .created_at, submitted_at: .submitted_at, author: .actor.login}',
+        '.[] | select(.event | test("copilot|reviewed")) | {event: .event, created_at: .created_at, submitted_at: .submitted_at, author: (.actor.login // .user.login // "")}',
     ]
     proc = run_subprocess(cmd)
-    copilot_working = False
-    active_event = ""
-
-    if proc.returncode == 0 and proc.stdout.strip():
-        for line in proc.stdout.strip().splitlines():
-            line_str = line.strip()
-            if not line_str:
-                continue
-            try:
-                evt = json.loads(line_str)
-                if evt.get("event") == "copilot_work_started":
-                    copilot_working = True
-                    active_event = "copilot_work_started"
-                elif evt.get("event") == "reviewed":
-                    copilot_working = False
-                    active_event = "reviewed"
-            except json.JSONDecodeError:
-                continue
+    copilot_working, active_event = (
+        _parse_timeline_copilot_state(proc.stdout)
+        if proc.returncode == 0 and proc.stdout.strip()
+        else (False, "")
+    )
 
     if copilot_working:
         return CopilotReviewStatus(
@@ -294,52 +313,105 @@ def _detect_copilot_status(
 
 
 def _fetch_rest_check_runs(owner: str, repo: str, head_sha: str) -> list[PRCheckRun]:
-    """Fetch check runs via GitHub REST API."""
+    """Fetch check runs and commit status contexts via GitHub REST API."""
     check_cmd = [
         CONST_GH_CLI,
         "api",
+        "--paginate",
         f"repos/{owner}/{repo}/commits/{head_sha}/check-runs",
     ]
     check_proc = run_subprocess(check_cmd)
     checks: list[PRCheckRun] = []
-    if check_proc.returncode != 0 or not check_proc.stdout.strip():
-        return checks
-
-    try:
-        check_data = json.loads(check_proc.stdout)
-        for c in check_data.get("check_runs", []):
-            if isinstance(c, dict):
-                status = str(c.get("status", "completed")).upper()
-                conclusion = str(c.get("conclusion") or "").upper()
-                workflow = str(c.get("app", {}).get("name", ""))
-                checks.append(
-                    PRCheckRun(
-                        name=str(c.get("name", "Check")),
-                        workflow=workflow,
-                        status=status,
-                        conclusion=conclusion,
-                        url=str(c.get("html_url", "")),
+    if check_proc.returncode == 0 and check_proc.stdout.strip():
+        try:
+            check_data = json.loads(check_proc.stdout)
+            runs = (
+                check_data.get("check_runs", [])
+                if isinstance(check_data, dict)
+                else (check_data if isinstance(check_data, list) else [])
+            )
+            for c in runs:
+                if isinstance(c, dict):
+                    status = str(c.get("status", "completed")).upper()
+                    conclusion = str(c.get("conclusion") or "").upper()
+                    workflow = str(c.get("app", {}).get("name", ""))
+                    checks.append(
+                        PRCheckRun(
+                            name=str(c.get("name", "Check")),
+                            workflow=workflow,
+                            status=status,
+                            conclusion=conclusion,
+                            url=str(c.get("html_url", "")),
+                        )
                     )
-                )
-    except json.JSONDecodeError:
-        pass
+        except json.JSONDecodeError:
+            pass
+
+    status_cmd = [
+        CONST_GH_CLI,
+        "api",
+        f"repos/{owner}/{repo}/commits/{head_sha}/status",
+    ]
+    status_proc = run_subprocess(status_cmd)
+    if status_proc.returncode == 0 and status_proc.stdout.strip():
+        try:
+            status_data = json.loads(status_proc.stdout)
+            for s in status_data.get("statuses", []):
+                if isinstance(s, dict):
+                    st = str(s.get("state", "")).lower()
+                    status = "COMPLETED" if st in {"success", "failure", "error"} else "IN_PROGRESS"
+                    conclusion = (
+                        "SUCCESS"
+                        if st == "success"
+                        else ("FAILURE" if st in {"failure", "error"} else "")
+                    )
+                    checks.append(
+                        PRCheckRun(
+                            name=str(s.get("context", "Status")),
+                            workflow="Commit Status",
+                            status=status,
+                            conclusion=conclusion,
+                            url=str(s.get("target_url") or ""),
+                        )
+                    )
+        except json.JSONDecodeError:
+            pass
+
     return checks
 
 
 def _fetch_rest_unresolved_comments(owner: str, repo: str, pr_number: int) -> list[ReviewThread]:
-    """Fetch unresolved threads from REST review comments when GraphQL is rate limited."""
-    comments_cmd = [CONST_GH_CLI, "api", f"repos/{owner}/{repo}/pulls/{pr_number}/comments"]
-    comments_proc = run_subprocess(comments_cmd)
-    threads: list[ReviewThread] = []
-    if comments_proc.returncode != 0 or not comments_proc.stdout.strip():
-        return threads
+    """Fetch review comments via REST API when GraphQL is rate limited.
 
+    Fails closed by treating all root review comments as unresolved threads since REST
+    does not expose thread resolution status.
+    """
+    comments_cmd = [
+        CONST_GH_CLI,
+        "api",
+        "--paginate",
+        f"repos/{owner}/{repo}/pulls/{pr_number}/comments",
+    ]
+    comments_proc = run_subprocess(comments_cmd)
+    if comments_proc.returncode != 0:
+        err = (
+            comments_proc.stderr.strip()[:256]
+            if comments_proc.stderr
+            else f"Exit code {comments_proc.returncode}"
+        )
+        raise GitHubOperationError(f"Failed to fetch review comments for PR #{pr_number}: {err}")
+
+    if not comments_proc.stdout.strip():
+        return []
+
+    threads: list[ReviewThread] = []
     try:
         c_list = json.loads(comments_proc.stdout)
-        replied_ids = {c.get("in_reply_to_id") for c in c_list if c.get("in_reply_to_id")}
+        if not isinstance(c_list, list):
+            return []
         for c in c_list:
-            cid = c.get("id")
-            if c.get("in_reply_to_id") is None and cid not in replied_ids:
+            if isinstance(c, dict) and c.get("in_reply_to_id") is None:
+                cid = c.get("id")
                 author = c.get("user", {}).get("login", "")
                 threads.append(
                     ReviewThread(
@@ -352,8 +424,10 @@ def _fetch_rest_unresolved_comments(owner: str, repo: str, pr_number: int) -> li
                         ],
                     )
                 )
-    except json.JSONDecodeError:
-        pass
+    except json.JSONDecodeError as exc:
+        raise GitHubOperationError(
+            f"Malformed review comment response for PR #{pr_number}: {exc}"
+        ) from exc
     return threads
 
 
@@ -365,7 +439,7 @@ def get_pr_monitoring_status(owner: str, repo: str, pr_number: int) -> PRMonitor
     pr_cmd = [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls/{pr_number}"]
     pr_proc = run_subprocess(pr_cmd)
     if pr_proc.returncode != 0 or not pr_proc.stdout.strip():
-        err = pr_proc.stderr.strip() if pr_proc.stderr else f"Exit code {pr_proc.returncode}"
+        err = pr_proc.stderr.strip()[:256] if pr_proc.stderr else f"Exit code {pr_proc.returncode}"
         raise GitHubOperationError(f"Failed to query PR #{pr_number}: {err}")
 
     try:
@@ -381,7 +455,12 @@ def get_pr_monitoring_status(owner: str, repo: str, pr_number: int) -> PRMonitor
     checks = _fetch_rest_check_runs(owner, repo_name, head_sha)
 
     # 3. Fetch Reviews via REST API
-    reviews_cmd = [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls/{pr_number}/reviews"]
+    reviews_cmd = [
+        CONST_GH_CLI,
+        "api",
+        "--paginate",
+        f"repos/{owner}/{repo_name}/pulls/{pr_number}/reviews",
+    ]
     reviews_proc = run_subprocess(reviews_cmd)
     raw_reviews: list[dict[str, Any]] = []
     if reviews_proc.returncode == 0 and reviews_proc.stdout.strip():
@@ -430,16 +509,20 @@ def monitor_pr(
     repo: str,
     pr_number: int,
     *,
-    timeout: int = 600,
-    interval: int = 10,
+    timeout: int = 300,
+    interval: int = 60,
     settle_timeout: int = 60,
     require_reviews: bool = True,
     status_callback: Callable[[PRMonitorStatus, int], None] | None = None,
 ) -> PRMonitorResult:
     """Monitor PR checks, Copilot review sessions, and threads until ready or failure."""
+    valid_interval = max(1, interval)
+    valid_timeout = max(1, timeout)
+    valid_settle = max(0, settle_timeout)
+
     start_time = time.monotonic()
-    settle_deadline = start_time + max(0, settle_timeout)
-    max_deadline = start_time + max(interval, timeout)
+    settle_deadline = start_time + valid_settle
+    max_deadline = start_time + valid_timeout
     latest_status: PRMonitorStatus | None = None
 
     while True:
@@ -459,12 +542,38 @@ def monitor_pr(
                 status=latest_status,
             )
 
-        # 2. Check if all checks completed successfully
+        # 2. Terminal review state: if Copilot requested changes, stop immediately
+        if (
+            latest_status.copilot_status.state == "changes_requested"
+            and not latest_status.copilot_status.is_active
+        ):
+            return PRMonitorResult(
+                success=False,
+                exit_code=2,
+                message=f"PR #{pr_number} Copilot review requested changes.",
+                status=latest_status,
+            )
+
+        # 3. Check if all checks completed successfully
         checks_completed = latest_status.all_checks_completed and latest_status.all_checks_passed
-        copilot_done = not latest_status.copilot_status.is_active
+        copilot_done = (
+            not latest_status.copilot_status.is_active
+            and latest_status.copilot_status.state != "changes_requested"
+        )
         settled = now >= settle_deadline
 
         if checks_completed and copilot_done and (settled or not require_reviews):
+            if latest_status.is_draft:
+                return PRMonitorResult(
+                    success=False,
+                    exit_code=2,
+                    message=(
+                        f"PR #{pr_number} is still a draft: convert to ready for review via "
+                        f"'gh pr ready {pr_number}' before merging."
+                    ),
+                    status=latest_status,
+                )
+
             if latest_status.unresolved_threads:
                 return PRMonitorResult(
                     success=False,
@@ -486,8 +595,9 @@ def monitor_pr(
                 status=latest_status,
             )
 
-        # 3. Timeout check
-        if now >= max_deadline:
+        # 4. Timeout check and bounded sleep
+        time_left = max_deadline - time.monotonic()
+        if time_left <= 0:
             pending_checks = len(latest_status.pending_checks)
             copilot_msg = (
                 " (Copilot review still active)" if latest_status.copilot_status.is_active else ""
@@ -502,4 +612,4 @@ def monitor_pr(
                 status=latest_status,
             )
 
-        time.sleep(interval)
+        time.sleep(min(float(valid_interval), time_left))

@@ -291,16 +291,26 @@ codebase or reviewing target repositories.
   - **Concise, Effect-Driven Commit Messages**: Commit messages MUST be concise and simply state the direct effect of the specific change. Avoid overly verbose summaries, compound multi-clause sentences, redundant narrative preambles, or sprawling lists in commit subjects. State clearly and directly what the change accomplishes.
   - Maintain atomic, cohesive commits with clean commit messages.
   - **No Internal References or Numeric IDs**: Commit messages and PR titles must describe technical changes using descriptive engineering terminology, never internal session timestamps, review numbers, subagent IDs, or prompt phase numbers.
-- **Pull Request Governance & Code Review Remediation**:
-  - AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`devops pr monitor`), and leave merge
-    approval to maintainers.
-  - **Mandatory Draft Pull Requests for In-Progress Work**: Whenever opening any pull request that is
-    not yet fully implemented, tested, and ready for review, AI agents MUST create the pull request as
-    a draft (`gh pr create --draft` or passing `draft: true` via API). A draft pull request signals active
-    work in progress, prevents premature review cycles, avoids false merge-readiness assumptions, while
-    satisfying the requirement that every remote topic branch have an open pull request. Once all code,
-    tests, and documentation are complete and CI quality gates pass, convert it to ready for review
-    (`gh pr ready <pr_number>`).
+- **Pull Request Governance & Two-Stage Review Lifecycle**:
+  - AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`devops pr monitor`), and leave merge approval to maintainers.
+  - **Stage 1: Draft Pull Requests for In-Progress Work**:
+    - Whenever opening any pull request that is not yet fully implemented, tested, and ready for review, AI agents MUST create the pull request as a draft (`gh pr create --draft` or passing `draft: true` via API). A draft pull request signals active work in progress, prevents premature review cycles, avoids false merge-readiness assumptions, while satisfying the requirement that every remote topic branch have an open pull request.
+    - Actively monitor remote CI checks (`devops pr monitor <pr_number>` or `gh pr checks <pr_number>`) on every push. Remediate any failures immediately with test-first commits.
+  - **Stage 2: Transition to Ready for Review & Post-Ready Review Remediation**:
+    - **Marking Ready for Review**: Once all implementation logic, test-first coverage (>= 90%), documentation synchronization (`devops docs generate --sync-readme`), and all local/remote CI quality gates pass cleanly, and any initial review comments are addressed, AI agents MUST convert the pull request to ready for review (`gh pr ready <pr_number>`).
+    - **Post-Ready Secondary Review & Copilot Monitoring Gate**:
+      - Marking a pull request as ready for review triggers automated GitHub Copilot review sessions, CodeQL scans, and reviewer notifications.
+      - AI agents are STRICTLY PROHIBITED from concluding a task immediately after marking a PR ready.
+      - **5-Minute Completion Allowance & 60-Second Polling Interval**:
+        - Allow at least 5 minutes (300 seconds) for pull request checks or reviews to complete.
+        - Wait at least a full minute (60 seconds) between request cycles when monitoring pull request status. Never poll in rapid or sub-minute intervals.
+      - Actively check for newly posted review comments/threads (`devops pr threads list <pr_number> --unresolved-only`), and address all findings.
+      - If Copilot or reviewers submit review comments:
+        1. Remediate all feedback iteratively using Test-First Development (author/update tests first).
+        2. Reply directly within each specific review thread on the exact comment addressed (`devops pr threads reply <thread_id> "<body>"`). Never rely solely on top-level PR summary comments.
+        3. Programmatically resolve review threads (`devops pr threads resolve <thread_id>`).
+      - Re-verify that all remote CI checks remain 100% green (`devops pr monitor <pr_number>`).
+    - **Task Completion Guarantee**: A task is ONLY complete when the PR is marked ready, all remote CI checks pass, Copilot post-ready review sessions have settled, and 0 unresolved review threads remain.
   - **Mandatory PR Monitoring Gate (`devops pr monitor`) (Zero Premature Completions & Unmonitored PRs)**:
     - AI agents **MUST ALWAYS** actively monitor pull requests by running `devops pr monitor <pr_number>` (or FastMCP `pr_monitor`) immediately after opening a PR (`gh pr create`) or pushing commits to any branch with an active PR (`git push`).
     - **Strict Prohibition of Premature Completion**: Never conclude a turn, declare a task done, switch branches, or ask the user to review or merge while CI checks are pending, failing, or while automated code review sessions (such as GitHub Copilot code review) are in progress or unresolved.
