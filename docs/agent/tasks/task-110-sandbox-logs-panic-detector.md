@@ -1,7 +1,7 @@
 # Task 110: Streaming Diagnostic Log Aggregator and Panic Detector (`devops sandbox logs`)
 
 **Issue**: [#110](https://github.com/dan-petty/devops-cli/issues/110)
-**PR**: TBD (Draft)
+**PR**: [#179](https://github.com/dan-petty/devops-cli/pull/179) (Draft)
 **Status**: In Progress
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
@@ -76,13 +76,13 @@ Implement multiplexed stdout/stderr log streaming with follow mode (`-f` / `--fo
 - [x] Synchronize GitHub Projects card to `In Progress`.
 - [x] Create topic branch `feat/110-sandbox-logs-panic-detector`.
 - [x] Author task document `docs/agent/tasks/task-110-sandbox-logs-panic-detector.md`.
-- [ ] Implement data models in `src/devops_cli/sandbox/models.py`.
-- [ ] Implement panic detection and incident archiving in `src/devops_cli/sandbox/logs.py`.
-- [ ] Implement `WorkloadSandboxEngine.logs()` in `src/devops_cli/sandbox/engine.py`.
-- [ ] Implement CLI command `devops sandbox logs` in `src/devops_cli/commands/sandbox.py`.
-- [ ] Add help strings in `src/devops_cli/lang/en/help.py`.
-- [ ] Author comprehensive tests in `tests/test_sandbox_logs.py`.
-- [ ] Run test suite and verify test coverage $\ge 90\%$.
-- [ ] Validate cyclomatic complexity $\le 10$ and architectural invariants.
-- [ ] Run full `devops ci` quality gate.
-- [ ] Open draft PR on GitHub and monitor CI checks.
+- [x] Implement data models in `src/devops_cli/sandbox/models.py`.
+- [x] Implement panic detection and incident archiving in `src/devops_cli/sandbox/logs.py`.
+- [x] Implement `WorkloadSandboxEngine.logs()` in `src/devops_cli/sandbox/engine.py`.
+- [x] Implement CLI command `devops sandbox logs` in `src/devops_cli/commands/sandbox.py`.
+- [x] Add help strings in `src/devops_cli/lang/en/help.py`.
+- [x] Author comprehensive tests in `tests/test_sandbox_logs.py`.
+- [x] Run test suite and verify test coverage $\ge 90\%$ (94.3% achieved).
+- [x] Validate cyclomatic complexity $\le 10$ and architectural invariants.
+- [x] Run full `devops ci` quality gate.
+- [x] Open draft PR [#179](https://github.com/dan-petty/devops-cli/pull/179) on GitHub and monitor CI checks.
