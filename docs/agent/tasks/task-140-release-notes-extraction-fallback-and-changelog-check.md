@@ -1,8 +1,8 @@
 # Task 140: Add Release Notes Extraction Fallback and Enforce Changelog Version Check
 
 **Issue**: [#140](https://github.com/dan-petty/devops-cli/issues/140)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#160](https://github.com/dan-petty/devops-cli/pull/160)
+**Status**: In Review
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/cli`
