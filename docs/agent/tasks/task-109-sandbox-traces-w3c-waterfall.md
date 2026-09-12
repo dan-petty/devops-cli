@@ -1,7 +1,7 @@
 # Task 109: W3C Traceparent Propagation & Distributed Trace Correlation (`devops sandbox traces`)
 
 **Issue**: [#109](https://github.com/dan-petty/devops-cli/issues/109)
-**PR**: TBD
+**PR**: [#178](https://github.com/dan-petty/devops-cli/pull/178)
 **Status**: In Progress
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
@@ -72,4 +72,4 @@ Implement distributed trace correlation and W3C Trace Context propagation across
 - [x] Implement `devops sandbox traces` command in `src/devops_cli/commands/sandbox.py`.
 - [x] Author tests in `tests/test_sandbox_traces.py` and `tests/test_sandbox_probe.py`.
 - [x] Verify test suite and full CI quality gate (`devops ci`).
-- [ ] Open draft PR targeting `release/v0.2.17`.
+- [x] Open draft PR targeting `release/v0.2.17` ([#178](https://github.com/dan-petty/devops-cli/pull/178)).
