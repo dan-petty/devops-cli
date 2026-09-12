@@ -44,9 +44,9 @@ config:
 
   outputs: |
     [OUTPUT]
-        Name grafana-loki
+        Name loki
         Match kube.*
         host loki.logging.svc.cluster.local
         port 3100
-        labels job=fluent-bit, namespace=$kubernetes['namespace_name'], pod=$kubernetes['pod_name'], container=$kubernetes['container_name']
+        labels job=fluent-bit
         auto_kubernetes_labels on

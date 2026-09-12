@@ -753,6 +753,7 @@ def test_k8s_deploy_stack_no_wait() -> None:
             cmd = call_args[0][0]
             if isinstance(cmd, list) and "helm" in cmd and "upgrade" in cmd:
                 assert "--wait" not in cmd
+                assert "--force-conflicts" in cmd
 
 
 def test_k8s_workload_resource_limits_and_probes() -> None:
@@ -896,3 +897,36 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert gfd_res["requests"]["memory"] == "64Mi"
     assert gfd_res["limits"]["cpu"] == "200m"
     assert gfd_res["limits"]["memory"] == "256Mi"
+
+
+def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
+    """Verify deploy-stack enforces --force-conflicts and k8s manifests meet security & chart contracts."""
+    repo_root = Path(__file__).resolve().parent.parent
+
+    # 1. Namespaces: logging has privileged pod-security standard for hostPath daemonset
+    ns_docs = list(
+        yaml.safe_load_all((repo_root / "k8s" / "namespaces.yaml").read_text(encoding="utf-8"))
+    )
+    logging_ns = next(d for d in ns_docs if d and d.get("metadata", {}).get("name") == "logging")
+    assert logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] == "privileged"
+
+    # 2. Loki values: zeroed scalable target replicas for SingleBinary mode
+    loki_values = yaml.safe_load(
+        (repo_root / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
+    )
+    assert loki_values["read"]["replicas"] == 0
+    assert loki_values["write"]["replicas"] == 0
+    assert loki_values["backend"]["replicas"] == 0
+
+    # 3. Fluent-bit values: official loki output plugin
+    fb_values = yaml.safe_load(
+        (repo_root / "k8s" / "logging" / "fluent-bit-values.yaml").read_text(encoding="utf-8")
+    )
+    assert "Name loki" in fb_values["config"]["outputs"]
+    assert "grafana-loki" not in fb_values["config"]["outputs"]
+
+    # 4. Qdrant values: disabled unprivileged volume chown initContainer
+    qdrant_values = yaml.safe_load(
+        (repo_root / "k8s" / "llm" / "values-qdrant.yaml").read_text(encoding="utf-8")
+    )
+    assert qdrant_values["updateVolumeFsOwnership"] is False

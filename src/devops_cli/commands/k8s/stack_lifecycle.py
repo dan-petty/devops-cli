@@ -468,6 +468,7 @@ def deploy_stack(
             "helm",
             "upgrade",
             "--install",
+            "--force-conflicts",
             release["name"],
             release["chart"],
             "--namespace",
