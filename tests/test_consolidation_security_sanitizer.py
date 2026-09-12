@@ -335,3 +335,13 @@ def test_mask_secrets_preserves_task_file_paths() -> None:
 
     underscore_ant = "service_anthropic_key_sk-ant-1234567890abcdef12345678"
     assert mask_secrets(underscore_ant) == "service_anthropic_key_<masked-anthropic-key>"
+
+    # Verify hyphen-delimited tokens/keys are correctly redacted
+    hyphen_ghp = "prefix-ghp_1234567890abcdef1234"
+    assert mask_secrets(hyphen_ghp) == "prefix-<masked-github-token>"
+
+    hyphen_sk = "prefix-sk-proj-1234567890abcdef12345678"
+    assert mask_secrets(hyphen_sk) == "prefix-<masked-openai-key>"
+
+    hyphen_ant = "prefix-sk-ant-1234567890abcdef12345678"
+    assert mask_secrets(hyphen_ant) == "prefix-<masked-anthropic-key>"

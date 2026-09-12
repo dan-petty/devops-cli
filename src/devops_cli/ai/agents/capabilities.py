@@ -269,6 +269,7 @@ class NativeTool(BaseCapability):
         if builder is not None:
             return builder(self.tool)
         dumped = self.tool.model_dump(exclude_none=True)
+        dumped.pop("authorization_token", None)
         return {"native_tool": dumped}
 
     def get_system_prompt_additions(self, ctx: RunContext[Any] | None = None) -> list[str]:

@@ -40,7 +40,7 @@ spec:
                 - "true"
       containers:
       - name: gpu-feature-discovery
-        image: nvcr.io/nvidia/k8s-device-plugin:v0.16.2
+        image: nvcr.io/nvidia/gpu-feature-discovery:v0.16.2
         imagePullPolicy: IfNotPresent
         command:
         - /usr/bin/gpu-feature-discovery

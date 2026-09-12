@@ -11,6 +11,22 @@ from devops_cli.config.constants import (
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
+def _bound_detail_value(val: Any, max_len: int = 256) -> Any:
+    """Recursively bound string lengths in nested dictionaries, lists, and primitives."""
+    if isinstance(val, str):
+        return val[:max_len]
+    if isinstance(val, dict):
+        return {
+            (str(k)[:max_len] if isinstance(k, str) else str(k)): _bound_detail_value(v, max_len)
+            for k, v in val.items()
+        }
+    if isinstance(val, list):
+        return [_bound_detail_value(item, max_len) for item in val]
+    if isinstance(val, tuple):
+        return tuple(_bound_detail_value(item, max_len) for item in val)
+    return val
+
+
 class DocCompactionError(DevOpsCLIError):
     """Exception raised when documentation compaction fails."""
 
@@ -26,12 +42,11 @@ class DocCompactionError(DevOpsCLIError):
     ) -> None:
         err_details: dict[str, Any] = {}
         if series:
-            err_details["series"] = series[:256] if isinstance(series, str) else series
+            err_details["series"] = _bound_detail_value(series)
         if target_file:
-            err_details["target_file"] = (
-                target_file[:256] if isinstance(target_file, str) else target_file
-            )
+            err_details["target_file"] = _bound_detail_value(target_file)
         if details:
             for key, val in details.items():
-                err_details[key] = val[:256] if isinstance(val, str) else val
+                bound_key = str(key)[:256]
+                err_details[bound_key] = _bound_detail_value(val)
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)

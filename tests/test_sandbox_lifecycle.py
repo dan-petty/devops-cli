@@ -267,6 +267,8 @@ def test_engine_deploy_docker_sdk(tmp_path: Path) -> None:
         assert create_kwargs["pids_limit"] == 256
         assert create_kwargs["read_only"] is True
         assert "/tmp" in create_kwargs["tmpfs"]
+        # Explicit loopback binding
+        assert create_kwargs["ports"]["80/tcp"][0] == "127.0.0.1"
 
         # Check registry persistence
         stored = reg.get_instance(instance.instance_id)
@@ -605,11 +607,42 @@ def test_engine_deploy_subprocess_fallback(tmp_path: Path) -> None:
         patch(
             "devops_cli.sandbox.engine._get_docker_client", side_effect=RuntimeError("SDK offline")
         ),
-        patch("devops_cli.sandbox.engine.run_subprocess", return_value=mock_proc),
+        patch("devops_cli.sandbox.engine.run_subprocess", return_value=mock_proc) as mock_subp,
     ):
         inst = engine.deploy(cfg)
         assert inst.container_id == "cid-subp-123"
         assert inst.status == SandboxStatus.RUNNING
+        cmd = mock_subp.call_args[0][0]
+        assert any(arg.startswith("127.0.0.1:") for arg in cmd)
+
+
+def test_registry_reserve_and_register_pending(tmp_path: Path) -> None:
+    """Registry reserve_and_register_pending atomically assigns ports and saves pending instance."""
+    reg = SandboxRegistry(tmp_path / "reg.json")
+    inst1, bindings1 = reg.reserve_and_register_pending(
+        instance_id="sb-1",
+        name="test-1",
+        image="alpine",
+        workspace_dir=str(tmp_path),
+        requested_ports=[8080],
+        now_str="2026-09-12T06:00:00Z",
+    )
+    assert inst1.status == SandboxStatus.PENDING
+    assert len(bindings1) == 1
+    port1 = bindings1[0].host_port
+
+    # Second allocation must atomically recognize port1 as reserved
+    inst2, bindings2 = reg.reserve_and_register_pending(
+        instance_id="sb-2",
+        name="test-2",
+        image="alpine",
+        workspace_dir=str(tmp_path),
+        requested_ports=[8080],
+        now_str="2026-09-12T06:00:00Z",
+    )
+    port2 = bindings2[0].host_port
+    assert port1 != port2
+    assert reg.get_allocated_host_ports() == {port1, port2}
 
 
 def test_engine_status_not_found_and_client_error(tmp_path: Path) -> None:

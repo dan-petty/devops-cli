@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Long-Running Workload Sandbox Lifecycle Engine (`devops sandbox`)**:
   - Secure ephemeral Docker container sandboxes for long-running processes, dev servers, background tasks, and isolation testing.
-  - Full lifecycle orchestration: create, inspect, execute, stop, remove, clean, and interactive shell execution.
+  - Lifecycle orchestration: `deploy`, `status`, `exec`, and `stop`.
   - Enforced memory limits, CPU bounds, read-only root filesystems, and bounded workspace mounts.
 - **Automated Formatting and Linting Commands (`devops format`, `devops lint`)**:
   - Introduced top-level `devops format` and `devops lint` CLI commands with clean leaf command usage.

@@ -60,7 +60,3 @@ spec:
     # Allow in-cluster egress to services and pods across all namespaces
     - to:
         - namespaceSelector: {}
-    # Allow local LAN egress to cluster nodes (hostPorts, nodePorts, registry)
-    - to:
-        - ipBlock:
-            cidr: 192.168.0.0/16

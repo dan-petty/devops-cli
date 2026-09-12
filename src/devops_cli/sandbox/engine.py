@@ -123,7 +123,9 @@ class WorkloadSandboxEngine:
         """Construct Docker container creation options with strict security containment."""
         mount_mode = "ro" if config.read_only else "rw"
         volumes = {str(ws_resolved): {"bind": "/workspace", "mode": mount_mode}}
-        ports_map = {f"{b.container_port}/{b.protocol}": b.host_port for b in port_bindings}
+        ports_map = {
+            f"{b.container_port}/{b.protocol}": ("127.0.0.1", b.host_port) for b in port_bindings
+        }
         nano_cpus = int(config.cpu_limit * 1e9) if config.cpu_limit else None
 
         return {
@@ -152,13 +154,13 @@ class WorkloadSandboxEngine:
     ) -> SandboxInstance:
         """Provision, launch, and register an isolated long-running container sandbox."""
         ws_resolved = self.validate_workspace_dir(config.workspace_dir)
-        reserved_ports = self.registry.get_allocated_host_ports()
-        port_bindings = allocate_ports(config.ports, reserved_ports=reserved_ports)
         name = config.name or "app"
         instance_id = self._generate_instance_id(name)
         now_str = datetime.datetime.now(datetime.UTC).isoformat()
 
         if dry_run:
+            reserved_ports = self.registry.get_allocated_host_ports()
+            port_bindings = allocate_ports(config.ports, reserved_ports=reserved_ports)
             return SandboxInstance(
                 instance_id=instance_id,
                 container_id="simulated-container-id",
@@ -174,17 +176,14 @@ class WorkloadSandboxEngine:
         with trace_span(
             "sandbox.deploy", attributes={"image": config.image, "instance_id": instance_id}
         ):
-            instance = SandboxInstance(
+            instance, port_bindings = self.registry.reserve_and_register_pending(
                 instance_id=instance_id,
-                container_id="",
                 name=name,
                 image=config.image,
-                status=SandboxStatus.PENDING,
-                port_bindings=port_bindings,
                 workspace_dir=str(ws_resolved),
-                created_at=now_str,
+                requested_ports=config.ports,
+                now_str=now_str,
             )
-            self.registry.register_instance(instance)
             container_id: str | None = None
             try:
                 container_id = self._spawn_container(config, ws_resolved, port_bindings)
@@ -252,7 +251,7 @@ class WorkloadSandboxEngine:
         if config.read_only:
             cmd.extend(["--read-only", "--tmpfs=/tmp:size=64m,noexec"])
         for b in port_bindings:
-            cmd.extend(["-p", f"{b.host_port}:{b.container_port}/{b.protocol}"])
+            cmd.extend(["-p", f"127.0.0.1:{b.host_port}:{b.container_port}/{b.protocol}"])
         for k, v in config.env.items():
             cmd.extend(["-e", f"{k}={v}"])
         user_str = _resolve_user_string(config.rootless)

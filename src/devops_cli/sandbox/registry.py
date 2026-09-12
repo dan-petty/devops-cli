@@ -14,7 +14,7 @@ from pathlib import Path
 
 from devops_cli.config.defaults import DEFAULT_SANDBOX_INSTANCES_FILE
 from devops_cli.exceptions.sandbox import SandboxError, SandboxNotFoundError
-from devops_cli.sandbox.models import SandboxInstance, SandboxStatus
+from devops_cli.sandbox.models import PortBinding, SandboxInstance, SandboxStatus
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +196,43 @@ class SandboxRegistry:
                     for binding in inst.port_bindings:
                         ports.add(binding.host_port)
             return ports
+
+    def reserve_and_register_pending(
+        self,
+        instance_id: str,
+        name: str,
+        image: str,
+        workspace_dir: str,
+        requested_ports: list[int | str],
+        now_str: str,
+    ) -> tuple[SandboxInstance, list[PortBinding]]:
+        """Atomically discover free ports, reserve them, and persist pending sandbox instance."""
+        from devops_cli.sandbox.ports import allocate_ports
+
+        active_statuses = {SandboxStatus.PENDING, SandboxStatus.RUNNING}
+        with self._file_lock():
+            instances = self._read_instances_safe()
+            allocated: set[int] = set()
+            for inst in instances:
+                if inst.status in active_statuses:
+                    for binding in inst.port_bindings:
+                        allocated.add(binding.host_port)
+
+            port_bindings = allocate_ports(requested_ports, reserved_ports=allocated)
+            instance = SandboxInstance(
+                instance_id=instance_id,
+                container_id="",
+                name=name,
+                image=image,
+                status=SandboxStatus.PENDING,
+                port_bindings=port_bindings,
+                workspace_dir=workspace_dir,
+                created_at=now_str,
+            )
+            filtered = [inst for inst in instances if inst.instance_id != instance_id]
+            filtered.append(instance)
+            self._save_instances(filtered)
+            return instance, port_bindings
 
 
 __all__ = [

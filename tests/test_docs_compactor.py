@@ -371,17 +371,31 @@ def test_doc_compaction_error_bounds_details() -> None:
     huge_series = "v" + "0" * 300
     huge_path = "/path/to/" + "a" * 300
     huge_detail = "x" * 500
+    huge_key = "k" * 300
+    nested_dict = {"inner_key": "y" * 400, "k" * 300: "z" * 400}
+    nested_list = ["item_" + "w" * 300, 100]
 
     err = DocCompactionError(
         "Compaction failed",
         series=huge_series,
         target_file=huge_path,
-        details={"huge_field": huge_detail, "int_val": 42},
+        details={
+            "huge_field": huge_detail,
+            "int_val": 42,
+            huge_key: "value",
+            "nested_dict": nested_dict,
+            "nested_list": nested_list,
+        },
     )
     assert len(err.details["series"]) == 256
     assert len(err.details["target_file"]) == 256
     assert len(err.details["huge_field"]) == 256
     assert err.details["int_val"] == 42
+    assert "k" * 256 in err.details
+    assert len(err.details["nested_dict"]["inner_key"]) == 256
+    assert len(err.details["nested_dict"]["k" * 256]) == 256
+    assert len(err.details["nested_list"][0]) == 256
+    assert err.details["nested_list"][1] == 100
 
 
 def test_doc_compactor_invalid_series_syntax(compactor: DocCompactor) -> None:

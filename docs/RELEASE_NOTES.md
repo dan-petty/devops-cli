@@ -8,7 +8,7 @@ Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes cl
 
 ### 📦 Long-Running Workload Sandbox Lifecycle Engine (`devops sandbox`)
 - **Secure Ephemeral Sandboxing**: Spin up isolated Docker container sandboxes with memory caps, CPU bounds, read-only root filesystems, and temporary workspace mounts.
-- **Orchestration Commands**: `devops sandbox run`, `inspect`, `exec`, `stop`, `rm`, `clean`, and `shell`.
+- **Orchestration Commands**: `devops sandbox deploy`, `status`, `exec`, and `stop`.
 
 ### ⚡ Automated Formatting & Linting CLI Suite (`devops format`, `devops lint`)
 - **Dedicated Leaf Commands**: Fast formatting and linting CLI commands with clean leaf command usage.
