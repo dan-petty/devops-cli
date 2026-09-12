@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import socket
 from pathlib import Path
@@ -703,3 +704,149 @@ def test_engine_exec_non_running_and_fallback(tmp_path: Path) -> None:
         res = engine.exec("sb-exec-subp", ["echo", "test"], workdir="/workspace")
         assert res.exit_code == 0
         assert "fallback output" in res.stdout
+
+
+def test_sandbox_models_validation_rules() -> None:
+    """Test model validation constraints: network mode, read_only, and port bounds."""
+    from pydantic import ValidationError
+
+    # Network mode host rejected
+    with pytest.raises(ValidationError, match="Network mode 'host' violates sandbox"):
+        SandboxDeployConfig(network_mode="host")
+
+    # Network mode bridge and none accepted
+    cfg_bridge = SandboxDeployConfig(network_mode="bridge")
+    assert cfg_bridge.network_mode == "bridge"
+    cfg_none = SandboxDeployConfig(network_mode="none")
+    assert cfg_none.network_mode == "none"
+
+    # read_only False rejected
+    with pytest.raises(ValidationError, match="read-only root filesystem"):
+        SandboxDeployConfig(read_only=False)
+
+    # Invalid port numbers rejected
+    with pytest.raises(ValidationError, match="Port must be between 1 and 65535"):
+        PortBinding(container_port=0, host_port=8080)
+    with pytest.raises(ValidationError, match="Port must be between 1 and 65535"):
+        PortBinding(container_port=80, host_port=70000)
+    with pytest.raises(ValidationError, match="Container port must be between 1 and 65535"):
+        SandboxDeployConfig(ports=[80, 99999])
+
+
+def test_generate_instance_id_uniqueness() -> None:
+    """Instance IDs include a random nonce preventing same-second collisions."""
+    engine = WorkloadSandboxEngine()
+    id1 = engine._generate_instance_id("test")
+    id2 = engine._generate_instance_id("test")
+    assert id1 != id2
+    assert id1.startswith("sandbox-test-")
+    assert id2.startswith("sandbox-test-")
+
+
+def test_engine_spawn_cleans_created_container_on_start_failure(tmp_path: Path) -> None:
+    """When SDK container.start() fails, container is removed before fallback."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    engine = WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json"))
+
+    mock_container = MagicMock()
+    mock_container.start.side_effect = RuntimeError("Failed starting container")
+    mock_client = MagicMock()
+    mock_client.containers.create.return_value = mock_container
+
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0
+    mock_proc.stdout = "cid-fallback-subprocess\n"
+
+    with (
+        patch("devops_cli.sandbox.engine._get_docker_client", return_value=mock_client),
+        patch("devops_cli.sandbox.engine.run_subprocess", return_value=mock_proc),
+    ):
+        cfg = SandboxDeployConfig(image="alpine", workspace_dir=ws)
+        cid = engine._spawn_container(cfg, ws, [])
+        assert cid == "cid-fallback-subprocess"
+        mock_container.remove.assert_called_once_with(force=True)
+
+
+def test_engine_spawn_via_subprocess_error_translation(tmp_path: Path) -> None:
+    """Subprocess failure in _spawn_via_subprocess raises normalized SandboxError."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    engine = WorkloadSandboxEngine()
+
+    with patch(
+        "devops_cli.sandbox.engine.run_subprocess", side_effect=RuntimeError("Subprocess failed")
+    ):
+        cfg = SandboxDeployConfig(image="alpine", workspace_dir=ws)
+        with pytest.raises(SandboxError, match="Docker run CLI failed to spawn container"):
+            engine._spawn_via_subprocess(cfg, ws, [])
+
+
+def test_engine_deploy_rollback_on_failure(tmp_path: Path) -> None:
+    """Failed deployment cleans up pre-registered record and terminates container."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    reg = SandboxRegistry(tmp_path / "reg.json")
+    engine = WorkloadSandboxEngine(registry=reg)
+
+    with patch.object(engine, "_spawn_container", side_effect=RuntimeError("Docker fatal")):
+        cfg = SandboxDeployConfig(image="alpine", workspace_dir=ws)
+        with pytest.raises(SandboxError, match="Failed deploying sandbox container"):
+            engine.deploy(cfg)
+
+    # Registry must not contain any leaked instance records
+    assert len(reg.list_instances()) == 0
+
+
+def test_engine_uptime_calculation_and_stop_persistence(tmp_path: Path) -> None:
+    """Reconciliation computes uptime_seconds and stop persists final uptime."""
+    reg = SandboxRegistry(tmp_path / "reg.json")
+    engine = WorkloadSandboxEngine(registry=reg)
+
+    # Instance created 60 seconds ago
+    past_ts = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(seconds=60)).isoformat()
+    inst = SandboxInstance(
+        instance_id="sb-uptime-test",
+        container_id="cid-uptime-test",
+        name="uptime-test",
+        image="alpine:latest",
+        status=SandboxStatus.RUNNING,
+        workspace_dir=str(tmp_path),
+        created_at=past_ts,
+    )
+    reg.register_instance(inst)
+
+    mock_container = MagicMock()
+    mock_container.status = "running"
+    mock_client = MagicMock()
+    mock_client.containers.get.return_value = mock_container
+
+    with patch("devops_cli.sandbox.engine._get_docker_client", return_value=mock_client):
+        statuses = engine.status("sb-uptime-test")
+        assert len(statuses) == 1
+        assert statuses[0].uptime_seconds >= 59.0
+
+        stopped = engine.stop("sb-uptime-test")
+        assert stopped.status == SandboxStatus.STOPPED
+        assert stopped.uptime_seconds >= 59.0
+
+        # Persisted in registry
+        stored = reg.get_instance("sb-uptime-test")
+        assert stored is not None
+        assert stored.status == SandboxStatus.STOPPED
+        assert stored.uptime_seconds >= 59.0
+
+
+def test_registry_corrupt_file_quarantine(tmp_path: Path) -> None:
+    """Corrupt registry file is quarantined to .corrupt-* without clobbering."""
+    reg_file = tmp_path / "instances.json"
+    reg_file.write_text("{ corrupt invalid json content", encoding="utf-8")
+
+    reg = SandboxRegistry(reg_file)
+    # list_instances returns empty list and creates quarantine file
+    instances = reg.list_instances()
+    assert instances == []
+
+    quarantine_files = list(tmp_path.glob("instances.json.corrupt-*"))
+    assert len(quarantine_files) == 1
+    assert "{ corrupt" in quarantine_files[0].read_text(encoding="utf-8")

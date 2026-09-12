@@ -5703,7 +5703,7 @@ devops sandbox deploy [OPTIONS] <command>
 | `--workspace`, `-w` | `path` | `.` | Host workspace path to mount into container /workspace. |
 | `--memory`, `-m` | `string` | `2g` | Memory limit for the container (e.g. 512m, 2g). |
 | `--cpus`, `-c` | `float` | `2.0` | CPU quota limit for the container (e.g. 1.0, 2.0). |
-| `--read-only`, `--no-read-only` | `boolean` | `True` | Mount root filesystem as read-only with a tmpfs /tmp. |
+| `--read-only` | `boolean` | `True` | Mount root filesystem as read-only with a tmpfs /tmp. |
 | `--network` | `string` | `bridge` | Docker network mode (bridge | host | none). |
 | `--env`, `-e` | `string` | - | Environment variable in KEY=VALUE format. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |

@@ -6,6 +6,7 @@ import datetime
 import logging
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Final
 
@@ -107,10 +108,11 @@ class WorkloadSandboxEngine:
         return resolved
 
     def _generate_instance_id(self, name: str) -> str:
-        """Create a deterministic unique timestamped instance identifier."""
+        """Create a deterministic unique timestamped collision-resistant instance identifier."""
         ts = int(time.time())
+        nonce = uuid.uuid4().hex[:8]
         clean_name = "".join(c if c.isalnum() or c == "-" else "-" for c in name.lower()).strip("-")
-        return f"sandbox-{clean_name}-{ts}"
+        return f"sandbox-{clean_name}-{ts}-{nonce}"
 
     def _build_create_kwargs(
         self,
@@ -172,19 +174,31 @@ class WorkloadSandboxEngine:
         with trace_span(
             "sandbox.deploy", attributes={"image": config.image, "instance_id": instance_id}
         ):
-            container_id = self._spawn_container(config, ws_resolved, port_bindings)
             instance = SandboxInstance(
                 instance_id=instance_id,
-                container_id=container_id,
+                container_id="",
                 name=name,
                 image=config.image,
-                status=SandboxStatus.RUNNING,
+                status=SandboxStatus.PENDING,
                 port_bindings=port_bindings,
                 workspace_dir=str(ws_resolved),
                 created_at=now_str,
             )
             self.registry.register_instance(instance)
-            return instance
+            container_id: str | None = None
+            try:
+                container_id = self._spawn_container(config, ws_resolved, port_bindings)
+                instance.container_id = container_id
+                instance.status = SandboxStatus.RUNNING
+                self.registry.update_instance(instance)
+                return instance
+            except BaseException as exc:
+                if container_id:
+                    self._terminate_container(container_id, timeout=1)
+                self.registry.remove_instance(instance_id)
+                if isinstance(exc, SandboxError):
+                    raise
+                raise SandboxError(f"Failed deploying sandbox container: {exc}") from exc
 
     def _spawn_container(
         self,
@@ -194,12 +208,18 @@ class WorkloadSandboxEngine:
     ) -> str:
         """Create and start container via Docker SDK or fallback subprocess."""
         create_kwargs = self._build_create_kwargs(config, ws_resolved, port_bindings)
+        container = None
         try:
             client = _get_docker_client()
             container = client.containers.create(**create_kwargs)
             container.start()
             return str(container.id)
         except Exception as exc:
+            if container is not None:
+                try:
+                    container.remove(force=True)
+                except Exception:
+                    pass
             logger.debug("Docker SDK create/start failed (%s); falling back to CLI subprocess", exc)
             return self._spawn_via_subprocess(config, ws_resolved, port_bindings)
 
@@ -239,8 +259,26 @@ class WorkloadSandboxEngine:
         cmd.append(config.image)
         cmd.extend(config.command)
 
-        proc = run_subprocess(cmd, check=True, timeout=int(config.timeout))
-        return proc.stdout.strip()
+        try:
+            proc = run_subprocess(cmd, check=True, timeout=int(config.timeout))
+            cid = proc.stdout.strip()
+            if not cid:
+                raise SandboxError("Docker run CLI returned empty container ID")
+            return cid
+        except Exception as exc:
+            raise SandboxError(
+                f"Docker run CLI failed to spawn container: {exc}",
+                details={"image": config.image},
+            ) from exc
+
+    def _compute_uptime(self, created_at: str) -> float:
+        """Calculate elapsed uptime seconds from creation timestamp."""
+        try:
+            created_dt = datetime.datetime.fromisoformat(created_at)
+            now_dt = datetime.datetime.now(datetime.UTC)
+            return max(0.0, round((now_dt - created_dt).total_seconds(), 2))
+        except Exception:
+            return 0.0
 
     def status(self, identifier: str | None = None) -> list[SandboxInstance]:
         """Query sandbox status and reconcile liveness against Docker daemon."""
@@ -270,13 +308,21 @@ class WorkloadSandboxEngine:
     def _reconcile_single_instance(self, inst: SandboxInstance, client: Any) -> None:
         """Reconcile a single instance's state against the running Docker daemon."""
         if not client:
+            if inst.status == SandboxStatus.RUNNING:
+                inst.uptime_seconds = self._compute_uptime(inst.created_at)
             return
         try:
             container = client.containers.get(inst.container_id)
             status_str = str(container.status).lower()
             new_status = SandboxStatus.RUNNING if status_str == "running" else SandboxStatus.STOPPED
+            if new_status == SandboxStatus.RUNNING:
+                inst.uptime_seconds = self._compute_uptime(inst.created_at)
             if new_status != inst.status:
-                self.registry.update_instance_status(inst.instance_id, new_status)
+                self.registry.update_instance_status(
+                    inst.instance_id,
+                    new_status,
+                    uptime_seconds=inst.uptime_seconds,
+                )
                 inst.status = new_status
         except Exception as exc:
             logger.debug("Failed polling container %s status: %s", inst.container_id, exc)
@@ -301,7 +347,12 @@ class WorkloadSandboxEngine:
 
         with trace_span("sandbox.stop", attributes={"instance_id": inst.instance_id}):
             self._terminate_container(inst.container_id, timeout=timeout)
-            return self.registry.update_instance_status(inst.instance_id, SandboxStatus.STOPPED)
+            final_uptime = self._compute_uptime(inst.created_at)
+            return self.registry.update_instance_status(
+                inst.instance_id,
+                SandboxStatus.STOPPED,
+                uptime_seconds=final_uptime,
+            )
 
     def _terminate_container(self, container_id: str, timeout: int) -> None:
         """Terminate and remove container via SDK or subprocess fallback."""

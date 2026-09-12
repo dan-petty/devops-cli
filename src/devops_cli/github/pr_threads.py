@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, cast
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -39,6 +39,34 @@ class ThreadResolutionResult(BaseModel):
     success: bool = True
 
 
+def _build_graphql_args(variables: dict[str, Any]) -> list[str]:
+    """Format GraphQL variable arguments for gh api."""
+    args: list[str] = []
+    for k, v in variables.items():
+        if v is None:
+            continue
+        flag = "-F" if isinstance(v, int) else "-f"
+        args.extend([flag, f"{k}={v}"])
+    return args
+
+
+def _parse_graphql_output(stdout: str) -> dict[str, Any]:
+    """Parse and validate JSON response from GraphQL API."""
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise GitHubOperationError(f"Failed to parse GraphQL response: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise GitHubOperationError("Unexpected GraphQL response: expected JSON object")
+
+    if data.get("errors"):
+        first_err = data["errors"][0].get("message", "Unknown GraphQL error")
+        raise GitHubOperationError(f"GraphQL error: {first_err}")
+
+    return data
+
+
 def _run_graphql_query(query: str, variables: dict[str, Any]) -> dict[str, Any]:
     """Execute a GraphQL query/mutation via `gh api graphql`."""
     cmd = [
@@ -48,30 +76,14 @@ def _run_graphql_query(query: str, variables: dict[str, Any]) -> dict[str, Any]:
         "-f",
         f"query={query}",
     ]
-    for k, v in variables.items():
-        if isinstance(v, int):
-            cmd.extend(["-F", f"{k}={v}"])
-        else:
-            cmd.extend(["-f", f"{k}={v}"])
+    cmd.extend(_build_graphql_args(variables))
 
     proc = run_subprocess(cmd)
     if proc.returncode != 0 or not proc.stdout:
         err = proc.stderr.strip() if proc.stderr else f"Exit code {proc.returncode}"
         raise GitHubOperationError(f"GitHub GraphQL query failed: {err}")
 
-    try:
-        data = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        raise GitHubOperationError(f"Failed to parse GraphQL response: {exc}") from exc
-
-    if not isinstance(data, dict):
-        raise GitHubOperationError("Unexpected GraphQL response: expected JSON object")
-
-    if "errors" in data and data["errors"]:
-        first_err = data["errors"][0].get("message", "Unknown GraphQL error")
-        raise GitHubOperationError(f"GraphQL error: {first_err}")
-
-    return cast(dict[str, Any], data)
+    return _parse_graphql_output(proc.stdout)
 
 
 _QUERY_GET_REVIEW_THREADS = """
@@ -176,9 +188,12 @@ def list_pr_review_threads(
     cursor: str | None = None
 
     while True:
+        vars_dict: dict[str, Any] = {"owner": owner, "repo": repo_name, "pr": pr_number}
+        if cursor:
+            vars_dict["cursor"] = cursor
         data = _run_graphql_query(
             _QUERY_GET_REVIEW_THREADS,
-            variables={"owner": owner, "repo": repo_name, "pr": pr_number, "cursor": cursor},
+            variables=vars_dict,
         )
         pr_data = (
             data.get("data", {})

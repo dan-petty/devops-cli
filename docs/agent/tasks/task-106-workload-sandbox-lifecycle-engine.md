@@ -28,7 +28,7 @@ Implement a foundational execution tier orchestrating isolated, long-running roo
 4. **Persistent State Management**:
    - Managed state file under `.data/sandbox/instances.json` tracking instance ID, container ID, image, ports, status, and creation timestamps.
 5. **FastMCP Integration**:
-   - FastMCP tools (`sandbox_deploy`, `sandbox_status`, `sandbox_stop`, `sandbox_exec`) and system resource `resource://sandbox/status`.
+   - FastMCP tools (`sandbox_deploy`, `sandbox_status`, `sandbox_stop`, `sandbox_exec`) and system resource `resource://sandbox/instances`.
 
 ---
 

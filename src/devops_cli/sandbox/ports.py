@@ -16,7 +16,7 @@ DEFAULT_SANDBOX_PORT_RANGE_END: Final[int] = 60000
 
 
 def _probe_socket_bind(host: str, port: int) -> bool:
-    """Check if a port can be bound on the given host address."""
+    """Check if a port can be bound on the given loopback address."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
@@ -26,11 +26,11 @@ def _probe_socket_bind(host: str, port: int) -> bool:
             return False
 
 
-def is_port_available(port: int, hosts: tuple[str, ...] = ("127.0.0.1", "0.0.0.0")) -> bool:
-    """Verify that a candidate host port is free for binding across standard interfaces."""
+def is_port_available(port: int, host: str = "127.0.0.1") -> bool:
+    """Verify that a candidate host port is free for binding on loopback."""
     if not (1 <= port <= 65535):
         return False
-    return all(_probe_socket_bind(h, port) for h in hosts)
+    return _probe_socket_bind(host, port)
 
 
 def find_available_port(

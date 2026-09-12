@@ -89,9 +89,7 @@ def deploy(
     ] = Path("."),
     memory: Annotated[str, typer.Option("--memory", "-m", help=HELP.sandbox.memory)] = "2g",
     cpus: Annotated[float, typer.Option("--cpus", "-c", help=HELP.sandbox.cpus)] = 2.0,
-    read_only: Annotated[
-        bool, typer.Option("--read-only/--no-read-only", help=HELP.sandbox.read_only)
-    ] = True,
+    read_only: Annotated[bool, typer.Option("--read-only", help=HELP.sandbox.read_only)] = True,
     network: Annotated[str, typer.Option("--network", help=HELP.sandbox.network)] = "bridge",
     env: Annotated[list[str] | None, typer.Option("--env", "-e", help=HELP.sandbox.env)] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,

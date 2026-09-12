@@ -6,7 +6,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
 
@@ -27,6 +27,14 @@ class PortBinding(BaseModel):
     host_port: int
     protocol: str = "tcp"
 
+    @field_validator("container_port", "host_port")
+    @classmethod
+    def validate_port_bounds(cls, v: int) -> int:
+        """Ensure port is within valid TCP/UDP port range 1-65535."""
+        if not (1 <= v <= 65535):
+            raise ValueError(f"Port must be between 1 and 65535, got {v}")
+        return v
+
 
 class SandboxDeployConfig(BaseModel):
     """Deployment specification for long-running workload sandboxes."""
@@ -43,6 +51,38 @@ class SandboxDeployConfig(BaseModel):
     rootless: bool = True
     env: dict[str, str] = Field(default_factory=dict)
     timeout: float = 300.0
+
+    @field_validator("network_mode")
+    @classmethod
+    def validate_network_mode(cls, v: str) -> str:
+        """Reject host networking to preserve container network namespace isolation."""
+        clean = v.strip().lower()
+        if clean == "host":
+            raise ValueError(
+                "Network mode 'host' violates sandbox network namespace isolation and conflicts with port mapping; only 'bridge' or 'none' allowed."
+            )
+        if clean not in ("bridge", "none"):
+            raise ValueError(f"Unsupported network mode '{v}'; only 'bridge' or 'none' permitted.")
+        return clean
+
+    @field_validator("read_only")
+    @classmethod
+    def validate_read_only(cls, v: bool) -> bool:
+        """Enforce mandatory read-only root filesystem for containment boundary."""
+        if not v:
+            raise ValueError(
+                "Sandboxes strictly require a read-only root filesystem for containment integrity."
+            )
+        return v
+
+    @field_validator("ports")
+    @classmethod
+    def validate_container_ports(cls, v: list[int]) -> list[int]:
+        """Validate all requested container ports are within valid port boundaries."""
+        for p in v:
+            if not (1 <= p <= 65535):
+                raise ValueError(f"Container port must be between 1 and 65535, got {p}")
+        return v
 
 
 class SandboxInstance(BaseModel):

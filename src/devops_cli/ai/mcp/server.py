@@ -1143,14 +1143,16 @@ def sandbox_deploy(
     ]
     if name:
         cmd.extend(["--name", name])
-    if read_only:
-        cmd.append("--read-only")
-    else:
-        cmd.append("--no-read-only")
+    if not read_only:
+        raise ValueError(
+            "Sandboxes strictly mandate a read-only root filesystem for containment integrity."
+        )
+    cmd.append("--read-only")
     if ports:
         for p in ports:
             cmd.extend(["--port", str(p)])
     if command:
+        cmd.append("--")
         cmd.extend(command)
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
@@ -1165,6 +1167,9 @@ def sandbox_status(
     if all_instances:
         cmd.append("--all")
     if instance_id:
+        _validate_mcp_arg("instance_id", instance_id)
+        if instance_id.startswith("-"):
+            raise ValueError("instance_id cannot start with '-'")
         cmd.append(instance_id)
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
@@ -1180,6 +1185,9 @@ def sandbox_stop(
     if all_instances:
         cmd.append("--all")
     elif instance_id:
+        _validate_mcp_arg("instance_id", instance_id)
+        if instance_id.startswith("-"):
+            raise ValueError("instance_id cannot start with '-'")
         cmd.append(instance_id)
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
@@ -1191,9 +1199,13 @@ def sandbox_exec(
     workdir: str | None = None,
 ) -> str:
     """Execute a command inside an active sandbox container."""
+    _validate_mcp_arg("instance_id", instance_id)
+    if instance_id.startswith("-"):
+        raise ValueError("instance_id cannot start with '-'")
     cmd = ["uv", "run", "devops", "sandbox", "exec", instance_id]
     if workdir:
         cmd.extend(["--workdir", workdir])
+    cmd.append("--")
     cmd.extend(command)
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
