@@ -153,7 +153,7 @@ devops sandbox metrics [OPTIONS] <identifier>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--prom-endpoint`, `-p`, `--path` | `string` | `/metrics` | Prometheus metrics scrape path (default /metrics). |
-| `--timeout`, `-t` | `float` | `5.0` | Graceful stop timeout in seconds before SIGKILL. |
+| `--timeout`, `-t` | `float` | `5.0` | HTTP timeout in seconds for Prometheus metrics scraping (default: 5.0). |
 | `--warn-memory-pct` | `float` | `80.0` | Warning threshold percentage for container memory consumption. |
 | `--warn-cpu-pct` | `float` | `85.0` | Warning threshold percentage for container CPU utilization. |
 | `--json` | `boolean` | - | Output details in structured JSON format. |

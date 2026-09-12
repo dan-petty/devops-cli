@@ -960,6 +960,7 @@ class SandboxCommandHelp:
     probe_latency_sla: str = "Maximum acceptable response latency budget in milliseconds."
     metrics: str = "Capture real-time cgroup v2 metrics and scrape Prometheus application metrics."
     metrics_endpoint: str = "Prometheus metrics scrape path (default /metrics)."
+    metrics_timeout: str = "HTTP timeout in seconds for Prometheus metrics scraping (default: 5.0)."
     warn_memory_pct: str = "Warning threshold percentage for container memory consumption."
     warn_cpu_pct: str = "Warning threshold percentage for container CPU utilization."
 

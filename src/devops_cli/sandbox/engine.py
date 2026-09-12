@@ -29,7 +29,7 @@ from devops_cli.sandbox.models import (
 )
 from devops_cli.sandbox.ports import allocate_ports
 from devops_cli.sandbox.registry import SandboxRegistry
-from devops_cli.telemetry import trace_span
+from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -483,13 +483,28 @@ class WorkloadSandboxEngine:
             )
         from devops_cli.sandbox.metrics import collect_sandbox_metrics
 
-        return collect_sandbox_metrics(
-            instance_or_target=inst,
-            prom_endpoint=prom_endpoint,
-            timeout=timeout,
-            memory_threshold_pct=memory_threshold_pct,
-            cpu_threshold_pct=cpu_threshold_pct,
-        )
+        with trace_span(
+            "sandbox.engine.metrics",
+            attributes={
+                "sandbox.identifier": identifier,
+                "sandbox.container_id": inst.container_id or "",
+                "sandbox.prom_endpoint": prom_endpoint,
+            },
+        ):
+            snapshot = collect_sandbox_metrics(
+                instance_or_target=inst,
+                prom_endpoint=prom_endpoint,
+                timeout=timeout,
+                memory_threshold_pct=memory_threshold_pct,
+                cpu_threshold_pct=cpu_threshold_pct,
+            )
+            record_metric(
+                "devops_cli.sandbox.metrics_collected",
+                1.0,
+                unit="1",
+                attributes={"healthy": snapshot.is_healthy},
+            )
+            return snapshot
 
 
 __all__ = ["WorkloadSandboxEngine"]

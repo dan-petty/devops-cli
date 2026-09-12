@@ -627,3 +627,251 @@ def test_cli_sandbox_metrics_url_target(mock_engine_cls: MagicMock, prom_server:
     result = runner.invoke(app, ["sandbox", "metrics", prom_server])
     assert result.exit_code == 0
     assert "Prometheus" in result.output
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. PR #164 Review Findings Remediation Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_cli_sandbox_metrics_help_metrics_timeout() -> None:
+    """Test CLI metrics --help displays dedicated Prometheus scrape timeout description."""
+    result = runner.invoke(app, ["sandbox", "metrics", "--help"])
+    assert result.exit_code == 0
+    assert "HTTP timeout in seconds for Prometheus metrics scraping" in result.output
+
+
+def test_telemetry_tracing_instrumentation() -> None:
+    """Test OpenTelemetry tracing and metric recording in CLI and engine."""
+    from devops_cli.sandbox.engine import WorkloadSandboxEngine
+
+    # Test CLI command emits trace span and metric
+    with patch("devops_cli.commands.sandbox.trace_span") as mock_cli_span:
+        with patch("devops_cli.commands.sandbox.record_metric") as mock_cli_metric:
+            mock_cli_span.return_value.__enter__.return_value = MagicMock()
+            result = runner.invoke(app, ["sandbox", "metrics", "test-inst", "--dry-run"])
+            assert result.exit_code == 0
+            mock_cli_span.assert_called_once_with(
+                "sandbox.metrics",
+                attributes={
+                    "sandbox.identifier": "test-inst",
+                    "sandbox.prom_endpoint": "/metrics",
+                    "sandbox.dry_run": True,
+                },
+            )
+            mock_cli_metric.assert_called_once_with(
+                "devops_cli.sandbox.metrics_invoked",
+                1.0,
+                unit="1",
+                attributes={"dry_run": True},
+            )
+
+    # Test Engine metrics() emits trace span and metric
+    engine = WorkloadSandboxEngine()
+    mock_inst = SandboxInstance(
+        instance_id="inst-tracer",
+        container_id="cont-tracer",
+        name="tracer-svc",
+        image="alpine",
+        status=SandboxStatus.RUNNING,
+        port_bindings=[],
+        workspace_dir="/tmp",
+        created_at="2026-09-12T13:00:00Z",
+    )
+    with patch.object(engine.registry, "get_instance", return_value=mock_inst):
+        with patch("devops_cli.sandbox.engine.trace_span") as mock_eng_span:
+            with patch("devops_cli.sandbox.engine.record_metric") as mock_eng_metric:
+                with patch("devops_cli.sandbox.metrics.collect_sandbox_metrics") as mock_collect:
+                    mock_collect.return_value = SandboxMetricsSnapshot(
+                        instance_id="inst-tracer",
+                        target="tracer-svc",
+                        cgroup=None,
+                        prometheus_metrics=[],
+                        warnings=[],
+                        timestamp="2026-09-12T13:00:00Z",
+                    )
+                    mock_eng_span.return_value.__enter__.return_value = MagicMock()
+                    res = engine.metrics("inst-tracer")
+                    assert res.instance_id == "inst-tracer"
+                    mock_eng_span.assert_called_once_with(
+                        "sandbox.engine.metrics",
+                        attributes={
+                            "sandbox.identifier": "inst-tracer",
+                            "sandbox.container_id": "cont-tracer",
+                            "sandbox.prom_endpoint": "/metrics",
+                        },
+                    )
+                    mock_eng_metric.assert_called_once_with(
+                        "devops_cli.sandbox.metrics_collected",
+                        1.0,
+                        unit="1",
+                        attributes={"healthy": True},
+                    )
+
+
+def test_parse_cgroup_v2_cpu_delta_calculation(tmp_path: Path) -> None:
+    """Test parse_cgroup_v2_directory calculates delta CPU percent and records cpu_usage_usec."""
+    cgroup_dir = tmp_path / "cgroup" / "delta-test"
+    cgroup_dir.mkdir(parents=True)
+    (cgroup_dir / "cpu.stat").write_text("usage_usec 2500000\n")
+
+    # Initial sample without prior interval -> 0.0% but records usage_usec
+    first_sample = parse_cgroup_v2_directory(cgroup_dir)
+    assert first_sample is not None
+    assert first_sample.cpu_usage_usec == 2500000
+    assert first_sample.cpu_percent == 0.0
+
+    # Second sample: previous was 2,000,000 usec, elapsed 1.0 sec -> delta = 500,000 usec -> 50.0%
+    second_sample = parse_cgroup_v2_directory(
+        cgroup_dir,
+        previous_cpu_usec=2000000,
+        elapsed_sec=1.0,
+    )
+    assert second_sample is not None
+    assert second_sample.cpu_usage_usec == 2500000
+    assert second_sample.cpu_percent == 50.0
+
+    # Read helper test with delta arguments
+    read_sample = read_cgroup_v2_metrics(
+        cgroup_path=cgroup_dir,
+        previous_cpu_usec=2000000,
+        elapsed_sec=1.0,
+    )
+    assert read_sample is not None
+    assert read_sample.cpu_percent == 50.0
+
+
+def test_scrape_prometheus_metrics_ssrf_protection() -> None:
+    """Test scrape_prometheus_metrics blocks non-permitted protocols and invalid hosts via SSRF check."""
+    from devops_cli.sandbox.metrics import PrometheusScrapeResult
+
+    # Block non-HTTP schemes
+    res_ftp = scrape_prometheus_metrics("ftp://127.0.0.1:8080/metrics")
+    assert isinstance(res_ftp, PrometheusScrapeResult)
+    assert len(res_ftp) == 0
+    assert res_ftp.error is not None
+    assert "SSRF" in res_ftp.error or "scheme" in res_ftp.error
+
+    res_file = scrape_prometheus_metrics("file:///etc/passwd")
+    assert len(res_file) == 0
+    assert res_file.error is not None
+
+    # Invalid host
+    res_bad_host = scrape_prometheus_metrics("http:///missing-host")
+    assert len(res_bad_host) == 0
+    assert res_bad_host.error is not None
+
+
+def test_preserve_scrape_error_state_and_unhealthy() -> None:
+    """Test that failed metrics scrapes preserve error details and mark snapshot unhealthy."""
+    from devops_cli.sandbox.metrics import PrometheusScrapeResult
+
+    # Mock scrape returning error
+    with patch("devops_cli.sandbox.metrics.scrape_prometheus_metrics") as mock_scrape:
+        mock_scrape.return_value = PrometheusScrapeResult(
+            [],
+            error="HTTP 502 Bad Gateway response from http://127.0.0.1:8080/metrics",
+        )
+        snapshot = collect_sandbox_metrics("127.0.0.1:8080")
+        assert (
+            snapshot.scrape_error
+            == "HTTP 502 Bad Gateway response from http://127.0.0.1:8080/metrics"
+        )
+        assert any("502" in w for w in snapshot.warnings)
+        assert snapshot.is_healthy is False
+
+
+def test_parse_prometheus_exposition_label_unescaping() -> None:
+    """Test parse_prometheus_exposition unescapes quotes, backslashes, and newlines in labels."""
+    exposition = (
+        'http_requests_total{path="/api/v1?q=\\"test\\"",note="line1\\nline2",bs="a\\\\b"} 42\n'
+    )
+    metrics = parse_prometheus_exposition(exposition)
+    assert len(metrics) == 1
+    m = metrics[0]
+    assert m.labels["path"] == '/api/v1?q="test"'
+    assert m.labels["note"] == "line1\nline2"
+    assert m.labels["bs"] == "a\\b"
+    assert m.value == 42.0
+
+
+def test_evaluate_threshold_warnings_memory_leak_trajectory() -> None:
+    """Test evaluate_threshold_warnings detects memory leak trajectory when growth exceeds 20% and 5MB."""
+    prior = CgroupV2Metrics(
+        cpu_percent=10.0,
+        memory_current_bytes=10 * 1024 * 1024,  # 10MB
+    )
+    current = CgroupV2Metrics(
+        cpu_percent=10.0,
+        memory_current_bytes=20 * 1024 * 1024,  # 20MB (100% growth, +10MB)
+    )
+    warnings = evaluate_threshold_warnings(
+        cgroup=current,
+        prom_metrics=[],
+        previous_cgroup=prior,
+    )
+    assert len(warnings) == 1
+    assert "memory leak trajectory" in warnings[0].lower()
+    assert "100.0%" in warnings[0]
+
+
+def test_evaluate_threshold_warnings_histogram_latency_degradation() -> None:
+    """Test evaluate_threshold_warnings computes average latency from histogram sum and count."""
+    prom_metrics = [
+        PrometheusMetric(
+            name="http_request_duration_seconds_sum",
+            metric_type="histogram",
+            labels={"handler": "orders"},
+            value=60.0,  # 60 seconds total
+        ),
+        PrometheusMetric(
+            name="http_request_duration_seconds_count",
+            metric_type="histogram",
+            labels={"handler": "orders"},
+            value=50.0,  # across 50 requests -> 1.2s avg = 1200ms
+        ),
+    ]
+    warnings = evaluate_threshold_warnings(
+        cgroup=None,
+        prom_metrics=prom_metrics,
+        latency_threshold_ms=500.0,
+    )
+    assert len(warnings) == 1
+    assert "High average request latency" in warnings[0]
+    assert "1200.0ms >= 500.0ms" in warnings[0]
+
+
+def test_parse_cgroup_v2_network_stat_and_docker_net_io(tmp_path: Path) -> None:
+    """Test parsing network stats from cgroup directory and docker stats dict."""
+    from devops_cli.sandbox.metrics import _build_metrics_from_docker_dict
+
+    # From cgroup network.stat file
+    cgroup_dir = tmp_path / "cgroup" / "net-test"
+    cgroup_dir.mkdir(parents=True)
+    (cgroup_dir / "network.stat").write_text("rx_bytes 10485760\ntx_bytes 20971520\n")
+    cgroup_metrics = parse_cgroup_v2_directory(cgroup_dir)
+    assert cgroup_metrics is not None
+    assert cgroup_metrics.network_rx_bytes == 10485760
+    assert cgroup_metrics.network_tx_bytes == 20971520
+
+    # From docker stats dictionary
+    docker_data = {
+        "CPUPerc": "12.0%",
+        "MemUsage": "100MiB / 500MiB",
+        "NetIO": "1.5MB / 3.2MB",
+        "PIDs": "6",
+    }
+    docker_metrics = _build_metrics_from_docker_dict(docker_data)
+    assert docker_metrics.network_rx_bytes == 1500000
+    assert docker_metrics.network_tx_bytes == 3200000
+
+
+def test_evaluate_threshold_warnings_status_label_5xx() -> None:
+    """Test evaluate_threshold_warnings detects 5xx spikes when metric uses status instead of code."""
+    prom_metrics = [
+        PrometheusMetric(name="http_requests_total", labels={"status": "200"}, value=80.0),
+        PrometheusMetric(name="http_requests_total", labels={"status": "500"}, value=20.0),
+    ]
+    warnings = evaluate_threshold_warnings(None, prom_metrics)
+    assert len(warnings) >= 1
+    assert any("5xx" in w for w in warnings)

@@ -36,6 +36,7 @@ from devops_cli.sandbox.models import (
     SandboxProbeReport,
     SandboxStatus,
 )
+from devops_cli.telemetry.tracer import record_metric, trace_span
 
 app = new_typer(help=HELP.sandbox.app, no_args_is_help=True)
 
@@ -452,6 +453,12 @@ def _render_cgroup_table(target: str, cgroup: CgroupV2Metrics) -> None:
             "-",
             "[dim]I/O[/dim]",
         ],
+        [
+            "Network I/O (Rx/Tx)",
+            f"{cgroup.network_rx_bytes / (1024 * 1024):.1f} MB / {cgroup.network_tx_bytes / (1024 * 1024):.1f} MB",
+            "-",
+            "[dim]NET[/dim]",
+        ],
     ]
     print_table(f"Cgroup v2 Resource Telemetry: {target}", columns, rows)
 
@@ -503,7 +510,9 @@ def metrics(
             help=HELP.sandbox.metrics_endpoint,
         ),
     ] = "/metrics",
-    timeout: Annotated[float, typer.Option("--timeout", "-t", help=HELP.sandbox.timeout)] = 5.0,
+    timeout: Annotated[
+        float, typer.Option("--timeout", "-t", help=HELP.sandbox.metrics_timeout)
+    ] = 5.0,
     warn_memory_pct: Annotated[
         float,
         typer.Option(
@@ -524,50 +533,64 @@ def metrics(
     """Capture real-time cgroup v2 metrics and scrape Prometheus application metrics."""
     set_dry_run(dry_run)
 
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops sandbox metrics",
-            action="collect_sandbox_metrics",
-            details={
-                "identifier": identifier,
-                "prom_endpoint": prom_endpoint,
-                "timeout": timeout,
-                "warn_memory_pct": warn_memory_pct,
-                "warn_cpu_pct": warn_cpu_pct,
-            },
+    with trace_span(
+        "sandbox.metrics",
+        attributes={
+            "sandbox.identifier": identifier,
+            "sandbox.prom_endpoint": prom_endpoint,
+            "sandbox.dry_run": is_dry_run(),
+        },
+    ):
+        record_metric(
+            "devops_cli.sandbox.metrics_invoked",
+            1.0,
+            unit="1",
+            attributes={"dry_run": is_dry_run()},
         )
-        return None
+        if is_dry_run():
+            render_dry_run_result(
+                command="devops sandbox metrics",
+                action="collect_sandbox_metrics",
+                details={
+                    "identifier": identifier,
+                    "prom_endpoint": prom_endpoint,
+                    "timeout": timeout,
+                    "warn_memory_pct": warn_memory_pct,
+                    "warn_cpu_pct": warn_cpu_pct,
+                },
+            )
+            return None
 
-    engine = WorkloadSandboxEngine()
-    try:
-        snapshot = engine.metrics(
-            identifier=identifier,
-            prom_endpoint=prom_endpoint,
-            timeout=timeout,
-            memory_threshold_pct=warn_memory_pct,
-            cpu_threshold_pct=warn_cpu_pct,
-        )
-    except SandboxNotFoundError:
-        if "://" in identifier or ":" in identifier:
-            from devops_cli.sandbox.metrics import collect_sandbox_metrics
-
-            snapshot = collect_sandbox_metrics(
-                instance_or_target=identifier,
+        engine = WorkloadSandboxEngine()
+        try:
+            snapshot = engine.metrics(
+                identifier=identifier,
                 prom_endpoint=prom_endpoint,
                 timeout=timeout,
                 memory_threshold_pct=warn_memory_pct,
                 cpu_threshold_pct=warn_cpu_pct,
             )
-        else:
-            print_error(f"Sandbox instance '{identifier}' not found.")
-            raise typer.Exit(1)
+        except SandboxNotFoundError:
+            if "://" in identifier or ":" in identifier:
+                from devops_cli.sandbox.metrics import collect_sandbox_metrics
 
-    if json_output:
-        typer.echo(json.dumps(snapshot.model_dump(), indent=2))
+                snapshot = collect_sandbox_metrics(
+                    instance_or_target=identifier,
+                    prom_endpoint=prom_endpoint,
+                    timeout=timeout,
+                    memory_threshold_pct=warn_memory_pct,
+                    cpu_threshold_pct=warn_cpu_pct,
+                )
+            else:
+                print_error(f"Sandbox instance '{identifier}' not found.")
+                raise typer.Exit(1)
+
+        if json_output:
+            typer.echo(json.dumps(snapshot.model_dump(), indent=2))
+            return None
+
+        _render_metrics_snapshot(snapshot)
         return None
-
-    _render_metrics_snapshot(snapshot)
-    return None
 
 
 __all__ = ["app"]
