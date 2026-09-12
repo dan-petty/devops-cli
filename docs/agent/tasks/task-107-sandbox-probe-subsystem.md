@@ -1,8 +1,8 @@
 # Task 107: Protocol-Agnostic Endpoint Readiness & Health Probing Subsystem
 
 **Issue**: [#107](https://github.com/dan-petty/devops-cli/issues/107)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#163](https://github.com/dan-petty/devops-cli/pull/163)
+**Status**: Done
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p0-critical`
 **Scope**: `scope/cli`
@@ -59,4 +59,4 @@ Implement a protocol-agnostic probing engine evaluating application health, reac
 - [x] Update language help and message strings in `src/devops_cli/lang/en/`.
 - [x] Run test suite and full CI quality gate (`devops ci`).
 - [x] Synchronize documentation (`devops docs generate --sync-readme`).
-- [ ] Author Pull Request targeting `release/v0.2.17` and verify CI checks pass.
+- [x] Author Pull Request targeting `release/v0.2.17` and verify CI checks pass.

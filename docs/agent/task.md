@@ -10,7 +10,7 @@
 
 | Issue | PR | Title | Status | Task File |
 | :--- | :--- | :--- | :--- | :--- |
-| [#107](https://github.com/dan-petty/devops-cli/issues/107) | TBD | Protocol-agnostic endpoint readiness and health probing subsystem (`devops sandbox probe`) | `In Progress` | [`task-107-sandbox-probe-subsystem.md`](tasks/task-107-sandbox-probe-subsystem.md) |
+| [#107](https://github.com/dan-petty/devops-cli/issues/107) | [#163](https://github.com/dan-petty/devops-cli/pull/163) | Protocol-agnostic endpoint readiness and health probing subsystem (`devops sandbox probe`) | `Done` | [`task-107-sandbox-probe-subsystem.md`](tasks/task-107-sandbox-probe-subsystem.md) |
 | [#108](https://github.com/dan-petty/devops-cli/issues/108) | TBD | Cgroup v2 metrics collection and Prometheus application scraping (`devops sandbox metrics`) | `Ready` | Backlog |
 | [#109](https://github.com/dan-petty/devops-cli/issues/109) | TBD | W3C traceparent propagation and distributed trace correlation (`devops sandbox traces`) | `Ready` | Backlog |
 | [#110](https://github.com/dan-petty/devops-cli/issues/110) | TBD | Streaming diagnostic log aggregator and panic detector (`devops sandbox logs`) | `Ready` | Backlog |
