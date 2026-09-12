@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.issues import (
     GitHubIssue,
     IssueTriageAudit,
@@ -153,3 +156,21 @@ def test_get_issues_summary() -> None:
         assert summary["by_priority"]["priority/p0-critical"] == 1
         assert summary["by_type"]["type/bug"] == 1
         assert summary["by_milestone"]["v0.2.14"] == 2
+
+
+def test_create_repository_issue_failure_bounds_title_in_error_details() -> None:
+    """Verify that GitHubOperationError details truncates unbounded title to max 256 chars."""
+    huge_title = "fix(security): " + ("A" * 1500)
+    with patch("devops_cli.github.issues.run_subprocess") as mock_proc:
+        mock_proc.return_value = MagicMock(returncode=1, stderr="GraphQL mutation error", stdout="")
+        with pytest.raises(GitHubOperationError) as exc_info:
+            create_repository_issue(
+                repo="dan-petty/devops-cli",
+                title=huge_title,
+                body="Issue description",
+            )
+        err = exc_info.value
+        assert err.details is not None
+        assert "title" in err.details
+        assert len(err.details["title"]) <= 256
+        assert err.details["title"] == huge_title[:256]

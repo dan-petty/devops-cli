@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -103,6 +104,31 @@ def test_domain_specific_exceptions_exist() -> None:
     assert issubclass(EmbeddingsError, DevOpsCLIError)
     assert issubclass(EmbeddingsError, RuntimeError)
 
+    from devops_cli.exceptions.sandbox import (
+        SandboxError,
+        SandboxNotFoundError,
+        SandboxPortAllocationError,
+        SandboxValidationError,
+    )
+
+    assert issubclass(SandboxError, DevOpsCLIError)
+    assert issubclass(SandboxValidationError, SandboxError)
+    assert issubclass(SandboxPortAllocationError, SandboxError)
+    assert issubclass(SandboxNotFoundError, SandboxError)
+
+    sb_err = SandboxError("sandbox failed")
+    assert sb_err.error_code == "SANDBOX_ERROR"
+    assert sb_err.exit_code == 1
+
+    sb_val_err = SandboxValidationError("invalid mount path")
+    assert sb_val_err.error_code == "SANDBOX_VALIDATION_ERROR"
+
+    sb_port_err = SandboxPortAllocationError("port exhausted")
+    assert sb_port_err.error_code == "SANDBOX_PORT_ALLOCATION_ERROR"
+
+    sb_nf_err = SandboxNotFoundError("sandbox missing")
+    assert sb_nf_err.error_code == "SANDBOX_NOT_FOUND_ERROR"
+
 
 def test_test_model_pytest_collection_disabled() -> None:
     """Ensure TestModel in testing.py disables Pytest collection to avoid PytestCollectionWarning."""
@@ -178,3 +204,124 @@ def test_no_bare_generic_exceptions_in_refactored_modules() -> None:
     assert not violations, "Prohibited generic exceptions raised in domain modules:\n" + "\n".join(
         violations
     )
+
+
+def _resolve_import_edge(
+    sub: ast.Import,
+    mod: str,
+    module_files: dict[str, Path],
+    graph: dict[str, set[str]],
+) -> None:
+    for alias in sub.names:
+        name = alias.name
+        while name and name not in module_files and "." in name:
+            name = name.rsplit(".", 1)[0]
+        if name in module_files and name != mod:
+            graph[mod].add(name)
+
+
+def _resolve_import_from_edge(
+    sub: ast.ImportFrom,
+    mod: str,
+    pkg_parts: list[str],
+    module_files: dict[str, Path],
+    graph: dict[str, set[str]],
+) -> None:
+    target = None
+    if sub.level > 0:
+        level = sub.level - 1
+        base = pkg_parts[: len(pkg_parts) - level] if level <= len(pkg_parts) else []
+        parts = base + (sub.module.split(".") if sub.module else [])
+        target = ".".join(parts)
+    elif sub.module:
+        target = sub.module
+
+    if not target:
+        return
+
+    base_target = target
+    while base_target and base_target not in module_files and "." in base_target:
+        base_target = base_target.rsplit(".", 1)[0]
+    if base_target in module_files and base_target != mod:
+        graph[mod].add(base_target)
+
+    for alias in sub.names:
+        child_mod = f"{target}.{alias.name}"
+        if child_mod in module_files and child_mod != mod:
+            graph[mod].add(child_mod)
+
+
+def test_no_circular_imports_in_decoupled_subsystems() -> None:
+    """Ensure decoupled subsystems (k8s commands, output, ai.review, config) have zero circular imports."""
+    from collections import defaultdict
+
+    subsystems = [
+        Path("src/devops_cli/commands/k8s"),
+        Path("src/devops_cli/output"),
+        Path("src/devops_cli/ai/review"),
+        Path("src/devops_cli/config"),
+    ]
+
+    for root in subsystems:
+        assert root.is_dir(), f"Directory {root} does not exist"
+        graph: dict[str, set[str]] = defaultdict(set)
+        module_files: dict[str, Path] = {}
+
+        for py_file in root.rglob("*.py"):
+            rel = py_file.relative_to(Path("src"))
+            parts = list(rel.with_suffix("").parts)
+            if parts[-1] == "__init__":
+                parts = parts[:-1]
+            mod = ".".join(parts)
+            module_files[mod] = py_file
+
+        for mod, py_file in module_files.items():
+            tree = ast.parse(py_file.read_text(encoding="utf-8"))
+            rel = py_file.relative_to(Path("src"))
+            pkg_parts = list(rel.parent.parts)
+            for node in tree.body:
+                for sub in ast.walk(node):
+                    if isinstance(sub, ast.Import):
+                        _resolve_import_edge(sub, mod, module_files, graph)
+                    elif isinstance(sub, ast.ImportFrom):
+                        _resolve_import_from_edge(sub, mod, pkg_parts, module_files, graph)
+
+        # Tarjan's SCC
+        index = 0
+        indices: dict[str, int] = {}
+        lowlinks: dict[str, int] = {}
+        on_stack: set[str] = set()
+        stack: list[str] = []
+        cycles: list[list[str]] = []
+
+        def strongconnect(v: str) -> None:
+            nonlocal index
+            indices[v] = index
+            lowlinks[v] = index
+            index += 1
+            stack.append(v)
+            on_stack.add(v)
+
+            for w in graph.get(v, []):
+                if w not in indices:
+                    strongconnect(w)
+                    lowlinks[v] = min(lowlinks[v], lowlinks[w])
+                elif w in on_stack:
+                    lowlinks[v] = min(lowlinks[v], indices[w])
+
+            if lowlinks[v] == indices[v]:
+                scc: list[str] = []
+                while True:
+                    w = stack.pop()
+                    on_stack.remove(w)
+                    scc.append(w)
+                    if w == v:
+                        break
+                if len(scc) > 1:
+                    cycles.append(scc)
+
+        for node in list(module_files.keys()):
+            if node not in indices:
+                strongconnect(node)
+
+        assert not cycles, f"Import cycles detected in {root}: {cycles}"

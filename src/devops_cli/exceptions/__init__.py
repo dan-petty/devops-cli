@@ -39,6 +39,7 @@ from devops_cli.exceptions.docker import (
     DockerError,
     DockerSandboxError,
 )
+from devops_cli.exceptions.docs import DocCompactionError
 from devops_cli.exceptions.git import (
     BranchAlreadyExistsError,
     GitHubOperationError,
@@ -50,6 +51,12 @@ from devops_cli.exceptions.k8s import (
     KubernetesContextError,
     KubernetesDeployError,
     KubernetesError,
+)
+from devops_cli.exceptions.sandbox import (
+    SandboxError,
+    SandboxNotFoundError,
+    SandboxPortAllocationError,
+    SandboxValidationError,
 )
 from devops_cli.exceptions.security import (
     KeyringUnavailableError,
@@ -104,6 +111,7 @@ __all__ = [
     "DevOpsCLIError",
     "DockerError",
     "DockerSandboxError",
+    "DocCompactionError",
     "DocsIngestionError",
     "GitHubOperationError",
     "GitOperationError",
@@ -130,6 +138,10 @@ __all__ = [
     "ReviewPoolError",
     "RunCancelled",
     "SSRFBlockedError",
+    "SandboxError",
+    "SandboxNotFoundError",
+    "SandboxPortAllocationError",
+    "SandboxValidationError",
     "SecretExposureError",
     "SecurityError",
     "SuspendedResponseExpired",

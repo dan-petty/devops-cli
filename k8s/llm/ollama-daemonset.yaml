@@ -48,6 +48,14 @@ spec:
               value: "all"
             - name: NVIDIA_DRIVER_CAPABILITIES
               value: "compute,utility"
+            - name: HTTP_PROXY
+              value: "http://squid.squid.svc.cluster.local:3128"
+            - name: HTTPS_PROXY
+              value: "http://squid.squid.svc.cluster.local:3128"
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1"
+            - name: SSL_CERT_DIR
+              value: "/etc/ssl/certs:/etc/ssl/squid-ca"
           ports:
             - name: http
               containerPort: 11434
@@ -58,33 +66,50 @@ spec:
           resources:
             requests:
               cpu: 3000m
-              memory: 12Gi
+              memory: 8Gi
             limits:
-              memory: 24Gi
+              memory: 26Gi
           volumeMounts:
             - name: ollama-data
               mountPath: /root/.ollama
+            - name: squid-ca-cert
+              mountPath: /etc/ssl/squid-ca
+              readOnly: true
+          startupProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /
               port: 11434
-            initialDelaySeconds: 15
-            periodSeconds: 5
-            timeoutSeconds: 3
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /
               port: 11434
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
       volumes:
+        # Node-local NVMe storage: direct PCIe bandwidth maximizes model load speeds into VRAM
+        # and avoids saturating cluster network bandwidth with multi-gigabyte weight layers
         - name: ollama-data
-          # Local development/workstation: NFS share for sharing multi-GB GGUF models across nodes.
-          # Production: Use persistentVolumeClaim with ReadWriteMany CSI driver (e.g. CephFS, AWS EFS).
-          nfs:
-            server: 10.0.0.10
-            path: /srv/nfs/ollama
+          hostPath:
+            path: /var/lib/ollama
+            type: DirectoryOrCreate
+        - name: squid-ca-cert
+          configMap:
+            name: squid-ca-cert
+            optional: false
 ---
 apiVersion: v1
 kind: Service

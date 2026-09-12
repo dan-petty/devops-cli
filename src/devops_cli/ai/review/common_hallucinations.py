@@ -649,6 +649,45 @@ def verify_ground_truth_hallucination(
         content = file_path.read_text(encoding="utf-8", errors="replace")
         return "default_factory" in content
 
+    if entry.category == HallucinationCategory.BOUNDARY_ERRORS:
+        finding_text = f"{finding.title} {finding.description or ''}".lower()
+        if any(pat in finding_text for pat in ("cwe-400", "cwe400", "read_text", "exhaustion")):
+            loc = finding.location
+            if ":" in loc:
+                try:
+                    line_str = loc.split(":", 1)[1]
+                    num = int(re.split(r"[\s\-]", line_str.strip())[0])
+                    lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                    if 1 <= num <= len(lines):
+                        target_line = lines[num - 1].lower()
+                        is_local_file_op = any(
+                            op in target_line
+                            for op in (".read_text(", "read_text()", "open(", "path(")
+                        )
+                        is_unbounded_stream = any(
+                            stream_kw in target_line
+                            for stream_kw in (
+                                "request",
+                                "body",
+                                "stream",
+                                "websocket",
+                                "recv",
+                                "socket",
+                                "iter_bytes",
+                            )
+                        )
+                        return is_local_file_op and not is_unbounded_stream
+                except Exception:
+                    pass
+            try:
+                content = file_path.read_text(encoding="utf-8", errors="replace").lower()
+                is_local_read = ".read_text(" in content or "open(" in content
+                is_stream = any(kw in content for kw in ("websocket", "request.body", "iter_bytes"))
+                return is_local_read and not is_stream
+            except Exception:
+                return False
+        return False
+
     return False
 
 
@@ -840,7 +879,18 @@ def _infer_hallucination_category(title: str, reason: str) -> HallucinationCateg
         ({"typosquat", "httpx2"}, HallucinationCategory.DEPENDENCY_ECOSYSTEM),
         ({"anti-pattern", "educational"}, HallucinationCategory.DOCUMENTATION_CONTEXT),
         ({"default_factory", "pydantic_field"}, HallucinationCategory.MUTABLE_DEFAULTS),
-        ({"eof", "out_of_bounds"}, HallucinationCategory.BOUNDARY_ERRORS),
+        (
+            {
+                "eof",
+                "out_of_bounds",
+                "cwe_400",
+                "cwe-400",
+                "cwe400",
+                "read_text",
+                "uncontrolled_resource_consumption",
+            },
+            HallucinationCategory.BOUNDARY_ERRORS,
+        ),
     ]
     for keywords, category in dispatch_rules:
         if any(kw in combined for kw in keywords):

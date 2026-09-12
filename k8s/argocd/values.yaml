@@ -14,8 +14,8 @@ controller:
       cpu: 100m
       memory: 256Mi
     limits:
-      cpu: 1000m
-      memory: 1024Mi
+      cpu: 2000m
+      memory: 2048Mi
 
 server:
   replicas: 1
@@ -32,8 +32,8 @@ server:
       cpu: 100m
       memory: 128Mi
     limits:
-      cpu: 500m
-      memory: 512Mi
+      cpu: 1000m
+      memory: 1024Mi
 
 repoServer:
   replicas: 1
@@ -42,8 +42,8 @@ repoServer:
       cpu: 100m
       memory: 256Mi
     limits:
-      cpu: 1000m
-      memory: 1024Mi
+      cpu: 2000m
+      memory: 2048Mi
 
 # Valkey replacement for Redis under BSD-3-Clause open-source license
 redis:
@@ -56,8 +56,8 @@ redis:
       cpu: 50m
       memory: 64Mi
     limits:
-      cpu: 250m
-      memory: 256Mi
+      cpu: 500m
+      memory: 1024Mi
 
 # Disable components unnecessary for local dev
 dex:

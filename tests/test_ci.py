@@ -79,9 +79,16 @@ def test_ci_lint_command(monkeypatch) -> None:
 
     monkeypatch.setattr("subprocess.run", mock_run)
 
-    result = runner.invoke(app, ["lint", "--fix"])
+    # By default, lint applies autofixes
+    result = runner.invoke(app, ["lint"])
     assert result.exit_code == 0
     assert any("ruff" in c and "check" in c and "--fix" in c for c in called)
+
+    # With --check, lint verifies without applying fixes
+    called.clear()
+    result_check = runner.invoke(app, ["lint", "--check"])
+    assert result_check.exit_code == 0
+    assert any("ruff" in c and "check" in c and "--fix" not in c for c in called)
 
 
 def test_ci_format_command(monkeypatch) -> None:
@@ -93,8 +100,15 @@ def test_ci_format_command(monkeypatch) -> None:
 
     monkeypatch.setattr("subprocess.run", mock_run)
 
+    # By default, format formats in-place
     result = runner.invoke(app, ["format"])
     assert result.exit_code == 0
+    assert any("ruff" in c and "format" in c and "--check" not in c for c in called)
+
+    # With --check, format verifies without modifying
+    called.clear()
+    result_check = runner.invoke(app, ["format", "--check"])
+    assert result_check.exit_code == 0
     assert any("ruff" in c and "format" in c and "--check" in c for c in called)
 
 
@@ -148,24 +162,75 @@ def test_ci_python_version_check_failure(monkeypatch) -> None:
     assert "Strict Python 3.14+ requirement failed" in result.output
 
 
-def test_ci_all_checks_includes_audit_coverage_and_security(monkeypatch) -> None:
-    called = []
+def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
+    called: list[list[str]] = []
 
-    def mock_run(cmd, *args, **kwargs):
+    async def mock_exec(
+        name: str,
+        display_title: str,
+        cmd: list[str],
+        span_name: str,
+        metric_step: str,
+        timeout: float = 600.0,
+    ) -> CheckResult:
         called.append(cmd)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+        return CheckResult(
+            name=name,
+            display_title=display_title,
+            passed=True,
+            duration_seconds=0.01,
+        )
 
-    monkeypatch.setattr("subprocess.run", mock_run)
+    with (
+        patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_exec),
+        patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
+    ):
+        result = runner.invoke(app, [])
+        assert result.exit_code == 0
+        assert "audit" in result.output
+        assert "coverage" in result.output
+        assert "security" in result.output
+        assert "actionlint" in result.output
+        assert any("audit" in c for c in called)
+        assert any("bandit" in c for c in called)
+        assert any("actionlint" in c for c in called)
+        # Default fix=True automatically runs format and lint fix
+        assert any("ruff" in c and "format" in c and "--check" not in c for c in called)
+        assert any("ruff" in c and "check" in c and "--fix" in c for c in called)
 
-    result = runner.invoke(app, [])
-    assert result.exit_code == 0
-    assert "audit" in result.output
-    assert "coverage" in result.output
-    assert "security" in result.output
-    assert "actionlint" in result.output
-    assert any("uv" in c and "audit" in c for c in called)
-    assert any("bandit" in c for c in called)
-    assert any("actionlint" in c for c in called)
+
+def test_ci_all_checks_with_check_flag() -> None:
+    called: list[list[str]] = []
+
+    async def mock_exec(
+        name: str,
+        display_title: str,
+        cmd: list[str],
+        span_name: str,
+        metric_step: str,
+        timeout: float = 600.0,
+    ) -> CheckResult:
+        called.append(cmd)
+        return CheckResult(
+            name=name,
+            display_title=display_title,
+            passed=True,
+            duration_seconds=0.01,
+        )
+
+    with (
+        patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_exec),
+        patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
+    ):
+        result = runner.invoke(app, ["--check"])
+        assert result.exit_code == 0
+        # In check-only mode, in-place format_fix and lint_fix are not run
+        format_or_lint_fixes = [
+            c
+            for c in called
+            if ("format" in c and "--check" not in c) or ("check" in c and "--fix" in c)
+        ]
+        assert len(format_or_lint_fixes) == 0
 
 
 def test_ci_failure_branches_and_filters() -> None:

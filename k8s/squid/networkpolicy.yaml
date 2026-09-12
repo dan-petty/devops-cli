@@ -1,0 +1,62 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: squid-network-policy
+  namespace: squid
+  labels:
+    app.kubernetes.io/name: squid
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: squid
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow in-cluster workloads to reach proxy on port 3128
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 3128
+    # Allow Prometheus monitoring to scrape metrics on port 9301
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9301
+    # Allow SNMP queries
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: UDP
+          port: 3401
+  egress:
+    # Allow CoreDNS lookups
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow outbound internet egress to registries on HTTP/HTTPS with cloud metadata SSRF protection
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+    # Allow in-cluster egress to services and pods across all namespaces
+    - to:
+        - namespaceSelector: {}

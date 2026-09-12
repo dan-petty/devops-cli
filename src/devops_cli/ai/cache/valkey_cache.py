@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from itertools import batched
 from typing import Any
 
 from devops_cli.config.settings import Settings, get_valkey_password, load_settings
@@ -154,9 +155,7 @@ class ValkeyCacheProvider:
             if not keys:
                 return 0
             deleted = 0
-            chunk_size = 500
-            for i in range(0, len(keys), chunk_size):
-                chunk = keys[i : i + chunk_size]
+            for chunk in batched(keys, 500):
                 deleted += self._client.delete(*chunk)
             return deleted
         except ValkeyError as exc:
@@ -168,9 +167,10 @@ class ValkeyCacheProvider:
         try:
             info = self._client.info("memory")
             keys = self._client.scan_iter(match=PREFIX_ALL)
+            key_count = len(keys) if isinstance(keys, list) else sum(1 for _ in keys)
             return {
                 "available": True,
-                "ai_keys_count": len(keys),
+                "ai_keys_count": key_count,
                 "used_memory_human": info.get("used_memory_human", "unknown"),
                 "total_system_memory_human": info.get("total_system_memory_human", "unknown"),
             }

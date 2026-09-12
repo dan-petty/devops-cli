@@ -36,7 +36,7 @@ graph TD
   - **Self-Healing Remediations**: AI generates verifiable, syntax-valid, drop-in patches ready for immediate CI test execution.
   - **Path & Boundary Validation**: Evaluators verify that file operations, release paths, and workspace tools enforce repository containment (`Path.is_relative_to`) to prevent path traversal.
   - **Zero-Trust Secret Verification**: Evaluators confirm that credentials use secure OS Keyring backends (`keyring>=25`) and reject unencrypted plaintext store additions.
-  - **Information Exposure & Exception Sanitization (CWE-200)**: Evaluators verify that exception messages, CLI error output, and logs mask private IP addresses, internal hostnames, and credentials, keeping raw targets strictly inside structured debug details dictionaries.
+  - **Information Exposure, Bounded Exceptions & Network Invariants (CWE-200 / CWE-209 / CWE-400)**: Evaluators verify that exception messages, CLI error output, and logs mask private IP addresses, internal hostnames, and credentials. Structured exception details dictionaries must enforce bounded string length caps ($\le 256$ characters) on caller inputs, public documentation must strictly use RFC 5737 documentation blocks (`192.0.2.0/24`), and token budget loops must maintain linear $O(N)$ execution.
   - **Continuous Knowledge Feedback**: Recurring patterns, false-positive invalidations, and architectural learnings feed back into `AGENTS.md`, prompt rubrics, and RAG vector indexes, creating a continuously improving developer feedback loop.
 - **Adaptive Two-Axis LLM Routing**:
   - **Complexity Axis**: Dispatches simple tasks (format, summarize) to fast mini/local models and complex architectural synthesis to frontier models.

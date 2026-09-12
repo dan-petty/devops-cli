@@ -128,6 +128,29 @@ class EmbeddingsError(DevOpsCLIError, RuntimeError):
         )
 
 
+def _probe_ollama_embed_dimension(client: httpx2.Client, base_url: str, model: str) -> int | None:
+    res = client.post(
+        f"{base_url}/api/embed",
+        json={"model": model, "input": ["probe"]},
+    )
+    if res.status_code != 200:
+        return None
+    data = res.json()
+    embs = data.get("embeddings") or ([data["embedding"]] if "embedding" in data else None)
+    return len(embs[0]) if embs and embs[0] else None
+
+
+def _probe_ollama_show_dimension(client: httpx2.Client, base_url: str, model: str) -> int | None:
+    show_res = client.post(f"{base_url}/api/show", json={"model": model})
+    if show_res.status_code != 200:
+        return None
+    model_info = show_res.json().get("model_info") or {}
+    for key, val in model_info.items():
+        if key.endswith(".embedding_length") and isinstance(val, int) and val > 0:
+            return val
+    return None
+
+
 class EmbeddingsEngine:
     """Generates dense vector embeddings using Ollama or OpenAI endpoints."""
 
@@ -151,21 +174,16 @@ class EmbeddingsEngine:
 
         self.ai_config = base_config.for_task("embedding")
         self.api_key = api_key
-        task_timeout = getattr(getattr(base_config.tasks, "embedding", None), "timeout", None)
-        rag_timeout = getattr(self.ai_config.rag, "embedding_timeout", None)
+        task_timeout = (
+            getattr(getattr(base_config.tasks, "embedding", None), "timeout", None)
+            or self.ai_config.timeout
+        )
         effective_timeout = (
-            timeout
-            if timeout is not None
-            else (task_timeout or rag_timeout or DEFAULT_RAG_EMBEDDING_TIMEOUT)
+            timeout if timeout is not None else (task_timeout or DEFAULT_RAG_EMBEDDING_TIMEOUT)
         )
         self.timeout = min(float(effective_timeout), 120.0)
         task_model = getattr(getattr(base_config.tasks, "embedding", None), "model", None)
-        self.model = (
-            task_model
-            or self.ai_config.rag.embedding_model
-            or self.ai_config.model
-            or DEFAULT_RAG_EMBEDDING_MODEL
-        )
+        self.model = task_model or DEFAULT_RAG_EMBEDDING_MODEL
         self._dimension: int | None = None
         self._cache = _EmbeddingLRUCache(maxsize=cache_size)
 
@@ -192,11 +210,6 @@ class EmbeddingsEngine:
 
     def _get_ollama_urls(self) -> list[str]:
         """Resolve candidate Ollama endpoint URLs."""
-        if self.ai_config.rag.embedding_url:
-            raw_url = self.ai_config.rag.embedding_url.strip().rstrip("/")
-            if not raw_url.startswith(("http://", "https://")):
-                raw_url = f"http://{raw_url}"
-            return [raw_url]
         urls = (
             getattr(self.ai_config, "get_ollama_urls", None)
             or self.ai_config.ollama_urls
@@ -239,25 +252,9 @@ class EmbeddingsEngine:
             return None
 
     def _parse_ollama_node_metadata(self, client: httpx2.Client, base_url: str) -> int | None:
-        # 1. Attempt /api/embed with minimal probe sample
-        res = client.post(
-            f"{base_url}/api/embed",
-            json={"model": self.model, "input": ["probe"]},
-        )
-        if res.status_code == 200:
-            data = res.json()
-            embs = data.get("embeddings") or ([data["embedding"]] if "embedding" in data else None)
-            if embs and embs[0]:
-                return len(embs[0])
-
-        # 2. Attempt /api/show for model architecture metadata
-        show_res = client.post(f"{base_url}/api/show", json={"model": self.model})
-        if show_res.status_code == 200:
-            model_info = show_res.json().get("model_info") or {}
-            for key, val in model_info.items():
-                if key.endswith(".embedding_length") and isinstance(val, int) and val > 0:
-                    return val
-        return None
+        return _probe_ollama_embed_dimension(
+            client, base_url, self.model
+        ) or _probe_ollama_show_dimension(client, base_url, self.model)
 
     def _probe_openai_dimension(self) -> int | None:
         """Probe OpenAI-compatible endpoint for actual embedding vector dimension."""
@@ -552,10 +549,11 @@ class OllamaEmbeddingModel(EmbeddingModel):
             resolved_cfg = ai_config.model_copy(deep=True)
 
         resolved_model = model_name
-        if resolved_model == DEFAULT_RAG_EMBEDDING_MODEL and resolved_cfg.rag.embedding_model:
-            resolved_model = resolved_cfg.rag.embedding_model
+        task_model = getattr(getattr(resolved_cfg.tasks, "embedding", None), "model", None)
+        if resolved_model == DEFAULT_RAG_EMBEDDING_MODEL and task_model:
+            resolved_model = task_model
         else:
-            resolved_cfg.rag.embedding_model = resolved_model
+            resolved_cfg.tasks.embedding.model = resolved_model
 
         self._model_name = resolved_model
         self.engine = engine or EmbeddingsEngine(resolved_cfg)

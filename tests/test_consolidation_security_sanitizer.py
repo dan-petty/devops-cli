@@ -310,3 +310,38 @@ def test_sanitize_prompt_injection() -> None:
     assert "<instructions>" not in sanitized
     assert "System prompt preamble." in sanitized
     assert "Valid instructions." in sanitized
+
+
+def test_mask_secrets_preserves_task_file_paths() -> None:
+    """Ensure filenames starting with 'task-' are never falsely masked as OpenAI keys."""
+    sample_path = "docs/agent/tasks/task-128-streaming-reasoning-think-token-parser.md"
+    sample_diff = (
+        "diff --git a/docs/agent/tasks/task-129-rate-limits.md b/docs/agent/tasks/task-129-rate-limits.md\n"
+        "--- a/docs/agent/tasks/task-129-rate-limits.md\n"
+        "+++ b/docs/agent/tasks/task-129-rate-limits.md\n"
+    )
+    assert mask_secrets(sample_path) == sample_path
+    assert mask_secrets(sample_diff) == sample_diff
+    # Verify genuine OpenAI key is still correctly redacted
+    fake_key = "sk-proj-abcdef1234567890abcdef1234567890"
+    assert mask_secrets(fake_key) == "<masked-openai-key>"
+
+    # Verify underscore-delimited tokens/keys are correctly redacted
+    underscore_ghp = "my_github_token_ghp_1234567890abcdef1234"
+    assert mask_secrets(underscore_ghp) == "my_github_token_<masked-github-token>"
+
+    underscore_sk = "service_openai_key_sk-proj-1234567890abcdef12345678"
+    assert mask_secrets(underscore_sk) == "service_openai_key_<masked-openai-key>"
+
+    underscore_ant = "service_anthropic_key_sk-ant-1234567890abcdef12345678"
+    assert mask_secrets(underscore_ant) == "service_anthropic_key_<masked-anthropic-key>"
+
+    # Verify hyphen-delimited tokens/keys are correctly redacted
+    hyphen_ghp = "prefix-ghp_1234567890abcdef1234"
+    assert mask_secrets(hyphen_ghp) == "prefix-<masked-github-token>"
+
+    hyphen_sk = "prefix-sk-proj-1234567890abcdef12345678"
+    assert mask_secrets(hyphen_sk) == "prefix-<masked-openai-key>"
+
+    hyphen_ant = "prefix-sk-ant-1234567890abcdef12345678"
+    assert mask_secrets(hyphen_ant) == "prefix-<masked-anthropic-key>"

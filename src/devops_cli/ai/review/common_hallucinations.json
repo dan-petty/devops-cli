@@ -337,5 +337,33 @@
     "occurrence_count": 1,
     "last_seen": "2026-09-07T00:00:00",
     "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-LOCAL-FILE-OR-COLLECTION-CWE400",
+    "name": "Local File Read or Bounded In-Memory Collection False CWE-400 Claim",
+    "category": "boundary_errors",
+    "description": "Claiming that reading local repository files (such as pyproject.toml, local markdown docs, schemas, or configs) or building in-memory CLI collections causes Denial of Service (CWE-400) or resource exhaustion.",
+    "signature_patterns": [
+      "(?:cwe-400|cwe400|denial\\s+of\\s+service|resource\\s+exhaustion).*read_text\\(\\)",
+      "read_text\\(\\).*(?:cwe-400|cwe400|unbounded|memory\\s+exhaustion|dos)",
+      "(?:local\\s+file|pyproject\\.toml|metadata).*uncontrolled\\s+resource\\s+consumption",
+      "(?:cwe-400|cwe400).*(?:read_text|local\\s+file|cli\\s+collection|dictionary|list\\s+accumulation)"
+    ],
+    "pattern_keywords": [
+      "cwe-400",
+      "cwe400",
+      "read_text",
+      "uncontrolled_resource_consumption"
+    ],
+    "file_patterns": [
+      "*.py",
+      "*.toml",
+      "*.json",
+      "*.md"
+    ],
+    "resolution": "Local repository files and internal CLI collections are bounded by project version control and memory limits; CWE-400 requires untrusted external network inputs, unbounded streams, or quadratic algorithmic complexity.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-11T00:00:00",
+    "source": "builtin"
   }
 ]

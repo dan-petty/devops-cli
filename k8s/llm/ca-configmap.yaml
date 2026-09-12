@@ -1,0 +1,33 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: squid-ca-cert
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/part-of: devops-cli-stack
+data:
+  squid-ca.pem: |
+    -----BEGIN CERTIFICATE-----
+    MIIDjTCCAnWgAwIBAgIUQcYyk9HO3bO28v24K7Zhs/NIzRwwDQYJKoZIhvcNAQEL
+    BQAwVjEnMCUGA1UEAwweRGV2T3BzIENMSSBJbi1DbHVzdGVyIFNxdWlkIENBMRMw
+    EQYDVQQKDApEZXZPcHMgQ0xJMRYwFAYDVQQLDA1DYWNoaW5nIFByb3h5MB4XDTI2
+    MDkxMTA2MDM1MloXDTM2MDkwODA2MDM1MlowVjEnMCUGA1UEAwweRGV2T3BzIENM
+    SSBJbi1DbHVzdGVyIFNxdWlkIENBMRMwEQYDVQQKDApEZXZPcHMgQ0xJMRYwFAYD
+    VQQLDA1DYWNoaW5nIFByb3h5MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC
+    AQEAqk0aNyExcD6LFCpQtPG8Te5wxEoXgbiO3EP52qtyxZnY028fLKtJweReA5E6
+    dwS9qqVghDNyUxRHopkmk/das58QfdKxfhgK24pD/4F2exAOAKkByS1xcXJ4Csny
+    6eUQtegPF0+HFyVTMJB4p51SqjNrOrCQGi+dXzpU7Hbk03xk83YBO5j9zEE83WjE
+    kPUC+oY62O9SQXMgVYsvo4fiSdKBLn7850Os4uCHhy2uFmtMzN+NDla1hJ7oZrwp
+    +AcTvVD1ePePCAPL4f2icrt1tRfAoZv3heeuA2ZuHiS4jDBCVn9y6VW+G+t4oDsh
+    9SndDaWkCDYfmD0cF6a8g1c2HwIDAQABo1MwUTAdBgNVHQ4EFgQUQ7bct9vxSiZd
+    WHl7VjzbKN/MnUQwHwYDVR0jBBgwFoAUQ7bct9vxSiZdWHl7VjzbKN/MnUQwDwYD
+    VR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAR8fCkoCqjvs5LsKhxt6J
+    mctU88jzsCRSrptKd74WxmAT9IabsuRpHOj1L99FFaw35aahrCCRhaG5ktpq4rHu
+    3wLCzbQwKUu++WhkjjZHGWZEErHAYTkZR49thnSyQxRB6QLiy8JbN7XF42ySqi0y
+    BxG61Uxsa+lAXv4GaaRwVosveMoUXMer6PpSQwW/BTO8AiPE/jF/UADVMOke9LlK
+    9jyROEp5pPh49LXe6XI8v7qYOfNuzWLRmaBfe3uQPUL+1eoTKEX4H5sB0iwZSkj/
+    kopEGE31mEfdrlmpUmVtEAdg5gTRHTdegk+1Qu+qvM9+VM09norSyxUtrVZEdQYn
+    wQ==
+    -----END CERTIFICATE-----

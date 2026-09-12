@@ -63,6 +63,7 @@ def test_fastmcp_tools_registration() -> None:
         # CI, Release & Quality
         "ci_run",
         "release_status",
+        "docs_compact",
         # Terraform / OpenTofu
         "tf_plan",
         "tf_apply",

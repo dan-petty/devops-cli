@@ -416,8 +416,8 @@ class CICommandHelp:
     remote: str = "Inspect and watch remote GitHub Actions CI workflow runs."
     test_cmd: str = "Run unit and integration test suite via pytest."
     coverage: str = "Run test suite and calculate code coverage percentage."
-    lint: str = "Run static analysis checks (ruff, actionlint, security audit)."
-    format_cmd: str = "Check or apply automated code formatting (ruff format)."
+    lint: str = "Run static analysis checks and automatically apply fixes (ruff check --fix)."
+    format_cmd: str = "Automatically apply code formatting in-place (ruff format)."
     typecheck: str = "Run strict static type analysis (mypy)."
     audit: str = "Audit installed dependencies for known vulnerabilities."
     filter_keyword: str = "Filter tests by keyword expression."
@@ -427,6 +427,11 @@ class CICommandHelp:
     xml_report: str = "Generate XML coverage report in .data/coverage.xml."
     auto_fix: str = "Auto-fix violations where possible."
     format_fix: str = "Apply formatting changes in-place."
+    format_check: str = "Check formatting without writing changes to files."
+    lint_check: str = "Check linting without applying automated fixes."
+    check_all: str = (
+        "Run in check-only mode without automatically applying formatting or lint fixes."
+    )
     min_severity: str = "Minimum severity threshold (low, medium, high)."
     fix_all: str = "Auto-fix lint/format before reporting status."
     fix_sync: str = "Automatically synchronize dependencies and lockfile."
@@ -549,6 +554,18 @@ class DocsCommandHelp:
     readme_path: str = "Path to README.md file (default: workspace root README.md)."
     validate_only: str = "Validate that existing documentation is up to date without writing files."
     check_sync: str = "Verify README.md Command Matrix synchronization as well."
+    compact: str = (
+        "Compact historical documentation for completed release series (e.g. v0.2.x -> v0.3.x)."
+    )
+    series: str = "Release series prefix to compact (e.g., 'v0.2', 'v0.1')."
+    docs_dir: str = "Path to repository docs/ directory (default: docs/)."
+    archive_dir: str = "Path to historical archive directory (default: docs/agent/archive/)."
+    check_compact: str = (
+        "Check if documentation compaction would make changes without modifying files."
+    )
+    roadmap_only: str = "Only compact docs/ROADMAP.md."
+    release_notes_only: str = "Only compact docs/RELEASE_NOTES.md."
+    log_only: str = "Only compact docs/LOG.md."
 
 
 @dataclass(frozen=True)
@@ -915,6 +932,29 @@ class DashboardCommandHelp:
 
 
 @dataclass(frozen=True)
+class SandboxCommandHelp:
+    app: str = "Isolated workload sandbox container lifecycle engine."
+    deploy: str = "Deploy an isolated background container sandbox with security containment."
+    status: str = "Inspect status of deployed sandbox containers."
+    stop: str = "Gracefully stop and tear down a sandbox container."
+    exec_cmd: str = "Execute a command inside an active sandbox container."
+    image: str = "Container image for the sandbox workload."
+    name: str = "Friendly identifier name for the sandbox instance."
+    port: str = "Container port(s) to dynamically expose on available host ports."
+    workspace: str = "Host workspace path to mount into container /workspace."
+    memory: str = "Memory limit for the container (e.g. 512m, 2g)."
+    cpus: str = "CPU quota limit for the container (e.g. 1.0, 2.0)."
+    read_only: str = "Mount root filesystem as read-only with a tmpfs /tmp."
+    network: str = "Docker network mode (bridge | host | none)."
+    env: str = "Environment variable in KEY=VALUE format."
+    instance_id: str = "Unique instance ID or name of the sandbox."
+    all_instances: str = "Apply operation across all registered sandbox instances."
+    timeout: str = "Graceful stop timeout in seconds before SIGKILL."
+    workdir: str = "Working directory inside the container for command execution."
+    json_output: str = "Output details in structured JSON format."
+
+
+@dataclass(frozen=True)
 class HelpCatalog:
     main: MainHelp = field(default_factory=MainHelp)
     options: OptionHelp = field(default_factory=OptionHelp)
@@ -954,6 +994,7 @@ class HelpCatalog:
     test: TestCommandHelp = field(default_factory=TestCommandHelp)
     pipeline: PipelineCommandHelp = field(default_factory=PipelineCommandHelp)
     dashboard: DashboardCommandHelp = field(default_factory=DashboardCommandHelp)
+    sandbox: SandboxCommandHelp = field(default_factory=SandboxCommandHelp)
 
 
 HELP = HelpCatalog()

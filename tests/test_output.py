@@ -744,3 +744,151 @@ def test_print_panel_fallback_on_exception() -> None:
 
     # Should not raise; catches exception and renders via fallback Text
     print_panel(FailingRenderable(), title="Fallback Panel")
+
+
+def test_is_markdown_syntax_detection() -> None:
+    """Verify is_markdown_syntax accurately detects Markdown syntax elements and ignores plain text."""
+    from devops_cli.output.console import is_markdown_syntax
+
+    # Plain text / empty
+    assert not is_markdown_syntax("")
+    assert not is_markdown_syntax("   ")
+    assert not is_markdown_syntax("Hello, how can I help you today?")
+    assert not is_markdown_syntax("Check cluster status with devops k8s status.")
+    assert not is_markdown_syntax("Variable snake_case_name and kebab-case are not markdown.")
+
+    # Fenced code blocks
+    assert is_markdown_syntax("```bash\ndevops k8s pods\n```")
+    assert is_markdown_syntax("~~~python\nprint(1)\n~~~")
+
+    # Inline code
+    assert is_markdown_syntax("Run `devops k8s pods` to see pod states.")
+
+    # Headers
+    assert is_markdown_syntax("# Heading 1")
+    assert is_markdown_syntax("## Heading 2\nBody content")
+    assert is_markdown_syntax("### Step 3: Deploy")
+
+    # Unordered lists
+    assert is_markdown_syntax("- First point\n- Second point")
+    assert is_markdown_syntax("* Asterisk point")
+    assert is_markdown_syntax("+ Plus point")
+
+    # Ordered lists
+    assert is_markdown_syntax("1. First step\n2. Second step")
+
+    # Blockquotes
+    assert is_markdown_syntax("> This is a quoted note.")
+
+    # Tables
+    assert is_markdown_syntax("| Col 1 | Col 2 |\n|---|---|")
+
+    # Bold / Italic
+    assert is_markdown_syntax("This is **critical** to configure.")
+    assert is_markdown_syntax("This is __important__.")
+
+    # Links
+    assert is_markdown_syntax("See [documentation](https://docs.example.com) for details.")
+    assert is_markdown_syntax("![Image](https://example.com/logo.png)")
+
+    # Horizontal rules
+    assert is_markdown_syntax("---\nNext section")
+    assert is_markdown_syntax("***")
+
+
+def test_render_chat_response_plain_and_markdown() -> None:
+    """Verify render_chat_response outputs plain text and Rich Markdown appropriately."""
+    from io import StringIO
+
+    from rich.console import Console
+
+    from devops_cli.output.console import render_chat_response
+
+    # 1. Plain text response
+    plain_buf = StringIO()
+    plain_console = Console(file=plain_buf, force_terminal=False)
+    render_chat_response("Hello, I am the DevSecOps Architect.", console=plain_console)
+    plain_out = plain_buf.getvalue()
+    assert "Hello, I am the DevSecOps Architect." in plain_out
+
+    # 2. Markdown response
+    md_buf = StringIO()
+    md_console = Console(file=md_buf, force_terminal=False)
+    md_input = "Here is the solution:\n```bash\ndevops k8s pods\n```\n- Point 1\n- Point 2"
+    render_chat_response(md_input, console=md_console)
+    md_out = md_buf.getvalue()
+    assert "Here is the solution:" in md_out
+    assert "devops k8s pods" in md_out
+    assert "Point 1" in md_out
+
+    # 3. Empty or whitespace response
+    empty_buf = StringIO()
+    empty_console = Console(file=empty_buf, force_terminal=False)
+    render_chat_response("   \n\t  ", console=empty_console)
+    assert empty_buf.getvalue() == ""
+
+
+def test_print_step_escapes_markup() -> None:
+    """Verify print with level='step' escapes markup tags in content and detail."""
+    from io import StringIO
+
+    from rich.console import Console
+
+    from devops_cli.output.console import print as d_print
+
+    buf = StringIO()
+    test_console = Console(file=buf, force_terminal=True)
+    d_print(
+        "[bold red]injected[/bold red]", level="step", detail="[dim]tag[/dim]", console=test_console
+    )
+    out = buf.getvalue()
+    assert "[bold red]injected[/bold red]" in out
+    assert "[dim]tag[/dim]" in out
+    # Verify that ANSI color escape sequences for red and dim are NOT applied to the escaped text
+    assert "\x1b[31m" not in out
+    assert "\x1b[1;31m" not in out
+    assert "\x1b[2m" not in out
+
+
+def test_print_safe_escapes_markup_across_levels() -> None:
+    """Verify print_safe escapes Rich markup in content and details across all levels."""
+    from io import StringIO
+
+    from rich.console import Console
+
+    from devops_cli.output.console import print as d_print
+    from devops_cli.output.console import print_safe
+
+    for lvl in ("error", "warning", "info", "success", "muted"):
+        buf = StringIO()
+        test_console = Console(file=buf, force_terminal=True)
+        print_safe("[bold red]injected[/bold red]", level=lvl, console=test_console)
+        out = buf.getvalue()
+        assert "[bold red]injected[/bold red]" in out
+        # Rich should not have styled "injected" as a separate red token
+        assert "\x1b[1;31minjected\x1b[0m" not in out
+
+    # Verify print with safe=True on table rendering
+    buf_tbl = StringIO()
+    test_console_tbl = Console(file=buf_tbl, force_terminal=True)
+    d_print(
+        columns=["[bold red]Col[/bold red]"],
+        rows=[["[dim]val[/dim]"]],
+        console=test_console_tbl,
+        safe=True,
+    )
+    tbl_out = buf_tbl.getvalue()
+    assert "[bold red]Col[/bold red]" in tbl_out
+    assert "[dim]val[/dim]" in tbl_out
+
+
+def test_format_link_and_badges_escape_markup() -> None:
+    """Verify format_link and format_status_badge escape Rich markup characters."""
+    from devops_cli.output.formatters.scalars import format_link, format_status_badge
+
+    link = format_link("http://example.com/[id]?a=1", text="[bold]Click Here[/bold]")
+    assert r"\[bold]Click Here\[/bold]" in link
+    assert r"http://example.com/\[id]?a=1" in link
+
+    badge = format_status_badge("ok", label="[bold]Status: OK[/bold]")
+    assert r"\[bold]Status: OK\[/bold]" in badge

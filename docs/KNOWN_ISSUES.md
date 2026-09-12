@@ -31,7 +31,7 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 - **Mitigation**: Pre-populate `~/.ssh/known_hosts` with trusted host fingerprints (e.g. GitHub/GitLab public keys) on developer workstations or build images.
 
 ### 7. AI Review False-Positive Detection & Invalidation Feedback Loop
-- **Context**: LLM review personas may occasionally hallucinate legacy syntax (e.g. Python 2 comma-separated exception handling), flag pre-submission secret redaction placeholders (`<masked-*>`, `[REDACTED]`, `${{ secrets.* }}`), or cite historical research/evidence notes (`evidence/`, `docs/LOG.md`) as live vulnerabilities.
+- **Context**: LLM review personas may occasionally hallucinate legacy syntax (e.g. Python 2 comma-separated exception handling), flag pre-submission secret redaction placeholders (`<masked-*>`, `[REDACTED]`, `${{ secrets.* }}`), or cite historical research/evidence notes (`evidence/`, `docs/agent/archive/`) as live vulnerabilities.
 - **Mitigation**: Use `devops ai review verify --status INVALIDATED --reason "..."` to record verification feedback. Run `devops ai review export-feedback` to compile invalidation records into `.data/feedback_dataset.jsonl` for prompt benchmarking and tuning.
 
 ### 8. Python 3.14 PEP 758 Multi-Exception Syntax & Pydantic Mutable Default Invariants

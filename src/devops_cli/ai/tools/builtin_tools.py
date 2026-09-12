@@ -423,11 +423,21 @@ def scan_osv(
 def check_threat_intel(target: str) -> str:
     """Check IP or domain threat intelligence via Shodan InternetDB or Cloudflare Radar."""
     try:
-        from devops_cli.security.reference_extractor import is_public_ip
+        from devops_cli.security.reference_extractor import (
+            is_example_or_invalid_network_target,
+            is_public_ip,
+        )
         from devops_cli.security.vulnerability_lookup import (
             CloudflareRadarClient,
             ShodanInternetDBClient,
         )
+
+        if is_example_or_invalid_network_target(target):
+            return (
+                f"Target {target} is a documented example or reserved network space "
+                f"(RFC 2606 / RFC 6761 / RFC 5737 / RFC 6890 / RFC 3849). "
+                f"Excluded from external threat intelligence scanning."
+            )
 
         if is_public_ip(target):
             shodan = ShodanInternetDBClient()

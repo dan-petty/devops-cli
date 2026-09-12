@@ -7,7 +7,7 @@ from typing import Annotated, Any
 
 import typer
 
-import devops_cli.commands.k8s as k8s
+import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_PORT,
     DEFAULT_GRAFANA_PORT,
@@ -72,7 +72,7 @@ def _extract_first_node_ip(item: dict[str, Any]) -> str | None:
 def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | None:
     """Query Kubernetes nodes to find node IP and construct nodePort URL."""
     try:
-        nodes_res = k8s.run_subprocess(
+        nodes_res = runtime.run_subprocess(
             ["kubectl", "get", "nodes", "-o", "json"] + ctx_args,
             capture_output=True,
             text=True,
@@ -98,7 +98,7 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
     # 1. Try minikube service if context is not explicit non-minikube
     if not context or context == "minikube":
         try:
-            res = k8s.run_subprocess(
+            res = runtime.run_subprocess(
                 ["minikube", "service", service, "-n", namespace, "--url"],
                 capture_output=True,
                 text=True,
@@ -116,7 +116,7 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
     # 2. Generic K8s nodePort or loadBalancer detection via kubectl
     try:
         ctx_args = ["--context", context] if context else []
-        svc_res = k8s.run_subprocess(
+        svc_res = runtime.run_subprocess(
             ["kubectl", "get", "svc", service, "-n", namespace, "-o", "json"] + ctx_args,
             capture_output=True,
             text=True,
@@ -175,7 +175,7 @@ def _resolve_accessible_url(
     if preferred_localhost_ports:
         for port in preferred_localhost_ports:
             candidate = f"http://localhost:{port}"
-            if k8s._verify_url_reachability(candidate):
+            if _verify_url_reachability(candidate):
                 return candidate
 
     if not detected_url:
@@ -183,17 +183,17 @@ def _resolve_accessible_url(
 
     from urllib.parse import urlparse
 
-    if k8s._verify_url_reachability(detected_url):
+    if _verify_url_reachability(detected_url):
         return detected_url
 
     parsed = urlparse(detected_url)
     if parsed.port:
         localhost_url = f"{parsed.scheme}://localhost:{parsed.port}"
-        if k8s._verify_url_reachability(localhost_url):
+        if _verify_url_reachability(localhost_url):
             return localhost_url
 
         loopback_url = f"{parsed.scheme}://127.0.0.1:{parsed.port}"
-        if k8s._verify_url_reachability(loopback_url):
+        if _verify_url_reachability(loopback_url):
             return loopback_url
 
         return localhost_url
@@ -209,9 +209,9 @@ def configure_urls(
 ) -> None:
     """Auto-detect Kubernetes stack URLs and update CLI config."""
     if context:
-        k8s._validate_k8s_identifier(context, "context")
+        runtime._validate_k8s_identifier(context, "context")
 
-    selected_stacks = k8s._resolve_stacks(stack)
+    selected_stacks = _resolve_stacks(stack)
 
     dry_run_details: dict[str, str] = {}
     if "infra" in selected_stacks:
@@ -241,7 +241,7 @@ def configure_urls(
         )
         return
 
-    if not k8s._cluster_reachable(context=context):
+    if not runtime._cluster_reachable(context=context):
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         raise typer.Exit(1)
 
@@ -256,21 +256,19 @@ def configure_urls(
     configured: dict[str, str] = {}
 
     if "infra" in selected_stacks:
-        raw_argocd = k8s._detect_service_url("argocd-server", "argocd", context=context)
-        raw_grafana = k8s._detect_service_url(
-            "kube-prometheus-grafana", "monitoring", context=context
-        )
-        raw_prom = k8s._detect_service_url(
+        raw_argocd = _detect_service_url("argocd-server", "argocd", context=context)
+        raw_grafana = _detect_service_url("kube-prometheus-grafana", "monitoring", context=context)
+        raw_prom = _detect_service_url(
             "kube-prometheus-kube-prome-prometheus", "monitoring", context=context
         )
-        raw_jaeger = k8s._detect_service_url("jaeger", "otel", context=context)
+        raw_jaeger = _detect_service_url("jaeger", "otel", context=context)
 
-        argocd_url = k8s._resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])
-        grafana_url = k8s._resolve_accessible_url(
+        argocd_url = _resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])
+        grafana_url = _resolve_accessible_url(
             raw_grafana, preferred_localhost_ports=[8030, 8000, 3000]
         )
-        prom_url = k8s._resolve_accessible_url(raw_prom, preferred_localhost_ports=[8090, 9090])
-        jaeger_url = k8s._resolve_accessible_url(raw_jaeger, preferred_localhost_ports=[16686])
+        prom_url = _resolve_accessible_url(raw_prom, preferred_localhost_ports=[8090, 9090])
+        jaeger_url = _resolve_accessible_url(raw_jaeger, preferred_localhost_ports=[16686])
 
         if argocd_url:
             dotted_set(settings, "argocd.url", argocd_url)
@@ -288,15 +286,15 @@ def configure_urls(
             configured["otel.endpoint"] = "http://localhost:4318"
 
     if "llm" in selected_stacks:
-        raw_ollama = k8s._detect_service_url("ollama", "llm", context=context)
-        raw_webui = k8s._detect_service_url("open-webui", "llm", context=context)
-        raw_qdrant = k8s._detect_service_url("qdrant", "llm", context=context)
-        raw_valkey = k8s._detect_service_url("valkey", "llm", context=context)
+        raw_ollama = _detect_service_url("ollama", "llm", context=context)
+        raw_webui = _detect_service_url("open-webui", "llm", context=context)
+        raw_qdrant = _detect_service_url("qdrant", "llm", context=context)
+        raw_valkey = _detect_service_url("valkey", "llm", context=context)
 
-        ollama_url = k8s._resolve_accessible_url(raw_ollama, preferred_localhost_ports=[11434])
-        webui_url = k8s._resolve_accessible_url(raw_webui, preferred_localhost_ports=[3000, 8080])
-        qdrant_url = k8s._resolve_accessible_url(raw_qdrant, preferred_localhost_ports=[6333])
-        valkey_url = k8s._resolve_accessible_url(raw_valkey, preferred_localhost_ports=[6379])
+        ollama_url = _resolve_accessible_url(raw_ollama, preferred_localhost_ports=[11434])
+        webui_url = _resolve_accessible_url(raw_webui, preferred_localhost_ports=[3000, 8080])
+        qdrant_url = _resolve_accessible_url(raw_qdrant, preferred_localhost_ports=[6333])
+        valkey_url = _resolve_accessible_url(raw_valkey, preferred_localhost_ports=[6379])
 
         if ollama_url:
             settings.ai.ollama_urls = [ollama_url]
@@ -354,9 +352,9 @@ def port_forward(
     import time
 
     if context:
-        k8s._validate_k8s_identifier(context, "context")
+        runtime._validate_k8s_identifier(context, "context")
 
-    selected_stacks = k8s._resolve_stacks(stack)
+    selected_stacks = _resolve_stacks(stack)
 
     details: dict[str, str] = {}
     if "infra" in selected_stacks:
@@ -387,7 +385,7 @@ def port_forward(
         )
         return
 
-    if not k8s._cluster_reachable(context=context):
+    if not runtime._cluster_reachable(context=context):
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         raise typer.Exit(1)
 
@@ -450,7 +448,7 @@ def port_forward(
 
     daemon_mgr.save_forwards(active_forwards)
     time.sleep(1.0)
-    k8s.configure_urls(stack=stack, context=context)
+    configure_urls(stack=stack, context=context)
 
 
 def port_forward_status() -> None:

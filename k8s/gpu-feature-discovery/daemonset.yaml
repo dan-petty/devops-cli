@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gpu-feature-discovery
+  namespace: default
+  labels:
+    app.kubernetes.io/name: gpu-feature-discovery
+    app.kubernetes.io/part-of: nvidia-gpu
+    app.kubernetes.io/version: 0.16.2
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gpu-feature-discovery
+      app.kubernetes.io/part-of: nvidia-gpu
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gpu-feature-discovery
+        app.kubernetes.io/part-of: nvidia-gpu
+        app.kubernetes.io/version: 0.16.2
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: In
+                values:
+                - "true"
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/cpu-model.vendor_id
+                operator: In
+                values:
+                - NVIDIA
+            - matchExpressions:
+              - key: nvidia.com/gpu.present
+                operator: In
+                values:
+                - "true"
+      containers:
+      - name: gpu-feature-discovery
+        image: nvcr.io/nvidia/gpu-feature-discovery:v0.16.2
+        imagePullPolicy: IfNotPresent
+        command:
+        - /usr/bin/gpu-feature-discovery
+        env:
+        - name: MIG_STRATEGY
+          value: none
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /etc/kubernetes/node-feature-discovery/features.d
+          name: output-dir
+        - mountPath: /sys
+          name: host-sys
+      volumes:
+      - hostPath:
+          path: /etc/kubernetes/node-feature-discovery/features.d
+          type: ""
+        name: output-dir
+      - hostPath:
+          path: /sys
+          type: ""
+        name: host-sys

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -71,6 +72,35 @@ def test_ai_chat_and_agent(tmp_path: Path) -> None:
 
         res_preload = runner.invoke(ai_app, ["preload"])
         assert res_preload.exit_code == 0
+
+
+def test_ai_chat_model_task_and_cli_overrides() -> None:
+    """Verify ai chat respects tasks.chat.model and CLI --model override."""
+    settings = Settings()
+    settings.ai.model = "base-model:latest"
+    settings.ai.tasks.chat.model = "chat-override-model:20b"
+
+    with (
+        patch("devops_cli.config.settings.load_settings", return_value=settings),
+        patch("devops_cli.config.settings.get_ai_api_key", return_value=""),
+    ):
+        res_task = runner.invoke(ai_app, ["chat", "--no-prewarm", "--no-rag"], input="exit\n")
+        assert res_task.exit_code == 0
+        assert "chat-override-model:20b" in res_task.output
+
+        res_cli = runner.invoke(
+            ai_app, ["chat", "--model", "cli-model:7b", "--no-prewarm", "--no-rag"], input="exit\n"
+        )
+        assert res_cli.exit_code == 0
+        assert "cli-model:7b" in res_cli.output
+
+
+def test_llm_client_model_property() -> None:
+    """Verify LLMClient.model exposes the active model identifier."""
+    from devops_cli.config.settings import AIConfig
+
+    client = LLMClient(config=AIConfig(model="gpt-oss:20b"))
+    assert client.model == "gpt-oss:20b"
 
 
 def test_ai_token_count_and_route(tmp_path: Path) -> None:
@@ -302,7 +332,7 @@ def test_ai_extended_commands(tmp_path: Path) -> None:
     assert "Task Name" in res_route.output or "AI Task Dynamic Routing" in res_route.output
 
     # 4. pipeline live execution with mock
-    mock_res = MultiAgentPipelineResult(
+    mock_res: MultiAgentPipelineResult = MultiAgentPipelineResult(
         final_content="Security audit passed cleanly.",
         steps=[
             PipelineStepResult(
@@ -412,7 +442,7 @@ def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
         mock_exp_chat.assert_called_once_with("rag")
 
     # 11. chat command interactive session with exit input
-    mock_run_res = AgentResponse(
+    mock_run_res: AgentResponse[Any] = AgentResponse(
         content="Hello! How can I help you?",
         tool_calls=[],
         turns=1,
@@ -422,6 +452,7 @@ def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
         patch(
             "devops_cli.commands.ai._try_retrieve_rag_context", return_value="RAG context snippet"
         ),
+        patch("devops_cli.commands.ai.print_section") as mock_print_section,
         patch("devops_cli.commands.ai.get_console") as mock_get_console,
     ):
         mock_console = MagicMock()
@@ -431,6 +462,72 @@ def test_ai_config_models_preload_and_chat_interactive(tmp_path: Path) -> None:
         res_chat = runner.invoke(ai_app, ["chat", "--persona", "architect", "--no-stream"])
         assert res_chat.exit_code == 0
         assert "Hello! How can I help you?" in res_chat.output
+        mock_console.input.assert_any_call("[bold cyan]You:[/bold cyan] ")
+        mock_console.print.assert_any_call(
+            "\n[bold dark_orange]Enterprise Infrastructure Architect:[/bold dark_orange] ", end=""
+        )
+        mock_print_section.assert_called_once()
+        section_title, section_kwargs = mock_print_section.call_args
+        assert (
+            "[bold dark_orange]Enterprise Infrastructure Architect[/bold dark_orange]"
+            in section_title[0]
+        )
+        assert section_kwargs.get("style") == "dark_orange"
+
+
+def test_ai_chat_persona_orange_rendering() -> None:
+    """Verify acceptance criteria 1-4 for persona title rendering in orange styling."""
+    from io import StringIO
+
+    from rich.console import Console
+
+    from devops_cli.output import print_section
+
+    buffer = StringIO()
+    test_console = Console(file=buffer, force_terminal=True, color_system="truecolor", width=120)
+    title = "Enterprise Infrastructure Architect"
+    print_section(
+        f" [bold dark_orange]{title}[/bold dark_orange] (Pydantic Agent)  ",
+        style="dark_orange",
+        console=test_console,
+    )
+    test_console.print(f"\n[bold dark_orange]{title}:[/bold dark_orange] ", end="")
+    test_console.print("[bold cyan]You:[/bold cyan] ")
+    rendered = buffer.getvalue()
+    assert title in rendered
+    assert "You:" in rendered
+
+
+def test_ai_chat_markdown_response_rendering() -> None:
+    """Verify devops ai chat formats responses containing Markdown syntax using Rich Markdown."""
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.ai.agents.pydantic_agent import AgentResponse
+
+    mock_run_res: AgentResponse[Any] = AgentResponse(
+        content="Here is the solution:\n```bash\ndevops k8s pods\n```\n- Point 1: Fast\n- Point 2: Secure",
+        tool_calls=[],
+        turns=1,
+    )
+    with (
+        patch("devops_cli.ai.agents.PydanticAgent.run", return_value=mock_run_res),
+        patch("devops_cli.commands.ai.get_console") as mock_get_console,
+        patch("devops_cli.output.console.get_console") as mock_output_console,
+    ):
+        mock_console = MagicMock()
+        mock_console.input.side_effect = ["How do I list pods?", "exit"]
+        mock_get_console.return_value = mock_console
+        mock_output_console.return_value = mock_console
+
+        res_chat = runner.invoke(ai_app, ["chat", "--persona", "architect", "--no-stream"])
+        assert res_chat.exit_code == 0
+        from rich.markdown import Markdown
+
+        has_md = any(
+            len(c.args) > 0 and isinstance(c.args[0], Markdown)
+            for c in mock_console.print.call_args_list
+        )
+        assert has_md
 
 
 def test_ai_token_count_route_pipeline_bundle(tmp_path: Path) -> None:

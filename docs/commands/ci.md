@@ -45,7 +45,7 @@ devops ci coverage [OPTIONS]
 
 ## `devops ci lint`
 
-**Run ruff linter across the project.**
+**Run ruff linter across the project, automatically applying fixes by default.**
 
 ```bash
 devops ci lint [OPTIONS]
@@ -55,14 +55,15 @@ devops ci lint [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix` | `boolean` | - | Auto-fix violations where possible. |
+| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
+| `--check` | `boolean` | - | Check linting without applying automated fixes. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
 ## `devops ci format`
 
-**Check (or apply) code formatting with ruff format.**
+**Format codebase with ruff format (or verify in check-only mode with --check).**
 
 ```bash
 devops ci format [OPTIONS]
@@ -72,7 +73,8 @@ devops ci format [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix` | `boolean` | - | Apply formatting changes in-place. |
+| `--check` | `boolean` | - | Check formatting without writing changes to files. |
+| `--fix`, `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

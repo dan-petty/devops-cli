@@ -47,11 +47,10 @@ AI_TASK_EMBEDDING_PROVIDER = "ai.tasks.embedding.provider"
 AI_TASK_EMBEDDING_MODEL = "ai.tasks.embedding.model"
 AI_TASK_EMBEDDING_REASONING_EFFORT = "ai.tasks.embedding.reasoning_effort"
 AI_TASK_EMBEDDING_OLLAMA_URLS = "ai.tasks.embedding.ollama_urls"
+AI_TASK_EMBEDDING_TIMEOUT = "ai.tasks.embedding.timeout"
 
 # RAG & Semantic Retrieval settings
 AI_RAG_ENABLED = "ai.rag.enabled"
-AI_RAG_EMBEDDING_MODEL = "ai.rag.embedding_model"
-AI_RAG_EMBEDDING_URL = "ai.rag.embedding_url"
 AI_RAG_TOP_K = "ai.rag.top_k"
 AI_RAG_SCORE_THRESHOLD = "ai.rag.score_threshold"
 
@@ -134,9 +133,8 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     AI_TASK_EMBEDDING_MODEL,
     AI_TASK_EMBEDDING_REASONING_EFFORT,
     AI_TASK_EMBEDDING_OLLAMA_URLS,
+    AI_TASK_EMBEDDING_TIMEOUT,
     AI_RAG_ENABLED,
-    AI_RAG_EMBEDDING_MODEL,
-    AI_RAG_EMBEDDING_URL,
     AI_RAG_TOP_K,
     AI_RAG_SCORE_THRESHOLD,
     QDRANT_URL,

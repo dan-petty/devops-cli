@@ -63,6 +63,7 @@ from devops_cli.output import (
     print_success,
     print_table,
     print_warning,
+    render_chat_response,
     write_stdout,
     write_text_file,
 )
@@ -722,7 +723,7 @@ def _stream_interactive_chat_turn(
         agent_res = agent.run(effective_prompt, enable_thinking=thinking)
         reply = strip_think_blocks(agent_res.content)
         if reply.strip():
-            print_info(f"{reply.strip()}\n", prefix=False)
+            render_chat_response(reply.strip())
         return
     write_stdout("\n\n")
     agent.memory.add_interaction("assistant", reply)
@@ -743,6 +744,14 @@ def chat(
             help=f"Persona to chat with: {', '.join(_PERSONA_NAMES)}",
         ),
     ] = Persona.ARCHITECT,
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            "-m",
+            help=HELP.options.model,
+        ),
+    ] = None,
     context_file: Annotated[
         Path | None,
         typer.Option(
@@ -792,14 +801,17 @@ def chat(
         system = system + "\n\n## Project Context\n\n" + context_file.read_text(encoding="utf-8")
 
     settings = load_settings()
-    client = LLMClient(settings.ai.for_task("chat"), api_key=get_ai_api_key(settings))
+    task_config = settings.ai.for_task("chat")
+    if model:
+        task_config = task_config.model_copy(update={"model": model})
+    client = LLMClient(task_config, api_key=get_ai_api_key(settings))
 
     if prewarm and client._config.provider == "ollama":
         ollama_urls = client._config.get_ollama_urls
         if ollama_urls:
             n_nodes = len(ollama_urls)
             print_info(
-                f"[dim]Prewarming model '{settings.ai.model}' in background across "
+                f"[dim]Prewarming model '{client.model}' in background across "
                 f"{n_nodes} node(s)...[/dim]",
                 prefix=False,
             )
@@ -811,9 +823,9 @@ def chat(
     )
 
     print_section(
-        f" [cyan]{persona_def.title}[/cyan] (Pydantic Agent)  "
-        f"[dim]{client.backend_info} / {settings.ai.model}[/dim] ",
-        style="cyan",
+        f" [bold dark_orange]{persona_def.title}[/bold dark_orange] (Pydantic Agent)  "
+        f"[dim]{client.backend_info} / {client.model}[/dim] ",
+        style="dark_orange",
     )
     print_info(
         "[dim]Type your message and press Enter. Ctrl+C or [bold]exit[/bold] to quit.[/dim]\n",
@@ -842,7 +854,9 @@ def chat(
                 effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
 
         try:
-            write_stdout(f"\n{persona_def.title}: ")
+            get_console().print(
+                f"\n[bold dark_orange]{persona_def.title}:[/bold dark_orange] ", end=""
+            )
             sys.stdout.flush()
 
             from devops_cli.ai.thinking_stream import strip_think_blocks
@@ -859,7 +873,7 @@ def chat(
 
                 reply = strip_think_blocks(agent_res.content)
                 if reply.strip():
-                    print_info(f"{reply.strip()}\n", prefix=False)
+                    render_chat_response(reply.strip())
 
         except KeyboardInterrupt:
             print_info("\n[dim]Interrupted.[/dim]\n", prefix=False)

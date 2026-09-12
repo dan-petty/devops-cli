@@ -49,3 +49,15 @@ def test_build_structured_table_column_formatting() -> None:
     assert isinstance(table, Table)
     assert table.columns[0].style == "cyan"
     assert table.columns[1].style == "bold red"
+
+
+def test_build_structured_table_escapes_markup() -> None:
+    """Ensure user-controlled text with markup brackets is escaped to prevent injection."""
+    cols = ["[Header]", "Status"]
+    rows = [["[bold red]critical-pod[/bold red]", "[inject]"]]
+
+    table = build_structured_table(title="[App] Table", columns=cols, rows=rows)
+    assert isinstance(table, Table)
+    # When escaped, [bold red] is stored as escaped text \[bold red] rather than raw markup
+    assert r"\[bold red]critical-pod\[/bold red]" in str(table.columns[0]._cells[0])
+    assert r"\[inject]" in str(table.columns[1]._cells[0])

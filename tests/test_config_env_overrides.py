@@ -46,9 +46,7 @@ ai:
   tasks:
     embedding:
       ollama_urls:
-        - http://10.0.0.10:11434
-  rag:
-    embedding_url: http://10.0.0.10:11434
+        - http://192.0.2.10:11434
 """.lstrip(),
         encoding="utf-8",
     )
@@ -56,14 +54,13 @@ ai:
     monkeypatch.setattr(settings, "CONFIG_PATH", config_path)
     loaded_settings = settings.load_settings()
 
-    assert loaded_settings.ai.tasks.embedding.ollama_urls == ["http://10.0.0.10:11434"]
-    assert loaded_settings.ai.rag.embedding_url == "http://10.0.0.10:11434"
+    assert loaded_settings.ai.tasks.embedding.ollama_urls == ["http://192.0.2.10:11434"]
 
     # Verify EmbeddingsEngine utilizes embedding task override
     from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 
     embedder = EmbeddingsEngine(ai_config=loaded_settings.ai)
-    assert embedder.ai_config.rag.embedding_url == "http://10.0.0.10:11434"
+    assert embedder._get_ollama_urls() == ["http://192.0.2.10:11434"]
 
 
 def test_ai_config_for_task_with_context_window_overrides() -> None:

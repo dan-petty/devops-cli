@@ -242,6 +242,12 @@ def test_scan_osv_and_threat_intel(monkeypatch: pytest.MonkeyPatch) -> None:
         res_intel = check_threat_intel("1.1.1.1")
         assert "Safe / Clean IP" in res_intel
 
+    res_ex_domain = check_threat_intel("example.com")
+    assert "documented example or reserved network space" in res_ex_domain
+
+    res_ex_ip = check_threat_intel("192.0.2.1")
+    assert "documented example or reserved network space" in res_ex_ip
+
 
 def test_builtin_security_and_iac_tools(tmp_path: Path) -> None:
     """Verify scan_gitleaks, scan_semgrep, scan_iac, tf_lint, k8s_validate_manifests, docker_analyze_layers, and rag_search."""

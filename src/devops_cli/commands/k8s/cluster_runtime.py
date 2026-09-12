@@ -8,6 +8,7 @@ from typing import Any
 import typer
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.core.process import run_subprocess as run_subprocess
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.output import print_error
 
@@ -35,9 +36,7 @@ def _run_cmd(
     capture: bool = False,
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
-    import devops_cli.commands.k8s as k8s
-
-    return k8s.run_subprocess(
+    return run_subprocess(
         cmd,
         input=input,
         check=check,
@@ -48,10 +47,8 @@ def _run_cmd(
 
 
 def _minikube_running() -> bool:
-    import devops_cli.commands.k8s as k8s
-
     try:
-        result = k8s._run_cmd(
+        result = _run_cmd(
             ["minikube", "status", "--format", "{{.Host}}"], check=False, capture=True
         )
         return result.returncode == 0 and "Running" in result.stdout
@@ -61,18 +58,16 @@ def _minikube_running() -> bool:
 
 def _cluster_reachable(context: str | None = None) -> bool:
     """Return True if the target Kubernetes cluster (or Minikube) is reachable."""
-    import devops_cli.commands.k8s as k8s
-
     cmd = ["kubectl", "cluster-info", "--request-timeout=5s"]
     if context:
         cmd.extend(["--context", context])
     try:
-        res = k8s._run_cmd(cmd, check=False, capture=True)
+        res = _run_cmd(cmd, check=False, capture=True)
         if res.returncode == 0:
             return True
     except FileNotFoundError, OSError, subprocess.SubprocessError:
         pass
 
     if not context or context == "minikube":
-        return k8s._minikube_running()
+        return _minikube_running()
     return False

@@ -736,8 +736,8 @@
   - [x] 11. Remediated 5 GitHub Copilot review comments in commit 38662f8, replied in-thread, resolved threads via GraphQL, validated full CI gates, and squash-merged PR #72 into release branch `release/v0.2.13`. Closed Issue #59 and pruned remote branch.
 
 - [x] Phase 49.9.2: In-Cluster Container Registry, Pod Security Alignment & Non-Blocking Stack Deployment
-  - [x] 1. Deployed Docker Registry v2 (`registry:2.8.3`) in `registry` namespace on `k3s-cluster` backed by a 50Gi `local-path` PersistentVolumeClaim and exposed via NodePort `30500`.
-  - [x] 2. Configured containerd mirror registry endpoints across cluster nodes via Ansible playbook `configure_registries.yaml` to pull insecure HTTP images from cluster mirror endpoints on port 30500.
+  - [x] 1. Deployed Docker Registry v2 (`registry:2.8.3`) in `registry` namespace on cluster backed by a 50Gi `local-path` PersistentVolumeClaim and exposed via NodePort `30500`.
+  - [x] 2. Configured containerd mirror registry endpoints across cluster nodes to pull container images from cluster mirror endpoints.
   - [x] 3. Configured devcontainer Docker daemon with `insecure-registries` and verified end-to-end container build, push, and Kubernetes execution (`kubectl run test-hello-registry`).
   - [x] 4. Aligned PodSecurity admission labels and security contexts across namespaces (`monitoring`, `llm`, `registry`, `argocd`, `otel`), eliminating all PodSecurity admission warnings.
   - [x] 5. Added `--wait / --no-wait` and `--timeout` flags to `devops k8s deploy-stack`, preventing Helm hangs when cluster nodes are temporarily offline.

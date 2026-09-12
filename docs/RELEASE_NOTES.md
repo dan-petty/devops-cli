@@ -1,6 +1,45 @@
-# Release Notes — devops-cli v0.2.14
+# Release Notes — devops-cli v0.2.16
 
 Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes clusters, Kustomize, ArgoCD, Grafana, Prometheus, Docker, workspace files, vector embedding benchmarks, TLS certificate automation, OpenTelemetry observability, Valkey distributed caching, and multi-persona AI code reviews.
+
+---
+
+## 🚀 Highlights of v0.2.16
+
+### 📦 Long-Running Workload Sandbox Lifecycle Engine (`devops sandbox`)
+- **Secure Ephemeral Sandboxing**: Spin up isolated Docker container sandboxes with memory caps, CPU bounds, read-only root filesystems, and temporary workspace mounts.
+- **Orchestration Commands**: `devops sandbox deploy`, `status`, `exec`, and `stop`.
+
+### ⚡ Automated Formatting & Linting CLI Suite (`devops format`, `devops lint`)
+- **Dedicated Leaf Commands**: Fast formatting and linting CLI commands with clean leaf command usage.
+- **Auto-Fix Integration**: Integrated `--fix` enabled by default across `devops ci`, `devops ci format`, and `devops ci lint`, with `--check` option for strict verification.
+
+### 🛡️ Release Notes Fallback Extraction & Changelog Gate (`devops release notes`, `devops release check`)
+- **Fatal Changelog Gate**: Strict version matching between `CHANGELOG.md` and `pyproject.toml` during release verification.
+- **Layered Fallbacks**: Resilient extraction across `CHANGELOG.md` -> `docs/RELEASE_NOTES.md` -> git commit history.
+
+### 🌐 Squid Caching Forward Proxy & SSL-Bump Cluster Enablement (`k8s/squid/`)
+- **Accelerated Caching**: Deployed Squid forward proxy with SSL-Bump decryption and local CA trust, slashing external model and image pull latencies across Minikube/Kubernetes.
+- **Observability**: Scraping Squid cache metrics via Prometheus with health failover routing.
+
+### 📄 Context Document Compaction Engine (`devops docs compact`)
+- **Prompt Compaction**: Token-preserving document compaction preserving technical invariants, code examples, and structural integrity for large context windows.
+
+### 🎨 Modernized AI Chat CLI & Persona Styling (`devops ai chat`)
+- **Streaming Markdown & Persona Orange**: Rich Markdown terminal streaming, formatted thinking display blocks, and Persona Orange identity styling.
+
+---
+
+## 🚀 Highlights of v0.2.15
+
+### 📊 Centralized Kubernetes Logging Stack & LogQL Integration (`devops k8s logs`)
+- **Loki & Fluent Bit Integration**: Cluster log aggregation and stream querying via LogQL directly from the CLI.
+
+### 💰 Infracost FinOps Cloud Cost Engine (`devops tf cost`)
+- **Multi-Cloud Cost Breakdown**: Automated cost breakdowns and diff summaries across AWS, Azure, and GCP.
+
+### 🔄 Multi-Cluster ArgoCD Fleet Sync & Rollouts (`devops argo sync --fleet`)
+- **Fleet Synchronization**: Multi-cluster declarative application rollout and health monitoring.
 
 ---
 

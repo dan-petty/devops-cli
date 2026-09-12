@@ -23,6 +23,15 @@
 
 ---
 
+## Software Maturity, Lifecycle & Versioning Policy
+
+> [!IMPORTANT]
+> **Pre-1.0 Alpha Software Status**: `devops-cli` is active **alpha software** prior to release `1.0.0`. Until at least release `1.0.0`, there is **no intention of maintaining backwards compatibility**. The codebase is intentionally kept clean of legacy references, obsolete shims, and compatibility remnants at all times so that it can reach architectural maturity at a reasonable rate.
+>
+> **Post-1.0 Semantic Versioning**: Any version released after `1.0.0` will strictly adhere to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) (`MAJOR.MINOR.PATCH`) and follow enterprise change management best practices, including runtime feature flags, structured multi-release deprecation cycles, and automated migration functionality.
+
+---
+
 ## Architectural & Governance Documentation
 
 - [**System Architecture & Technical Design (`ARCHITECTURE.md`)**](ARCHITECTURE.md) — Subsystem topologies, multi-agent sequence diagrams, and lifecycle hooks.
@@ -137,9 +146,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 - [RELEASE_NOTES.md](docs/RELEASE_NOTES.md) — Version release notes and highlights.
 - [CHANGELOG.md](CHANGELOG.md) — Historical release and version changes.
 - [ROADMAP.md](docs/ROADMAP.md) — Vision, principles, and phased deliverables.
-- [PENDING_FEATURES.md](docs/PENDING_FEATURES.md) — Active proposals and feature specifications.
 - [KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — Operational edge cases and intentional design trade-offs.
-- [LOG.md](docs/LOG.md) — Active chronological development and refactoring log.
 
 ---
 
@@ -241,8 +248,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops config audit-keys [OPTIONS]` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. |
 | **ci** | `devops ci test [OPTIONS]` | Run the pytest test suite in parallel leveraging all CPU cores. |
 |  | `devops ci coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
-|  | `devops ci lint [OPTIONS]` | Run ruff linter across the project. |
-|  | `devops ci format [OPTIONS]` | Check (or apply) code formatting with ruff format. |
+|  | `devops ci lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
+|  | `devops ci format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
 |  | `devops ci typecheck [OPTIONS]` | Run mypy static type-checker strictly targeting Python 3.14 over src/. |
 |  | `devops ci audit [OPTIONS]` | Run uv audit to check for known package vulnerabilities. |
 |  | `devops ci security [OPTIONS]` | Run bandit static security vulnerability analysis over src/. |
@@ -307,6 +314,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 | **docs** | `devops docs generate [OPTIONS]` | Generate comprehensive Markdown or JSON documentation for all CLI commands and tools. |
 |  | `devops docs check [OPTIONS]` | Check that generated documentation and README.md are up to date with codebase. |
 |  | `devops docs sync-readme [OPTIONS]` | Synchronize the Complete Command Matrix table in README.md with live CLI commands. |
+|  | `devops docs compact [OPTIONS]` | Compact historical documentation for completed release series. |
 | **release** | `devops release status [OPTIONS]` | Display current release status, versions, tags, changelog, and docs state. |
 |  | `devops release prepare [OPTIONS] <version>` | Bump version across pyproject.toml and source, update changelog, and sync docs. |
 |  | `devops release pr [OPTIONS]` | Create release branch, commit version bumps, and open a GitHub Release Pull Request. |
@@ -367,8 +375,14 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops valkey flush [OPTIONS]` | Flush and purge keys from current or all databases. |
 |  | `devops valkey backup [OPTIONS]` | Trigger background RDB persistence snapshot (BGSAVE). |
 |  | `devops valkey cli [OPTIONS] <command_args>` | Execute raw Valkey commands directly against the server. |
+| **sandbox** | `devops sandbox deploy [OPTIONS] <command>` | Deploy an isolated background container sandbox with security containment. |
+|  | `devops sandbox status [OPTIONS] <instance_id>` | Inspect status of deployed sandbox containers. |
+|  | `devops sandbox stop [OPTIONS] <instance_id>` | Gracefully stop and tear down a sandbox container. |
+|  | `devops sandbox exec [OPTIONS] <instance_id> <command>` | Execute a command inside an active sandbox container. |
 | **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
+| **format** | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
+| **lint** | `devops lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 
 <!-- COMMAND_MATRIX_END -->
 

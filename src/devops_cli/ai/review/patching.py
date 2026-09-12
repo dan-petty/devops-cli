@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from devops_cli.ai.review.runner import _get_reviews_base_dir
+from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.config.defaults import DEFAULT_APPLY_PATCH_INDEX
 from devops_cli.core.validation import validate_session_id
 from devops_cli.output import escape_text, print_error, print_success, print_warning

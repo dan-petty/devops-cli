@@ -112,8 +112,19 @@ def generate_pointer_stub(
     tool_name: str,
     filename: str,
     canonical_relpath: str,
+    *,
+    is_devops_cli: bool = False,
 ) -> str:
     """Generate a thin pointer stub that redirects tools to the canonical AGENTS.md."""
+    alpha_notice = (
+        "\n>\n"
+        "> **Pre-1.0 Alpha Notice**: This codebase is active alpha software prior to release `1.0.0`\n"
+        "> with no backwards compatibility guarantees. The codebase must remain clean of legacy\n"
+        "> references and obsolete shims at all times. Post-1.0 releases adhere strictly to\n"
+        "> Semantic Versioning and enterprise change management (feature flags, deprecations, migrations)."
+        if is_devops_cli
+        else ""
+    )
     return f"""\
 # {title}
 
@@ -122,7 +133,7 @@ def generate_pointer_stub(
 > overview, build/test commands, code conventions, architecture, AI features,
 > environment & modernization policy, and security notes — live in
 > [AGENTS.md]({canonical_relpath}). Read that file. Regenerate both via
-> `devops ai agents`; do not duplicate content here.
+> `devops ai agents`; do not duplicate content here.{alpha_notice}
 """
 
 
@@ -156,6 +167,16 @@ devops --help                        # Access global DevOps automation CLI
         "- **DevContainer Environment**: Configured with pre-baked Python runtime\n"
         "  and DevOps tooling (`uv`, `docker`, `kubectl`, `helm`, `devops`).\n"
         if meta.has_devcontainer
+        else ""
+    )
+
+    alpha_lifecycle_block = (
+        "- **Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee**: Prior to release 1.0.0,\n"
+        "  this codebase is active alpha software with no intention of maintaining backwards compatibility.\n"
+        "  The codebase must remain clean of legacy references, obsolete shims, and compatibility remnants\n"
+        "  at all times so that it can reach maturity at a reasonable rate. Releases after 1.0.0 will strictly\n"
+        "  follow Semantic Versioning conventions with feature flags, formal deprecations, and migration tooling.\n"
+        if meta.is_devops_cli
         else ""
     )
 
@@ -197,6 +218,13 @@ codebase or reviewing target repositories.
   - Never leak or extract information from hidden, private, or `.gitignored` files (`.env*`,
     `.ssh/`, `.data/`, `~/.gemini/`, local credentials, private keys) into any documents,
     changelogs, review findings, public commits, or code artifacts.
+  - **Comprehensive Sanitization of Internal Systems & Homelab Data**: Never record or expose concrete
+    internal hostnames (`*.lan`, `*.local`, physical machine names), private RFC 1918 IP addresses
+    (`192.168.0.0/16`, `10.0.0.0/8`, `172.16.0.0/12`), private container registries, non-standard local
+    NodePort endpoints, physical storage devices/mount paths (`/mnt/nvme*`, `/dev/sd*`), or private cluster
+    topology details in task tracking (`docs/agent/tasks/`), documentation, roadmaps, tests, manifests (`k8s/`),
+    or configuration templates (`config.yaml`). Always use abstract roles (`<storage-node>`, `<gpu-node>`,
+    `<worker-node>`, `<host>`), RFC 5737 documentation IPs (`192.0.2.0/24`), and standard localhost endpoints.
   - When constructing documentation, reviews, prompt context, or code examples, always redact,
     mask, or generalize any sensitive local environments, file system trees, or user identifiers.
   - Mitigate Server-Side Request Forgery (SSRF) and network egress risks by validating destination
@@ -228,6 +256,22 @@ codebase or reviewing target repositories.
   code changes, run `devops ci`, fix all reported issues, and run `devops ci` again, iteratively
   fixing issues and running `devops ci` until passing. Agents should not run any other tooling
   that is already covered and automatically executed by `devops ci`.
+- **API Rate Limit Honor, Resilient Backoff & Quota Budgeting**: AI agents and automated workflows MUST
+  actively respect API rate limits, complexity budgets, and resource quotas across all external services
+  (GitHub REST/GraphQL APIs, AI LLM/embedding inference endpoints, package registries, and cloud APIs).
+  Proactively monitor rate limits (`gh api rate_limit`, `x-ratelimit-remaining`, `Retry-After`), gracefully
+  fall back from complexity-constrained or rate-limited GraphQL queries to targeted REST endpoints, apply
+  exponential backoff with random jitter, and avoid aggressive polling loops.
+- **AI Inference Rate Limit & Token Budget Management**: Review pipelines and AI agent stages calling
+  local or remote LLMs (Ollama, Anthropic, Gemini, OpenAI) must budget token consumption and honor
+  provider quotas (Tokens-Per-Minute / TPM and Requests-Per-Minute / RPM). Bound concurrency with
+  semaphores (`asyncio.Semaphore(5)` for 4–8 concurrent workers) to prevent overloading inference endpoints. On HTTP 429 or
+  provider overload errors, implement exponential backoff with jitter and retry reflection rather than
+  unthrottled burst retries.
+{alpha_lifecycle_block}- **Clean Solutions Over Legacy Remnants (Zero Zombie Code)**: When modifying, refactoring, or
+  replacing features, schemas, configurations, or interfaces, implement clean, complete solutions
+  and ruthlessly remove obsolete code, variables, aliases, fallback shims, and legacy workarounds.
+  Never leave remnants or vestigial fallback paths.
 
 
 
@@ -248,14 +292,21 @@ codebase or reviewing target repositories.
 - **Pull Request Governance & Code Review Remediation**:
   - AI agents prepare clean commits, open/update PRs, monitor remote CI checks, and leave merge
     approval to maintainers.
-  - Actively inspect and evaluate review feedback from GitHub Copilot and human reviewers.
-  - Remediate feedback iteratively using Test-First Development (author/update tests first).
-  - Reply directly within each specific review thread on the exact comment addressed with concrete technical details; never rely solely on top-level PR comments.
-  - Resolve review conversations on GitHub (via GitHub API / GraphQL resolveReviewThread) once verified.
+  - **Always Monitor and Fix CI Checks**: Whenever creating a pull request or pushing to a pull request branch,
+    always actively monitor remote CI checks (`gh pr checks`). If any check fails, immediately inspect failed logs,
+    diagnose root causes, apply test-first fixes, push, and re-monitor until all checks are 100% green.
+  - **Check and Address Review Comments**: When working on a pull request branch, always check for review comments
+    and threads (`devops pr threads list <pr_number> --unresolved-only`).
+  - Remediate all feedback iteratively using Test-First Development (author/update tests first).
+  - Reply directly within each specific review thread on the exact comment addressed with concrete technical details;
+    never rely solely on top-level PR comments.
+  - Resolve review threads on GitHub (`devops pr threads resolve <thread_id>` or GraphQL `resolveReviewThread`)
+    once all issues in the thread have been addressed and verified.
 - **GitHub Projects, Issues & Views Governance**:
   - Proactively author and populate tracking issues for all scheduled roadmap deliverables upon milestone activation; the open issues queue (`issues?q=is:issue+state:open`), projects tab (`projects`), and issue views (`issues/views`) must never be left empty.
   - Link project boards conforming to `.github/project-template.json` to the repository (`devops gh project link <number>`) and synchronize items and custom fields via `devops gh project sync`.
   - Enforce strict remote branch lifecycle: every remote topic branch on `origin` must have an associated open PR, and merged or superseded branches must be deleted immediately.
+  - Respect GitHub API rate limits: monitor `gh api rate_limit`, adaptively fall back to REST when GraphQL complexity limits are reached, avoid unthrottled polling, and honor `Retry-After` reset windows.
 """
 
 
@@ -267,6 +318,7 @@ def generate_instruction_content(target_file: str, meta: ProjectMetadata) -> str
             tool_name="Claude Code",
             filename="CLAUDE.md",
             canonical_relpath="./AGENTS.md",
+            is_devops_cli=meta.is_devops_cli,
         )
     if "copilot" in target_file:
         return generate_pointer_stub(
@@ -274,6 +326,7 @@ def generate_instruction_content(target_file: str, meta: ProjectMetadata) -> str
             tool_name="GitHub Copilot",
             filename=".github/copilot-instructions.md",
             canonical_relpath="../AGENTS.md",
+            is_devops_cli=meta.is_devops_cli,
         )
     return generate_agents_md(meta)
 

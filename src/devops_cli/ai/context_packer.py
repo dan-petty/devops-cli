@@ -256,6 +256,14 @@ def _strip_docstrings_from_node(node: ast.AST) -> None:
                     child.body = child.body[1:] if len(child.body) > 1 else [_make_ellipsis_expr()]
 
 
+def _calc_statement_tokens(stmt: ast.stmt) -> int:
+    """Calculate token estimate for a single AST statement node."""
+    try:
+        return count_tokens(ast.unparse(ast.Module(body=[stmt], type_ignores=[])))
+    except Exception:
+        return 0
+
+
 def _prune_tree_to_budget(tree: ast.Module, max_tokens: int, pruned: list[str]) -> tuple[str, bool]:
     """Prune AST body nodes from the end until unparsed code fits within max_tokens."""
     unparsed = ast.unparse(tree)
@@ -268,7 +276,19 @@ def _prune_tree_to_budget(tree: ast.Module, max_tokens: int, pruned: list[str]) 
     if count_tokens(unparsed) <= max_tokens:
         return unparsed, True
 
-    # Step 2: Progressively prune body statements from the end
+    # Step 2: Pre-compute statement token costs linearly to avoid O(N^2) unparsing
+    stmt_costs = [_calc_statement_tokens(stmt) for stmt in tree.body]
+    current_tokens = count_tokens(unparsed)
+
+    while tree.body and current_tokens > max_tokens:
+        removed = tree.body.pop()
+        rem_name = getattr(removed, "name", type(removed).__name__)
+        pruned.append(rem_name)
+        current_tokens -= stmt_costs.pop() if stmt_costs else 0
+
+    unparsed = ast.unparse(tree) if tree.body else ""
+
+    # Step 3: Bounded safety boundary check for inter-statement whitespace differences
     while tree.body and count_tokens(unparsed) > max_tokens:
         removed = tree.body.pop()
         rem_name = getattr(removed, "name", type(removed).__name__)

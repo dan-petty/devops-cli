@@ -15,12 +15,12 @@ from devops_cli.output.formatters.tables import (
     format_network_references_table,
     format_review_findings_table,
 )
+from devops_cli.output.markup import escape_text
 from devops_cli.output.models import PanelPayload
 
 
 def format_finding_panel(finding: Any, finding_index: int = 1) -> PanelPayload:
     """Build a structured PanelPayload with description and suggested remediation for a finding."""
-    from devops_cli.output.console import escape_text
 
     sev = getattr(finding, "severity", "INFO")
     sev_upper = str(sev).upper()
@@ -39,12 +39,20 @@ def format_finding_panel(finding: Any, finding_index: int = 1) -> PanelPayload:
     desc = getattr(finding, "description", None)
     if desc:
         panel_lines.extend(
-            ["", f"[bold]{MESSAGES.output.description_label}[/bold]", str(desc).strip()]
+            [
+                "",
+                f"[bold]{MESSAGES.output.description_label}[/bold]",
+                escape_text(str(desc).strip()),
+            ]
         )
     fix = getattr(finding, "fix", None)
     if fix:
         panel_lines.extend(
-            ["", f"[bold]{MESSAGES.output.suggested_fix_label}[/bold]", str(fix).strip()]
+            [
+                "",
+                f"[bold]{MESSAGES.output.suggested_fix_label}[/bold]",
+                escape_text(str(fix).strip()),
+            ]
         )
     references = getattr(finding, "references", None)
     if references:
@@ -62,7 +70,7 @@ def format_finding_panel(finding: Any, finding_index: int = 1) -> PanelPayload:
 
 def render_review_result(persona: Any, result: Any) -> None:
     """Render a structured ReviewResult object using tables, panels, and Markdown blocks."""
-    from devops_cli.output.console import escape_text, print, write_stdout
+    from devops_cli.output.console import print, write_stdout
     from devops_cli.output.models import MarkdownPayload
 
     rec = getattr(result, "recommendation", "APPROVE")
@@ -106,7 +114,7 @@ def render_review_result(persona: Any, result: Any) -> None:
 
 def render_review_raw(persona: Any, raw: str) -> None:
     """Render a raw string review response using Panel and Markdown."""
-    from devops_cli.output.console import escape_text, print
+    from devops_cli.output.console import print
 
     persona_title = getattr(persona, "title", str(persona))
     panel_payload = PanelPayload(
@@ -126,13 +134,17 @@ def format_argo_app_status_panel(
 ) -> PanelPayload:
     """Build a structured PanelPayload for ArgoCD application status."""
     if error:
-        err_msg = MESSAGES.output.argo_error_fetching.format(error=error)
-        return PanelPayload(content=f"[red]{err_msg}[/red]", title=name)
+        err_msg = MESSAGES.output.argo_error_fetching.format(error=escape_text(error))
+        return PanelPayload(content=f"[red]{err_msg}[/red]", title=escape_text(name))
     sync_c = "green" if sync_status == "Synced" else "yellow"
     health_c = "green" if health_status == "Healthy" else "red"
+    esc_name = escape_text(name)
+    esc_sync = escape_text(sync_status)
+    esc_health = escape_text(health_status)
+    esc_rev = escape_text(revision)
     lines = [
-        f"  [bold]{MESSAGES.output.argo_sync_label}[/bold]     [{sync_c}]{sync_status}[/{sync_c}]",
-        f"  [bold]{MESSAGES.output.argo_health_label}[/bold]   [{health_c}]{health_status}[/{health_c}]",
-        f"  [bold]{MESSAGES.output.argo_revision_label}[/bold] {revision}",
+        f"  [bold]{MESSAGES.output.argo_sync_label}[/bold]     [{sync_c}]{esc_sync}[/{sync_c}]",
+        f"  [bold]{MESSAGES.output.argo_health_label}[/bold]   [{health_c}]{esc_health}[/{health_c}]",
+        f"  [bold]{MESSAGES.output.argo_revision_label}[/bold] {esc_rev}",
     ]
-    return PanelPayload(content="\n".join(lines), title=f"[bold cyan]{name}[/bold cyan]")
+    return PanelPayload(content="\n".join(lines), title=f"[bold cyan]{esc_name}[/bold cyan]")

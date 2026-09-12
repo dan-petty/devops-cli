@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
@@ -113,7 +114,7 @@ def test_k8s_configure_urls_success(
     """k8s configure-urls must query service URLs and update configuration."""
 
     def fake_detect(service: str, ns: str, context: str | None = None) -> str | None:
-        return f"http://192.168.49.2:{30000 + len(service)}"
+        return f"http://192.0.2.49:{30000 + len(service)}"
 
     set_dry_run(False)
     mock_detect.side_effect = fake_detect
@@ -142,7 +143,7 @@ def test_resolve_accessible_url_fallback(mock_verify: MagicMock) -> None:
         return "localhost" in url
 
     mock_verify.side_effect = fake_verify
-    res = _resolve_accessible_url("http://192.168.49.2:30080")
+    res = _resolve_accessible_url("http://192.0.2.49:30080")
     assert res == "http://localhost:30080"
 
 
@@ -434,7 +435,7 @@ def test_k8s_apply_logs_and_urls(tmp_path: Path) -> None:
     with (
         patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
         patch(
-            "devops_cli.commands.k8s._detect_service_url", return_value="http://192.168.49.2:30080"
+            "devops_cli.commands.k8s._detect_service_url", return_value="http://192.0.2.49:30080"
         ),
         patch(
             "devops_cli.commands.k8s._resolve_accessible_url", return_value="http://localhost:8080"
@@ -456,8 +457,8 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
 
     # 1. _parse_minikube_service_url
     assert (
-        _parse_minikube_service_url("Starting...\nhttp://192.168.49.2:30000\nDone")
-        == "http://192.168.49.2:30000"
+        _parse_minikube_service_url("Starting...\nhttp://192.0.2.49:30000\nDone")
+        == "http://192.0.2.49:30000"
     )
     assert _parse_minikube_service_url("No URLs here") is None
 
@@ -465,12 +466,12 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
     node_data = {
         "status": {
             "addresses": [
-                {"type": "InternalIP", "address": "192.168.49.2"},
+                {"type": "InternalIP", "address": "192.0.2.49"},
                 {"type": "Hostname", "address": "minikube"},
             ]
         }
     }
-    assert _extract_first_node_ip(node_data) == "192.168.49.2"
+    assert _extract_first_node_ip(node_data) == "192.0.2.49"
     assert _extract_first_node_ip({}) is None
 
     # 3. _resolve_k8s_node_port_url
@@ -481,15 +482,15 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
         "devops_cli.commands.k8s.run_subprocess", return_value=_mock_proc(0, mock_nodes_json)
     ):
         url = _resolve_k8s_node_port_url([], 30080)
-        assert url == "http://192.168.49.2:30080"
+        assert url == "http://192.0.2.49:30080"
 
     # 4. _detect_service_url with fallback
     with patch(
         "devops_cli.commands.k8s.run_subprocess",
-        return_value=_mock_proc(0, "http://192.168.49.2:31434"),
+        return_value=_mock_proc(0, "http://192.0.2.49:31434"),
     ):
         res_svc = _detect_service_url("ollama", "llm")
-        assert res_svc == "http://192.168.49.2:31434"
+        assert res_svc == "http://192.0.2.49:31434"
 
     # 5. rbac-audit
     res_rbac = runner.invoke(app, ["rbac-audit", "--namespace", "kube-system"])
@@ -612,27 +613,27 @@ def test_k8s_service_url_helpers() -> None:
     # 1. _parse_minikube_service_url
     assert _parse_minikube_service_url("") is None
     assert (
-        _parse_minikube_service_url("Starting tunnel\nhttp://192.168.49.2:30001\nDone")
-        == "http://192.168.49.2:30001"
+        _parse_minikube_service_url("Starting tunnel\nhttp://192.0.2.49:30001\nDone")
+        == "http://192.0.2.49:30001"
     )
 
     # 2. _extract_first_node_ip
     node_data_ext = {
         "status": {
             "addresses": [
-                {"type": "InternalIP", "address": "192.168.49.2"},
+                {"type": "InternalIP", "address": "192.0.2.49"},
                 {"type": "Hostname", "address": "minikube"},
             ]
         }
     }
-    assert _extract_first_node_ip(node_data_ext) == "192.168.49.2"
+    assert _extract_first_node_ip(node_data_ext) == "192.0.2.49"
     assert _extract_first_node_ip({}) is None
 
     # 3. _resolve_k8s_node_port_url
     nodes_json = json.dumps({"items": [node_data_ext]})
     with patch("devops_cli.commands.k8s.run_subprocess", return_value=_mock_proc(0, nodes_json)):
         url = _resolve_k8s_node_port_url([], 30080)
-        assert url == "http://192.168.49.2:30080"
+        assert url == "http://192.0.2.49:30080"
 
     # 4. _verify_url_reachability
     with patch("socket.create_connection", side_effect=OSError):
@@ -642,10 +643,10 @@ def test_k8s_service_url_helpers() -> None:
     assert _resolve_accessible_url(None) is None
     with patch("devops_cli.commands.k8s._verify_url_reachability", return_value=True):
         assert (
-            _resolve_accessible_url("http://192.168.49.2:3000", preferred_localhost_ports=[3000])
+            _resolve_accessible_url("http://192.0.2.49:3000", preferred_localhost_ports=[3000])
             == "http://localhost:3000"
         )
-        assert _resolve_accessible_url("http://192.168.49.2:3000") == "http://192.168.49.2:3000"
+        assert _resolve_accessible_url("http://192.0.2.49:3000") == "http://192.0.2.49:3000"
 
 
 def test_k8s_bootstrap_openwebui() -> None:
@@ -745,3 +746,146 @@ def test_k8s_deploy_stack_no_wait() -> None:
             cmd = call_args[0][0]
             if isinstance(cmd, list) and "helm" in cmd and "upgrade" in cmd:
                 assert "--wait" not in cmd
+
+
+def test_k8s_workload_resource_limits_and_probes() -> None:
+    """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
+    repo_root = Path(__file__).resolve().parent.parent
+
+    # 1. Ollama DaemonSet: bounded memory limit (26Gi), requests 8Gi, robust startup and liveness probes
+    ollama_path = repo_root / "k8s" / "llm" / "ollama-daemonset.yaml"
+    assert ollama_path.is_file()
+    ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
+    daemonset = next(d for d in ollama_docs if d and d.get("kind") == "DaemonSet")
+    container = daemonset["spec"]["template"]["spec"]["containers"][0]
+    resources = container.get("resources", {})
+    assert resources["limits"]["memory"] == "26Gi"
+    assert resources["requests"]["memory"] == "8Gi"
+    assert resources["requests"]["cpu"] == "3000m"
+
+    # Probes: verify exact probe contracts
+    assert "startupProbe" in container
+    assert container["startupProbe"]["initialDelaySeconds"] == 10
+    assert container["startupProbe"]["periodSeconds"] == 5
+    assert container["startupProbe"]["timeoutSeconds"] == 5
+    assert container["startupProbe"]["failureThreshold"] == 60
+
+    # Storage: verify hostPath contract for node-local model persistence
+    volumes = daemonset["spec"]["template"]["spec"]["volumes"]
+    ollama_vol = next(v for v in volumes if v["name"] == "ollama-data")
+    assert ollama_vol["hostPath"]["path"] == "/var/lib/ollama"
+    assert ollama_vol["hostPath"]["type"] == "DirectoryOrCreate"
+
+    assert "readinessProbe" in container
+    assert container["readinessProbe"]["initialDelaySeconds"] == 5
+    assert container["readinessProbe"]["periodSeconds"] == 10
+    assert container["readinessProbe"]["timeoutSeconds"] == 5
+    assert container["readinessProbe"]["failureThreshold"] == 3
+
+    assert "livenessProbe" in container
+    assert container["livenessProbe"]["initialDelaySeconds"] == 15
+    assert container["livenessProbe"]["periodSeconds"] == 15
+    assert container["livenessProbe"]["timeoutSeconds"] == 10
+    assert container["livenessProbe"]["failureThreshold"] == 6
+
+    # 2. Ollama Helm values: bounded memory limit
+    values_ollama = yaml.safe_load(
+        (repo_root / "k8s" / "llm" / "values-ollama.yaml").read_text(encoding="utf-8")
+    )
+    assert values_ollama["resources"]["requests"]["memory"] == "4Gi"
+    assert values_ollama["resources"]["limits"]["memory"] == "26Gi"
+
+    # 3. Valkey: memory limit >= 2048Mi
+    valkey_docs = list(
+        yaml.safe_load_all((repo_root / "k8s" / "llm" / "valkey.yaml").read_text(encoding="utf-8"))
+    )
+    valkey_dep = next(d for d in valkey_docs if d and d.get("kind") == "Deployment")
+    valkey_res = valkey_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert valkey_res["limits"]["memory"] == "2048Mi"
+
+    # 4. Jaeger: memory limit >= 2048Mi
+    jaeger_docs = list(
+        yaml.safe_load_all((repo_root / "k8s" / "otel" / "jaeger.yaml").read_text(encoding="utf-8"))
+    )
+    jaeger_dep = next(d for d in jaeger_docs if d and d.get("kind") == "Deployment")
+    jaeger_res = jaeger_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert jaeger_res["limits"]["memory"] == "2048Mi"
+
+    # 5. Registry: memory limit >= 2048Mi
+    reg_docs = list(
+        yaml.safe_load_all(
+            (repo_root / "k8s" / "registry" / "deployment.yaml").read_text(encoding="utf-8")
+        )
+    )
+    reg_dep = next(d for d in reg_docs if d and d.get("kind") == "Deployment")
+    reg_res = reg_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert reg_res["limits"]["memory"] == "2048Mi"
+
+    # 6. ArgoCD values: elevated memory limits
+    argo_values = yaml.safe_load(
+        (repo_root / "k8s" / "argocd" / "values.yaml").read_text(encoding="utf-8")
+    )
+    assert argo_values["controller"]["resources"]["limits"]["memory"] == "2048Mi"
+    assert argo_values["repoServer"]["resources"]["limits"]["memory"] == "2048Mi"
+    assert argo_values["server"]["resources"]["limits"]["memory"] == "1024Mi"
+    assert argo_values["redis"]["resources"]["limits"]["memory"] == "1024Mi"
+
+    # 7. Open WebUI values: elevated CPU and memory limits
+    webui_values = yaml.safe_load(
+        (repo_root / "k8s" / "llm" / "values-open-webui.yaml").read_text(encoding="utf-8")
+    )
+    assert webui_values["resources"]["limits"]["cpu"] == "4000m"
+    assert webui_values["resources"]["limits"]["memory"] == "4Gi"
+
+    # 8. OTel values: elevated CPU and memory limits
+    otel_values = yaml.safe_load(
+        (repo_root / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
+    )
+    assert otel_values["resources"]["limits"]["cpu"] == "1000m"
+    assert otel_values["resources"]["limits"]["memory"] == "1024Mi"
+
+    # 9. Loki values: elevated singleBinary limits
+    loki_values = yaml.safe_load(
+        (repo_root / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
+    )
+    assert loki_values["singleBinary"]["resources"]["limits"]["cpu"] == "1000m"
+    assert loki_values["singleBinary"]["resources"]["limits"]["memory"] == "2048Mi"
+
+    # 10. Fluent Bit values: elevated daemonset limits
+    fb_values = yaml.safe_load(
+        (repo_root / "k8s" / "logging" / "fluent-bit-values.yaml").read_text(encoding="utf-8")
+    )
+    assert fb_values["resources"]["limits"]["cpu"] == "500m"
+    assert fb_values["resources"]["limits"]["memory"] == "512Mi"
+
+    # 11. Prometheus stack values: elevated requests and limits to eliminate OOM kills
+    prom_values = yaml.safe_load(
+        (repo_root / "k8s" / "monitoring" / "prometheus-values.yaml").read_text(encoding="utf-8")
+    )
+    assert (
+        prom_values["prometheus"]["prometheusSpec"]["resources"]["requests"]["memory"] == "1024Mi"
+    )
+    assert prom_values["prometheus"]["prometheusSpec"]["resources"]["limits"]["memory"] == "4096Mi"
+    assert prom_values["grafana"]["resources"]["requests"]["memory"] == "768Mi"
+    assert prom_values["grafana"]["resources"]["limits"]["memory"] == "2048Mi"
+    assert prom_values["nodeExporter"]["resources"]["requests"]["memory"] == "64Mi"
+    assert prom_values["nodeExporter"]["resources"]["limits"]["memory"] == "256Mi"
+    assert prom_values["kubeStateMetrics"]["resources"]["requests"]["memory"] == "64Mi"
+    assert prom_values["kubeStateMetrics"]["resources"]["limits"]["memory"] == "256Mi"
+
+    # 12. GPU Feature Discovery DaemonSet: Burstable QoS requests and limits
+    gfd_docs = list(
+        yaml.safe_load_all(
+            (repo_root / "k8s" / "gpu-feature-discovery" / "daemonset.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+    gfd_ds = next(d for d in gfd_docs if d and d.get("kind") == "DaemonSet")
+    gfd_container = gfd_ds["spec"]["template"]["spec"]["containers"][0]
+    assert gfd_container["image"] == "nvcr.io/nvidia/gpu-feature-discovery:v0.16.2"
+    gfd_res = gfd_container["resources"]
+    assert gfd_res["requests"]["cpu"] == "50m"
+    assert gfd_res["requests"]["memory"] == "64Mi"
+    assert gfd_res["limits"]["cpu"] == "200m"
+    assert gfd_res["limits"]["memory"] == "256Mi"

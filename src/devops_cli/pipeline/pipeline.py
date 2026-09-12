@@ -14,8 +14,19 @@ from devops_cli.pipeline.models import (
     StageStatus,
 )
 from devops_cli.pipeline.stage import PipelineStage
+from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
+
+_MAX_ERROR_LENGTH: int = 256
+
+
+def _format_stage_error(exc: Exception) -> str:
+    """Sanitize and truncate exception string to prevent information leakage (CWE-209)."""
+    raw = mask_secrets(str(exc))
+    if len(raw) > _MAX_ERROR_LENGTH:
+        return f"{raw[: _MAX_ERROR_LENGTH - 3]}..."
+    return raw
 
 
 class StagePipeline[ContextT, ResultT](BaseModel):
@@ -65,7 +76,7 @@ class StagePipeline[ContextT, ResultT](BaseModel):
             except Exception as exc:
                 duration = time.perf_counter() - stage_start
                 overall_status = PipelineStatus.FAILED
-                error_msg = str(exc)
+                error_msg = _format_stage_error(exc)
                 stage_results.append(
                     StageExecutionResult(
                         stage_name=stage.name,
@@ -121,7 +132,7 @@ class StagePipeline[ContextT, ResultT](BaseModel):
             except Exception as exc:
                 duration = time.perf_counter() - stage_start
                 overall_status = PipelineStatus.FAILED
-                error_msg = str(exc)
+                error_msg = _format_stage_error(exc)
                 stage_results.append(
                     StageExecutionResult(
                         stage_name=stage.name,

@@ -32,13 +32,13 @@ __all__ = [
     "stage_finding_patch",
 ]
 
+from devops_cli.ai.review import runner
 from devops_cli.ai.review.exporter import export_invalidated_feedback
 from devops_cli.ai.review.patching import stage_finding_patch
 from devops_cli.ai.review.runner import (
     _build_path_prompt,
     _execute_review_workflow,
     _find_session_dir,
-    _get_reviews_base_dir,
     _make_review_clients,
     _prepare_branch_content,
     _prepare_path_content,
@@ -932,9 +932,7 @@ def review_stats(
     ] = None,
 ) -> None:
     """Compute and display review accuracy statistics across saved sessions."""
-    from devops_cli.ai.review.runner import _get_reviews_base_dir
-
-    r_dir = reviews_dir or _get_reviews_base_dir()
+    r_dir = reviews_dir or runner._get_reviews_base_dir()
     if not r_dir.exists():
         print_warning(MESSAGES.review.no_review_dir_found, prefix=False)
         raise typer.Exit(0)
@@ -1032,7 +1030,7 @@ def export_feedback(
         reviews_dir=reviews_dir, output_file=output, status_filter=status_filter
     )
     if count == 0:
-        target_dir = reviews_dir or _get_reviews_base_dir()
+        target_dir = reviews_dir or runner._get_reviews_base_dir()
         print_warning(f"No {status} findings found to export under {target_dir}.", prefix=False)
     else:
         print_success(f"Exported {count} {status} finding(s) → [bold]{out_path}[/bold]")

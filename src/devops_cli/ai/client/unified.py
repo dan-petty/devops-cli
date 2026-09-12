@@ -188,6 +188,11 @@ class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMi
         """Return formatted backend type and host string, e.g. 'ollama (localhost:11434)'."""
         return f"{self.backend_type} ({self.backend_host})"
 
+    @property
+    def model(self) -> str:
+        """Return the active AI model identifier."""
+        return str(getattr(self._config, "model", "") or "")
+
     def get_context_window(self, task: str | None = None) -> int:
         """Return the effective token context window for the configured model/task."""
         cfg = self._config.for_task(task) if task else self._config

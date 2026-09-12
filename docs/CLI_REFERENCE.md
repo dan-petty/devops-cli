@@ -35,8 +35,11 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops pipeline`](#devops-pipeline) — Programmable containerized pipeline execution (Dagger).
 - [`devops vault`](#devops-vault) — Enterprise HashiCorp Vault secret broker
 - [`devops valkey`](#devops-valkey) — Valkey workstation caching and in-memory data store
+- [`devops sandbox`](#devops-sandbox) — Isolated workload sandbox container lifecycle engine.
 - [`devops dashboard`](#devops-dashboard) — Interactive terminal UI dashboard for workstation situational awareness.
 - [`devops tui`](#devops-tui) — Interactive terminal UI dashboard (alias)
+- [`devops format`](#devops-format) — Automatically apply code formatting in-place (ruff format).
+- [`devops lint`](#devops-lint) — Run static analysis checks and automatically apply fixes (ruff check --fix).
 
 ---
 
@@ -1963,7 +1966,7 @@ devops ci coverage [OPTIONS]
 
 ### `devops ci lint`
 
-**Run ruff linter across the project.**
+**Run ruff linter across the project, automatically applying fixes by default.**
 
 ```bash
 devops ci lint [OPTIONS]
@@ -1973,12 +1976,13 @@ devops ci lint [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix` | `boolean` | - | Auto-fix violations where possible. |
+| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
+| `--check` | `boolean` | - | Check linting without applying automated fixes. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci format`
 
-**Check (or apply) code formatting with ruff format.**
+**Format codebase with ruff format (or verify in check-only mode with --check).**
 
 ```bash
 devops ci format [OPTIONS]
@@ -1988,7 +1992,8 @@ devops ci format [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--fix` | `boolean` | - | Apply formatting changes in-place. |
+| `--check` | `boolean` | - | Check formatting without writing changes to files. |
+| `--fix`, `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci typecheck`
@@ -2425,6 +2430,7 @@ devops ai chat [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--persona`, `-p` | `string` | `architect` | Persona to chat with: devsecops, architect, pm, auditor, qa, challenger |
+| `--model`, `-m` | `string` | - | AI model identifier. |
 | `--context`, `-c` | `path` | - | Optional file to inject as background context (e.g. AGENTS.md). |
 | `--rag`, `--no-rag` | `boolean` | `True` | Retrieve relevant semantic RAG context. |
 | `--stream`, `--no-stream` | `boolean` | `True` | Stream response tokens. |
@@ -3873,6 +3879,27 @@ devops docs sync-readme [OPTIONS]
 |---|---|---|---|
 | `--readme-path`, `-r` | `path` | - | Path to README.md file (default: workspace root README.md). |
 | `--check` | `boolean` | - | Verify that documentation is strictly up to date with CLI code. |
+
+### `devops docs compact`
+
+**Compact historical documentation for completed release series.**
+
+```bash
+devops docs compact [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--series`, `-s` | `string` | `v0.2` | Release series prefix to compact (e.g., 'v0.2', 'v0.1'). |
+| `--docs-dir`, `-d` | `path` | - | Path to repository docs/ directory (default: docs/). |
+| `--archive-dir`, `-a` | `path` | - | Path to historical archive directory (default: docs/agent/archive/). |
+| `--check` | `boolean` | - | Check if documentation compaction would make changes without modifying files. |
+| `--roadmap-only` | `boolean` | - | Only compact docs/ROADMAP.md. |
+| `--release-notes-only` | `boolean` | - | Only compact docs/RELEASE_NOTES.md. |
+| `--log-only` | `boolean` | - | Only compact docs/LOG.md. |
+| `--dry-run` | `boolean` | - | Show debug output of commands and AI requests without executing delegated subcommands or external write actions. |
 
 ---
 
@@ -5652,6 +5679,105 @@ devops valkey cli [OPTIONS] <command_args>
 
 ---
 
+## devops sandbox
+
+Isolated workload sandbox container lifecycle engine.
+
+### `devops sandbox deploy`
+
+**Deploy an isolated background container sandbox with security containment.**
+
+```bash
+devops sandbox deploy [OPTIONS] <command>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<command>` | `string` | No | Optional container command |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--image`, `-i` | `string` | `python:3.14-slim` | Container image for the sandbox workload. |
+| `--name`, `-n` | `string` | - | Friendly identifier name for the sandbox instance. |
+| `--port`, `-p` | `integer` | - | Container port(s) to dynamically expose on available host ports. |
+| `--workspace`, `-w` | `path` | `.` | Host workspace path to mount into container /workspace. |
+| `--memory`, `-m` | `string` | `2g` | Memory limit for the container (e.g. 512m, 2g). |
+| `--cpus`, `-c` | `float` | `2.0` | CPU quota limit for the container (e.g. 1.0, 2.0). |
+| `--read-only` | `boolean` | `True` | Mount root filesystem as read-only with a tmpfs /tmp. |
+| `--network` | `string` | `bridge` | Docker network mode (bridge | host | none). |
+| `--env`, `-e` | `string` | - | Environment variable in KEY=VALUE format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops sandbox status`
+
+**Inspect status of deployed sandbox containers.**
+
+```bash
+devops sandbox status [OPTIONS] <instance_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<instance_id>` | `string` | No | Unique instance ID or name of the sandbox. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--all`, `-a` | `boolean` | - | Apply operation across all registered sandbox instances. |
+| `--json` | `boolean` | - | Output details in structured JSON format. |
+
+### `devops sandbox stop`
+
+**Gracefully stop and tear down a sandbox container.**
+
+```bash
+devops sandbox stop [OPTIONS] <instance_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<instance_id>` | `string` | No | Unique instance ID or name of the sandbox. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--all`, `-a` | `boolean` | - | Apply operation across all registered sandbox instances. |
+| `--timeout`, `-t` | `integer` | `10` | Graceful stop timeout in seconds before SIGKILL. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops sandbox exec`
+
+**Execute a command inside an active sandbox container.**
+
+```bash
+devops sandbox exec [OPTIONS] <instance_id> <command>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<instance_id>` | `string` | Yes | Unique instance ID or name of the sandbox. |
+| `<command>` | `string` | Yes | Command and arguments to execute inside sandbox |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--workdir`, `-w` | `string` | - | Working directory inside the container for command execution. |
+
+---
+
 ## devops dashboard
 
 Interactive terminal UI dashboard for workstation situational awareness.
@@ -5697,5 +5823,53 @@ devops tui [OPTIONS]
 | `--refresh-interval`, `-r` | `integer` | `5` | Auto-refresh interval in seconds for live dashboard updates. |
 | `--tab`, `-t` | `string` | `k8s` | Initial tab to activate (1=k8s, 2=docker, 3=telemetry, 4=ai, 5=valkey). |
 | `--dry-run` | `boolean` | - | Simulate dashboard launch and print static summary. |
+
+---
+
+## devops format
+
+Automatically apply code formatting in-place (ruff format).
+
+Format codebase with ruff format (or verify in check-only mode with --check).
+
+### `devops format`
+
+**Format codebase with ruff format (or verify in check-only mode with --check).**
+
+```bash
+devops format [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--check` | `boolean` | - | Check formatting without writing changes to files. |
+| `--fix`, `--no-fix` | `boolean` | `True` | Apply formatting changes in-place. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## devops lint
+
+Run static analysis checks and automatically apply fixes (ruff check --fix).
+
+Run ruff linter across the project, automatically applying fixes by default.
+
+### `devops lint`
+
+**Run ruff linter across the project, automatically applying fixes by default.**
+
+```bash
+devops lint [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--fix`, `--no-fix` | `boolean` | `True` | Auto-fix violations where possible. |
+| `--check` | `boolean` | - | Check linting without applying automated fixes. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

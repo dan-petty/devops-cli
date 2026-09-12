@@ -6,6 +6,9 @@ from collections.abc import Sequence
 
 from rich.table import Table
 
+from devops_cli.output.formatters.tables import render_table
+from devops_cli.output.markup import escape_text
+
 
 def _normalize_col_name(col: str | tuple[str, str]) -> str:
     """Normalize column header into machine-readable dict key."""
@@ -31,20 +34,10 @@ def build_structured_table(
             results.append(record)
         return results
 
-    table = Table(title=title)
-    for col in columns:
-        if isinstance(col, tuple):
-            table.add_column(col[0], style=col[1])
-        else:
-            table.add_column(col)
-
     if not rows:
-        placeholder = [f"[italic]{empty_message}[/italic]"] + [""] * (len(columns) - 1)
-        table.add_row(*placeholder)
-        return table
+        placeholder: list[list[str]] = [
+            [f"[italic]{escape_text(empty_message)}[/italic]"] + [""] * (len(columns) - 1)
+        ]
+        return render_table(title=title, columns=columns, rows=placeholder, safe=False)
 
-    for row in rows:
-        str_row = [str(cell) for cell in row]
-        table.add_row(*str_row)
-
-    return table
+    return render_table(title=title, columns=columns, rows=rows, safe=True)

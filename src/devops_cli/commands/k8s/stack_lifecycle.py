@@ -11,13 +11,14 @@ from typing import Annotated
 
 import typer
 
-import devops_cli.commands.k8s as k8s
+import devops_cli.commands.k8s.cluster_runtime as runtime
+import devops_cli.commands.k8s.networking as net
+from devops_cli.commands.k8s.cluster_runtime import run_subprocess as run_subprocess
 from devops_cli.config.defaults import (
     DEFAULT_K8S_DIR,
     DEFAULT_K8S_STACK,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
-from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -140,7 +141,7 @@ def _adopt_helm_resource_if_conflict(
         kind = kind_raw.lower()
         adopt_msg = f"Adopting pre-existing {kind}/{name} for release '{release_name}'..."
         print_warning(adopt_msg)
-        k8s._run_cmd(
+        runtime._run_cmd(
             [
                 "kubectl",
                 "annotate",
@@ -155,7 +156,7 @@ def _adopt_helm_resource_if_conflict(
             + ctx_args,
             check=False,
         )
-        k8s._run_cmd(
+        runtime._run_cmd(
             [
                 "kubectl",
                 "label",
@@ -239,7 +240,7 @@ def _bootstrap_openwebui_account(
     ]
     if context:
         pod_cmd.extend(["--context", context])
-    res_pod = k8s._run_cmd(pod_cmd, check=False, capture=True)
+    res_pod = runtime._run_cmd(pod_cmd, check=False, capture=True)
     pod_name = (res_pod.stdout or "").strip()
     if not pod_name:
         return (False, False)
@@ -248,7 +249,7 @@ def _bootstrap_openwebui_account(
     if context:
         exec_cmd.extend(["--context", context])
     exec_cmd.extend(["--", "python", "-"])
-    res = k8s._run_cmd(exec_cmd, input=py_script, check=False, capture=True)
+    res = runtime._run_cmd(exec_cmd, input=py_script, check=False, capture=True)
     created = "CREATED" in (res.stdout or "")
     return (res.returncode == 0, created)
 
@@ -288,7 +289,7 @@ def bootstrap_openwebui(
         return
 
     print_info(f"Bootstrapping Open-WebUI local admin account ({email})...")
-    ok, created = k8s._bootstrap_openwebui_account(
+    ok, created = _bootstrap_openwebui_account(
         context=context, email=email, name=name, password=effective_password
     )
     if ok:
@@ -326,9 +327,9 @@ def _ensure_qdrant_api_key_secret(
     from devops_cli.config.settings import _keyring_get, _keyring_set
     from devops_cli.k8s.credentials import fetch_qdrant_api_key
 
-    k8s._validate_k8s_identifier(namespace, "namespace", namespace=True)
+    runtime._validate_k8s_identifier(namespace, "namespace", namespace=True)
     if context:
-        k8s._validate_k8s_identifier(context, "context")
+        runtime._validate_k8s_identifier(context, "context")
     kubectl_ctx = ["--context", context] if context else []
 
     check_cmd = ["kubectl", "get", "secret", "qdrant-api-key", "-n", namespace] + kubectl_ctx
@@ -384,9 +385,9 @@ def deploy_stack(
 ) -> None:
     """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes."""
     if context:
-        k8s._validate_k8s_identifier(context, "context")
+        runtime._validate_k8s_identifier(context, "context")
 
-    selected_stacks = k8s._resolve_stacks(stack)
+    selected_stacks = net._resolve_stacks(stack)
 
     all_releases: list[dict[str, str]] = []
     all_manifests: list[str] = []
@@ -413,7 +414,7 @@ def deploy_stack(
         return
 
     # 1. Verify cluster reachability
-    if not k8s._cluster_reachable(context=context):
+    if not runtime._cluster_reachable(context=context):
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         if not context or context == "minikube":
             print_info(MESSAGES.k8s.start_minikube_tip, prefix=False)
@@ -424,7 +425,7 @@ def deploy_stack(
 
     # 2. Apply kustomize base (namespaces)
     print_info("[bold]Applying namespaces...[/bold]", prefix=False)
-    k8s._run_cmd(["kubectl", "apply", "-k", str(k8s_dir)] + kubectl_ctx)
+    runtime._run_cmd(["kubectl", "apply", "-k", str(k8s_dir)] + kubectl_ctx)
 
     # 3. Add Helm repos for selected stacks
     repos_to_add: dict[str, str] = {}
@@ -434,13 +435,13 @@ def deploy_stack(
     if repos_to_add:
         print_info(MESSAGES.k8s.adding_helm_repos, prefix=False)
         for repo_name, repo_url in repos_to_add.items():
-            k8s._run_cmd(["helm", "repo", "add", repo_name, repo_url], check=False)
-        k8s._run_cmd(["helm", "repo", "update"])
+            runtime._run_cmd(["helm", "repo", "add", repo_name, repo_url], check=False)
+        runtime._run_cmd(["helm", "repo", "update"])
 
     # 4. Install native manifests
     for manifest_path in all_manifests:
         print_info(f"[bold]Applying manifest {Path(manifest_path).name}...[/bold]", prefix=False)
-        k8s._run_cmd(["kubectl", "apply", "-f", manifest_path] + kubectl_ctx, check=False)
+        runtime._run_cmd(["kubectl", "apply", "-f", manifest_path] + kubectl_ctx, check=False)
 
     # 5. Install Helm releases
     for release in all_releases:
@@ -469,20 +470,20 @@ def deploy_stack(
         if wait:
             helm_cmd.extend(["--wait", "--timeout", timeout])
 
-        result = k8s._run_cmd(helm_cmd, check=False, capture=True)
+        result = runtime._run_cmd(helm_cmd, check=False, capture=True)
         # If conflict occurs on pre-existing unmanaged resources, adopt and retry up to 5 times
         for _ in range(5):
             if result.returncode == 0:
                 break
             err_msg = (result.stderr or "") + " " + (result.stdout or "")
-            if not k8s._adopt_helm_resource_if_conflict(
+            if not _adopt_helm_resource_if_conflict(
                 err_msg,
                 release["name"],
                 release["namespace"],
                 context=context,
             ):
                 break
-            result = k8s._run_cmd(helm_cmd, check=False, capture=True)
+            result = runtime._run_cmd(helm_cmd, check=False, capture=True)
 
         if result.returncode != 0:
             err_details = (result.stderr or result.stdout or "").strip()
@@ -494,7 +495,7 @@ def deploy_stack(
     write_stdout("\n")
     print_success(f"Kubernetes stack ({stack}) deployed.")
     write_stdout("\n")
-    k8s.port_forward(stack=stack, context=context)
+    net.port_forward(stack=stack, context=context)
     write_stdout("\n")
     if "infra" in selected_stacks:
         from devops_cli.k8s.credentials import sync_k8s_credentials
@@ -518,7 +519,7 @@ def deploy_stack(
         synced_llm = sync_k8s_credentials(context=context, stack="llm")
         if synced_llm.get("qdrant"):
             print_success("Qdrant API key securely synced to OS Keyring.")
-        k8s._bootstrap_openwebui_account(context=context)
+        _bootstrap_openwebui_account(context=context)
         print_info("[dim]Ollama: http://localhost:11434 (namespace: llm)[/dim]", prefix=False)
         print_info(
             "[dim]Open-WebUI: http://localhost:3000 (Admin: admin@localhost | Sign-ups: enabled)[/dim]",
@@ -540,7 +541,7 @@ def sync_secrets(
 ) -> None:
     """Fetch stack admin credentials (ArgoCD, Grafana) from Kubernetes and store in OS Keyring."""
     if context:
-        k8s._validate_k8s_identifier(context, "context")
+        runtime._validate_k8s_identifier(context, "context")
 
     set_dry_run(dry_run)
     if is_dry_run():
@@ -555,7 +556,7 @@ def sync_secrets(
         )
         return
 
-    if not k8s._cluster_reachable(context=context):
+    if not runtime._cluster_reachable(context=context):
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         raise typer.Exit(1)
 
@@ -579,9 +580,9 @@ def teardown_stack(
 ) -> None:
     """Uninstall the k8s infrastructure / LLM stack and delete namespaces."""
     if context:
-        k8s._validate_k8s_identifier(context, "context")
+        runtime._validate_k8s_identifier(context, "context")
 
-    selected_stacks = k8s._resolve_stacks(stack)
+    selected_stacks = net._resolve_stacks(stack)
 
     all_uninstalls: list[dict[str, str]] = []
     all_manifest_deletes: list[str] = []
@@ -605,7 +606,7 @@ def teardown_stack(
         )
         return
 
-    if not k8s._cluster_reachable(context=context):
+    if not runtime._cluster_reachable(context=context):
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         raise typer.Exit(1)
 
@@ -615,7 +616,7 @@ def teardown_stack(
     # 1. Delete manifests
     for manifest_path in all_manifest_deletes:
         print_info(f"[bold]Deleting manifest {Path(manifest_path).name}...[/bold]", prefix=False)
-        k8s._run_cmd(
+        runtime._run_cmd(
             ["kubectl", "delete", "-f", manifest_path, "--ignore-not-found"] + kubectl_ctx,
             check=False,
         )
@@ -623,7 +624,7 @@ def teardown_stack(
     # 2. Uninstall Helm releases in reverse order
     for release in all_uninstalls:
         print_info(f"[bold]Uninstalling {release['name']}...[/bold]", prefix=False)
-        k8s._run_cmd(
+        runtime._run_cmd(
             ["helm", "uninstall", release["name"], "--namespace", release["namespace"]] + helm_ctx,
             check=False,
         )
@@ -632,26 +633,26 @@ def teardown_stack(
     normalized_stack = stack.lower()
     if normalized_stack == "all":
         print_info(MESSAGES.k8s.removing_stack_namespaces, prefix=False)
-        k8s._run_cmd(
+        runtime._run_cmd(
             ["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"] + kubectl_ctx,
             check=False,
         )
     elif normalized_stack == "infra":
         print_info(MESSAGES.k8s.removing_infra_namespaces, prefix=False)
         for ns in ["argocd", "monitoring", "otel"]:
-            k8s._run_cmd(
+            runtime._run_cmd(
                 ["kubectl", "delete", "namespace", ns, "--ignore-not-found"] + kubectl_ctx,
                 check=False,
             )
     elif normalized_stack == "llm":
         print_info(MESSAGES.k8s.removing_llm_namespace, prefix=False)
-        k8s._run_cmd(
+        runtime._run_cmd(
             ["kubectl", "delete", "namespace", "llm", "--ignore-not-found"] + kubectl_ctx,
             check=False,
         )
     elif normalized_stack == "logging":
         print_info("Removing logging namespace...", prefix=False)
-        k8s._run_cmd(
+        runtime._run_cmd(
             ["kubectl", "delete", "namespace", "logging", "--ignore-not-found"] + kubectl_ctx,
             check=False,
         )

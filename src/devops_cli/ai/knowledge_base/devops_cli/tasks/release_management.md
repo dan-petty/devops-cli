@@ -47,10 +47,12 @@ devops release create-pr --version 0.2.0
 
 ## 4. Best Practice Guidance
 
-1. **Strict Semantic Versioning**: Follow SemVer 2.0.0 (`MAJOR.MINOR.PATCH`):
-   - `MAJOR`: Incompatible breaking API or CLI contract changes.
-   - `MINOR`: Backwards-compatible new features, commands, or tools.
-   - `PATCH`: Backwards-compatible bug fixes and security patches.
+1. **Pre-1.0 Alpha Lifecycle vs Post-1.0 Semantic Versioning**:
+   - **Pre-1.0 Alpha Policy (Prior to `1.0.0`)**: Active alpha software with **zero backwards compatibility guarantee**. Breaking changes, interface evolutions, and schema redesigns may occur across any pre-1.0 release without legacy wrappers. The codebase must remain clean of legacy references and obsolete shims at all times.
+   - **Post-1.0 Governance (SemVer 2.0.0)**: Releases after `1.0.0` strictly follow SemVer 2.0.0 (`MAJOR.MINOR.PATCH`) with enterprise change management (feature flags, multi-release deprecation cycles, and migration tooling):
+     - `MAJOR (`X.0.0`)`: Incompatible breaking API or CLI contract changes.
+     - `MINOR (`X.Y.0`)`: Backwards-compatible new features, commands, or tools.
+     - `PATCH (`X.Y.Z`)`: Backwards-compatible bug fixes and security patches.
 2. **Update Release Notes**: Document all notable additions, fixes, refactorings, and documentation updates under `docs/commands/release.md` under the corresponding version header.
 3. **Always Run `release check`**: Never push a release branch or open a release PR without verifying `devops release check` completes with 10/10 green gates.
 4. **Synchronize CLI Docs**: Always run `devops docs generate --sync-readme` when adding new commands or options before cutting a release.

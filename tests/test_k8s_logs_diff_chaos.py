@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
@@ -138,3 +139,22 @@ def test_build_pods_table_masks_credentials_in_exceptions() -> None:
         table = _build_pods_table("default", None, False)
         rendered = str(table.rows)
         assert "secret_token_xyz123" not in rendered
+
+
+def test_execute_chaos_experiment_rejects_injection_arguments() -> None:
+    from devops_cli.exceptions import ValidationError
+
+    with pytest.raises(ValidationError, match="Invalid Kubernetes namespace identifier"):
+        execute_chaos_experiment("pod-kill", "web-app", namespace="--all-namespaces")
+
+    with pytest.raises(ValidationError, match="Invalid Kubernetes deployment identifier"):
+        execute_chaos_experiment("pod-kill", "web-app; rm -rf", namespace="default")
+
+
+@patch("devops_cli.k8s.chaos.run_subprocess")
+def test_execute_chaos_experiment_rejects_invalid_target_pod(mock_run: MagicMock) -> None:
+    from devops_cli.exceptions import ValidationError
+
+    mock_run.return_value = MagicMock(returncode=0, stdout="pod/--flag-injection\n", stderr="")
+    with pytest.raises(ValidationError, match="Invalid Kubernetes pod identifier"):
+        execute_chaos_experiment("pod-kill", "web-app", duration_seconds=1)

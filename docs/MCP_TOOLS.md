@@ -36,6 +36,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
 | [`docker_sandbox`](#docker-sandbox) | Execute command inside an isolated Docker container sandbox. |
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
+| [`docs_compact`](#docs-compact) | Compact historical release series documentation (v0.2.x -> v0.3.x). |
 | [`gh_issue_create`](#gh-issue-create) | Create a new GitHub issue linking milestone and taxonomy labels. |
 | [`gh_issue_list`](#gh-issue-list) | List repository issues with milestone, taxonomy labels, and status. |
 | [`gh_issue_status`](#gh-issue-status) | Display aggregated issue counts by priority, type, and milestone. |
@@ -91,6 +92,10 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_path`](#review-path) | Run an AI code review on local files matching pattern using specified persona. |
 | [`review_pr`](#review-pr) | Fetch GitHub PR diff and review using specified persona; optionally post comment. |
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
+| [`sandbox_deploy`](#sandbox-deploy) | Deploy an isolated workload container sandbox with security containment and port allocation. |
+| [`sandbox_exec`](#sandbox-exec) | Execute a command inside an active sandbox container. |
+| [`sandbox_status`](#sandbox-status) | Inspect status of deployed sandbox containers. |
+| [`sandbox_stop`](#sandbox-stop) | Gracefully stop and remove a sandbox container. |
 | [`scan_aibom`](#scan-aibom) | Generate an AI Bill of Materials (AIBOM) cataloging models, datasets, and licenses. |
 | [`scan_checkov`](#scan-checkov) | Scan Infrastructure-as-Code (Terraform, Helm, Kubernetes, Dockerfile) via Checkov. |
 | [`scan_complexity`](#scan-complexity) | Inspect Python codebase for cyclomatic complexity and excessive indentation depth. |
@@ -442,6 +447,21 @@ Execute command inside an isolated Docker container sandbox.
 List local Docker images and display container information.
 
 *No parameters required.*
+
+### `docs_compact`
+
+Compact historical release series documentation (v0.2.x -> v0.3.x).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `series` | `string` | No | `v0.2` | - |
+| `dry_run` | `boolean` | No | `True` | - |
+| `check` | `boolean` | No | `False` | - |
+| `roadmap_only` | `boolean` | No | `False` | - |
+| `release_notes_only` | `boolean` | No | `False` | - |
+| `log_only` | `boolean` | No | `False` | - |
 
 ### `gh_issue_create`
 
@@ -1005,6 +1025,59 @@ Fetch GitHub PR diff and review using specified persona; optionally post comment
 View accuracy metrics and false-positive rates per reviewer persona.
 
 *No parameters required.*
+
+### `sandbox_deploy`
+
+Deploy an isolated workload container sandbox with security containment and port allocation.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | `string` | No | `python:3.14-slim` | - |
+| `name` | `string` | No | - | - |
+| `ports` | `array` | No | - | - |
+| `workspace` | `string` | No | `.` | - |
+| `memory` | `string` | No | `2g` | - |
+| `cpus` | `number` | No | `2.0` | - |
+| `network` | `string` | No | `bridge` | - |
+| `read_only` | `boolean` | No | `True` | - |
+| `command` | `array` | No | - | - |
+
+### `sandbox_exec`
+
+Execute a command inside an active sandbox container.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `instance_id` | `string` | Yes | - | - |
+| `command` | `array` | Yes | - | - |
+| `workdir` | `string` | No | - | - |
+
+### `sandbox_status`
+
+Inspect status of deployed sandbox containers.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `instance_id` | `string` | No | - | - |
+| `all_instances` | `boolean` | No | `False` | - |
+
+### `sandbox_stop`
+
+Gracefully stop and remove a sandbox container.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `instance_id` | `string` | No | - | - |
+| `all_instances` | `boolean` | No | `False` | - |
+| `timeout` | `integer` | No | `10` | - |
 
 ### `scan_aibom`
 

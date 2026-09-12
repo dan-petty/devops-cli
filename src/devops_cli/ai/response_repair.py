@@ -21,7 +21,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.usage import RequestUsage
 
-from devops_cli.ai.review_schema import normalize_unicode_text, unique_lines
+from devops_cli.ai.text_utils import normalize_unicode_text, unique_lines
 
 __all__ = [
     "ExtractedToolCall",

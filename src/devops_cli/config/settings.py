@@ -12,7 +12,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from devops_cli.config import options as opt
+import devops_cli.config.options as opt
 from devops_cli.config.constants import (
     CONST_CONFIG_PATH as CONFIG_PATH,
 )
@@ -58,8 +58,6 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_CHUNK_SIZE,
     DEFAULT_RAG_DATA_DIR,
     DEFAULT_RAG_EMBEDDING_MODEL,
-    DEFAULT_RAG_EMBEDDING_TIMEOUT,
-    DEFAULT_RAG_EMBEDDING_URL,
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
     DEFAULT_REPOS_BASE_DIR,
@@ -169,11 +167,8 @@ class TelemetryConfig(BaseModel):
 
 
 class AIRAGConfig(BaseModel):
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(extra="ignore")
     enabled: bool = True
-    embedding_model: str = DEFAULT_RAG_EMBEDDING_MODEL
-    embedding_url: str | None = DEFAULT_RAG_EMBEDDING_URL
-    embedding_timeout: float = DEFAULT_RAG_EMBEDDING_TIMEOUT
     top_k: int = DEFAULT_RAG_TOP_K
     score_threshold: float = DEFAULT_RAG_SCORE_THRESHOLD
     chunk_size: int = DEFAULT_RAG_CHUNK_SIZE
@@ -215,6 +210,7 @@ class AITaskOverride(BaseModel):
     ollama_max_parallel: int | None = None
     api_base_url: str | None = None
     max_retries: int | None = None
+    timeout: float | None = None
 
 
 class AITasksConfig(BaseModel):
@@ -223,7 +219,9 @@ class AITasksConfig(BaseModel):
     metadata: AITaskOverride = AITaskOverride()
     analysis: AITaskOverride = AITaskOverride()
     compose: AITaskOverride = AITaskOverride()
-    embedding: AITaskOverride = AITaskOverride()
+    embedding: AITaskOverride = Field(
+        default_factory=lambda: AITaskOverride(model=DEFAULT_RAG_EMBEDDING_MODEL)
+    )
 
 
 class AIConfig(BaseModel):
@@ -241,6 +239,7 @@ class AIConfig(BaseModel):
     api_base_url: str | None = None
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES
+    timeout: float | None = None
     tasks: AITasksConfig = AITasksConfig()
     rag: AIRAGConfig = AIRAGConfig()
     cache: AICacheConfig = AICacheConfig()
@@ -298,6 +297,7 @@ class AIConfig(BaseModel):
                 "ollama_max_parallel": override.ollama_max_parallel,
                 "api_base_url": override.api_base_url,
                 "max_retries": override.max_retries,
+                "timeout": override.timeout,
             }.items()
             if v is not None
         }
