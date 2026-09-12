@@ -32,7 +32,9 @@ from devops_cli.commands.k8s.cluster_runtime import (
     _k8s_clients,
     _minikube_running,
     _run_cmd,
+    _start_minikube,
     _validate_k8s_identifier,
+    should_autostart_minikube,
 )
 from devops_cli.commands.k8s.diagnostics import (
     chaos_cmd,
@@ -160,8 +162,10 @@ __all__ = [
     "_resolve_k8s_node_port_url",
     "_resolve_stacks",
     "_run_cmd",
+    "_start_minikube",
     "_validate_k8s_identifier",
     "_verify_url_reachability",
+    "should_autostart_minikube",
     "VALID_STACKS",
 ]
 
@@ -169,6 +173,8 @@ _RUNTIME_ATTRS = {
     "_run_cmd",
     "_cluster_reachable",
     "_minikube_running",
+    "_start_minikube",
+    "should_autostart_minikube",
     "_k8s_clients",
     "_validate_k8s_identifier",
 }

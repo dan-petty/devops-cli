@@ -344,6 +344,23 @@ def validate_k8s_name(value: str, label: str = "resource", *, namespace: bool = 
     return value
 
 
+def validate_k8s_context_name(value: str, label: str = "context name") -> str:
+    """Validate that a kubeconfig context name is safe and non-empty.
+
+    Allows letters, digits, '.', '-', '_', ':', '/', '@', matching standard kubeconfig
+    naming patterns (including AWS EKS ARNs, GKE clusters, Docker Desktop, and user accounts)
+    while rejecting empty strings, control characters, and shell injection tokens.
+    """
+    clean_val = value.strip()
+    if not clean_val or not re.match(r"^[\w\.\:\-\/@]+$", clean_val):
+        print_error(
+            f"Invalid {label}: {value!r}. Must contain only alphanumeric, '.', '-', '_', ':', '/', or '@' characters.",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+    return clean_val
+
+
 def validate_version_str(version: str, tool_name: str = "tool") -> str:
     """Validate that a version string matches standard PEP 440 / SemVer pattern."""
     clean_version = version.strip()

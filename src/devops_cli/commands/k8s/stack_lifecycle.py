@@ -279,18 +279,22 @@ def bootstrap_openwebui(
     raw_env_password = os.environ.get("OPENWEBUI_ADMIN_PASSWORD", "").strip()
     was_generated = password is None and not raw_env_password
 
+    effective_context = runtime.resolve_effective_context(context)
+    if effective_context:
+        runtime._validate_kubeconfig_context_name(effective_context, "context")
+
     if is_dry_run():
         render_dry_run_result(
             command="devops k8s bootstrap-openwebui",
             target=email,
             action="bootstrap_openwebui_admin",
-            details={"email": email, "name": name, "context": context},
+            details={"email": email, "name": name, "context": effective_context},
         )
         return
 
     print_info(f"Bootstrapping Open-WebUI local admin account ({email})...")
     ok, created = _bootstrap_openwebui_account(
-        context=context, email=email, name=name, password=effective_password
+        context=effective_context, email=email, name=name, password=effective_password
     )
     if ok:
         print_success(f"Open-WebUI admin account ready: [bold]{email}[/bold]")
@@ -328,14 +332,17 @@ def _ensure_qdrant_api_key_secret(
     from devops_cli.k8s.credentials import fetch_qdrant_api_key
 
     runtime._validate_k8s_identifier(namespace, "namespace", namespace=True)
-    if context:
-        runtime._validate_k8s_identifier(context, "context")
-    kubectl_ctx = ["--context", context] if context else []
+    effective_context = runtime.resolve_effective_context(context)
+    if effective_context:
+        runtime._validate_kubeconfig_context_name(effective_context, "context")
+    kubectl_ctx = ["--context", effective_context] if effective_context else []
 
     check_cmd = ["kubectl", "get", "secret", "qdrant-api-key", "-n", namespace] + kubectl_ctx
     res = run_subprocess(check_cmd, quiet=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
     if res.returncode == 0:
-        return fetch_qdrant_api_key(namespace=namespace, context=context, save_to_keyring=True)
+        return fetch_qdrant_api_key(
+            namespace=namespace, context=effective_context, save_to_keyring=True
+        )
 
     key = _keyring_get("qdrant_api_key") or secrets.token_urlsafe(32)
     secret_manifest = json.dumps(
@@ -384,8 +391,9 @@ def deploy_stack(
     ] = "10m",
 ) -> None:
     """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes."""
-    if context:
-        runtime._validate_k8s_identifier(context, "context")
+    effective_context = runtime.resolve_effective_context(context)
+    if effective_context:
+        runtime._validate_kubeconfig_context_name(effective_context, "context")
 
     selected_stacks = net._resolve_stacks(stack)
 
@@ -404,7 +412,7 @@ def deploy_stack(
                 "kustomize_dir": str(k8s_dir),
                 "stack": stack,
                 "stacks": selected_stacks,
-                "context": context,
+                "context": effective_context,
                 "wait": wait,
                 "timeout": timeout,
                 "helm_releases": [r["name"] for r in all_releases],
@@ -414,14 +422,14 @@ def deploy_stack(
         return
 
     # 1. Verify cluster reachability
-    if not runtime._cluster_reachable(context=context):
+    if not runtime._cluster_reachable(context=effective_context):
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
-        if not context or context == "minikube":
+        if not effective_context or effective_context.strip().lower() == "minikube":
             print_info(MESSAGES.k8s.start_minikube_tip, prefix=False)
         raise typer.Exit(1)
 
-    kubectl_ctx = ["--context", context] if context else []
-    helm_ctx = ["--kube-context", context] if context else []
+    kubectl_ctx = ["--context", effective_context] if effective_context else []
+    helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
     # 2. Apply kustomize base (namespaces)
     print_info("[bold]Applying namespaces...[/bold]", prefix=False)
@@ -447,7 +455,7 @@ def deploy_stack(
     for release in all_releases:
         if release["name"] == "qdrant":
             qdrant_key = _ensure_qdrant_api_key_secret(
-                context=context, namespace=release["namespace"]
+                context=effective_context, namespace=release["namespace"]
             )
             if not qdrant_key:
                 print_error(
@@ -480,7 +488,7 @@ def deploy_stack(
                 err_msg,
                 release["name"],
                 release["namespace"],
-                context=context,
+                context=effective_context,
             ):
                 break
             result = runtime._run_cmd(helm_cmd, check=False, capture=True)
@@ -495,12 +503,12 @@ def deploy_stack(
     write_stdout("\n")
     print_success(f"Kubernetes stack ({stack}) deployed.")
     write_stdout("\n")
-    net.port_forward(stack=stack, context=context)
+    net.port_forward(stack=stack, context=effective_context)
     write_stdout("\n")
     if "infra" in selected_stacks:
         from devops_cli.k8s.credentials import sync_k8s_credentials
 
-        synced = sync_k8s_credentials(context=context, stack="infra")
+        synced = sync_k8s_credentials(context=effective_context, stack="infra")
         if synced.get("argocd"):
             print_success("ArgoCD admin credentials securely synced to OS Keyring.")
         if synced.get("grafana"):
@@ -516,10 +524,10 @@ def deploy_stack(
     if "llm" in selected_stacks:
         from devops_cli.k8s.credentials import sync_k8s_credentials
 
-        synced_llm = sync_k8s_credentials(context=context, stack="llm")
+        synced_llm = sync_k8s_credentials(context=effective_context, stack="llm")
         if synced_llm.get("qdrant"):
             print_success("Qdrant API key securely synced to OS Keyring.")
-        _bootstrap_openwebui_account(context=context)
+        _bootstrap_openwebui_account(context=effective_context)
         print_info("[dim]Ollama: http://localhost:11434 (namespace: llm)[/dim]", prefix=False)
         print_info(
             "[dim]Open-WebUI: http://localhost:3000 (Admin: admin@localhost | Sign-ups: enabled)[/dim]",
@@ -540,8 +548,9 @@ def sync_secrets(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Fetch stack admin credentials (ArgoCD, Grafana) from Kubernetes and store in OS Keyring."""
-    if context:
-        runtime._validate_k8s_identifier(context, "context")
+    effective_context = runtime.resolve_effective_context(context)
+    if effective_context:
+        runtime._validate_kubeconfig_context_name(effective_context, "context")
 
     set_dry_run(dry_run)
     if is_dry_run():
@@ -550,20 +559,20 @@ def sync_secrets(
             action="sync_stack_secrets",
             details={
                 "stack": stack,
-                "context": context or "active",
+                "context": effective_context or "active",
                 "targets": "argocd.password, grafana.password, qdrant.api_key",
             },
         )
         return
 
-    if not runtime._cluster_reachable(context=context):
+    if not runtime._cluster_reachable(context=effective_context):
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         raise typer.Exit(1)
 
     from devops_cli.k8s.credentials import sync_k8s_credentials
 
     print_info(f"Synchronizing Kubernetes credentials for stack ({stack})...", prefix=False)
-    results = sync_k8s_credentials(context=context, stack=stack)
+    results = sync_k8s_credentials(context=effective_context, stack=stack)
     for svc, success in results.items():
         if success:
             print_success(f"{svc.capitalize()} credentials securely stored in OS Keyring.")
@@ -579,8 +588,9 @@ def teardown_stack(
     ] = None,
 ) -> None:
     """Uninstall the k8s infrastructure / LLM stack and delete namespaces."""
-    if context:
-        runtime._validate_k8s_identifier(context, "context")
+    effective_context = runtime.resolve_effective_context(context)
+    if effective_context:
+        runtime._validate_kubeconfig_context_name(effective_context, "context")
 
     selected_stacks = net._resolve_stacks(stack)
 
@@ -599,19 +609,19 @@ def teardown_stack(
                 "kustomize_dir": str(k8s_dir),
                 "stack": stack,
                 "stacks": selected_stacks,
-                "context": context,
+                "context": effective_context,
                 "helm_uninstalls": [r["name"] for r in all_uninstalls],
                 "manifest_deletes": all_manifest_deletes,
             },
         )
         return
 
-    if not runtime._cluster_reachable(context=context):
+    if not runtime._cluster_reachable(context=effective_context):
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         raise typer.Exit(1)
 
-    kubectl_ctx = ["--context", context] if context else []
-    helm_ctx = ["--kube-context", context] if context else []
+    kubectl_ctx = ["--context", effective_context] if effective_context else []
+    helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
     # 1. Delete manifests
     for manifest_path in all_manifest_deletes:

@@ -262,7 +262,10 @@ def test_k8s_contexts_and_switch() -> None:
         assert result.exit_code == 0
         assert "minikube" in result.output
 
-    with patch("devops_cli.commands.k8s._run_cmd") as mock_run:
+    with (
+        patch("devops_cli.commands.k8s._minikube_running", return_value=True),
+        patch("devops_cli.commands.k8s._run_cmd") as mock_run,
+    ):
         result = runner.invoke(app, ["switch-context", "minikube"])
         assert result.exit_code == 0
         mock_run.assert_called_once()
@@ -540,8 +543,12 @@ def test_k8s_helpers_and_error_branches(tmp_path: Path) -> None:
 def test_k8s_extended_subcommands(tmp_path: Path) -> None:
     """Verify switch-context, teardown-stack, enable-tls, check-deprecated, lint, audit, and validate."""
     # 1. switch-context
-    with patch(
-        "devops_cli.commands.k8s.run_subprocess", return_value=_mock_proc(0, "Switched to minikube")
+    with (
+        patch("devops_cli.commands.k8s._minikube_running", return_value=True),
+        patch(
+            "devops_cli.commands.k8s.run_subprocess",
+            return_value=_mock_proc(0, "Switched to minikube"),
+        ),
     ):
         res_switch = runner.invoke(app, ["switch-context", "minikube"])
         assert res_switch.exit_code == 0

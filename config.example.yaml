@@ -116,3 +116,9 @@ ai:
   #       - http://localhost:11434
 
   # API key: devops config set ai.api_key <value>
+
+# ── Kubernetes ────────────────────────────────────────────────────────────────
+k8s:
+  # Target Kubernetes cluster context (e.g. minikube, kind-cluster, remote cluster).
+  # When set to minikube, minikube autostarts on container startup or context switch if stopped.
+  context: minikube
