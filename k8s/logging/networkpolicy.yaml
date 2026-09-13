@@ -22,14 +22,6 @@ spec:
       ports:
         - protocol: TCP
           port: 3100
-    # 3. Allow ingress controller to query Loki (3100)
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
-      ports:
-        - protocol: TCP
-          port: 3100
 
   egress:
     # 1. Intra-namespace communications

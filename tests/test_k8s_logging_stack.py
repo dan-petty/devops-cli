@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
@@ -173,3 +175,62 @@ def test_k8s_teardown_stack_case_insensitive() -> None:
         result = runner.invoke(app, ["teardown-stack", "--stack", "LOGGING"])
         assert result.exit_code == 0
         assert "teardown_k8s_stack" in result.output
+
+
+def test_logging_stack_security_and_scoping() -> None:
+    """Verify DevSecOps perimeter hardening and namespace scoping for logging stack (#121)."""
+    repo_root = Path(__file__).resolve().parent.parent
+    logging_dir = repo_root / "k8s" / "logging"
+
+    # 1. Fluent Bit values verification
+    fluent_bit_path = logging_dir / "fluent-bit-values.yaml"
+    assert fluent_bit_path.is_file()
+    fb_doc = yaml.safe_load(fluent_bit_path.read_text(encoding="utf-8"))
+
+    # Verify HTTP listener bound strictly to loopback 127.0.0.1
+    service_conf = fb_doc.get("config", {}).get("service", "")
+    assert "HTTP_Listen 127.0.0.1" in service_conf
+    assert "HTTP_Listen 0.0.0.0" not in service_conf
+
+    # Verify container log tailing scoped to default, llm, sandbox
+    inputs_conf = fb_doc.get("config", {}).get("inputs", "")
+    assert "_default_" in inputs_conf
+    assert "_llm_" in inputs_conf
+    assert "_sandbox_" in inputs_conf
+    assert "Path /var/log/containers/*.log" not in inputs_conf
+
+    # 2. NetworkPolicy perimeter verification
+    np_path = logging_dir / "networkpolicy.yaml"
+    assert np_path.is_file()
+    np_doc = yaml.safe_load(np_path.read_text(encoding="utf-8"))
+    assert np_doc.get("metadata", {}).get("namespace") == "logging"
+
+    ingress_rules = np_doc.get("spec", {}).get("ingress", [])
+    assert len(ingress_rules) == 2  # intra-namespace and monitoring only
+
+    # Ingress rule 1: intra-namespace
+    assert ingress_rules[0].get("from") == [{"podSelector": {}}]
+
+    # Ingress rule 2: monitoring namespace port 3100
+    rule_monitoring = ingress_rules[1]
+    from_monitoring = rule_monitoring.get("from", [])
+    assert len(from_monitoring) == 1
+    assert (
+        from_monitoring[0]
+        .get("namespaceSelector", {})
+        .get("matchLabels", {})
+        .get("kubernetes.io/metadata.name")
+        == "monitoring"
+    )
+    assert rule_monitoring.get("ports") == [{"protocol": "TCP", "port": 3100}]
+
+    # Ensure no ingress-nginx or unconstrained CIDR rules
+    for rule in ingress_rules:
+        for f in rule.get("from", []):
+            ns_name = (
+                f.get("namespaceSelector", {})
+                .get("matchLabels", {})
+                .get("kubernetes.io/metadata.name", "")
+            )
+            assert ns_name != "ingress-nginx"
+            assert "ipBlock" not in f
