@@ -668,6 +668,24 @@ class GHCommandHelp:
     issues_triage: str = "Audit open issues for mandatory taxonomy labels and milestone linkage."
     issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
     issues_edit: str = "Edit an existing issue title, body, or state."
+    branch_protection_app: str = "Manage declarative branch protection rulesets and policies."
+    branch_protection_audit: str = (
+        "Audit repository branch protection rulesets against declarative policy specification."
+    )
+    branch_protection_sync: str = "Synchronize repository branch protection rulesets against declarative policy specification."
+    branch_protection_branch: str = (
+        "Target specific branch for protection audit or synchronization."
+    )
+    branch_protection_policy_file: str = "Path to declarative branch protection policy YAML file."
+    secrets_app: str = "Manage and synchronize libsodium-sealed repository secrets."
+    secrets_sync: str = (
+        "Synchronize repository secrets from OS Keyring or HashiCorp Vault with libsodium sealing."
+    )
+    secrets_source: str = "Source store for secrets to synchronize (keyring or vault)."
+    secrets_names: str = "Comma-separated list of secret names to synchronize."
+    secrets_vault_path: str = (
+        "Vault KV-v2 secret path when source is vault (default: secret/devops)."
+    )
 
 
 @dataclass(frozen=True)

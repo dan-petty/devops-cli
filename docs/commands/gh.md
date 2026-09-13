@@ -544,6 +544,88 @@ devops gh runs view [OPTIONS] <run_id>
 
 ---
 
+## `devops gh branch-protection`
+
+```bash
+devops gh branch-protection COMMAND [ARGS]...
+```
+
+### `devops gh branch-protection audit`
+
+**Audit repository branch protection rulesets against declarative policy specification.**
+
+```bash
+devops gh branch-protection audit [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--branch`, `-b` | `string` | - | Target specific branch for protection audit or synchronization. |
+| `--policy-file`, `-f` | `path` | `.github/branch-protection.yml` | Path to declarative branch protection policy YAML file. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+### `devops gh branch-protection sync`
+
+**Synchronize repository branch protection rulesets against declarative policy specification.**
+
+```bash
+devops gh branch-protection sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--branch`, `-b` | `string` | - | Target specific branch for protection audit or synchronization. |
+| `--policy-file`, `-f` | `path` | `.github/branch-protection.yml` | Path to declarative branch protection policy YAML file. |
+| `--dry-run` | `boolean` | - | Preview branch protection synchronization without applying mutations |
+
+---
+
+## `devops gh secrets`
+
+```bash
+devops gh secrets COMMAND [ARGS]...
+```
+
+### `devops gh secrets sync`
+
+**Synchronize repository secrets from OS Keyring or HashiCorp Vault with libsodium sealing.**
+
+```bash
+devops gh secrets sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--secret-names`, `-n` | `string` | - | Comma-separated list of secret names to synchronize. |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--source`, `-s` | `string` | `keyring` | Source store for secrets to synchronize (keyring or vault). |
+| `--vault-path` | `string` | `secret/devops` | Vault KV-v2 secret path when source is vault (default: secret/devops). |
+| `--dry-run` | `boolean` | - | Preview secret synchronization without mutations |
+
+### `devops gh secrets list`
+
+**List Actions secrets configured in the repository (names only, values are hidden).**
+
+```bash
+devops gh secrets list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
+---
+
 ## `devops gh pr`
 
 ```bash
