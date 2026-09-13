@@ -175,8 +175,6 @@ def sync_repository_secrets(
         return SecretSyncResult(dry_run=dry_run)
 
     public_key: GitHubPublicKey | None = None
-    if not dry_run:
-        public_key = get_repository_public_key(repo)
 
     with trace_span(
         "github.secrets.sync",
@@ -208,7 +206,8 @@ def sync_repository_secrets(
                 )
                 continue
 
-            assert public_key is not None
+            if public_key is None:
+                public_key = get_repository_public_key(repo)
             enc_val = encrypt_secret(public_key.key, secret_value)
             success = _upload_encrypted_secret(repo, name, enc_val, public_key.key_id)
             if success:

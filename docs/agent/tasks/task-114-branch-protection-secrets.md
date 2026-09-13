@@ -64,5 +64,5 @@ Implement declarative branch protection policy enforcement and libsodium-encrypt
 - [x] Register CLI subcommands in `src/devops_cli/commands/gh.py` and update `help.py`.
 - [x] Author unit tests in `tests/test_github_branch_protection.py` and `tests/test_github_secrets.py`.
 - [x] Run quality gates (`devops scan complexity`, `ruff`, `mypy`, `pytest`, `devops docs generate --check`).
-- [ ] Commit changes, push branch, and open Draft Pull Request to `release/v0.2.17`.
+- [x] Commit changes, push branch, and open Draft Pull Request to `release/v0.2.17` ([#197](https://github.com/dan-petty/devops-cli/pull/197)).
 - [ ] Monitor CI checks, transition PR to ready, address review threads, and squash-merge into `release/v0.2.17`.

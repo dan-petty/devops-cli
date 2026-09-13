@@ -141,13 +141,17 @@ def test_sync_repository_secrets_empty_list() -> None:
     assert len(res.missing_secrets) == 0
 
 
+@patch("devops_cli.github.secrets.get_repository_public_key")
 @patch("devops_cli.github.secrets._resolve_secret_from_source")
-def test_sync_repository_secrets_missing_secret(mock_resolve: MagicMock) -> None:
+def test_sync_repository_secrets_missing_secret(
+    mock_resolve: MagicMock, mock_pk: MagicMock
+) -> None:
     mock_resolve.return_value = None
     res = sync_repository_secrets("dan-petty/devops-cli", secret_names=["NONEXISTENT"])
     assert "NONEXISTENT" in res.missing_secrets
     assert len(res.items) == 1
     assert res.items[0].status == "missing"
+    mock_pk.assert_not_called()
 
 
 @patch("devops_cli.github.secrets._resolve_secret_from_source")
