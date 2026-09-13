@@ -978,17 +978,29 @@ def edit_issue_cmd(
         return
 
     owner, repo_name = target_repo.split("/", 1)
-    cmd = [CONST_GH_CLI, "api", "--method", "PATCH", f"repos/{owner}/{repo_name}/issues/{number}"]
+    payload: dict[str, Any] = {}
     if title is not None:
-        cmd.extend(["-f", f"title={title}"])
+        payload["title"] = title
     if body is not None:
-        cmd.extend(["-f", f"body={body}"])
+        payload["body"] = body
     if state is not None:
-        cmd.extend(["-f", f"state={state}"])
+        payload["state"] = state
 
-    res = run_subprocess(cmd, check=False)
+    cmd = [
+        CONST_GH_CLI,
+        "api",
+        "--method",
+        "PATCH",
+        f"repos/{owner}/{repo_name}/issues/{number}",
+        "--input",
+        "-",
+    ]
+    res = run_subprocess(cmd, input=json.dumps(payload), check=False)
     if res.returncode != 0:
-        print_error(f"Failed to edit issue #{number}: {res.stderr.strip()}")
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets(res.stderr.strip()[:256])
+        print_error(f"Failed to edit issue #{number}: {clean_err}", safe=True)
         raise typer.Exit(res.returncode)
     print_success(f"Issue #{number} updated successfully.")
 
@@ -1023,7 +1035,10 @@ def rate_limit_cmd(
     """Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."""
     res = run_subprocess([CONST_GH_CLI, "api", "rate_limit"], check=False, quiet=True)
     if res.returncode != 0:
-        print_error(f"Failed to query rate limits: {res.stderr.strip()}")
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets(res.stderr.strip()[:256])
+        print_error(f"Failed to query rate limits: {clean_err}", safe=True)
         raise typer.Exit(res.returncode)
 
     try:
@@ -1036,9 +1051,9 @@ def rate_limit_cmd(
         raise typer.Exit(1)
 
     if output_format == "json":
-        from devops_cli.output import print as print_out
+        from devops_cli.output import write_stream
 
-        print_out(json.dumps(data, indent=2))
+        write_stream(json.dumps(data, indent=2) + "\n")
         return
 
     resources = data.get("resources", {})
@@ -1108,7 +1123,10 @@ def runs_list_cmd(
 
     res = run_subprocess(cmd, check=False)
     if res.returncode != 0:
-        print_error(f"Failed to list workflow runs: {res.stderr.strip()}")
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets(res.stderr.strip()[:256])
+        print_error(f"Failed to list workflow runs: {clean_err}", safe=True)
         raise typer.Exit(res.returncode)
 
     try:
@@ -1117,9 +1135,9 @@ def runs_list_cmd(
         runs = []
 
     if output_format == "json":
-        from devops_cli.output import print as print_out
+        from devops_cli.output import write_stream
 
-        print_out(json.dumps(runs, indent=2))
+        write_stream(json.dumps(runs, indent=2) + "\n")
         return
 
     rows: list[list[str]] = []
@@ -1161,7 +1179,10 @@ def runs_view_cmd(
 
     res = run_subprocess(cmd, check=False)
     if res.returncode != 0:
-        print_error(f"Failed to view workflow run #{run_id}: {res.stderr.strip()}")
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets(res.stderr.strip()[:256])
+        print_error(f"Failed to view workflow run #{run_id}: {clean_err}", safe=True)
         raise typer.Exit(res.returncode)
 
     if res.stdout:

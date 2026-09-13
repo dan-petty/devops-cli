@@ -117,12 +117,18 @@ def _render_pr_list_fallback(state: str, limit: int, repo: str | None = None) ->
     if not target or "/" not in target:
         return False
     owner, repo_name = target.split("/", 1)
-    api_state = "all" if state == "all" else ("closed" if state == "closed" else "open")
+    if state == "all":
+        api_state = "all"
+    elif state in ("closed", "merged"):
+        api_state = "closed"
+    else:
+        api_state = "open"
+    fetch_limit = min(max(limit * 2, 50), 100) if state == "merged" else limit
     res = run_subprocess(
         [
             CONST_GH_CLI,
             "api",
-            f"repos/{owner}/{repo_name}/pulls?state={api_state}&per_page={limit}",
+            f"repos/{owner}/{repo_name}/pulls?state={api_state}&per_page={fetch_limit}",
         ],
         check=False,
     )
@@ -131,6 +137,9 @@ def _render_pr_list_fallback(state: str, limit: int, repo: str | None = None) ->
     try:
         prs = json.loads(res.stdout)
         if isinstance(prs, list):
+            if state == "merged":
+                prs = [p for p in prs if isinstance(p, dict) and p.get("merged_at") is not None]
+            prs = prs[:limit]
             _render_pr_table(prs, state)
             return True
     except json.JSONDecodeError:
@@ -703,6 +712,28 @@ def _detect_current_branch() -> str | None:
     return res.stdout.strip() if res.returncode == 0 and res.stdout.strip() else None
 
 
+def _find_existing_pr(owner: str, repo_name: str, head: str, base: str) -> dict[str, Any] | None:
+    """Check if an open pull request already exists for the given head and base branches."""
+    res = run_subprocess(
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls?head={owner}:{head}&state=open"],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode != 0 or not res.stdout.strip():
+        return None
+    try:
+        items = json.loads(res.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(items, list):
+        return None
+
+    for item in items:
+        if isinstance(item, dict) and (not base or item.get("base", {}).get("ref") == base):
+            return item
+    return None
+
+
 def _fallback_create_pr(
     title: str,
     body: str,
@@ -720,6 +751,14 @@ def _fallback_create_pr(
     head = _detect_current_branch()
     if not head:
         return False
+
+    existing = _find_existing_pr(owner, repo_name, head, base)
+    if existing:
+        num = existing.get("number", "")
+        url = existing.get("html_url") or existing.get("url", "")
+        print_success(f"Pull request #{num} already exists: {url}")
+        return True
+
     cmd = [
         CONST_GH_CLI,
         "api",
@@ -884,7 +923,10 @@ def diff_pr(
         cmd.extend(["--repo", repo])
     res = run_subprocess(cmd, check=False)
     if res.returncode != 0:
-        print_error(f"Failed to fetch diff for PR #{number}: {res.stderr.strip()}", safe=True)
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets(res.stderr.strip()[:256])
+        print_error(f"Failed to fetch diff for PR #{number}: {clean_err}", safe=True)
         raise typer.Exit(res.returncode)
     if res.stdout:
         from devops_cli.output import write_stream
@@ -925,7 +967,10 @@ def close_pr(
         cmd.extend(["--repo", repo])
     res = run_subprocess(cmd, check=False)
     if res.returncode != 0:
-        print_error(f"Failed to close PR #{number}: {res.stderr.strip()}")
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets(res.stderr.strip()[:256])
+        print_error(f"Failed to close PR #{number}: {clean_err}", safe=True)
         raise typer.Exit(res.returncode)
     print_success(MESSAGES.pr.pr_closed_success.format(number=number))
 
@@ -977,6 +1022,14 @@ def _evaluate_pr_blockers(
 
     if mergeable is False or mergeable_state in ("dirty", "conflicting"):
         blockers.append(f"PR #{pr_num} has merge conflicts with base branch '{base_ref}'.")
+    elif mergeable is None or mergeable_state in ("unknown", ""):
+        blockers.append(
+            f"PR #{pr_num} mergeability is unresolved or still calculating on GitHub (mergeable: {mergeable}, state: '{mergeable_state}')."
+        )
+    elif mergeable_state == "blocked":
+        blockers.append(
+            f"PR #{pr_num} merge state is blocked by GitHub branch protection or checks (state: 'blocked')."
+        )
 
     if require_ready and is_draft:
         blockers.append(f"PR #{pr_num} is currently in draft status (convert to ready for review).")

@@ -88,3 +88,14 @@ def test_ai_config_for_task_with_context_window_overrides() -> None:
     chat_cfg = base_ai.for_task("chat")
     assert chat_cfg.model == "base-model"
     assert chat_cfg.context_window == 32768
+
+
+def test_find_project_config_path_rejects_directory(tmp_path: Path, monkeypatch) -> None:
+    """Ensure _find_project_config_path ignores directories set in DEVOPS_CLI_CONFIG."""
+    test_dir = tmp_path / "config_dir"
+    test_dir.mkdir()
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_dir))
+
+    # Should not return the directory
+    found = settings._find_project_config_path(base_dir=tmp_path)
+    assert found != test_dir

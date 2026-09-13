@@ -39,16 +39,17 @@ def _run_mcp_cmd(
     timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
 ) -> str:
     """Run a subprocess command for an MCP tool and return combined output or error status."""
+    from devops_cli.security.sanitizer import mask_secrets
+
     try:
         res = run_subprocess(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return f"Command timed out after {timeout} seconds: {' '.join(cmd)}"
+        safe_cmd = mask_secrets(" ".join(cmd))
+        return f"Command timed out after {timeout} seconds: {safe_cmd}"
     except (OSError, subprocess.SubprocessError) as exc:
-        return f"Execution failed: {exc}"
+        return f"Execution failed: {mask_secrets(str(exc))}"
 
     output = (res.stdout + ("\n" + res.stderr if res.stderr else "")).strip()
-    from devops_cli.security.sanitizer import mask_secrets
-
     output = mask_secrets(output)
     if res.returncode != 0:
         return f"Command exited with status {res.returncode}:\n{output}"

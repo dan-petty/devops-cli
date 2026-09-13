@@ -433,13 +433,21 @@ def test_mcp_helpers_and_error_branches() -> None:
         "devops_cli.ai.mcp.server.run_subprocess",
         side_effect=subprocess.TimeoutExpired(cmd=["uv"], timeout=5.0),
     ):
-        res_to = _run_mcp_cmd(["uv", "run", "devops"], timeout=5.0)
+        res_to = _run_mcp_cmd(
+            ["uv", "run", "devops", "ghp_secrettoken1234567890abcdefghijklmn"],
+            timeout=5.0,
+        )
         assert "timed out after 5.0 seconds" in res_to
+        assert "ghp_secrettoken" not in res_to
 
     # 3. _run_mcp_cmd OSError
-    with patch("devops_cli.ai.mcp.server.run_subprocess", side_effect=OSError("binary not found")):
+    with patch(
+        "devops_cli.ai.mcp.server.run_subprocess",
+        side_effect=OSError("binary not found with ghp_secrettoken1234567890abcdefghijklmn"),
+    ):
         res_os = _run_mcp_cmd(["uv"])
         assert "Execution failed" in res_os
+        assert "ghp_secrettoken" not in res_os
 
     # 4. _run_mcp_cmd non-zero exit code
     mock_fail = subprocess.CompletedProcess(

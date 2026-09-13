@@ -192,3 +192,39 @@ def test_constants_integrity() -> None:
     assert "*TOKEN*" in DEFAULT_DENIED_ENV_PATTERNS
     assert "*SECRET*" in DEFAULT_DENIED_ENV_PATTERNS
     assert "*KEY*" in DEFAULT_DENIED_ENV_PATTERNS
+
+
+def test_run_subprocess_gh_forwards_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify run_subprocess forwards GH_TOKEN and maps DEVOPS_CLI_GITHUB_TOKEN for gh binary."""
+    from unittest.mock import MagicMock, patch
+
+    monkeypatch.setenv("DEVOPS_CLI_GITHUB_TOKEN", "ghp_devops_secret_token")
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        run_subprocess(["gh", "pr", "list"])
+        passed_env = mock_run.call_args.kwargs.get("env", {})
+        assert passed_env.get("GH_TOKEN") == "ghp_devops_secret_token"
+
+
+def test_sanitize_command_for_telemetry() -> None:
+    """Verify _sanitize_command_for_telemetry redacts sensitive args and user comments."""
+    from devops_cli.core.process import _sanitize_command_for_telemetry
+
+    cmd = [
+        "gh",
+        "pr",
+        "close",
+        "187",
+        "--comment",
+        "Secret comment ghp_secrettoken1234567890abcdefghijklmn",
+    ]
+    summary = _sanitize_command_for_telemetry(cmd)
+    assert "[REDACTED]" in summary
+    assert "ghp_secrettoken" not in summary
+
+    cmd2 = ["gh", "api", "issues/1", "-f", "title=Secret issue title"]
+    summary2 = _sanitize_command_for_telemetry(cmd2)
+    assert "title=[REDACTED]" in summary2

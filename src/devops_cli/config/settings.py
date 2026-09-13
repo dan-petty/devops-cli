@@ -564,7 +564,9 @@ def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
     """Locate candidate project/devcontainer config file from env, base_dir, or ancestor directories."""
     env_config = os.environ.get(PROJECT_CONFIG_ENV)
     if env_config:
-        return Path(env_config).resolve()
+        env_p = Path(env_config).resolve()
+        if not env_p.is_dir():
+            return env_p
 
     candidate_names = (
         PROJECT_CONFIG_FILENAME,

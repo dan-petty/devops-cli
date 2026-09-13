@@ -803,6 +803,52 @@ class TestPrCommands:
             assert res.exit_code == 1
             assert "currently in draft status" in res.output
 
+    def test_check_readiness_mergeable_null(self, runner: CliRunner) -> None:
+        """devops pr check-readiness fails when mergeability is null/unresolved."""
+        mock_pr = json.dumps(
+            {
+                "draft": False,
+                "mergeable": None,
+                "mergeable_state": "unknown",
+                "base": {"ref": "release/v0.2.17"},
+            }
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
+            ),
+            patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
+        ):
+            res = runner.invoke(app, ["check-readiness", "187"])
+            assert res.exit_code == 1
+            assert "mergeability is unresolved" in res.output
+
+    def test_check_readiness_mergeable_state_blocked(self, runner: CliRunner) -> None:
+        """devops pr check-readiness fails when mergeable_state is blocked."""
+        mock_pr = json.dumps(
+            {
+                "draft": False,
+                "mergeable": True,
+                "mergeable_state": "blocked",
+                "base": {"ref": "release/v0.2.17"},
+            }
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
+            ),
+            patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
+        ):
+            res = runner.invoke(app, ["check-readiness", "187"])
+            assert res.exit_code == 1
+            assert "merge state is blocked" in res.output
+
     def test_pr_diff_mask_secrets(self, runner: CliRunner) -> None:
         """devops pr diff masks secret tokens in output."""
         with (
@@ -819,3 +865,218 @@ class TestPrCommands:
             res = runner.invoke(app, ["diff", "187"])
             assert res.exit_code == 0
             assert "ghp_secrettoken" not in res.output
+
+    def test_pr_diff_error_masked(self, runner: CliRunner) -> None:
+        """devops pr diff masks secrets in error output."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(
+                    returncode=1,
+                    stdout="",
+                    stderr="Failed diff token ghp_secrettoken1234567890abcdefghijklmn",
+                ),
+            ),
+        ):
+            res = runner.invoke(app, ["diff", "187"])
+            assert res.exit_code == 1
+            assert "ghp_secrettoken" not in res.output
+
+    def test_pr_close_error_masked(self, runner: CliRunner) -> None:
+        """devops pr close masks secrets in error output."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(
+                    returncode=1,
+                    stdout="",
+                    stderr="Failed close token ghp_secrettoken1234567890abcdefghijklmn",
+                ),
+            ),
+        ):
+            res = runner.invoke(app, ["close", "187"])
+            assert res.exit_code == 1
+            assert "ghp_secrettoken" not in res.output
+
+    def test_fallback_create_pr_existing(self, runner: CliRunner) -> None:
+        """_fallback_create_pr discovers existing PR and avoids duplicate POST."""
+        from devops_cli.commands.pr import _fallback_create_pr
+
+        mock_existing = json.dumps(
+            [
+                {
+                    "number": 187,
+                    "html_url": "https://github.com/dan-petty/devops-cli/pull/187",
+                    "base": {"ref": "release/v0.2.17"},
+                }
+            ]
+        )
+        with (
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch("devops_cli.commands.pr._detect_current_branch", return_value="feat/test"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=mock_existing, stderr=""),
+            ) as mock_sub,
+        ):
+            result = _fallback_create_pr(
+                title="test",
+                body="test",
+                base="release/v0.2.17",
+                draft=False,
+            )
+            assert result is True
+            # Verified that only the query was called, not a POST
+            assert len(mock_sub.call_args_list) == 1
+            assert "pulls?head=owner:feat/test" in mock_sub.call_args[0][0][2]
+
+    def test_pr_list_fallback_merged_filter(self) -> None:
+        """_render_pr_list_fallback filters merged_at when state is merged."""
+        from devops_cli.commands.pr import _render_pr_list_fallback
+
+        mock_prs = json.dumps(
+            [
+                {
+                    "number": 1,
+                    "title": "PR 1",
+                    "merged_at": "2026-09-12T10:00:00Z",
+                    "user": {"login": "user1"},
+                    "base": {"ref": "main"},
+                    "head": {"ref": "feat/1"},
+                },
+                {
+                    "number": 2,
+                    "title": "PR 2",
+                    "merged_at": None,
+                    "user": {"login": "user2"},
+                    "base": {"ref": "main"},
+                    "head": {"ref": "feat/2"},
+                },
+            ]
+        )
+        with (
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=mock_prs, stderr=""),
+            ),
+            patch("devops_cli.commands.pr._render_pr_table") as mock_table,
+        ):
+            result = _render_pr_list_fallback(state="merged", limit=10)
+            assert result is True
+            # Only PR 1 should be passed to _render_pr_table
+            rendered = mock_table.call_args[0][0]
+            assert len(rendered) == 1
+            assert rendered[0]["number"] == 1
+
+    def test_create_pr_fallback_on_nonzero(self, runner: CliRunner) -> None:
+        """devops pr create falls back to _fallback_create_pr when gh pr create fails."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr._detect_active_release_branch",
+                return_value="release/v0.2.17",
+            ),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=1, stdout="", stderr="GraphQL error"),
+            ),
+            patch("devops_cli.commands.pr._fallback_create_pr", return_value=True) as mock_fallback,
+        ):
+            result = runner.invoke(app, ["create", "--title", "test title", "--body", "test body"])
+            assert result.exit_code == 0
+            assert mock_fallback.called
+
+    def test_create_pr_draft(self, runner: CliRunner) -> None:
+        """devops pr create --draft passes --draft to gh CLI."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr._detect_active_release_branch",
+                return_value="release/v0.2.17",
+            ),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout="", stderr=""),
+            ) as mock_sub,
+        ):
+            result = runner.invoke(
+                app, ["create", "--title", "draft pr", "--draft", "--base", "main"]
+            )
+            assert result.exit_code == 0
+            cmd = mock_sub.call_args[0][0]
+            assert "--draft" in cmd
+
+    def test_ready_pr_already_ready(self, runner: CliRunner) -> None:
+        """devops pr ready detects when PR is already non-draft."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr._fetch_pr_details",
+                return_value={"draft": False, "number": 184},
+            ),
+        ):
+            result = runner.invoke(app, ["ready", "184"])
+            assert result.exit_code == 0
+            assert "already marked ready for review" in result.output
+
+    def test_ready_pr_rate_limit(self, runner: CliRunner) -> None:
+        """devops pr ready handles GraphQL rate limits gracefully."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr._fetch_pr_details",
+                return_value={"draft": True, "number": 184},
+            ),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(
+                    returncode=1,
+                    stdout="",
+                    stderr="GraphQL error: API rate limit exceeded",
+                ),
+            ),
+        ):
+            result = runner.invoke(app, ["ready", "184"])
+            assert result.exit_code == 1
+            assert "GitHub GraphQL rate limit exceeded" in result.output
+
+    def test_ready_pr_success(self, runner: CliRunner) -> None:
+        """devops pr ready marks draft PR as ready."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr._fetch_pr_details",
+                side_effect=[{"draft": True, "number": 184}, {"draft": False, "number": 184}],
+            ),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout="", stderr=""),
+            ),
+        ):
+            result = runner.invoke(app, ["ready", "184"])
+            assert result.exit_code == 0
+            assert "marked as ready for review" in result.output
+
+    def test_check_readiness_no_repo(self, runner: CliRunner) -> None:
+        """devops pr check-readiness fails when repo cannot be resolved."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value=None),
+        ):
+            result = runner.invoke(app, ["check-readiness"])
+            assert result.exit_code == 1
+            assert "Target repository must be in OWNER/REPO format" in result.output
+
+    def test_check_readiness_not_found(self, runner: CliRunner) -> None:
+        """devops pr check-readiness fails when PR details cannot be retrieved."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch("devops_cli.commands.pr._fetch_pr_details", return_value=None),
+        ):
+            result = runner.invoke(app, ["check-readiness", "999"])
+            assert result.exit_code == 1
+            assert "Unable to retrieve details" in result.output
