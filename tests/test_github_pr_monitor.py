@@ -53,6 +53,7 @@ class TestPRMonitorModels:
             unresolved_threads=[],
             mergeable=True,
             mergeable_state="clean",
+            review_decision="APPROVED",
         )
         assert status.total_checks == 2
         assert status.completed_checks == 2
@@ -123,6 +124,31 @@ class TestPRMonitorModels:
         )
         assert status.is_ready_for_merge is False
 
+    def test_pr_monitor_status_review_approval_gate(self) -> None:
+        c1 = PRCheckRun(name="Lint", status="COMPLETED", conclusion="SUCCESS")
+        status = PRMonitorStatus(
+            number=100,
+            title="Feature PR",
+            head_sha="abcdef1",
+            checks=[c1],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            mergeable=True,
+            mergeable_state="clean",
+            review_decision="REVIEW_REQUIRED",
+            require_reviews=True,
+        )
+        assert status.is_ready_for_merge is False
+
+        # When require_reviews is False, approval is not mandatory
+        status.require_reviews = False
+        assert status.is_ready_for_merge is True
+
+        # When review is approved, ready for merge even when require_reviews is True
+        status.require_reviews = True
+        status.review_decision = "APPROVED"
+        assert status.is_ready_for_merge is True
+
 
 class TestResolveBranchPrNumber:
     """Test resolving PR number from branch."""
@@ -183,7 +209,12 @@ class TestGetPRMonitoringStatus:
                 "user": {"login": "copilot-pull-request-reviewer[bot]"},
                 "state": "COMMENTED",
                 "submitted_at": "2026-09-12T13:59:17Z",
-            }
+            },
+            {
+                "user": {"login": "tech-lead"},
+                "state": "APPROVED",
+                "submitted_at": "2026-09-12T14:05:00Z",
+            },
         ]
 
         timeline_output = (
@@ -448,6 +479,23 @@ class TestMonitorPR:
             assert status.state == "changes_requested"
             assert status.is_active is False
             assert "recommended changes" in status.message
+
+    def test_detect_copilot_status_excludes_no_changes_recommended(self) -> None:
+        reviews_data = [
+            {
+                "user": {"login": "copilot-pull-request-reviewer[bot]"},
+                "state": "COMMENTED",
+                "body": "### 🟢 No changes recommended\n\nAll automated checks look clean.",
+                "submitted_at": "2026-09-12T14:00:00Z",
+            }
+        ]
+        from devops_cli.github.pr_monitor import _detect_copilot_status
+
+        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+            mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews_data)
+            assert status.state == "completed"
+            assert status.is_active is False
 
     def test_detect_copilot_status_uses_latest_review_state(self) -> None:
         reviews_data = [

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Callable
 from typing import Any, cast
@@ -80,6 +81,7 @@ class PRMonitorStatus(BaseModel):
     copilot_status: CopilotReviewStatus = Field(default_factory=CopilotReviewStatus)
     unresolved_threads: list[ReviewThread] = Field(default_factory=list)
     failure_reasons: list[str] = Field(default_factory=list)
+    require_reviews: bool = True
 
     @property
     def total_checks(self) -> int:
@@ -115,10 +117,12 @@ class PRMonitorStatus(BaseModel):
         draft_ok = not self.is_draft
         checks_ok = self.all_checks_completed and self.all_checks_passed
         threads_ok = len(self.unresolved_threads) == 0
+        review_approval_ok = (self.review_decision == "APPROVED") if self.require_reviews else True
         review_ok = (
             not self.copilot_status.is_active
             and self.copilot_status.state != "changes_requested"
             and not self.has_changes_requested
+            and review_approval_ok
         )
         merge_ok = self.mergeable is True and self.mergeable_state == "clean"
         return draft_ok and checks_ok and threads_ok and review_ok and merge_ok
@@ -265,15 +269,25 @@ def _is_copilot_review_dict(r: Any) -> bool:
     return "copilot" in author or "copilot" in user
 
 
+def _is_copilot_changes_recommended(body: str) -> bool:
+    """Detect if Copilot review heading recommends changes, excluding 'no changes'."""
+    if not body:
+        return False
+    first_lines = "\n".join(body.strip().splitlines()[:5])
+    if re.search(r"no changes\s+(?:recommended|requested)", first_lines, re.IGNORECASE):
+        return False
+    return bool(
+        re.search(r"###.*?(?:changes recommended|changes requested)", first_lines, re.IGNORECASE)
+    )
+
+
 def _check_review_changes_requested(review: dict[str, Any] | None) -> tuple[bool, str, str]:
     """Evaluate whether review requests changes and extract state and timestamp."""
     if not review:
         return False, "", ""
     state = str(review.get("state", "")).upper()
-    body = str(review.get("body", "")).lower()
-    has_changes = (
-        state == "CHANGES_REQUESTED" or "changes recommended" in body or "changes requested" in body
-    )
+    body = str(review.get("body", ""))
+    has_changes = state == "CHANGES_REQUESTED" or _is_copilot_changes_recommended(body)
     last_time = str(review.get("submittedAt") or review.get("submitted_at") or "")
     return has_changes, state, last_time
 
@@ -578,7 +592,9 @@ def _has_active_changes_requested(raw_reviews: list[dict[str, Any]]) -> bool:
     return _resolve_review_decision(raw_reviews) == "CHANGES_REQUESTED"
 
 
-def get_pr_monitoring_status(owner: str, repo: str, pr_number: int) -> PRMonitorStatus:
+def get_pr_monitoring_status(
+    owner: str, repo: str, pr_number: int, require_reviews: bool = True
+) -> PRMonitorStatus:
     """Fetch current CI checks, Copilot review status, and unresolved review threads."""
     repo_name = repo.split("/")[-1]
     pr_data = _fetch_pr_details(owner, repo_name, pr_number)
@@ -618,6 +634,7 @@ def get_pr_monitoring_status(owner: str, repo: str, pr_number: int) -> PRMonitor
         copilot_status=copilot_status,
         unresolved_threads=unresolved_threads,
         failure_reasons=failure_reasons,
+        require_reviews=require_reviews,
     )
 
 
@@ -782,7 +799,10 @@ def monitor_pr(
     while True:
         now = time.monotonic()
         elapsed = int(now - start_time)
-        latest_status = get_pr_monitoring_status(owner, repo, pr_number)
+        latest_status = get_pr_monitoring_status(
+            owner, repo, pr_number, require_reviews=require_reviews
+        )
+        latest_status.require_reviews = require_reviews
 
         if status_callback:
             status_callback(latest_status, elapsed)

@@ -180,6 +180,9 @@ def run_subprocess(
         for token_var in ("GH_TOKEN", "GITHUB_TOKEN"):
             if token_var in os.environ and token_var not in sub_env:
                 sub_env[token_var] = os.environ[token_var]
+        devops_token = os.environ.get("DEVOPS_CLI_GITHUB_TOKEN")
+        if devops_token and "GH_TOKEN" not in sub_env and "GITHUB_TOKEN" not in sub_env:
+            sub_env["GH_TOKEN"] = devops_token
 
     with trace_span(
         f"subprocess.{bin_name}",

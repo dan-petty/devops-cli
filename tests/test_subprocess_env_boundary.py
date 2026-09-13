@@ -192,3 +192,18 @@ def test_constants_integrity() -> None:
     assert "*TOKEN*" in DEFAULT_DENIED_ENV_PATTERNS
     assert "*SECRET*" in DEFAULT_DENIED_ENV_PATTERNS
     assert "*KEY*" in DEFAULT_DENIED_ENV_PATTERNS
+
+
+def test_run_subprocess_forwards_tokens_to_gh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify run_subprocess forwards GH_TOKEN or maps DEVOPS_CLI_GITHUB_TOKEN for gh binary."""
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.core.process import run_subprocess
+
+    monkeypatch.setenv("DEVOPS_CLI_GITHUB_TOKEN", "ghp_devops_secret")
+
+    with patch("subprocess.run") as mock_sub:
+        mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        run_subprocess(["gh", "pr", "view", "184"])
+        called_env = mock_sub.call_args.kwargs.get("env", {})
+        assert called_env.get("GH_TOKEN") == "ghp_devops_secret"
