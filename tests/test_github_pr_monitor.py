@@ -213,6 +213,7 @@ class TestGetPRMonitoringStatus:
             {
                 "user": {"login": "tech-lead"},
                 "state": "APPROVED",
+                "commit_id": "7316135",
                 "submitted_at": "2026-09-12T14:05:00Z",
             },
         ]
@@ -624,3 +625,50 @@ class TestMonitorPR:
             assert len(reviews) == 2
             assert reviews[0]["user"]["login"] == "user1"
             assert reviews[1]["user"]["login"] == "user2"
+
+    def test_is_copilot_changes_recommended_heading_only(self) -> None:
+        """Verify heading extraction correctly flags changes recommended even if body mentions no changes."""
+        from devops_cli.github.pr_monitor import _is_copilot_changes_recommended
+
+        body = (
+            "### 🟡 Changes recommended\n\n"
+            "Summary of changes:\n"
+            "- File A: Needs fix\n"
+            "- File B: No changes requested\n"
+        )
+        assert _is_copilot_changes_recommended(body) is True
+
+        no_changes_body = "### 🟢 No changes recommended\n\nLooks great to me!\n"
+        assert _is_copilot_changes_recommended(no_changes_body) is False
+
+    def test_resolve_review_decision_stale_commit_id(self) -> None:
+        """Verify _resolve_review_decision rejects approvals targeting stale commit_id."""
+        from devops_cli.github.pr_monitor import _resolve_review_decision
+
+        raw_reviews = [
+            {"user": {"login": "alice"}, "state": "APPROVED", "commit_id": "commit_sha_1"},
+        ]
+        # When current revision is commit_sha_2, approval on commit_sha_1 is stale
+        decision = _resolve_review_decision(raw_reviews, head_sha="commit_sha_2")
+        assert decision == "REVIEW_REQUIRED"
+
+        # When current revision matches, approval is valid
+        decision_valid = _resolve_review_decision(raw_reviews, head_sha="commit_sha_1")
+        assert decision_valid == "APPROVED"
+
+    def test_build_failure_reasons_includes_review_approval(self) -> None:
+        """Verify _build_failure_reasons records missing review approval when required."""
+        from devops_cli.github.pr_monitor import _build_failure_reasons
+
+        reasons = _build_failure_reasons(
+            checks=[],
+            unresolved_threads=[],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            has_changes_requested=False,
+            mergeable=True,
+            mergeable_state="clean",
+            is_draft=False,
+            require_reviews=True,
+            review_decision="REVIEW_REQUIRED",
+        )
+        assert any("requires approved review" in r for r in reasons)

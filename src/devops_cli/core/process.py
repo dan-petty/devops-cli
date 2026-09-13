@@ -148,6 +148,32 @@ def build_subprocess_env(
     return base_env
 
 
+def _sanitize_command_for_telemetry(cmd: list[str]) -> str:
+    """Produce a sanitized, bounded command summary for telemetry and spans."""
+    from devops_cli.security.sanitizer import mask_secrets
+
+    if not cmd:
+        return ""
+    sanitized_parts: list[str] = []
+    redact_next = False
+    for arg in cmd[:8]:
+        if redact_next:
+            sanitized_parts.append("[REDACTED]")
+            redact_next = False
+            continue
+        if arg in ("--comment", "-c", "--body", "-b"):
+            sanitized_parts.append(arg)
+            redact_next = True
+        elif any(arg.startswith(prefix) for prefix in ("title=", "body=", "comment=")):
+            key = arg.split("=", 1)[0]
+            sanitized_parts.append(f"{key}=[REDACTED]")
+        else:
+            masked = mask_secrets(arg)
+            sanitized_parts.append(masked[:57] + "..." if len(masked) > 60 else masked)
+    summary = " ".join(sanitized_parts) + ("..." if len(cmd) > 8 else "")
+    return mask_secrets(summary)[:256]
+
+
 def run_subprocess(
     cmd: list[str],
     *,
@@ -168,7 +194,7 @@ def run_subprocess(
         print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
 
     bin_name = Path(cmd[0]).name if cmd else "unknown"
-    cmd_summary = " ".join(cmd[:8]) + ("..." if len(cmd) > 8 else "") if cmd else ""
+    cmd_summary = _sanitize_command_for_telemetry(cmd)
     start_time = time.perf_counter()
 
     sub_env = build_subprocess_env(
@@ -180,7 +206,9 @@ def run_subprocess(
         for token_var in ("GH_TOKEN", "GITHUB_TOKEN"):
             if token_var in os.environ and token_var not in sub_env:
                 sub_env[token_var] = os.environ[token_var]
-        devops_token = os.environ.get("DEVOPS_CLI_GITHUB_TOKEN")
+        devops_token = (env or {}).get("DEVOPS_CLI_GITHUB_TOKEN") or os.environ.get(
+            "DEVOPS_CLI_GITHUB_TOKEN"
+        )
         if devops_token and "GH_TOKEN" not in sub_env and "GITHUB_TOKEN" not in sub_env:
             sub_env["GH_TOKEN"] = devops_token
 

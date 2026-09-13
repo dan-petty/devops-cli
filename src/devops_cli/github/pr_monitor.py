@@ -273,12 +273,13 @@ def _is_copilot_changes_recommended(body: str) -> bool:
     """Detect if Copilot review heading recommends changes, excluding 'no changes'."""
     if not body:
         return False
-    first_lines = "\n".join(body.strip().splitlines()[:5])
-    if re.search(r"no changes\s+(?:recommended|requested)", first_lines, re.IGNORECASE):
+    match = re.search(r"###\s*(.+?)(?:\r?\n|$)", body)
+    if not match:
         return False
-    return bool(
-        re.search(r"###.*?(?:changes recommended|changes requested)", first_lines, re.IGNORECASE)
-    )
+    heading = match.group(1).strip()
+    if re.search(r"no changes\s+(?:recommended|requested)", heading, re.IGNORECASE):
+        return False
+    return bool(re.search(r"(?:changes recommended|changes requested)", heading, re.IGNORECASE))
 
 
 def _check_review_changes_requested(review: dict[str, Any] | None) -> tuple[bool, str, str]:
@@ -542,6 +543,8 @@ def _build_failure_reasons(
     mergeable: bool | None,
     mergeable_state: str,
     is_draft: bool,
+    require_reviews: bool = True,
+    review_decision: str | None = None,
 ) -> list[str]:
     """Compile structured list of failure reasons preventing merge."""
     reasons: list[str] = []
@@ -554,6 +557,8 @@ def _build_failure_reasons(
         reasons.append(f"Copilot review: {copilot_status.message}")
     elif has_changes_requested:
         reasons.append("Reviewers requested changes on the pull request")
+    elif require_reviews and review_decision != "APPROVED":
+        reasons.append("Pull request requires approved review before merging")
     if mergeable is False or mergeable_state == "dirty":
         reasons.append("Merge conflicts with base branch")
     elif mergeable_state == "blocked":
@@ -565,11 +570,13 @@ def _build_failure_reasons(
     return reasons
 
 
-def _resolve_review_decision(raw_reviews: list[dict[str, Any]]) -> str | None:
-    """Derive aggregate review decision from latest state per reviewer."""
+def _resolve_review_decision(
+    raw_reviews: list[dict[str, Any]], head_sha: str | None = None
+) -> str | None:
+    """Derive aggregate review decision from latest state per reviewer targeting head_sha."""
     if not raw_reviews:
         return None
-    latest_by_user: dict[str, str] = {}
+    latest_by_user: dict[str, tuple[str, str]] = {}
     for r in raw_reviews:
         if not isinstance(r, dict):
             continue
@@ -577,12 +584,21 @@ def _resolve_review_decision(raw_reviews: list[dict[str, Any]]) -> str | None:
             r.get("user", {}).get("login", "") or r.get("author", {}).get("login", "")
         ).strip()
         state = str(r.get("state", "")).upper()
+        commit_id = str(r.get("commit_id") or r.get("commitId") or "")
         if user and state:
-            latest_by_user[user] = state
-    states = set(latest_by_user.values())
-    if "CHANGES_REQUESTED" in states:
-        return "CHANGES_REQUESTED"
-    if "APPROVED" in states:
+            latest_by_user[user] = (state, commit_id)
+
+    # Any active changes requested blocks approval
+    for state, _ in latest_by_user.values():
+        if state == "CHANGES_REQUESTED":
+            return "CHANGES_REQUESTED"
+
+    # Require at least one APPROVED review targeting current head_sha (if provided)
+    has_approval = any(
+        state == "APPROVED" and (not head_sha or commit_id == head_sha)
+        for state, commit_id in latest_by_user.values()
+    )
+    if has_approval:
         return "APPROVED"
     return "REVIEW_REQUIRED"
 
@@ -608,7 +624,7 @@ def get_pr_monitoring_status(
     copilot_status = _detect_copilot_status(owner, repo_name, pr_number, raw_reviews)
     unresolved_threads = _fetch_unresolved_threads(owner, repo_name, pr_number)
 
-    review_decision = _resolve_review_decision(raw_reviews)
+    review_decision = _resolve_review_decision(raw_reviews, head_sha=head_sha)
     has_changes_requested = (
         copilot_status.state == "changes_requested" or review_decision == "CHANGES_REQUESTED"
     )
@@ -620,6 +636,8 @@ def get_pr_monitoring_status(
         mergeable,
         mergeable_state,
         is_draft,
+        require_reviews=require_reviews,
+        review_decision=review_decision,
     )
     return PRMonitorStatus(
         number=pr_number,
