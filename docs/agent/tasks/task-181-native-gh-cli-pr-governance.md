@@ -51,5 +51,5 @@ Implement native `devops-cli` commands replacing raw `gh` invocations across pul
 - [x] Resolve K8s Loki sidecar crashloop via `k8s/logging/loki-values.yaml`
 - [x] Synchronize documentation via `devops docs generate --sync-readme`
 - [x] Verify local quality gates with `uv run pytest` and `devops ci`
-- [x] Push topic branch and open Draft PR targeting `release/v0.2.17`
-- [ ] Monitor CI checks and address review feedback
+- [x] Push topic branch and open PR targeting `release/v0.2.17`
+- [x] Monitor CI checks and address review feedback (all CI checks passing green, 0 unresolved threads)
