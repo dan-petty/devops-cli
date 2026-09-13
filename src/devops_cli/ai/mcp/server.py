@@ -1884,6 +1884,7 @@ def pr_ready(
 def pr_check_readiness(
     pr_number: int | None = None,
     require_ready: bool = False,
+    allow_blocked_state: bool = False,
     repo: str | None = None,
 ) -> str:
     """Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state."""
@@ -1893,6 +1894,8 @@ def pr_check_readiness(
         cmd.append(str(pr_number))
     if require_ready:
         cmd.append("--require-ready")
+    if allow_blocked_state:
+        cmd.append("--allow-blocked-state")
     if repo:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])

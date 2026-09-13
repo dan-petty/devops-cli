@@ -882,6 +882,29 @@ class TestPrCommands:
             assert res.exit_code == 1
             assert "merge state is blocked" in res.output
 
+    def test_check_readiness_allow_blocked_state(self, runner: CliRunner) -> None:
+        """devops pr check-readiness passes when mergeable_state is blocked and --allow-blocked-state is set."""
+        mock_pr = json.dumps(
+            {
+                "draft": False,
+                "mergeable": True,
+                "mergeable_state": "blocked",
+                "base": {"ref": "release/v0.2.17"},
+            }
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
+            ),
+            patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
+        ):
+            res = runner.invoke(app, ["check-readiness", "187", "--allow-blocked-state"])
+            assert res.exit_code == 0
+            assert "satisfies merge readiness" in res.output
+
     def test_pr_diff_mask_secrets(self, runner: CliRunner) -> None:
         """devops pr diff masks secret tokens in output."""
         with (

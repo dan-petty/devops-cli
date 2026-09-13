@@ -1023,12 +1023,41 @@ def _render_threads_table(threads: list[Any]) -> None:
     )
 
 
+def _check_mergeable_blocker(
+    pr_data: dict[str, Any], pr_num: int, allow_blocked_state: bool = False
+) -> str | None:
+    """Evaluate whether PR mergeable state represents a merge blocker."""
+    mergeable = pr_data.get("mergeable")
+    mergeable_state = pr_data.get("mergeable_state", "")
+    base_ref = pr_data.get("base", {}).get("ref", "")
+
+    if mergeable is False or mergeable_state in ("dirty", "conflicting"):
+        return f"PR #{pr_num} has merge conflicts with base branch '{base_ref}'."
+    if mergeable is None or mergeable_state in ("unknown", ""):
+        return (
+            f"PR #{pr_num} mergeability is unresolved or still calculating on GitHub "
+            f"(mergeable: {mergeable}, state: '{mergeable_state}')."
+        )
+    if mergeable_state == "blocked":
+        if allow_blocked_state:
+            print_warning(
+                f"PR #{pr_num} merge state is currently 'blocked' by branch protection or pending checks."
+            )
+            return None
+        return (
+            f"PR #{pr_num} merge state is blocked by GitHub branch protection or checks "
+            "(state: 'blocked')."
+        )
+    return None
+
+
 def _evaluate_pr_blockers(
     pr_data: dict[str, Any],
     pr_num: int,
     owner: str,
     repo_name: str,
     require_ready: bool,
+    allow_blocked_state: bool = False,
 ) -> list[str]:
     """Inspect PR data and unresolved discussion threads for merge blockers."""
     from devops_cli.exceptions.git import GitHubOperationError
@@ -1037,20 +1066,10 @@ def _evaluate_pr_blockers(
 
     blockers: list[str] = []
     is_draft = pr_data.get("draft", False)
-    mergeable = pr_data.get("mergeable")
-    mergeable_state = pr_data.get("mergeable_state", "")
-    base_ref = pr_data.get("base", {}).get("ref", "")
 
-    if mergeable is False or mergeable_state in ("dirty", "conflicting"):
-        blockers.append(f"PR #{pr_num} has merge conflicts with base branch '{base_ref}'.")
-    elif mergeable is None or mergeable_state in ("unknown", ""):
-        blockers.append(
-            f"PR #{pr_num} mergeability is unresolved or still calculating on GitHub (mergeable: {mergeable}, state: '{mergeable_state}')."
-        )
-    elif mergeable_state == "blocked":
-        blockers.append(
-            f"PR #{pr_num} merge state is blocked by GitHub branch protection or checks (state: 'blocked')."
-        )
+    merge_err = _check_mergeable_blocker(pr_data, pr_num, allow_blocked_state=allow_blocked_state)
+    if merge_err:
+        blockers.append(merge_err)
 
     if require_ready and is_draft:
         blockers.append(f"PR #{pr_num} is currently in draft status (convert to ready for review).")
@@ -1087,6 +1106,13 @@ def check_readiness(
         bool,
         typer.Option("--require-ready", help="Fail if the pull request is in draft status"),
     ] = False,
+    allow_blocked_state: Annotated[
+        bool,
+        typer.Option(
+            "--allow-blocked-state",
+            help="Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending)",
+        ),
+    ] = False,
     repo: Annotated[
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
@@ -1109,7 +1135,14 @@ def check_readiness(
         print_error(f"Unable to retrieve details for PR #{pr_num}.")
         raise typer.Exit(1)
 
-    blockers = _evaluate_pr_blockers(pr_data, pr_num, owner, repo_name, require_ready)
+    blockers = _evaluate_pr_blockers(
+        pr_data,
+        pr_num,
+        owner,
+        repo_name,
+        require_ready,
+        allow_blocked_state=allow_blocked_state,
+    )
     if blockers:
         for b in blockers:
             print_error(b, prefix=False)

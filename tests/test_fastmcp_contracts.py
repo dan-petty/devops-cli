@@ -134,6 +134,7 @@ def test_fastmcp_tools_registration() -> None:
         "pr_diff",
         "pr_close",
         "pr_edit",
+        "pr_check_readiness",
     }
 
     for expected in expected_core_tools:
@@ -449,6 +450,40 @@ def test_fastmcp_rag_drift_tool() -> None:
                 "src",
                 "--json",
                 "--auto-sync",
+            ],
+            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )
+
+
+def test_fastmcp_pr_check_readiness_tool() -> None:
+    """Verify pr_check_readiness FastMCP execution contract."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import pr_check_readiness
+    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
+        mock_cmd.return_value = "PR #187 satisfies merge readiness"
+
+        res = pr_check_readiness(
+            pr_number=187,
+            require_ready=True,
+            allow_blocked_state=True,
+            repo="owner/repo",
+        )
+        assert "satisfies merge readiness" in res
+        mock_cmd.assert_called_with(
+            [
+                "uv",
+                "run",
+                "devops",
+                "pr",
+                "check-readiness",
+                "187",
+                "--require-ready",
+                "--allow-blocked-state",
+                "--repo",
+                "owner/repo",
             ],
             timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
         )

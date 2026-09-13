@@ -60,7 +60,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          uv run devops pr check-readiness ${{ github.event.pull_request.number }}
+          uv run devops pr check-readiness ${{ github.event.pull_request.number }} --allow-blocked-state
 
       - name: Linting (Ruff)
         run: uv run ruff check .

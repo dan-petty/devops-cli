@@ -254,6 +254,7 @@ devops pr check-readiness [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
+| `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---

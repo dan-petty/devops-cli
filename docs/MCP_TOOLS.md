@@ -901,6 +901,7 @@ Validate PR merge readiness: verify no unresolved review threads, no conflicts, 
 |---|---|---|---|---|
 | `pr_number` | `integer` | No | - | - |
 | `require_ready` | `boolean` | No | `False` | - |
+| `allow_blocked_state` | `boolean` | No | `False` | - |
 | `repo` | `string` | No | - | - |
 
 ### `pr_checks`
