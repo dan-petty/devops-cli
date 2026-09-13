@@ -46,33 +46,46 @@ def _truncate(text: Any, max_len: int = _MAX_ERROR_LEN) -> str:
     return s if len(s) <= max_len else s[: max_len - 3] + "..."
 
 
-def _is_blocked_metadata_host(host: str) -> bool:
-    """Return True if host targets link-local or cloud metadata services."""
+def _resolve_safe_socket_addr(
+    host: str, port: int
+) -> tuple[bool, tuple[int, int, int, str, tuple[Any, ...]] | None]:
+    """Resolve host and verify no resolved IP is link-local or cloud metadata.
+    Returns (is_blocked, vetted_addrinfo)."""
     clean = host.strip("[]").rstrip(".").lower()
     if clean in ("169.254.169.254", "metadata.google.internal") or clean.startswith("169.254."):
-        return True
+        return True, None
     try:
         ip = ipaddress.ip_address(clean)
-        return ip.is_link_local
+        if ip.is_link_local or str(ip).startswith("169.254."):
+            return True, None
     except ValueError:
         pass
     try:
-        addr_info = socket.getaddrinfo(clean, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        addr_info = socket.getaddrinfo(clean, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
         for _, _, _, _, sockaddr in addr_info:
-            if not isinstance(sockaddr[0], str):
-                continue
-            ip_str = sockaddr[0]
-            if ipaddress.ip_address(ip_str).is_link_local or ip_str.startswith("169.254."):
-                return True
+            ip_str = sockaddr[0] if isinstance(sockaddr[0], str) else ""
+            if ip_str:
+                parsed_ip = ipaddress.ip_address(ip_str)
+                if parsed_ip.is_link_local or ip_str.startswith("169.254."):
+                    return True, None
+        if addr_info:
+            return False, addr_info[0]
     except socket.gaierror, OSError, ValueError:
         pass
-    return False
+    return False, None
+
+
+def _is_blocked_metadata_host(host: str) -> bool:
+    """Return True if host targets link-local or cloud metadata services."""
+    is_blocked, _ = _resolve_safe_socket_addr(host, 80)
+    return is_blocked
 
 
 def probe_tcp(host: str, port: int, timeout: float = 5.0) -> EndpointProbeResult:
     """Probe TCP socket listener reachability and measure connection latency."""
     target = f"{host}:{port}"
-    if _is_blocked_metadata_host(host):
+    is_blocked, vetted_info = _resolve_safe_socket_addr(host, port)
+    if is_blocked:
         return EndpointProbeResult(
             protocol=ProbeProtocol.TCP,
             target=target,
@@ -81,12 +94,23 @@ def probe_tcp(host: str, port: int, timeout: float = 5.0) -> EndpointProbeResult
             message="Access to link-local or cloud metadata services is prohibited.",
             details={"host": host, "port": port},
         )
+    if not vetted_info:
+        return EndpointProbeResult(
+            protocol=ProbeProtocol.TCP,
+            target=target,
+            status=ProbeStatus.FAIL,
+            latency_ms=0.0,
+            message=f"Failed to resolve host '{host}'",
+            details={"host": host, "port": port},
+        )
+
+    family, socktype, proto, _, sockaddr = vetted_info
     start = time.perf_counter()
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock = socket.socket(family, socktype, proto)
     sock.settimeout(timeout)
 
     try:
-        sock.connect((host, port))
+        sock.connect(sockaddr)
         latency = (time.perf_counter() - start) * 1000.0
         return EndpointProbeResult(
             protocol=ProbeProtocol.TCP,
@@ -150,6 +174,17 @@ def probe_http(
             status=ProbeStatus.FAIL,
             latency_ms=0.0,
             message=_truncate(f"Invalid probe target: {exc}"),
+        )
+
+    hostname = parsed.hostname or ""
+    if _is_blocked_metadata_host(hostname):
+        return EndpointProbeResult(
+            protocol=ProbeProtocol.HTTP,
+            target=url,
+            status=ProbeStatus.FAIL,
+            latency_ms=0.0,
+            message="Access to link-local or cloud metadata services is prohibited.",
+            details={"host": hostname, "port": parsed.port},
         )
 
     start = time.perf_counter()

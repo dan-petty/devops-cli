@@ -72,7 +72,7 @@ class PRMonitorStatus(BaseModel):
     title: str = ""
     head_sha: str = ""
     is_draft: bool = False
-    mergeable: bool | None = None
+    mergeable: bool | None = True
     mergeable_state: str = "clean"
     review_decision: str | None = None
     has_changes_requested: bool = False
@@ -120,13 +120,7 @@ class PRMonitorStatus(BaseModel):
             and self.copilot_status.state != "changes_requested"
             and not self.has_changes_requested
         )
-        merge_ok = self.mergeable is not False and self.mergeable_state not in {
-            "blocked",
-            "dirty",
-            "behind",
-            "draft",
-            "unknown",
-        }
+        merge_ok = self.mergeable is True and (self.mergeable_state or "").lower() == "clean"
         return draft_ok and checks_ok and threads_ok and review_ok and merge_ok
 
 
@@ -528,6 +522,27 @@ def _fetch_unresolved_threads(owner: str, repo_name: str, pr_number: int) -> lis
         raise
 
 
+def _resolve_merge_failure_reason(
+    mergeable: bool | None,
+    mergeable_state: str,
+    is_draft: bool,
+) -> str | None:
+    """Evaluate mergeability state and draft status into an actionable failure reason."""
+    if is_draft:
+        return "Pull request is currently a draft"
+    if mergeable is False or mergeable_state == "dirty":
+        return "Merge conflicts with base branch"
+    if mergeable_state == "blocked":
+        return "Blocked by branch protection or awaiting required review approval"
+    if mergeable_state == "behind":
+        return "Branch is behind target base branch"
+    if mergeable is not True:
+        return "Pull request mergeability is not yet determined by GitHub"
+    if mergeable_state != "clean":
+        return f"Mergeable state is '{mergeable_state}' (requires clean)"
+    return None
+
+
 def _build_failure_reasons(
     checks: list[PRCheckRun],
     unresolved_threads: list[ReviewThread],
@@ -548,14 +563,10 @@ def _build_failure_reasons(
         reasons.append(f"Copilot review: {copilot_status.message}")
     elif has_changes_requested:
         reasons.append("Reviewers requested changes on the pull request")
-    if mergeable is False or mergeable_state == "dirty":
-        reasons.append("Merge conflicts with base branch")
-    elif mergeable_state == "blocked":
-        reasons.append("Blocked by branch protection or awaiting required review approval")
-    elif mergeable_state == "behind":
-        reasons.append("Branch is behind target base branch")
-    elif is_draft:
-        reasons.append("Pull request is currently a draft")
+
+    merge_reason = _resolve_merge_failure_reason(mergeable, mergeable_state, is_draft)
+    if merge_reason:
+        reasons.append(merge_reason)
     return reasons
 
 

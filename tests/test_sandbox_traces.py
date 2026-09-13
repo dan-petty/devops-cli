@@ -158,6 +158,8 @@ def test_query_jaeger_trace(monkeypatch: pytest.MonkeyPatch) -> None:
         ]
     }
 
+    recorded: dict[str, Any] = {}
+
     class MockClient:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
@@ -169,12 +171,16 @@ def test_query_jaeger_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             pass
 
         def get(self, url: str, **kwargs: Any) -> Any:
+            recorded["url"] = url
+            recorded["kwargs"] = kwargs
             return mock_resp
 
     monkeypatch.setattr("httpx2.Client", MockClient)
     spans = query_jaeger_trace(test_trace_id, jaeger_url="http://example.com:16686")
     assert len(spans) == 1
     assert spans[0]["traceId"] == test_trace_id
+    assert recorded["kwargs"].get("headers", {}).get("Host") == "example.com:16686"
+    assert "example.com" not in recorded["url"]
 
 
 def test_query_jaeger_trace_security_validation() -> None:
@@ -361,7 +367,7 @@ def test_query_jaeger_trace_dns_metadata_blocked(monkeypatch: pytest.MonkeyPatch
 
     from devops_cli.telemetry.waterfall import query_jaeger_trace
 
-    def mock_getaddrinfo(host, port, *args, **kwargs):
+    def mock_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 16686))]
 
     monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)

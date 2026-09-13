@@ -121,6 +121,30 @@ class TestPRMonitorModels:
         )
         assert status.is_ready_for_merge is False
 
+    def test_pr_monitor_status_not_ready_unstable_state(self) -> None:
+        c1 = PRCheckRun(name="Lint", status="COMPLETED", conclusion="SUCCESS")
+        status = PRMonitorStatus(
+            number=100,
+            checks=[c1],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            mergeable=True,
+            mergeable_state="unstable",
+        )
+        assert status.is_ready_for_merge is False
+
+    def test_pr_monitor_status_not_ready_unresolved_mergeable(self) -> None:
+        c1 = PRCheckRun(name="Lint", status="COMPLETED", conclusion="SUCCESS")
+        status = PRMonitorStatus(
+            number=100,
+            checks=[c1],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            mergeable=None,
+            mergeable_state="clean",
+        )
+        assert status.is_ready_for_merge is False
+
 
 class TestResolveBranchPrNumber:
     """Test resolving PR number from branch."""
@@ -155,6 +179,8 @@ class TestGetPRMonitoringStatus:
             "title": "fix: metrics delta",
             "draft": False,
             "head": {"sha": "7316135"},
+            "mergeable": True,
+            "mergeable_state": "clean",
         }
         check_runs_data = {
             "check_runs": [

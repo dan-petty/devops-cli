@@ -666,3 +666,32 @@ def test_endpoint_probe_result_recursive_sanitizer() -> None:
     assert "<masked-anthropic-key>" in result.details["list_data"][0]
     assert len(result.details["list_data"][1]["key"]) <= 1024
     assert result.details["list_data"][1]["key"].endswith("...")
+
+
+def test_probe_tcp_connects_to_vetted_sockaddr(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify probe_tcp connects to vetted sockaddr to prevent DNS rebinding."""
+    mock_sock = MagicMock()
+    monkeypatch.setattr(socket, "socket", lambda *args: mock_sock)
+
+    def mock_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
+    res = probe_tcp("example.com", 8080)
+    assert res.status == ProbeStatus.PASS
+    mock_sock.connect.assert_called_once_with(("127.0.0.1", 8080))
+
+
+def test_probe_http_metadata_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify probe_http rejects cloud metadata endpoints even when allow_private=True."""
+    res_ip = probe_http("http://169.254.169.254/latest/meta-data")
+    assert res_ip.status == ProbeStatus.FAIL
+    assert "prohibited" in res_ip.message.lower()
+
+    def mock_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
+    res_dns = probe_http("http://metadata-spoof.example.com/computeMetadata/v1")
+    assert res_dns.status == ProbeStatus.FAIL
+    assert "prohibited" in res_dns.message.lower()
