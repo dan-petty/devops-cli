@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.github.pr_threads import ReviewComment, ReviewThread, list_pr_review_threads
+from devops_cli.github.pr_threads import ReviewThread, list_pr_review_threads
 
 logger = logging.getLogger(__name__)
 
@@ -450,49 +450,9 @@ def _fetch_rest_unresolved_comments(owner: str, repo: str, pr_number: int) -> li
     Fails closed by treating all root review comments as unresolved threads since REST
     does not expose thread resolution status.
     """
-    comments_cmd = [
-        CONST_GH_CLI,
-        "api",
-        "--paginate",
-        f"repos/{owner}/{repo}/pulls/{pr_number}/comments",
-    ]
-    comments_proc = run_subprocess(comments_cmd)
-    if comments_proc.returncode != 0:
-        err = (
-            comments_proc.stderr.strip()[:256]
-            if comments_proc.stderr
-            else f"Exit code {comments_proc.returncode}"
-        )
-        raise GitHubOperationError(f"Failed to fetch review comments for PR #{pr_number}: {err}")
+    from devops_cli.github.pr_threads import fetch_review_threads_rest
 
-    if not comments_proc.stdout.strip():
-        return []
-
-    threads: list[ReviewThread] = []
-    try:
-        c_list = json.loads(comments_proc.stdout)
-        if not isinstance(c_list, list):
-            return []
-        for c in c_list:
-            if isinstance(c, dict) and c.get("in_reply_to_id") is None:
-                cid = c.get("id")
-                author = c.get("user", {}).get("login", "")
-                threads.append(
-                    ReviewThread(
-                        id=str(c.get("node_id", cid)),
-                        is_resolved=False,
-                        path=str(c.get("path", "")),
-                        line=c.get("line"),
-                        comments=[
-                            ReviewComment(id=str(cid), body=c.get("body", ""), author=author)
-                        ],
-                    )
-                )
-    except json.JSONDecodeError as exc:
-        raise GitHubOperationError(
-            f"Malformed review comment response for PR #{pr_number}: {exc}"
-        ) from exc
-    return threads
+    return fetch_review_threads_rest(owner, repo, pr_number, unresolved_only=True)
 
 
 def _fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
