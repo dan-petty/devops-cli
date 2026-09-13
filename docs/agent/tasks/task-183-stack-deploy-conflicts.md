@@ -1,8 +1,8 @@
 # Task 183: Resolve Helm Stack Deploy SSA Conflicts, Loki Validation, and PodSecurity Failures
 
-**Issue**: [#183](https://github.com/dan-petty/devops-cli/issues/183)
+**Issue**: —
 **PR**: [#182](https://github.com/dan-petty/devops-cli/pull/182)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/k8s`

@@ -194,19 +194,34 @@ def test_constants_integrity() -> None:
     assert "*KEY*" in DEFAULT_DENIED_ENV_PATTERNS
 
 
-def test_run_subprocess_gh_forwards_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify run_subprocess forwards GH_TOKEN and maps DEVOPS_CLI_GITHUB_TOKEN for gh binary."""
+def test_run_subprocess_forwards_tokens_to_gh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify run_subprocess forwards GH_TOKEN or maps DEVOPS_CLI_GITHUB_TOKEN for gh binary."""
     from unittest.mock import MagicMock, patch
 
-    monkeypatch.setenv("DEVOPS_CLI_GITHUB_TOKEN", "ghp_devops_secret_token")
-    monkeypatch.delenv("GH_TOKEN", raising=False)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    from devops_cli.core.process import run_subprocess
 
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-        run_subprocess(["gh", "pr", "list"])
-        passed_env = mock_run.call_args.kwargs.get("env", {})
-        assert passed_env.get("GH_TOKEN") == "ghp_devops_secret_token"
+    monkeypatch.setenv("DEVOPS_CLI_GITHUB_TOKEN", "ghp_devops_secret")
+
+    with patch("subprocess.run") as mock_sub:
+        mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        run_subprocess(["gh", "pr", "view", "184"])
+        called_env = mock_sub.call_args.kwargs.get("env", {})
+        assert called_env.get("GH_TOKEN") == "ghp_devops_secret"
+
+
+def test_run_subprocess_forwards_explicit_env_devops_token() -> None:
+    """Verify explicit env override for DEVOPS_CLI_GITHUB_TOKEN maps to GH_TOKEN for gh binary."""
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.core.process import run_subprocess
+
+    with patch("subprocess.run") as mock_sub:
+        mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        run_subprocess(
+            ["gh", "pr", "view", "184"], env={"DEVOPS_CLI_GITHUB_TOKEN": "ghp_explicit_token"}
+        )
+        called_env = mock_sub.call_args.kwargs.get("env", {})
+        assert called_env.get("GH_TOKEN") == "ghp_explicit_token"
 
 
 def test_sanitize_command_for_telemetry() -> None:

@@ -88,6 +88,25 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
+def protect_workspace_config():
+    """Ensure workspace config.yaml is never modified during test execution."""
+    workspace_config = (Path(__file__).parent.parent / "config.yaml").resolve()
+    initial_content = workspace_config.read_bytes() if workspace_config.exists() else None
+    yield
+    if initial_content is None and workspace_config.exists():
+        workspace_config.unlink()
+        pytest.fail(f"Test created workspace config at {workspace_config}!")
+    elif initial_content is not None and not workspace_config.exists():
+        workspace_config.write_bytes(initial_content)
+        pytest.fail(f"Test deleted workspace config at {workspace_config}!")
+    elif workspace_config.exists() and initial_content is not None:
+        current_content = workspace_config.read_bytes()
+        if current_content != initial_content:
+            workspace_config.write_bytes(initial_content)
+            pytest.fail(f"Test mutated workspace config at {workspace_config}!")
+
+
+@pytest.fixture(autouse=True)
 def isolate_devops_cli_config(tmp_path_factory: pytest.TempPathFactory):
     """Ensure tests do not load or mutate local workspace config.yaml or ~/.config."""
     from devops_cli.telemetry.tracer import reset_tracer

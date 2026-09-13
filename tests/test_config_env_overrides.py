@@ -90,12 +90,18 @@ def test_ai_config_for_task_with_context_window_overrides() -> None:
     assert chat_cfg.context_window == 32768
 
 
-def test_find_project_config_path_rejects_directory(tmp_path: Path, monkeypatch) -> None:
-    """Ensure _find_project_config_path ignores directories set in DEVOPS_CLI_CONFIG."""
-    test_dir = tmp_path / "config_dir"
-    test_dir.mkdir()
-    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_dir))
+def test_find_project_config_path_skips_directory(tmp_path: Path, monkeypatch) -> None:
+    from devops_cli.config.settings import _find_project_config_path
 
-    # Should not return the directory
-    found = settings._find_project_config_path(base_dir=tmp_path)
-    assert found != test_dir
+    config_dir = tmp_path / "somedir"
+    config_dir.mkdir()
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(config_dir))
+
+    # Existing directory must be skipped rather than causing IsADirectoryError
+    resolved = _find_project_config_path(base_dir=tmp_path)
+    assert resolved is None
+
+    # Non-existent file path is accepted for isolated configuration
+    non_existent = tmp_path / "nonexistent_config.yaml"
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(non_existent))
+    assert _find_project_config_path(base_dir=tmp_path) == non_existent.resolve()

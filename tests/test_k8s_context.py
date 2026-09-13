@@ -163,7 +163,7 @@ def test_switch_context_minikube_autostarts_when_stopped(
     from unittest.mock import MagicMock, patch
 
     cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("k8s:\n  context: other-cluster\n", encoding="utf-8")
+    cfg_file.write_text("k8s:\n  context: default\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
 
     calls: list[list[str]] = []
@@ -201,7 +201,7 @@ def test_switch_context_minikube_skips_start_when_already_running(
     from unittest.mock import MagicMock, patch
 
     cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("k8s:\n  context: minikube\n", encoding="utf-8")
+    cfg_file.write_text("k8s:\n  context: default\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
 
     calls: list[list[str]] = []
@@ -230,7 +230,7 @@ def test_switch_context_other_cluster_does_not_start_minikube(
     from unittest.mock import MagicMock, patch
 
     cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("k8s:\n  context: minikube\n", encoding="utf-8")
+    cfg_file.write_text("k8s:\n  context: default\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
 
     calls: list[list[str]] = []
@@ -304,7 +304,7 @@ def test_switch_context_accepts_kubeconfig_names_and_rejects_injection(
     from unittest.mock import MagicMock, patch
 
     cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("k8s:\n  context: minikube\n", encoding="utf-8")
+    cfg_file.write_text("k8s:\n  context: default\n", encoding="utf-8")
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
 
     calls: list[list[str]] = []
