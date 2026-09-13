@@ -1015,3 +1015,32 @@ def test_bootstrap_openwebui_dry_run_masks_email(capsys: pytest.CaptureFixture[s
     captured = capsys.readouterr()
     assert "operator@example.com" not in captured.out
     assert "op***@example.com" in captured.out
+
+
+def test_is_helm_v4_or_newer_capability_detection() -> None:
+    from devops_cli.commands.k8s.stack_lifecycle import _is_helm_v4_or_newer
+
+    # Helm v4 returns True
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.return_value = MagicMock(returncode=0, stdout="v4.0.1\n")
+        assert _is_helm_v4_or_newer() is True
+
+    # Helm v3 returns False
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.return_value = MagicMock(returncode=0, stdout="v3.16.2\n")
+        assert _is_helm_v4_or_newer() is False
+
+    # Command failure returns False
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.return_value = MagicMock(returncode=1, stdout="")
+        assert _is_helm_v4_or_newer() is False
+
+    # Empty stdout returns False
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.return_value = MagicMock(returncode=0, stdout="")
+        assert _is_helm_v4_or_newer() is False
+
+    # Malformed output returns False
+    with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
+        mock_cmd.return_value = MagicMock(returncode=0, stdout="invalid-version\n")
+        assert _is_helm_v4_or_newer() is False

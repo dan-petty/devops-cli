@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Callable
 from typing import Any, cast
@@ -72,14 +73,15 @@ class PRMonitorStatus(BaseModel):
     title: str = ""
     head_sha: str = ""
     is_draft: bool = False
-    mergeable: bool | None = True
-    mergeable_state: str = "clean"
+    mergeable: bool | None = None
+    mergeable_state: str = "unknown"
     review_decision: str | None = None
     has_changes_requested: bool = False
     checks: list[PRCheckRun] = Field(default_factory=list)
     copilot_status: CopilotReviewStatus = Field(default_factory=CopilotReviewStatus)
     unresolved_threads: list[ReviewThread] = Field(default_factory=list)
     failure_reasons: list[str] = Field(default_factory=list)
+    require_reviews: bool = True
 
     @property
     def total_checks(self) -> int:
@@ -115,10 +117,12 @@ class PRMonitorStatus(BaseModel):
         draft_ok = not self.is_draft
         checks_ok = self.all_checks_completed and self.all_checks_passed
         threads_ok = len(self.unresolved_threads) == 0
+        review_approval_ok = (self.review_decision == "APPROVED") if self.require_reviews else True
         review_ok = (
             not self.copilot_status.is_active
             and self.copilot_status.state != "changes_requested"
             and not self.has_changes_requested
+            and review_approval_ok
         )
         merge_ok = self.mergeable is True and (self.mergeable_state or "").lower() == "clean"
         return draft_ok and checks_ok and threads_ok and review_ok and merge_ok
@@ -265,15 +269,26 @@ def _is_copilot_review_dict(r: Any) -> bool:
     return "copilot" in author or "copilot" in user
 
 
+def _is_copilot_changes_recommended(body: str) -> bool:
+    """Detect if Copilot review heading recommends changes, excluding 'no changes'."""
+    if not body:
+        return False
+    match = re.search(r"###\s*(.+?)(?:\r?\n|$)", body)
+    if not match:
+        return False
+    heading = match.group(1).strip()
+    if re.search(r"no changes\s+(?:recommended|requested)", heading, re.IGNORECASE):
+        return False
+    return bool(re.search(r"(?:changes recommended|changes requested)", heading, re.IGNORECASE))
+
+
 def _check_review_changes_requested(review: dict[str, Any] | None) -> tuple[bool, str, str]:
     """Evaluate whether review requests changes and extract state and timestamp."""
     if not review:
         return False, "", ""
     state = str(review.get("state", "")).upper()
-    body = str(review.get("body", "")).lower()
-    has_changes = (
-        state == "CHANGES_REQUESTED" or "changes recommended" in body or "changes requested" in body
-    )
+    body = str(review.get("body", ""))
+    has_changes = state == "CHANGES_REQUESTED" or _is_copilot_changes_recommended(body)
     last_time = str(review.get("submittedAt") or review.get("submitted_at") or "")
     return has_changes, state, last_time
 
@@ -496,6 +511,8 @@ def _fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, A
 
 def _fetch_raw_reviews(owner: str, repo_name: str, pr_number: int) -> list[dict[str, Any]]:
     """Fetch all review records for a PR."""
+    from devops_cli.github.client import parse_paginated_json
+
     reviews_cmd = [
         CONST_GH_CLI,
         "api",
@@ -504,11 +521,7 @@ def _fetch_raw_reviews(owner: str, repo_name: str, pr_number: int) -> list[dict[
     ]
     reviews_proc = run_subprocess(reviews_cmd)
     if reviews_proc.returncode == 0 and reviews_proc.stdout.strip():
-        try:
-            data = json.loads(reviews_proc.stdout)
-            return [r for r in data if isinstance(r, dict)] if isinstance(data, list) else []
-        except json.JSONDecodeError:
-            return []
+        return parse_paginated_json(reviews_proc.stdout)
     return []
 
 
@@ -551,6 +564,8 @@ def _build_failure_reasons(
     mergeable: bool | None,
     mergeable_state: str,
     is_draft: bool,
+    require_reviews: bool = True,
+    review_decision: str | None = None,
 ) -> list[str]:
     """Compile structured list of failure reasons preventing merge."""
     reasons: list[str] = []
@@ -563,6 +578,8 @@ def _build_failure_reasons(
         reasons.append(f"Copilot review: {copilot_status.message}")
     elif has_changes_requested:
         reasons.append("Reviewers requested changes on the pull request")
+    elif require_reviews and review_decision != "APPROVED":
+        reasons.append("Pull request requires approved review before merging")
 
     merge_reason = _resolve_merge_failure_reason(mergeable, mergeable_state, is_draft)
     if merge_reason:
@@ -570,9 +587,13 @@ def _build_failure_reasons(
     return reasons
 
 
-def _has_active_changes_requested(raw_reviews: list[dict[str, Any]]) -> bool:
-    """Return True if any reviewer's latest review state is CHANGES_REQUESTED."""
-    latest_by_user: dict[str, str] = {}
+def _resolve_review_decision(
+    raw_reviews: list[dict[str, Any]], head_sha: str | None = None
+) -> str | None:
+    """Derive aggregate review decision from latest state per reviewer targeting head_sha."""
+    if not raw_reviews:
+        return None
+    latest_by_user: dict[str, tuple[str, str]] = {}
     for r in raw_reviews:
         if not isinstance(r, dict):
             continue
@@ -580,27 +601,49 @@ def _has_active_changes_requested(raw_reviews: list[dict[str, Any]]) -> bool:
             r.get("user", {}).get("login", "") or r.get("author", {}).get("login", "")
         ).strip()
         state = str(r.get("state", "")).upper()
+        commit_id = str(r.get("commit_id") or r.get("commitId") or "")
         if user and state:
-            latest_by_user[user] = state
-    return any(state == "CHANGES_REQUESTED" for state in latest_by_user.values())
+            latest_by_user[user] = (state, commit_id)
+
+    # Any active changes requested blocks approval
+    for state, _ in latest_by_user.values():
+        if state == "CHANGES_REQUESTED":
+            return "CHANGES_REQUESTED"
+
+    # Require at least one APPROVED review targeting current head_sha (if provided)
+    has_approval = any(
+        state == "APPROVED" and (not head_sha or commit_id == head_sha)
+        for state, commit_id in latest_by_user.values()
+    )
+    if has_approval:
+        return "APPROVED"
+    return "REVIEW_REQUIRED"
 
 
-def get_pr_monitoring_status(owner: str, repo: str, pr_number: int) -> PRMonitorStatus:
+def _has_active_changes_requested(raw_reviews: list[dict[str, Any]]) -> bool:
+    """Return True if any reviewer's latest review state is CHANGES_REQUESTED."""
+    return _resolve_review_decision(raw_reviews) == "CHANGES_REQUESTED"
+
+
+def get_pr_monitoring_status(
+    owner: str, repo: str, pr_number: int, require_reviews: bool = True
+) -> PRMonitorStatus:
     """Fetch current CI checks, Copilot review status, and unresolved review threads."""
     repo_name = repo.split("/")[-1]
     pr_data = _fetch_pr_details(owner, repo_name, pr_number)
     head_sha = str(pr_data.get("head", {}).get("sha", ""))
     is_draft = bool(pr_data.get("draft", False))
     mergeable = pr_data.get("mergeable")
-    mergeable_state = str(pr_data.get("mergeable_state") or "clean").lower()
+    mergeable_state = str(pr_data.get("mergeable_state") or "unknown").lower()
 
     checks = _fetch_rest_check_runs(owner, repo_name, head_sha)
     raw_reviews = _fetch_raw_reviews(owner, repo_name, pr_number)
     copilot_status = _detect_copilot_status(owner, repo_name, pr_number, raw_reviews)
     unresolved_threads = _fetch_unresolved_threads(owner, repo_name, pr_number)
 
+    review_decision = _resolve_review_decision(raw_reviews, head_sha=head_sha)
     has_changes_requested = (
-        copilot_status.state == "changes_requested" or _has_active_changes_requested(raw_reviews)
+        copilot_status.state == "changes_requested" or review_decision == "CHANGES_REQUESTED"
     )
     failure_reasons = _build_failure_reasons(
         checks,
@@ -610,6 +653,8 @@ def get_pr_monitoring_status(owner: str, repo: str, pr_number: int) -> PRMonitor
         mergeable,
         mergeable_state,
         is_draft,
+        require_reviews=require_reviews,
+        review_decision=review_decision,
     )
     return PRMonitorStatus(
         number=pr_number,
@@ -618,11 +663,13 @@ def get_pr_monitoring_status(owner: str, repo: str, pr_number: int) -> PRMonitor
         is_draft=is_draft,
         mergeable=mergeable,
         mergeable_state=mergeable_state,
+        review_decision=review_decision,
         has_changes_requested=has_changes_requested,
         checks=checks,
         copilot_status=copilot_status,
         unresolved_threads=unresolved_threads,
         failure_reasons=failure_reasons,
+        require_reviews=require_reviews,
     )
 
 
@@ -688,13 +735,23 @@ def _evaluate_pr_settled_readiness(
             ),
             status=latest_status,
         )
-    if require_reviews and latest_status.mergeable_state == "blocked":
+    if latest_status.mergeable_state == "blocked":
         return PRMonitorResult(
             success=False,
             exit_code=2,
             message=(
                 f"PR #{pr_number} is blocked from merging by GitHub: "
                 "awaiting required review approval or branch protection requirements."
+            ),
+            status=latest_status,
+        )
+    if require_reviews and latest_status.review_decision != "APPROVED":
+        return PRMonitorResult(
+            success=False,
+            exit_code=2,
+            message=(
+                f"PR #{pr_number} requires review approval before merging: "
+                f"current review decision is '{latest_status.review_decision or 'NONE'}'."
             ),
             status=latest_status,
         )
@@ -777,7 +834,10 @@ def monitor_pr(
     while True:
         now = time.monotonic()
         elapsed = int(now - start_time)
-        latest_status = get_pr_monitoring_status(owner, repo, pr_number)
+        latest_status = get_pr_monitoring_status(
+            owner, repo, pr_number, require_reviews=require_reviews
+        )
+        latest_status.require_reviews = require_reviews
 
         if status_callback:
             status_callback(latest_status, elapsed)
