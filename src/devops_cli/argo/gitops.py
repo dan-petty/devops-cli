@@ -1,8 +1,19 @@
-"""Automated GitOps drift detection, debounced change aggregation, and webhook synchronization."""
+"""Automated GitOps drift detection, debounced change aggregation, and webhook synchronization.
+
+Cross-Platform Observability & Watch Architecture:
+- Uses resilient, debounced filesystem polling (configurable via `--interval` / `-i` down to 0.1s)
+  to ensure cross-platform compatibility across Docker devcontainers, Kubernetes sidecars,
+  and remote NFS/SMB mounts where OS-level inotify notifications do not propagate across
+  hypervisor or network boundary interfaces.
+- For application-targeted reconciliation, the default authenticated REST API (`mode="api"`)
+  dispatches directly to `/api/v1/applications/{app_name}/sync`.
+- When `mode="webhook"` is selected, dispatches Git-provider push payloads to `/api/webhook`.
+"""
 
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import time
 from collections.abc import Callable, Sequence
@@ -14,6 +25,7 @@ from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import get_argocd_token
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
+from devops_cli.security.sanitizer import mask_secrets, mask_uri_credentials
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
 
@@ -145,21 +157,119 @@ def scan_manifest_drift(
     return events
 
 
+def _get_baseline_cache_file(paths: Sequence[Path | str]) -> Path:
+    """Resolve deterministic cache path for manifest baseline state under data directory."""
+    key_source = "|".join(sorted(str(Path(p).resolve()) for p in paths))
+    key_hash = hashlib.sha256(key_source.encode()).hexdigest()[:16]
+    settings = load_settings()
+    cache_dir = Path(settings.data.dir).resolve() / "gitops"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"manifest_baseline_{key_hash}.json"
+
+
+def load_persisted_manifest_state(
+    paths: Sequence[Path | str],
+) -> dict[Path, tuple[float, str]] | None:
+    """Load saved manifest baseline state from cache if available."""
+    cache_file = _get_baseline_cache_file(paths)
+    if not cache_file.exists():
+        return None
+    try:
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+        state: dict[Path, tuple[float, str]] = {}
+        for p_str, (mtime, sha) in data.items():
+            state[Path(p_str)] = (float(mtime), str(sha))
+        return state
+    except Exception:
+        return None
+
+
+def save_persisted_manifest_state(
+    paths: Sequence[Path | str], state: dict[Path, tuple[float, str]]
+) -> None:
+    """Persist manifest state snapshot to disk."""
+    try:
+        cache_file = _get_baseline_cache_file(paths)
+        data = {str(p): list(val) for p, val in state.items()}
+        cache_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def inspect_git_manifest_drift(paths: Sequence[Path | str]) -> list[GitOpsDriftEvent]:
+    """Inspect working tree for uncommitted or modified manifests using git status."""
+    from devops_cli.core.process import run_subprocess
+
+    resolved_paths = [str(Path(p).resolve()) for p in paths if Path(p).exists()]
+    if not resolved_paths:
+        return []
+    try:
+        cmd = ["git", "status", "--porcelain", "--", *resolved_paths]
+        res = run_subprocess(cmd, check=False, capture_output=True, timeout=5.0)
+        if res.returncode != 0:
+            return []
+        events: list[GitOpsDriftEvent] = []
+        now = time.time()
+        for line in res.stdout.strip().splitlines():
+            if len(line) < 4:
+                continue
+            status_code = line[:2].strip()
+            rel_path = line[3:].strip().strip('"')
+            fpath = Path(rel_path).resolve()
+            if not is_manifest_file(fpath):
+                continue
+            if "D" in status_code:
+                ctype = "deleted"
+                fhash = ""
+            elif "??" in status_code or "A" in status_code:
+                ctype = "created"
+                fhash = compute_file_hash(fpath) if fpath.exists() else ""
+            else:
+                ctype = "modified"
+                fhash = compute_file_hash(fpath) if fpath.exists() else ""
+            events.append(
+                GitOpsDriftEvent(
+                    path=str(fpath),
+                    change_type=ctype,
+                    timestamp=now,
+                    file_hash=fhash,
+                )
+            )
+        return events
+    except Exception:
+        return []
+
+
 def _build_sync_request_params(
     app_name: str,
     base_url: str,
     sync_mode: Literal["api", "webhook"],
     prune: bool,
     force: bool,
-) -> tuple[str, dict[str, object]]:
-    """Construct destination URL and payload dictionary for sync trigger."""
+    repo_url: str = "",
+    branch: str = "main",
+) -> tuple[str, dict[str, str], dict[str, object]]:
+    """Construct destination URL, headers, and payload dictionary for sync trigger."""
     if sync_mode == "webhook":
         url = f"{base_url}/api/webhook"
-        payload: dict[str, object] = {"app": app_name, "action": "sync", "event": "push"}
+        headers = {
+            "Content-Type": "application/json",
+            "X-GitHub-Event": "push",
+        }
+        resolved_repo_url = repo_url or f"https://example.com/{app_name}"
+        payload: dict[str, object] = {
+            "ref": f"refs/heads/{branch}",
+            "repository": {
+                "name": app_name,
+                "html_url": resolved_repo_url,
+                "default_branch": branch,
+            },
+        }
     else:
         url = f"{base_url}/api/v1/applications/{app_name}/sync"
+        headers = {"Content-Type": "application/json"}
         payload = {"sync": {"prune": prune, "force": force}}
-    return url, payload
+    return url, headers, payload
 
 
 def trigger_argocd_sync(
@@ -209,12 +319,12 @@ def trigger_argocd_sync(
                 settings.argocd.url, "ArgoCD", allow=settings.ai.allow_private_network
             )
             base = settings.argocd.url.rstrip("/")
-            headers: dict[str, str] = {"Content-Type": "application/json"}
+            url, headers, payload = _build_sync_request_params(
+                app_name, base, sync_mode, prune, force
+            )
             token = get_argocd_token(settings)
             if token and not token.startswith("*"):
                 headers["Authorization"] = f"Bearer {token}"
-
-            url, payload = _build_sync_request_params(app_name, base, sync_mode, prune, force)
 
             with httpx2.Client() as client:
                 resp = client.post(
@@ -246,7 +356,7 @@ def trigger_argocd_sync(
             )
         except Exception as exc:
             duration = round(time.monotonic() - start, 3)
-            truncated_error = str(exc)[:256]
+            sanitized_error = mask_secrets(mask_uri_credentials(str(exc)))[:256]
             GLOBAL_METRICS.increment_counter(
                 "devops_cli_argo_gitops_sync_total",
                 value=1.0,
@@ -257,7 +367,7 @@ def trigger_argocd_sync(
                 changed_files=files_str,
                 status="Failed",
                 sync_mode=sync_mode,
-                message=truncated_error,
+                message=sanitized_error,
                 duration_seconds=duration,
                 timestamp=now,
                 success=False,
@@ -278,6 +388,7 @@ class GitOpsWatcher:
         prune: bool = False,
         force: bool = False,
         sync_mode: Literal["api", "webhook"] = "api",
+        baseline_state: dict[Path, tuple[float, str]] | None = None,
         on_drift: Callable[[list[GitOpsDriftEvent]], None] | None = None,
         on_sync: Callable[[GitOpsSyncTriggerResult], None] | None = None,
     ) -> None:
@@ -292,13 +403,23 @@ class GitOpsWatcher:
         self.on_drift = on_drift
         self.on_sync = on_sync
         self._running = False
-        self._last_state: dict[Path, tuple[float, str]] = compute_manifest_state(self.paths)
 
-    def scan_drift(self) -> list[GitOpsDriftEvent]:
-        """Scan watched manifest paths, update current state, and return detected drift."""
+        if baseline_state is not None:
+            self._last_state = baseline_state
+        else:
+            persisted = load_persisted_manifest_state(self.paths)
+            self._last_state = (
+                persisted if persisted is not None else compute_manifest_state(self.paths)
+            )
+
+    def scan_drift(self, detect_cold_drift: bool = False) -> list[GitOpsDriftEvent]:
+        """Scan watched manifest paths, update state, and return detected drift."""
         current_state = compute_manifest_state(self.paths)
         events = scan_manifest_drift(self._last_state, current_state)
+        if not events and detect_cold_drift:
+            events = inspect_git_manifest_drift(self.paths)
         self._last_state = current_state
+        save_persisted_manifest_state(self.paths, current_state)
         return events
 
     def sync_now(self, events: list[GitOpsDriftEvent] | None = None) -> GitOpsSyncTriggerResult:
@@ -338,28 +459,65 @@ class GitOpsWatcher:
         max_events: int | None = None,
         max_iterations: int | None = None,
     ) -> list[GitOpsSyncTriggerResult]:
-        """Run the monitoring loop and process manifest change cycles."""
+        """Run the monitoring loop and process manifest change cycles with tracing."""
         self._running = True
         sync_results: list[GitOpsSyncTriggerResult] = []
         iterations = 0
+        watch_start = time.monotonic()
 
-        try:
-            while self._running:
-                drift = self.scan_drift()
-                if drift:
-                    result = self._process_drift_cycle(drift)
-                    sync_results.append(result)
-                    if max_events is not None and len(sync_results) >= max_events:
+        with trace_span(
+            "argo.gitops.watch",
+            attributes={
+                "app": self.app_name,
+                "paths": [str(p) for p in self.paths],
+                "debounce_ms": int(self.debounce_seconds * 1000),
+                "interval_seconds": self.poll_interval_seconds,
+            },
+        ) as span_h:
+            GLOBAL_METRICS.increment_counter(
+                "devops_cli_argo_gitops_watch_total",
+                value=1.0,
+                labels={"app": self.app_name},
+            )
+            try:
+                while self._running:
+                    drift = self.scan_drift()
+                    if drift:
+                        span_h.add_event(
+                            "manifest_drift",
+                            {"count": len(drift), "app": self.app_name},
+                        )
+                        GLOBAL_METRICS.increment_counter(
+                            "devops_cli_argo_gitops_drift_events_total",
+                            value=float(len(drift)),
+                            labels={"app": self.app_name},
+                        )
+                        result = self._process_drift_cycle(drift)
+                        sync_results.append(result)
+                        if max_events is not None and len(sync_results) >= max_events:
+                            break
+
+                    iterations += 1
+                    if max_iterations is not None and iterations >= max_iterations:
                         break
-
-                iterations += 1
-                if max_iterations is not None and iterations >= max_iterations:
-                    break
-                time.sleep(self.poll_interval_seconds)
-        except KeyboardInterrupt:
-            self._running = False
-        finally:
-            self._running = False
+                    time.sleep(self.poll_interval_seconds)
+            except KeyboardInterrupt:
+                self._running = False
+            finally:
+                self._running = False
+                total_duration = round(time.monotonic() - watch_start, 2)
+                span_h.set_attribute("iterations", iterations)
+                span_h.set_attribute("duration_seconds", total_duration)
+                GLOBAL_METRICS.record_histogram(
+                    "devops_cli_argo_gitops_watch_duration_seconds",
+                    total_duration,
+                    labels={"app": self.app_name},
+                )
+                GLOBAL_METRICS.increment_counter(
+                    "devops_cli_argo_gitops_watch_iterations_total",
+                    value=float(iterations),
+                    labels={"app": self.app_name},
+                )
 
         return sync_results
 

@@ -676,7 +676,7 @@ def _handle_gitops_once(
     )
     from devops_cli.output import print_info, write_stdout
 
-    drift = watcher.scan_drift()
+    drift = watcher.scan_drift(detect_cold_drift=True)
     sync_res = watcher.sync_now(drift) if drift else None
 
     if json_output:
@@ -685,14 +685,15 @@ def _handle_gitops_once(
             "synced": sync_res.model_dump() if sync_res else None,
         }
         write_stdout(json.dumps(out, indent=2) + "\n")
-        return
-
-    if drift:
+    elif drift:
         print(render_gitops_drift_table(drift))
         if sync_res:
             print(render_gitops_sync_table([sync_res]))
     else:
         print_info("No manifest drift detected across watched paths")
+
+    if sync_res and not sync_res.success:
+        raise typer.Exit(1)
 
 
 def _handle_gitops_continuous(
@@ -709,16 +710,22 @@ def _handle_gitops_continuous(
     if not json_output:
         print_info(f"Watching manifests in '{path}' for application '{app_name}'...")
 
+    all_drift_events: list[Any] = []
+
+    def _on_drift(events: list[Any]) -> None:
+        all_drift_events.extend(events)
+
     def _on_sync(res: Any) -> None:
         if not json_output:
             print(render_gitops_sync_table([res]))
 
+    watcher.on_drift = _on_drift
     watcher.on_sync = _on_sync
     results = watcher.watch(max_events=max_events)
 
     if json_output:
         out = {
-            "events": [],
+            "events": [e.model_dump() for e in all_drift_events],
             "synced": [r.model_dump() for r in results],
         }
         write_stdout(json.dumps(out, indent=2) + "\n")
@@ -819,6 +826,8 @@ def gitops_drift(
     """Inspect and report local manifest state and detect any unstaged or modified files."""
     from devops_cli.argo.gitops import (
         compute_manifest_state,
+        inspect_git_manifest_drift,
+        load_persisted_manifest_state,
         render_gitops_drift_table,
         scan_manifest_drift,
     )
@@ -826,7 +835,12 @@ def gitops_drift(
 
     paths = _parse_manifest_paths(path)
     state = compute_manifest_state(paths)
-    drift = scan_manifest_drift({}, state)
+    persisted = load_persisted_manifest_state(paths)
+
+    if persisted is not None:
+        drift = scan_manifest_drift(persisted, state)
+    else:
+        drift = inspect_git_manifest_drift(paths)
 
     if json_output:
         data = {"manifests": [e.model_dump() for e in drift]}
@@ -834,7 +848,7 @@ def gitops_drift(
     elif drift:
         print(render_gitops_drift_table(drift))
     else:
-        print_info("No manifests found in specified paths")
+        print_info("No manifest drift detected across watched paths (working tree clean)")
 
 
 @gitops_app.command("sync")

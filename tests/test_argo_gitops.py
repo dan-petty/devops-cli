@@ -422,3 +422,79 @@ def test_cli_gitops_invalid_app_name() -> None:
         ],
     )
     assert result.exit_code != 0
+
+
+def test_trigger_argocd_sync_secret_masking() -> None:
+    """Ensure sensitive credentials and URLs in error messages are masked."""
+    from devops_cli.argo.gitops import trigger_argocd_sync
+
+    settings = Settings()
+    settings.argocd.url = "https://example.com/argo"
+
+    sensitive_error = "Connection failed to https://admin:SuperSecretPassword123@example.com/argo"
+    with (
+        patch("devops_cli.argo.gitops.load_settings", return_value=settings),
+        patch("httpx2.Client.post", side_effect=RuntimeError(sensitive_error)),
+    ):
+        result = trigger_argocd_sync(app_name="root-app")
+        assert result.status == "Failed"
+        assert "SuperSecretPassword123" not in result.message
+        assert "<masked-password>" in result.message or "***" in result.message
+
+
+def test_manifest_state_persistence(tmp_path: Path) -> None:
+    """Ensure baseline state is correctly persisted and restored."""
+    from devops_cli.argo.gitops import (
+        compute_manifest_state,
+        load_persisted_manifest_state,
+        save_persisted_manifest_state,
+    )
+
+    f1 = tmp_path / "app.yaml"
+    f1.write_text("replicas: 1", encoding="utf-8")
+
+    state = compute_manifest_state([tmp_path])
+    save_persisted_manifest_state([tmp_path], state)
+
+    loaded = load_persisted_manifest_state([tmp_path])
+    assert loaded is not None
+    assert f1.resolve() in loaded
+    assert loaded[f1.resolve()][1] == state[f1.resolve()][1]
+
+
+def test_cli_gitops_watch_once_failure_exits_nonzero(tmp_path: Path) -> None:
+    """Ensure failed reconciliation in one-shot mode propagates non-zero exit code."""
+    manifest = tmp_path / "app.yaml"
+    manifest.write_text("replicas: 1", encoding="utf-8")
+
+    drift_evt = GitOpsDriftEvent(path=str(manifest), change_type="modified", timestamp=time.time())
+    failed_res = GitOpsSyncTriggerResult(
+        app_name="root-app",
+        status="Failed",
+        message="Simulated connection failure",
+        success=False,
+    )
+
+    with (
+        patch(
+            "devops_cli.argo.gitops.GitOpsWatcher.scan_drift",
+            return_value=[drift_evt],
+        ),
+        patch(
+            "devops_cli.argo.gitops.GitOpsWatcher.sync_now",
+            return_value=failed_res,
+        ),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "gitops",
+                "watch",
+                "--path",
+                str(tmp_path),
+                "--app-name",
+                "root-app",
+                "--once",
+            ],
+        )
+        assert result.exit_code != 0
