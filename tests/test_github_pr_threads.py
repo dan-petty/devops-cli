@@ -234,3 +234,95 @@ def test_list_pr_review_threads_pagination() -> None:
         assert len(threads) == 2
         assert threads[0].id == "PRRT_1"
         assert threads[1].id == "PRRT_2"
+
+
+def test_list_pr_review_threads_graphql_rate_limit_fallback_to_rest() -> None:
+    """Verify list_pr_review_threads falls back to REST when GraphQL hits rate limits."""
+    mock_graphql_err = MagicMock()
+    mock_graphql_err.returncode = 1
+    mock_graphql_err.stderr = "GraphQL: API rate limit already exceeded for user ID 7726889."
+    mock_graphql_err.stdout = ""
+
+    rest_comments = [
+        {
+            "id": 101,
+            "node_id": "PRRC_node_101",
+            "in_reply_to_id": None,
+            "body": "Root comment on security",
+            "user": {"login": "security-reviewer"},
+            "path": "src/devops_cli/security.py",
+            "line": 42,
+            "created_at": "2026-09-09T10:00:00Z",
+        },
+        {
+            "id": 102,
+            "node_id": "PRRC_node_102",
+            "in_reply_to_id": 101,
+            "body": "Addressed with bounded timeout",
+            "user": {"login": "dan-petty"},
+            "path": "src/devops_cli/security.py",
+            "line": 42,
+            "created_at": "2026-09-09T10:05:00Z",
+        },
+        {
+            "id": 201,
+            "node_id": "PRRC_node_201",
+            "in_reply_to_id": None,
+            "body": "Independent comment",
+            "user": {"login": "copilot"},
+            "path": "src/devops_cli/main.py",
+            "line": 15,
+            "created_at": "2026-09-09T10:10:00Z",
+        },
+    ]
+    mock_rest_res = MagicMock()
+    mock_rest_res.returncode = 0
+    mock_rest_res.stdout = json.dumps(rest_comments)
+    mock_rest_res.stderr = ""
+
+    with patch(
+        "devops_cli.github.pr_threads.run_subprocess", side_effect=[mock_graphql_err, mock_rest_res]
+    ):
+        threads = list_pr_review_threads(
+            owner="dan-petty",
+            repo="devops-cli",
+            pr_number=83,
+            unresolved_only=False,
+        )
+        assert len(threads) == 2
+        # Verify thread 1 contains both root comment and reply
+        assert threads[0].id == "PRRC_node_101"
+        assert threads[0].path == "src/devops_cli/security.py"
+        assert threads[0].line == 42
+        assert len(threads[0].comments) == 2
+        assert threads[0].comments[0].id == "101"
+        assert threads[0].comments[0].author == "security-reviewer"
+        assert threads[0].comments[1].id == "102"
+        assert threads[0].comments[1].author == "dan-petty"
+
+        # Verify thread 2
+        assert threads[1].id == "PRRC_node_201"
+        assert threads[1].path == "src/devops_cli/main.py"
+        assert len(threads[1].comments) == 1
+
+
+def test_list_pr_review_threads_graphql_generic_error_propagates() -> None:
+    """Verify non-rate-limit GraphQL errors are raised without attempting REST fallback."""
+    mock_graphql_err = MagicMock()
+    mock_graphql_err.returncode = 1
+    mock_graphql_err.stderr = "Could not resolve to a Repository with the name 'unknown'."
+    mock_graphql_err.stdout = ""
+
+    with patch("devops_cli.github.pr_threads.run_subprocess", return_value=mock_graphql_err):
+        with pytest.raises(GitHubOperationError, match="Could not resolve to a Repository"):
+            list_pr_review_threads(owner="dan-petty", repo="devops-cli", pr_number=83)
+
+
+def test_fetch_review_threads_rest_empty() -> None:
+    """Verify fetch_review_threads_rest returns empty list when no comments exist."""
+    from devops_cli.github.pr_threads import fetch_review_threads_rest
+
+    mock_rest = MagicMock(returncode=0, stdout="[]", stderr="")
+    with patch("devops_cli.github.pr_threads.run_subprocess", return_value=mock_rest):
+        threads = fetch_review_threads_rest(owner="dan-petty", repo="devops-cli", pr_number=83)
+        assert threads == []

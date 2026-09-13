@@ -155,6 +155,20 @@ class TestPrCommands:
             assert "PRRT_1" in res.output
             assert "Open" in res.output
 
+    def test_threads_list_error_exit(self, runner: CliRunner) -> None:
+        from devops_cli.exceptions.git import GitHubOperationError
+
+        with (
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.github.pr_threads.list_pr_review_threads",
+                side_effect=GitHubOperationError("API failure"),
+            ),
+        ):
+            res = runner.invoke(app, ["threads", "list", "83"])
+            assert res.exit_code == 1
+            assert "Failed to retrieve PR #83 review threads: API failure" in res.output
+
     def test_threads_reply_success(self, runner: CliRunner) -> None:
         from devops_cli.github.pr_threads import ReviewComment
 

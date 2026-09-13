@@ -1061,7 +1061,6 @@ def _evaluate_pr_blockers(
 ) -> list[str]:
     """Inspect PR data and unresolved discussion threads for merge blockers."""
     from devops_cli.exceptions.git import GitHubOperationError
-    from devops_cli.github.pr_monitor import _fetch_rest_unresolved_comments
     from devops_cli.github.pr_threads import list_pr_review_threads
 
     blockers: list[str] = []
@@ -1082,10 +1081,7 @@ def _evaluate_pr_blockers(
     try:
         unresolved = list_pr_review_threads(owner, repo_name, pr_num, unresolved_only=True)
     except GitHubOperationError as exc:
-        if "rate limit" in str(exc).lower():
-            unresolved = _fetch_rest_unresolved_comments(owner, repo_name, pr_num)
-        else:
-            raise
+        print_warning(f"Could not retrieve review threads for PR #{pr_num}: {exc}")
 
     if unresolved:
         blockers.append(
@@ -1178,7 +1174,6 @@ def list_threads(
     """List PR review discussion threads, file locations, and comments."""
     from devops_cli.core.repo import get_repo_origin_name
     from devops_cli.exceptions.git import GitHubOperationError
-    from devops_cli.github.pr_monitor import _fetch_rest_unresolved_comments
     from devops_cli.github.pr_threads import list_pr_review_threads
 
     target_repo = repo or get_repo_origin_name()
@@ -1191,10 +1186,8 @@ def list_threads(
     try:
         threads = list_pr_review_threads(owner, repo_name, number, unresolved_only=unresolved_only)
     except GitHubOperationError as exc:
-        if "rate limit" in str(exc).lower():
-            threads = _fetch_rest_unresolved_comments(owner, repo_name, number)
-        else:
-            raise
+        print_error(f"Failed to retrieve PR #{number} review threads: {exc}")
+        raise typer.Exit(1)
 
     if output_format == "json":
         from devops_cli.output import print as print_out
