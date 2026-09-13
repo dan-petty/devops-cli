@@ -984,6 +984,12 @@ class SandboxCommandHelp:
         "Execute an endpoint health probe before visualizing the resulting trace."
     )
     jaeger_url: str = "Override Jaeger Query HTTP endpoint (default: http://localhost:16686)."
+    logs: str = "Stream stdout/stderr container logs with automated panic and crash detection."
+    follow: str = "Follow log output continuously in live stream mode."
+    tail: str = "Number of lines to show from the end of the logs (default: 100)."
+    timestamps: str = "Show timestamps in log output."
+    detect_panics: str = "Automatically detect panics, stacktraces, and segfaults."
+    incident_dir: str = "Directory path to persist structured panic incident records."
 
 
 @dataclass(frozen=True)

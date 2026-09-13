@@ -188,3 +188,32 @@ devops sandbox traces [OPTIONS] <identifier>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
+
+## `devops sandbox logs`
+
+**Stream stdout/stderr container logs with automated panic and crash detection.**
+
+```bash
+devops sandbox logs [OPTIONS] <identifier>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<identifier>` | `string` | No | Unique instance ID or name of the sandbox. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--follow`, `-f` | `boolean` | - | Follow log output continuously in live stream mode. |
+| `--tail`, `-n` | `integer` | `100` | Number of lines to show from the end of the logs (default: 100). |
+| `--timestamps`, `-t` | `boolean` | `True` | Show timestamps in log output. |
+| `--detect-panics`, `--no-detect-panics` | `boolean` | `True` | Automatically detect panics, stacktraces, and segfaults. |
+| `--archive-incidents`, `--no-archive-incidents` | `boolean` | `True` | Archive incident records to JSON files |
+| `--incident-dir` | `path` | - | Directory path to persist structured panic incident records. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---

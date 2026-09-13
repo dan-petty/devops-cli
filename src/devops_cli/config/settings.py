@@ -145,11 +145,28 @@ class QdrantConfig(BaseModel):
 
 class ValkeyConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
-    host: str = "localhost"
+    host: str = "localhost:6379"
     port: int = 6379
     password: str | None = None
     db: int = 0
     timeout: float = 2.0
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_host_port(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            raw_host = data.get("host")
+            raw_port = data.get("port")
+            if isinstance(raw_host, str):
+                clean = raw_host.strip()
+                if ":" in clean and not clean.startswith("["):
+                    parts = clean.rsplit(":", 1)
+                    if parts[1].isdigit():
+                        data["host"] = clean
+                        data["port"] = int(parts[1])
+                elif raw_port is not None:
+                    data["host"] = f"{clean}:{raw_port}"
+        return data
 
 
 class JaegerConfig(BaseModel):
