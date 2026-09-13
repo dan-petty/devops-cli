@@ -588,6 +588,9 @@ def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
 
 def get_active_config_path(base_dir: Path | None = None) -> Path:
     """Return active config file path (DEVOPS_CLI_CONFIG > project config > ~/.config)."""
+    env_config = os.environ.get(PROJECT_CONFIG_ENV)
+    if env_config:
+        return Path(env_config).resolve()
     found = _find_project_config_path(base_dir=base_dir)
     return found if found is not None else CONFIG_PATH
 
@@ -595,6 +598,16 @@ def get_active_config_path(base_dir: Path | None = None) -> Path:
 def save_settings(settings: Settings, target_path: Path | None = None) -> None:
     """Persist settings to config YAML (secrets stay in keyring only)."""
     dest_path = target_path or get_active_config_path()
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        workspace_configs = {
+            (Path.cwd() / "config.yaml").resolve(),
+            (Path("/workspaces/devops-cli") / "config.yaml").resolve(),
+        }
+        if dest_path.resolve() in workspace_configs:
+            raise ConfigurationError(
+                f"Refusing to overwrite workspace config.yaml during test execution! "
+                f"(dest_path={dest_path})"
+            )
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     data = settings.model_dump(mode="json", exclude_none=True)
     content = yaml.dump(data, default_flow_style=False, allow_unicode=True)

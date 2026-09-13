@@ -4,6 +4,22 @@ GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
 
 ## Commands
 
+## `devops gh rate-limit`
+
+**Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns.**
+
+```bash
+devops gh rate-limit [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+---
+
 ## `devops gh labels`
 
 ```bash
@@ -455,6 +471,77 @@ devops gh issues status [OPTIONS]
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
 
+### `devops gh issues edit`
+
+**Edit an existing issue title, body, or state.**
+
+```bash
+devops gh issues edit [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Issue number to edit. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--title`, `-t` | `string` | - | New issue title. |
+| `--body`, `-b` | `string` | - | New issue body text. |
+| `--state`, `-s` | `string` | - | New state (open or closed). |
+| `--repo`, `-R` | `string` | - | Target repository |
+
+---
+
+## `devops gh runs`
+
+```bash
+devops gh runs COMMAND [ARGS]...
+```
+
+### `devops gh runs list`
+
+**List recent workflow runs for the repository or branch.**
+
+```bash
+devops gh runs list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--limit`, `-n` | `integer` | `10` | Maximum number of items to return or display. |
+| `--branch`, `-b` | `string` | - | Filter by branch |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+### `devops gh runs view`
+
+**View details and failure logs of a specific workflow run.**
+
+```bash
+devops gh runs view [OPTIONS] <run_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<run_id>` | `integer` | Yes | Workflow run database ID. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--log-failed` | `boolean` | - | Display logs for failed jobs or steps in the workflow run. |
+| `--log` | `boolean` | - | Display full execution logs for the workflow run. |
+| `--job`, `-j` | `string` | - | Filter workflow run logs to a specific job ID. |
+| `--repo`, `-R` | `string` | - | Target repository |
+
 ---
 
 ## `devops gh pr`
@@ -608,6 +695,92 @@ devops gh pr create [OPTIONS]
 | `--body`, `-b` | `string` | `` | Body or description text. |
 | `--base`, `-B` | `string` | - | Base git branch to diff against (default: main). |
 | `--draft`, `-d` | `boolean` | - | Create pull request or entity as draft. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+### `devops gh pr ready`
+
+**Mark a draft pull request as ready for review.**
+
+```bash
+devops gh pr ready [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--monitor`, `-m` | `boolean` | - | Automatically transition to monitoring checks and reviews after marking ready. |
+
+### `devops gh pr diff`
+
+**View diff of a pull request.**
+
+```bash
+devops gh pr diff [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--color` | `string` | `auto` | Whether to colorize diff (always, never, auto). |
+
+### `devops gh pr close`
+
+**Close a pull request.**
+
+```bash
+devops gh pr close [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--comment`, `-c` | `string` | - | Comment text to include when closing the pull request. |
+| `--delete-branch`, `-d` | `boolean` | - | Delete remote topic branch upon closing. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+### `devops gh pr check-readiness`
+
+**Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.**
+
+```bash
+devops gh pr check-readiness [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | PR number to verify (defaults to current branch PR) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
+| `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops gh pr threads`

@@ -2,9 +2,9 @@
 
 **Issue**: [#185](https://github.com/dan-petty/devops-cli/issues/185)
 **PR**: [#186](https://github.com/dan-petty/devops-cli/pull/186)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.17`
-**Taxonomy**: `type/bug`, `scope/security`, `priority/high`, `status/in-review`
+**Taxonomy**: `type/bug`, `scope/security`, `priority/high`, `status/done`
 
 ---
 

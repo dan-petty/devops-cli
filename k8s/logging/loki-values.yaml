@@ -61,6 +61,11 @@ chunksCache:
 resultsCache:
   enabled: false
 
+# Disable rule sidecar container in dev-mode SingleBinary cluster to eliminate k8s API watch crashloop
+sidecar:
+  rules:
+    enabled: false
+
 # Zero out scalable targets to satisfy SingleBinary deploymentMode validation
 read:
   replicas: 0

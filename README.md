@@ -328,13 +328,19 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops pr monitor [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
 |  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, or body. |
 |  | `devops pr create [OPTIONS]` | Create a pull request with automatic release branch target validation. |
+|  | `devops pr ready [OPTIONS] <number>` | Mark a draft pull request as ready for review. |
+|  | `devops pr diff [OPTIONS] <number>` | View diff of a pull request. |
+|  | `devops pr close [OPTIONS] <number>` | Close a pull request. |
+|  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
-| **gh** | `devops gh labels COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+| **gh** | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
+|  | `devops gh labels COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh milestones COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh project COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh views COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh pages COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh issues COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh runs COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh pr COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 | **tf** | `devops tf init [OPTIONS] <directory>` | Initialize an OpenTofu working directory. |
 |  | `devops tf plan [OPTIONS] <directory>` | Generate and show an OpenTofu execution plan. |
