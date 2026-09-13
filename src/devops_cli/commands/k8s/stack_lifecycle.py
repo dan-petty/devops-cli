@@ -254,16 +254,49 @@ def _bootstrap_openwebui_account(
     return (res.returncode == 0, created)
 
 
+def _mask_email_display(email: str) -> str:
+    """Mask user email in CLI outputs to prevent leaking PII, while keeping local dev clear."""
+    if email.endswith("@localhost") or email.endswith(".local") or email.endswith(".internal"):
+        return email
+    parts = email.split("@", 1)
+    if len(parts) == 2:
+        prefix = parts[0][:2] if len(parts[0]) > 2 else parts[0][:1]
+        return f"{prefix}***@{parts[1]}"
+    return "***"
+
+
 def bootstrap_openwebui(
-    email: Annotated[str, typer.Option("--email", "-e", help=HELP.k8s.email)] = "admin@localhost",
-    name: Annotated[str, typer.Option("--name", "-n", help=HELP.k8s.admin_name)] = "Admin",
+    email: Annotated[
+        str,
+        typer.Option(
+            "--email",
+            "-e",
+            help="Email address for the local administrator account.",
+        ),
+    ] = "admin@localhost",
     password: Annotated[
         str | None,
-        typer.Option("--password", "-p", help=HELP.k8s.password),
+        typer.Option(
+            "--password",
+            "-p",
+            help="Password for administrator. If omitted, securely generated and stored in OS Keyring.",
+        ),
     ] = None,
+    name: Annotated[
+        str,
+        typer.Option(
+            "--name",
+            "-n",
+            help="Full display name for the administrator.",
+        ),
+    ] = "Local Administrator",
     context: Annotated[
         str | None,
-        typer.Option("--context", "-c", help=HELP.options.context),
+        typer.Option(
+            "--context",
+            "-c",
+            help="Kubernetes context to target (defaults to config default or active).",
+        ),
     ] = None,
     show_password: Annotated[
         bool,
@@ -283,21 +316,22 @@ def bootstrap_openwebui(
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")
 
+    display_email = _mask_email_display(email)
     if is_dry_run():
         render_dry_run_result(
             command="devops k8s bootstrap-openwebui",
-            target=email,
+            target=display_email,
             action="bootstrap_openwebui_admin",
-            details={"email": email, "name": name, "context": effective_context},
+            details={"email": display_email, "name": name, "context": effective_context},
         )
         return
 
-    print_info(f"Bootstrapping Open-WebUI local admin account ({email})...")
+    print_info(f"Bootstrapping Open-WebUI local admin account ({display_email})...")
     ok, created = _bootstrap_openwebui_account(
         context=effective_context, email=email, name=name, password=effective_password
     )
     if ok:
-        print_success(f"Open-WebUI admin account ready: [bold]{email}[/bold]")
+        print_success(f"Open-WebUI admin account ready: [bold]{display_email}[/bold]")
         if created:
             from devops_cli.config.settings import _keyring_set
 
@@ -383,7 +417,7 @@ def _is_helm_v4_or_newer() -> bool:
     try:
         major = int(ver_clean.split(".")[0])
         return major >= 4
-    except (ValueError, IndexError) as _:
+    except ValueError, IndexError:
         return False
 
 

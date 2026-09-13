@@ -570,3 +570,128 @@ def test_run_sandbox_probes_generates_and_links_trace_id() -> None:
         assert report.overall_status == ProbeStatus.PASS
         assert report.trace_id is not None
         assert len(report.trace_id) > 0
+
+
+def test_probe_tcp_metadata_endpoint_blocked() -> None:
+    """Verify probe_tcp refuses link-local and cloud metadata addresses."""
+    res1 = probe_tcp("169.254.169.254", 80)
+    assert res1.status == ProbeStatus.FAIL
+    assert "prohibited" in res1.message.lower()
+
+    res2 = probe_tcp("metadata.google.internal", 80)
+    assert res2.status == ProbeStatus.FAIL
+    assert "prohibited" in res2.message.lower()
+
+
+def test_probe_http_metadata_endpoint_blocked() -> None:
+    """Verify probe_http refuses link-local and cloud metadata addresses."""
+    res1 = probe_http("http://169.254.169.254/latest/meta-data")
+    assert res1.status == ProbeStatus.FAIL
+    assert "prohibited" in res1.message.lower()
+
+    res2 = probe_http("http://metadata.google.internal/computeMetadata/v1")
+    assert res2.status == ProbeStatus.FAIL
+    assert "prohibited" in res2.message.lower()
+
+
+def test_probe_http_regex_safety() -> None:
+    """Verify regex length limits and syntax error handling during HTTP response evaluation."""
+    from devops_cli.sandbox.probe import _evaluate_http_response
+
+    # Overly long regex pattern (> 256 chars)
+    long_pattern = "a" * 300
+    res_long = _evaluate_http_response(
+        url="http://example.com/health",
+        status_code=200,
+        body="ok",
+        latency=5.0,
+        expected=[200],
+        regex=long_pattern,
+        latency_budget_ms=None,
+    )
+    assert res_long.status == ProbeStatus.FAIL
+    assert "exceeds maximum length" in res_long.message
+
+    # Invalid regex syntax
+    res_bad = _evaluate_http_response(
+        url="http://example.com/health",
+        status_code=200,
+        body="ok",
+        latency=5.0,
+        expected=[200],
+        regex="[unclosed-bracket",
+        latency_budget_ms=None,
+    )
+    assert res_bad.status == ProbeStatus.FAIL
+    assert "Invalid regex" in res_bad.message
+
+
+def test_probe_tcp_metadata_trailing_dot_and_dns_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify probe_tcp refuses metadata targets with trailing dots and resolved link-local IPs."""
+    res = probe_tcp("169.254.169.254.", 80)
+    assert res.status == ProbeStatus.FAIL
+    assert "prohibited" in res.message.lower()
+
+    def mock_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
+    res_dns = probe_tcp("metadata-spoof.example.com", 80)
+    assert res_dns.status == ProbeStatus.FAIL
+    assert "prohibited" in res_dns.message.lower()
+
+
+def test_endpoint_probe_result_recursive_sanitizer() -> None:
+    """Verify EndpointProbeResult recursively masks secrets and bounds oversized nested details."""
+    raw_details = {
+        "nested": {
+            "token": "ghp_123456789012345678901234567890123456",
+            "long_str": "x" * 2000,
+        },
+        "list_data": [
+            "sk-ant-api03-12345678901234567890123456789012",
+            {"key": "A" * 1500},
+        ],
+    }
+    result = EndpointProbeResult(
+        protocol=ProbeProtocol.HTTP,
+        target="http://localhost:8080",
+        status=ProbeStatus.PASS,
+        details=raw_details,
+    )
+    assert "ghp_123456789012345678901234567890123456" not in result.details["nested"]["token"]
+    assert "<masked-github-token>" in result.details["nested"]["token"]
+    assert len(result.details["nested"]["long_str"]) <= 1024
+    assert result.details["nested"]["long_str"].endswith("...")
+    assert "<masked-anthropic-key>" in result.details["list_data"][0]
+    assert len(result.details["list_data"][1]["key"]) <= 1024
+    assert result.details["list_data"][1]["key"].endswith("...")
+
+
+def test_probe_tcp_connects_to_vetted_sockaddr(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify probe_tcp connects to vetted sockaddr to prevent DNS rebinding."""
+    mock_sock = MagicMock()
+    monkeypatch.setattr(socket, "socket", lambda *args: mock_sock)
+
+    def mock_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
+    res = probe_tcp("example.com", 8080)
+    assert res.status == ProbeStatus.PASS
+    mock_sock.connect.assert_called_once_with(("127.0.0.1", 8080))
+
+
+def test_probe_http_metadata_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify probe_http rejects cloud metadata endpoints even when allow_private=True."""
+    res_ip = probe_http("http://169.254.169.254/latest/meta-data")
+    assert res_ip.status == ProbeStatus.FAIL
+    assert "prohibited" in res_ip.message.lower()
+
+    def mock_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
+    res_dns = probe_http("http://metadata-spoof.example.com/computeMetadata/v1")
+    assert res_dns.status == ProbeStatus.FAIL
+    assert "prohibited" in res_dns.message.lower()

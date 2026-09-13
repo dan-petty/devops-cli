@@ -130,6 +130,20 @@ class ProbeStatus(StrEnum):
     SKIPPED = "skipped"
 
 
+def _sanitize_nested_detail(val: Any) -> Any:
+    """Recursively mask secrets and truncate strings to <= 1024 chars."""
+    if isinstance(val, str):
+        from devops_cli.security.sanitizer import mask_secrets
+
+        masked = mask_secrets(val)
+        return masked[:1021] + "..." if len(masked) > 1024 else masked
+    if isinstance(val, dict):
+        return {str(k): _sanitize_nested_detail(v) for k, v in val.items()}
+    if isinstance(val, (list, tuple)):
+        return [_sanitize_nested_detail(item) for item in val]
+    return val
+
+
 class EndpointProbeResult(BaseModel):
     """Individual probe outcome for a specific target endpoint and protocol."""
 
@@ -141,6 +155,14 @@ class EndpointProbeResult(BaseModel):
     message: str | None = None
     details: dict[str, Any] = Field(default_factory=dict)
     timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    @field_validator("details", mode="before")
+    @classmethod
+    def sanitize_and_truncate_details(cls, v: Any) -> dict[str, Any]:
+        """Truncate large string details and mask secrets to prevent log bloat and leakage."""
+        if not isinstance(v, dict):
+            return {}
+        return {str(k): _sanitize_nested_detail(val) for k, val in v.items()}
 
 
 class SandboxProbeReport(BaseModel):
@@ -244,11 +266,24 @@ class PanicIncident(BaseModel):
     archived_path: str | None = None
     archive_error: str | None = None
 
-    @field_validator("message")
+    @field_validator("message", mode="before")
     @classmethod
-    def enforce_message_length_cap(cls, v: str) -> str:
-        """Cap incident message length to 256 chars to prevent log bloat and injection."""
-        return v[:256] if len(v) > 256 else v
+    def enforce_message_length_cap(cls, v: Any) -> str:
+        """Cap incident message length to 256 chars and mask secrets to prevent leakage."""
+        from devops_cli.security.sanitizer import mask_secrets
+
+        text = mask_secrets(str(v)) if v else ""
+        return text[:256] if len(text) > 256 else text
+
+    @field_validator("stacktrace", mode="before")
+    @classmethod
+    def sanitize_stacktrace(cls, v: Any) -> list[str]:
+        """Mask secrets in stacktrace lines."""
+        if not isinstance(v, list):
+            return []
+        from devops_cli.security.sanitizer import mask_secrets
+
+        return [mask_secrets(str(line)) for line in v]
 
 
 class SandboxLogLine(BaseModel):

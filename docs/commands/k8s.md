@@ -125,10 +125,10 @@ devops k8s bootstrap-openwebui [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--email`, `-e` | `string` | `admin@localhost` | Admin email address. |
-| `--name`, `-n` | `string` | `Admin` | Admin display name. |
-| `--password`, `-p` | `string` | - | Admin password. |
-| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--email`, `-e` | `string` | `admin@localhost` | Email address for the local administrator account. |
+| `--password`, `-p` | `string` | - | Password for administrator. If omitted, securely generated and stored in OS Keyring. |
+| `--name`, `-n` | `string` | `Local Administrator` | Full display name for the administrator. |
+| `--context`, `-c` | `string` | - | Kubernetes context to target (defaults to config default or active). |
 | `--show-password` | `boolean` | - | Display generated admin password in plain text instead of masking. |
 
 ---

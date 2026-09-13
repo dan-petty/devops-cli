@@ -91,3 +91,19 @@ def test_http_client_options() -> None:
     ac1 = new_async_http_client(timeout=12.0)
     assert ac1.timeout.read == 12.0
     assert ac1.timeout.connect == DEFAULT_CONNECT_TIMEOUT_SECONDS
+
+
+def test_http_client_invalid_timeout_type() -> None:
+    """Verify HTTPTimeoutTypeError (and TypeError/ValidationError) is raised when unsupported timeout types are passed."""
+    from devops_cli.exceptions.validation import ValidationError
+    from devops_cli.http.client import HTTPTimeoutTypeError
+
+    with pytest.raises(HTTPTimeoutTypeError, match="timeout must be") as exc_info1:
+        new_http_client(timeout="invalid-string")  # type: ignore[arg-type]
+    assert isinstance(exc_info1.value, TypeError)
+    assert isinstance(exc_info1.value, ValidationError)
+
+    with pytest.raises(HTTPTimeoutTypeError, match="read_timeout must be") as exc_info2:
+        new_http_client(read_timeout="invalid-string")  # type: ignore[arg-type]
+    assert isinstance(exc_info2.value, TypeError)
+    assert isinstance(exc_info2.value, ValidationError)

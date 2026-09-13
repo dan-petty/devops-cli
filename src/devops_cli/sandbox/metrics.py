@@ -7,11 +7,12 @@ import re
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 from urllib.parse import urlparse
 
 import httpx2
 
+from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.validation import validate_url_egress
 from devops_cli.sandbox.models import (
     CgroupV2Metrics,
@@ -79,13 +80,48 @@ def _parse_open_fds(base: Path) -> int | None:
     return None
 
 
+_CGROUP_ROOT: Final[Path] = Path("/sys/fs/cgroup")
+_SYS_ROOT: Final[Path] = Path("/sys")
+_FORBIDDEN_CGROUP_ROOTS: tuple[Path, ...] = (
+    Path("/etc"),
+    Path("/root"),
+    Path("/boot"),
+    Path("/dev"),
+    Path("/bin"),
+    Path("/sbin"),
+    Path("/usr"),
+    Path("/var"),
+)
+
+
+def _is_forbidden_cgroup_path(path: Path) -> bool:
+    """Return True if path targets forbidden host system directories outside cgroup hierarchy."""
+    resolved = path.resolve()
+    if resolved == _CGROUP_ROOT or resolved.is_relative_to(_CGROUP_ROOT):
+        return False
+    if resolved == _SYS_ROOT or resolved.is_relative_to(_SYS_ROOT):
+        return True
+    return any(
+        resolved == root or resolved.is_relative_to(root) for root in _FORBIDDEN_CGROUP_ROOTS
+    )
+
+
 def parse_cgroup_v2_directory(
     cgroup_dir: Path | str,
     previous_cpu_usec: int | None = None,
     elapsed_sec: float | None = None,
 ) -> CgroupV2Metrics | None:
     """Parse cgroup v2 filesystem controllers and extract resource metrics."""
-    base = Path(cgroup_dir)
+    if not cgroup_dir:
+        return None
+    try:
+        validate_no_path_traversal(cgroup_dir, label="cgroup_dir")
+        base = Path(cgroup_dir).resolve()
+        if _is_forbidden_cgroup_path(base):
+            return None
+    except Exception:
+        return None
+
     if not base.is_dir():
         return None
 

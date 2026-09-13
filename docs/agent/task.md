@@ -24,7 +24,8 @@
 | [#175](https://github.com/dan-petty/devops-cli/issues/175) | [#173](https://github.com/dan-petty/devops-cli/pull/173) | Project field options synchronization, complete pagination & generic owner resolution | `Done` | [`task-175-project-field-sync-pagination.md`](tasks/task-175-project-field-sync-pagination.md) |
 | [#176](https://github.com/dan-petty/devops-cli/issues/176) | [#177](https://github.com/dan-petty/devops-cli/pull/177) | Remediate DevSecOps review findings & enhance review self-improvement loop | `Done` | [`task-176-review-findings-self-improvement.md`](tasks/task-176-review-findings-self-improvement.md) |
 | — | [#182](https://github.com/dan-petty/devops-cli/pull/182) | Resolve Helm Stack Deploy SSA Conflicts, Loki Validation, and PodSecurity Failures | `Done` | [`task-183-stack-deploy-conflicts.md`](tasks/task-183-stack-deploy-conflicts.md) |
-| [#183](https://github.com/dan-petty/devops-cli/issues/183) | [#184](https://github.com/dan-petty/devops-cli/pull/184) | Gate PR Merge Readiness on Required Approvals, Mergeable State, and Reviewer Feedback | `In Review` | [`task-183-pr-merge-readiness-gating.md`](tasks/task-183-pr-merge-readiness-gating.md) |
+| [#183](https://github.com/dan-petty/devops-cli/issues/183) | [#184](https://github.com/dan-petty/devops-cli/pull/184) | Gate PR Merge Readiness on Required Approvals, Mergeable State, and Reviewer Feedback | `Done` | [`task-183-pr-merge-readiness-gating.md`](tasks/task-183-pr-merge-readiness-gating.md) |
+| [#185](https://github.com/dan-petty/devops-cli/issues/185) | [#186](https://github.com/dan-petty/devops-cli/pull/186) | Remediate session 20260913-060209 findings and enhance review self-improvement loop | `In Review` | [`task-185-review-remediation-self-improvement.md`](tasks/task-185-review-remediation-self-improvement.md) |
 
 
 ---

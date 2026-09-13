@@ -632,6 +632,7 @@ def test_parse_valkey_endpoint_formats() -> None:
     assert parse_valkey_endpoint("valkey://localhost:6379") == ("localhost", 6379)
     assert parse_valkey_endpoint("redis://127.0.0.1:6379") == ("127.0.0.1", 6379)
     assert parse_valkey_endpoint("[::1]:6379") == ("::1", 6379)
+    assert parse_valkey_endpoint("[::1]") == ("::1", 6379)
 
 
 def test_valkey_config_hostname_port_normalization() -> None:

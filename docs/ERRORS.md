@@ -41,6 +41,7 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `LLM_INFERENCE_ERROR` | `1` | Devops_cli.ai.rag.embeddings | Raised when embeddings generation fails across all endpoints. |
 | `GITHUB_OPERATION_FAILED` | `1` | Git | Exception raised for GitHub API or CLI automation failures. |
 | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
+| `VALIDATION_ERROR` | `1` | Devops_cli.http.client | Raised when an invalid timeout parameter type is provided. |
 | `HARNESS_EXECUTION_ERROR` | `1` | Ai | Raised when execution of an AI test harness or benchmark fails. |
 | `HARNESS_VALIDATION_ERROR` | `1` | Ai | Raised when an AI evaluation or harness schema validation fails. |
 | `INCOMPLETE_TOOL_CALL` | `27` | Ai | Raised when a model stops due to token limit while emitting a tool call. |
@@ -80,6 +81,7 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `ToolDownloadError` | `1` | Tools | Raised when an external tool download fails or is rejected. |
 | `TOOL_EXECUTION_ERROR` | `1` | Tools | Base exception for external developer tool and binary execution failures. |
 | `TOOL_FAILED` | `16` | Ai | Raised when a tool encounters an unrecoverable runtime failure without requesting model retry. |
+| `VALIDATION_ERROR` | `1` | Devops_cli.telemetry.context | Raised when trace metadata or flags fail validation. |
 | `UNEXPECTED_MODEL_BEHAVIOR` | `15` | Ai | Raised when model retry budget is exhausted or model emits unrecoverable response. |
 | `USAGE_LIMIT_EXCEEDED` | `24` | Ai | Raised when an agent run exceeds configured request or token limits. |
 | `USER_ERROR` | `21` | Ai | Raised when an invalid configuration or argument is provided by the application developer. |

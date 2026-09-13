@@ -79,11 +79,32 @@ def test_archive_incident_persistence(tmp_path: Path) -> None:
     saved_path = archive_incident(incident, base_dir=tmp_path)
     assert saved_path.exists()
     assert saved_path.name == "incident-test1234.json"
+    assert oct(saved_path.stat().st_mode & 0o777) == oct(0o600)
+    assert oct(saved_path.parent.stat().st_mode & 0o777) == oct(0o700)
 
     data = json.loads(saved_path.read_text(encoding="utf-8"))
     assert data["incident_id"] == "incident-test1234"
     assert data["panic_type"] == "go_panic"
     assert data["message"] == "panic: index out of bounds"
+
+
+def test_archive_incident_secret_masking(tmp_path: Path) -> None:
+    """Verify secrets in incident message and stacktrace are masked when archived."""
+    incident = PanicIncident(
+        incident_id="incident-secret-test",
+        instance_id="inst-sec",
+        container_id="cont-sec",
+        panic_type=PanicType.PYTHON_TRACEBACK,
+        message="Failure with token=ghp_1234567890abcdef1234",
+        stacktrace=["Traceback:", "RuntimeError: password=mysecretpassword123"],
+    )
+    saved_path = archive_incident(incident, base_dir=tmp_path)
+    assert saved_path.exists()
+    data = json.loads(saved_path.read_text(encoding="utf-8"))
+    assert "ghp_1234567890abcdef1234" not in data["message"]
+    assert "<masked-github-token>" in data["message"]
+    assert "mysecretpassword123" not in data["stacktrace"][1]
+    assert "<masked-password>" in data["stacktrace"][1]
 
 
 def test_archive_incident_path_traversal_rejection(tmp_path: Path) -> None:
@@ -663,3 +684,38 @@ def test_cli_sandbox_logs_nonexistent_identifier_clean_exit() -> None:
             "Sandbox instance 'nonexistent-id' not found" in res.output
             or "Failed to fetch logs" in res.output
         )
+
+
+def test_archive_panic_incident_chmod_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify archive_incident unlinks target and raises SandboxError when chmod fails."""
+    import os
+
+    from devops_cli.exceptions.sandbox import SandboxError
+    from devops_cli.sandbox.logs import archive_incident
+    from devops_cli.sandbox.models import PanicIncident, PanicType
+
+    inc = PanicIncident(
+        incident_id="incident-chmod-fail",
+        instance_id="inst-123",
+        container_id="c-123",
+        panic_type=PanicType.PYTHON_TRACEBACK,
+        message="error",
+        stacktrace=[],
+        raw_stream="stderr",
+    )
+
+    original_chmod = os.chmod
+
+    def failing_chmod(path, mode, *args, **kwargs):
+        if str(path).endswith("incident-chmod-fail.json"):
+            raise OSError("Permission denied")
+        return original_chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "chmod", failing_chmod)
+
+    with pytest.raises(SandboxError, match="Failed to apply secure permissions"):
+        archive_incident(inc, base_dir=tmp_path)
+
+    assert not (tmp_path / "incident-chmod-fail.json").exists()

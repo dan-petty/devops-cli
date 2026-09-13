@@ -47,6 +47,12 @@ def test_w3c_traceparent_generation_and_injection() -> None:
     assert len(parsed["trace_id"]) == 32
     assert len(parsed["parent_span_id"]) == 16
 
+    tp_unsampled = generate_traceparent(trace_flags="00")
+    assert tp_unsampled.endswith("-00")
+
+    with pytest.raises(ValueError, match="Invalid trace_flags"):
+        generate_traceparent(trace_flags="02")
+
     headers = inject_traceparent_headers({"User-Agent": "devops-prober"}, auto_generate=True)
     assert "traceparent" in headers
     parsed_from_headers = extract_traceparent_from_headers(headers)
@@ -130,15 +136,16 @@ def test_normalize_jaeger_spans() -> None:
 
 def test_query_jaeger_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify querying Jaeger REST API with HTTP response handling."""
+    test_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
         "data": [
             {
-                "traceID": "abc123trace",
+                "traceID": test_trace_id,
                 "spans": [
                     {
-                        "traceID": "abc123trace",
+                        "traceID": test_trace_id,
                         "spanID": "span01",
                         "operationName": "GET /api/v1/health",
                         "startTime": 1000000,
@@ -151,6 +158,8 @@ def test_query_jaeger_trace(monkeypatch: pytest.MonkeyPatch) -> None:
         ]
     }
 
+    recorded: dict[str, Any] = {}
+
     class MockClient:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
@@ -162,12 +171,29 @@ def test_query_jaeger_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             pass
 
         def get(self, url: str, **kwargs: Any) -> Any:
+            recorded["url"] = url
+            recorded["kwargs"] = kwargs
             return mock_resp
 
     monkeypatch.setattr("httpx2.Client", MockClient)
-    spans = query_jaeger_trace("abc123trace", jaeger_url="http://example.com:16686")
+    spans = query_jaeger_trace(test_trace_id, jaeger_url="http://example.com:16686")
     assert len(spans) == 1
-    assert spans[0]["traceId"] == "abc123trace"
+    assert spans[0]["traceId"] == test_trace_id
+    assert recorded["kwargs"].get("headers", {}).get("Host") == "example.com:16686"
+    assert "example.com" not in recorded["url"]
+
+
+def test_query_jaeger_trace_security_validation() -> None:
+    """Verify query_jaeger_trace rejects invalid hex, path traversal, and disallowed URLs."""
+    # Invalid trace IDs: path traversal, non-hex, empty
+    assert query_jaeger_trace("../../admin") == []
+    assert query_jaeger_trace("not-a-hex-id!") == []
+    assert query_jaeger_trace("") == []
+
+    # Invalid Jaeger URLs: invalid scheme, cloud metadata
+    valid_id = "4bf92f3577b34da6a3ce929d0e0e4736"
+    assert query_jaeger_trace(valid_id, jaeger_url="ftp://example.com") == []
+    assert query_jaeger_trace(valid_id, jaeger_url="http://169.254.169.254") == []
 
 
 def test_sandbox_traces_help() -> None:
@@ -321,3 +347,32 @@ def test_sandbox_traces_probe_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     res = runner.invoke(app, ["traces", "http://example.com:8080", "--probe"])
     assert res.exit_code == 0
     assert "sandbox.probe" in res.output
+
+
+def test_generate_traceparent_validation_error() -> None:
+    """Verify generate_traceparent raises TraceValidationError on invalid trace flags."""
+    from devops_cli.exceptions.validation import ValidationError
+    from devops_cli.telemetry.context import TraceValidationError, generate_traceparent
+
+    with pytest.raises(TraceValidationError) as exc_info:
+        generate_traceparent(trace_flags="99")
+    assert isinstance(exc_info.value, ValidationError)
+    assert isinstance(exc_info.value, ValueError)
+    assert "Invalid trace_flags" in str(exc_info.value)
+
+
+def test_query_jaeger_trace_dns_metadata_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify query_jaeger_trace rejects hosts resolving to link-local metadata addresses."""
+    import socket
+
+    from devops_cli.telemetry.waterfall import query_jaeger_trace
+
+    def mock_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 16686))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
+    spans = query_jaeger_trace(
+        "0123456789abcdef0123456789abcdef",
+        jaeger_url="http://metadata-spoof.example.com:16686",
+    )
+    assert spans == []
