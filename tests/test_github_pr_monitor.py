@@ -51,6 +51,8 @@ class TestPRMonitorModels:
             checks=[c1, c2],
             copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
             unresolved_threads=[],
+            mergeable=True,
+            mergeable_state="clean",
         )
         assert status.total_checks == 2
         assert status.completed_checks == 2
@@ -155,6 +157,8 @@ class TestGetPRMonitoringStatus:
             "title": "fix: metrics delta",
             "draft": False,
             "head": {"sha": "7316135"},
+            "mergeable": True,
+            "mergeable_state": "clean",
         }
         check_runs_data = {
             "check_runs": [
@@ -224,6 +228,8 @@ class TestMonitorPR:
             checks=[PRCheckRun(name="CI", status="COMPLETED", conclusion="SUCCESS")],
             copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
             unresolved_threads=[],
+            mergeable=True,
+            mergeable_state="clean",
         )
         with patch(
             "devops_cli.github.pr_monitor.get_pr_monitoring_status", return_value=mock_status
@@ -493,3 +499,80 @@ class TestMonitorPR:
             assert len(str(exc_info.value)) < 350
             assert "x" * 256 in str(exc_info.value)
             assert "x" * 257 not in str(exc_info.value)
+
+    def test_monitor_pr_blocked_unconditional_with_no_require_reviews(self) -> None:
+        blocked_status = PRMonitorStatus(
+            number=168,
+            title="fix: blocked",
+            checks=[PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            mergeable_state="blocked",
+            mergeable=True,
+        )
+        with patch(
+            "devops_cli.github.pr_monitor.get_pr_monitoring_status", return_value=blocked_status
+        ):
+            result = monitor_pr(
+                "dan-petty",
+                "devops-cli",
+                168,
+                timeout=10,
+                interval=1,
+                settle_timeout=0,
+                require_reviews=False,
+            )
+            assert result.success is False
+            assert result.exit_code == 2
+            assert "blocked from merging by GitHub" in result.message
+
+    def test_monitor_pr_requires_approved_review_decision(self) -> None:
+        clean_no_approval = PRMonitorStatus(
+            number=168,
+            title="fix: waiting on review",
+            checks=[PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            mergeable=True,
+            mergeable_state="clean",
+            review_decision="REVIEW_REQUIRED",
+        )
+        with patch(
+            "devops_cli.github.pr_monitor.get_pr_monitoring_status", return_value=clean_no_approval
+        ):
+            result = monitor_pr(
+                "dan-petty",
+                "devops-cli",
+                168,
+                timeout=10,
+                interval=1,
+                settle_timeout=0,
+                require_reviews=True,
+            )
+            assert result.success is False
+            assert result.exit_code == 2
+            assert "requires review approval before merging" in result.message
+
+    def test_resolve_review_decision_latest_per_reviewer(self) -> None:
+        from devops_cli.github.pr_monitor import _resolve_review_decision
+
+        raw_reviews = [
+            {"user": {"login": "alice"}, "state": "CHANGES_REQUESTED"},
+            {"user": {"login": "bob"}, "state": "COMMENTED"},
+            {"user": {"login": "alice"}, "state": "APPROVED"},
+        ]
+        assert _resolve_review_decision(raw_reviews) == "APPROVED"
+
+    def test_fetch_raw_reviews_paginated(self) -> None:
+        from devops_cli.github.pr_monitor import _fetch_raw_reviews
+
+        page1 = json.dumps([{"user": {"login": "user1"}, "state": "APPROVED"}])
+        page2 = json.dumps([{"user": {"login": "user2"}, "state": "COMMENTED"}])
+        paginated_stdout = f"{page1}\n{page2}\n"
+
+        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+            mock_sub.return_value = MagicMock(returncode=0, stdout=paginated_stdout, stderr="")
+            reviews = _fetch_raw_reviews("dan-petty", "devops-cli", 168)
+            assert len(reviews) == 2
+            assert reviews[0]["user"]["login"] == "user1"
+            assert reviews[1]["user"]["login"] == "user2"

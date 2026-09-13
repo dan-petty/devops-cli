@@ -73,7 +73,7 @@ class PRMonitorStatus(BaseModel):
     head_sha: str = ""
     is_draft: bool = False
     mergeable: bool | None = None
-    mergeable_state: str = "clean"
+    mergeable_state: str = "unknown"
     review_decision: str | None = None
     has_changes_requested: bool = False
     checks: list[PRCheckRun] = Field(default_factory=list)
@@ -120,12 +120,7 @@ class PRMonitorStatus(BaseModel):
             and self.copilot_status.state != "changes_requested"
             and not self.has_changes_requested
         )
-        merge_ok = self.mergeable is not False and self.mergeable_state not in {
-            "blocked",
-            "dirty",
-            "behind",
-            "draft",
-        }
+        merge_ok = self.mergeable is True and self.mergeable_state == "clean"
         return draft_ok and checks_ok and threads_ok and review_ok and merge_ok
 
 
@@ -501,6 +496,8 @@ def _fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, A
 
 def _fetch_raw_reviews(owner: str, repo_name: str, pr_number: int) -> list[dict[str, Any]]:
     """Fetch all review records for a PR."""
+    from devops_cli.github.client import parse_paginated_json
+
     reviews_cmd = [
         CONST_GH_CLI,
         "api",
@@ -509,11 +506,7 @@ def _fetch_raw_reviews(owner: str, repo_name: str, pr_number: int) -> list[dict[
     ]
     reviews_proc = run_subprocess(reviews_cmd)
     if reviews_proc.returncode == 0 and reviews_proc.stdout.strip():
-        try:
-            data = json.loads(reviews_proc.stdout)
-            return [r for r in data if isinstance(r, dict)] if isinstance(data, list) else []
-        except json.JSONDecodeError:
-            return []
+        return parse_paginated_json(reviews_proc.stdout)
     return []
 
 
@@ -558,6 +551,33 @@ def _build_failure_reasons(
     return reasons
 
 
+def _resolve_review_decision(raw_reviews: list[dict[str, Any]]) -> str | None:
+    """Derive aggregate review decision from latest state per reviewer."""
+    if not raw_reviews:
+        return None
+    latest_by_user: dict[str, str] = {}
+    for r in raw_reviews:
+        if not isinstance(r, dict):
+            continue
+        user = str(
+            r.get("user", {}).get("login", "") or r.get("author", {}).get("login", "")
+        ).strip()
+        state = str(r.get("state", "")).upper()
+        if user and state:
+            latest_by_user[user] = state
+    states = set(latest_by_user.values())
+    if "CHANGES_REQUESTED" in states:
+        return "CHANGES_REQUESTED"
+    if "APPROVED" in states:
+        return "APPROVED"
+    return "REVIEW_REQUIRED"
+
+
+def _has_active_changes_requested(raw_reviews: list[dict[str, Any]]) -> bool:
+    """Return True if any reviewer's latest review state is CHANGES_REQUESTED."""
+    return _resolve_review_decision(raw_reviews) == "CHANGES_REQUESTED"
+
+
 def get_pr_monitoring_status(owner: str, repo: str, pr_number: int) -> PRMonitorStatus:
     """Fetch current CI checks, Copilot review status, and unresolved review threads."""
     repo_name = repo.split("/")[-1]
@@ -565,16 +585,16 @@ def get_pr_monitoring_status(owner: str, repo: str, pr_number: int) -> PRMonitor
     head_sha = str(pr_data.get("head", {}).get("sha", ""))
     is_draft = bool(pr_data.get("draft", False))
     mergeable = pr_data.get("mergeable")
-    mergeable_state = str(pr_data.get("mergeable_state") or "clean").lower()
+    mergeable_state = str(pr_data.get("mergeable_state") or "unknown").lower()
 
     checks = _fetch_rest_check_runs(owner, repo_name, head_sha)
     raw_reviews = _fetch_raw_reviews(owner, repo_name, pr_number)
     copilot_status = _detect_copilot_status(owner, repo_name, pr_number, raw_reviews)
     unresolved_threads = _fetch_unresolved_threads(owner, repo_name, pr_number)
 
-    has_changes_requested = copilot_status.state == "changes_requested" or any(
-        isinstance(r, dict) and str(r.get("state", "")).upper() == "CHANGES_REQUESTED"
-        for r in raw_reviews
+    review_decision = _resolve_review_decision(raw_reviews)
+    has_changes_requested = (
+        copilot_status.state == "changes_requested" or review_decision == "CHANGES_REQUESTED"
     )
     failure_reasons = _build_failure_reasons(
         checks,
@@ -592,6 +612,7 @@ def get_pr_monitoring_status(owner: str, repo: str, pr_number: int) -> PRMonitor
         is_draft=is_draft,
         mergeable=mergeable,
         mergeable_state=mergeable_state,
+        review_decision=review_decision,
         has_changes_requested=has_changes_requested,
         checks=checks,
         copilot_status=copilot_status,
@@ -662,13 +683,23 @@ def _evaluate_pr_settled_readiness(
             ),
             status=latest_status,
         )
-    if require_reviews and latest_status.mergeable_state == "blocked":
+    if latest_status.mergeable_state == "blocked":
         return PRMonitorResult(
             success=False,
             exit_code=2,
             message=(
                 f"PR #{pr_number} is blocked from merging by GitHub: "
                 "awaiting required review approval or branch protection requirements."
+            ),
+            status=latest_status,
+        )
+    if require_reviews and latest_status.review_decision != "APPROVED":
+        return PRMonitorResult(
+            success=False,
+            exit_code=2,
+            message=(
+                f"PR #{pr_number} requires review approval before merging: "
+                f"current review decision is '{latest_status.review_decision or 'NONE'}'."
             ),
             status=latest_status,
         )

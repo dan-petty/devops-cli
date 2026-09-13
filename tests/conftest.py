@@ -93,7 +93,13 @@ def protect_workspace_config():
     workspace_config = (Path(__file__).parent.parent / "config.yaml").resolve()
     initial_content = workspace_config.read_bytes() if workspace_config.exists() else None
     yield
-    if workspace_config.exists() and initial_content is not None:
+    if initial_content is None and workspace_config.exists():
+        workspace_config.unlink()
+        pytest.fail(f"Test created workspace config at {workspace_config}!")
+    elif initial_content is not None and not workspace_config.exists():
+        workspace_config.write_bytes(initial_content)
+        pytest.fail(f"Test deleted workspace config at {workspace_config}!")
+    elif workspace_config.exists() and initial_content is not None:
         current_content = workspace_config.read_bytes()
         if current_content != initial_content:
             workspace_config.write_bytes(initial_content)

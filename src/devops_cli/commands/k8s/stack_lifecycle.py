@@ -383,7 +383,7 @@ def _is_helm_v4_or_newer() -> bool:
     try:
         major = int(ver_clean.split(".")[0])
         return major >= 4
-    except ValueError, IndexError:
+    except (ValueError, IndexError) as _:
         return False
 
 

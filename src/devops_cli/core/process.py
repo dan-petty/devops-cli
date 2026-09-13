@@ -176,6 +176,10 @@ def run_subprocess(
         isolate_env=isolate_env,
         extra_allowed_keys=extra_allowed_env,
     )
+    if bin_name == "gh":
+        for token_var in ("GH_TOKEN", "GITHUB_TOKEN"):
+            if token_var in os.environ and token_var not in sub_env:
+                sub_env[token_var] = os.environ[token_var]
 
     with trace_span(
         f"subprocess.{bin_name}",
