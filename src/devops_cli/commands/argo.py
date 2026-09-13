@@ -8,6 +8,7 @@ Security & Input Validation:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -43,12 +44,15 @@ cd_app = new_typer(help=HELP.argo.cd)
 workflows_app = new_typer(help=HELP.argo.workflows)
 rollouts_app = new_typer(help=HELP.argo.rollouts)
 fleet_app = new_typer(help="Multi-cluster ArgoCD fleet synchronization")
+gitops_app = new_typer(help="Automated GitOps drift detection and webhook synchronization")
 
 app.add_typer(cd_app, name="cd")
 app.add_typer(workflows_app, name="workflows")
 app.add_typer(rollouts_app, name="rollouts")
 app.add_typer(fleet_app, name="fleet")
 cd_app.add_typer(fleet_app, name="fleet")
+app.add_typer(gitops_app, name="gitops")
+cd_app.add_typer(gitops_app, name="gitops")
 
 cd_apps_app = new_typer(help=HELP.argo.cd)
 cd_app.add_typer(cd_apps_app, name="apps")
@@ -648,4 +652,235 @@ def rollouts_analyze(
     if not result.passed:
         if not json_output:
             print_error(f"Rollout metric analysis failed: {result.reason}")
+        raise typer.Exit(1)
+
+
+# =============================================================================
+# GitOps Automation: drift detection, continuous watch, and webhook synchronization
+# =============================================================================
+
+
+def _parse_manifest_paths(path: str) -> list[str]:
+    """Parse comma-separated manifest paths into a sanitized path list."""
+    return [p.strip() for p in path.split(",") if p.strip()] or ["k8s"]
+
+
+def _handle_gitops_once(
+    watcher: Any,
+    json_output: bool,
+) -> None:
+    """Execute a single-cycle manifest drift inspection and optional reconciliation."""
+    from devops_cli.argo.gitops import (
+        render_gitops_drift_table,
+        render_gitops_sync_table,
+    )
+    from devops_cli.output import print_info, write_stdout
+
+    drift = watcher.scan_drift()
+    sync_res = watcher.sync_now(drift) if drift else None
+
+    if json_output:
+        out = {
+            "events": [e.model_dump() for e in drift],
+            "synced": sync_res.model_dump() if sync_res else None,
+        }
+        write_stdout(json.dumps(out, indent=2) + "\n")
+        return
+
+    if drift:
+        print(render_gitops_drift_table(drift))
+        if sync_res:
+            print(render_gitops_sync_table([sync_res]))
+    else:
+        print_info("No manifest drift detected across watched paths")
+
+
+def _handle_gitops_continuous(
+    watcher: Any,
+    path: str,
+    app_name: str,
+    max_events: int | None,
+    json_output: bool,
+) -> None:
+    """Run the continuous watcher loop and print live reconciliation updates."""
+    from devops_cli.argo.gitops import render_gitops_sync_table
+    from devops_cli.output import print_info, write_stdout
+
+    if not json_output:
+        print_info(f"Watching manifests in '{path}' for application '{app_name}'...")
+
+    def _on_sync(res: Any) -> None:
+        if not json_output:
+            print(render_gitops_sync_table([res]))
+
+    watcher.on_sync = _on_sync
+    results = watcher.watch(max_events=max_events)
+
+    if json_output:
+        out = {
+            "events": [],
+            "synced": [r.model_dump() for r in results],
+        }
+        write_stdout(json.dumps(out, indent=2) + "\n")
+
+
+@gitops_app.command("watch")
+@dry_run_command(
+    command="devops argo gitops watch",
+    action="watch_gitops_drift",
+    detail_params=["path", "app_name", "debounce_ms", "interval", "mode"],
+)
+def gitops_watch(
+    path: Annotated[
+        str,
+        typer.Option(
+            "--path",
+            "-p",
+            help="Comma-separated paths or directories of manifests to monitor",
+        ),
+    ] = "k8s",
+    app_name: Annotated[
+        str,
+        typer.Option("--app-name", "-a", help=HELP.argo.app_name),
+    ] = "root-app",
+    debounce_ms: Annotated[
+        int,
+        typer.Option(
+            "--debounce-ms",
+            help="Debounce delay in milliseconds to aggregate rapid modifications",
+        ),
+    ] = 500,
+    interval: Annotated[
+        float,
+        typer.Option("--interval", "-i", help="Watch polling interval in seconds"),
+    ] = 1.0,
+    max_events: Annotated[
+        int | None,
+        typer.Option("--max-events", help="Maximum change events to process before exiting"),
+    ] = None,
+    once: Annotated[
+        bool,
+        typer.Option(
+            "--once",
+            help="Check manifest drift once, trigger sync if drifted, and exit immediately",
+        ),
+    ] = False,
+    mode: Annotated[
+        str,
+        typer.Option("--mode", "-m", help="Synchronization trigger mode ('api' or 'webhook')"),
+    ] = "api",
+    prune: Annotated[bool, typer.Option("--prune", help=HELP.argo.prune)] = False,
+    force: Annotated[bool, typer.Option("--force", help=HELP.options.force)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """Monitor Kubernetes and Helm manifests for drift and trigger instant ArgoCD sync."""
+    _validate_k8s_name(app_name, "application name")
+    if mode not in ("api", "webhook"):
+        print_error(f"Unsupported GitOps sync mode '{mode}'. Allowed: api, webhook")
+        raise typer.Exit(1)
+
+    from devops_cli.argo.gitops import GitOpsWatcher
+
+    paths = _parse_manifest_paths(path)
+    watcher = GitOpsWatcher(
+        paths=paths,
+        app_name=app_name,
+        debounce_ms=debounce_ms,
+        poll_interval_seconds=interval,
+        dry_run=is_dry_run(),
+        prune=prune,
+        force=force,
+        sync_mode=mode,  # type: ignore[arg-type]
+    )
+
+    if once:
+        _handle_gitops_once(watcher, json_output)
+    else:
+        _handle_gitops_continuous(watcher, path, app_name, max_events, json_output)
+
+
+@gitops_app.command("drift")
+def gitops_drift(
+    path: Annotated[
+        str,
+        typer.Option(
+            "--path",
+            "-p",
+            help="Comma-separated paths or directories of manifests to inspect",
+        ),
+    ] = "k8s",
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """Inspect and report local manifest state and detect any unstaged or modified files."""
+    from devops_cli.argo.gitops import (
+        compute_manifest_state,
+        render_gitops_drift_table,
+        scan_manifest_drift,
+    )
+    from devops_cli.output import print_info, write_stdout
+
+    paths = _parse_manifest_paths(path)
+    state = compute_manifest_state(paths)
+    drift = scan_manifest_drift({}, state)
+
+    if json_output:
+        data = {"manifests": [e.model_dump() for e in drift]}
+        write_stdout(json.dumps(data, indent=2) + "\n")
+    elif drift:
+        print(render_gitops_drift_table(drift))
+    else:
+        print_info("No manifests found in specified paths")
+
+
+@gitops_app.command("sync")
+@dry_run_command(
+    command="devops argo gitops sync",
+    action="trigger_gitops_sync",
+    target_param="app_name",
+    detail_params=["mode"],
+)
+def gitops_sync(
+    app_name: Annotated[
+        str,
+        typer.Option("--app-name", "-a", help=HELP.argo.app_name),
+    ] = "root-app",
+    mode: Annotated[
+        str,
+        typer.Option("--mode", "-m", help="Synchronization trigger mode ('api' or 'webhook')"),
+    ] = "api",
+    prune: Annotated[bool, typer.Option("--prune", help=HELP.argo.prune)] = False,
+    force: Annotated[bool, typer.Option("--force", help=HELP.options.force)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """Trigger an immediate GitOps synchronization for an ArgoCD application."""
+    _validate_k8s_name(app_name, "application name")
+    if mode not in ("api", "webhook"):
+        print_error(f"Unsupported GitOps sync mode '{mode}'. Allowed: api, webhook")
+        raise typer.Exit(1)
+
+    from devops_cli.argo.gitops import render_gitops_sync_table, trigger_argocd_sync
+    from devops_cli.output import write_stdout
+
+    result = trigger_argocd_sync(
+        app_name=app_name,
+        prune=prune,
+        force=force,
+        dry_run=is_dry_run(),
+        sync_mode=mode,  # type: ignore[arg-type]
+    )
+
+    if json_output:
+        write_stdout(result.model_dump_json(indent=2) + "\n")
+    else:
+        print(render_gitops_sync_table([result]))
+
+    if not result.success:
         raise typer.Exit(1)
