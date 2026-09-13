@@ -95,7 +95,7 @@ def list_repository_secrets(repo: str) -> list[str]:
         cmd = [CONST_GH_CLI, "api", f"repos/{repo}/actions/secrets"]
         res = run_subprocess(cmd, check=False, quiet=True)
         if res.returncode != 0 or not res.stdout.strip():
-            logger.debug("Failed to list secrets for %s: %s", repo, res.stderr)
+            logger.debug("Failed to list secrets for repository %s", repo)
             return []
 
         try:
@@ -151,12 +151,7 @@ def _upload_encrypted_secret(
     payload = json.dumps({"encrypted_value": encrypted_value, "key_id": key_id})
     res = run_subprocess(cmd, input=payload, check=False, quiet=True)
     if res.returncode != 0:
-        logger.error(
-            "Failed to put secret %s for %s: %s",
-            secret_name,
-            repo,
-            mask_secrets(res.stderr.strip()[:256]),
-        )
+        logger.error("Failed to upload secret to repository %s", repo)
         return False
     return True
 
