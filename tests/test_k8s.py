@@ -743,17 +743,45 @@ def test_k8s_deploy_stack_no_wait() -> None:
     with (
         patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
         patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+        patch("devops_cli.commands.k8s.stack_lifecycle._is_helm_v4_or_newer", return_value=True),
+        patch("devops_cli.commands.k8s.port_forward"),
+        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
+    ):
+        mock_cmd.return_value = _mock_proc(0, "")
+        res_exec = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-wait"])
+        helm_cmds = [
+            call_args[0][0]
+            for call_args in mock_cmd.call_args_list
+            if isinstance(call_args[0][0], list)
+            and "helm" in call_args[0][0]
+            and "upgrade" in call_args[0][0]
+        ]
+        assert len(helm_cmds) > 0
+        for cmd in helm_cmds:
+            assert "--wait" not in cmd
+            assert "--force-conflicts" in cmd
+
+    with (
+        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
+        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
+        patch("devops_cli.commands.k8s.stack_lifecycle._is_helm_v4_or_newer", return_value=False),
         patch("devops_cli.commands.k8s.port_forward"),
         patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
     ):
         mock_cmd.return_value = _mock_proc(0, "")
         res_exec = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--no-wait"])
         assert res_exec.exit_code == 0
-        for call_args in mock_cmd.call_args_list:
-            cmd = call_args[0][0]
-            if isinstance(cmd, list) and "helm" in cmd and "upgrade" in cmd:
-                assert "--wait" not in cmd
-                assert "--force-conflicts" in cmd
+        helm_cmds = [
+            call_args[0][0]
+            for call_args in mock_cmd.call_args_list
+            if isinstance(call_args[0][0], list)
+            and "helm" in call_args[0][0]
+            and "upgrade" in call_args[0][0]
+        ]
+        assert len(helm_cmds) > 0
+        for cmd in helm_cmds:
+            assert "--wait" not in cmd
+            assert "--force-conflicts" not in cmd
 
 
 def test_k8s_workload_resource_limits_and_probes() -> None:
@@ -909,6 +937,8 @@ def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
     )
     logging_ns = next(d for d in ns_docs if d and d.get("metadata", {}).get("name") == "logging")
     assert logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] == "privileged"
+    assert logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/warn"] == "baseline"
+    assert logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/audit"] == "baseline"
 
     # 2. Loki values: zeroed scalable target replicas for SingleBinary mode
     loki_values = yaml.safe_load(
@@ -924,6 +954,10 @@ def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
     )
     assert "Name loki" in fb_values["config"]["outputs"]
     assert "grafana-loki" not in fb_values["config"]["outputs"]
+    assert "labels job=fluent-bit" in fb_values["config"]["outputs"]
+    assert "namespace=$kubernetes['namespace_name']" in fb_values["config"]["outputs"]
+    assert "pod=$kubernetes['pod_name']" in fb_values["config"]["outputs"]
+    assert "container=$kubernetes['container_name']" in fb_values["config"]["outputs"]
 
     # 4. Qdrant values: disabled unprivileged volume chown initContainer
     qdrant_values = yaml.safe_load(

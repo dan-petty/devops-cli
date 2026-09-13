@@ -372,6 +372,47 @@ def _ensure_qdrant_api_key_secret(
     return None
 
 
+def _is_helm_v4_or_newer() -> bool:
+    """Detect whether the active Helm CLI is version 4 or newer."""
+    proc = runtime._run_cmd(
+        ["helm", "version", "--template", "{{.Version}}"], check=False, capture=True
+    )
+    if proc.returncode != 0 or not proc.stdout:
+        return False
+    ver_clean = proc.stdout.strip().lstrip("v")
+    try:
+        major = int(ver_clean.split(".")[0])
+        return major >= 4
+    except ValueError, IndexError:
+        return False
+
+
+def _build_helm_upgrade_cmd(
+    release: dict[str, str],
+    helm_ctx: list[str],
+    wait: bool,
+    timeout: str,
+) -> list[str]:
+    """Construct helm upgrade --install command matching installed Helm capabilities."""
+    helm_cmd = ["helm", "upgrade", "--install"]
+    if _is_helm_v4_or_newer():
+        helm_cmd.append("--force-conflicts")
+    helm_cmd.extend(
+        [
+            release["name"],
+            release["chart"],
+            "--namespace",
+            release["namespace"],
+            "--values",
+            release["values"],
+        ]
+    )
+    helm_cmd.extend(helm_ctx)
+    if wait:
+        helm_cmd.extend(["--wait", "--timeout", timeout])
+    return helm_cmd
+
+
 def deploy_stack(
     k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
@@ -464,20 +505,7 @@ def deploy_stack(
                 )
                 raise typer.Exit(1)
         print_info(f"[bold]Installing {release['name']}...[/bold]", prefix=False)
-        helm_cmd = [
-            "helm",
-            "upgrade",
-            "--install",
-            "--force-conflicts",
-            release["name"],
-            release["chart"],
-            "--namespace",
-            release["namespace"],
-            "--values",
-            release["values"],
-        ] + helm_ctx
-        if wait:
-            helm_cmd.extend(["--wait", "--timeout", timeout])
+        helm_cmd = _build_helm_upgrade_cmd(release, helm_ctx, wait, timeout)
 
         result = runtime._run_cmd(helm_cmd, check=False, capture=True)
         # If conflict occurs on pre-existing unmanaged resources, adopt and retry up to 5 times

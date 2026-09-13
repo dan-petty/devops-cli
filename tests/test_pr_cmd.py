@@ -319,6 +319,39 @@ class TestPrCommands:
             assert "Pull request #173 is currently a draft" in res.output
             assert "unresolved review discussion thread" not in res.output
 
+    def test_pr_monitor_blocked_by_protection(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_monitor import (
+            CopilotReviewStatus,
+            PRCheckRun,
+            PRMonitorResult,
+            PRMonitorStatus,
+        )
+
+        mock_status = PRMonitorStatus(
+            number=182,
+            title="fix: blocked pr",
+            is_draft=False,
+            checks=[PRCheckRun(name="CI", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            mergeable_state="blocked",
+        )
+        mock_result = PRMonitorResult(
+            success=False,
+            exit_code=2,
+            message="PR #182 is blocked from merging by GitHub: awaiting required review approval.",
+            status=mock_status,
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch("devops_cli.github.pr_monitor.monitor_pr", return_value=mock_result),
+        ):
+            res = runner.invoke(app, ["monitor", "182"])
+            assert res.exit_code == 2
+            assert "blocked from merging" in res.output
+            assert "100% READY FOR MERGING" not in res.output
+
     def test_pr_monitor_auto_detect_branch(self, runner: CliRunner) -> None:
         from devops_cli.github.pr_monitor import (
             CopilotReviewStatus,
