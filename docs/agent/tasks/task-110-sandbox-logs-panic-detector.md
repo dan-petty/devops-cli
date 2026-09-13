@@ -1,8 +1,8 @@
 # Task 110: Streaming Diagnostic Log Aggregator and Panic Detector (`devops sandbox logs`)
 
 **Issue**: [#110](https://github.com/dan-petty/devops-cli/issues/110)
-**PR**: [#179](https://github.com/dan-petty/devops-cli/pull/179) (Draft)
-**Status**: In Progress
+**PR**: [#179](https://github.com/dan-petty/devops-cli/pull/179)
+**Status**: In Review
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/cli`
@@ -86,3 +86,7 @@ Implement multiplexed stdout/stderr log streaming with follow mode (`-f` / `--fo
 - [x] Validate cyclomatic complexity $\le 10$ and architectural invariants.
 - [x] Run full `devops ci` quality gate.
 - [x] Open draft PR [#179](https://github.com/dan-petty/devops-cli/pull/179) on GitHub and monitor CI checks.
+- [x] Remediate all 12 Copilot review comments with test-first fixes and atomic file replacement.
+- [x] Reply in-thread and resolve all 12 review threads via `devops pr threads reply/resolve`.
+- [x] Rebase/merge latest `release/v0.2.17` cleanly without merge conflicts.
+- [x] Verify remote CI checks pass 100% green on PR #179.
