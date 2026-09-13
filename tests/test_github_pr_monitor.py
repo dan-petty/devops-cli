@@ -51,6 +51,9 @@ class TestPRMonitorModels:
             checks=[c1, c2],
             copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
             unresolved_threads=[],
+            mergeable=True,
+            mergeable_state="clean",
+            review_decision="APPROVED",
         )
         assert status.total_checks == 2
         assert status.completed_checks == 2
@@ -87,6 +90,65 @@ class TestPRMonitorModels:
         )
         assert status.is_ready_for_merge is False
 
+    def test_pr_monitor_status_not_ready_blocked_mergeable_state(self) -> None:
+        c1 = PRCheckRun(name="Lint", status="COMPLETED", conclusion="SUCCESS")
+        status = PRMonitorStatus(
+            number=100,
+            checks=[c1],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            mergeable_state="blocked",
+        )
+        assert status.is_ready_for_merge is False
+
+    def test_pr_monitor_status_not_ready_dirty_conflicts(self) -> None:
+        c1 = PRCheckRun(name="Lint", status="COMPLETED", conclusion="SUCCESS")
+        status = PRMonitorStatus(
+            number=100,
+            checks=[c1],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            mergeable=False,
+            mergeable_state="dirty",
+        )
+        assert status.is_ready_for_merge is False
+
+    def test_pr_monitor_status_not_ready_changes_requested(self) -> None:
+        c1 = PRCheckRun(name="Lint", status="COMPLETED", conclusion="SUCCESS")
+        status = PRMonitorStatus(
+            number=100,
+            checks=[c1],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            has_changes_requested=True,
+        )
+        assert status.is_ready_for_merge is False
+
+    def test_pr_monitor_status_review_approval_gate(self) -> None:
+        c1 = PRCheckRun(name="Lint", status="COMPLETED", conclusion="SUCCESS")
+        status = PRMonitorStatus(
+            number=100,
+            title="Feature PR",
+            head_sha="abcdef1",
+            checks=[c1],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            mergeable=True,
+            mergeable_state="clean",
+            review_decision="REVIEW_REQUIRED",
+            require_reviews=True,
+        )
+        assert status.is_ready_for_merge is False
+
+        # When require_reviews is False, approval is not mandatory
+        status.require_reviews = False
+        assert status.is_ready_for_merge is True
+
+        # When review is approved, ready for merge even when require_reviews is True
+        status.require_reviews = True
+        status.review_decision = "APPROVED"
+        assert status.is_ready_for_merge is True
+
 
 class TestResolveBranchPrNumber:
     """Test resolving PR number from branch."""
@@ -121,6 +183,8 @@ class TestGetPRMonitoringStatus:
             "title": "fix: metrics delta",
             "draft": False,
             "head": {"sha": "7316135"},
+            "mergeable": True,
+            "mergeable_state": "clean",
         }
         check_runs_data = {
             "check_runs": [
@@ -145,7 +209,13 @@ class TestGetPRMonitoringStatus:
                 "user": {"login": "copilot-pull-request-reviewer[bot]"},
                 "state": "COMMENTED",
                 "submitted_at": "2026-09-12T13:59:17Z",
-            }
+            },
+            {
+                "user": {"login": "tech-lead"},
+                "state": "APPROVED",
+                "commit_id": "7316135",
+                "submitted_at": "2026-09-12T14:05:00Z",
+            },
         ]
 
         timeline_output = (
@@ -190,6 +260,8 @@ class TestMonitorPR:
             checks=[PRCheckRun(name="CI", status="COMPLETED", conclusion="SUCCESS")],
             copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
             unresolved_threads=[],
+            mergeable=True,
+            mergeable_state="clean",
         )
         with patch(
             "devops_cli.github.pr_monitor.get_pr_monitoring_status", return_value=mock_status
@@ -340,6 +412,92 @@ class TestMonitorPR:
             assert result.exit_code == 2
             assert "is still a draft" in result.message
 
+    def test_monitor_pr_blocked_by_protection_returns_exit_code_2(self) -> None:
+        blocked_status = PRMonitorStatus(
+            number=168,
+            title="fix: blocked",
+            checks=[PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            mergeable_state="blocked",
+        )
+        with patch(
+            "devops_cli.github.pr_monitor.get_pr_monitoring_status", return_value=blocked_status
+        ):
+            result = monitor_pr(
+                "dan-petty",
+                "devops-cli",
+                168,
+                timeout=10,
+                interval=1,
+                settle_timeout=0,
+                require_reviews=True,
+            )
+            assert result.success is False
+            assert result.exit_code == 2
+            assert "blocked from merging by GitHub" in result.message
+
+    def test_monitor_pr_conflicts_returns_exit_code_2(self) -> None:
+        conflict_status = PRMonitorStatus(
+            number=168,
+            title="fix: conflicts",
+            checks=[PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            mergeable=False,
+            mergeable_state="dirty",
+        )
+        with patch(
+            "devops_cli.github.pr_monitor.get_pr_monitoring_status", return_value=conflict_status
+        ):
+            result = monitor_pr(
+                "dan-petty",
+                "devops-cli",
+                168,
+                timeout=10,
+                interval=1,
+                settle_timeout=0,
+                require_reviews=True,
+            )
+            assert result.success is False
+            assert result.exit_code == 2
+            assert "merge conflicts" in result.message
+
+    def test_detect_copilot_status_detects_changes_recommended_in_body(self) -> None:
+        reviews_data = [
+            {
+                "user": {"login": "copilot-pull-request-reviewer[bot]"},
+                "state": "COMMENTED",
+                "body": "### 🟡 Changes recommended\n\nUnresolved concerns remain.",
+                "submitted_at": "2026-09-12T14:00:00Z",
+            }
+        ]
+        from devops_cli.github.pr_monitor import _detect_copilot_status
+
+        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+            mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews_data)
+            assert status.state == "changes_requested"
+            assert status.is_active is False
+            assert "recommended changes" in status.message
+
+    def test_detect_copilot_status_excludes_no_changes_recommended(self) -> None:
+        reviews_data = [
+            {
+                "user": {"login": "copilot-pull-request-reviewer[bot]"},
+                "state": "COMMENTED",
+                "body": "### 🟢 No changes recommended\n\nAll automated checks look clean.",
+                "submitted_at": "2026-09-12T14:00:00Z",
+            }
+        ]
+        from devops_cli.github.pr_monitor import _detect_copilot_status
+
+        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+            mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews_data)
+            assert status.state == "completed"
+            assert status.is_active is False
+
     def test_detect_copilot_status_uses_latest_review_state(self) -> None:
         reviews_data = [
             {
@@ -390,3 +548,127 @@ class TestMonitorPR:
             assert len(str(exc_info.value)) < 350
             assert "x" * 256 in str(exc_info.value)
             assert "x" * 257 not in str(exc_info.value)
+
+    def test_monitor_pr_blocked_unconditional_with_no_require_reviews(self) -> None:
+        blocked_status = PRMonitorStatus(
+            number=168,
+            title="fix: blocked",
+            checks=[PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            mergeable_state="blocked",
+            mergeable=True,
+        )
+        with patch(
+            "devops_cli.github.pr_monitor.get_pr_monitoring_status", return_value=blocked_status
+        ):
+            result = monitor_pr(
+                "dan-petty",
+                "devops-cli",
+                168,
+                timeout=10,
+                interval=1,
+                settle_timeout=0,
+                require_reviews=False,
+            )
+            assert result.success is False
+            assert result.exit_code == 2
+            assert "blocked from merging by GitHub" in result.message
+
+    def test_monitor_pr_requires_approved_review_decision(self) -> None:
+        clean_no_approval = PRMonitorStatus(
+            number=168,
+            title="fix: waiting on review",
+            checks=[PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            unresolved_threads=[],
+            mergeable=True,
+            mergeable_state="clean",
+            review_decision="REVIEW_REQUIRED",
+        )
+        with patch(
+            "devops_cli.github.pr_monitor.get_pr_monitoring_status", return_value=clean_no_approval
+        ):
+            result = monitor_pr(
+                "dan-petty",
+                "devops-cli",
+                168,
+                timeout=10,
+                interval=1,
+                settle_timeout=0,
+                require_reviews=True,
+            )
+            assert result.success is False
+            assert result.exit_code == 2
+            assert "requires review approval before merging" in result.message
+
+    def test_resolve_review_decision_latest_per_reviewer(self) -> None:
+        from devops_cli.github.pr_monitor import _resolve_review_decision
+
+        raw_reviews = [
+            {"user": {"login": "alice"}, "state": "CHANGES_REQUESTED"},
+            {"user": {"login": "bob"}, "state": "COMMENTED"},
+            {"user": {"login": "alice"}, "state": "APPROVED"},
+        ]
+        assert _resolve_review_decision(raw_reviews) == "APPROVED"
+
+    def test_fetch_raw_reviews_paginated(self) -> None:
+        from devops_cli.github.pr_monitor import _fetch_raw_reviews
+
+        page1 = json.dumps([{"user": {"login": "user1"}, "state": "APPROVED"}])
+        page2 = json.dumps([{"user": {"login": "user2"}, "state": "COMMENTED"}])
+        paginated_stdout = f"{page1}\n{page2}\n"
+
+        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+            mock_sub.return_value = MagicMock(returncode=0, stdout=paginated_stdout, stderr="")
+            reviews = _fetch_raw_reviews("dan-petty", "devops-cli", 168)
+            assert len(reviews) == 2
+            assert reviews[0]["user"]["login"] == "user1"
+            assert reviews[1]["user"]["login"] == "user2"
+
+    def test_is_copilot_changes_recommended_heading_only(self) -> None:
+        """Verify heading extraction correctly flags changes recommended even if body mentions no changes."""
+        from devops_cli.github.pr_monitor import _is_copilot_changes_recommended
+
+        body = (
+            "### 🟡 Changes recommended\n\n"
+            "Summary of changes:\n"
+            "- File A: Needs fix\n"
+            "- File B: No changes requested\n"
+        )
+        assert _is_copilot_changes_recommended(body) is True
+
+        no_changes_body = "### 🟢 No changes recommended\n\nLooks great to me!\n"
+        assert _is_copilot_changes_recommended(no_changes_body) is False
+
+    def test_resolve_review_decision_stale_commit_id(self) -> None:
+        """Verify _resolve_review_decision rejects approvals targeting stale commit_id."""
+        from devops_cli.github.pr_monitor import _resolve_review_decision
+
+        raw_reviews = [
+            {"user": {"login": "alice"}, "state": "APPROVED", "commit_id": "commit_sha_1"},
+        ]
+        # When current revision is commit_sha_2, approval on commit_sha_1 is stale
+        decision = _resolve_review_decision(raw_reviews, head_sha="commit_sha_2")
+        assert decision == "REVIEW_REQUIRED"
+
+        # When current revision matches, approval is valid
+        decision_valid = _resolve_review_decision(raw_reviews, head_sha="commit_sha_1")
+        assert decision_valid == "APPROVED"
+
+    def test_build_failure_reasons_includes_review_approval(self) -> None:
+        """Verify _build_failure_reasons records missing review approval when required."""
+        from devops_cli.github.pr_monitor import _build_failure_reasons
+
+        reasons = _build_failure_reasons(
+            checks=[],
+            unresolved_threads=[],
+            copilot_status=CopilotReviewStatus(is_active=False, state="completed"),
+            has_changes_requested=False,
+            mergeable=True,
+            mergeable_state="clean",
+            is_draft=False,
+            require_reviews=True,
+            review_decision="REVIEW_REQUIRED",
+        )
+        assert any("requires approved review" in r for r in reasons)

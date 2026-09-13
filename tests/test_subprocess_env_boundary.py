@@ -192,3 +192,54 @@ def test_constants_integrity() -> None:
     assert "*TOKEN*" in DEFAULT_DENIED_ENV_PATTERNS
     assert "*SECRET*" in DEFAULT_DENIED_ENV_PATTERNS
     assert "*KEY*" in DEFAULT_DENIED_ENV_PATTERNS
+
+
+def test_run_subprocess_forwards_tokens_to_gh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify run_subprocess forwards GH_TOKEN or maps DEVOPS_CLI_GITHUB_TOKEN for gh binary."""
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.core.process import run_subprocess
+
+    monkeypatch.setenv("DEVOPS_CLI_GITHUB_TOKEN", "ghp_devops_secret")
+
+    with patch("subprocess.run") as mock_sub:
+        mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        run_subprocess(["gh", "pr", "view", "184"])
+        called_env = mock_sub.call_args.kwargs.get("env", {})
+        assert called_env.get("GH_TOKEN") == "ghp_devops_secret"
+
+
+def test_run_subprocess_forwards_explicit_env_devops_token() -> None:
+    """Verify explicit env override for DEVOPS_CLI_GITHUB_TOKEN maps to GH_TOKEN for gh binary."""
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.core.process import run_subprocess
+
+    with patch("subprocess.run") as mock_sub:
+        mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        run_subprocess(
+            ["gh", "pr", "view", "184"], env={"DEVOPS_CLI_GITHUB_TOKEN": "ghp_explicit_token"}
+        )
+        called_env = mock_sub.call_args.kwargs.get("env", {})
+        assert called_env.get("GH_TOKEN") == "ghp_explicit_token"
+
+
+def test_sanitize_command_for_telemetry() -> None:
+    """Verify _sanitize_command_for_telemetry redacts sensitive args and user comments."""
+    from devops_cli.core.process import _sanitize_command_for_telemetry
+
+    cmd = [
+        "gh",
+        "pr",
+        "close",
+        "187",
+        "--comment",
+        "Secret comment ghp_secrettoken1234567890abcdefghijklmn",
+    ]
+    summary = _sanitize_command_for_telemetry(cmd)
+    assert "[REDACTED]" in summary
+    assert "ghp_secrettoken" not in summary
+
+    cmd2 = ["gh", "api", "issues/1", "-f", "title=Secret issue title"]
+    summary2 = _sanitize_command_for_telemetry(cmd2)
+    assert "title=[REDACTED]" in summary2

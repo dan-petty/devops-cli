@@ -48,5 +48,5 @@ config:
         Match kube.*
         host loki.logging.svc.cluster.local
         port 3100
-        labels job=fluent-bit
+        labels job=fluent-bit, namespace=$kubernetes['namespace_name'], pod=$kubernetes['pod_name'], container=$kubernetes['container_name']
         auto_kubernetes_labels on

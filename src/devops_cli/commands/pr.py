@@ -242,19 +242,22 @@ def _handle_monitor_exit(result: Any, pr_number: int) -> None:
         if getattr(result.status, "is_draft", False):
             print_warning(result.message)
             raise typer.Exit(2)
-        print_error(
-            ERRORS.pr.unresolved_threads.format(
-                number=pr_number,
-                count=len(result.status.unresolved_threads),
+        if result.status.unresolved_threads:
+            print_error(
+                ERRORS.pr.unresolved_threads.format(
+                    number=pr_number,
+                    count=len(result.status.unresolved_threads),
+                )
             )
-        )
-        _render_unresolved_threads_summary(result.status.unresolved_threads)
-        print_warning(
-            "Remediate issues with test-first fixes, reply in-thread via:\n"
-            '  devops pr threads reply <thread_id> "<reply>"\n'
-            "and resolve via:\n"
-            "  devops pr threads resolve <thread_id>"
-        )
+            _render_unresolved_threads_summary(result.status.unresolved_threads)
+            print_warning(
+                "Remediate issues with test-first fixes, reply in-thread via:\n"
+                '  devops pr threads reply <thread_id> "<reply>"\n'
+                "and resolve via:\n"
+                "  devops pr threads resolve <thread_id>"
+            )
+            raise typer.Exit(2)
+        print_error(result.message)
         raise typer.Exit(2)
 
     print_error(result.message)
@@ -272,10 +275,29 @@ def _sanitize_threads_for_output(status_dict: dict[str, Any]) -> dict[str, Any]:
     return status_dict
 
 
-def _format_markdown_monitor_summary(result: Any, pr_number: int) -> str:
-    """Format markdown output representation for PR monitoring."""
+def _format_markdown_threads_section(threads: list[Any]) -> list[str]:
+    """Format markdown section for unresolved threads."""
     from devops_cli.security.sanitizer import sanitize_secrets
 
+    lines = [
+        "",
+        "## Unresolved Discussion Threads",
+        "",
+        "| Thread ID | Location | Reviewer | Comment |",
+        "| :--- | :--- | :--- | :--- |",
+    ]
+    for t in threads:
+        auth = t.comments[0].author if t.comments else "unknown"
+        loc = f"{t.path}:{t.line}" if t.line else t.path
+        body = sanitize_secrets(t.comments[0].body) if t.comments else ""
+        clean_b = body.replace("\n", " ")
+        short_b = (clean_b[:60] + "...") if len(clean_b) > 60 else clean_b
+        lines.append(f"| `{t.id}` | {loc} | {auth} | {short_b} |")
+    return lines
+
+
+def _format_markdown_monitor_summary(result: Any, pr_number: int) -> str:
+    """Format markdown output representation for PR monitoring."""
     md_lines = [
         f"# PR #{pr_number} Monitoring Status",
         "",
@@ -296,26 +318,68 @@ def _format_markdown_monitor_summary(result: Any, pr_number: int) -> str:
         )
         md_lines.append(f"| {c.name} | {c.workflow or '-'} | {badge} | {c.url} |")
     if result.status.unresolved_threads:
-        md_lines.extend(
-            [
-                "",
-                "## Unresolved Discussion Threads",
-                "",
-                "| Thread ID | Location | Reviewer | Comment |",
-                "| :--- | :--- | :--- | :--- |",
-            ]
-        )
-        for t in result.status.unresolved_threads:
-            auth = t.comments[0].author if t.comments else "unknown"
-            loc = f"{t.path}:{t.line}" if t.line else t.path
-            body = sanitize_secrets(t.comments[0].body) if t.comments else ""
-            short_b = (
-                (body[:60] + "...").replace("\n", " ")
-                if len(body) > 60
-                else body.replace("\n", " ")
-            )
-            md_lines.append(f"| `{t.id}` | {loc} | {auth} | {short_b} |")
+        md_lines.extend(_format_markdown_threads_section(result.status.unresolved_threads))
     return "\n".join(md_lines)
+
+
+def _validate_monitor_args(
+    output_format: str, interval: int, timeout: int, target_repo: str | None
+) -> tuple[str, str]:
+    """Validate arguments and parse target repo into owner and repo name."""
+    valid_formats = {"table", "json", "yaml", "markdown"}
+    if output_format not in valid_formats:
+        print_error(
+            f"Unsupported format: '{output_format}'. Supported formats: {', '.join(sorted(valid_formats))}."
+        )
+        raise typer.Exit(1)
+    if interval < 1:
+        print_error("Polling interval must be at least 1 second.")
+        raise typer.Exit(1)
+    if timeout < 1:
+        print_error("Timeout must be at least 1 second.")
+        raise typer.Exit(1)
+    if not target_repo or "/" not in target_repo:
+        print_error("Target repository must be in OWNER/REPO format.")
+        raise typer.Exit(1)
+    parts = target_repo.split("/", 1)
+    return parts[0], parts[1]
+
+
+def _resolve_monitor_pr_number(number: int | None, owner: str, repo_name: str) -> int:
+    """Resolve pull request number or discover from branch."""
+    if number is not None:
+        return number
+    from devops_cli.exceptions.git import GitHubOperationError
+    from devops_cli.github.pr_monitor import resolve_branch_pr_number
+
+    try:
+        return resolve_branch_pr_number(owner=owner, repo=repo_name)
+    except GitHubOperationError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+
+
+def _emit_structured_monitor_result(output_format: str, result: Any, pr_number: int) -> None:
+    """Emit structured output for json, yaml, or markdown formats and exit if failing."""
+    from devops_cli.output import print as print_out
+
+    sanitized_payload = {
+        "success": result.success,
+        "exit_code": result.exit_code,
+        "message": result.message,
+        "status": _sanitize_threads_for_output(result.status.model_dump()),
+    }
+    if output_format == "json":
+        print_out(json.dumps(sanitized_payload, indent=2))
+    elif output_format == "yaml":
+        import yaml
+
+        print_out(yaml.safe_dump(sanitized_payload, sort_keys=False))
+    elif output_format == "markdown":
+        print_out(_format_markdown_monitor_summary(result, pr_number))
+
+    if result.exit_code != 0:
+        raise typer.Exit(result.exit_code)
 
 
 @app.command("monitor")
@@ -353,36 +417,11 @@ def monitor_pr_command(
     """Monitor PR checks, Copilot review sessions, and unresolved threads until ready."""
     _require_gh_cli()
     from devops_cli.core.repo import get_repo_origin_name
-    from devops_cli.exceptions.git import GitHubOperationError
-    from devops_cli.github.pr_monitor import monitor_pr, resolve_branch_pr_number
-
-    valid_formats = {"table", "json", "yaml", "markdown"}
-    if output_format not in valid_formats:
-        print_error(
-            f"Unsupported format: '{output_format}'. Supported formats: {', '.join(sorted(valid_formats))}."
-        )
-        raise typer.Exit(1)
-
-    if interval < 1:
-        print_error("Polling interval must be at least 1 second.")
-        raise typer.Exit(1)
-    if timeout < 1:
-        print_error("Timeout must be at least 1 second.")
-        raise typer.Exit(1)
+    from devops_cli.github.pr_monitor import monitor_pr
 
     target_repo = repo or get_repo_origin_name()
-    if not target_repo or "/" not in target_repo:
-        print_error("Target repository must be in OWNER/REPO format.")
-        raise typer.Exit(1)
-
-    owner, repo_name = target_repo.split("/", 1)
-    pr_number = number
-    if pr_number is None:
-        try:
-            pr_number = resolve_branch_pr_number(owner=owner, repo=repo_name)
-        except GitHubOperationError as exc:
-            print_error(str(exc))
-            raise typer.Exit(1) from exc
+    owner, repo_name = _validate_monitor_args(output_format, interval, timeout, target_repo)
+    pr_number = _resolve_monitor_pr_number(number, owner, repo_name)
 
     if output_format == "table":
         print_info(MESSAGES.pr.monitoring_pr.format(number=pr_number))
@@ -415,25 +454,7 @@ def monitor_pr_command(
     )
 
     if output_format in {"json", "yaml", "markdown"}:
-        from devops_cli.output import print as print_out
-
-        sanitized_payload = {
-            "success": result.success,
-            "exit_code": result.exit_code,
-            "message": result.message,
-            "status": _sanitize_threads_for_output(result.status.model_dump()),
-        }
-        if output_format == "json":
-            print_out(json.dumps(sanitized_payload, indent=2))
-        elif output_format == "yaml":
-            import yaml
-
-            print_out(yaml.safe_dump(sanitized_payload, sort_keys=False))
-        elif output_format == "markdown":
-            print_out(_format_markdown_monitor_summary(result, pr_number))
-
-        if result.exit_code != 0:
-            raise typer.Exit(result.exit_code)
+        _emit_structured_monitor_result(output_format, result, pr_number)
         return
 
     _render_monitor_summary(result.status)
