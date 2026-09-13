@@ -197,7 +197,12 @@ def list_repo_files(target: Path | str = ".") -> list[Path]:
 
 def get_repo_origin_name(repo_root: Path | None = None) -> str | None:
     """Extract owner/repo string from git remote origin URL (e.g. 'org/repo')."""
+    import os
     import re
+
+    env_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if env_repo and "/" in env_repo:
+        return env_repo
 
     root = repo_root or find_repo_root()
     if not (root / ".git").exists():
