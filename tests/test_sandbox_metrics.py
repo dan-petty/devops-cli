@@ -125,6 +125,14 @@ def test_parse_cgroup_v2_directory(tmp_path: Path) -> None:
     assert metrics.io_write_bytes == 10485760
 
 
+def test_parse_cgroup_v2_directory_traversal_and_forbidden_paths() -> None:
+    """Verify parse_cgroup_v2_directory rejects traversal sequences and forbidden host system paths."""
+    assert parse_cgroup_v2_directory("../../etc") is None
+    assert parse_cgroup_v2_directory("/etc") is None
+    assert parse_cgroup_v2_directory("/root") is None
+    assert parse_cgroup_v2_directory("") is None
+
+
 def test_parse_cgroup_v2_directory_unlimited_memory(tmp_path: Path) -> None:
     """Test parsing cgroup v2 controller when memory.max is 'max' (unlimited)."""
     cgroup_dir = tmp_path / "cgroup" / "sandbox-2"
@@ -1064,6 +1072,18 @@ def test_workload_sandbox_engine_persists_and_threads_samples() -> None:
                 assert second.cgroup is not None
                 assert second.cgroup.cpu_percent == 50.0
                 assert mock_read.call_count == 2
-                # Verify second call received previous_cpu_usec = 1000000
                 second_kwargs = mock_read.call_args_list[1].kwargs
                 assert second_kwargs.get("previous_cpu_usec") == 1000000
+
+
+def test_is_forbidden_cgroup_path_boundaries() -> None:
+    """Verify _is_forbidden_cgroup_path allows only /sys/fs/cgroup descendants and blocks siblings/system dirs."""
+    from devops_cli.sandbox.metrics import _is_forbidden_cgroup_path
+
+    assert not _is_forbidden_cgroup_path(Path("/sys/fs/cgroup"))
+    assert not _is_forbidden_cgroup_path(Path("/sys/fs/cgroup/system.slice"))
+
+    assert _is_forbidden_cgroup_path(Path("/sys/fs/cgroup2"))
+    assert _is_forbidden_cgroup_path(Path("/sys/kernel"))
+    assert _is_forbidden_cgroup_path(Path("/etc"))
+    assert _is_forbidden_cgroup_path(Path("/var/log"))
