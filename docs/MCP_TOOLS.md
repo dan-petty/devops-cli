@@ -38,6 +38,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
 | [`docs_compact`](#docs-compact) | Compact historical release series documentation (v0.2.x -> v0.3.x). |
 | [`gh_issue_create`](#gh-issue-create) | Create a new GitHub issue linking milestone and taxonomy labels. |
+| [`gh_issue_edit`](#gh-issue-edit) | Edit an existing GitHub issue title, body, or state. |
 | [`gh_issue_list`](#gh-issue-list) | List repository issues with milestone, taxonomy labels, and status. |
 | [`gh_issue_status`](#gh-issue-status) | Display aggregated issue counts by priority, type, and milestone. |
 | [`gh_issue_triage`](#gh-issue-triage) | Audit open issues for mandatory taxonomy labels and milestone linkage. |
@@ -79,6 +80,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_checks`](#pr-checks) | Inspect detailed status of GitHub Actions CI checks for a pull request. |
 | [`pr_close`](#pr-close) | Close a pull request with optional comment and remote branch deletion. |
 | [`pr_diff`](#pr-diff) | View the unified git diff for a pull request. |
+| [`pr_edit`](#pr-edit) | Edit an existing pull request title, body, or base branch. |
 | [`pr_list`](#pr-list) | List GitHub pull requests with review approval state and CI check summaries. |
 | [`pr_monitor`](#pr-monitor) | Monitor PR CI checks, Copilot reviews, and review threads until ready for merge. |
 | [`pr_ready`](#pr-ready) | Mark a draft pull request as ready for review and optionally begin monitoring. |
@@ -482,6 +484,20 @@ Create a new GitHub issue linking milestone and taxonomy labels.
 | `body` | `string` | No | `` | - |
 | `milestone` | `string` | No | - | - |
 | `labels` | `string` | No | - | - |
+| `repo` | `string` | No | - | - |
+
+### `gh_issue_edit`
+
+Edit an existing GitHub issue title, body, or state.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `issue_number` | `integer` | Yes | - | - |
+| `title` | `string` | No | - | - |
+| `body` | `string` | No | - | - |
+| `state` | `string` | No | - | - |
 | `repo` | `string` | No | - | - |
 
 ### `gh_issue_list`
@@ -906,6 +922,20 @@ View the unified git diff for a pull request.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `pr_number` | `integer` | Yes | - | - |
+| `repo` | `string` | No | - | - |
+
+### `pr_edit`
+
+Edit an existing pull request title, body, or base branch.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pr_number` | `integer` | Yes | - | - |
+| `title` | `string` | No | - | - |
+| `body` | `string` | No | - | - |
+| `base` | `string` | No | - | - |
 | `repo` | `string` | No | - | - |
 
 ### `pr_list`

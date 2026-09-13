@@ -563,3 +563,108 @@ class TestPrCommands:
             assert "179" in args
             assert "--comment" in args
             assert "--delete-branch" in args
+
+    def test_pr_view_fallback_on_gh_failure(self, runner: CliRunner) -> None:
+        """devops pr view falls back to REST API when gh pr view fails."""
+        mock_pr_json = json.dumps(
+            {
+                "title": "fix: resolve issue",
+                "state": "open",
+                "draft": True,
+                "html_url": "https://example.com/pulls/184",
+                "head": {"ref": "feature-branch"},
+                "base": {"ref": "main"},
+                "user": {"login": "testuser"},
+                "body": "Detailed description text",
+            }
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                side_effect=[
+                    MagicMock(returncode=1, stdout="", stderr="GraphQL: rate limit exceeded"),
+                    MagicMock(returncode=0, stdout=mock_pr_json, stderr=""),
+                ],
+            ),
+        ):
+            res = runner.invoke(app, ["view", "184"])
+            assert res.exit_code == 0
+            assert "fix: resolve issue" in res.output
+            assert "Detailed description text" in res.output
+
+    def test_pr_checks_fallback_on_gh_failure(self, runner: CliRunner) -> None:
+        """devops pr checks falls back to REST check-runs when gh pr checks fails."""
+        mock_pr_json = json.dumps(
+            {
+                "head": {"sha": "abcdef123456"},
+            }
+        )
+        mock_checks_json = json.dumps(
+            {
+                "check_runs": [
+                    {
+                        "name": "Validation",
+                        "status": "completed",
+                        "conclusion": "success",
+                        "html_url": "https://example.com/runs/1",
+                    },
+                    {
+                        "name": "Analyze",
+                        "status": "completed",
+                        "conclusion": "failure",
+                        "html_url": "https://example.com/runs/2",
+                    },
+                ]
+            }
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                side_effect=[
+                    MagicMock(returncode=1, stdout="", stderr="GraphQL: rate limit exceeded"),
+                    MagicMock(returncode=0, stdout=mock_pr_json, stderr=""),
+                    MagicMock(returncode=0, stdout=mock_checks_json, stderr=""),
+                ],
+            ),
+        ):
+            res = runner.invoke(app, ["checks", "184"])
+            assert res.exit_code == 0
+            assert "Validation" in res.output
+            assert "Analyze" in res.output
+
+    def test_pr_edit_fallback(self, runner: CliRunner) -> None:
+        """devops pr edit falls back to REST PATCH when gh pr edit fails."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                side_effect=[
+                    MagicMock(returncode=1, stdout="", stderr="GraphQL: rate limit exceeded"),
+                    MagicMock(returncode=0, stdout="", stderr=""),
+                ],
+            ) as mock_sub,
+        ):
+            res = runner.invoke(
+                app, ["edit", "184", "--title", "New Title", "--body", "New Body", "--base", "main"]
+            )
+            assert res.exit_code == 0
+            assert "Successfully updated PR #184" in res.output
+            assert mock_sub.call_count == 2
+            patch_cmd = mock_sub.call_args_list[1][0][0]
+            assert "PATCH" in patch_cmd
+            assert "title=New Title" in patch_cmd
+
+    def test_pr_edit_no_changes(self, runner: CliRunner) -> None:
+        """devops pr edit warns when no options are provided."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+        ):
+            res = runner.invoke(app, ["edit", "184"])
+            assert res.exit_code == 0
+            assert "No changes specified" in res.output

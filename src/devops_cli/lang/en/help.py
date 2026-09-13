@@ -667,6 +667,7 @@ class GHCommandHelp:
     issues_create: str = "Create a new issue linking milestone and taxonomy labels."
     issues_triage: str = "Audit open issues for mandatory taxonomy labels and milestone linkage."
     issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
+    issues_edit: str = "Edit an existing issue title, body, or state."
 
 
 @dataclass(frozen=True)

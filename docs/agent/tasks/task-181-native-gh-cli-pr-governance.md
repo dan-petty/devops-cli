@@ -45,6 +45,10 @@ Implement native `devops-cli` commands replacing raw `gh` invocations across pul
 - [x] Register FastMCP tools in `src/devops_cli/ai/mcp/server.py`
 - [x] Update language catalogs (`help.py`, `messages.py`, `errors.py`)
 - [x] Update `AGENTS.md` and `CLAUDE.md` documentation
+- [x] Add REST fallback to `devops pr view` and `devops pr checks` on GraphQL rate limits
+- [x] Implement `devops pr edit` and `devops gh issues edit`
+- [x] Register FastMCP tools `pr_edit` and `gh_issue_edit`
+- [x] Resolve K8s Loki sidecar crashloop via `k8s/logging/loki-values.yaml`
 - [x] Synchronize documentation via `devops docs generate --sync-readme`
 - [x] Verify local quality gates with `uv run pytest` and `devops ci`
 - [ ] Push topic branch and open Draft PR targeting `release/v0.2.17`

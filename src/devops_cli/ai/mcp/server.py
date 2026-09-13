@@ -1951,6 +1951,58 @@ def gh_run_view(
 
 
 @mcp.tool()
+def pr_edit(
+    pr_number: int,
+    title: str | None = None,
+    body: str | None = None,
+    base: str | None = None,
+    repo: str | None = None,
+) -> str:
+    """Edit an existing pull request title, body, or base branch."""
+    _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+    cmd = ["uv", "run", "devops", "pr", "edit", str(pr_number)]
+    if title:
+        _validate_mcp_arg("title", title)
+        cmd.extend(["--title", title])
+    if body:
+        _validate_mcp_arg("body", body)
+        cmd.extend(["--body", body])
+    if base:
+        _validate_mcp_arg("base", base)
+        cmd.extend(["--base", base])
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_issue_edit(
+    issue_number: int,
+    title: str | None = None,
+    body: str | None = None,
+    state: str | None = None,
+    repo: str | None = None,
+) -> str:
+    """Edit an existing GitHub issue title, body, or state."""
+    _validate_mcp_int_bound("issue_number", issue_number, min_val=1)
+    cmd = ["uv", "run", "devops", "gh", "issues", "edit", str(issue_number)]
+    if title:
+        _validate_mcp_arg("title", title)
+        cmd.extend(["--title", title])
+    if body:
+        _validate_mcp_arg("body", body)
+        cmd.extend(["--body", body])
+    if state:
+        _validate_mcp_arg("state", state)
+        cmd.extend(["--state", state])
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def valkey_ping() -> str:
     """Test connection and measure latency to the workstation Valkey server."""
     return _run_mcp_cmd(

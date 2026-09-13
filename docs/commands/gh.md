@@ -471,6 +471,29 @@ devops gh issues status [OPTIONS]
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
 
+### `devops gh issues edit`
+
+**Edit an existing issue title, body, or state.**
+
+```bash
+devops gh issues edit [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Issue number to edit. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--title`, `-t` | `string` | - | New issue title. |
+| `--body`, `-b` | `string` | - | New issue body text. |
+| `--state`, `-s` | `string` | - | New state (open or closed). |
+| `--repo`, `-R` | `string` | - | Target repository |
+
 ---
 
 ## `devops gh runs`

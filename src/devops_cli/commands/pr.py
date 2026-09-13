@@ -148,6 +148,115 @@ def list_prs(
 
 
 # =============================================================================
+# PR REST API Fallback Helpers
+# =============================================================================
+
+
+def _fetch_pr_details(number: int, repo: str | None = None) -> dict[str, Any]:
+    """Fetch PR details via REST API (immune to GraphQL rate limit)."""
+    from devops_cli.core.repo import get_repo_origin_name
+
+    target = repo or get_repo_origin_name()
+    if not target or "/" not in target:
+        return {}
+    owner, repo_name = target.split("/", 1)
+    res = run_subprocess(
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls/{number}"],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode == 0 and res.stdout.strip():
+        try:
+            parsed = json.loads(res.stdout)
+            if isinstance(parsed, dict):
+                return cast(dict[str, Any], parsed)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _render_pr_view_fallback(number: int, repo: str | None = None) -> bool:
+    """Render PR details via REST API when gh pr view fails or hits rate limits."""
+    pr = _fetch_pr_details(number, repo)
+    if not pr:
+        return False
+    title = str(pr.get("title", ""))
+    state = str(pr.get("state", "open")).upper()
+    draft = " [yellow](Draft)[/yellow]" if pr.get("draft") else ""
+    head = str(pr.get("head", {}).get("ref", ""))
+    base = str(pr.get("base", {}).get("ref", ""))
+    user_data = pr.get("user", {})
+    author = user_data.get("login", "") if isinstance(user_data, dict) else str(user_data)
+    url = str(pr.get("html_url", ""))
+    body = str(pr.get("body") or "").strip()
+
+    print_table(
+        title=f"Pull Request #{number}: {title}",
+        columns=["Property", "Value"],
+        rows=[
+            ["Status", f"{state}{draft}"],
+            ["Author", author],
+            ["Branch", f"{head} -> {base}"],
+            ["URL", url],
+        ],
+    )
+    if body:
+        from devops_cli.output import print as print_out
+
+        print_out(f"\n[bold]Description:[/bold]\n{body}\n")
+    return True
+
+
+def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
+    """Render check runs via REST API when gh pr checks fails or hits rate limits."""
+    pr = _fetch_pr_details(number, repo)
+    if not pr:
+        return False
+    head_data = pr.get("head", {})
+    sha = head_data.get("sha", "") if isinstance(head_data, dict) else ""
+    if not sha:
+        return False
+    from devops_cli.core.repo import get_repo_origin_name
+
+    target = repo or get_repo_origin_name()
+    if not target or "/" not in target:
+        return False
+    owner, repo_name = target.split("/", 1)
+    res = run_subprocess(
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{sha}/check-runs"],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode != 0 or not res.stdout.strip():
+        return False
+    try:
+        data = json.loads(res.stdout)
+    except json.JSONDecodeError:
+        return False
+    check_runs = data.get("check_runs", [])
+    if not check_runs:
+        print_info(f"No check runs found for PR #{number}.")
+        return True
+    rows = []
+    for cr in check_runs:
+        name = str(cr.get("name", ""))
+        conclusion = str(cr.get("conclusion") or cr.get("status") or "")
+        badge = (
+            f"[green]✓ {conclusion}[/green]"
+            if conclusion == "success"
+            else f"[bold red]✗ {conclusion}[/bold red]"
+        )
+        url = str(cr.get("html_url", ""))
+        rows.append([name, badge, url])
+    print_table(
+        title=f"CI Quality Gate Checks (PR #{number})",
+        columns=["Check", "Status", "URL"],
+        rows=rows,
+    )
+    return True
+
+
+# =============================================================================
 # Command: devops pr view
 # =============================================================================
 
@@ -161,7 +270,15 @@ def view_pr(
     ] = None,
 ) -> None:
     """View details of a pull request."""
-    _run_gh_pr_command("view", number, repo)
+    _require_gh_cli()
+    cmd = [CONST_GH_CLI, "pr", "view", str(number)]
+    if repo:
+        cmd.extend(["--repo", repo])
+    res = run_subprocess(cmd, check=False)
+    if res.returncode != 0:
+        if _render_pr_view_fallback(number, repo):
+            return
+        raise typer.Exit(res.returncode)
 
 
 # =============================================================================
@@ -178,7 +295,15 @@ def pr_checks(
     ] = None,
 ) -> None:
     """Check remote CI quality gate status on a pull request."""
-    _run_gh_pr_command("checks", number, repo)
+    _require_gh_cli()
+    cmd = [CONST_GH_CLI, "pr", "checks", str(number)]
+    if repo:
+        cmd.extend(["--repo", repo])
+    res = run_subprocess(cmd, check=False)
+    if res.returncode != 0:
+        if _render_pr_checks_fallback(number, repo):
+            return
+        raise typer.Exit(res.returncode)
 
 
 # =============================================================================
@@ -450,6 +575,37 @@ def monitor_pr_command(
 # =============================================================================
 
 
+def _fallback_patch_pr(
+    number: int,
+    base: str | None = None,
+    title: str | None = None,
+    body: str | None = None,
+    repo: str | None = None,
+) -> bool:
+    """Fallback to REST API PATCH when gh pr edit fails (e.g. rate limit)."""
+    from devops_cli.core.repo import get_repo_origin_name
+
+    target = repo or get_repo_origin_name()
+    if not target or "/" not in target:
+        return False
+    owner, repo_name = target.split("/", 1)
+    patch_cmd = [
+        CONST_GH_CLI,
+        "api",
+        "--method",
+        "PATCH",
+        f"repos/{owner}/{repo_name}/pulls/{number}",
+    ]
+    if title is not None:
+        patch_cmd.extend(["-f", f"title={title}"])
+    if body is not None:
+        patch_cmd.extend(["-f", f"body={body}"])
+    if base is not None:
+        patch_cmd.extend(["-f", f"base={base}"])
+    res = run_subprocess(patch_cmd, check=False)
+    return res.returncode == 0
+
+
 @app.command("edit")
 def edit_pr(
     number: Annotated[int, typer.Argument(help=HELP.pr.number)],
@@ -472,6 +628,10 @@ def edit_pr(
 ) -> None:
     """Edit pull request base branch, title, or body."""
     _require_gh_cli()
+    if not any([title, body, base]):
+        print_warning("No changes specified. Use --title, --body, or --base.")
+        return
+
     cmd = [CONST_GH_CLI, "pr", "edit", str(number)]
     if base:
         cmd.extend(["--base", base])
@@ -484,6 +644,9 @@ def edit_pr(
 
     res = run_subprocess(cmd, check=False)
     if res.returncode != 0:
+        if _fallback_patch_pr(number, base, title, body, repo):
+            print_success(f"Successfully updated PR #{number}")
+            return
         raise typer.Exit(res.returncode)
     print_success(f"Successfully updated PR #{number}")
 
@@ -545,29 +708,6 @@ def create_pr(
 # =============================================================================
 # Command: devops pr ready
 # =============================================================================
-
-
-def _fetch_pr_details(number: int, repo: str | None = None) -> dict[str, Any]:
-    """Fetch PR details via REST API (immune to GraphQL rate limit)."""
-    from devops_cli.core.repo import get_repo_origin_name
-
-    target = repo or get_repo_origin_name()
-    if not target or "/" not in target:
-        return {}
-    owner, repo_name = target.split("/", 1)
-    res = run_subprocess(
-        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls/{number}"],
-        check=False,
-        quiet=True,
-    )
-    if res.returncode == 0 and res.stdout.strip():
-        try:
-            parsed = json.loads(res.stdout)
-            if isinstance(parsed, dict):
-                return cast(dict[str, Any], parsed)
-        except json.JSONDecodeError:
-            return {}
-    return {}
 
 
 def _handle_pr_ready_failure(stderr_text: str, number: int) -> None:

@@ -24,6 +24,7 @@
 | [#175](https://github.com/dan-petty/devops-cli/issues/175) | [#173](https://github.com/dan-petty/devops-cli/pull/173) | Project field options synchronization, complete pagination & generic owner resolution | `Done` | [`task-175-project-field-sync-pagination.md`](tasks/task-175-project-field-sync-pagination.md) |
 | [#176](https://github.com/dan-petty/devops-cli/issues/176) | [#177](https://github.com/dan-petty/devops-cli/pull/177) | Remediate DevSecOps review findings & enhance review self-improvement loop | `Done` | [`task-176-review-findings-self-improvement.md`](tasks/task-176-review-findings-self-improvement.md) |
 | [#183](https://github.com/dan-petty/devops-cli/issues/183) | [#182](https://github.com/dan-petty/devops-cli/pull/182) | Resolve Helm Stack Deploy SSA Conflicts, Loki Validation, and PodSecurity Failures | `Done` | [`task-183-stack-deploy-conflicts.md`](tasks/task-183-stack-deploy-conflicts.md) |
+| [#181](https://github.com/dan-petty/devops-cli/issues/181) | TBD | Implement native devops cli functionality for gh operations and pr governance | `In Progress` | [`task-181-native-gh-cli-pr-governance.md`](tasks/task-181-native-gh-cli-pr-governance.md) |
 
 
 ---

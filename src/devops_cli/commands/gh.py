@@ -948,6 +948,51 @@ def issues_status_cmd(
     print_table(f"GitHub Issues Status Summary ({target_repo})", columns, rows)
 
 
+@issues_app.command("edit", help=HELP.gh.issues_edit)
+def edit_issue_cmd(
+    number: Annotated[int, typer.Argument(help="Issue number to edit.")],
+    title: Annotated[
+        str | None,
+        typer.Option("--title", "-t", help="New issue title."),
+    ] = None,
+    body: Annotated[
+        str | None,
+        typer.Option("--body", "-b", help="New issue body text."),
+    ] = None,
+    state: Annotated[
+        str | None,
+        typer.Option("--state", "-s", help="New state (open or closed)."),
+    ] = None,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help="Target repository"),
+    ] = None,
+) -> None:
+    """Edit an existing GitHub issue title, body, or state."""
+    target_repo = repo or _resolve_repo()
+    if not target_repo or "/" not in target_repo:
+        print_error("Cannot resolve target repository.")
+        raise typer.Exit(1)
+    if not any([title, body, state]):
+        print_warning("No changes specified. Use --title, --body, or --state.")
+        return
+
+    owner, repo_name = target_repo.split("/", 1)
+    cmd = [CONST_GH_CLI, "api", "--method", "PATCH", f"repos/{owner}/{repo_name}/issues/{number}"]
+    if title is not None:
+        cmd.extend(["-f", f"title={title}"])
+    if body is not None:
+        cmd.extend(["-f", f"body={body}"])
+    if state is not None:
+        cmd.extend(["-f", f"state={state}"])
+
+    res = run_subprocess(cmd, check=False)
+    if res.returncode != 0:
+        print_error(f"Failed to edit issue #{number}: {res.stderr.strip()}")
+        raise typer.Exit(res.returncode)
+    print_success(f"Issue #{number} updated successfully.")
+
+
 # =============================================================================
 # Command: devops gh rate-limit
 # =============================================================================

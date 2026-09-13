@@ -407,3 +407,48 @@ def test_gh_runs_view_failed_logs() -> None:
         assert "view" in args
         assert "12345678" in args
         assert "--log-failed" in args
+
+
+def test_gh_issues_edit_success() -> None:
+    """devops gh issues edit patches issue title, body, and state."""
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(returncode=0, stdout="", stderr=""),
+        ) as mock_sub,
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "issues",
+                "edit",
+                "185",
+                "--title",
+                "Updated Title",
+                "--body",
+                "Updated Body",
+                "--state",
+                "closed",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "updated successfully" in result.output
+        cmd = mock_sub.call_args[0][0]
+        assert "PATCH" in cmd
+        assert "issues/185" in cmd[4]
+        assert "title=Updated Title" in cmd
+        assert "body=Updated Body" in cmd
+        assert "state=closed" in cmd
+
+
+def test_gh_issues_edit_no_changes() -> None:
+    """devops gh issues edit warns when no changes are specified."""
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+    ):
+        result = runner.invoke(app, ["issues", "edit", "185"])
+        assert result.exit_code == 0
+        assert "No changes specified" in result.output

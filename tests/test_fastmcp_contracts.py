@@ -123,9 +123,17 @@ def test_fastmcp_tools_registration() -> None:
         "gh_issue_create",
         "gh_issue_triage",
         "gh_issue_status",
+        "gh_issue_edit",
         "gh_project_list",
         "gh_project_audit",
         "gh_views_audit",
+        "gh_rate_limit",
+        "gh_runs_list",
+        "gh_run_view",
+        "pr_ready",
+        "pr_diff",
+        "pr_close",
+        "pr_edit",
     }
 
     for expected in expected_core_tools:
