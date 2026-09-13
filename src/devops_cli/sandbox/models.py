@@ -242,6 +242,7 @@ class PanicIncident(BaseModel):
     timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     log_stream: str = "stderr"
     archived_path: str | None = None
+    archive_error: str | None = None
 
     @field_validator("message")
     @classmethod

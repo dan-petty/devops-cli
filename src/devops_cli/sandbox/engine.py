@@ -7,6 +7,7 @@ import logging
 import os
 import time
 import uuid
+from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Final
@@ -38,6 +39,8 @@ from devops_cli.sandbox.registry import SandboxRegistry
 from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
+
+MAX_FOLLOW_BUFFER_LINES: Final[int] = 1000
 
 _FORBIDDEN_ROOTS: Final[set[str]] = {
     "/",
@@ -572,32 +575,27 @@ class WorkloadSandboxEngine:
             raise SandboxNotFoundError(f"Sandbox instance '{identifier}' not found.")
         inst = instances[0]
 
-        raw_output = _fetch_container_logs_raw(
+        raw_stream = _fetch_container_logs_raw(
             container_id=inst.container_id,
             tail=tail,
             timestamps=timestamps,
             follow=follow,
         )
 
-        raw_lines = (
-            raw_output
-            if isinstance(raw_output, list)
-            else [chunk.decode("utf-8", errors="replace") for chunk in raw_output]
-        )
-
-        parsed_lines, incidents = _aggregate_log_lines(
-            raw_lines=raw_lines,
+        parsed_lines, incidents, total_count = _aggregate_log_stream(
+            raw_stream=raw_stream,
             instance_id=inst.instance_id,
             container_id=inst.container_id,
             detect_panics=detect_panics_flag,
             archive_incidents=archive_incidents,
             incident_dir=incident_dir,
             line_callback=line_callback,
+            follow=follow,
         )
 
         record_metric(
             "devops.sandbox.logs.lines",
-            float(len(parsed_lines)),
+            float(total_count),
             unit="1",
             attributes={"instance_id": inst.instance_id},
         )
@@ -612,29 +610,63 @@ class WorkloadSandboxEngine:
         return SandboxLogsReport(
             instance_id=inst.instance_id,
             container_id=inst.container_id,
-            total_lines=len(parsed_lines),
+            total_lines=total_count,
             panics_detected=len(incidents),
             incidents=incidents,
             lines=parsed_lines,
         )
 
 
+def _normalize_log_chunk(chunk: Any) -> list[tuple[str, str]]:
+    """Convert raw docker logs output or demux tuple into (line, stream) pairs."""
+    if isinstance(chunk, tuple) and len(chunk) == 2:
+        out_bytes, err_bytes = chunk
+        pairs: list[tuple[str, str]] = []
+        if out_bytes:
+            text = (
+                out_bytes.decode("utf-8", errors="replace")
+                if isinstance(out_bytes, (bytes, bytearray))
+                else str(out_bytes)
+            )
+            pairs.extend((line, "stdout") for line in text.splitlines())
+        if err_bytes:
+            text = (
+                err_bytes.decode("utf-8", errors="replace")
+                if isinstance(err_bytes, (bytes, bytearray))
+                else str(err_bytes)
+            )
+            pairs.extend((line, "stderr") for line in text.splitlines())
+        return pairs
+    text = (
+        chunk.decode("utf-8", errors="replace")
+        if isinstance(chunk, (bytes, bytearray))
+        else str(chunk)
+    )
+    return [(line, "stdout") for line in text.splitlines()]
+
+
 def _fetch_logs_via_subprocess(
     container_id: str,
     tail: int | str,
     timestamps: bool,
-) -> list[str]:
-    """Fallback to docker logs via CLI subprocess."""
+    follow: bool = False,
+) -> tuple[bytes | None, bytes | None]:
+    """Fallback to docker logs via CLI subprocess with stream preservation and error checking."""
     cmd = ["docker", "logs"]
+    if follow:
+        cmd.append("--follow")
     if timestamps:
         cmd.append("--timestamps")
     if tail != "all":
         cmd.extend(["--tail", str(tail)])
     cmd.append(container_id)
     proc = run_subprocess(cmd, check=False)
-    out_lines = proc.stdout.splitlines() if proc.stdout else []
-    err_lines = proc.stderr.splitlines() if proc.stderr else []
-    return out_lines + err_lines
+    if proc.returncode != 0:
+        err_msg = proc.stderr.strip() if proc.stderr else f"process exited with {proc.returncode}"
+        raise SandboxError(f"docker logs failed for container '{container_id}': {err_msg}")
+    out_bytes = proc.stdout.encode("utf-8") if proc.stdout else None
+    err_bytes = proc.stderr.encode("utf-8") if proc.stderr else None
+    return (out_bytes, err_bytes)
 
 
 def _fetch_container_logs_raw(
@@ -642,39 +674,75 @@ def _fetch_container_logs_raw(
     tail: int | str,
     timestamps: bool,
     follow: bool,
-) -> list[str] | Any:
+) -> Any:
     """Fetch logs from container using Docker SDK with fallback to CLI subprocess."""
     try:
         client = _get_docker_client()
         container = client.containers.get(container_id)
-        raw = container.logs(
+        return container.logs(
             stdout=True,
             stderr=True,
             stream=follow,
             follow=follow,
             tail=tail,
             timestamps=timestamps,
+            demux=True,
         )
-        if isinstance(raw, (bytes, bytearray)):
-            return raw.decode("utf-8", errors="replace").splitlines()
-        if isinstance(raw, str):
-            return raw.splitlines()
-        return raw
     except Exception as exc:
         logger.debug("Docker SDK logs failed (%s); fallback to subprocess", exc)
-        return _fetch_logs_via_subprocess(container_id, tail, timestamps)
+        return _fetch_logs_via_subprocess(container_id, tail, timestamps, follow=follow)
 
 
-def _aggregate_log_lines(
-    raw_lines: list[str],
+def _process_log_line(
+    line_text: str,
+    stream_name: str,
+    detector: PanicDetector | None,
+    line_callback: Callable[[SandboxLogLine, PanicIncident | None], None] | None,
+) -> tuple[SandboxLogLine, list[PanicIncident]]:
+    """Parse line, feed to detector if present, and notify callback."""
+    line_model = parse_docker_log_line(line_text, default_stream=stream_name)
+    detected = detector.feed_line(line_model) if detector else []
+    if line_callback:
+        if detected:
+            for inc in detected:
+                line_callback(line_model, inc)
+        else:
+            line_callback(line_model, None)
+    return line_model, detected
+
+
+def _flush_detector(
+    detector: PanicDetector | None,
+    line_callback: Callable[[SandboxLogLine, PanicIncident | None], None] | None,
+) -> list[PanicIncident]:
+    """Flush pending incidents from detector and notify callback."""
+    if not detector:
+        return []
+    flushed = detector.flush()
+    if line_callback:
+        for inc in flushed:
+            line_callback(
+                SandboxLogLine(
+                    content=f"Incident finalized: {inc.incident_id}",
+                    is_panic=True,
+                    stream=inc.log_stream,
+                ),
+                inc,
+            )
+    return flushed
+
+
+def _aggregate_log_stream(
+    raw_stream: Any,
     instance_id: str,
     container_id: str,
     detect_panics: bool,
     archive_incidents: bool,
     incident_dir: Path | None,
     line_callback: Callable[[SandboxLogLine, PanicIncident | None], None] | None,
-) -> tuple[list[SandboxLogLine], list[PanicIncident]]:
-    """Parse log lines and collect detected panics and parsed log line models."""
+    follow: bool = False,
+) -> tuple[list[SandboxLogLine], list[PanicIncident], int]:
+    """Parse streaming log lines incrementally, detecting panics and bounding memory."""
     detector = (
         PanicDetector(
             instance_id=instance_id,
@@ -685,29 +753,25 @@ def _aggregate_log_lines(
         if detect_panics
         else None
     )
-    parsed_lines: list[SandboxLogLine] = []
+    retained_buffer: deque[SandboxLogLine] = deque(
+        maxlen=MAX_FOLLOW_BUFFER_LINES if follow else None
+    )
     incidents: list[PanicIncident] = []
+    total_count = 0
 
-    for raw in raw_lines:
-        line_model = parse_docker_log_line(raw)
-        incident = detector.feed_line(line_model) if detector else None
-        if incident:
-            incidents.append(incident)
-        if line_callback:
-            line_callback(line_model, incident)
-        parsed_lines.append(line_model)
+    iterable = [raw_stream] if isinstance(raw_stream, (tuple, str, bytes)) else raw_stream
 
-    if detector:
-        flushed = detector.flush()
-        incidents.extend(flushed)
-        if line_callback:
-            for inc in flushed:
-                line_callback(
-                    SandboxLogLine(content=f"Incident finalized: {inc.incident_id}", is_panic=True),
-                    inc,
-                )
+    for chunk in iterable:
+        for line_text, stream_name in _normalize_log_chunk(chunk):
+            line_model, detected = _process_log_line(
+                line_text, stream_name, detector, line_callback
+            )
+            incidents.extend(detected)
+            total_count += 1
+            retained_buffer.append(line_model)
 
-    return parsed_lines, incidents
+    incidents.extend(_flush_detector(detector, line_callback))
+    return list(retained_buffer), incidents, total_count
 
 
 __all__ = ["WorkloadSandboxEngine"]

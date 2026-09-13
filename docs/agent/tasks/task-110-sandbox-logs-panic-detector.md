@@ -18,7 +18,7 @@ Implement multiplexed stdout/stderr log streaming with follow mode (`-f` / `--fo
 1. **Multiplexed Log Streaming & Buffer Management**:
    - Stream container stdout and stderr in follow mode or batch tail mode.
    - Demultiplex and label output streams (stdout vs stderr).
-   - Support `--tail`, `--timestamps`, `--follow`, `--no-panic-detect`, `--incident-dir`, `--json`, and `--dry-run`.
+   - Support `--tail`, `--timestamps`, `--follow`, `--no-detect-panics`, `--incident-dir`, `--json`, and `--dry-run`.
 
 2. **Automated Multi-Language Panic Detection Engine (`src/devops_cli/sandbox/logs.py`)**:
    - Streaming state machine detecting multi-line stacktraces and single-line fatal crashes:

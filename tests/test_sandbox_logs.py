@@ -339,6 +339,7 @@ def test_engine_logs_subprocess_fallback(tmp_path: Path) -> None:
         patch("devops_cli.sandbox.engine.run_subprocess") as mock_run_proc,
     ):
         mock_proc = MagicMock()
+        mock_proc.returncode = 0
         mock_proc.stdout = "2026-09-12T20:20:00.000Z Fallback log output 1\nFallback log output 2\n"
         mock_proc.stderr = ""
         mock_run_proc.return_value = mock_proc
@@ -410,7 +411,7 @@ def test_cli_sandbox_logs_multiple_instances_prompt() -> None:
         mock_engine_cls.return_value = mock_eng
 
         res = runner.invoke(app, ["logs"])
-        assert res.exit_code == 0
+        assert res.exit_code == 1
         assert "Multiple sandboxes running" in res.output
 
 
@@ -422,5 +423,243 @@ def test_cli_sandbox_logs_no_instances_prompt() -> None:
         mock_engine_cls.return_value = mock_eng
 
         res = runner.invoke(app, ["logs"])
-        assert res.exit_code == 0
+        assert res.exit_code == 1
         assert "No running or deployed sandbox instances found" in res.output
+
+
+def test_archive_incident_nested_or_absolute_traversal_rejection(tmp_path: Path) -> None:
+    """Verify nested subdirectories and absolute paths in incident_id are rejected."""
+    from devops_cli.exceptions.security import SecurityError
+
+    for bad_id in ("/tmp/evil", "sub/dir", "a\\b", ".."):
+        incident = PanicIncident(
+            incident_id=bad_id,
+            instance_id="inst-test",
+            container_id="cont-test",
+            panic_type=PanicType.SEGFAULT,
+            message="segfault",
+        )
+        with pytest.raises(SecurityError):
+            archive_incident(incident, base_dir=tmp_path)
+
+
+def test_archive_incident_atomic_replacement(tmp_path: Path) -> None:
+    """Verify archive writes atomically and cleans up temporary file."""
+    incident = PanicIncident(
+        incident_id="incident-atomic-01",
+        instance_id="inst-test",
+        container_id="cont-test",
+        panic_type=PanicType.GO_PANIC,
+        message="test atomic",
+    )
+    dest = archive_incident(incident, base_dir=tmp_path)
+    assert dest.exists()
+    # Check no leftover tmp files
+    tmp_files = list(tmp_path.glob(".tmp.*"))
+    assert len(tmp_files) == 0
+
+
+def test_archive_incident_records_archive_error(tmp_path: Path) -> None:
+    """Verify _create_incident_record captures archive_error when base_dir cannot be written."""
+    from devops_cli.sandbox.logs import _create_incident_record
+
+    unwritable_dir = tmp_path / "read_only"
+    unwritable_dir.mkdir(parents=True)
+    unwritable_dir.chmod(0o400)
+
+    incident = _create_incident_record(
+        instance_id="inst-fail",
+        container_id="cont-fail",
+        panic_type=PanicType.SEGFAULT,
+        message="crash",
+        stacktrace=["crash"],
+        stream="stderr",
+        timestamp=None,
+        archive=True,
+        base_dir=unwritable_dir / "nested_dir",
+    )
+    unwritable_dir.chmod(0o700)
+    assert incident.archive_error is not None
+
+
+def test_detect_single_line_crash_during_active_panic() -> None:
+    """Verify single-line crash arriving during active multi-line panic emits both."""
+    lines = [
+        "panic: runtime error: invalid memory address",
+        "goroutine 1 [running]:",
+        "Segmentation fault",
+        "main.main()",
+    ]
+    incidents = detect_panics(lines, instance_id="inst-combo", container_id="cont-combo")
+    assert len(incidents) == 2
+    types = [inc.panic_type for inc in incidents]
+    assert PanicType.GO_PANIC in types
+    assert PanicType.SEGFAULT in types
+
+
+def test_detect_back_to_back_panics_message_isolation() -> None:
+    """Verify back-to-back panic headers preserve respective panic messages."""
+    lines = [
+        "panic: first fatal crash",
+        "goroutine 1 [running]:",
+        "main.step1()",
+        "panic: second fatal crash",
+        "goroutine 2 [running]:",
+        "main.step2()",
+    ]
+    incidents = detect_panics(lines, instance_id="inst-b2b", container_id="cont-b2b")
+    assert len(incidents) == 2
+    assert "first fatal crash" in incidents[0].message
+    assert "second fatal crash" in incidents[1].message
+
+
+def test_detect_rust_panic_symbolic_frames() -> None:
+    """Verify Rust backtraces with standard symbol-based frames are collected."""
+    lines = [
+        "thread 'main' panicked at 'assertion failed', src/lib.rs:10:5",
+        "stack backtrace:",
+        "   0: std::panicking::begin_panic",
+        "             at /rustc/library/std/src/panicking.rs:597:12",
+        "   1: core::panicking::panic_fmt",
+        "   2: myapp::calculate",
+    ]
+    incidents = detect_panics(lines, instance_id="inst-rust-sym", container_id="cont-rust-sym")
+    assert len(incidents) == 1
+    assert len(incidents[0].stacktrace) >= 4
+
+
+def test_engine_logs_demux_stream_preservation() -> None:
+    """Verify Docker demux response preserves stdout vs stderr streams."""
+    inst = _make_dummy_instance()
+    engine = WorkloadSandboxEngine()
+    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
+
+    mock_container = MagicMock()
+    mock_container.logs.return_value = (
+        b"2026-09-12T20:00:00Z stdout log message\n",
+        b"2026-09-12T20:00:01Z stderr log message\n",
+    )
+
+    with patch("devops_cli.sandbox.engine._get_docker_client") as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.containers.get.return_value = mock_container
+        mock_get_client.return_value = mock_client
+
+        report = engine.logs(identifier=inst.instance_id, detect_panics_flag=False)
+        assert report.total_lines == 2
+        streams = [line.stream for line in report.lines]
+        assert "stdout" in streams
+        assert "stderr" in streams
+
+
+def test_engine_logs_follow_bounded_buffer() -> None:
+    """Verify follow mode bounds memory retention to MAX_FOLLOW_BUFFER_LINES."""
+    inst = _make_dummy_instance()
+    engine = WorkloadSandboxEngine()
+    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
+
+    # Stream 1500 lines
+    chunks = [f"line {i}\n".encode() for i in range(1500)]
+    mock_container = MagicMock()
+    mock_container.logs.return_value = iter(chunks)
+
+    with patch("devops_cli.sandbox.engine._get_docker_client") as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.containers.get.return_value = mock_container
+        mock_get_client.return_value = mock_client
+
+        report = engine.logs(identifier=inst.instance_id, follow=True, detect_panics_flag=False)
+        assert report.total_lines == 1500
+        assert len(report.lines) <= 1000
+
+
+def test_engine_logs_subprocess_fallback_failure() -> None:
+    """Verify subprocess fallback raises SandboxError on nonzero returncode."""
+    from devops_cli.exceptions.sandbox import SandboxError
+
+    inst = _make_dummy_instance()
+    engine = WorkloadSandboxEngine()
+    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
+
+    with (
+        patch(
+            "devops_cli.sandbox.engine._get_docker_client",
+            side_effect=RuntimeError("Docker daemon down"),
+        ),
+        patch("devops_cli.sandbox.engine.run_subprocess") as mock_run_proc,
+    ):
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stdout = ""
+        mock_proc.stderr = "Error: No such container"
+        mock_run_proc.return_value = mock_proc
+
+        with pytest.raises(SandboxError, match="No such container"):
+            engine.logs(identifier=inst.instance_id)
+
+
+def test_cli_sandbox_logs_rich_escaping_and_secret_masking() -> None:
+    """Verify terminal log rendering escapes Rich markup and masks secrets."""
+    inst = _make_dummy_instance()
+    mock_report = SandboxLogsReport(
+        instance_id=inst.instance_id,
+        container_id=inst.container_id,
+        total_lines=1,
+        panics_detected=0,
+        lines=[
+            SandboxLogLine(
+                content="Log with [bold red]untrusted tag[/bold red] and ghp_token12345678901234567890123456"
+            )
+        ],
+    )
+
+    with patch("devops_cli.commands.sandbox.WorkloadSandboxEngine") as mock_engine_cls:
+        mock_eng = MagicMock()
+        mock_eng.status.return_value = [inst]
+        mock_eng.logs.return_value = mock_report
+        mock_engine_cls.return_value = mock_eng
+
+        res = runner.invoke(app, ["logs", inst.instance_id])
+        assert res.exit_code == 0
+        assert "<masked-github-token>" in res.stdout
+        assert "ghp_token1234" not in res.stdout
+
+
+def test_cli_sandbox_logs_json_masks_secrets() -> None:
+    """Verify --json output masks secrets in log lines and incident fields."""
+    inst = _make_dummy_instance()
+    mock_report = SandboxLogsReport(
+        instance_id=inst.instance_id,
+        container_id=inst.container_id,
+        total_lines=1,
+        panics_detected=0,
+        lines=[SandboxLogLine(content="API key sk-ant-secret12345678901234567890")],
+    )
+
+    with patch("devops_cli.commands.sandbox.WorkloadSandboxEngine") as mock_engine_cls:
+        mock_eng = MagicMock()
+        mock_eng.status.return_value = [inst]
+        mock_eng.logs.return_value = mock_report
+        mock_engine_cls.return_value = mock_eng
+
+        res = runner.invoke(app, ["logs", inst.instance_id, "--json"])
+        assert res.exit_code == 0
+        assert "<masked-anthropic-key>" in res.stdout
+        assert "sk-ant-secret" not in res.stdout
+
+
+def test_cli_sandbox_logs_nonexistent_identifier_clean_exit() -> None:
+    """Verify explicit nonexistent identifier exits with status 1 and clean error message."""
+    with patch("devops_cli.commands.sandbox.WorkloadSandboxEngine") as mock_engine_cls:
+        mock_eng = MagicMock()
+        mock_eng.logs.side_effect = SandboxNotFoundError(
+            "Sandbox instance 'nonexistent-id' not found."
+        )
+        mock_engine_cls.return_value = mock_eng
+
+        res = runner.invoke(app, ["logs", "nonexistent-id"])
+        assert res.exit_code == 1
+        assert (
+            "Sandbox instance 'nonexistent-id' not found" in res.output
+            or "Failed to fetch logs" in res.output
+        )

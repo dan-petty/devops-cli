@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Final
 
 from devops_cli.config.defaults import DEFAULT_SANDBOX_INCIDENTS_DIR
-from devops_cli.core.paths import validate_no_path_traversal
+from devops_cli.core.paths import safe_resolve_subpath, validate_no_path_traversal
+from devops_cli.exceptions.security import SecurityError
 from devops_cli.sandbox.models import (
     PanicIncident,
     PanicType,
@@ -51,7 +52,7 @@ _RE_RUST_START: Final[re.Pattern[str]] = re.compile(
     r"^thread '.*' panicked at (?:'(.*)'|([^,]+)), (.*)"
 )
 _RE_RUST_FRAME: Final[re.Pattern[str]] = re.compile(
-    r"^(?:stack backtrace:|\s*\d+:\s+0x[0-9a-fA-F]+|\s*at\s+.*)"
+    r"^(?:stack backtrace:|\s*\d+:\s+.*|\s*at\s+.*)"
 )
 
 _RE_SEGFAULT: Final[re.Pattern[str]] = re.compile(
@@ -91,18 +92,29 @@ def resolve_incident_dir(base_dir: Path | None = None) -> Path:
 
 def archive_incident(incident: PanicIncident, base_dir: Path | None = None) -> Path:
     """Atomically archive structured panic incident record in JSON format."""
-    validate_no_path_traversal(incident.incident_id, label="Incident ID")
+    clean_id = incident.incident_id.strip()
+    if not clean_id or "/" in clean_id or "\\" in clean_id:
+        raise SecurityError(
+            f"Invalid incident ID: must be a plain basename, got {incident.incident_id!r}"
+        )
+    validate_no_path_traversal(clean_id, label="Incident ID")
     target_dir = resolve_incident_dir(base_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    incident_path = target_dir / f"{incident.incident_id}.json"
-    validate_no_path_traversal(incident_path.name, label="Incident filename")
+    incident_filename = f"{clean_id}.json"
+    incident_path = safe_resolve_subpath(target_dir, incident_filename, allow_symlinks=False)
 
     payload = incident.model_dump()
     payload["archived_path"] = str(incident_path)
     incident.archived_path = str(incident_path)
 
-    incident_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    tmp_path = target_dir / f".tmp.{clean_id}.{uuid.uuid4().hex[:6]}"
+    try:
+        tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(tmp_path, incident_path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
     return incident_path
 
 
@@ -134,6 +146,7 @@ def _create_incident_record(
         try:
             archive_incident(incident, base_dir=base_dir)
         except Exception as exc:
+            incident.archive_error = str(exc)[:256]
             logger.warning("Failed to archive incident %s: %s", inc_id, exc)
     return incident
 
@@ -220,20 +233,17 @@ class PanicDetector:
             )
         return None
 
-    def _check_panic_start(self, line: SandboxLogLine) -> PanicType | None:
-        """Identify if a line initiates a multi-line panic or stacktrace."""
+    def _check_panic_start(self, line: SandboxLogLine) -> tuple[PanicType, str] | None:
+        """Identify if a line initiates a multi-line panic or stacktrace without mutating state."""
         c = line.content
         if _RE_PY_START.search(c):
-            return PanicType.PYTHON_TRACEBACK
+            return PanicType.PYTHON_TRACEBACK, ""
         if match := _RE_GO_START.search(c):
-            self.current_message = _extract_go_panic_message(match, c)
-            return PanicType.GO_PANIC
+            return PanicType.GO_PANIC, _extract_go_panic_message(match, c)
         if match := _RE_JAVA_START.search(c):
-            self.current_message = _extract_java_panic_message(match)
-            return PanicType.JAVA_STACKTRACE
+            return PanicType.JAVA_STACKTRACE, _extract_java_panic_message(match)
         if match := _RE_RUST_START.search(c):
-            self.current_message = _extract_rust_panic_message(match, c)
-            return PanicType.RUST_PANIC
+            return PanicType.RUST_PANIC, _extract_rust_panic_message(match, c)
         return None
 
     def _is_frame_continuation(self, content: str) -> bool:
@@ -252,43 +262,52 @@ class PanicDetector:
             return bool(_RE_RUST_FRAME.match(content))
         return False
 
-    def feed_line(self, line: SandboxLogLine) -> PanicIncident | None:
-        """Process a log line through the detector, yielding an incident if finalized."""
-        # 1. Standalone single-line crash check
-        single_crash = self._check_single_line_crash(line)
-        if single_crash:
-            flushed = self._flush_current()
-            line.is_panic = True
-            line.panic_type = PanicType.SEGFAULT
-            return flushed or single_crash
+    def _handle_single_crash(
+        self, line: SandboxLogLine, single_crash: PanicIncident
+    ) -> list[PanicIncident]:
+        res: list[PanicIncident] = []
+        if flushed := self._flush_current():
+            res.append(flushed)
+        res.append(single_crash)
+        line.is_panic = True
+        line.panic_type = PanicType.SEGFAULT
+        return res
 
-        # 2. Check if this initiates a new multi-line panic
-        new_panic_type = self._check_panic_start(line)
-        if new_panic_type is not None:
-            flushed = self._flush_current()
-            self.current_type = new_panic_type
-            self.current_stacktrace = [line.content]
-            self.current_stream = line.stream
-            self.current_timestamp = line.timestamp
-            line.is_panic = True
-            line.panic_type = new_panic_type
-            return flushed
+    def _start_new_panic(
+        self, line: SandboxLogLine, new_panic: tuple[PanicType, str]
+    ) -> list[PanicIncident]:
+        new_type, new_message = new_panic
+        res = [flushed] if (flushed := self._flush_current()) else []
+        self.current_type = new_type
+        self.current_message = new_message
+        self.current_stacktrace = [line.content]
+        self.current_stream = line.stream
+        self.current_timestamp = line.timestamp
+        line.is_panic = True
+        line.panic_type = new_type
+        return res
 
-        # 3. Check continuation of current panic
+    def _continue_panic(self, line: SandboxLogLine) -> list[PanicIncident]:
+        self.current_stacktrace.append(line.content)
+        line.is_panic = True
+        line.panic_type = self.current_type
+        if self.current_type == PanicType.PYTHON_TRACEBACK and _RE_PY_ERR.match(line.content):
+            self.current_message = line.content
+            return [flushed] if (flushed := self._flush_current()) else []
+        return []
+
+    def feed_line(self, line: SandboxLogLine) -> list[PanicIncident]:
+        """Process a log line through the detector, yielding any finalized incidents."""
+        if single_crash := self._check_single_line_crash(line):
+            return self._handle_single_crash(line, single_crash)
+
+        if new_panic := self._check_panic_start(line):
+            return self._start_new_panic(line, new_panic)
+
         if self.current_type and self._is_frame_continuation(line.content):
-            self.current_stacktrace.append(line.content)
-            line.is_panic = True
-            line.panic_type = self.current_type
-            if self.current_type == PanicType.PYTHON_TRACEBACK and _RE_PY_ERR.match(line.content):
-                self.current_message = line.content
-                return self._flush_current()
-            return None
+            return self._continue_panic(line)
 
-        # 4. Non-matching line while panic was in progress -> flush
-        if self.current_type:
-            return self._flush_current()
-
-        return None
+        return [flushed] if self.current_type and (flushed := self._flush_current()) else []
 
     def flush(self) -> list[PanicIncident]:
         """Flush and return any remaining unfinalized incident."""
@@ -313,8 +332,7 @@ def detect_panics(
     incidents: list[PanicIncident] = []
     for raw in lines:
         parsed = parse_docker_log_line(raw)
-        if inc := detector.feed_line(parsed):
-            incidents.append(inc)
+        incidents.extend(detector.feed_line(parsed))
     incidents.extend(detector.flush())
     return incidents
 
