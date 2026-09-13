@@ -4,7 +4,7 @@
 **PR**: [#186](https://github.com/dan-petty/devops-cli/pull/186)
 **Status**: In Review
 **Milestone**: `v0.2.17`
-**Taxonomy**: `type/bug`, `scope/security`, `priority/high`, `status/in-progress`
+**Taxonomy**: `type/bug`, `scope/security`, `priority/high`, `status/in-review`
 
 ---
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 import socket
@@ -47,8 +48,25 @@ def _truncate(text: Any, max_len: int = _MAX_ERROR_LEN) -> str:
 
 def _is_blocked_metadata_host(host: str) -> bool:
     """Return True if host targets link-local or cloud metadata services."""
-    clean = host.strip("[]").lower()
-    return clean in ("169.254.169.254", "metadata.google.internal") or clean.startswith("169.254.")
+    clean = host.strip("[]").rstrip(".").lower()
+    if clean in ("169.254.169.254", "metadata.google.internal") or clean.startswith("169.254."):
+        return True
+    try:
+        ip = ipaddress.ip_address(clean)
+        return ip.is_link_local
+    except ValueError:
+        pass
+    try:
+        addr_info = socket.getaddrinfo(clean, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for _, _, _, _, sockaddr in addr_info:
+            if not isinstance(sockaddr[0], str):
+                continue
+            ip_str = sockaddr[0]
+            if ipaddress.ip_address(ip_str).is_link_local or ip_str.startswith("169.254."):
+                return True
+    except socket.gaierror, OSError, ValueError:
+        pass
+    return False
 
 
 def probe_tcp(host: str, port: int, timeout: float = 5.0) -> EndpointProbeResult:

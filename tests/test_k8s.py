@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -984,3 +985,33 @@ def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
         (repo_root / "k8s" / "llm" / "values-qdrant.yaml").read_text(encoding="utf-8")
     )
     assert qdrant_values["updateVolumeFsOwnership"] is False
+
+
+def test_mask_email_display_variants() -> None:
+    """Verify _mask_email_display masks short and long emails while preserving localhost/internal."""
+    from devops_cli.commands.k8s.stack_lifecycle import _mask_email_display
+
+    assert _mask_email_display("admin@localhost") == "admin@localhost"
+    assert _mask_email_display("user@corp.local") == "user@corp.local"
+    assert _mask_email_display("svc@dev.internal") == "svc@dev.internal"
+
+    assert _mask_email_display("alice@example.com") == "al***@example.com"
+    assert _mask_email_display("ab@example.com") == "a***@example.com"
+    assert _mask_email_display("a@example.com") == "a***@example.com"
+    assert _mask_email_display("invalid") == "***"
+
+
+def test_bootstrap_openwebui_dry_run_masks_email(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify bootstrap_openwebui dry-run outputs masked email in target and details."""
+    from devops_cli.commands.k8s.stack_lifecycle import bootstrap_openwebui
+    from devops_cli.dry_run import set_dry_run
+
+    set_dry_run(True)
+    try:
+        bootstrap_openwebui(email="operator@example.com")
+    finally:
+        set_dry_run(False)
+
+    captured = capsys.readouterr()
+    assert "operator@example.com" not in captured.out
+    assert "op***@example.com" in captured.out

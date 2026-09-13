@@ -684,3 +684,38 @@ def test_cli_sandbox_logs_nonexistent_identifier_clean_exit() -> None:
             "Sandbox instance 'nonexistent-id' not found" in res.output
             or "Failed to fetch logs" in res.output
         )
+
+
+def test_archive_panic_incident_chmod_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify archive_incident unlinks target and raises SandboxError when chmod fails."""
+    import os
+
+    from devops_cli.exceptions.sandbox import SandboxError
+    from devops_cli.sandbox.logs import archive_incident
+    from devops_cli.sandbox.models import PanicIncident, PanicType
+
+    inc = PanicIncident(
+        incident_id="incident-chmod-fail",
+        instance_id="inst-123",
+        container_id="c-123",
+        panic_type=PanicType.PYTHON_TRACEBACK,
+        message="error",
+        stacktrace=[],
+        raw_stream="stderr",
+    )
+
+    original_chmod = os.chmod
+
+    def failing_chmod(path, mode, *args, **kwargs):
+        if str(path).endswith("incident-chmod-fail.json"):
+            raise OSError("Permission denied")
+        return original_chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "chmod", failing_chmod)
+
+    with pytest.raises(SandboxError, match="Failed to apply secure permissions"):
+        archive_incident(inc, base_dir=tmp_path)
+
+    assert not (tmp_path / "incident-chmod-fail.json").exists()

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import secrets
 
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.telemetry.tracer import get_current_span_context
+
+
+class TraceValidationError(ValidationError, ValueError):
+    """Raised when trace metadata or flags fail validation."""
 
 
 def generate_trace_id() -> str:
@@ -24,7 +29,7 @@ def generate_traceparent(
 ) -> str:
     """Generate a standard W3C traceparent header string (00-{trace_id}-{span_id}-{trace_flags})."""
     if trace_flags not in {"00", "01"}:
-        raise ValueError(f"Invalid trace_flags '{trace_flags}': must be '00' or '01'")
+        raise TraceValidationError(f"Invalid trace_flags '{trace_flags}': must be '00' or '01'")
     t_id = trace_id or generate_trace_id()
     s_id = span_id or generate_span_id()
     return f"00-{t_id}-{s_id}-{trace_flags}"

@@ -341,3 +341,32 @@ def test_sandbox_traces_probe_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     res = runner.invoke(app, ["traces", "http://example.com:8080", "--probe"])
     assert res.exit_code == 0
     assert "sandbox.probe" in res.output
+
+
+def test_generate_traceparent_validation_error() -> None:
+    """Verify generate_traceparent raises TraceValidationError on invalid trace flags."""
+    from devops_cli.exceptions.validation import ValidationError
+    from devops_cli.telemetry.context import TraceValidationError, generate_traceparent
+
+    with pytest.raises(TraceValidationError) as exc_info:
+        generate_traceparent(trace_flags="99")
+    assert isinstance(exc_info.value, ValidationError)
+    assert isinstance(exc_info.value, ValueError)
+    assert "Invalid trace_flags" in str(exc_info.value)
+
+
+def test_query_jaeger_trace_dns_metadata_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify query_jaeger_trace rejects hosts resolving to link-local metadata addresses."""
+    import socket
+
+    from devops_cli.telemetry.waterfall import query_jaeger_trace
+
+    def mock_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 16686))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
+    spans = query_jaeger_trace(
+        "0123456789abcdef0123456789abcdef",
+        jaeger_url="http://metadata-spoof.example.com:16686",
+    )
+    assert spans == []

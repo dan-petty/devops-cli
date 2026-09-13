@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
+import socket
+import urllib.parse
 from typing import Any
 
 import httpx2
@@ -102,6 +105,29 @@ def normalize_jaeger_spans(jaeger_data: dict[str, Any]) -> list[dict[str, Any]]:
     return spans_out
 
 
+def _is_blocked_metadata_host(host: str) -> bool:
+    """Return True if host targets link-local or cloud metadata services."""
+    clean = host.strip("[]").rstrip(".").lower()
+    if clean in ("169.254.169.254", "metadata.google.internal") or clean.startswith("169.254."):
+        return True
+    try:
+        ip = ipaddress.ip_address(clean)
+        return ip.is_link_local
+    except ValueError:
+        pass
+    try:
+        addr_info = socket.getaddrinfo(clean, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for _, _, _, _, sockaddr in addr_info:
+            if not isinstance(sockaddr[0], str):
+                continue
+            ip_str = sockaddr[0]
+            if ipaddress.ip_address(ip_str).is_link_local or ip_str.startswith("169.254."):
+                return True
+    except socket.gaierror, OSError, ValueError:
+        pass
+    return False
+
+
 def query_jaeger_trace(
     trace_id: str,
     jaeger_url: str | None = None,
@@ -114,6 +140,9 @@ def query_jaeger_trace(
     url = (jaeger_url or "http://localhost:16686").rstrip("/")
     try:
         validated_url = validate_url(url, purpose="jaeger", allow_private=True)
+        parsed = urllib.parse.urlparse(validated_url)
+        if parsed.hostname and _is_blocked_metadata_host(parsed.hostname):
+            return []
     except Exception:
         return []
     api_url = f"{validated_url}/api/traces/{clean_id}"

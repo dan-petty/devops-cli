@@ -7,7 +7,7 @@ import re
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 from urllib.parse import urlparse
 
 import httpx2
@@ -80,6 +80,8 @@ def _parse_open_fds(base: Path) -> int | None:
     return None
 
 
+_CGROUP_ROOT: Final[Path] = Path("/sys/fs/cgroup")
+_SYS_ROOT: Final[Path] = Path("/sys")
 _FORBIDDEN_CGROUP_ROOTS: tuple[Path, ...] = (
     Path("/etc"),
     Path("/root"),
@@ -95,10 +97,9 @@ _FORBIDDEN_CGROUP_ROOTS: tuple[Path, ...] = (
 def _is_forbidden_cgroup_path(path: Path) -> bool:
     """Return True if path targets forbidden host system directories outside cgroup hierarchy."""
     resolved = path.resolve()
-    resolved_str = str(resolved)
-    if resolved_str.startswith("/sys/fs/cgroup"):
+    if resolved == _CGROUP_ROOT or resolved.is_relative_to(_CGROUP_ROOT):
         return False
-    if resolved_str.startswith("/sys"):
+    if resolved == _SYS_ROOT or resolved.is_relative_to(_SYS_ROOT):
         return True
     return any(
         resolved == root or resolved.is_relative_to(root) for root in _FORBIDDEN_CGROUP_ROOTS

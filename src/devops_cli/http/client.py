@@ -11,6 +11,11 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_POOL_TIMEOUT_SECONDS,
 )
+from devops_cli.exceptions.validation import ValidationError
+
+
+class HTTPTimeoutTypeError(ValidationError, TypeError):
+    """Raised when an invalid timeout parameter type is provided."""
 
 
 def request_timeout(*, read: float | None = None) -> httpx2.Timeout:
@@ -29,11 +34,11 @@ def _resolve_client_timeout(
 ) -> httpx2.Timeout:
     """Validate timeout parameter types and resolve standard short-connect timeout."""
     if timeout is not None and not isinstance(timeout, (int, float, httpx2.Timeout)):
-        raise TypeError(
+        raise HTTPTimeoutTypeError(
             f"timeout must be int, float, httpx2.Timeout, or None, got {type(timeout).__name__}"
         )
     if read_timeout is not None and not isinstance(read_timeout, (int, float)):
-        raise TypeError(
+        raise HTTPTimeoutTypeError(
             f"read_timeout must be int, float, or None, got {type(read_timeout).__name__}"
         )
     if isinstance(timeout, httpx2.Timeout):

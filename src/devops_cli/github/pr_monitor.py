@@ -125,6 +125,7 @@ class PRMonitorStatus(BaseModel):
             "dirty",
             "behind",
             "draft",
+            "unknown",
         }
         return draft_ok and checks_ok and threads_ok and review_ok and merge_ok
 
@@ -558,6 +559,21 @@ def _build_failure_reasons(
     return reasons
 
 
+def _has_active_changes_requested(raw_reviews: list[dict[str, Any]]) -> bool:
+    """Return True if any reviewer's latest review state is CHANGES_REQUESTED."""
+    latest_by_user: dict[str, str] = {}
+    for r in raw_reviews:
+        if not isinstance(r, dict):
+            continue
+        user = str(
+            r.get("user", {}).get("login", "") or r.get("author", {}).get("login", "")
+        ).strip()
+        state = str(r.get("state", "")).upper()
+        if user and state:
+            latest_by_user[user] = state
+    return any(state == "CHANGES_REQUESTED" for state in latest_by_user.values())
+
+
 def get_pr_monitoring_status(owner: str, repo: str, pr_number: int) -> PRMonitorStatus:
     """Fetch current CI checks, Copilot review status, and unresolved review threads."""
     repo_name = repo.split("/")[-1]
@@ -572,9 +588,8 @@ def get_pr_monitoring_status(owner: str, repo: str, pr_number: int) -> PRMonitor
     copilot_status = _detect_copilot_status(owner, repo_name, pr_number, raw_reviews)
     unresolved_threads = _fetch_unresolved_threads(owner, repo_name, pr_number)
 
-    has_changes_requested = copilot_status.state == "changes_requested" or any(
-        isinstance(r, dict) and str(r.get("state", "")).upper() == "CHANGES_REQUESTED"
-        for r in raw_reviews
+    has_changes_requested = (
+        copilot_status.state == "changes_requested" or _has_active_changes_requested(raw_reviews)
     )
     failure_reasons = _build_failure_reasons(
         checks,

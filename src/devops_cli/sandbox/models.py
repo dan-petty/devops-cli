@@ -130,6 +130,20 @@ class ProbeStatus(StrEnum):
     SKIPPED = "skipped"
 
 
+def _sanitize_nested_detail(val: Any) -> Any:
+    """Recursively mask secrets and truncate strings to <= 1024 chars."""
+    if isinstance(val, str):
+        from devops_cli.security.sanitizer import mask_secrets
+
+        masked = mask_secrets(val)
+        return masked[:1021] + "..." if len(masked) > 1024 else masked
+    if isinstance(val, dict):
+        return {str(k): _sanitize_nested_detail(v) for k, v in val.items()}
+    if isinstance(val, (list, tuple)):
+        return [_sanitize_nested_detail(item) for item in val]
+    return val
+
+
 class EndpointProbeResult(BaseModel):
     """Individual probe outcome for a specific target endpoint and protocol."""
 
@@ -148,16 +162,7 @@ class EndpointProbeResult(BaseModel):
         """Truncate large string details and mask secrets to prevent log bloat and leakage."""
         if not isinstance(v, dict):
             return {}
-        from devops_cli.security.sanitizer import mask_secrets
-
-        sanitized: dict[str, Any] = {}
-        for k, val in v.items():
-            if isinstance(val, str):
-                masked = mask_secrets(val)
-                sanitized[str(k)] = masked[:1024] + "..." if len(masked) > 1024 else masked
-            else:
-                sanitized[str(k)] = val
-        return sanitized
+        return {str(k): _sanitize_nested_detail(val) for k, val in v.items()}
 
 
 class SandboxProbeReport(BaseModel):

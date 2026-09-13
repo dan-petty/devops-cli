@@ -624,3 +624,45 @@ def test_probe_http_regex_safety() -> None:
     )
     assert res_bad.status == ProbeStatus.FAIL
     assert "Invalid regex" in res_bad.message
+
+
+def test_probe_tcp_metadata_trailing_dot_and_dns_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify probe_tcp refuses metadata targets with trailing dots and resolved link-local IPs."""
+    res = probe_tcp("169.254.169.254.", 80)
+    assert res.status == ProbeStatus.FAIL
+    assert "prohibited" in res.message.lower()
+
+    def mock_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
+    res_dns = probe_tcp("metadata-spoof.example.com", 80)
+    assert res_dns.status == ProbeStatus.FAIL
+    assert "prohibited" in res_dns.message.lower()
+
+
+def test_endpoint_probe_result_recursive_sanitizer() -> None:
+    """Verify EndpointProbeResult recursively masks secrets and bounds oversized nested details."""
+    raw_details = {
+        "nested": {
+            "token": "ghp_123456789012345678901234567890123456",
+            "long_str": "x" * 2000,
+        },
+        "list_data": [
+            "sk-ant-api03-12345678901234567890123456789012",
+            {"key": "A" * 1500},
+        ],
+    }
+    result = EndpointProbeResult(
+        protocol=ProbeProtocol.HTTP,
+        target="http://localhost:8080",
+        status=ProbeStatus.PASS,
+        details=raw_details,
+    )
+    assert "ghp_123456789012345678901234567890123456" not in result.details["nested"]["token"]
+    assert "<masked-github-token>" in result.details["nested"]["token"]
+    assert len(result.details["nested"]["long_str"]) <= 1024
+    assert result.details["nested"]["long_str"].endswith("...")
+    assert "<masked-anthropic-key>" in result.details["list_data"][0]
+    assert len(result.details["list_data"][1]["key"]) <= 1024
+    assert result.details["list_data"][1]["key"].endswith("...")

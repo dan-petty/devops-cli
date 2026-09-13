@@ -493,3 +493,36 @@ class TestMonitorPR:
             assert len(str(exc_info.value)) < 350
             assert "x" * 256 in str(exc_info.value)
             assert "x" * 257 not in str(exc_info.value)
+
+    def test_pr_monitor_status_unknown_mergeable_state_not_ready(self) -> None:
+        status = PRMonitorStatus(
+            number=123,
+            title="Test",
+            head_sha="abcdef123456",
+            is_draft=False,
+            mergeable=True,
+            mergeable_state="unknown",
+            has_changes_requested=False,
+            checks=[
+                PRCheckRun(name="ci", status="completed", conclusion="success"),
+            ],
+            copilot_status=CopilotReviewStatus(is_active=False, state="idle", message="idle"),
+            unresolved_threads=[],
+            failure_reasons=[],
+        )
+        assert status.is_ready_for_merge is False
+
+    def test_has_active_changes_requested_evaluates_latest_per_user(self) -> None:
+        from devops_cli.github.pr_monitor import _has_active_changes_requested
+
+        reviews_resolved = [
+            {"user": {"login": "reviewer1"}, "state": "CHANGES_REQUESTED"},
+            {"user": {"login": "reviewer1"}, "state": "APPROVED"},
+        ]
+        assert _has_active_changes_requested(reviews_resolved) is False
+
+        reviews_active = [
+            {"user": {"login": "reviewer1"}, "state": "APPROVED"},
+            {"user": {"login": "reviewer2"}, "state": "CHANGES_REQUESTED"},
+        ]
+        assert _has_active_changes_requested(reviews_active) is True

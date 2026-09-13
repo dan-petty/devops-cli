@@ -13,6 +13,7 @@ from typing import Final
 
 from devops_cli.config.defaults import DEFAULT_SANDBOX_INCIDENTS_DIR
 from devops_cli.core.paths import safe_resolve_subpath, validate_no_path_traversal
+from devops_cli.exceptions.sandbox import SandboxError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.sandbox.models import (
     PanicIncident,
@@ -122,8 +123,14 @@ def archive_incident(incident: PanicIncident, base_dir: Path | None = None) -> P
         os.replace(tmp_path, incident_path)
         try:
             os.chmod(incident_path, 0o600)
-        except OSError:
-            pass
+        except OSError as exc:
+            if incident_path.exists():
+                incident_path.unlink(missing_ok=True)
+            raise SandboxError(
+                f"Failed to apply secure permissions to incident archive '{incident_path.name}': {exc}",
+                instance_id=incident.instance_id,
+                container_id=incident.container_id,
+            ) from exc
     finally:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)

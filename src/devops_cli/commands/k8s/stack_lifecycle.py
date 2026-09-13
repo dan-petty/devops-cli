@@ -259,9 +259,10 @@ def _mask_email_display(email: str) -> str:
     if email.endswith("@localhost") or email.endswith(".local") or email.endswith(".internal"):
         return email
     parts = email.split("@", 1)
-    if len(parts) == 2 and len(parts[0]) > 2:
-        return f"{parts[0][:2]}***@{parts[1]}"
-    return email
+    if len(parts) == 2:
+        prefix = parts[0][:2] if len(parts[0]) > 2 else parts[0][:1]
+        return f"{prefix}***@{parts[1]}"
+    return "***"
 
 
 def bootstrap_openwebui(
@@ -315,16 +316,16 @@ def bootstrap_openwebui(
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")
 
+    display_email = _mask_email_display(email)
     if is_dry_run():
         render_dry_run_result(
             command="devops k8s bootstrap-openwebui",
-            target=email,
+            target=display_email,
             action="bootstrap_openwebui_admin",
-            details={"email": email, "name": name, "context": effective_context},
+            details={"email": display_email, "name": name, "context": effective_context},
         )
         return
 
-    display_email = _mask_email_display(email)
     print_info(f"Bootstrapping Open-WebUI local admin account ({display_email})...")
     ok, created = _bootstrap_openwebui_account(
         context=effective_context, email=email, name=name, password=effective_password
