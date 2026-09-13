@@ -342,6 +342,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops gh pages COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh issues COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh runs COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh branch-protection COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh secrets COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh pr COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 | **tf** | `devops tf init [OPTIONS] <directory>` | Initialize an OpenTofu working directory. |
 |  | `devops tf plan [OPTIONS] <directory>` | Generate and show an OpenTofu execution plan. |
