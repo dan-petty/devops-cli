@@ -24,6 +24,7 @@
 | [#175](https://github.com/dan-petty/devops-cli/issues/175) | [#173](https://github.com/dan-petty/devops-cli/pull/173) | Project field options synchronization, complete pagination & generic owner resolution | `Done` | [`task-175-project-field-sync-pagination.md`](tasks/task-175-project-field-sync-pagination.md) |
 | [#176](https://github.com/dan-petty/devops-cli/issues/176) | [#177](https://github.com/dan-petty/devops-cli/pull/177) | Remediate DevSecOps review findings & enhance review self-improvement loop | `Done` | [`task-176-review-findings-self-improvement.md`](tasks/task-176-review-findings-self-improvement.md) |
 | [#183](https://github.com/dan-petty/devops-cli/issues/183) | [#182](https://github.com/dan-petty/devops-cli/pull/182) | Resolve Helm Stack Deploy SSA Conflicts, Loki Validation, and PodSecurity Failures | `Done` | [`task-183-stack-deploy-conflicts.md`](tasks/task-183-stack-deploy-conflicts.md) |
+| [#185](https://github.com/dan-petty/devops-cli/issues/185) | TBD | Remediate session 20260913-060209 findings and enhance review self-improvement loop | `In Progress` | [`task-185-review-remediation-self-improvement.md`](tasks/task-185-review-remediation-self-improvement.md) |
 
 
 ---

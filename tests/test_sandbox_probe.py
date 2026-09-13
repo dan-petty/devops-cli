@@ -570,3 +570,57 @@ def test_run_sandbox_probes_generates_and_links_trace_id() -> None:
         assert report.overall_status == ProbeStatus.PASS
         assert report.trace_id is not None
         assert len(report.trace_id) > 0
+
+
+def test_probe_tcp_metadata_endpoint_blocked() -> None:
+    """Verify probe_tcp refuses link-local and cloud metadata addresses."""
+    res1 = probe_tcp("169.254.169.254", 80)
+    assert res1.status == ProbeStatus.FAIL
+    assert "prohibited" in res1.message.lower()
+
+    res2 = probe_tcp("metadata.google.internal", 80)
+    assert res2.status == ProbeStatus.FAIL
+    assert "prohibited" in res2.message.lower()
+
+
+def test_probe_http_metadata_endpoint_blocked() -> None:
+    """Verify probe_http refuses link-local and cloud metadata addresses."""
+    res1 = probe_http("http://169.254.169.254/latest/meta-data")
+    assert res1.status == ProbeStatus.FAIL
+    assert "prohibited" in res1.message.lower()
+
+    res2 = probe_http("http://metadata.google.internal/computeMetadata/v1")
+    assert res2.status == ProbeStatus.FAIL
+    assert "prohibited" in res2.message.lower()
+
+
+def test_probe_http_regex_safety() -> None:
+    """Verify regex length limits and syntax error handling during HTTP response evaluation."""
+    from devops_cli.sandbox.probe import _evaluate_http_response
+
+    # Overly long regex pattern (> 256 chars)
+    long_pattern = "a" * 300
+    res_long = _evaluate_http_response(
+        url="http://example.com/health",
+        status_code=200,
+        body="ok",
+        latency=5.0,
+        expected=[200],
+        regex=long_pattern,
+        latency_budget_ms=None,
+    )
+    assert res_long.status == ProbeStatus.FAIL
+    assert "exceeds maximum length" in res_long.message
+
+    # Invalid regex syntax
+    res_bad = _evaluate_http_response(
+        url="http://example.com/health",
+        status_code=200,
+        body="ok",
+        latency=5.0,
+        expected=[200],
+        regex="[unclosed-bracket",
+        latency_budget_ms=None,
+    )
+    assert res_bad.status == ProbeStatus.FAIL
+    assert "Invalid regex" in res_bad.message

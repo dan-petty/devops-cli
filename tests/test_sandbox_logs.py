@@ -79,11 +79,32 @@ def test_archive_incident_persistence(tmp_path: Path) -> None:
     saved_path = archive_incident(incident, base_dir=tmp_path)
     assert saved_path.exists()
     assert saved_path.name == "incident-test1234.json"
+    assert oct(saved_path.stat().st_mode & 0o777) == oct(0o600)
+    assert oct(saved_path.parent.stat().st_mode & 0o777) == oct(0o700)
 
     data = json.loads(saved_path.read_text(encoding="utf-8"))
     assert data["incident_id"] == "incident-test1234"
     assert data["panic_type"] == "go_panic"
     assert data["message"] == "panic: index out of bounds"
+
+
+def test_archive_incident_secret_masking(tmp_path: Path) -> None:
+    """Verify secrets in incident message and stacktrace are masked when archived."""
+    incident = PanicIncident(
+        incident_id="incident-secret-test",
+        instance_id="inst-sec",
+        container_id="cont-sec",
+        panic_type=PanicType.PYTHON_TRACEBACK,
+        message="Failure with token=ghp_1234567890abcdef1234",
+        stacktrace=["Traceback:", "RuntimeError: password=mysecretpassword123"],
+    )
+    saved_path = archive_incident(incident, base_dir=tmp_path)
+    assert saved_path.exists()
+    data = json.loads(saved_path.read_text(encoding="utf-8"))
+    assert "ghp_1234567890abcdef1234" not in data["message"]
+    assert "<masked-github-token>" in data["message"]
+    assert "mysecretpassword123" not in data["stacktrace"][1]
+    assert "<masked-password>" in data["stacktrace"][1]
 
 
 def test_archive_incident_path_traversal_rejection(tmp_path: Path) -> None:

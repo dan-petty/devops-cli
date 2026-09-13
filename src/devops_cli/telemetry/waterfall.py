@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx2
 
+from devops_cli.core.validation import validate_url
 from devops_cli.telemetry.tracer import SpanWaterfallNode
+
+_TRACE_ID_RE = re.compile(r"^[0-9a-fA-F]{16,32}$")
 
 
 def render_waterfall_bar(
@@ -104,10 +108,15 @@ def query_jaeger_trace(
     timeout: float = 5.0,
 ) -> list[dict[str, Any]]:
     """Fetch trace spans from Jaeger REST API (/api/traces/{trace_id})."""
-    if not trace_id:
+    clean_id = trace_id.strip() if trace_id else ""
+    if not clean_id or not _TRACE_ID_RE.fullmatch(clean_id):
         return []
     url = (jaeger_url or "http://localhost:16686").rstrip("/")
-    api_url = f"{url}/api/traces/{trace_id}"
+    try:
+        validated_url = validate_url(url, purpose="jaeger", allow_private=True)
+    except Exception:
+        return []
+    api_url = f"{validated_url}/api/traces/{clean_id}"
     try:
         with httpx2.Client(timeout=timeout) as client:
             resp = client.get(api_url)

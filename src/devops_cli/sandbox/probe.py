@@ -45,9 +45,24 @@ def _truncate(text: Any, max_len: int = _MAX_ERROR_LEN) -> str:
     return s if len(s) <= max_len else s[: max_len - 3] + "..."
 
 
+def _is_blocked_metadata_host(host: str) -> bool:
+    """Return True if host targets link-local or cloud metadata services."""
+    clean = host.strip("[]").lower()
+    return clean in ("169.254.169.254", "metadata.google.internal") or clean.startswith("169.254.")
+
+
 def probe_tcp(host: str, port: int, timeout: float = 5.0) -> EndpointProbeResult:
     """Probe TCP socket listener reachability and measure connection latency."""
     target = f"{host}:{port}"
+    if _is_blocked_metadata_host(host):
+        return EndpointProbeResult(
+            protocol=ProbeProtocol.TCP,
+            target=target,
+            status=ProbeStatus.FAIL,
+            latency_ms=0.0,
+            message="Access to link-local or cloud metadata services is prohibited.",
+            details={"host": host, "port": port},
+        )
     start = time.perf_counter()
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
@@ -104,6 +119,19 @@ def probe_http(
             status=ProbeStatus.FAIL,
             latency_ms=0.0,
             message=_truncate(f"Invalid URL scheme '{parsed.scheme}'; expected http or https"),
+        )
+
+    from devops_cli.core.validation import validate_url
+
+    try:
+        validate_url(url, purpose="probe", allow_private=True)
+    except Exception as exc:
+        return EndpointProbeResult(
+            protocol=ProbeProtocol.HTTP,
+            target=url,
+            status=ProbeStatus.FAIL,
+            latency_ms=0.0,
+            message=_truncate(f"Invalid probe target: {exc}"),
         )
 
     start = time.perf_counter()
@@ -189,17 +217,42 @@ def _evaluate_http_response(
             details=base_details,
         )
 
-    if regex and not re.search(regex, body):
-        base_details["body_preview"] = _truncate(body, 128)
-        return EndpointProbeResult(
-            protocol=ProbeProtocol.HTTP,
-            target=url,
-            status=ProbeStatus.FAIL,
-            latency_ms=round(latency, 2),
-            status_code=status_code,
-            message=_truncate(f"Response body failed regex assertion: {regex}"),
-            details=base_details,
-        )
+    if regex:
+        if len(regex) > _MAX_ERROR_LEN:
+            base_details["body_preview"] = _truncate(body, 128)
+            return EndpointProbeResult(
+                protocol=ProbeProtocol.HTTP,
+                target=url,
+                status=ProbeStatus.FAIL,
+                latency_ms=round(latency, 2),
+                status_code=status_code,
+                message=f"Regex exceeds maximum length of {_MAX_ERROR_LEN} characters",
+                details=base_details,
+            )
+        try:
+            matched = bool(re.search(regex, body[:8192]))
+        except re.error as exc:
+            base_details["body_preview"] = _truncate(body, 128)
+            return EndpointProbeResult(
+                protocol=ProbeProtocol.HTTP,
+                target=url,
+                status=ProbeStatus.FAIL,
+                latency_ms=round(latency, 2),
+                status_code=status_code,
+                message=_truncate(f"Invalid regex assertion pattern: {exc}"),
+                details=base_details,
+            )
+        if not matched:
+            base_details["body_preview"] = _truncate(body, 128)
+            return EndpointProbeResult(
+                protocol=ProbeProtocol.HTTP,
+                target=url,
+                status=ProbeStatus.FAIL,
+                latency_ms=round(latency, 2),
+                status_code=status_code,
+                message=_truncate(f"Response body failed regex assertion: {regex}"),
+                details=base_details,
+            )
 
     base_details["body_preview"] = _truncate(body, 64)
     return EndpointProbeResult(

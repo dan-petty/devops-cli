@@ -365,5 +365,96 @@
     "occurrence_count": 1,
     "last_seen": "2026-09-11T00:00:00",
     "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-KEYRING-PLAINTEXT-SECRETS",
+    "name": "OS Keyring / Runtime Credential Resolution Plaintext Secret Claim",
+    "category": "secret_scanning",
+    "description": "Claiming that Pydantic configuration models or settings classes store plaintext secrets in configuration files when credentials reside in OS Keyring, secure vault, or environment variables.",
+    "signature_patterns": [
+      "(?:plain-?text|plaintext)\\s+secrets?.*(?:configuration\\s+files?|settings\\.py)",
+      "settings\\.py.*(?:plain-?text\\s+secrets?|stored?\\s+in\\s+plain\\s+text)",
+      "(?:github\\.token|grafana\\.token|argocd\\.token).*persisted\\s+in\\s+config"
+    ],
+    "pattern_keywords": [
+      "keyring_secret",
+      "settings_plaintext_secrets",
+      "config_secret_leak"
+    ],
+    "file_patterns": [
+      "*settings.py",
+      "*config*.py"
+    ],
+    "resolution": "Settings and configuration models securely resolve sensitive tokens and credentials from the OS Keyring or environment variables at runtime without persisting them to configuration files.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-13T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-PROMPT-INJECTION-HTML-ESCAPE",
+    "name": "Prompt Injection Sanitizer HTML Escaping Claim",
+    "category": "general",
+    "description": "Claiming that prompt injection sanitizers (e.g. sanitize_prompt_injection) must escape HTML tags (<, >, &) or risking XSS in UI.",
+    "signature_patterns": [
+      "sanitize_prompt_injection.*(?:escape\\s+html|html\\.escape|xss)",
+      "(?:prompt\\s+injection|prompt\\s+boundary).*(?:escape\\s+html|xss\\s+in\\s+ui)"
+    ],
+    "pattern_keywords": [
+      "prompt_injection_html_escape",
+      "sanitize_prompt_xss"
+    ],
+    "file_patterns": [
+      "*sanitizer.py"
+    ],
+    "resolution": "Prompt injection sanitizers strip boundary injection markers to protect LLM inference context; HTML escaping is strictly for browser DOM rendering and would corrupt code snippets, operators, and XML tags destined for language models.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-13T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-LOCAL-CACHE-SSRF",
+    "name": "Local Cache / Valkey / Redis Loopback SSRF False Claim",
+    "category": "boundary_errors",
+    "description": "Claiming that local or internal caching tiers (Valkey, Redis, Memcached) must reject loopback (127.0.0.1, localhost) or private network IP addresses as SSRF.",
+    "signature_patterns": [
+      "(?:valkey|redis|cache).*must\\s+not\\s+(?:target|allow|be).*(?:localhost|127\\.0\\.0\\.1|private\\s+ip|loopback)",
+      "(?:valkey|redis).*validator\\s+may\\s+allow\\s+local\\s+connections",
+      "(?:valkeyconfig|valkey_config).*ssrf"
+    ],
+    "pattern_keywords": [
+      "valkey_ssrf",
+      "redis_localhost_ssrf",
+      "cache_private_ip"
+    ],
+    "file_patterns": [
+      "*valkey*.py",
+      "*settings.py",
+      "*cache*.py"
+    ],
+    "resolution": "Valkey and Redis are internal caching services designed specifically to bind to localhost or private cluster IP addresses; rejecting local or private addresses prevents the caching tier from operating.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-13T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-PROMETHEUS-EXPOSITION-SYNTAX",
+    "name": "Prometheus Exposition Syntax Parser False Unvalidated Claim",
+    "category": "syntax_grammar",
+    "description": "Claiming that Prometheus exposition parsers lack metric name or label validation when regex patterns already enforce compliant naming syntax.",
+    "signature_patterns": [
+      "(?:parse_prometheus_exposition|prometheus_exposition).*unvalidated\\s+metric\\s+names?",
+      "unvalidated\\s+metric\\s+names?\\s+and\\s+labels.*prometheus"
+    ],
+    "pattern_keywords": [
+      "prometheus_exposition_validation",
+      "unvalidated_metric_names"
+    ],
+    "file_patterns": [
+      "*metrics.py"
+    ],
+    "resolution": "Prometheus exposition parsers validate metric names and label keys against standard Prometheus regex tokenizers (e.g. ^[a-zA-Z_:][a-zA-Z0-9_:]*$) conforming to official OpenMetrics and Prometheus exposition specifications.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-13T00:00:00",
+    "source": "builtin"
   }
 ]

@@ -142,6 +142,23 @@ class EndpointProbeResult(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
     timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
+    @field_validator("details", mode="before")
+    @classmethod
+    def sanitize_and_truncate_details(cls, v: Any) -> dict[str, Any]:
+        """Truncate large string details and mask secrets to prevent log bloat and leakage."""
+        if not isinstance(v, dict):
+            return {}
+        from devops_cli.security.sanitizer import mask_secrets
+
+        sanitized: dict[str, Any] = {}
+        for k, val in v.items():
+            if isinstance(val, str):
+                masked = mask_secrets(val)
+                sanitized[str(k)] = masked[:1024] + "..." if len(masked) > 1024 else masked
+            else:
+                sanitized[str(k)] = val
+        return sanitized
+
 
 class SandboxProbeReport(BaseModel):
     """Aggregated health and readiness report for a sandbox or target."""
@@ -244,11 +261,24 @@ class PanicIncident(BaseModel):
     archived_path: str | None = None
     archive_error: str | None = None
 
-    @field_validator("message")
+    @field_validator("message", mode="before")
     @classmethod
-    def enforce_message_length_cap(cls, v: str) -> str:
-        """Cap incident message length to 256 chars to prevent log bloat and injection."""
-        return v[:256] if len(v) > 256 else v
+    def enforce_message_length_cap(cls, v: Any) -> str:
+        """Cap incident message length to 256 chars and mask secrets to prevent leakage."""
+        from devops_cli.security.sanitizer import mask_secrets
+
+        text = mask_secrets(str(v)) if v else ""
+        return text[:256] if len(text) > 256 else text
+
+    @field_validator("stacktrace", mode="before")
+    @classmethod
+    def sanitize_stacktrace(cls, v: Any) -> list[str]:
+        """Mask secrets in stacktrace lines."""
+        if not isinstance(v, list):
+            return []
+        from devops_cli.security.sanitizer import mask_secrets
+
+        return [mask_secrets(str(line)) for line in v]
 
 
 class SandboxLogLine(BaseModel):

@@ -134,7 +134,7 @@ Before altering implementation code in `src/`:
 
 ### Step 6: Export Feedback & Update Knowledge Memory
 - Run `devops review export-feedback` to append the session's findings, verifications, and resolutions to `feedback_dataset.jsonl`.
-- If any finding was identified as a false positive, update `src/devops_cli/ai/knowledge_base/common_hallucinations.json`.
+- If any finding was identified as a false positive, register or update catalog entries in `src/devops_cli/ai/review/common_hallucinations.json` (e.g. Keyring secret stores, prompt sanitization boundaries, local cache service bindings).
 - Commit changes atomically: `fix(review): remediate findings and update self-improvement memory (#<issue>)`.
 
 ---

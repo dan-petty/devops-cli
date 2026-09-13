@@ -688,6 +688,26 @@ def test_k8s_bootstrap_openwebui() -> None:
         assert res_ok.exit_code == 0
         assert "admin@localhost" in res_ok.output
 
+    # Non-localhost email PII masking
+    with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
+        mock_cmd.side_effect = [
+            _mock_proc(0, "open-webui-0\n"),
+            _mock_proc(0, "CREATED\n"),
+        ]
+        res_pii = runner.invoke(
+            app,
+            [
+                "bootstrap-openwebui",
+                "--email",
+                "developer@example.com",
+                "--password",
+                "admin123",
+            ],
+        )
+        assert res_pii.exit_code == 0
+        assert "de***@example.com" in res_pii.output
+        assert "developer@example.com" not in res_pii.output
+
     # Generated password when --password is omitted (masked by default)
     with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
         mock_cmd.side_effect = [

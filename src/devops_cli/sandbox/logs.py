@@ -100,6 +100,10 @@ def archive_incident(incident: PanicIncident, base_dir: Path | None = None) -> P
     validate_no_path_traversal(clean_id, label="Incident ID")
     target_dir = resolve_incident_dir(base_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(target_dir, 0o700)
+    except OSError:
+        pass
 
     incident_filename = f"{clean_id}.json"
     incident_path = safe_resolve_subpath(target_dir, incident_filename, allow_symlinks=False)
@@ -111,7 +115,15 @@ def archive_incident(incident: PanicIncident, base_dir: Path | None = None) -> P
     tmp_path = target_dir / f".tmp.{clean_id}.{uuid.uuid4().hex[:6]}"
     try:
         tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        try:
+            os.chmod(tmp_path, 0o600)
+        except OSError:
+            pass
         os.replace(tmp_path, incident_path)
+        try:
+            os.chmod(incident_path, 0o600)
+        except OSError:
+            pass
     finally:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)

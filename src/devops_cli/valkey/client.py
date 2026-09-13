@@ -36,7 +36,9 @@ def parse_valkey_endpoint(endpoint: str, default_port: int = 6379) -> tuple[str,
     if clean.startswith("[") and "]:" in clean:
         h, p = clean[1:].split("]:", 1)
         return h, int(p) if p.isdigit() else default_port
-    if ":" in clean and not clean.startswith("["):
+    if clean.startswith("[") and clean.endswith("]"):
+        return clean[1:-1], default_port
+    if clean.count(":") == 1:
         parts = clean.rsplit(":", 1)
         if parts[1].isdigit():
             return parts[0], int(parts[1])

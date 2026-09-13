@@ -17,11 +17,17 @@ def generate_span_id() -> str:
     return secrets.token_hex(8)
 
 
-def generate_traceparent(trace_id: str | None = None, span_id: str | None = None) -> str:
-    """Generate a standard W3C traceparent header string (00-{trace_id}-{span_id}-01)."""
+def generate_traceparent(
+    trace_id: str | None = None,
+    span_id: str | None = None,
+    trace_flags: str = "01",
+) -> str:
+    """Generate a standard W3C traceparent header string (00-{trace_id}-{span_id}-{trace_flags})."""
+    if trace_flags not in {"00", "01"}:
+        raise ValueError(f"Invalid trace_flags '{trace_flags}': must be '00' or '01'")
     t_id = trace_id or generate_trace_id()
     s_id = span_id or generate_span_id()
-    return f"00-{t_id}-{s_id}-01"
+    return f"00-{t_id}-{s_id}-{trace_flags}"
 
 
 def inject_traceparent_headers(

@@ -183,7 +183,7 @@ def sanitize_command_args_for_display(command: list[str]) -> list[str]:
             key = arg.split("=", 1)[0]
             sanitized.append(f"{key}=<masked>")
         else:
-            sanitized.append(arg)
+            sanitized.append(mask_secrets(arg))
     return sanitized
 
 

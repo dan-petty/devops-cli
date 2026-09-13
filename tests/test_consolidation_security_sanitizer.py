@@ -246,6 +246,12 @@ def test_sanitize_command_args_for_display() -> None:
         "status",
     ]
 
+    cmd_pos = ["devops", "deploy", "ghp_1234567890abcdef1234567890", "regular_arg"]
+    sanitized_pos = sanitize_command_args_for_display(cmd_pos)
+    assert "ghp_1234567890abcdef1234567890" not in sanitized_pos[2]
+    assert "<masked-github-token>" in sanitized_pos[2]
+    assert sanitized_pos[3] == "regular_arg"
+
 
 def test_sanitize_telemetry_endpoint() -> None:
     """Verify OTLP telemetry endpoint IP masking."""

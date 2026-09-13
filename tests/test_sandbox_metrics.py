@@ -125,6 +125,14 @@ def test_parse_cgroup_v2_directory(tmp_path: Path) -> None:
     assert metrics.io_write_bytes == 10485760
 
 
+def test_parse_cgroup_v2_directory_traversal_and_forbidden_paths() -> None:
+    """Verify parse_cgroup_v2_directory rejects traversal sequences and forbidden host system paths."""
+    assert parse_cgroup_v2_directory("../../etc") is None
+    assert parse_cgroup_v2_directory("/etc") is None
+    assert parse_cgroup_v2_directory("/root") is None
+    assert parse_cgroup_v2_directory("") is None
+
+
 def test_parse_cgroup_v2_directory_unlimited_memory(tmp_path: Path) -> None:
     """Test parsing cgroup v2 controller when memory.max is 'max' (unlimited)."""
     cgroup_dir = tmp_path / "cgroup" / "sandbox-2"

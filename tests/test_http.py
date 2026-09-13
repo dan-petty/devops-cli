@@ -91,3 +91,12 @@ def test_http_client_options() -> None:
     ac1 = new_async_http_client(timeout=12.0)
     assert ac1.timeout.read == 12.0
     assert ac1.timeout.connect == DEFAULT_CONNECT_TIMEOUT_SECONDS
+
+
+def test_http_client_invalid_timeout_type() -> None:
+    """Verify TypeError is raised when unsupported timeout types are passed."""
+    with pytest.raises(TypeError, match="timeout must be"):
+        new_http_client(timeout="invalid-string")  # type: ignore[arg-type]
+
+    with pytest.raises(TypeError, match="read_timeout must be"):
+        new_http_client(read_timeout="invalid-string")  # type: ignore[arg-type]

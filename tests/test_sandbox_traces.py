@@ -47,6 +47,12 @@ def test_w3c_traceparent_generation_and_injection() -> None:
     assert len(parsed["trace_id"]) == 32
     assert len(parsed["parent_span_id"]) == 16
 
+    tp_unsampled = generate_traceparent(trace_flags="00")
+    assert tp_unsampled.endswith("-00")
+
+    with pytest.raises(ValueError, match="Invalid trace_flags"):
+        generate_traceparent(trace_flags="02")
+
     headers = inject_traceparent_headers({"User-Agent": "devops-prober"}, auto_generate=True)
     assert "traceparent" in headers
     parsed_from_headers = extract_traceparent_from_headers(headers)
@@ -130,15 +136,16 @@ def test_normalize_jaeger_spans() -> None:
 
 def test_query_jaeger_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify querying Jaeger REST API with HTTP response handling."""
+    test_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
         "data": [
             {
-                "traceID": "abc123trace",
+                "traceID": test_trace_id,
                 "spans": [
                     {
-                        "traceID": "abc123trace",
+                        "traceID": test_trace_id,
                         "spanID": "span01",
                         "operationName": "GET /api/v1/health",
                         "startTime": 1000000,
@@ -165,9 +172,22 @@ def test_query_jaeger_trace(monkeypatch: pytest.MonkeyPatch) -> None:
             return mock_resp
 
     monkeypatch.setattr("httpx2.Client", MockClient)
-    spans = query_jaeger_trace("abc123trace", jaeger_url="http://example.com:16686")
+    spans = query_jaeger_trace(test_trace_id, jaeger_url="http://example.com:16686")
     assert len(spans) == 1
-    assert spans[0]["traceId"] == "abc123trace"
+    assert spans[0]["traceId"] == test_trace_id
+
+
+def test_query_jaeger_trace_security_validation() -> None:
+    """Verify query_jaeger_trace rejects invalid hex, path traversal, and disallowed URLs."""
+    # Invalid trace IDs: path traversal, non-hex, empty
+    assert query_jaeger_trace("../../admin") == []
+    assert query_jaeger_trace("not-a-hex-id!") == []
+    assert query_jaeger_trace("") == []
+
+    # Invalid Jaeger URLs: invalid scheme, cloud metadata
+    valid_id = "4bf92f3577b34da6a3ce929d0e0e4736"
+    assert query_jaeger_trace(valid_id, jaeger_url="ftp://example.com") == []
+    assert query_jaeger_trace(valid_id, jaeger_url="http://169.254.169.254") == []
 
 
 def test_sandbox_traces_help() -> None:
