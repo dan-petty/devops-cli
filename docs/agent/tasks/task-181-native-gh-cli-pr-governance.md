@@ -1,8 +1,8 @@
 # Task 181: Implement Native DevOps CLI Functionality for GH Operations and PR Governance
 
 **Issue**: [#181](https://github.com/dan-petty/devops-cli/issues/181)
-**PR**: TBD (Draft PR targeting `release/v0.2.17`)
-**Status**: In Progress
+**PR**: [#187](https://github.com/dan-petty/devops-cli/pull/187)
+**Status**: In Review
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/github`
@@ -51,5 +51,5 @@ Implement native `devops-cli` commands replacing raw `gh` invocations across pul
 - [x] Resolve K8s Loki sidecar crashloop via `k8s/logging/loki-values.yaml`
 - [x] Synchronize documentation via `devops docs generate --sync-readme`
 - [x] Verify local quality gates with `uv run pytest` and `devops ci`
-- [ ] Push topic branch and open Draft PR targeting `release/v0.2.17`
+- [x] Push topic branch and open Draft PR targeting `release/v0.2.17`
 - [ ] Monitor CI checks and address review feedback
