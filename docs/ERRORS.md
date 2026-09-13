@@ -41,6 +41,7 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `LLM_INFERENCE_ERROR` | `1` | Devops_cli.ai.rag.embeddings | Raised when embeddings generation fails across all endpoints. |
 | `GITHUB_OPERATION_FAILED` | `1` | Git | Exception raised for GitHub API or CLI automation failures. |
 | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
+| `GITOPS_SYNC_ERROR` | `1` | K8s | Raised when GitOps synchronization trigger or reconciliation fails. |
 | `VALIDATION_ERROR` | `1` | Devops_cli.http.client | Raised when an invalid timeout parameter type is provided. |
 | `HARNESS_EXECUTION_ERROR` | `1` | Ai | Raised when execution of an AI test harness or benchmark fails. |
 | `HARNESS_VALIDATION_ERROR` | `1` | Ai | Raised when an AI evaluation or harness schema validation fails. |

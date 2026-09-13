@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 from typing import Any
 
@@ -953,4 +954,67 @@ def format_tf_cost_table(
         columns=columns,
         rows=rows,
         border_style="green",
+    )
+
+
+def format_gitops_drift_table(events: Any) -> TablePayload:
+    """Build structured TablePayload for detected GitOps manifest drift events."""
+    columns: list[TableColumn | str | tuple[str, str | int]] = [
+        TableColumn(header="Change Type", style="bold"),
+        TableColumn(header="Path", style="cyan"),
+        TableColumn(header="Hash", style="dim"),
+        TableColumn(header="Detected At", justify="right"),
+    ]
+    rows: list[list[str]] = []
+    style_map = {"modified": "yellow", "created": "green", "deleted": "red"}
+    for event in events or []:
+        ctype = str(getattr(event, "change_type", "modified"))
+        cstyle = style_map.get(ctype, "white")
+        ts = getattr(event, "timestamp", 0.0)
+        ts_str = time.strftime("%H:%M:%S", time.localtime(ts)) if ts else "—"
+        fhash = str(getattr(event, "file_hash", ""))[:12] or "—"
+        rows.append(
+            [
+                f"[{cstyle}]{ctype.upper()}[/{cstyle}]",
+                str(getattr(event, "path", "")),
+                fhash,
+                ts_str,
+            ]
+        )
+    count = len(rows)
+    title = f"GitOps Manifest Drift: {count} change{'s' if count != 1 else ''} detected"
+    border = "yellow" if count > 0 else "green"
+    return TablePayload(title=title, columns=columns, rows=rows, border_style=border)
+
+
+def format_gitops_sync_table(results: Any) -> TablePayload:
+    """Build structured TablePayload for GitOps synchronization triggers."""
+    columns: list[TableColumn | str | tuple[str, str | int]] = [
+        TableColumn(header="Application", style="bold cyan"),
+        TableColumn(header="Mode", style="dim"),
+        TableColumn(header="Status"),
+        TableColumn(header="Duration (s)", justify="right"),
+        TableColumn(header="Files", justify="right"),
+        TableColumn(header="Message"),
+    ]
+    rows: list[list[str]] = []
+    for res in results or []:
+        st = str(getattr(res, "status", "Unknown"))
+        st_style = "green" if st in ("Synced", "Triggered", "DryRun") else "red"
+        files_count = len(getattr(res, "changed_files", []))
+        rows.append(
+            [
+                str(getattr(res, "app_name", "")),
+                str(getattr(res, "sync_mode", "api")).upper(),
+                f"[{st_style}]{st}[/{st_style}]",
+                f"{getattr(res, 'duration_seconds', 0.0):.2f}",
+                str(files_count),
+                str(getattr(res, "message", "")),
+            ]
+        )
+    return TablePayload(
+        title="GitOps Synchronization History",
+        columns=columns,
+        rows=rows,
+        border_style="cyan",
     )
