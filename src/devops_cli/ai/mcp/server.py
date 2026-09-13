@@ -47,6 +47,9 @@ def _run_mcp_cmd(
         return f"Execution failed: {exc}"
 
     output = (res.stdout + ("\n" + res.stderr if res.stderr else "")).strip()
+    from devops_cli.security.sanitizer import mask_secrets
+
+    output = mask_secrets(output)
     if res.returncode != 0:
         return f"Command exited with status {res.returncode}:\n{output}"
     return output or "Success"
@@ -1867,6 +1870,28 @@ def pr_ready(
     cmd = ["uv", "run", "devops", "pr", "ready", str(pr_number)]
     if monitor:
         cmd.append("--monitor")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    timeout = (
+        DEFAULT_MCP_TOOL_TIMEOUT_SECONDS * 2 if monitor else DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+    )
+    return _run_mcp_cmd(cmd, timeout=timeout)
+
+
+@mcp.tool()
+def pr_check_readiness(
+    pr_number: int | None = None,
+    require_ready: bool = False,
+    repo: str | None = None,
+) -> str:
+    """Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state."""
+    cmd = ["uv", "run", "devops", "pr", "check-readiness"]
+    if pr_number is not None:
+        _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+        cmd.append(str(pr_number))
+    if require_ready:
+        cmd.append("--require-ready")
     if repo:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])

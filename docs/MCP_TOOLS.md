@@ -77,6 +77,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_status`](#k8s-status) | Display pod status across infrastructure namespaces. |
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | Uninstall Kubernetes infrastructure or LLM stack and delete namespaces. |
 | [`k8s_validate`](#k8s-validate) | Validate Kubernetes manifest syntax and schemas against OpenAPI specifications. |
+| [`pr_check_readiness`](#pr-check-readiness) | Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state. |
 | [`pr_checks`](#pr-checks) | Inspect detailed status of GitHub Actions CI checks for a pull request. |
 | [`pr_close`](#pr-close) | Close a pull request with optional comment and remote branch deletion. |
 | [`pr_diff`](#pr-diff) | View the unified git diff for a pull request. |
@@ -889,6 +890,18 @@ Validate Kubernetes manifest syntax and schemas against OpenAPI specifications.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `manifest_path` | `string` | No | `.` | - |
+
+### `pr_check_readiness`
+
+Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pr_number` | `integer` | No | - | - |
+| `require_ready` | `boolean` | No | `False` | - |
+| `repo` | `string` | No | - | - |
 
 ### `pr_checks`
 

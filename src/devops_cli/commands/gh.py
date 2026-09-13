@@ -1031,6 +1031,10 @@ def rate_limit_cmd(
     except json.JSONDecodeError:
         data = {}
 
+    if output_format not in {"table", "json"}:
+        print_error(f"Unsupported format '{output_format}'. Supported formats: table, json.")
+        raise typer.Exit(1)
+
     if output_format == "json":
         from devops_cli.output import print as print_out
 
@@ -1083,6 +1087,10 @@ def runs_list_cmd(
     ] = "table",
 ) -> None:
     """List recent GitHub Actions workflow runs."""
+    if output_format not in {"table", "json"}:
+        print_error(f"Unsupported format '{output_format}'. Supported formats: table, json.")
+        raise typer.Exit(1)
+
     target_repo = repo or _resolve_repo()
     cmd = [
         CONST_GH_CLI,
@@ -1157,6 +1165,7 @@ def runs_view_cmd(
         raise typer.Exit(res.returncode)
 
     if res.stdout:
-        from devops_cli.output import print as print_out
+        from devops_cli.output import write_stream
+        from devops_cli.security.sanitizer import mask_secrets
 
-        print_out(res.stdout.rstrip())
+        write_stream(mask_secrets(res.stdout.rstrip()) + "\n")

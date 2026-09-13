@@ -602,7 +602,7 @@ def save_settings(settings: Settings, target_path: Path | None = None) -> None:
             (Path("/workspaces/devops-cli") / "config.yaml").resolve(),
         }
         if dest_path.resolve() in workspace_configs:
-            raise RuntimeError(
+            raise ConfigurationError(
                 f"Refusing to overwrite workspace config.yaml during test execution! "
                 f"(dest_path={dest_path})"
             )

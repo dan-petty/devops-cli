@@ -4237,6 +4237,27 @@ devops pr close [OPTIONS] <number>
 | `--delete-branch`, `-d` | `boolean` | - | Delete remote topic branch upon closing. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
+### `devops pr check-readiness`
+
+**Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.**
+
+```bash
+devops pr check-readiness [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | PR number to verify (defaults to current branch PR) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
 ### `devops pr threads`
 
 ```bash
@@ -5053,6 +5074,27 @@ devops gh pr close [OPTIONS] <number>
 |---|---|---|---|
 | `--comment`, `-c` | `string` | - | Comment text to include when closing the pull request. |
 | `--delete-branch`, `-d` | `boolean` | - | Delete remote topic branch upon closing. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+#### `devops gh pr check-readiness`
+
+**Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.**
+
+```bash
+devops gh pr check-readiness [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | PR number to verify (defaults to current branch PR) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 #### `devops gh pr threads`

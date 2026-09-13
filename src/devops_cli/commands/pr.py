@@ -71,6 +71,73 @@ def _detect_active_release_branch() -> str | None:
 # =============================================================================
 
 
+def _format_pr_list_row(pr: dict[str, Any]) -> list[str]:
+    """Format single PR dict (GraphQL or REST) into table row values."""
+    number = str(pr.get("number", ""))
+    title = str(pr.get("title", ""))
+    head = str(pr.get("headRefName") or pr.get("head", {}).get("ref", ""))
+    base = str(pr.get("baseRefName") or pr.get("base", {}).get("ref", ""))
+    author_data = pr.get("author") or pr.get("user", {})
+    if isinstance(author_data, dict):
+        author = author_data.get("login", "")
+    else:
+        author = str(author_data)
+    updated = str(pr.get("updatedAt") or pr.get("updated_at", ""))[:10]
+    url = str(pr.get("url") or pr.get("html_url", ""))
+    return [f"#{number}", title, head, base, author, updated, url]
+
+
+def _render_pr_table(prs: list[dict[str, Any]], state: str) -> None:
+    """Render list of PRs as a formatted table."""
+    if not prs:
+        print_warning(MESSAGES.pr.no_prs_found, prefix=False)
+        return
+
+    rows = [_format_pr_list_row(pr) for pr in prs]
+    print_table(
+        title=MESSAGES.pr.list_title.format(state=state),
+        columns=[
+            ("#", "right"),
+            ("Title", "bold"),
+            ("Branch", "cyan"),
+            ("Base", "magenta"),
+            ("Author", "dim"),
+            ("Updated", "dim"),
+            "URL",
+        ],
+        rows=rows,
+    )
+
+
+def _render_pr_list_fallback(state: str, limit: int, repo: str | None = None) -> bool:
+    """Fallback to REST API GET /pulls when gh pr list fails (e.g. GraphQL rate limits)."""
+    from devops_cli.core.repo import get_repo_origin_name
+
+    target = repo or get_repo_origin_name()
+    if not target or "/" not in target:
+        return False
+    owner, repo_name = target.split("/", 1)
+    api_state = "all" if state == "all" else ("closed" if state == "closed" else "open")
+    res = run_subprocess(
+        [
+            CONST_GH_CLI,
+            "api",
+            f"repos/{owner}/{repo_name}/pulls?state={api_state}&per_page={limit}",
+        ],
+        check=False,
+    )
+    if res.returncode != 0 or not res.stdout.strip():
+        return False
+    try:
+        prs = json.loads(res.stdout)
+        if isinstance(prs, list):
+            _render_pr_table(prs, state)
+            return True
+    except json.JSONDecodeError:
+        pass
+    return False
+
+
 @app.command("list")
 def list_prs(
     state: Annotated[
@@ -104,6 +171,8 @@ def list_prs(
 
     res = run_subprocess(cmd, check=False)
     if res.returncode != 0:
+        if _render_pr_list_fallback(state, limit, repo):
+            return
         print_error(f"Failed to list PRs: {res.stderr}", prefix=False)
         raise typer.Exit(res.returncode)
 
@@ -112,39 +181,7 @@ def list_prs(
     except json.JSONDecodeError:
         prs = []
 
-    if not prs:
-        print_warning(MESSAGES.pr.no_prs_found, prefix=False)
-        return
-
-    rows: list[list[str]] = []
-    for pr in prs:
-        number = str(pr.get("number", ""))
-        title = str(pr.get("title", ""))
-        head = str(pr.get("headRefName", ""))
-        base = str(pr.get("baseRefName", ""))
-        author_data = pr.get("author", {})
-        if isinstance(author_data, dict):
-            author = author_data.get("login", "")
-        else:
-            author = str(author_data)
-        updated = str(pr.get("updatedAt", ""))[:10]
-        url = str(pr.get("url", ""))
-
-        rows.append([f"#{number}", title, head, base, author, updated, url])
-
-    print_table(
-        title=MESSAGES.pr.list_title.format(state=state),
-        columns=[
-            ("#", "right"),
-            ("Title", "bold"),
-            ("Branch", "cyan"),
-            ("Base", "magenta"),
-            ("Author", "dim"),
-            ("Updated", "dim"),
-            "URL",
-        ],
-        rows=rows,
-    )
+    _render_pr_table(prs, state)
 
 
 # =============================================================================
@@ -201,9 +238,10 @@ def _render_pr_view_fallback(number: int, repo: str | None = None) -> bool:
         ],
     )
     if body:
-        from devops_cli.output import print as print_out
+        from devops_cli.output import write_stream
+        from devops_cli.security.sanitizer import mask_secrets
 
-        print_out(f"\n[bold]Description:[/bold]\n{body}\n")
+        write_stream(f"\nDescription:\n{mask_secrets(body)}\n\n")
     return True
 
 
@@ -240,12 +278,16 @@ def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
     rows = []
     for cr in check_runs:
         name = str(cr.get("name", ""))
-        conclusion = str(cr.get("conclusion") or cr.get("status") or "")
-        badge = (
-            f"[green]✓ {conclusion}[/green]"
-            if conclusion == "success"
-            else f"[bold red]✗ {conclusion}[/bold red]"
-        )
+        conclusion = str(cr.get("conclusion") or "")
+        status = str(cr.get("status") or "")
+        if conclusion == "success":
+            badge = "[green]✓ success[/green]"
+        elif status in {"in_progress", "queued", "waiting"}:
+            badge = f"[yellow]● {status}[/yellow]"
+        elif conclusion:
+            badge = f"[bold red]✗ {conclusion}[/bold red]"
+        else:
+            badge = f"[dim]{status}[/dim]"
         url = str(cr.get("html_url", ""))
         rows.append([name, badge, url])
     print_table(
@@ -656,6 +698,56 @@ def edit_pr(
 # =============================================================================
 
 
+def _detect_current_branch() -> str | None:
+    res = run_subprocess(["git", "branch", "--show-current"], check=False, quiet=True)
+    return res.stdout.strip() if res.returncode == 0 and res.stdout.strip() else None
+
+
+def _fallback_create_pr(
+    title: str,
+    body: str,
+    base: str,
+    draft: bool = False,
+    repo: str | None = None,
+) -> bool:
+    """Fallback to REST API POST /pulls when gh pr create fails (e.g. GraphQL rate limits)."""
+    from devops_cli.core.repo import get_repo_origin_name
+
+    target = repo or get_repo_origin_name()
+    if not target or "/" not in target:
+        return False
+    owner, repo_name = target.split("/", 1)
+    head = _detect_current_branch()
+    if not head:
+        return False
+    cmd = [
+        CONST_GH_CLI,
+        "api",
+        f"repos/{owner}/{repo_name}/pulls",
+        "-f",
+        f"title={title}",
+        "-f",
+        f"body={body}",
+        "-f",
+        f"base={base}",
+        "-f",
+        f"head={head}",
+    ]
+    if draft:
+        cmd.extend(["-F", "draft=true"])
+    res = run_subprocess(cmd, check=False)
+    if res.returncode == 0:
+        try:
+            data = json.loads(res.stdout) if res.stdout.strip() else {}
+            url = data.get("html_url", "")
+            num = data.get("number", "")
+            print_success(f"Pull request #{num} created successfully: {url}")
+        except json.JSONDecodeError:
+            print_success(f"Pull request created successfully targeting base [bold]{base}[/bold]")
+        return True
+    return False
+
+
 @app.command("create")
 def create_pr(
     title: Annotated[str, typer.Option("--title", "-t", help=HELP.options.title)],
@@ -701,6 +793,8 @@ def create_pr(
 
     res = run_subprocess(cmd, check=False)
     if res.returncode != 0:
+        if _fallback_create_pr(title, body, target_base, draft, repo):
+            return
         raise typer.Exit(res.returncode)
     print_success(f"Pull request created successfully targeting base [bold]{target_base}[/bold]")
 
@@ -712,16 +806,19 @@ def create_pr(
 
 def _handle_pr_ready_failure(stderr_text: str, number: int) -> None:
     """Handle and explain failures when marking a PR ready."""
-    clean_err = stderr_text.strip()
+    from devops_cli.security.sanitizer import mask_secrets
+
+    clean_err = mask_secrets(stderr_text.strip()[:256])
     if "rate limit" in clean_err.lower():
         print_error(
             f"Failed to mark PR #{number} ready: GitHub GraphQL rate limit exceeded.\n"
             f"Details: {clean_err}\n"
             "Note: GitHub REST API PATCH /pulls does NOT support converting drafts. "
-            "Wait for the GraphQL rate limit window to reset or convert via the GitHub web UI."
+            "Wait for the GraphQL rate limit window to reset or convert via the GitHub web UI.",
+            safe=True,
         )
         return
-    print_error(f"Failed to mark PR #{number} ready: {clean_err or 'Unknown error'}")
+    print_error(f"Failed to mark PR #{number} ready: {clean_err or 'Unknown error'}", safe=True)
 
 
 @app.command("ready")
@@ -754,7 +851,7 @@ def ready_pr(
         raise typer.Exit(1)
 
     post_data = _fetch_pr_details(number, repo)
-    if post_data and post_data.get("draft", False):
+    if not post_data or post_data.get("draft", True):
         print_error(MESSAGES.pr.pr_still_draft_error.format(number=number))
         raise typer.Exit(1)
 
@@ -787,12 +884,13 @@ def diff_pr(
         cmd.extend(["--repo", repo])
     res = run_subprocess(cmd, check=False)
     if res.returncode != 0:
-        print_error(f"Failed to fetch diff for PR #{number}: {res.stderr.strip()}")
+        print_error(f"Failed to fetch diff for PR #{number}: {res.stderr.strip()}", safe=True)
         raise typer.Exit(res.returncode)
     if res.stdout:
-        from devops_cli.output import print as print_out
+        from devops_cli.output import write_stream
+        from devops_cli.security.sanitizer import mask_secrets
 
-        print_out(res.stdout.rstrip())
+        write_stream(mask_secrets(res.stdout))
 
 
 # =============================================================================
@@ -833,14 +931,8 @@ def close_pr(
 
 
 # =============================================================================
-# Command Group: devops pr threads
+# Command: devops pr check-readiness
 # =============================================================================
-
-threads_app = new_typer(
-    help=HELP.pr.threads_app,
-    no_args_is_help=True,
-)
-app.add_typer(threads_app, name="threads")
 
 
 def _render_threads_table(threads: list[Any]) -> None:
@@ -865,6 +957,104 @@ def _render_threads_table(threads: list[Any]) -> None:
     )
 
 
+def _evaluate_pr_blockers(
+    pr_data: dict[str, Any],
+    pr_num: int,
+    owner: str,
+    repo_name: str,
+    require_ready: bool,
+) -> list[str]:
+    """Inspect PR data and unresolved discussion threads for merge blockers."""
+    from devops_cli.exceptions.git import GitHubOperationError
+    from devops_cli.github.pr_monitor import _fetch_rest_unresolved_comments
+    from devops_cli.github.pr_threads import list_pr_review_threads
+
+    blockers: list[str] = []
+    is_draft = pr_data.get("draft", False)
+    mergeable = pr_data.get("mergeable")
+    mergeable_state = pr_data.get("mergeable_state", "")
+    base_ref = pr_data.get("base", {}).get("ref", "")
+
+    if mergeable is False or mergeable_state in ("dirty", "conflicting"):
+        blockers.append(f"PR #{pr_num} has merge conflicts with base branch '{base_ref}'.")
+
+    if require_ready and is_draft:
+        blockers.append(f"PR #{pr_num} is currently in draft status (convert to ready for review).")
+    elif is_draft:
+        print_warning(
+            f"PR #{pr_num} is currently in draft status (merging is blocked on GitHub until ready)."
+        )
+
+    unresolved: list[Any] = []
+    try:
+        unresolved = list_pr_review_threads(owner, repo_name, pr_num, unresolved_only=True)
+    except GitHubOperationError as exc:
+        if "rate limit" in str(exc).lower():
+            unresolved = _fetch_rest_unresolved_comments(owner, repo_name, pr_num)
+        else:
+            raise
+
+    if unresolved:
+        blockers.append(
+            f"PR #{pr_num} has {len(unresolved)} unresolved review discussion thread(s)."
+        )
+        _render_threads_table(unresolved)
+
+    return blockers
+
+
+@app.command("check-readiness")
+def check_readiness(
+    number: Annotated[
+        int | None,
+        typer.Argument(help="PR number to verify (defaults to current branch PR)"),
+    ] = None,
+    require_ready: Annotated[
+        bool,
+        typer.Option("--require-ready", help="Fail if the pull request is in draft status"),
+    ] = False,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
+    ] = None,
+) -> None:
+    """Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state."""
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.github.pr_monitor import resolve_branch_pr_number
+
+    target_repo = repo or get_repo_origin_name()
+    if not target_repo or "/" not in target_repo:
+        print_error("Target repository must be in OWNER/REPO format.")
+        raise typer.Exit(1)
+
+    owner, repo_name = target_repo.split("/", 1)
+    pr_num = number or resolve_branch_pr_number(owner=owner, repo=repo_name)
+
+    pr_data = _fetch_pr_details(pr_num, target_repo)
+    if not pr_data:
+        print_error(f"Unable to retrieve details for PR #{pr_num}.")
+        raise typer.Exit(1)
+
+    blockers = _evaluate_pr_blockers(pr_data, pr_num, owner, repo_name, require_ready)
+    if blockers:
+        for b in blockers:
+            print_error(b, prefix=False)
+        raise typer.Exit(1)
+
+    print_success(f"PR #{pr_num} satisfies merge readiness: 0 conflicts, 0 unresolved threads.")
+
+
+# =============================================================================
+# Command Group: devops pr threads
+# =============================================================================
+
+threads_app = new_typer(
+    help=HELP.pr.threads_app,
+    no_args_is_help=True,
+)
+app.add_typer(threads_app, name="threads")
+
+
 @threads_app.command("list")
 def list_threads(
     number: Annotated[int, typer.Argument(help=HELP.pr.number)],
@@ -880,6 +1070,8 @@ def list_threads(
 ) -> None:
     """List PR review discussion threads, file locations, and comments."""
     from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.exceptions.git import GitHubOperationError
+    from devops_cli.github.pr_monitor import _fetch_rest_unresolved_comments
     from devops_cli.github.pr_threads import list_pr_review_threads
 
     target_repo = repo or get_repo_origin_name()
@@ -888,7 +1080,14 @@ def list_threads(
         raise typer.Exit(1)
 
     owner, repo_name = target_repo.split("/", 1)
-    threads = list_pr_review_threads(owner, repo_name, number, unresolved_only=unresolved_only)
+    threads = []
+    try:
+        threads = list_pr_review_threads(owner, repo_name, number, unresolved_only=unresolved_only)
+    except GitHubOperationError as exc:
+        if "rate limit" in str(exc).lower():
+            threads = _fetch_rest_unresolved_comments(owner, repo_name, number)
+        else:
+            raise
 
     if output_format == "json":
         from devops_cli.output import print as print_out

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main, "release/**"]
   workflow_dispatch:
 
@@ -53,6 +54,13 @@ jobs:
 
       - name: Initialize Workspace Directories
         run: mkdir -p .data/reviews .data/analysis .data/logs
+
+      - name: Verify PR Merge Readiness (No Unresolved Threads or Conflicts)
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run devops pr check-readiness ${{ github.event.pull_request.number }}
 
       - name: Linting (Ruff)
         run: uv run ruff check .

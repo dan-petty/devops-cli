@@ -25,6 +25,7 @@
 | [#176](https://github.com/dan-petty/devops-cli/issues/176) | [#177](https://github.com/dan-petty/devops-cli/pull/177) | Remediate DevSecOps review findings & enhance review self-improvement loop | `Done` | [`task-176-review-findings-self-improvement.md`](tasks/task-176-review-findings-self-improvement.md) |
 | [#183](https://github.com/dan-petty/devops-cli/issues/183) | [#182](https://github.com/dan-petty/devops-cli/pull/182) | Resolve Helm Stack Deploy SSA Conflicts, Loki Validation, and PodSecurity Failures | `Done` | [`task-183-stack-deploy-conflicts.md`](tasks/task-183-stack-deploy-conflicts.md) |
 | [#181](https://github.com/dan-petty/devops-cli/issues/181) | [#187](https://github.com/dan-petty/devops-cli/pull/187) | Implement native devops cli functionality for gh operations and pr governance | `In Review` | [`task-181-native-gh-cli-pr-governance.md`](tasks/task-181-native-gh-cli-pr-governance.md) |
+| [#188](https://github.com/dan-petty/devops-cli/issues/188) | [#187](https://github.com/dan-petty/devops-cli/pull/187) | Gate pull request workflow on unresolved review threads and merge blockers | `In Progress` | [`task-188-ci-pr-merge-readiness-workflow-gate.md`](tasks/task-188-ci-pr-merge-readiness-workflow-gate.md) |
 
 
 ---
