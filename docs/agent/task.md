@@ -28,6 +28,7 @@
 | [#185](https://github.com/dan-petty/devops-cli/issues/185) | [#186](https://github.com/dan-petty/devops-cli/pull/186) | Remediate session 20260913-060209 findings and enhance review self-improvement loop | `Done` | [`task-185-review-remediation-self-improvement.md`](tasks/task-185-review-remediation-self-improvement.md) |
 | [#181](https://github.com/dan-petty/devops-cli/issues/181) | [#187](https://github.com/dan-petty/devops-cli/pull/187) | Implement native devops cli functionality for gh operations and pr governance | `Done` | [`task-181-native-gh-cli-pr-governance.md`](tasks/task-181-native-gh-cli-pr-governance.md) |
 | [#188](https://github.com/dan-petty/devops-cli/issues/188) | [#187](https://github.com/dan-petty/devops-cli/pull/187) | Gate pull request workflow on unresolved review threads and merge blockers | `Done` | [`task-188-ci-pr-merge-readiness-workflow-gate.md`](tasks/task-188-ci-pr-merge-readiness-workflow-gate.md) |
+| [#199](https://github.com/dan-petty/devops-cli/issues/199) | [#200](https://github.com/dan-petty/devops-cli/pull/200) | Deterministic async memory and connection pool profiler (`devops test profile-memory`) | `In Review` | [`task-199-async-memory-profiler.md`](tasks/task-199-async-memory-profiler.md) |
 
 
 ---

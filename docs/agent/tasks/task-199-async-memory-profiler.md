@@ -1,8 +1,8 @@
 # Task 199: Deterministic Async Memory & Connection Pool Profiler
 
 **Issue**: [#199](https://github.com/dan-petty/devops-cli/issues/199)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#200](https://github.com/dan-petty/devops-cli/pull/200)
+**Status**: In Review
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p2-medium`
 **Scope**: `scope/test`
@@ -62,7 +62,9 @@ Implement a deterministic async memory and connection pool profiler under `devop
 - [x] Checkout dedicated topic branch `feat/199-async-memory-profiler`.
 - [x] Implement `src/devops_cli/telemetry/memory_profiler.py`.
 - [x] Register CLI subcommand `devops test profile-memory` in `src/devops_cli/commands/test_cmd.py` and update `help.py`.
-- [x] Author unit tests in `tests/test_memory_profiler.py` (18/18 passing).
+- [x] Author unit tests in `tests/test_memory_profiler.py` (24/24 passing).
 - [x] Run quality gates (`devops scan complexity`, `ruff`, `mypy`, `pytest`, `devops docs generate --sync-readme`).
-- [ ] Commit changes, push branch, and open Draft Pull Request to `release/v0.2.17`.
-- [ ] Monitor CI checks, transition PR to ready, and squash-merge into `release/v0.2.17`.
+- [x] Open Pull Request [#200](https://github.com/dan-petty/devops-cli/pull/200) targeting `release/v0.2.17`.
+- [x] Remediate Copilot review comments and post in-thread replies on PR #200.
+- [x] Implement `devops pr threads resolve-all` and `--auto-resolve` for merge readiness check in CI.
+- [ ] Monitor CI checks until green, then squash-merge into `release/v0.2.17`.
