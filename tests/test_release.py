@@ -230,7 +230,38 @@ def test_release_pr_dry_run(sample_project_dir: Path) -> None:
         assert result.exit_code == 0
         assert "create_release_pull_request" in result.output
         assert '"dry_run": true' in result.output
+        assert '"draft": true' in result.output.lower()
         assert "release/v0.1.8" in result.output
+    finally:
+        set_dry_run(False)
+
+
+def test_release_pr_no_draft_override(sample_project_dir: Path) -> None:
+    from devops_cli.dry_run import set_dry_run
+
+    set_dry_run(True)
+    try:
+        result = runner.invoke(
+            app,
+            ["pr", "--version", "0.1.8", "--no-draft", "--root", str(sample_project_dir)],
+        )
+        assert result.exit_code == 0
+        assert '"draft": false' in result.output.lower()
+    finally:
+        set_dry_run(False)
+
+
+def test_release_prepare_pr_draft_default(sample_project_dir: Path) -> None:
+    from devops_cli.dry_run import set_dry_run
+
+    set_dry_run(True)
+    try:
+        result = runner.invoke(
+            app,
+            ["prepare", "0.1.8", "--create-pr", "--root", str(sample_project_dir)],
+        )
+        assert result.exit_code == 0
+        assert '"draft": true' in result.output.lower()
     finally:
         set_dry_run(False)
 
