@@ -135,24 +135,32 @@ def test_sandbox_network_config_public_whitelist_validation_and_policy() -> None
         mode=SandboxNetworkMode.PUBLIC_WHITELIST,
         public_whitelist=["github.com", "pypi.org", "93.184.216.34"],
     )
-    assert cfg.to_docker_args() == ["--network=bridge"]
+    # On Docker without egress proxy, to_docker_args fails closed
+    with pytest.raises(ValueError, match="without an egress proxy"):
+        cfg.to_docker_args()
+
+    # With egress proxy, to_docker_args attaches to internal network with proxy env
+    cfg_proxy = SandboxNetworkConfig(
+        mode=SandboxNetworkMode.PUBLIC_WHITELIST,
+        public_whitelist=["github.com", "pypi.org", "93.184.216.34"],
+        egress_proxy="http://127.0.0.1:3128",
+    )
+    proxy_args = cfg_proxy.to_docker_args()
+    assert f"--network={CONST_SANDBOX_DOCKER_INTERNAL_NET}" in proxy_args
+    assert "HTTP_PROXY=http://127.0.0.1:3128" in proxy_args
 
     policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
     assert policy["kind"] == "NetworkPolicy"
     egress_rules = policy["spec"]["egress"]
     assert len(egress_rules) >= 1
 
-    # Verify that metadata and private RFC 1918 IPs are blocked in the policy
+    # Verify that ipBlocks are generated for the specific destinations
     ip_blocks = [
         t["ipBlock"] for rule in egress_rules for t in rule.get("to", []) if "ipBlock" in t
     ]
     assert ip_blocks, "Public whitelist policy must define ipBlock constraints"
-    for block in ip_blocks:
-        except_cidrs = block.get("except", [])
-        assert "169.254.169.254/32" in except_cidrs
-        assert "10.0.0.0/8" in except_cidrs
-        assert "172.16.0.0/12" in except_cidrs
-        assert "192.168.0.0/16" in except_cidrs
+    assert any("93.184.216.34/32" == block.get("cidr") for block in ip_blocks)
+    assert not any("0.0.0.0/0" == block.get("cidr") for block in ip_blocks)
 
     # Empty whitelist should raise ValueError
     with pytest.raises(ValueError, match="at least one public domain or IP"):
@@ -187,14 +195,30 @@ def test_sandbox_network_config_local_whitelist_validation_and_routing() -> None
             "host.docker.internal",
         ],
     )
-    docker_args = cfg.to_docker_args()
-    assert "--network=bridge" in docker_args
-    assert any("--add-host=host.docker.internal:host-gateway" in arg for arg in docker_args)
+    # On Docker without egress proxy, to_docker_args fails closed
+    with pytest.raises(ValueError, match="without an egress proxy"):
+        cfg.to_docker_args()
+
+    # With egress proxy, uses internal network
+    cfg_proxy = SandboxNetworkConfig(
+        mode=SandboxNetworkMode.LOCAL_WHITELIST,
+        local_whitelist=["http://localhost:11434", "192.168.1.50"],
+        egress_proxy="http://127.0.0.1:3128",
+    )
+    assert f"--network={CONST_SANDBOX_DOCKER_INTERNAL_NET}" in cfg_proxy.to_docker_args()
 
     policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
     assert policy["kind"] == "NetworkPolicy"
     egress_rules = policy["spec"]["egress"]
     assert len(egress_rules) >= 1
+
+    ip_blocks = [
+        t["ipBlock"] for rule in egress_rules for t in rule.get("to", []) if "ipBlock" in t
+    ]
+    assert ip_blocks, "Local whitelist policy must define ipBlock constraints"
+    assert any("127.0.0.1/32" == block.get("cidr") for block in ip_blocks)
+    assert any("192.168.1.50/32" == block.get("cidr") for block in ip_blocks)
+    assert any("10.0.0.5/32" == block.get("cidr") for block in ip_blocks)
 
     # Empty local whitelist should raise ValueError
     with pytest.raises(ValueError, match="at least one local URL or IP"):
@@ -360,3 +384,58 @@ def test_cli_docker_sandbox_network_options(tmp_path: Path) -> None:
     )
     assert res.exit_code == 0
     assert "none" in res.stdout
+
+
+def test_docker_runner_whitelist_fail_closed_without_proxy(tmp_path: Path) -> None:
+    """Verify WorkloadSandboxRunner fails closed if whitelist modes lack an egress proxy."""
+    from devops_cli.exceptions.docker import DockerSandboxError
+
+    cfg_pub = WorkloadSandboxConfig(
+        workspace_dir=tmp_path,
+        command=["echo", "test"],
+        network_mode="public_whitelist",
+        public_whitelist=["github.com"],
+    )
+    runner_pub = WorkloadSandboxRunner(cfg_pub)
+    with pytest.raises(DockerSandboxError, match="cannot enforce egress whitelist filtering"):
+        runner_pub.run()
+
+    cfg_loc = WorkloadSandboxConfig(
+        workspace_dir=tmp_path,
+        command=["echo", "test"],
+        network_mode="local_whitelist",
+        local_whitelist=["http://localhost:11434"],
+    )
+    runner_loc = WorkloadSandboxRunner(cfg_loc)
+    with pytest.raises(DockerSandboxError, match="cannot enforce egress whitelist filtering"):
+        runner_loc.run()
+
+
+def test_workload_sandbox_result_secret_masking() -> None:
+    """Verify WorkloadSandboxResult automatically sanitizes sensitive tokens in output."""
+    from devops_cli.docker.sandbox import WorkloadSandboxResult
+
+    raw_out = "Authorized with ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890 token"
+    res = WorkloadSandboxResult(
+        exit_code=0,
+        stdout=raw_out,
+        stderr=raw_out,
+    )
+    assert "ghp_ABCDE" not in res.stdout
+    assert "<masked-github-token>" in res.stdout
+    assert "<masked-github-token>" in res.stderr
+
+
+def test_sandbox_engine_whitelist_fail_closed_without_proxy(tmp_path: Path) -> None:
+    """Verify WorkloadSandboxEngine fails closed if deploy config whitelist lacks egress proxy."""
+    from devops_cli.exceptions.sandbox import SandboxValidationError
+    from devops_cli.sandbox.engine import WorkloadSandboxEngine
+
+    engine = WorkloadSandboxEngine()
+    deploy_cfg = SandboxDeployConfig(
+        workspace_dir=tmp_path,
+        network_mode="public_whitelist",
+        public_whitelist=["github.com"],
+    )
+    with pytest.raises(SandboxValidationError, match="cannot enforce egress whitelist boundaries"):
+        engine._build_create_kwargs(deploy_cfg, tmp_path, [])

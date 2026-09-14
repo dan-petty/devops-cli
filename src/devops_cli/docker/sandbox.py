@@ -279,7 +279,22 @@ class WorkloadSandboxRunner:
             "docker.workload_sandbox.run",
             attributes={"image": self.config.image, "network_mode": self.config.network_mode},
         ):
-            if self.config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+            if (
+                self.config.network_config.mode
+                in (
+                    SandboxNetworkMode.PUBLIC_WHITELIST,
+                    SandboxNetworkMode.LOCAL_WHITELIST,
+                )
+                and not self.config.network_config.egress_proxy
+            ):
+                raise DockerSandboxError(
+                    f"Docker runner cannot enforce egress whitelist filtering for '{self.config.network_config.mode.value}' without an egress proxy. Use isolated or sandbox_namespace mode, or deploy to Kubernetes where NetworkPolicy enforces egress boundaries."
+                )
+            if self.config.network_config.mode in (
+                SandboxNetworkMode.SANDBOX_NAMESPACE,
+                SandboxNetworkMode.PUBLIC_WHITELIST,
+                SandboxNetworkMode.LOCAL_WHITELIST,
+            ):
                 _ensure_internal_network()
             try:
                 client = _get_docker_client()
@@ -304,9 +319,19 @@ class WorkloadSandboxRunner:
                 elif self.config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
                     _ensure_internal_network(client)
                     create_kwargs["network_mode"] = CONST_SANDBOX_DOCKER_INTERNAL_NET
-                elif self.config.network_config.mode == SandboxNetworkMode.LOCAL_WHITELIST:
-                    create_kwargs["network_mode"] = "bridge"
-                    create_kwargs["extra_hosts"] = {"host.docker.internal": "host-gateway"}
+                elif self.config.network_config.mode in (
+                    SandboxNetworkMode.PUBLIC_WHITELIST,
+                    SandboxNetworkMode.LOCAL_WHITELIST,
+                ):
+                    _ensure_internal_network(client)
+                    create_kwargs["network_mode"] = CONST_SANDBOX_DOCKER_INTERNAL_NET
+                    proxy_url = self.config.network_config.egress_proxy or ""
+                    create_kwargs["environment"] = {
+                        "HTTP_PROXY": proxy_url,
+                        "HTTPS_PROXY": proxy_url,
+                        "ALL_PROXY": proxy_url,
+                        **self.config.env,
+                    }
                 else:
                     create_kwargs["network_mode"] = "bridge"
 
@@ -358,7 +383,22 @@ class WorkloadSandboxRunner:
     def _run_via_subprocess(self) -> WorkloadSandboxResult:
         """Fallback to executing docker CLI via subprocess."""
         start_time = time.monotonic()
-        if self.config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+        if (
+            self.config.network_config.mode
+            in (
+                SandboxNetworkMode.PUBLIC_WHITELIST,
+                SandboxNetworkMode.LOCAL_WHITELIST,
+            )
+            and not self.config.network_config.egress_proxy
+        ):
+            raise DockerSandboxError(
+                f"Docker runner cannot enforce egress whitelist filtering for '{self.config.network_config.mode.value}' without an egress proxy. Use isolated or sandbox_namespace mode, or deploy to Kubernetes where NetworkPolicy enforces egress boundaries."
+            )
+        if self.config.network_config.mode in (
+            SandboxNetworkMode.SANDBOX_NAMESPACE,
+            SandboxNetworkMode.PUBLIC_WHITELIST,
+            SandboxNetworkMode.LOCAL_WHITELIST,
+        ):
             _ensure_internal_network()
         ws_abs = str(self.config.workspace_dir.resolve())
         mount_mode = "ro" if self.config.read_only else "rw"

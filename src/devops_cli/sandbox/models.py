@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import socket
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -102,48 +103,115 @@ def _build_dns_egress_rule() -> dict[str, Any]:
     }
 
 
-def _build_public_whitelist_egress() -> list[dict[str, Any]]:
-    """Build egress rules allowing public internet egress while denying private RFC 1918 and metadata."""
+def _resolve_public_host(host: str) -> list[str]:
+    """Resolve public host/domain to validated public IPv4/IPv6 address strings."""
+    try:
+        ip_net = ipaddress.ip_network(host, strict=False)
+        if (
+            ip_net.is_private
+            or ip_net.is_loopback
+            or ip_net.is_link_local
+            or ip_net.is_reserved
+            or ip_net.is_multicast
+        ):
+            raise ValueError(f"Public whitelist entry resolves to non-public network: {ip_net}")
+        return [str(ip_net) if "/" in host else f"{host}/32"]
+    except ValueError as exc:
+        if "non-public network" in str(exc):
+            raise
+    try:
+        addr_info = socket.getaddrinfo(host, None)
+        resolved_ips = {str(info[4][0]) for info in addr_info if info and len(info) >= 5}
+    except OSError as exc:
+        raise ValueError(f"Public whitelist domain '{host}' DNS resolution failed: {exc}") from exc
+    if not resolved_ips:
+        raise ValueError(f"Public whitelist domain '{host}' yielded no address records.")
+    cidrs: list[str] = []
+    for ip_str in sorted(resolved_ips):
+        ip_obj = ipaddress.ip_address(ip_str)
+        if (
+            ip_obj.is_private
+            or ip_obj.is_loopback
+            or ip_obj.is_link_local
+            or ip_obj.is_reserved
+            or ip_obj.is_multicast
+        ):
+            raise ValueError(
+                f"Public whitelist domain '{host}' resolves to non-public address '{ip_str}'."
+            )
+        cidrs.append(f"{ip_str}/32")
+    return cidrs
+
+
+def _resolve_local_host(host: str) -> list[str]:
+    """Resolve local host/domain to validated private/loopback IPv4/IPv6 address strings."""
+    if host in ("localhost", "host.docker.internal"):
+        return ["127.0.0.1/32"]
+    try:
+        ip_net = ipaddress.ip_network(host, strict=False)
+        if ip_net.is_link_local or str(ip_net).startswith("169.254."):
+            raise ValueError(f"Link-local cloud metadata '{host}' is forbidden in local whitelist.")
+        if not (ip_net.is_private or ip_net.is_loopback):
+            raise ValueError(f"Local whitelist entry '{host}' must be a private or loopback IP.")
+        return [str(ip_net) if "/" in host else f"{host}/32"]
+    except ValueError as exc:
+        if "forbidden" in str(exc) or "must be a private" in str(exc):
+            raise
+    try:
+        addr_info = socket.getaddrinfo(host, None)
+        resolved_ips = {str(info[4][0]) for info in addr_info if info and len(info) >= 5}
+    except OSError as exc:
+        raise ValueError(f"Local whitelist hostname '{host}' DNS resolution failed: {exc}") from exc
+    if not resolved_ips:
+        raise ValueError(f"Local whitelist hostname '{host}' yielded no address records.")
+    cidrs: list[str] = []
+    for ip_str in sorted(resolved_ips):
+        ip_obj = ipaddress.ip_address(ip_str)
+        if ip_obj.is_link_local or ip_str.startswith("169.254."):
+            raise ValueError(
+                f"Local whitelist hostname '{host}' resolves to forbidden link-local '{ip_str}'."
+            )
+        if not (ip_obj.is_private or ip_obj.is_loopback):
+            raise ValueError(
+                f"Local whitelist hostname '{host}' resolves to non-private address '{ip_str}'."
+            )
+        cidrs.append(f"{ip_str}/32")
+    return cidrs
+
+
+def _build_public_whitelist_egress(whitelist: list[str]) -> list[dict[str, Any]]:
+    """Build egress rules allowing public internet egress strictly to validated whitelisted destinations."""
+    to_rules: list[dict[str, Any]] = []
+    for item in whitelist:
+        host = _extract_host_or_ip(item)
+        if not host:
+            continue
+        for cidr in _resolve_public_host(host):
+            to_rules.append({"ipBlock": {"cidr": cidr}})
+    if not to_rules:
+        raise ValueError("Public whitelist mode requires at least one valid public destination.")
     return [
         _build_dns_egress_rule(),
-        {
-            "to": [
-                {
-                    "ipBlock": {
-                        "cidr": "0.0.0.0/0",
-                        "except": [
-                            "10.0.0.0/8",
-                            "172.16.0.0/12",
-                            "192.168.0.0/16",
-                            "169.254.0.0/16",
-                            "169.254.169.254/32",
-                            "127.0.0.0/8",
-                        ],
-                    }
-                }
-            ]
-        },
+        {"to": to_rules},
     ]
 
 
 def _build_local_whitelist_egress(whitelist: list[str]) -> list[dict[str, Any]]:
     """Build egress rules permitting specific local CIDRs, IPs, and endpoints."""
-    local_to: list[dict[str, Any]] = []
-    for entry in whitelist:
-        host = _extract_host_or_ip(entry)
-        try:
-            ip = ipaddress.ip_network(host, strict=False)
-            cidr = str(ip) if "/" in host else f"{host}/32"
-            local_to.append({"ipBlock": {"cidr": cidr}})
-        except ValueError:
-            fallback_cidr = (
-                "127.0.0.1/32" if host in ("localhost", "host.docker.internal") else f"{host}/32"
-            )
-            local_to.append({"ipBlock": {"cidr": fallback_cidr}})
-
+    to_rules: list[dict[str, Any]] = []
+    for item in whitelist:
+        host = _extract_host_or_ip(item)
+        if not host:
+            continue
+        for cidr in _resolve_local_host(host):
+            to_rules.append({"ipBlock": {"cidr": cidr}})
+    if not to_rules:
+        raise ValueError(
+            "Local whitelist mode requires at least one valid local or private destination."
+        )
     return [
         _build_dns_egress_rule(),
-        {"to": local_to or [{"podSelector": {}}]},
+        {"to": to_rules},
     ]
 
 
@@ -153,6 +221,10 @@ class SandboxNetworkConfig(BaseModel):
     mode: SandboxNetworkMode = Field(default=SandboxNetworkMode.ISOLATED)
     public_whitelist: list[str] = Field(default_factory=list)
     local_whitelist: list[str] = Field(default_factory=list)
+    egress_proxy: str | None = Field(
+        default=None,
+        description="Optional egress proxy URL for container containment in whitelist modes.",
+    )
     sandbox_namespace: str = Field(default=DEFAULT_SANDBOX_NAMESPACE)
 
     @field_validator("mode", mode="before")
@@ -202,8 +274,20 @@ class SandboxNetworkConfig(BaseModel):
             return ["--network=none"]
         if self.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
             return [f"--network={CONST_SANDBOX_DOCKER_INTERNAL_NET}"]
-        if self.mode == SandboxNetworkMode.LOCAL_WHITELIST:
-            return ["--network=bridge", "--add-host=host.docker.internal:host-gateway"]
+        if self.mode in (SandboxNetworkMode.PUBLIC_WHITELIST, SandboxNetworkMode.LOCAL_WHITELIST):
+            if self.egress_proxy:
+                return [
+                    f"--network={CONST_SANDBOX_DOCKER_INTERNAL_NET}",
+                    "-e",
+                    f"HTTP_PROXY={self.egress_proxy}",
+                    "-e",
+                    f"HTTPS_PROXY={self.egress_proxy}",
+                    "-e",
+                    f"ALL_PROXY={self.egress_proxy}",
+                ]
+            raise ValueError(
+                f"Docker engine cannot enforce outbound egress boundaries for mode '{self.mode.value}' without an egress proxy; deploy via Kubernetes NetworkPolicy or configure egress_proxy."
+            )
         return ["--network=bridge"]
 
     def to_k8s_network_policy(
@@ -238,7 +322,7 @@ class SandboxNetworkConfig(BaseModel):
             return policy
 
         if self.mode == SandboxNetworkMode.PUBLIC_WHITELIST:
-            policy["spec"]["egress"] = _build_public_whitelist_egress()
+            policy["spec"]["egress"] = _build_public_whitelist_egress(self.public_whitelist)
             return policy
 
         if self.mode == SandboxNetworkMode.LOCAL_WHITELIST:

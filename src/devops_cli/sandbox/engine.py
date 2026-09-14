@@ -270,9 +270,22 @@ class WorkloadSandboxEngine:
             kwargs["network_mode"] = "none"
         elif config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
             kwargs["network_mode"] = CONST_SANDBOX_DOCKER_INTERNAL_NET
-        elif config.network_config.mode == SandboxNetworkMode.LOCAL_WHITELIST:
-            kwargs["network_mode"] = "bridge"
-            kwargs["extra_hosts"] = {"host.docker.internal": "host-gateway"}
+        elif config.network_config.mode in (
+            SandboxNetworkMode.PUBLIC_WHITELIST,
+            SandboxNetworkMode.LOCAL_WHITELIST,
+        ):
+            if not config.network_config.egress_proxy:
+                raise SandboxValidationError(
+                    f"Docker engine cannot enforce egress whitelist boundaries for mode '{config.network_config.mode.value}' without an egress proxy. Use isolated or sandbox_namespace mode, or deploy to Kubernetes where NetworkPolicy enforces egress boundaries."
+                )
+            kwargs["network_mode"] = CONST_SANDBOX_DOCKER_INTERNAL_NET
+            proxy_url = config.network_config.egress_proxy or ""
+            kwargs["environment"] = {
+                "HTTP_PROXY": proxy_url,
+                "HTTPS_PROXY": proxy_url,
+                "ALL_PROXY": proxy_url,
+                **config.env,
+            }
         else:
             kwargs["network_mode"] = "bridge"
         return kwargs
