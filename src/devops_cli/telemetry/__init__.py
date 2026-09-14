@@ -26,6 +26,16 @@ from devops_cli.telemetry.logging_bridge import (
     attach_trace_correlation_filter,
     get_current_trace_correlation,
 )
+from devops_cli.telemetry.memory_profiler import (
+    MemoryAllocationItem,
+    MemoryProfiler,
+    MemoryProfileReport,
+    count_open_sockets,
+    profile_custom_callable,
+    profile_fastmcp_workload,
+    profile_http_pool_workload,
+    run_memory_profiler,
+)
 from devops_cli.telemetry.metrics import (
     GLOBAL_METRICS,
     InMemoryMetricsRegistry,
@@ -58,6 +68,14 @@ from devops_cli.telemetry.waterfall import (
 __all__ = [
     "AgentTurnHandle",
     "GLOBAL_METRICS",
+    "MemoryAllocationItem",
+    "MemoryProfileReport",
+    "MemoryProfiler",
+    "count_open_sockets",
+    "profile_custom_callable",
+    "profile_fastmcp_workload",
+    "profile_http_pool_workload",
+    "run_memory_profiler",
     "ContextPropagatingThreadPoolExecutor",
     "InMemoryMetricsRegistry",
     "LogfireBridge",
