@@ -331,6 +331,8 @@ def test_cataloged_hallucinations_matching() -> None:
     assert "HALLUCINATION-PATHLIB-RESOLVE-FILENOTFOUND" in entry_ids
     assert "HALLUCINATION-HEALTH-ENDPOINT-VERSION" in entry_ids
     assert "HALLUCINATION-STREAM-EVENT-TIMESTAMP" in entry_ids
+    assert "HALLUCINATION-NONEXISTENT-FIXER-PAYLOAD" in entry_ids
+    assert "HALLUCINATION-CI-ALLOW-BLOCKED-STATE" in entry_ids
 
     # Uninitialized variable above loop
     uninit_finding = Finding(
@@ -391,3 +393,27 @@ def test_cataloged_hallucinations_matching() -> None:
     cwe400_match = is_common_hallucination(cwe400_finding, threshold=0.4)
     assert cwe400_match is not None
     assert cwe400_match.hallucination.id == "HALLUCINATION-LOCAL-FILE-OR-COLLECTION-CWE400"
+
+    # Non-Existent AI Fixer Module & Unbounded Repair Payload Claim
+    fixer_finding = Finding(
+        title="Unbounded payload in repair_json_string in ai/fixer.py",
+        description="ai/fixer.py repair_json_string has unbounded payload leading to memory exhaustion.",
+        location="src/devops_cli/ai/fixer.py:20",
+        severity="HIGH",
+        status="UNVERIFIED",
+    )
+    fixer_match = is_common_hallucination(fixer_finding, threshold=0.4)
+    assert fixer_match is not None
+    assert fixer_match.hallucination.id == "HALLUCINATION-NONEXISTENT-FIXER-PAYLOAD"
+
+    # CI Workflow Allow Blocked Merge State False Bypass Claim
+    ci_finding = Finding(
+        title="Insecure bypass with --allow-blocked-state in CI",
+        description="check-readiness --allow-blocked-state allows bypass of blocked merge state in CI.",
+        location=".github/workflows/ci.yml:45",
+        severity="HIGH",
+        status="UNVERIFIED",
+    )
+    ci_match = is_common_hallucination(ci_finding, threshold=0.4)
+    assert ci_match is not None
+    assert ci_match.hallucination.id == "HALLUCINATION-CI-ALLOW-BLOCKED-STATE"

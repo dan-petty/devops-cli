@@ -625,6 +625,7 @@ class PRCommandHelp:
 @dataclass(frozen=True)
 class GHCommandHelp:
     app: str = "GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation."
+    api: str = "Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching."
     rate_limit: str = (
         "Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."
     )

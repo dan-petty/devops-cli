@@ -105,6 +105,13 @@ def normalize_jaeger_spans(jaeger_data: dict[str, Any]) -> list[dict[str, Any]]:
     return spans_out
 
 
+def _is_unsafe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Check whether an IP address targets link-local, cloud metadata, or non-loopback private networks."""
+    return (
+        ip.is_link_local or str(ip).startswith("169.254.") or (ip.is_private and not ip.is_loopback)
+    )
+
+
 def _resolve_safe_jaeger_target(
     parsed: urllib.parse.ParseResult,
 ) -> tuple[bool, str | None]:
@@ -118,7 +125,7 @@ def _resolve_safe_jaeger_target(
         return True, None
     try:
         ip = ipaddress.ip_address(clean)
-        if ip.is_link_local or str(ip).startswith("169.254."):
+        if _is_unsafe_ip(ip):
             return True, None
         return False, str(ip)
     except ValueError:
@@ -130,10 +137,8 @@ def _resolve_safe_jaeger_target(
         addr_info = socket.getaddrinfo(clean, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
         for _, _, _, _, sockaddr in addr_info:
             ip_str = sockaddr[0] if isinstance(sockaddr[0], str) else ""
-            if ip_str:
-                parsed_ip = ipaddress.ip_address(ip_str)
-                if parsed_ip.is_link_local or ip_str.startswith("169.254."):
-                    return True, None
+            if ip_str and _is_unsafe_ip(ipaddress.ip_address(ip_str)):
+                return True, None
         if addr_info and isinstance(addr_info[0][4][0], str):
             return False, addr_info[0][4][0]
     except socket.gaierror, OSError, ValueError:

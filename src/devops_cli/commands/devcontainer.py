@@ -403,6 +403,13 @@ def _parse_mount_spec(mount: str | dict[str, str], workspace_dir: Path) -> tuple
     if not raw_target or not isinstance(raw_target, str):
         return None
 
+    from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+
+    try:
+        validate_no_path_traversal(raw_target, label="mount target")
+    except Exception:
+        return None
+
     resolved = (
         raw_target.replace("${containerWorkspaceFolder}", str(workspace_dir))
         .replace("${workspaceFolder}", str(workspace_dir))
@@ -415,7 +422,11 @@ def _parse_mount_spec(mount: str | dict[str, str], workspace_dir: Path) -> tuple
     if resolved.startswith("~"):
         resolved = str(Path.home() / resolved[1:].lstrip("/"))
 
-    return Path(resolved).resolve(), mount_type
+    resolved_path = Path(resolved).resolve()
+    if is_forbidden_system_path(resolved_path):
+        return None
+
+    return resolved_path, mount_type
 
 
 def _extract_dc_mounts(dc_file: Path, workspace_dir: Path) -> list[tuple[Path, str]]:
@@ -778,8 +789,10 @@ def _wait_for_docker_daemon(timeout_seconds: int = 45) -> bool:
 def _start_minikube_cluster(dry_run: bool) -> tuple[bool, str]:
     """Start Minikube cluster with GPU support fallback to CPU."""
     from devops_cli.commands.k8s.cluster_runtime import _start_minikube
+    from devops_cli.security.sanitizer import mask_secrets
 
-    success, msg = _start_minikube(dry_run=dry_run)
+    success, raw_msg = _start_minikube(dry_run=dry_run)
+    msg = mask_secrets(raw_msg)[:256] if raw_msg else ""
     if not success and not msg.startswith("Warning:"):
         return False, f"Warning: {msg}"
     return success, msg

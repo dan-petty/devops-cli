@@ -703,7 +703,9 @@ def calculate_hallucination_similarity(
     """
     finding_text = f"{finding.title} {finding.description or ''}"
     loc_file = finding.location.split(":")[0].strip()
-    file_matched = _check_file_pattern_match(Path(loc_file).name, entry.file_patterns)
+    file_matched = _check_file_pattern_match(
+        Path(loc_file).name, entry.file_patterns
+    ) or _check_file_pattern_match(loc_file, entry.file_patterns)
 
     # Check explicit signature patterns first
     sig_matches = _check_signature_match(finding_text, entry.signature_patterns)

@@ -194,6 +194,9 @@ def test_query_jaeger_trace_security_validation() -> None:
     valid_id = "4bf92f3577b34da6a3ce929d0e0e4736"
     assert query_jaeger_trace(valid_id, jaeger_url="ftp://example.com") == []
     assert query_jaeger_trace(valid_id, jaeger_url="http://169.254.169.254") == []
+    assert query_jaeger_trace(valid_id, jaeger_url="http://10.0.0.1:16686") == []
+    assert query_jaeger_trace(valid_id, jaeger_url="http://192.168.1.1:16686") == []
+    assert query_jaeger_trace(valid_id, jaeger_url="http://172.16.0.1:16686") == []
 
 
 def test_sandbox_traces_help() -> None:
@@ -376,3 +379,80 @@ def test_query_jaeger_trace_dns_metadata_blocked(monkeypatch: pytest.MonkeyPatch
         jaeger_url="http://metadata-spoof.example.com:16686",
     )
     assert spans == []
+
+
+def test_is_blocked_metadata_host() -> None:
+    """Verify _is_blocked_metadata_host flags link-local and private IPs while allowing loopback."""
+    from devops_cli.telemetry.waterfall import _is_blocked_metadata_host
+
+    assert _is_blocked_metadata_host("169.254.169.254") is True
+    assert _is_blocked_metadata_host("10.0.0.1") is True
+    assert _is_blocked_metadata_host("192.168.1.1") is True
+    assert _is_blocked_metadata_host("127.0.0.1") is False
+    assert _is_blocked_metadata_host("localhost") is False
+
+
+def test_query_jaeger_trace_error_status_and_network_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify query_jaeger_trace returns empty list on HTTP non-200 and request errors."""
+    import httpx2
+
+    test_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
+
+    # Test HTTP 500 error
+    mock_resp_500 = MagicMock()
+    mock_resp_500.status_code = 500
+
+    class MockClient500:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def __enter__(self) -> MockClient500:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+        def get(self, *args: Any, **kwargs: Any) -> Any:
+            return mock_resp_500
+
+    monkeypatch.setattr("httpx2.Client", MockClient500)
+    assert query_jaeger_trace(test_trace_id, jaeger_url="http://localhost:16686") == []
+
+    # Test network exception
+    class MockClientError:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def __enter__(self) -> MockClientError:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+        def get(self, *args: Any, **kwargs: Any) -> Any:
+            raise httpx2.ConnectError("Connection refused")
+
+    monkeypatch.setattr("httpx2.Client", MockClientError)
+    assert query_jaeger_trace(test_trace_id, jaeger_url="http://localhost:16686") == []
+
+
+def test_resolve_trace_spans_with_jaeger_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify resolve_trace_spans retrieves spans from Jaeger when not in memory buffer."""
+    from devops_cli.telemetry.waterfall import resolve_trace_spans
+
+    test_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
+    mock_spans = [{"traceId": test_trace_id, "name": "root"}]
+
+    monkeypatch.setattr(
+        "devops_cli.telemetry.waterfall.query_jaeger_trace",
+        lambda tid, jaeger_url=None: mock_spans if tid == test_trace_id else [],
+    )
+    tid, spans = resolve_trace_spans(test_trace_id)
+    assert tid == test_trace_id
+    assert spans == mock_spans
+
+    tid_unknown, spans_empty = resolve_trace_spans("00000000000000000000000000000000")
+    assert tid_unknown == "00000000000000000000000000000000"
+    assert spans_empty == []
