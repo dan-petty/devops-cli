@@ -416,6 +416,13 @@ def release_prepare(
             help=HELP.release.breaking,
         ),
     ] = False,
+    draft: Annotated[
+        bool,
+        typer.Option(
+            "--draft/--no-draft",
+            help=HELP.options.draft,
+        ),
+    ] = True,
     root: Annotated[
         Path | None,
         typer.Option("--root", "-r", help=HELP.options.root),
@@ -441,6 +448,7 @@ def release_prepare(
                 "sync_docs": sync_docs,
                 "update_changelog": update_changelog,
                 "create_pr": create_pr,
+                "draft": draft,
                 "release_type": release_type,
                 "breaking": breaking,
             },
@@ -454,7 +462,7 @@ def release_prepare(
                     "version": clean_version,
                     "branch": f"release/v{clean_version}",
                     "base": "main",
-                    "draft": False,
+                    "draft": draft,
                     "labels": "release",
                     "push": True,
                     "release_type": release_type,
@@ -498,6 +506,7 @@ def release_prepare(
     if create_pr:
         release_pr(
             version=clean_version,
+            draft=draft,
             release_type=release_type,
             breaking=breaking,
             root=root,
@@ -507,6 +516,122 @@ def release_prepare(
 # =============================================================================
 # Command: release pr
 # =============================================================================
+
+
+def _validate_release_version(version: str | None, repo_root: Path) -> str:
+    """Validate and normalize release semantic version string."""
+    target_ver = (version or _get_pyproject_version(repo_root) or "").lstrip("v").strip()
+    if not target_ver or not _SEMVER_RE.match(target_ver):
+        err = MESSAGES.release.invalid_version.format(version=target_ver or version or "")
+        _get("print_error")(err, prefix=False)
+        raise typer.Exit(1)
+    return target_ver
+
+
+def _checkout_release_branch(branch_name: str, repo_root: Path) -> None:
+    """Checkout a new or existing git release branch."""
+    _get("print_info")(
+        MESSAGES.release.creating_release_branch.format(branch=branch_name), prefix=False
+    )
+    proc = _get("run_subprocess")(["git", "checkout", "-B", branch_name], cwd=repo_root)
+    if proc.returncode != 0:
+        _get("print_error")(
+            f"Failed to create release branch {branch_name}: {proc.stderr}", prefix=False
+        )
+        raise typer.Exit(1)
+    _get("print_success")(MESSAGES.release.branch_created.format(branch=branch_name), prefix=False)
+
+
+def _commit_and_push_release_branch(
+    branch_name: str, release_title: str, push: bool, repo_root: Path
+) -> None:
+    """Stage release files, create release commit, and optionally push to remote."""
+    _get("run_subprocess")(
+        [
+            "git",
+            "add",
+            CONST_PYPROJECT_FILENAME,
+            str(CONST_INIT_PY_PATH),
+            "CHANGELOG.md",
+            CONST_README_FILENAME,
+            f"{CONST_DOCS_DIR_NAME}/",
+        ],
+        cwd=repo_root,
+    )
+    commit_proc = _get("run_subprocess")(["git", "commit", "-m", release_title], cwd=repo_root)
+    if commit_proc.returncode != 0 and "nothing to commit" not in str(commit_proc.stdout):
+        _get("print_warning")(f"Note: {commit_proc.stderr or commit_proc.stdout}", prefix=False)
+
+    if push:
+        push_proc = _get("run_subprocess")(
+            ["git", "push", "-u", "origin", branch_name], cwd=repo_root
+        )
+        if push_proc.returncode != 0:
+            _get("print_warning")(
+                f"Warning: Could not push branch to remote: {push_proc.stderr}", prefix=False
+            )
+
+
+def _build_release_pr_command(
+    pr_title: str,
+    pr_body: str,
+    base: str,
+    branch_name: str,
+    draft: bool,
+    labels: str,
+) -> list[str]:
+    """Construct command argument list for opening release pull request."""
+    pr_cmd = [
+        "gh",
+        "pr",
+        "create",
+        "--title",
+        pr_title,
+        "--body",
+        pr_body,
+        "--base",
+        base,
+        "--head",
+        branch_name,
+    ]
+    if draft:
+        pr_cmd.append("--draft")
+    if labels:
+        cleaned_labels = [lbl.strip() for lbl in labels.split(",") if lbl.strip()]
+        for lbl in cleaned_labels:
+            if not re.match(r"^[a-zA-Z0-9_\- /.:]+$", lbl):
+                _get("print_error")(f"Invalid label '{lbl}'.", prefix=False)
+                raise typer.Exit(1)
+            pr_cmd.extend(["--label", lbl])
+    return pr_cmd
+
+
+def _execute_release_pr(
+    pr_cmd: list[str],
+    branch_name: str,
+    labels: str,
+    repo_root: Path,
+) -> None:
+    """Execute gh pr create with label fallback if labels fail."""
+    pr_proc = _get("run_subprocess")(pr_cmd, cwd=repo_root)
+    if pr_proc.returncode != 0 and labels and "label" in (pr_proc.stderr or "").lower():
+        fallback_cmd = [
+            arg
+            for idx, arg in enumerate(pr_cmd)
+            if arg != "--label" and (idx == 0 or pr_cmd[idx - 1] != "--label")
+        ]
+        pr_proc = _get("run_subprocess")(fallback_cmd, cwd=repo_root)
+
+    if pr_proc.returncode == 0:
+        pr_url = str(pr_proc.stdout).strip()
+        _get("print_success")(MESSAGES.release.pr_created.format(url=pr_url), prefix=False)
+    else:
+        err = str(pr_proc.stderr).strip() or str(pr_proc.stdout).strip()
+        _get("print_warning")(MESSAGES.release.pr_failed.format(error=err), prefix=False)
+        _get("print_info")(
+            f"Branch '{branch_name}' is ready. You can manually open the PR on GitHub.",
+            prefix=False,
+        )
 
 
 @app.command("pr")
@@ -521,8 +646,8 @@ def release_pr(
     ] = CONST_GIT_MAIN_BRANCH,
     draft: Annotated[
         bool,
-        typer.Option("--draft", help=HELP.options.draft),
-    ] = False,
+        typer.Option("--draft/--no-draft", help=HELP.options.draft),
+    ] = True,
     labels: Annotated[
         str,
         typer.Option("--labels", "-l", help=HELP.options.labels),
@@ -554,13 +679,7 @@ def release_pr(
 ) -> None:
     """Create release branch, commit version bumps, and open a GitHub Release Pull Request."""
     repo_root = _get_project_root(root)
-    target_ver = (version or _get_pyproject_version(repo_root) or "").lstrip("v").strip()
-    clean_version = target_ver
-    if not clean_version or not _SEMVER_RE.match(clean_version):
-        err = MESSAGES.release.invalid_version.format(version=target_ver or version or "")
-        _get("print_error")(err, prefix=False)
-        raise typer.Exit(1)
-
+    target_ver = _validate_release_version(version, repo_root)
     branch_name = f"release/v{target_ver}"
     release_title = _format_release_title(target_ver, prefix=release_type, breaking=breaking)
 
@@ -583,50 +702,9 @@ def release_pr(
         )
         return
 
-    _get("print_info")(
-        MESSAGES.release.creating_release_branch.format(branch=branch_name), prefix=False
-    )
+    _checkout_release_branch(branch_name, repo_root)
+    _commit_and_push_release_branch(branch_name, release_title, push, repo_root)
 
-    # 1. Checkout new release branch
-    branch_proc = _get("run_subprocess")(["git", "checkout", "-B", branch_name], cwd=repo_root)
-    if branch_proc.returncode != 0:
-        _get("print_error")(
-            f"Failed to create release branch {branch_name}: {branch_proc.stderr}", prefix=False
-        )
-        raise typer.Exit(1)
-    _get("print_success")(MESSAGES.release.branch_created.format(branch=branch_name), prefix=False)
-
-    # 2. Stage and commit release files
-    _get("run_subprocess")(
-        [
-            "git",
-            "add",
-            CONST_PYPROJECT_FILENAME,
-            str(CONST_INIT_PY_PATH),
-            "CHANGELOG.md",
-            CONST_README_FILENAME,
-            f"{CONST_DOCS_DIR_NAME}/",
-        ],
-        cwd=repo_root,
-    )
-    commit_proc = _get("run_subprocess")(
-        ["git", "commit", "-m", release_title],
-        cwd=repo_root,
-    )
-    if commit_proc.returncode != 0 and "nothing to commit" not in str(commit_proc.stdout):
-        _get("print_warning")(f"Note: {commit_proc.stderr or commit_proc.stdout}", prefix=False)
-
-    # 3. Push branch if requested
-    if push:
-        push_proc = _get("run_subprocess")(
-            ["git", "push", "-u", "origin", branch_name], cwd=repo_root
-        )
-        if push_proc.returncode != 0:
-            _get("print_warning")(
-                f"Warning: Could not push branch to remote: {push_proc.stderr}", prefix=False
-            )
-
-    # 4. Open GitHub Pull Request via gh CLI
     _get("print_info")(
         MESSAGES.release.creating_release_pr.format(version=target_ver), prefix=False
     )
@@ -644,49 +722,20 @@ def release_pr(
         "- [x] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`\n"
     )
 
-    pr_cmd = [
-        "gh",
-        "pr",
-        "create",
-        "--title",
-        pr_title,
-        "--body",
-        pr_body,
-        "--base",
-        base,
-        "--head",
-        branch_name,
-    ]
-
-    if draft:
-        pr_cmd.append("--draft")
-    if labels:
-        cleaned_labels = [lbl.strip() for lbl in labels.split(",") if lbl.strip()]
-        for lbl in cleaned_labels:
-            if not re.match(r"^[a-zA-Z0-9_\- /.:]+$", lbl):
-                _get("print_error")(f"Invalid label '{lbl}'.", prefix=False)
-                raise typer.Exit(1)
-            pr_cmd.extend(["--label", lbl])
-
-    pr_proc = _get("run_subprocess")(pr_cmd, cwd=repo_root)
-    if pr_proc.returncode != 0 and labels and "label" in (pr_proc.stderr or "").lower():
-        fallback_cmd = [
-            arg
-            for idx, arg in enumerate(pr_cmd)
-            if arg != "--label" and (idx == 0 or pr_cmd[idx - 1] != "--label")
-        ]
-        pr_proc = _get("run_subprocess")(fallback_cmd, cwd=repo_root)
-
-    if pr_proc.returncode == 0:
-        pr_url = str(pr_proc.stdout).strip()
-        _get("print_success")(MESSAGES.release.pr_created.format(url=pr_url), prefix=False)
-    else:
-        err = str(pr_proc.stderr).strip() or str(pr_proc.stdout).strip()
-        _get("print_warning")(MESSAGES.release.pr_failed.format(error=err), prefix=False)
-        _get("print_info")(
-            f"Branch '{branch_name}' is ready. You can manually open the PR on GitHub.",
-            prefix=False,
-        )
+    pr_cmd = _build_release_pr_command(
+        pr_title=pr_title,
+        pr_body=pr_body,
+        base=base,
+        branch_name=branch_name,
+        draft=draft,
+        labels=labels,
+    )
+    _execute_release_pr(
+        pr_cmd=pr_cmd,
+        branch_name=branch_name,
+        labels=labels,
+        repo_root=repo_root,
+    )
 
 
 # =============================================================================
