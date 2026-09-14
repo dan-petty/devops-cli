@@ -16,7 +16,15 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import ERRORS, HELP, MESSAGES
-from devops_cli.output import format_duration, print_error, print_info, print_muted, print_success
+from devops_cli.output import (
+    format_duration,
+    print_error,
+    print_info,
+    print_muted,
+    print_success,
+    write_stderr,
+    write_stdout,
+)
 from devops_cli.telemetry.memory_profiler import (
     MemoryProfileReport,
     MemoryProfilerError,
@@ -348,18 +356,10 @@ def test_sandbox(
 
     print_info(f"Running command in sandbox ({image}, network={cfg.network_mode})...")
     res = sandbox_runner.run()
-    import sys
-
-    from devops_cli.security.sanitizer import mask_secrets
-
-    clean_out = mask_secrets(res.stdout)
-    clean_err = mask_secrets(res.stderr)
-    if clean_out:
-        sys.stdout.write(clean_out)
-        sys.stdout.flush()
-    if clean_err:
-        sys.stderr.write(clean_err)
-        sys.stderr.flush()
+    if res.stdout:
+        write_stdout(res.stdout)
+    if res.stderr:
+        write_stderr(res.stderr)
 
     if res.exit_code != 0:
         raise typer.Exit(res.exit_code)

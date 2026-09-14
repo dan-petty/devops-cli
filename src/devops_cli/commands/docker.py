@@ -25,6 +25,8 @@ from devops_cli.output import (
     print_success,
     print_table,
     render_dry_run_result,
+    write_stderr,
+    write_stdout,
 )
 from devops_cli.output import (
     format_bytes as _format_bytes,
@@ -454,18 +456,10 @@ def docker_sandbox(
 
     print_info(f"Running command in sandbox ({image}, network={cfg.network_mode})...")
     res = sandbox_runner.run()
-    import sys
-
-    from devops_cli.security.sanitizer import mask_secrets
-
-    clean_out = mask_secrets(res.stdout)
-    clean_err = mask_secrets(res.stderr)
-    if clean_out:
-        sys.stdout.write(clean_out)
-        sys.stdout.flush()
-    if clean_err:
-        sys.stderr.write(clean_err)
-        sys.stderr.flush()
+    if res.stdout:
+        write_stdout(res.stdout)
+    if res.stderr:
+        write_stderr(res.stderr)
 
     if res.exit_code != 0:
         raise typer.Exit(res.exit_code)
