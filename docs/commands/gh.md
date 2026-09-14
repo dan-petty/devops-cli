@@ -863,6 +863,8 @@ devops gh pr check-readiness [OPTIONS] <number>
 |---|---|---|---|
 | `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
 | `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
+| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
+| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops gh pr threads`
@@ -935,5 +937,26 @@ devops gh pr threads unresolve <thread_id>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<thread_id>` | `string` | Yes | Review thread GraphQL ID (e.g. PRRT_...). |
+
+#### `devops gh pr threads resolve-all`
+
+**Resolve all or replied review discussion threads for a pull request.**
+
+```bash
+devops gh pr threads resolve-all [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received one or more in-thread replies. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---

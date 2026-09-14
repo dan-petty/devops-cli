@@ -590,6 +590,16 @@ class PRCommandHelp:
         "Programmatically mark one or more PR review discussion threads as resolved."
     )
     threads_unresolve: str = "Reopen a previously resolved PR review discussion thread."
+    threads_resolve_all: str = (
+        "Resolve all or replied review discussion threads for a pull request."
+    )
+    threads_only_replied: str = (
+        "Only resolve threads that have received one or more in-thread replies."
+    )
+    check_readiness_auto_resolve: str = (
+        "Automatically resolve review discussion threads that have received replies."
+    )
+    allow_replied_threads: str = "Treat review discussion threads that have received replies as addressed rather than blocking."
     thread_id: str = "Review thread GraphQL ID (e.g. PRRT_...)."
     thread_ids: str = "One or more review thread GraphQL IDs to resolve."
     unresolved_only: str = "Filter to display only unresolved review discussion threads."
@@ -955,6 +965,18 @@ class TestCommandHelp:
     fail_fast: str = "Stop immediately on the first test failure."
     verbose: str = "Enable verbose pytest output (-vv)."
     dry_run: str = "Simulate test execution."
+    profile_memory: str = (
+        "Deterministic async memory and connection pool profiler using tracemalloc."
+    )
+    profile_target: str = (
+        "Target workload: 'http-pool', 'fastmcp', or importable 'module:function'."
+    )
+    profile_iterations: str = "Number of iterations to execute during profiling."
+    profile_top: str = "Number of top memory allocation lines to display."
+    profile_max_peak_mb: str = "Maximum acceptable peak memory threshold in megabytes."
+    profile_fail_on_leak: str = "Exit with non-zero status if socket leaks are detected."
+    profile_output: str = "File path to export structured memory profiling report."
+    json: str = "Format report output as JSON."
 
 
 @dataclass(frozen=True)

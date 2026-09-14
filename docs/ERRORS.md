@@ -59,6 +59,7 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `LIBRARY_INGESTION_ERROR` | `1` | Ai | Base exception for package introspection and library ingestion errors. |
 | `LIBRARY_NOT_FOUND_ERROR` | `1` | Ai | Raised when target package cannot be imported or found in the environment. |
 | `LOGFIRE_CONFIG_ERROR` | `1` | Telemetry | Raised when Logfire configuration fails or credentials cannot be retrieved. |
+| `PROFILER_ERROR` | `1` | Devops_cli.telemetry.memory_profiler | Domain exception raised when memory profiling target resolution or execution fails. |
 | `MODEL_API_ERROR` | `22` | Ai | Raised when a model provider API request fails. |
 | `MODEL_BUNDLE_ERROR` | `1` | Ai | Raised when an AI model bundle cannot be located, resolved, or loaded. |
 | `MODEL_HTTP_ERROR` | `23` | Ai | Raised when a model provider response has a status code of 4xx or 5xx. |

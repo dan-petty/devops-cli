@@ -20,7 +20,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-      pull-requests: read
+      pull-requests: write
 
     steps:
       - name: Check out repository
@@ -60,7 +60,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          uv run devops pr check-readiness ${{ github.event.pull_request.number }} --allow-blocked-state
+          uv run devops pr check-readiness ${{ github.event.pull_request.number }} --allow-blocked-state --auto-resolve --allow-replied-threads
 
       - name: Linting (Ruff)
         run: uv run ruff check .

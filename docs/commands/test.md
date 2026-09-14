@@ -84,3 +84,31 @@ devops test sandbox [OPTIONS] <command>
 | `--dry-run` | `boolean` | - | Simulate test execution. |
 
 ---
+
+## `devops test profile-memory`
+
+**Deterministic async memory and connection pool profiler using tracemalloc.**
+
+```bash
+devops test profile-memory [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `string` | No | Target workload: 'http-pool', 'fastmcp', or importable 'module:function'. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--iterations`, `-i` | `integer` | `10` | Number of iterations to execute during profiling. |
+| `--top`, `-t` | `integer` | `10` | Number of top memory allocation lines to display. |
+| `--max-peak-mb` | `float` | `50.0` | Maximum acceptable peak memory threshold in megabytes. |
+| `--fail-on-leak`, `--ignore-leak` | `boolean` | `True` | Exit with non-zero status if socket leaks are detected. |
+| `--output`, `-o` | `path` | - | File path to export structured memory profiling report. |
+| `--json` | `boolean` | - | Format report output as JSON. |
+| `--dry-run` | `boolean` | - | Simulate test execution. |
+
+---

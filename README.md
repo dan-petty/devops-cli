@@ -372,6 +372,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 | **test** | `devops test run [OPTIONS] <target>` | Execute pytest test suite with optional git-diff aware test selection. |
 |  | `devops test load [OPTIONS] <script_path>` | Execute developer-centric load, spike, and latency tests against services using k6. |
 |  | `devops test sandbox [OPTIONS] <command>` | Execute test command inside an isolated, disposable Docker container sandbox. |
+|  | `devops test profile-memory [OPTIONS] <target>` | Deterministic async memory and connection pool profiler using tracemalloc. |
 | **pipeline** | `devops pipeline [OPTIONS] <pipeline_path>` | Execute reproducible, containerized developer pipelines with Dagger. |
 | **vault** | `devops vault status [OPTIONS]` | Inspect HashiCorp Vault cluster health and initialization status. |
 |  | `devops vault get [OPTIONS] <path>` | Fetch secret value from Vault or OS Keyring fallback. |

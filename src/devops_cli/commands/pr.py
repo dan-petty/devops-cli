@@ -1051,6 +1051,31 @@ def _check_mergeable_blocker(
     return None
 
 
+def _evaluate_threads_blockers(
+    unresolved: list[Any],
+    pr_num: int,
+    allow_replied_threads: bool,
+) -> list[str]:
+    """Evaluate unresolved review threads and return blocker error messages."""
+    if not unresolved:
+        return []
+
+    if allow_replied_threads:
+        unreplied = [t for t in unresolved if len(t.comments) <= 1]
+        replied = [t for t in unresolved if len(t.comments) > 1]
+        if replied:
+            print_info(
+                f"PR #{pr_num} has {len(replied)} review discussion thread(s) with replies awaiting reviewer resolution."
+            )
+        if unreplied:
+            _render_threads_table(unreplied)
+            return [f"PR #{pr_num} has {len(unreplied)} unreplied review discussion thread(s)."]
+        return []
+
+    _render_threads_table(unresolved)
+    return [f"PR #{pr_num} has {len(unresolved)} unresolved review discussion thread(s)."]
+
+
 def _evaluate_pr_blockers(
     pr_data: dict[str, Any],
     pr_num: int,
@@ -1058,6 +1083,7 @@ def _evaluate_pr_blockers(
     repo_name: str,
     require_ready: bool,
     allow_blocked_state: bool = False,
+    allow_replied_threads: bool = False,
 ) -> list[str]:
     """Inspect PR data and unresolved discussion threads for merge blockers."""
     from devops_cli.exceptions.git import GitHubOperationError
@@ -1083,12 +1109,9 @@ def _evaluate_pr_blockers(
     except GitHubOperationError as exc:
         print_warning(f"Could not retrieve review threads for PR #{pr_num}: {exc}")
 
-    if unresolved:
-        blockers.append(
-            f"PR #{pr_num} has {len(unresolved)} unresolved review discussion thread(s)."
-        )
-        _render_threads_table(unresolved)
-
+    blockers.extend(
+        _evaluate_threads_blockers(unresolved, pr_num, allow_replied_threads=allow_replied_threads)
+    )
     return blockers
 
 
@@ -1107,6 +1130,20 @@ def check_readiness(
         typer.Option(
             "--allow-blocked-state",
             help="Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending)",
+        ),
+    ] = False,
+    auto_resolve: Annotated[
+        bool,
+        typer.Option(
+            "--auto-resolve",
+            help=HELP.pr.check_readiness_auto_resolve,
+        ),
+    ] = False,
+    allow_replied_threads: Annotated[
+        bool,
+        typer.Option(
+            "--allow-replied-threads",
+            help=HELP.pr.allow_replied_threads,
         ),
     ] = False,
     repo: Annotated[
@@ -1131,6 +1168,17 @@ def check_readiness(
         print_error(f"Unable to retrieve details for PR #{pr_num}.")
         raise typer.Exit(1)
 
+    if auto_resolve:
+        from devops_cli.github.pr_threads import resolve_all_pr_review_threads
+
+        resolved = resolve_all_pr_review_threads(owner, repo_name, pr_num, only_replied=True)
+        if resolved:
+            successful = [r for r in resolved if r.success and r.is_resolved]
+            if successful:
+                print_success(
+                    f"Auto-resolved {len(successful)} replied review discussion thread(s)."
+                )
+
     blockers = _evaluate_pr_blockers(
         pr_data,
         pr_num,
@@ -1138,6 +1186,7 @@ def check_readiness(
         repo_name,
         require_ready,
         allow_blocked_state=allow_blocked_state,
+        allow_replied_threads=allow_replied_threads,
     )
     if blockers:
         for b in blockers:
@@ -1246,3 +1295,31 @@ def unresolve_thread(
     res = unresolve_pr_review_thread(thread_id)
     if res.success:
         print_success(f"Thread [bold]{thread_id}[/bold] reopened (unresolved).")
+
+
+@threads_app.command("resolve-all")
+def resolve_all_threads_cmd(
+    number: Annotated[int, typer.Argument(help=HELP.pr.number)],
+    only_replied: Annotated[
+        bool,
+        typer.Option("--only-replied/--all", help=HELP.pr.threads_only_replied),
+    ] = True,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.pr.target_repo)] = None,
+) -> None:
+    """Resolve all or replied review discussion threads for a pull request."""
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.github.pr_threads import resolve_all_pr_review_threads
+
+    target_repo = repo or get_repo_origin_name()
+    if not target_repo or "/" not in target_repo:
+        print_error("Target repository must be in OWNER/REPO format.")
+        raise typer.Exit(1)
+
+    owner, repo_name = target_repo.split("/", 1)
+    results = resolve_all_pr_review_threads(owner, repo_name, number, only_replied=only_replied)
+    if not results:
+        print_info(f"No unresolved candidate review threads found on PR #{number}.")
+        return
+
+    successful = [r for r in results if r.success and r.is_resolved]
+    print_success(f"Resolved {len(successful)}/{len(results)} review thread(s) on PR #{number}.")

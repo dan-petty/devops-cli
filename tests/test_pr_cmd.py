@@ -204,6 +204,34 @@ class TestPrCommands:
             assert res.exit_code == 0
             assert "reopened (unresolved)" in res.output
 
+    def test_threads_resolve_all_success(self, runner: CliRunner) -> None:
+        from devops_cli.github.pr_threads import ThreadResolutionResult
+
+        mock_res = ThreadResolutionResult(thread_id="PRRT_1", is_resolved=True, success=True)
+        with (
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.github.pr_threads.resolve_all_pr_review_threads",
+                return_value=[mock_res],
+            ) as mock_resolve_all,
+        ):
+            res = runner.invoke(app, ["threads", "resolve-all", "83"])
+            assert res.exit_code == 0
+            assert "Resolved 1/1 review thread(s) on PR #83" in res.output
+            mock_resolve_all.assert_called_once_with("owner", "repo", 83, only_replied=True)
+
+    def test_threads_resolve_all_empty(self, runner: CliRunner) -> None:
+        with (
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.github.pr_threads.resolve_all_pr_review_threads",
+                return_value=[],
+            ),
+        ):
+            res = runner.invoke(app, ["threads", "resolve-all", "83"])
+            assert res.exit_code == 0
+            assert "No unresolved candidate review threads found on PR #83" in res.output
+
     def test_pr_monitor_ready(self, runner: CliRunner) -> None:
         from devops_cli.github.pr_monitor import (
             CopilotReviewStatus,
@@ -826,6 +854,121 @@ class TestPrCommands:
             assert res.exit_code == 1
             assert "unresolved review discussion thread" in res.output
             assert "PR Review Discussion Threads" in res.output
+
+    def test_check_readiness_auto_resolve_success(self, runner: CliRunner) -> None:
+        """devops pr check-readiness auto-resolves replied review threads when --auto-resolve is set."""
+        from devops_cli.github.pr_threads import ThreadResolutionResult
+
+        mock_pr = json.dumps(
+            {
+                "draft": False,
+                "mergeable": True,
+                "mergeable_state": "clean",
+                "base": {"ref": "release/v0.2.17"},
+            }
+        )
+        mock_res = ThreadResolutionResult(thread_id="PRRT_1", is_resolved=True, success=True)
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
+            ),
+            patch(
+                "devops_cli.github.pr_threads.resolve_all_pr_review_threads",
+                return_value=[mock_res],
+            ) as mock_auto_resolve,
+            patch(
+                "devops_cli.github.pr_threads.list_pr_review_threads",
+                return_value=[],
+            ),
+        ):
+            res = runner.invoke(app, ["check-readiness", "187", "--auto-resolve"])
+            assert res.exit_code == 0
+            assert "Auto-resolved 1 replied review discussion thread(s)" in res.output
+            assert "satisfies merge readiness" in res.output
+            mock_auto_resolve.assert_called_once_with("owner", "repo", 187, only_replied=True)
+
+    def test_check_readiness_allow_replied_threads_all_replied(self, runner: CliRunner) -> None:
+        """devops pr check-readiness passes when unresolved threads have replies and --allow-replied-threads is set."""
+        mock_pr = json.dumps(
+            {
+                "draft": False,
+                "mergeable": True,
+                "mergeable_state": "clean",
+                "base": {"ref": "release/v0.2.17"},
+            }
+        )
+        mock_thread = MagicMock(
+            id="T1",
+            is_resolved=False,
+            path="src/main.py",
+            line=10,
+            comments=[
+                MagicMock(author="copilot", body="Fix this bug"),
+                MagicMock(author="developer", body="Fixed in commit abc"),
+            ],
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
+            ),
+            patch(
+                "devops_cli.github.pr_threads.list_pr_review_threads",
+                return_value=[mock_thread],
+            ),
+        ):
+            res = runner.invoke(app, ["check-readiness", "187", "--allow-replied-threads"])
+            assert res.exit_code == 0
+            assert "satisfies merge readiness" in res.output
+            assert "awaiting reviewer resolution" in res.output
+
+    def test_check_readiness_allow_replied_threads_unreplied_fails(self, runner: CliRunner) -> None:
+        """devops pr check-readiness still fails with --allow-replied-threads if an unreplied thread exists."""
+        mock_pr = json.dumps(
+            {
+                "draft": False,
+                "mergeable": True,
+                "mergeable_state": "clean",
+                "base": {"ref": "release/v0.2.17"},
+            }
+        )
+        mock_replied = MagicMock(
+            id="T1",
+            is_resolved=False,
+            path="src/main.py",
+            line=10,
+            comments=[
+                MagicMock(author="copilot", body="Fix"),
+                MagicMock(author="dev", body="Fixed"),
+            ],
+        )
+        mock_unreplied = MagicMock(
+            id="T2",
+            is_resolved=False,
+            path="src/other.py",
+            line=20,
+            comments=[MagicMock(author="copilot", body="Unaddressed")],
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
+            ),
+            patch(
+                "devops_cli.github.pr_threads.list_pr_review_threads",
+                return_value=[mock_replied, mock_unreplied],
+            ),
+        ):
+            res = runner.invoke(app, ["check-readiness", "187", "--allow-replied-threads"])
+            assert res.exit_code == 1
+            assert "unreplied review discussion thread" in res.output
 
     def test_check_readiness_require_ready_draft(self, runner: CliRunner) -> None:
         """devops pr check-readiness fails with --require-ready on draft PR."""

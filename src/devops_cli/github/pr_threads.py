@@ -382,3 +382,43 @@ def unresolve_pr_review_thread(thread_id: str) -> ThreadResolutionResult:
     thread_data = data.get("data", {}).get("unresolveReviewThread", {}).get("thread", {})
     is_resolved = bool(thread_data.get("isResolved", False))
     return ThreadResolutionResult(thread_id=thread_id, is_resolved=is_resolved, success=True)
+
+
+def _attempt_resolve_thread(thread_id: str, pr_number: int) -> ThreadResolutionResult:
+    """Attempt to resolve an individual PR review thread, logging any failure defensively."""
+    try:
+        return resolve_pr_review_thread(thread_id)
+    except GitHubOperationError as exc:
+        logger.warning(
+            "Failed to resolve review thread %s on PR #%d: %s",
+            thread_id,
+            pr_number,
+            str(exc)[:256],
+        )
+        return ThreadResolutionResult(thread_id=thread_id, is_resolved=False, success=False)
+
+
+def resolve_all_pr_review_threads(
+    owner: str,
+    repo: str,
+    pr_number: int,
+    only_replied: bool = True,
+) -> list[ThreadResolutionResult]:
+    """Resolve review discussion threads on a PR, optionally filtering to replied-only threads.
+
+    Args:
+        owner: Repository owner/org.
+        repo: Repository name (with or without owner prefix).
+        pr_number: Pull request number.
+        only_replied: If True, only threads with at least one reply (len(comments) > 1) are resolved.
+
+    Returns:
+        List of ThreadResolutionResult for each attempted thread resolution.
+    """
+    repo_name = repo.split("/")[-1]
+    unresolved = list_pr_review_threads(owner, repo_name, pr_number, unresolved_only=True)
+    if not unresolved:
+        return []
+
+    targets = [t for t in unresolved if not only_replied or len(t.comments) > 1]
+    return [_attempt_resolve_thread(t.id, pr_number) for t in targets]
