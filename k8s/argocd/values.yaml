@@ -42,8 +42,8 @@ repoServer:
       cpu: 100m
       memory: 256Mi
     limits:
-      cpu: 2000m
-      memory: 2048Mi
+      cpu: 4000m
+      memory: 4096Mi
 
 # Valkey replacement for Redis under BSD-3-Clause open-source license
 redis:
