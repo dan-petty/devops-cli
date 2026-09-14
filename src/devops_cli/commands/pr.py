@@ -1051,6 +1051,31 @@ def _check_mergeable_blocker(
     return None
 
 
+def _evaluate_threads_blockers(
+    unresolved: list[Any],
+    pr_num: int,
+    allow_replied_threads: bool,
+) -> list[str]:
+    """Evaluate unresolved review threads and return blocker error messages."""
+    if not unresolved:
+        return []
+
+    if allow_replied_threads:
+        unreplied = [t for t in unresolved if len(t.comments) <= 1]
+        replied = [t for t in unresolved if len(t.comments) > 1]
+        if replied:
+            print_info(
+                f"PR #{pr_num} has {len(replied)} review discussion thread(s) with replies awaiting reviewer resolution."
+            )
+        if unreplied:
+            _render_threads_table(unreplied)
+            return [f"PR #{pr_num} has {len(unreplied)} unreplied review discussion thread(s)."]
+        return []
+
+    _render_threads_table(unresolved)
+    return [f"PR #{pr_num} has {len(unresolved)} unresolved review discussion thread(s)."]
+
+
 def _evaluate_pr_blockers(
     pr_data: dict[str, Any],
     pr_num: int,
@@ -1058,6 +1083,7 @@ def _evaluate_pr_blockers(
     repo_name: str,
     require_ready: bool,
     allow_blocked_state: bool = False,
+    allow_replied_threads: bool = False,
 ) -> list[str]:
     """Inspect PR data and unresolved discussion threads for merge blockers."""
     from devops_cli.exceptions.git import GitHubOperationError
@@ -1083,12 +1109,9 @@ def _evaluate_pr_blockers(
     except GitHubOperationError as exc:
         print_warning(f"Could not retrieve review threads for PR #{pr_num}: {exc}")
 
-    if unresolved:
-        blockers.append(
-            f"PR #{pr_num} has {len(unresolved)} unresolved review discussion thread(s)."
-        )
-        _render_threads_table(unresolved)
-
+    blockers.extend(
+        _evaluate_threads_blockers(unresolved, pr_num, allow_replied_threads=allow_replied_threads)
+    )
     return blockers
 
 
@@ -1114,6 +1137,13 @@ def check_readiness(
         typer.Option(
             "--auto-resolve",
             help=HELP.pr.check_readiness_auto_resolve,
+        ),
+    ] = False,
+    allow_replied_threads: Annotated[
+        bool,
+        typer.Option(
+            "--allow-replied-threads",
+            help=HELP.pr.allow_replied_threads,
         ),
     ] = False,
     repo: Annotated[
@@ -1156,6 +1186,7 @@ def check_readiness(
         repo_name,
         require_ready,
         allow_blocked_state=allow_blocked_state,
+        allow_replied_threads=allow_replied_threads,
     )
     if blockers:
         for b in blockers:

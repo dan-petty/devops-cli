@@ -4386,6 +4386,7 @@ devops pr check-readiness [OPTIONS] <number>
 | `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
 | `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
 | `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
+| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops pr threads`
@@ -5326,6 +5327,7 @@ devops gh pr check-readiness [OPTIONS] <number>
 | `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
 | `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
 | `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
+| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 #### `devops gh pr threads`

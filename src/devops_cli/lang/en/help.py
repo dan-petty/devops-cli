@@ -599,6 +599,7 @@ class PRCommandHelp:
     check_readiness_auto_resolve: str = (
         "Automatically resolve review discussion threads that have received replies."
     )
+    allow_replied_threads: str = "Treat review discussion threads that have received replies as addressed rather than blocking."
     thread_id: str = "Review thread GraphQL ID (e.g. PRRT_...)."
     thread_ids: str = "One or more review thread GraphQL IDs to resolve."
     unresolved_only: str = "Filter to display only unresolved review discussion threads."
