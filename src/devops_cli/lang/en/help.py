@@ -459,7 +459,7 @@ class DevcontainerCommandHelp:
     python_version: str = "Python version for base template."
     image: str = "Base container image (defaults to published devops-cli image)."
     published: str = "Use published GHCR image (defaults to True)."
-    volume_name: str = "Custom volume name for /home/vscode (defaults to <project_name>-home)."
+    volume_name: str = "Custom volume name for /home/vscode (defaults to `<project_name>-home`)."
     overwrite: str = "Overwrite existing devcontainer.json and configurations."
     workspace_dir: str = "Path to workspace directory containing .devcontainer."
     config_file: str = "Direct path to devcontainer.json."

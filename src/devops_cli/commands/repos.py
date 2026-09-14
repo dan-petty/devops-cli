@@ -147,7 +147,7 @@ def clone_org(
     private: Annotated[bool, typer.Option("--private/--no-private")] = True,
     forks: Annotated[bool, typer.Option("--forks/--no-forks")] = False,
 ) -> None:
-    """Clone all repos from a GitHub org into repos/<org>/."""
+    """Clone all repos from a GitHub org into `repos/<org>/.`."""
     if is_dry_run():
         _get("render_dry_run_result")(
             command="devops repos clone-org",
@@ -207,7 +207,7 @@ def clone(
         Path | None, typer.Option("--base-dir", "-d", help=HELP.options.base_dir)
     ] = None,
 ) -> None:
-    """Clone an individual repository into repos/_standalone/<name>/."""
+    """Clone an individual repository into `repos/_standalone/<name>/.`."""
     if is_dry_run():
         _get("render_dry_run_result")(
             command="devops repos clone",

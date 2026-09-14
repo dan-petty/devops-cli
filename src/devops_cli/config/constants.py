@@ -205,6 +205,43 @@ CONST_GIT_MAIN_BRANCH = "main"
 CONST_DEFAULT_LINE_NUMBER = 1
 CONST_MARKDOWN_HEADING_LEVEL = 3
 
+CONST_STANDARD_HTML_TAGS: Final[frozenset[str]] = frozenset(
+    {
+        "a",
+        "b",
+        "blockquote",
+        "br",
+        "code",
+        "details",
+        "div",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "hr",
+        "i",
+        "img",
+        "kbd",
+        "li",
+        "ol",
+        "p",
+        "pre",
+        "span",
+        "sub",
+        "summary",
+        "sup",
+        "table",
+        "tbody",
+        "td",
+        "th",
+        "thead",
+        "tr",
+        "ul",
+    }
+)
+
 CONST_RECOMMENDATION_APPROVE = "APPROVE"
 CONST_RECOMMENDATION_REQUEST_CHANGES = "REQUEST CHANGES"
 CONST_RECOMMENDATION_BLOCK = "BLOCK"
