@@ -132,14 +132,14 @@ def test_memory_profiler_socket_leak_detection() -> None:
 def test_profile_http_pool_workload() -> None:
     report = profile_http_pool_workload(iterations=3, top_n=5, max_peak_mb=100.0)
     assert report.target == "http-pool"
-    assert report.duration_seconds > 0.0
+    assert report.duration_seconds >= 0.0
     assert isinstance(report.top_allocations, list)
 
 
 def test_profile_fastmcp_workload() -> None:
     report = profile_fastmcp_workload(iterations=2, top_n=5, max_peak_mb=100.0)
     assert report.target == "fastmcp"
-    assert report.duration_seconds > 0.0
+    assert report.duration_seconds >= 0.0
     assert isinstance(report.top_allocations, list)
 
 

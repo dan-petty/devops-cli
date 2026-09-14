@@ -320,53 +320,44 @@ def test_sandbox(
 
 
 def _render_memory_report(report: MemoryProfileReport) -> None:
-    """Render memory profile summary and top allocation table using Rich."""
-    from rich.panel import Panel
-    from rich.table import Table
-
-    from devops_cli.output import console
+    """Render memory profile summary and top allocation table using output subsystem."""
+    from devops_cli.output import print_key_values, print_table
 
     status_str = "[green]PASSED[/green]" if report.passed else "[red]FAILED[/red]"
-    summary_table = Table.grid(padding=(0, 2))
-    summary_table.add_column(style="bold cyan")
-    summary_table.add_column()
-    summary_table.add_row("Target:", str(report.target))
-    summary_table.add_row("Duration:", f"{report.duration_seconds:.3f}s")
-    summary_table.add_row("Current Heap:", f"{report.current_kb:.2f} KB")
-    summary_table.add_row(
-        "Peak Heap:", f"{report.peak_kb:.2f} KB ({report.peak_kb / 1024.0:.2f} MB)"
-    )
-    summary_table.add_row("Max Peak Threshold:", f"{report.max_peak_mb:.2f} MB")
-    summary_table.add_row("Net Delta:", f"{report.total_allocated_kb:.2f} KB")
-    summary_table.add_row(
-        "Sockets (Init/Final):", f"{report.initial_sockets} / {report.final_sockets}"
-    )
     leak_str = (
         f"[red]{report.socket_leak_count}[/red]"
         if report.socket_leak_count > 0
         else "[green]0[/green]"
     )
-    summary_table.add_row("Socket Leak Count:", leak_str)
-    summary_table.add_row("Overall Result:", status_str)
+    summary_items = [
+        ("Target", str(report.target)),
+        ("Duration", f"{report.duration_seconds:.3f}s"),
+        ("Current Heap", f"{report.current_kb:.2f} KB"),
+        ("Peak Heap", f"{report.peak_kb:.2f} KB ({report.peak_kb / 1024.0:.2f} MB)"),
+        ("Max Peak Threshold", f"{report.max_peak_mb:.2f} MB"),
+        ("Net Delta", f"{report.total_allocated_kb:.2f} KB"),
+        ("Sockets (Init/Final)", f"{report.initial_sockets} / {report.final_sockets}"),
+        ("Socket Leak Count", leak_str),
+        ("Overall Result", status_str),
+    ]
 
-    console.print(
-        Panel(summary_table, title=f"Memory Profiling Report: {report.target}", border_style="cyan")
-    )
+    print_key_values(f"Memory Profiling Report: {report.target}", summary_items)
 
     for warn in report.warnings:
         print_error(f"Warning: {warn}", prefix=False)
 
     if report.top_allocations:
-        alloc_table = Table(title="Top Memory Allocations", title_style="bold magenta")
-        alloc_table.add_column("Rank", justify="right", style="dim")
-        alloc_table.add_column("Source Location", style="cyan")
-        alloc_table.add_column("Size", justify="right", style="green")
-        alloc_table.add_column("Count", justify="right", style="yellow")
-
-        for idx, item in enumerate(report.top_allocations, start=1):
-            loc = f"{item.filename}:{item.line_number}"
-            alloc_table.add_row(str(idx), loc, item.size_human, str(item.count))
-        console.print(alloc_table)
+        columns = ["Rank", "Source Location", "Size", "Count"]
+        rows = [
+            [
+                str(idx),
+                f"{item.filename}:{item.line_number}",
+                item.size_human,
+                str(item.count),
+            ]
+            for idx, item in enumerate(report.top_allocations, start=1)
+        ]
+        print_table(columns=columns, rows=rows, title="Top Memory Allocations")
 
 
 @app.command("profile-memory")
