@@ -1,8 +1,8 @@
 # Task 204: Remediate DevSecOps Review Findings & Enhance Self-Improvement Loop
 
 **Issue**: [#204](https://github.com/dan-petty/devops-cli/issues/204)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#204](https://github.com/dan-petty/devops-cli/pull/204)
+**Status**: In Review
 **Milestone**: `v0.2.18`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/security`
