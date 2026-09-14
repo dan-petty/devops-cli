@@ -61,7 +61,8 @@
 | :--- | :--- | :--- | :--- | :--- |
 | [#112](https://github.com/dan-petty/devops-cli/issues/112) | TBD | Sigstore Cosign container provenance and image signing (`devops docker sign\|verify`) | `Ready` | Backlog |
 | [#113](https://github.com/dan-petty/devops-cli/issues/113) | TBD | Falco eBPF runtime security and anomaly streamer (`devops k8s security-stream`) | `Ready` | Backlog |
-| [#116](https://github.com/dan-petty/devops-cli/issues/116) | TBD | Secret sanitizer regex word boundary hardening and artifact name guard | `Ready` | Backlog |
+| [#116](https://github.com/dan-petty/devops-cli/issues/116) | [#203](https://github.com/dan-petty/devops-cli/pull/203) | Secret sanitizer regex word boundary hardening and artifact name guard | `In Review` | [`task-116-secret-sanitizer-word-boundaries.md`](tasks/task-116-secret-sanitizer-word-boundaries.md) |
+| [#204](https://github.com/dan-petty/devops-cli/issues/204) | TBD | Remediate DevSecOps review findings & enhance self-improvement loop | `In Progress` | [`task-204-remediate-devsecops-findings-self-improvement.md`](tasks/task-204-remediate-devsecops-findings-self-improvement.md) |
 | [#122](https://github.com/dan-petty/devops-cli/issues/122) | TBD | Distributed threat intelligence Valkey L2 cache and radar batching | `Ready` | Backlog |
 
 ---
