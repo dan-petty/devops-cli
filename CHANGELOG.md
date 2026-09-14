@@ -31,10 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Libsodium-Sealed Repository Secrets Synchronization (`devops gh secrets`)**:
   - Secure public-key encryption using PyNaCl libsodium sealed-boxes for GitHub Actions repository secrets.
   - Direct synchronization from OS Keyring or HashiCorp Vault with strict zero-plaintext-leakage guarantees and bounded error truncation.
+- **Deterministic Async Memory & Connection Pool Profiler (`devops test profile-memory`)**:
+  - Leverages Python `tracemalloc` to snapshot, measure, and analyze heap allocations and detect socket leaks across async workloads (`fastmcp`, `http-pool`, custom callables).
+  - Configurable peak memory thresholds (`--max-peak-mb`), socket leak validation (`--fail-on-leak`), OpenTelemetry span profiling, and structured JSON output.
 - **DevOps CLI GitHub Operations & Pull Request Governance (`devops gh`, `devops pr`)**:
   - Native Typer command groups for GitHub Projects v2, milestones, labels, issues, and PR lifecycle management.
   - Multi-tiered merge readiness gating requiring 0 merge conflicts, 0 unresolved review threads, green CI checks, and approved reviews.
   - Resilient GitHub GraphQL secondary rate limit detection and automatic REST API fallback.
+  - Programmatic review thread resolution (`devops pr threads resolve-all`) and replied-thread validation (`--auto-resolve`, `--allow-replied-threads`) in merge readiness checks.
 - **Mandatory Draft PRs for In-Progress Work**:
   - Enforced policy and tooling requiring in-progress work to start as draft pull requests, preventing premature reviews and merge attempts.
 - **Automated CI Check & Review Thread Monitoring (`devops pr monitor`, `devops pr checks`)**:
