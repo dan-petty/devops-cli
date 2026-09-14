@@ -10,7 +10,6 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(
             r"(?<![a-zA-Z0-9/\\<])(?:ghp_[A-Za-z0-9_]{10,}|gho_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{20,})\b"
-            r"(?!\.(?:md|py[cow]?|json|ya?ml|toml|sh|bash|zsh|txt|rst|html?|css|js|jsx|ts|tsx|csv|tsv|png|svg|jpe?g|gif|tar|gz|whl|lock|cfg|ini|env|log)\b)"
         ),
         "<masked-github-token>",
     ),
@@ -23,15 +22,13 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
-            r"(?<![a-zA-Z0-9/\\<])(?<!task-)(?<!subtask-)sk-ant-[A-Za-z0-9_-]{18,}[A-Za-z0-9]\b"
-            r"(?!\.(?:md|py[cow]?|json|ya?ml|toml|sh|bash|zsh|txt|rst|html?|css|js|jsx|ts|tsx|csv|tsv|png|svg|jpe?g|gif|tar|gz|whl|lock|cfg|ini|env|log)\b)"
+            r"(?<![a-zA-Z0-9/\\<])(?<!task-)(?<!subtask-)sk-ant-[A-Za-z0-9_-]{19,}[A-Za-z0-9]\b"
         ),
         "<masked-anthropic-key>",
     ),
     (
         re.compile(
-            r"(?<![a-zA-Z0-9/\\<])(?<!task-)(?<!subtask-)sk-[A-Za-z0-9_-]{18,}[A-Za-z0-9]\b"
-            r"(?!\.(?:md|py[cow]?|json|ya?ml|toml|sh|bash|zsh|txt|rst|html?|css|js|jsx|ts|tsx|csv|tsv|png|svg|jpe?g|gif|tar|gz|whl|lock|cfg|ini|env|log)\b)"
+            r"(?<![a-zA-Z0-9/\\<])(?<!task-)(?<!subtask-)sk-(?!ant-)[A-Za-z0-9_-]{19,}[A-Za-z0-9]\b"
         ),
         "<masked-openai-key>",
     ),

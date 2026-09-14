@@ -1,8 +1,8 @@
 # Task 116: Secret Sanitizer Regex Word Boundary Hardening & Artifact Name Guard
 
 **Issue**: [#116](https://github.com/dan-petty/devops-cli/issues/116)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#203](https://github.com/dan-petty/devops-cli/pull/203)
+**Status**: In Review
 **Milestone**: `v0.2.18`
 **Priority**: `priority/p0-critical`
 **Scope**: `scope/security`

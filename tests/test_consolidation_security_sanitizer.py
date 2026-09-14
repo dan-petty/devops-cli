@@ -362,19 +362,25 @@ def test_mask_secrets_word_boundaries_and_safe_paths() -> None:
         "subtask-sk-memory-profiler.md",
         "tasks/task-116-secret-sanitizer-word-boundaries.md",
         "path/to/sk-proj-abcdef1234567890abcdef1234567890.md",
-        "sk-proj-abcdef1234567890abcdef1234567890.py",
         "artifacts/task-sk-export.json",
         "config/sk-settings.yaml",
         "/workspaces/devops-cli/docs/agent/tasks/task-sk-auth.toml",
+        "sk-ant-1234567890123456789",  # 19 chars: below 20-char threshold
+        "sk-1234567890123456789",  # 19 chars: below 20-char threshold
     ]
     for sample in safe_samples:
         assert mask_secrets(sample) == sample, f"Falsely masked safe path: {sample}"
 
-    # Verify genuine secrets are still masked properly
+    # Verify genuine secrets are still masked properly (20+ chars)
+    assert mask_secrets("sk-ant-12345678901234567890") == "<masked-anthropic-key>"
+    assert mask_secrets("sk-12345678901234567890") == "<masked-openai-key>"
     assert mask_secrets("sk-proj-abcdef1234567890abcdef1234567890") == "<masked-openai-key>"
     assert mask_secrets("sk-ant-api03-abcdef123456789012345678") == "<masked-anthropic-key>"
     assert mask_secrets("prefix-sk-proj-1234567890abcdef1234") == "prefix-<masked-openai-key>"
     assert mask_secrets("prefix-sk-ant-1234567890abcdef1234") == "prefix-<masked-anthropic-key>"
+    # Tokens followed by suffixes in arbitrary text remain masked to prevent leaks
+    assert mask_secrets("ghp_1234567890abcdef.json") == "<masked-github-token>.json"
+    assert mask_secrets("sk-proj-abcdef1234567890abcdef1234567890.py") == "<masked-openai-key>.py"
     assert (
         mask_secrets("service_openai_key_sk-proj-1234567890abcdef12345678")
         == "service_openai_key_<masked-openai-key>"
