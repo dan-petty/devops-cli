@@ -1107,7 +1107,7 @@ def test_network_references_rejects_unspecified_ip_and_example_domains() -> None
     TEST_COM = "example.com"
     BARE_SPECIAL_TLD = "home.arpa"
     BARE_CLUSTER_TLD = "cluster.local"
-    VALID_LOCAL = "argocd.homelab.local"
+    VALID_LOCAL = "argocd.example.internal"
     VALID_EXTERNAL = "api.github.com"
     """
     refs = extract_network_references(sample, "test_config.py", exclude_examples=True)
@@ -1124,7 +1124,7 @@ def test_network_references_rejects_unspecified_ip_and_example_domains() -> None
     assert "cluster.local" not in targets
 
     # Legitimate endpoints MUST be retained
-    assert "argocd.homelab.local" in targets
+    assert "argocd.example.internal" in targets
     assert "api.github.com" in targets
 
 

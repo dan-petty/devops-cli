@@ -25,7 +25,7 @@ Implement multi-tier networking configuration options for workload sandboxes acr
    - Private RFC 1918 IPs, link-local, and cloud metadata (`169.254.169.254`) are strictly blocked.
    - Generates egress `NetworkPolicy` ipBlocks and validates domain destinations.
 4. **Access to explicitly whitelisted local URL/IP** (`local_whitelist`):
-   - Access permitted strictly to explicitly whitelisted local/private endpoints (e.g. `http://localhost:11434`, `http://192.168.1.50:8000`, `host.docker.internal`).
+   - Access permitted strictly to explicitly whitelisted local/private endpoints (e.g. `http://localhost:11434`, `http://192.0.2.50:8000`, `host.docker.internal`).
    - Arbitrary local port scanning or unlisted internal hosts are blocked.
    - In Docker: maps to `--add-host` host-gateway mappings for authorized endpoints.
 
