@@ -16,6 +16,11 @@ from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
+from devops_cli.github.branch_protection import (
+    audit_branch_protection,
+    load_branch_protection_policies,
+    sync_branch_protection,
+)
 from devops_cli.github.client import GhCliClient, GitHubClient, parse_paginated_json
 from devops_cli.github.issues import (
     audit_issues_triage,
@@ -50,6 +55,10 @@ from devops_cli.github.projects import (
     sync_remote_project,
     sync_remote_project_views,
 )
+from devops_cli.github.secrets import (
+    list_repository_secrets,
+    sync_repository_secrets,
+)
 from devops_cli.lang import HELP
 from devops_cli.output import (
     print,
@@ -69,6 +78,8 @@ views_app = new_typer(help=HELP.gh.views_app, no_args_is_help=True)
 pages_app = new_typer(help=HELP.gh.pages_app, no_args_is_help=True)
 issues_app = new_typer(help=HELP.gh.issues_app, no_args_is_help=True)
 runs_app = new_typer(help=HELP.gh.runs_app, no_args_is_help=True)
+branch_protection_app = new_typer(help=HELP.gh.branch_protection_app, no_args_is_help=True)
+secrets_app = new_typer(help=HELP.gh.secrets_app, no_args_is_help=True)
 
 app.add_typer(labels_app, name="labels")
 app.add_typer(milestones_app, name="milestones")
@@ -77,6 +88,8 @@ app.add_typer(views_app, name="views")
 app.add_typer(pages_app, name="pages")
 app.add_typer(issues_app, name="issues")
 app.add_typer(runs_app, name="runs")
+app.add_typer(branch_protection_app, name="branch-protection")
+app.add_typer(secrets_app, name="secrets")
 app.add_typer(pr_app, name="pr")
 
 
@@ -1190,3 +1203,186 @@ def runs_view_cmd(
         from devops_cli.security.sanitizer import mask_secrets
 
         write_stream(mask_secrets(res.stdout.rstrip()) + "\n")
+
+
+# =============================================================================
+# Branch Protection Subcommands
+# =============================================================================
+
+
+@branch_protection_app.command("audit", help=HELP.gh.branch_protection_audit)
+def audit_branch_protection_cmd(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option("--branch", "-b", help=HELP.gh.branch_protection_branch),
+    ] = None,
+    policy_file: Annotated[
+        Path,
+        typer.Option("--policy-file", "-f", help=HELP.gh.branch_protection_policy_file),
+    ] = Path(".github/branch-protection.yml"),
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+) -> None:
+    """Audit branch protection against declarative policy specifications."""
+    target_repo = _resolve_repo(repo)
+    try:
+        policies = load_branch_protection_policies(policy_file)
+    except Exception as exc:
+        print_error(f"Failed to load branch protection policies: {exc}")
+        raise typer.Exit(1) from exc
+
+    results = audit_branch_protection(target_repo, policies, branch=branch)
+
+    if json_output:
+        from devops_cli.output import write_stream
+
+        payload = [r.model_dump() for r in results]
+        write_stream(json.dumps(payload, indent=2) + "\n")
+        return
+
+    columns = ["Branch", "Status", "Drift / Findings"]
+    rows: list[list[str]] = []
+    has_drift = False
+
+    for r in results:
+        if r.is_compliant:
+            status_text = "[green]COMPLIANT[/green]"
+            findings_text = "[green]All protection rules match desired policy[/green]"
+        else:
+            has_drift = True
+            status_text = "[bold red]NON-COMPLIANT[/bold red]"
+            findings_text = "\n".join(f"• {msg}" for msg in r.drift_summary)
+        rows.append([r.branch, status_text, findings_text])
+
+    print_table(f"Branch Protection Audit ({target_repo})", columns, rows)
+    if has_drift:
+        print_warning(
+            "Branch protection drift detected. Run 'devops gh branch-protection sync' to remediate."
+        )
+    else:
+        print_success("All evaluated branches comply with declarative protection policies!")
+
+
+@branch_protection_app.command("sync", help=HELP.gh.branch_protection_sync)
+def sync_branch_protection_cmd(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option("--branch", "-b", help=HELP.gh.branch_protection_branch),
+    ] = None,
+    policy_file: Annotated[
+        Path,
+        typer.Option("--policy-file", "-f", help=HELP.gh.branch_protection_policy_file),
+    ] = Path(".github/branch-protection.yml"),
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Preview branch protection synchronization without applying mutations",
+        ),
+    ] = False,
+) -> None:
+    """Synchronize repository branch protection rules against declarative policy specifications."""
+    target_repo = _resolve_repo(repo)
+    try:
+        policies = load_branch_protection_policies(policy_file)
+    except Exception as exc:
+        print_error(f"Failed to load branch protection policies: {exc}")
+        raise typer.Exit(1) from exc
+
+    res = sync_branch_protection(target_repo, policies, branch=branch, dry_run=dry_run)
+    mode_text = "[yellow][DRY RUN][/yellow] " if res.dry_run else ""
+    summary_parts = [
+        f"{len(res.synced_branches)} synced ({', '.join(res.synced_branches) or 'none'})",
+        f"{len(res.skipped_branches)} skipped ({', '.join(res.skipped_branches) or 'none'})",
+    ]
+    if res.failed_branches:
+        summary_parts.append(
+            f"[bold red]{len(res.failed_branches)} failed[/bold red] ({', '.join(res.failed_branches)})"
+        )
+
+    msg = (
+        f"{mode_text}Branch protection sync complete for {target_repo}: {'; '.join(summary_parts)}."
+    )
+    if res.failed_branches:
+        print_warning(msg)
+        raise typer.Exit(1)
+    print_success(msg)
+
+
+# =============================================================================
+# Secrets Subcommands
+# =============================================================================
+
+
+@secrets_app.command("sync", help=HELP.gh.secrets_sync)
+def sync_secrets_cmd(
+    secret_names: Annotated[
+        str,
+        typer.Option("--secret-names", "-n", help=HELP.gh.secrets_names),
+    ],
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    source: Annotated[
+        str,
+        typer.Option("--source", "-s", help=HELP.gh.secrets_source),
+    ] = "keyring",
+    vault_path: Annotated[
+        str,
+        typer.Option("--vault-path", help=HELP.gh.secrets_vault_path),
+    ] = "secret/devops",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Preview secret synchronization without mutations"),
+    ] = False,
+) -> None:
+    """Synchronize repository secrets from OS Keyring or HashiCorp Vault with libsodium sealing."""
+    target_repo = _resolve_repo(repo)
+    names = [n.strip() for n in secret_names.split(",") if n.strip()]
+    if not names:
+        print_warning("No secret names provided to synchronize.")
+        return
+
+    try:
+        result = sync_repository_secrets(
+            repo=target_repo,
+            secret_names=names,
+            source=source,
+            vault_path=vault_path,
+            dry_run=dry_run,
+        )
+    except Exception as exc:
+        print_error(f"Secret synchronization failed: {exc}")
+        raise typer.Exit(1) from exc
+
+    columns = ["Secret Name", "Source", "Status", "Details"]
+    rows = [[it.name, it.source, it.status.upper(), it.message] for it in result.items]
+    mode_text = "[yellow][DRY RUN][/yellow] " if result.dry_run else ""
+    print_table(f"{mode_text}Repository Secret Synchronization ({target_repo})", columns, rows)
+
+    summary = (
+        f"{mode_text}Synced: {len(result.synced_secrets)}, "
+        f"Missing in source: {len(result.missing_secrets)}, "
+        f"Failed: {len(result.failed_secrets)}"
+    )
+    if result.failed_secrets or result.missing_secrets:
+        print_warning(summary)
+        if result.failed_secrets:
+            raise typer.Exit(1)
+    else:
+        print_success(summary)
+
+
+@secrets_app.command("list")
+def list_secrets_cmd(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """List Actions secrets configured in the repository (names only, values are hidden)."""
+    target_repo = _resolve_repo(repo)
+    secrets = list_repository_secrets(target_repo)
+    if not secrets:
+        print_info(f"No repository secrets found for {target_repo}.")
+        return
+
+    columns = ["#", "Secret Name"]
+    rows = [[str(idx + 1), s] for idx, s in enumerate(secrets)]
+    print_table(f"Repository Secrets ({target_repo})", columns, rows)
