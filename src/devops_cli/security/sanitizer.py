@@ -9,7 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(
-            r"(?<![a-zA-Z0-9/\\<])(?:ghp_[A-Za-z0-9_]{10,}|gho_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{20,})\b"
+            r"(?<![a-zA-Z0-9<])(?:ghp_[A-Za-z0-9_]{10,}|gho_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{20,})\b"
         ),
         "<masked-github-token>",
     ),
