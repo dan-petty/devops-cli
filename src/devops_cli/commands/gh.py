@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import urllib.parse
 from pathlib import Path
@@ -442,7 +443,7 @@ def sync_project(
         typer.Option(
             "--task-file",
             "-f",
-            help="Path to docs/agent/tasks directory or task.md",
+            help="Path to docs/agent/tasks directory",
         ),
     ] = Path("docs/agent/tasks"),
     template_file: Annotated[
@@ -1088,7 +1089,6 @@ def api_cmd(
 
 def _format_reset_time(epoch_seconds: int) -> str:
     """Format an epoch timestamp into a human-readable UTC string and countdown."""
-    import datetime
     import time
 
     now = time.time()
@@ -1100,6 +1100,95 @@ def _format_reset_time(epoch_seconds: int) -> str:
     return f"{dt_str} (in {mins}m {secs}s)"
 
 
+def _extract_rest_rate_limit_headers() -> dict[str, int]:
+    """Fetch live HTTP response headers from GitHub REST API to get accurate core rate limits."""
+    res = run_gh(["api", "user", "-i"], check=False, quiet=True, use_cache=False)
+    if res.returncode != 0 or not res.stdout:
+        return {}
+    headers: dict[str, int] = {}
+    for line in res.stdout.splitlines():
+        if ":" not in line:
+            continue
+        key, val = line.split(":", 1)
+        k_lower = key.strip().lower()
+        if k_lower in (
+            "x-ratelimit-limit",
+            "x-ratelimit-remaining",
+            "x-ratelimit-used",
+            "x-ratelimit-reset",
+        ):
+            try:
+                headers[k_lower] = int(val.strip())
+            except ValueError:
+                pass
+    return headers
+
+
+def _extract_graphql_rate_limit() -> dict[str, Any]:
+    """Fetch live rate limit status from GitHub GraphQL API query { rateLimit { ... } }."""
+    query = "query { rateLimit { limit remaining used resetAt } }"
+    res = run_gh(
+        ["api", "graphql", "-f", f"query={query}"],
+        check=False,
+        quiet=True,
+        use_cache=False,
+    )
+    if res.returncode != 0 or not res.stdout:
+        return {}
+    try:
+        payload = json.loads(res.stdout)
+        rl_data = payload.get("data", {}).get("rateLimit", {})
+        if not isinstance(rl_data, dict):
+            return {}
+        reset_at = rl_data.get("resetAt")
+        epoch = 0
+        if reset_at:
+            try:
+                dt = datetime.datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
+                epoch = int(dt.timestamp())
+            except Exception:
+                pass
+        return {
+            "limit": rl_data.get("limit", 5000),
+            "remaining": rl_data.get("remaining", 5000),
+            "used": rl_data.get("used", 0),
+            "reset": epoch,
+        }
+    except Exception:
+        return {}
+
+
+def _enrich_rate_limit_resources(resources: dict[str, Any]) -> dict[str, Any]:
+    """Augment deprecated GitHub /rate_limit endpoint dictionary with live REST and GraphQL quotas."""
+    rest_headers = _extract_rest_rate_limit_headers()
+    if rest_headers:
+        limit = rest_headers.get("x-ratelimit-limit", 5000)
+        remaining = rest_headers.get("x-ratelimit-remaining", limit)
+        used = rest_headers.get("x-ratelimit-used", max(0, limit - remaining))
+        reset_epoch = rest_headers.get("x-ratelimit-reset", 0)
+        resources["core"] = {
+            "limit": limit,
+            "used": used,
+            "remaining": remaining,
+            "reset": reset_epoch,
+        }
+
+    gql_limits = _extract_graphql_rate_limit()
+    if gql_limits:
+        resources["graphql"] = gql_limits
+
+    for _res_name, info in resources.items():
+        if not isinstance(info, dict):
+            continue
+        lim_val = int(info.get("limit", 0))
+        rem_val = int(info.get("remaining", 0))
+        used_val = int(info.get("used", 0))
+        if used_val == 0 and lim_val > rem_val:
+            info["used"] = lim_val - rem_val
+
+    return resources
+
+
 @app.command("rate-limit", help=HELP.gh.rate_limit)
 @app.command("rate_limit", hidden=True)
 def rate_limit_cmd(
@@ -1109,7 +1198,7 @@ def rate_limit_cmd(
     ] = "table",
 ) -> None:
     """Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."""
-    res = run_gh(["api", "rate_limit"], check=False, quiet=True, use_cache=True, cache_ttl=10.0)
+    res = run_gh(["api", "rate_limit"], check=False, quiet=True, use_cache=False)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -1126,13 +1215,17 @@ def rate_limit_cmd(
         print_error(f"Unsupported format '{output_format}'. Supported formats: table, json.")
         raise typer.Exit(1)
 
+    resources = data.get("resources", {})
+    if isinstance(resources, dict):
+        resources = _enrich_rate_limit_resources(resources)
+        data["resources"] = resources
+
     if output_format == "json":
         from devops_cli.output import write_stream
 
         write_stream(json.dumps(data, indent=2) + "\n")
         return
 
-    resources = data.get("resources", {})
     rows: list[list[str]] = []
     for res_name, info in sorted(resources.items()):
         if not isinstance(info, dict):

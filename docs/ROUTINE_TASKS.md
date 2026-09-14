@@ -226,7 +226,7 @@ sequenceDiagram
   - All commits must follow Conventional Commits (`feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `docs(scope): ...`).
   - **Concise, Effect-Driven Commit Messages**: Commit messages MUST be concise and simply state the direct effect of the specific change. Avoid overly verbose summaries, compound multi-clause sentences, redundant narrative preambles, or sprawling lists in commit subjects. State clearly and directly what the change accomplishes.
   - **No Internal References or Numeric IDs**: Never include internal review session timestamps (e.g. `164259`, `003105`), review session IDs, subagent IDs, prompt phase numbers (`Phase 48.5`), or arbitrary numeric identifiers in commit subjects or messages. Use clear, descriptive technical terminology.
-  - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking files under `docs/agent/` (`docs/agent/tasks/`, `docs/agent/task.md`) must NEVER be committed in isolation; they must always be bundled atomically into the corresponding feature, fix, or refactoring deliverable commit.
+  - **No Standalone Agent Tracking Commits**: Updates to internal agent tracking files under `docs/agent/tasks/` must NEVER be committed in isolation; they must always be bundled atomically into the corresponding feature, fix, or refactoring deliverable commit.
 - **Issue Linkage, GitHub Projects & Issues Views Lifecycle (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**:
   - **Zero Disconnected PRs**: Every PR addressing an issue MUST explicitly link to it using canonical closing keywords (`Fixes #<id>`, `Closes #<id>`, `Resolves #<id>`), be added as a project item to the project board, and possess taxonomy labels (`type/*`, `scope/*`).
   - **Automated Field Sync & State Progression**: Run `devops gh project sync` (or FastMCP `gh_project_sync`) after opening or updating PRs to reconcile the 6 custom project fields (`Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`) and transition the card to `In Review`.
@@ -274,7 +274,7 @@ sequenceDiagram
    - Synchronize items and custom fields into GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`) via `devops gh project sync`, link the board (`devops gh project link <number>`), and prune all stale remote tracking branches (`git fetch --prune origin`).
 8. **Automated Historical Documentation Compaction & Task Archival**:
    - When transitioning across major or minor release boundaries, run `uv run devops docs compact --series <series>` to automatically compact historical documentation across `docs/ROADMAP.md` (consolidating completed milestone subsections and matrix rows into summary blocks) and `docs/RELEASE_NOTES.md` (consolidating highlight sections into unified series blocks).
-   - As a separate post-release procedure, archive completed modular task records from `docs/agent/tasks/` corresponding to the finished release series into `docs/agent/archive/` and update the active index in `docs/agent/task.md`.
+   - As a separate post-release procedure, archive completed modular task records from `docs/agent/tasks/` corresponding to the finished release series into `docs/agent/archive/`.
    - Re-verify documentation freshness via `uv run devops docs generate --sync-readme` and `uv run devops docs check`.
 
 ---

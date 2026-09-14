@@ -8,9 +8,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from devops_cli.config.constants import CONST_SANDBOX_SENSITIVE_SUBPATHS
+from devops_cli.config.constants import (
+    CONST_SANDBOX_DOCKER_INTERNAL_NET,
+    CONST_SANDBOX_SENSITIVE_SUBPATHS,
+)
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_DOCKER_TIMEOUT_SECONDS,
@@ -19,6 +22,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.docker import DockerSandboxError
 from devops_cli.sandbox.engine import is_home_or_subpath
+from devops_cli.sandbox.models import SandboxNetworkConfig, SandboxNetworkMode
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -31,6 +35,34 @@ def _get_docker_client() -> Any:
     return docker.from_env(timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS))
 
 
+def _ensure_internal_network(client: Any | None = None) -> None:
+    """Lazily ensure Docker internal bridge network exists for intra-namespace communication."""
+    if client is not None:
+        try:
+            client.networks.get(CONST_SANDBOX_DOCKER_INTERNAL_NET)
+            return
+        except Exception:
+            try:
+                client.networks.create(
+                    CONST_SANDBOX_DOCKER_INTERNAL_NET,
+                    driver="bridge",
+                    internal=True,
+                    check_duplicate=True,
+                )
+                return
+            except Exception as exc:
+                logger.debug("Docker SDK network creation fallback: %s", exc)
+
+    try:
+        run_subprocess(
+            ["docker", "network", "create", "--internal", CONST_SANDBOX_DOCKER_INTERNAL_NET],
+            check=False,
+            timeout=10,
+        )
+    except Exception as sub_exc:
+        logger.debug("Subprocess internal network create check: %s", sub_exc)
+
+
 class WorkloadSandboxConfig(BaseModel):
     """Configuration options for isolated Docker workload sandbox."""
 
@@ -40,10 +72,48 @@ class WorkloadSandboxConfig(BaseModel):
     read_only: bool = True
     memory_limit: str = "2g"
     cpu_limit: float = 2.0
-    network_mode: str = "bridge"  # bridge | none | host
+    network_config: SandboxNetworkConfig = Field(
+        default_factory=lambda: SandboxNetworkConfig(mode=SandboxNetworkMode.BRIDGE)
+    )
+    network_mode: str = "bridge"
     rootless: bool = True
     timeout: float = 300.0
     env: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_network_fields(cls, data: Any) -> Any:
+        """Synchronize network_mode and SandboxNetworkConfig model."""
+        if not isinstance(data, dict):
+            return data
+        net_cfg = data.get("network_config")
+        net_mode = data.get("network_mode")
+        pub_wl = data.get("public_whitelist")
+        loc_wl = data.get("local_whitelist")
+
+        if net_cfg is not None:
+            if isinstance(net_cfg, dict):
+                net_cfg = SandboxNetworkConfig(**net_cfg)
+            data["network_config"] = net_cfg
+            data["network_mode"] = (
+                "none" if net_cfg.mode == SandboxNetworkMode.ISOLATED else net_cfg.mode.value
+            )
+        elif net_mode is not None:
+            kwargs: dict[str, Any] = {"mode": net_mode}
+            if pub_wl:
+                kwargs["public_whitelist"] = pub_wl
+            if loc_wl:
+                kwargs["local_whitelist"] = loc_wl
+            cfg = SandboxNetworkConfig(**kwargs)
+            data["network_config"] = cfg
+            data["network_mode"] = (
+                "none" if cfg.mode == SandboxNetworkMode.ISOLATED else cfg.mode.value
+            )
+        else:
+            cfg = SandboxNetworkConfig(mode=SandboxNetworkMode.BRIDGE)
+            data["network_config"] = cfg
+            data["network_mode"] = "bridge"
+        return data
 
 
 class WorkloadSandboxResult(BaseModel):
@@ -105,6 +175,7 @@ class WorkloadSandboxRunner:
             "memory_limit": self.config.memory_limit,
             "cpu_limit": self.config.cpu_limit,
             "network_mode": self.config.network_mode,
+            "network_config": self.config.network_config.model_dump(),
             "user": user_str,
         }
 
@@ -161,25 +232,38 @@ class WorkloadSandboxRunner:
             "docker.workload_sandbox.run",
             attributes={"image": self.config.image, "network_mode": self.config.network_mode},
         ):
+            if self.config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+                _ensure_internal_network()
             try:
                 client = _get_docker_client()
                 nano_cpus = int(self.config.cpu_limit * 1e9) if self.config.cpu_limit else None
 
-                container = client.containers.create(
-                    image=self.config.image,
-                    command=self.config.command,
-                    working_dir="/workspace",
-                    volumes=volumes,
-                    user=user_str,
-                    mem_limit=self.config.memory_limit,
-                    nano_cpus=nano_cpus,
-                    network_mode=self.config.network_mode,
-                    environment=self.config.env,
-                    cap_drop=["ALL"],
-                    security_opt=["no-new-privileges:true"],
-                    pids_limit=256,
-                    detach=True,
-                )
+                create_kwargs: dict[str, Any] = {
+                    "image": self.config.image,
+                    "command": self.config.command,
+                    "working_dir": "/workspace",
+                    "volumes": volumes,
+                    "user": user_str,
+                    "mem_limit": self.config.memory_limit,
+                    "nano_cpus": nano_cpus,
+                    "environment": self.config.env,
+                    "cap_drop": ["ALL"],
+                    "security_opt": ["no-new-privileges:true"],
+                    "pids_limit": 256,
+                    "detach": True,
+                }
+                if self.config.network_config.mode == SandboxNetworkMode.ISOLATED:
+                    create_kwargs["network_mode"] = "none"
+                elif self.config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+                    _ensure_internal_network(client)
+                    create_kwargs["network_mode"] = CONST_SANDBOX_DOCKER_INTERNAL_NET
+                elif self.config.network_config.mode == SandboxNetworkMode.LOCAL_WHITELIST:
+                    create_kwargs["network_mode"] = "bridge"
+                    create_kwargs["extra_hosts"] = {"host.docker.internal": "host-gateway"}
+                else:
+                    create_kwargs["network_mode"] = "bridge"
+
+                container = client.containers.create(**create_kwargs)
             except Exception as exc:
                 logger.debug("Falling back to docker run subprocess: %s", exc)
                 return self._run_via_subprocess()
@@ -227,6 +311,8 @@ class WorkloadSandboxRunner:
     def _run_via_subprocess(self) -> WorkloadSandboxResult:
         """Fallback to executing docker CLI via subprocess."""
         start_time = time.monotonic()
+        if self.config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+            _ensure_internal_network()
         ws_abs = str(self.config.workspace_dir.resolve())
         mount_mode = "ro" if self.config.read_only else "rw"
         cmd = [
@@ -243,8 +329,8 @@ class WorkloadSandboxRunner:
             "-m",
             self.config.memory_limit,
             f"--cpus={self.config.cpu_limit}",
-            f"--network={self.config.network_mode}",
         ]
+        cmd.extend(self.config.network_config.to_docker_args())
         for env_key, env_val in self.config.env.items():
             cmd.extend(["-e", f"{env_key}={env_val}"])
         if self.config.rootless and hasattr(os, "getuid"):

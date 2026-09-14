@@ -396,6 +396,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops sandbox metrics [OPTIONS] <identifier>` | Capture real-time cgroup v2 metrics and scrape Prometheus application metrics. |
 |  | `devops sandbox traces [OPTIONS] <identifier>` | Visualize distributed trace waterfall and cross-service latency for sandbox workloads. |
 |  | `devops sandbox logs [OPTIONS] <identifier>` | Stream stdout/stderr container logs with automated panic and crash detection. |
+|  | `devops sandbox network-policy [OPTIONS]` | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
 | **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **format** | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |

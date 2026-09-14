@@ -711,7 +711,10 @@ def test_sync_repository_issues_to_project() -> None:
             MagicMock(returncode=0, stdout="{}", stderr=""),
         ]
     )
-    with patch("devops_cli.github.projects.run_subprocess", mock_proc):
+    with (
+        patch("devops_cli.github.projects._resolve_project_owner_arg", return_value="owner"),
+        patch("devops_cli.github.projects.run_subprocess", mock_proc),
+    ):
         added = sync_repository_issues_to_project("owner", "owner/repo", 2, dry_run=False)
         assert added == 1
 

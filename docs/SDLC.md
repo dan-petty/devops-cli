@@ -75,10 +75,11 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
    - Link each issue to the active release milestone, apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`), and synchronize to GitHub Projects v2 board (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`).
    - The open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) must never be left empty while an active milestone exists with planned deliverables.
 4. **Transparent Task Status Tracking**:
-   - Maintain dynamic task status in [`docs/agent/task.md`](agent/task.md) divided into:
-     - **Pending Tasks**: Queued deliverables and backlog milestones.
-     - **In-Progress Tasks (WIP)**: Active focus items and files currently under modification.
-     - **Completed Tasks**: Verified implementations, green test gates, and synchronized documentation.
+   - Maintain dynamic task status exclusively in isolated modular files under [`docs/agent/tasks/`](agent/tasks/README.md) (`task-<issue>-<slug>.md`) divided into:
+     - **Backlog / Ready**: Queued deliverables and scoped milestones.
+     - **In Progress (WIP)**: Active focus items and files currently under modification.
+     - **In Review / Done**: Pull requests in review and verified implementations.
+   - Centralized task visualization, roadmap tracking, and sprint management are managed natively through GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and GitHub Issues views (`https://github.com/dan-petty/devops-cli/issues/views`).
 5. **Target Branch Selection**:
    - Identify active release branch (`git fetch origin`, inspect `origin/release/vX.Y.Z`).
    - Create isolated topic branch from fresh upstream: `git checkout -b feat/<description> origin/release/vX.Y.Z`.
@@ -332,7 +333,7 @@ flowchart TD
 
 | SDLC Phase | Activity | Primary Tool / Command | Verification Gate |
 | :--- | :--- | :--- | :--- |
-| **1. Inception** | RFC & Task Tracking | `docs/agent/task.md`, `ROADMAP.md` | Clear backlog categorization (Pending, WIP, Done) |
+| **1. Inception** | RFC & Task Tracking | `docs/agent/tasks/`, `ROADMAP.md` | Clear backlog categorization (Pending, WIP, Done) |
 | **2. Specification** | Test-First Authoring | `pytest tests/test_<feature>.py` | Clean initial failure (asserting new behavior) |
 | **3. Implementation**| Invariant Enforcement | `tests/test_architectural_invariants.py` | Complexity $\le 10$, Nesting $\le 5$, zero bare exceptions |
 | **4. Verification**  | Full CI Suite | `devops ci` (or `uv run devops ci`) | 10/10 green quality gates, coverage $\ge 90\%$ |

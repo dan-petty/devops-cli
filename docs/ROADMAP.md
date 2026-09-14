@@ -153,7 +153,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - Ground-truth verification (`verify_ground_truth_hallucination`) before invalidating findings.
   - Persona and verification prompt tuning (`devsecops`, `architect`, `verify_finding_system.md`).
 - [x] **Dedicated Agent Operational Task Tracking Tier (`docs/agent/`)**:
-  - Canonical task status tracking under `docs/agent/task.md` with explicit lifecycle guidelines (`docs/agent/README.md`).
+  - Canonical task status tracking under `docs/agent/tasks/` with explicit lifecycle guidelines (`docs/agent/README.md`).
 
 ### Workstation Infrastructure, FastMCP Parity & Quality Architecture (v0.2.11 - Completed)
 - [x] **Workstation Infrastructure Valkey Migration**: Replaced Redis components with Valkey 8.0-alpine under BSD-3-Clause across ArgoCD and LLM cluster stacks.

@@ -446,3 +446,41 @@ CONST_SANDBOX_SENSITIVE_SUBPATHS: Final[frozenset[str]] = frozenset(
         ".git",
     }
 )
+
+# Multi-tier sandbox networking mode constants
+CONST_SANDBOX_NETWORK_ISOLATED: Final[str] = "isolated"
+CONST_SANDBOX_NETWORK_NAMESPACE: Final[str] = "sandbox_namespace"
+CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST: Final[str] = "public_whitelist"
+CONST_SANDBOX_NETWORK_LOCAL_WHITELIST: Final[str] = "local_whitelist"
+CONST_SANDBOX_NETWORK_BRIDGE: Final[str] = "bridge"
+
+CONST_SANDBOX_DEFAULT_NAMESPACE: Final[str] = "sandbox"
+CONST_SANDBOX_DOCKER_INTERNAL_NET: Final[str] = "devops-sandbox-net"
+
+CONST_SANDBOX_NETWORK_MODES: Final[frozenset[str]] = frozenset(
+    {
+        CONST_SANDBOX_NETWORK_ISOLATED,
+        CONST_SANDBOX_NETWORK_NAMESPACE,
+        CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
+        CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
+        CONST_SANDBOX_NETWORK_BRIDGE,
+    }
+)
+
+CONST_SANDBOX_NETWORK_MODE_ALIASES: Final[dict[str, str]] = {
+    "isolated": CONST_SANDBOX_NETWORK_ISOLATED,
+    "none": CONST_SANDBOX_NETWORK_ISOLATED,
+    "isolated_pod": CONST_SANDBOX_NETWORK_ISOLATED,
+    "isolated-pod": CONST_SANDBOX_NETWORK_ISOLATED,
+    "sandbox_namespace": CONST_SANDBOX_NETWORK_NAMESPACE,
+    "sandbox-namespace": CONST_SANDBOX_NETWORK_NAMESPACE,
+    "namespace": CONST_SANDBOX_NETWORK_NAMESPACE,
+    "internal": CONST_SANDBOX_NETWORK_NAMESPACE,
+    "public_whitelist": CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
+    "public-whitelist": CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
+    "public": CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
+    "local_whitelist": CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
+    "local-whitelist": CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
+    "local": CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
+    "bridge": CONST_SANDBOX_NETWORK_BRIDGE,
+}

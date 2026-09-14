@@ -12,7 +12,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Final
 
-from devops_cli.config.constants import CONST_SANDBOX_SENSITIVE_SUBPATHS
+from devops_cli.config.constants import (
+    CONST_SANDBOX_DOCKER_INTERNAL_NET,
+    CONST_SANDBOX_SENSITIVE_SUBPATHS,
+)
 from devops_cli.config.defaults import (
     DEFAULT_DOCKER_TIMEOUT_SECONDS,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
@@ -35,6 +38,7 @@ from devops_cli.sandbox.models import (
     SandboxLogLine,
     SandboxLogsReport,
     SandboxMetricsSnapshot,
+    SandboxNetworkMode,
     SandboxProbeReport,
     SandboxStatus,
 )
@@ -87,6 +91,34 @@ def _resolve_user_string(rootless: bool) -> str | None:
     if rootless and hasattr(os, "getuid"):
         return f"{os.getuid()}:{os.getgid()}"
     return None
+
+
+def _ensure_internal_network(client: Any | None = None) -> None:
+    """Lazily ensure Docker internal bridge network exists for intra-namespace communication."""
+    if client is not None:
+        try:
+            client.networks.get(CONST_SANDBOX_DOCKER_INTERNAL_NET)
+            return
+        except Exception:
+            try:
+                client.networks.create(
+                    CONST_SANDBOX_DOCKER_INTERNAL_NET,
+                    driver="bridge",
+                    internal=True,
+                    check_duplicate=True,
+                )
+                return
+            except Exception as exc:
+                logger.debug("Docker SDK network creation fallback: %s", exc)
+
+    try:
+        run_subprocess(
+            ["docker", "network", "create", "--internal", CONST_SANDBOX_DOCKER_INTERNAL_NET],
+            check=False,
+            timeout=10,
+        )
+    except Exception as sub_exc:
+        logger.debug("Subprocess internal network create check: %s", sub_exc)
 
 
 class WorkloadSandboxEngine:
@@ -180,7 +212,7 @@ class WorkloadSandboxEngine:
         }
         nano_cpus = int(config.cpu_limit * 1e9) if config.cpu_limit else None
 
-        return {
+        kwargs: dict[str, Any] = {
             "image": config.image,
             "command": config.command,
             "working_dir": "/workspace",
@@ -189,7 +221,6 @@ class WorkloadSandboxEngine:
             "user": _resolve_user_string(config.rootless),
             "mem_limit": config.memory_limit,
             "nano_cpus": nano_cpus,
-            "network_mode": config.network_mode,
             "environment": config.env,
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges:true"],
@@ -198,6 +229,16 @@ class WorkloadSandboxEngine:
             "tmpfs": {"/tmp": "size=64m,noexec"},  # nosec B108
             "detach": True,
         }
+        if config.network_config.mode == SandboxNetworkMode.ISOLATED:
+            kwargs["network_mode"] = "none"
+        elif config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+            kwargs["network_mode"] = CONST_SANDBOX_DOCKER_INTERNAL_NET
+        elif config.network_config.mode == SandboxNetworkMode.LOCAL_WHITELIST:
+            kwargs["network_mode"] = "bridge"
+            kwargs["extra_hosts"] = {"host.docker.internal": "host-gateway"}
+        else:
+            kwargs["network_mode"] = "bridge"
+        return kwargs
 
     def deploy(
         self,
@@ -258,10 +299,14 @@ class WorkloadSandboxEngine:
         port_bindings: list[PortBinding],
     ) -> str:
         """Create and start container via Docker SDK or fallback subprocess."""
+        if config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+            _ensure_internal_network()
         create_kwargs = self._build_create_kwargs(config, ws_resolved, port_bindings)
         container = None
         try:
             client = _get_docker_client()
+            if config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+                _ensure_internal_network(client)
             container = client.containers.create(**create_kwargs)
             container.start()
             return str(container.id)
@@ -283,6 +328,8 @@ class WorkloadSandboxEngine:
         port_bindings: list[PortBinding],
     ) -> str:
         """Spawn container using `docker run -d` via subprocess."""
+        if config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+            _ensure_internal_network()
         mount_mode = "ro" if config.read_only else "rw"
         cmd = [
             "docker",
@@ -298,8 +345,8 @@ class WorkloadSandboxEngine:
             "-m",
             config.memory_limit,
             f"--cpus={config.cpu_limit}",
-            f"--network={config.network_mode}",
         ]
+        cmd.extend(config.network_config.to_docker_args())
         if config.read_only:
             cmd.extend(["--read-only", "--tmpfs=/tmp:size=64m,noexec"])
         for b in port_bindings:

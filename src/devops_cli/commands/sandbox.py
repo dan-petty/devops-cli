@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+import yaml
 
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run.models import CommandDryRunResult
@@ -42,6 +43,7 @@ from devops_cli.sandbox.models import (
     SandboxLogLine,
     SandboxLogsReport,
     SandboxMetricsSnapshot,
+    SandboxNetworkConfig,
     SandboxProbeReport,
     SandboxStatus,
 )
@@ -109,6 +111,23 @@ def deploy(
     cpus: Annotated[float, typer.Option("--cpus", "-c", help=HELP.sandbox.cpus)] = 2.0,
     read_only: Annotated[bool, typer.Option("--read-only", help=HELP.sandbox.read_only)] = True,
     network: Annotated[str, typer.Option("--network", help=HELP.sandbox.network)] = "bridge",
+    network_mode: Annotated[
+        str | None,
+        typer.Option(
+            "--network-mode",
+            help="Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge",
+        ),
+    ] = None,
+    public_whitelist: Annotated[
+        str | None,
+        typer.Option(
+            "--public-whitelist", help="Comma-separated public domains/IPs allowed for egress"
+        ),
+    ] = None,
+    local_whitelist: Annotated[
+        str | None,
+        typer.Option("--local-whitelist", help="Comma-separated local URLs/IPs allowed for egress"),
+    ] = None,
     env: Annotated[list[str] | None, typer.Option("--env", "-e", help=HELP.sandbox.env)] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> CommandDryRunResult | None:
@@ -117,6 +136,18 @@ def deploy(
     engine = WorkloadSandboxEngine()
     env_map = _parse_env_flags(env)
     cmd_list = command or ["sleep", "infinity"]
+
+    effective_network = network_mode or network
+    pub_list = (
+        [item.strip() for item in public_whitelist.split(",") if item.strip()]
+        if public_whitelist
+        else []
+    )
+    loc_list = (
+        [item.strip() for item in local_whitelist.split(",") if item.strip()]
+        if local_whitelist
+        else []
+    )
 
     cfg = SandboxDeployConfig(
         image=image,
@@ -127,7 +158,9 @@ def deploy(
         memory_limit=memory,
         cpu_limit=cpus,
         read_only=read_only,
-        network_mode=network,
+        network_mode=effective_network,
+        public_whitelist=pub_list,
+        local_whitelist=loc_list,
         env=env_map,
     )
 
@@ -142,6 +175,8 @@ def deploy(
                 "image": simulated.image,
                 "workspace": str(simulated.workspace_dir),
                 "ports": [b.model_dump() for b in simulated.port_bindings],
+                "network_mode": cfg.network_mode,
+                "network_config": cfg.network_config.model_dump(),
                 "security": {
                     "cap_drop": ["ALL"],
                     "security_opt": ["no-new-privileges:true"],
@@ -961,6 +996,62 @@ def logs(
     else:
         print_success(f"Stream closed ({report.total_lines} lines).")
     return None
+
+
+@app.command("network-policy")
+def network_policy(
+    network_mode: Annotated[
+        str,
+        typer.Option(
+            "--network-mode",
+            "-m",
+            help="Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge",
+        ),
+    ] = "isolated",
+    name: Annotated[
+        str,
+        typer.Option("--name", "-n", help="Name prefix for the NetworkPolicy resource"),
+    ] = "app-sandbox",
+    namespace: Annotated[
+        str,
+        typer.Option("--namespace", help="Target Kubernetes namespace"),
+    ] = "sandbox",
+    public_whitelist: Annotated[
+        str | None,
+        typer.Option(
+            "--public-whitelist", help="Comma-separated public domains/IPs allowed for egress"
+        ),
+    ] = None,
+    local_whitelist: Annotated[
+        str | None,
+        typer.Option("--local-whitelist", help="Comma-separated local URLs/IPs allowed for egress"),
+    ] = None,
+) -> None:
+    """Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation."""
+    pub_list = (
+        [item.strip() for item in public_whitelist.split(",") if item.strip()]
+        if public_whitelist
+        else []
+    )
+    loc_list = (
+        [item.strip() for item in local_whitelist.split(",") if item.strip()]
+        if local_whitelist
+        else []
+    )
+
+    try:
+        net_cfg = SandboxNetworkConfig(
+            mode=network_mode,
+            public_whitelist=pub_list,
+            local_whitelist=loc_list,
+            sandbox_namespace=namespace,
+        )
+        policy_dict = net_cfg.to_k8s_network_policy(name=name, namespace=namespace)
+        yaml_str = yaml.dump(policy_dict, sort_keys=False)
+        write_stdout(yaml_str)
+    except (ValueError, SandboxValidationError) as exc:
+        print_error(f"Invalid network policy configuration: {exc}")
+        raise typer.Exit(1) from exc
 
 
 __all__ = ["app"]

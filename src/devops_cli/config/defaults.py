@@ -43,6 +43,8 @@ DEFAULT_SANDBOX_DATA_DIR = DEFAULT_DATA_DIR / "sandbox"
 DEFAULT_SANDBOX_INSTANCES_FILE = DEFAULT_SANDBOX_DATA_DIR / "instances.json"
 DEFAULT_SANDBOX_INCIDENTS_DIR = DEFAULT_SANDBOX_DATA_DIR / "incidents"
 DEFAULT_SANDBOX_EXCLUDE_HOME: bool = True
+DEFAULT_SANDBOX_NETWORK_MODE: str = "isolated"
+DEFAULT_SANDBOX_NAMESPACE: str = "sandbox"
 
 # ── General Defaults ──────────────────────────────────────────────────────────
 DEFAULT_LOCAL_BIN_DIR = Path.home() / ".local" / "bin"

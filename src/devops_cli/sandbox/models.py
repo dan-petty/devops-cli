@@ -2,14 +2,27 @@
 
 from __future__ import annotations
 
+import ipaddress
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
+from devops_cli.config.constants import (
+    CONST_SANDBOX_DOCKER_INTERNAL_NET,
+    CONST_SANDBOX_NETWORK_BRIDGE,
+    CONST_SANDBOX_NETWORK_ISOLATED,
+    CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
+    CONST_SANDBOX_NETWORK_MODE_ALIASES,
+    CONST_SANDBOX_NETWORK_MODES,
+    CONST_SANDBOX_NETWORK_NAMESPACE,
+    CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
+)
+from devops_cli.config.defaults import DEFAULT_CURRENT_PATH, DEFAULT_SANDBOX_NAMESPACE
+from devops_cli.core.validation import is_loopback_or_private_host
 
 
 class SandboxStatus(StrEnum):
@@ -19,6 +32,208 @@ class SandboxStatus(StrEnum):
     RUNNING = "running"
     STOPPED = "stopped"
     FAILED = "failed"
+
+
+class SandboxNetworkMode(StrEnum):
+    """Multi-tier network modes for workload sandbox isolation and access control."""
+
+    ISOLATED = CONST_SANDBOX_NETWORK_ISOLATED
+    SANDBOX_NAMESPACE = CONST_SANDBOX_NETWORK_NAMESPACE
+    PUBLIC_WHITELIST = CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST
+    LOCAL_WHITELIST = CONST_SANDBOX_NETWORK_LOCAL_WHITELIST
+    BRIDGE = CONST_SANDBOX_NETWORK_BRIDGE
+
+
+def _extract_host_or_ip(endpoint: str) -> str:
+    """Extract hostname, domain, or IP from a URL or bare endpoint string."""
+    clean = endpoint.strip()
+    if "://" in clean:
+        parsed = urlparse(clean)
+        return parsed.hostname or ""
+    if "/" in clean:
+        return clean.split("/")[0].strip()
+    if ":" in clean and not clean.startswith("["):
+        return clean.split(":")[0].strip()
+    return clean.strip("[]")
+
+
+def _validate_public_whitelist_item(item: str) -> None:
+    """Ensure public whitelist entry does not resolve to private IP, loopback, or metadata."""
+    host = _extract_host_or_ip(item)
+    if not host:
+        raise ValueError(f"Invalid public whitelist entry: '{item}'")
+    if is_loopback_or_private_host(host, resolve_dns=False):
+        raise ValueError(
+            f"Public whitelist entry '{item}' (host '{host}') cannot be private, loopback, or metadata."
+        )
+
+
+def _validate_local_whitelist_item(item: str) -> None:
+    """Ensure local whitelist entry does not target link-local cloud metadata (169.254.169.254)."""
+    host = _extract_host_or_ip(item)
+    if not host:
+        raise ValueError(f"Invalid local whitelist entry: '{item}'")
+    if host == "169.254.169.254" or host.startswith("169.254."):
+        raise ValueError(
+            f"Cloud metadata '{item}' is forbidden in local whitelist to mitigate SSRF."
+        )
+
+
+def _build_dns_egress_rule() -> dict[str, Any]:
+    """Build standard CoreDNS port 53 UDP/TCP egress rule for Kubernetes NetworkPolicy."""
+    return {
+        "ports": [
+            {"protocol": "UDP", "port": 53},
+            {"protocol": "TCP", "port": 53},
+        ]
+    }
+
+
+def _build_public_whitelist_egress() -> list[dict[str, Any]]:
+    """Build egress rules allowing public internet egress while denying private RFC 1918 and metadata."""
+    return [
+        _build_dns_egress_rule(),
+        {
+            "to": [
+                {
+                    "ipBlock": {
+                        "cidr": "0.0.0.0/0",
+                        "except": [
+                            "10.0.0.0/8",
+                            "172.16.0.0/12",
+                            "192.168.0.0/16",
+                            "169.254.169.254/32",
+                            "127.0.0.0/8",
+                        ],
+                    }
+                }
+            ]
+        },
+    ]
+
+
+def _build_local_whitelist_egress(whitelist: list[str]) -> list[dict[str, Any]]:
+    """Build egress rules permitting specific local CIDRs, IPs, and endpoints."""
+    local_to: list[dict[str, Any]] = []
+    for entry in whitelist:
+        host = _extract_host_or_ip(entry)
+        try:
+            ip = ipaddress.ip_network(host, strict=False)
+            cidr = str(ip) if "/" in host else f"{host}/32"
+            local_to.append({"ipBlock": {"cidr": cidr}})
+        except ValueError:
+            fallback_cidr = (
+                "127.0.0.1/32" if host in ("localhost", "host.docker.internal") else "10.0.0.0/8"
+            )
+            local_to.append({"ipBlock": {"cidr": fallback_cidr}})
+
+    return [
+        _build_dns_egress_rule(),
+        {"to": local_to or [{"podSelector": {}}]},
+    ]
+
+
+class SandboxNetworkConfig(BaseModel):
+    """Multi-tier network containment and routing configuration for sandbox workloads."""
+
+    mode: SandboxNetworkMode = Field(default=SandboxNetworkMode.ISOLATED)
+    public_whitelist: list[str] = Field(default_factory=list)
+    local_whitelist: list[str] = Field(default_factory=list)
+    sandbox_namespace: str = Field(default=DEFAULT_SANDBOX_NAMESPACE)
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def normalize_mode(cls, v: Any) -> SandboxNetworkMode:
+        """Normalize string mode or user-friendly aliases into canonical SandboxNetworkMode enum."""
+        if isinstance(v, SandboxNetworkMode):
+            return v
+        if isinstance(v, str):
+            clean = v.strip().lower()
+            if clean == "host":
+                raise ValueError(
+                    "Network mode 'host' violates sandbox network namespace isolation; permitted modes: isolated, namespace, public_whitelist, local_whitelist, bridge."
+                )
+            if clean in CONST_SANDBOX_NETWORK_MODE_ALIASES:
+                return SandboxNetworkMode(CONST_SANDBOX_NETWORK_MODE_ALIASES[clean])
+            for mode_enum in SandboxNetworkMode:
+                if mode_enum.value == clean:
+                    return mode_enum
+            raise ValueError(
+                f"Unsupported sandbox network mode '{v}'. Permitted modes: {', '.join(sorted(CONST_SANDBOX_NETWORK_MODES))}"
+            )
+        return SandboxNetworkMode.ISOLATED
+
+    @model_validator(mode="after")
+    def validate_whitelists(self) -> SandboxNetworkConfig:
+        """Validate required whitelist contents and enforce SSRF/metadata guards."""
+        if self.mode == SandboxNetworkMode.PUBLIC_WHITELIST:
+            if not self.public_whitelist:
+                raise ValueError(
+                    "Public whitelist mode requires at least one public domain or IP to be configured."
+                )
+            for item in self.public_whitelist:
+                _validate_public_whitelist_item(item)
+        elif self.mode == SandboxNetworkMode.LOCAL_WHITELIST:
+            if not self.local_whitelist:
+                raise ValueError(
+                    "Local whitelist mode requires at least one local URL or IP to be configured."
+                )
+            for item in self.local_whitelist:
+                _validate_local_whitelist_item(item)
+        return self
+
+    def to_docker_args(self) -> list[str]:
+        """Generate Docker CLI arguments enforcing container network isolation or gateway routing."""
+        if self.mode == SandboxNetworkMode.ISOLATED:
+            return ["--network=none"]
+        if self.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+            return [f"--network={CONST_SANDBOX_DOCKER_INTERNAL_NET}"]
+        if self.mode == SandboxNetworkMode.LOCAL_WHITELIST:
+            return ["--network=bridge", "--add-host=host.docker.internal:host-gateway"]
+        return ["--network=bridge"]
+
+    def to_k8s_network_policy(
+        self, name: str = "app-sandbox", namespace: str = "sandbox"
+    ) -> dict[str, Any]:
+        """Synthesize declarative Kubernetes NetworkPolicy manifest matching the network mode."""
+        target_ns = namespace or self.sandbox_namespace
+        policy: dict[str, Any] = {
+            "apiVersion": "networking.k8s.io/v1",
+            "kind": "NetworkPolicy",
+            "metadata": {
+                "name": f"{name}-network-policy",
+                "namespace": target_ns,
+            },
+            "spec": {
+                "podSelector": {},
+                "policyTypes": ["Ingress", "Egress"],
+                "ingress": [],
+                "egress": [],
+            },
+        }
+
+        if self.mode == SandboxNetworkMode.ISOLATED:
+            return policy
+
+        if self.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+            policy["spec"]["ingress"] = [{"from": [{"podSelector": {}}]}]
+            policy["spec"]["egress"] = [
+                {"to": [{"podSelector": {}}]},
+                _build_dns_egress_rule(),
+            ]
+            return policy
+
+        if self.mode == SandboxNetworkMode.PUBLIC_WHITELIST:
+            policy["spec"]["egress"] = _build_public_whitelist_egress()
+            return policy
+
+        if self.mode == SandboxNetworkMode.LOCAL_WHITELIST:
+            policy["spec"]["egress"] = _build_local_whitelist_egress(self.local_whitelist)
+            return policy
+
+        policy["spec"]["ingress"] = [{"from": [{"ipBlock": {"cidr": "0.0.0.0/0"}}]}]
+        policy["spec"]["egress"] = [{"to": [{"ipBlock": {"cidr": "0.0.0.0/0"}}]}]
+        return policy
 
 
 class PortBinding(BaseModel):
@@ -48,10 +263,46 @@ class SandboxDeployConfig(BaseModel):
     read_only: bool = True
     memory_limit: str = "2g"
     cpu_limit: float = 2.0
-    network_mode: str = "bridge"
+    network_config: SandboxNetworkConfig = Field(default_factory=SandboxNetworkConfig)
+    network_mode: str = "none"
     rootless: bool = True
     env: dict[str, str] = Field(default_factory=dict)
     timeout: float = 300.0
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_network_fields(cls, data: Any) -> Any:
+        """Keep network_mode string and SandboxNetworkConfig model bidirectionally in sync."""
+        if not isinstance(data, dict):
+            return data
+        net_cfg = data.get("network_config")
+        net_mode = data.get("network_mode")
+        pub_wl = data.get("public_whitelist")
+        loc_wl = data.get("local_whitelist")
+
+        if net_cfg is not None:
+            if isinstance(net_cfg, dict):
+                net_cfg = SandboxNetworkConfig(**net_cfg)
+            data["network_config"] = net_cfg
+            data["network_mode"] = (
+                "none" if net_cfg.mode == SandboxNetworkMode.ISOLATED else net_cfg.mode.value
+            )
+        elif net_mode is not None:
+            kwargs: dict[str, Any] = {"mode": net_mode}
+            if pub_wl:
+                kwargs["public_whitelist"] = pub_wl
+            if loc_wl:
+                kwargs["local_whitelist"] = loc_wl
+            cfg = SandboxNetworkConfig(**kwargs)
+            data["network_config"] = cfg
+            data["network_mode"] = (
+                "none" if cfg.mode == SandboxNetworkMode.ISOLATED else cfg.mode.value
+            )
+        else:
+            cfg = SandboxNetworkConfig(mode=SandboxNetworkMode.ISOLATED)
+            data["network_config"] = cfg
+            data["network_mode"] = "none"
+        return data
 
     @field_validator("network_mode")
     @classmethod
@@ -60,10 +311,8 @@ class SandboxDeployConfig(BaseModel):
         clean = v.strip().lower()
         if clean == "host":
             raise ValueError(
-                "Network mode 'host' violates sandbox network namespace isolation and conflicts with port mapping; only 'bridge' or 'none' allowed."
+                "Network mode 'host' violates sandbox network namespace isolation; permitted modes: isolated, namespace, public_whitelist, local_whitelist, bridge."
             )
-        if clean not in ("bridge", "none"):
-            raise ValueError(f"Unsupported network mode '{v}'; only 'bridge' or 'none' permitted.")
         return clean
 
     @field_validator("read_only")
@@ -352,6 +601,8 @@ __all__ = [
     "SandboxLogLine",
     "SandboxLogsReport",
     "SandboxMetricsSnapshot",
+    "SandboxNetworkConfig",
+    "SandboxNetworkMode",
     "SandboxProbeReport",
     "SandboxStatus",
 ]
