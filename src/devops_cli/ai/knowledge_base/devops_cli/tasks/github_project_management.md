@@ -158,6 +158,7 @@ devops gh milestones close v0.2.14
    - The open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) must never be left empty during an active release cycle.
    - Each issue must follow Conventional Commits (`feat(<scope>): ...`), assign the milestone (`vX.Y.Z`), and include mandatory taxonomy labels (`type/*`, `scope/*`, `priority/*`).
 7. **Strict Remote Branch Lifecycle & PR Governance**:
+   - **Sequential PR Processing (Oldest to Newest / FIFO)**: When multiple open PRs exist across the repository or targeting an active release branch, AI agents MUST process and shepherd PRs in strict chronological order from oldest to newest (FIFO queue: lowest PR number / earliest creation date first). Remediating review comments, fixing CI checks, resolving merge conflicts, and verifying merge readiness on older PRs strictly takes precedence over newer PRs.
    - Every remote topic branch on `origin` must have an associated open PR targeting the active release branch or `main`.
    - Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`).
    - Orphan remote branches are strictly prohibited.

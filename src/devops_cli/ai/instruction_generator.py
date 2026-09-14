@@ -296,6 +296,7 @@ codebase or reviewing target repositories.
   - Maintain atomic, cohesive commits with clean commit messages.
   - **No Internal References or Numeric IDs**: Commit messages and PR titles must describe technical changes using descriptive engineering terminology, never internal session timestamps, review numbers, subagent IDs, or prompt phase numbers.
 - **Pull Request Governance & Two-Stage Review Lifecycle**:
+  - **Sequential Pull Request Processing (Oldest to Newest / FIFO)**: When multiple open pull requests exist, AI agents MUST process, remediate, and shepherd pull requests in strict chronological order from oldest to newest (FIFO queue: lowest PR number / earliest creation date first). Remediating review comments, fixing CI checks, resolving merge conflicts, and verifying merge readiness on older PRs strictly takes precedence over newer PRs to eliminate cascading merge conflicts and PR starvation.
   - AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`devops pr monitor`), and leave merge approval to maintainers.
   - **Stage 1: Draft Pull Requests for In-Progress Work**:
     - Whenever opening any pull request that is not yet fully implemented, tested, and ready for review, AI agents MUST create the pull request as a draft (`gh pr create --draft` or passing `draft: true` via API). A draft pull request signals active work in progress, prevents premature review cycles, avoids false merge-readiness assumptions, while satisfying the requirement that every remote topic branch have an open pull request.

@@ -118,6 +118,7 @@ def test_generate_agents_md_contains_required_sections() -> None:
     assert "GitHub Projects, Issues & Views Governance" in content
     assert "API Rate Limit Honor, Resilient Backoff & Quota Budgeting" in content
     assert "gh api rate_limit" in content
+    assert "Sequential Pull Request Processing (Oldest to Newest / FIFO)" in content
     assert "Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee" in content
     assert "Clean Solutions Over Legacy Remnants (Zero Zombie Code)" in content
     assert "GraphQL queries to targeted REST endpoints" in content
