@@ -10,9 +10,15 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from devops_cli.config.defaults import DEFAULT_CURRENT_PATH, DEFAULT_DOCKER_TIMEOUT_SECONDS
+from devops_cli.config.constants import CONST_SANDBOX_SENSITIVE_SUBPATHS
+from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_DOCKER_TIMEOUT_SECONDS,
+    DEFAULT_SANDBOX_EXCLUDE_HOME,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.docker import DockerSandboxError
+from devops_cli.sandbox.engine import is_home_or_subpath
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -50,11 +56,39 @@ class WorkloadSandboxResult(BaseModel):
     duration_seconds: float = 0.0
 
 
+def _check_home_boundary(resolved: Path, exclude_home_dir: bool) -> None:
+    """Validate home directory boundaries based on user preference."""
+    if exclude_home_dir and is_home_or_subpath(resolved):
+        raise DockerSandboxError(f"Sandbox access to user home directory is excluded: {resolved}")
+    if not exclude_home_dir:
+        try:
+            if resolved == Path.home().resolve():
+                raise DockerSandboxError(
+                    f"Mounting user home directory into sandbox is forbidden: {resolved}"
+                )
+        except RuntimeError:
+            pass
+
+
 class WorkloadSandboxRunner:
     """Orchestrator for managing the lifecycle of disposable sandbox containers."""
 
-    def __init__(self, config: WorkloadSandboxConfig) -> None:
+    def __init__(
+        self,
+        config: WorkloadSandboxConfig,
+        *,
+        exclude_home_dir: bool | None = None,
+    ) -> None:
         self.config = config
+        if exclude_home_dir is not None:
+            self.exclude_home_dir = exclude_home_dir
+        else:
+            try:
+                from devops_cli.config import load_settings
+
+                self.exclude_home_dir = load_settings().sandbox.exclude_home_dir
+            except Exception:
+                self.exclude_home_dir = DEFAULT_SANDBOX_EXCLUDE_HOME
 
     def build_dry_run_details(self) -> dict[str, Any]:
         """Construct structured summary for dry-run inspection."""
@@ -86,7 +120,6 @@ class WorkloadSandboxRunner:
         "/dev",
         "/var",
     }
-    _SENSITIVE_SUBPATHS: set[str] = {".ssh", ".aws", ".kube", ".git"}
 
     def _validate_workspace_dir(self) -> Path:
         ws = self.config.workspace_dir
@@ -97,16 +130,10 @@ class WorkloadSandboxRunner:
             raise DockerSandboxError(
                 f"Mounting sensitive root system directory into sandbox is forbidden: {resolved}"
             )
-        try:
-            if resolved == Path.home().resolve():
-                raise DockerSandboxError(
-                    f"Mounting user home directory into sandbox is forbidden: {resolved}"
-                )
-        except RuntimeError:
-            pass
+        _check_home_boundary(resolved, self.exclude_home_dir)
 
-        if resolved.name in self._SENSITIVE_SUBPATHS or any(
-            p in self._SENSITIVE_SUBPATHS for p in resolved.parts
+        if resolved.name in CONST_SANDBOX_SENSITIVE_SUBPATHS or any(
+            p in CONST_SANDBOX_SENSITIVE_SUBPATHS for p in resolved.parts
         ):
             raise DockerSandboxError(
                 f"Mounting sensitive credential or repository metadata directory into sandbox is forbidden: {resolved}"

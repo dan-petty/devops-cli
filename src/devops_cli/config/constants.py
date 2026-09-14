@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Final
 
 # ── Application & Configuration ───────────────────────────────────────────────
 CONST_APP_NAME = "devops-cli"
@@ -97,16 +98,6 @@ CONST_OPENTOFU_BINARIES: tuple[str, ...] = ("tofu", "terraform")
 
 # ── Git & Workspace ───────────────────────────────────────────────────────────
 CONST_GIT_DIR_NAME = ".git"
-CONST_GITIGNORE_DIRS = (
-    ".venv",
-    "__pycache__",
-    ".git",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".uv",
-    ".data",
-)
 CONST_BINARY_EXTENSIONS: frozenset[str] = frozenset(
     {
         ".pyc",
@@ -275,3 +266,183 @@ CONST_OTEL_SCOPE_NAME = "devops-cli.telemetry"
 CONST_OTEL_SPAN_KIND_INTERNAL = "internal"
 CONST_OTEL_METRIC_UNIT_ONE = "1"
 CONST_OTEL_SERVICE_NAME = "devops-cli"
+
+# ── Network Reference & Egress Security Invariants ────────────────────────────
+# RFC 2606 Reserved Top-Level Domains for testing & documentation
+CONST_RFC2606_RESERVED_TLDS: frozenset[str] = frozenset(
+    {
+        "test",
+        "example",
+        "invalid",
+    }
+)
+
+# RFC 2606 and RFC 6761 Reserved Second-Level Domains
+CONST_RFC2606_RESERVED_DOMAINS: frozenset[str] = frozenset(
+    {
+        "example.com",
+        "example.org",
+        "example.net",
+        "example.edu",
+    }
+)
+
+# Special-use and private infrastructure TLDs / suffixes (RFC 6762, RFC 8375, Kubernetes)
+CONST_SPECIAL_USE_TLDS: frozenset[str] = frozenset(
+    {
+        "local",
+        "internal",
+        "lan",
+        "corp",
+        "home.arpa",
+        "onion",
+        "arpa",
+        "cluster.local",
+        "localdomain",
+        "svc",
+    }
+)
+
+# Authoritative public registries and documentation schemas excluded from external egress audits
+CONST_EXCLUDED_PUBLIC_REGISTRIES: frozenset[str] = frozenset(
+    {
+        "schema.org",
+        "w3.org",
+        "json-schema.org",
+        "opencontainers.org",
+        "github.com",
+        "gitlab.com",
+        "bitbucket.org",
+        "pypi.org",
+        "pypi.python.org",
+        "pythonhosted.org",
+        "files.pythonhosted.org",
+        "npmjs.com",
+        "npmjs.org",
+        "registry.npmjs.org",
+        "yarnpkg.com",
+        "registry.yarnpkg.com",
+        "crates.io",
+        "static.crates.io",
+        "golang.org",
+        "pkg.go.dev",
+        "proxy.golang.org",
+        "sum.golang.org",
+        "rubygems.org",
+        "maven.org",
+        "apache.org",
+        "gradle.org",
+        "packagist.org",
+        "nuget.org",
+        "google.com",
+        "osv.dev",
+        "nist.gov",
+        "shodan.io",
+        "cloudflare.com",
+    }
+)
+
+
+# Standard object-oriented receivers in Python
+CONST_STANDARD_RECEIVER_IDENTIFIERS: frozenset[str] = frozenset({"self", "cls"})
+
+# Common code receiver, module, or telemetry metric prefixes
+CONST_CODE_CONFIG_PREFIXES: tuple[str, ...] = (
+    "self.",
+    "cls.",
+    "cli.",
+    "agent.",
+    "process.",
+    "ci.step.",
+    "ci.",
+    "telemetry.",
+    "logger.",
+    "log.",
+    "mcp.",
+    "metric.",
+    "otel.",
+)
+
+# Common property and telemetry metric leaf attributes
+CONST_COMMON_PROPERTY_SUFFIXES: frozenset[str] = frozenset(
+    {
+        "name",
+        "email",
+        "actor",
+        "pid",
+        "group",
+        "security",
+        "docs",
+        "ping",
+        "call",
+        "run",
+        "post",
+        "collection",
+        "sdk",
+        "executable",
+        "runtime",
+        "total",
+        "tools",
+        "count",
+        "size",
+        "duration",
+        "seconds",
+        "ms",
+        "bytes",
+        "status",
+        "state",
+        "type",
+        "id",
+        "rate",
+        "ratio",
+        "max",
+        "min",
+        "avg",
+        "sum",
+        "mean",
+        "input",
+        "output",
+        "calls",
+        "errors",
+        "exceptions",
+        "failures",
+        "successes",
+        "latency",
+        "value",
+        "result",
+        "payload",
+        "level",
+        "severity",
+        "limit",
+        "threshold",
+    }
+)
+
+# Common telemetry, metric, and logging invocation function names
+CONST_TELEMETRY_CALL_NAMES: frozenset[str] = frozenset(
+    {
+        "record_metric",
+        "metric_counter",
+        "set_attribute",
+        "add_attribute",
+        "counter",
+        "gauge",
+        "histogram",
+        "meter",
+        "logfire",
+        "otel",
+        "telemetry",
+        "statsd",
+        "prometheus",
+    }
+)
+
+# Sensitive host configuration and credential directories forbidden from container sandbox mounts
+CONST_SANDBOX_SENSITIVE_SUBPATHS: Final[frozenset[str]] = frozenset(
+    {
+        ".ssh",
+        ".aws",
+        ".kube",
+        ".git",
+    }
+)

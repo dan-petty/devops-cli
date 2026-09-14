@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Literal
 from devops_cli.config import load_settings
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import get_argocd_token
+from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
 from devops_cli.security.sanitizer import mask_secrets, mask_uri_credentials
@@ -31,18 +32,6 @@ from devops_cli.telemetry.tracer import trace_span
 
 if TYPE_CHECKING:
     from devops_cli.output.models import TablePayload
-
-_IGNORED_DIRECTORIES = {
-    ".git",
-    ".data",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".mypy_cache",
-    "node_modules",
-}
 
 _MANIFEST_EXTENSIONS = {".yaml", ".yml"}
 _MANIFEST_NAMES = {"chart.yaml", "kustomization.yaml", "values.yaml"}
@@ -69,19 +58,22 @@ def is_manifest_file(path: Path) -> bool:
     return name_lower in _MANIFEST_NAMES
 
 
-def should_ignore_dir(path_or_name: str | Path) -> bool:
+def should_ignore_dir(path_or_name: str | Path, repo_root: Path | None = None) -> bool:
     """Check whether a directory segment should be ignored during traversal."""
-    name = Path(path_or_name).name
-    return name in _IGNORED_DIRECTORIES or (name.startswith(".") and name != ".")
+    p = Path(path_or_name)
+    root = repo_root or find_repo_root(p)
+    return is_ignored_by_git(root, p)
 
 
 def _scan_directory_manifests(root: Path, state: dict[Path, tuple[float, str]]) -> None:
     """Recursively scan a directory tree and record manifest modification timestamps and hashes."""
+    repo_root = find_repo_root(root)
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if not should_ignore_dir(d)]
+        dp = Path(dirpath)
+        dirnames[:] = [d for d in dirnames if not is_ignored_by_git(repo_root, dp / d)]
         for fname in filenames:
-            fpath = Path(dirpath) / fname
-            if not is_manifest_file(fpath):
+            fpath = dp / fname
+            if is_ignored_by_git(repo_root, fpath) or not is_manifest_file(fpath):
                 continue
             try:
                 resolved = fpath.resolve()

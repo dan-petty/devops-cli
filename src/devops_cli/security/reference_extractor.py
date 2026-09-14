@@ -14,6 +14,7 @@ import logging
 import mimetypes
 import os
 import re
+import socket
 import sys
 import textwrap
 import tokenize
@@ -27,8 +28,19 @@ import yaml
 from packaging.requirements import InvalidRequirement, Requirement
 
 from devops_cli.ai.analyze.scanner import detect_language
-from devops_cli.config.constants import CONST_DEFAULT_LINE_NUMBER
+from devops_cli.config.constants import (
+    CONST_CODE_CONFIG_PREFIXES,
+    CONST_COMMON_PROPERTY_SUFFIXES,
+    CONST_DEFAULT_LINE_NUMBER,
+    CONST_EXCLUDED_PUBLIC_REGISTRIES,
+    CONST_RFC2606_RESERVED_DOMAINS,
+    CONST_RFC2606_RESERVED_TLDS,
+    CONST_SPECIAL_USE_TLDS,
+    CONST_STANDARD_RECEIVER_IDENTIFIERS,
+    CONST_TELEMETRY_CALL_NAMES,
+)
 from devops_cli.config.defaults import DEFAULT_FORMAT_TYPE
+from devops_cli.core.repo import _get_pathspec_for_repo
 from devops_cli.models.vulnerability import DependencySpec, NetworkReference
 
 logger = logging.getLogger(__name__)
@@ -49,41 +61,12 @@ mimetypes.add_type("application/java-archive", ".ear")
 
 _TLD_EXTRACTOR = tldextract.TLDExtract(suffix_list_urls=(), fallback_to_snapshot=True)
 
-# Standard RFC 2606, RFC 6761, and special-use reserved domain suffixes and TLDs
-_RFC2606_RESERVED_TLDS = frozenset(
-    {
-        "test",
-        "example",
-        "invalid",
-        "localhost",
-    }
-)
-
-_RFC2606_RESERVED_DOMAINS = frozenset(
-    {
-        "example.com",
-        "example.org",
-        "example.net",
-        "example.edu",
-    }
-)
-
-_SPECIAL_USE_TLDS = frozenset(
-    {
-        "local",
-        "internal",
-        "lan",
-        "corp",
-        "home.arpa",
-        "onion",
-        "arpa",
-        "cluster.local",
-        "localdomain",
-        "svc",
-    }
-)
-
-_RESERVED_DOMAINS = _RFC2606_RESERVED_TLDS | _RFC2606_RESERVED_DOMAINS | _SPECIAL_USE_TLDS
+# Standard RFC 2606 and RFC 6761 reserved domain suffixes and TLDs
+_RFC2606_RESERVED_TLDS = CONST_RFC2606_RESERVED_TLDS
+_RFC2606_RESERVED_DOMAINS = CONST_RFC2606_RESERVED_DOMAINS
+_SPECIAL_USE_TLDS = CONST_SPECIAL_USE_TLDS
+_RESERVED_DOMAINS = _RFC2606_RESERVED_TLDS | _RFC2606_RESERVED_DOMAINS
+_EXCLUDED_PUBLIC_REGISTRIES = CONST_EXCLUDED_PUBLIC_REGISTRIES
 
 # RFC 5737 and RFC 3849 documentation / example IP subnets
 _RFC5737_IPV4_EXAMPLE_NETWORKS = (
@@ -123,61 +106,9 @@ _OFCOM_EXAMPLE_PHONE_REGEX = re.compile(
     r"""^(?:\+?44[-.\s]?|0)(?:1632[-.\s]?(?:960\d{3}|496\d{3,4}|\d{4,6})|20[-.\s]?7946[-.\s]?0\d{3}|7700[-.\s]?900\d{3}|8081[-.\s]?570\d{3}|909[-.\s]?879[-.\s]?0\d{3}|(?:\d{2,4}[-.\s]?)?496[-.\s]?(?:0\d{3}|\d{4}|\d{3}))(?:\s*#.*)?$"""
 )
 
-_EXCLUDED_PUBLIC_REGISTRIES = {
-    "schema.org",
-    "w3.org",
-    "json-schema.org",
-    "opencontainers.org",
-    "github.com",
-    "gitlab.com",
-    "bitbucket.org",
-    "pypi.org",
-    "pypi.python.org",
-    "pythonhosted.org",
-    "files.pythonhosted.org",
-    "npmjs.com",
-    "npmjs.org",
-    "registry.npmjs.org",
-    "yarnpkg.com",
-    "registry.yarnpkg.com",
-    "crates.io",
-    "static.crates.io",
-    "golang.org",
-    "pkg.go.dev",
-    "proxy.golang.org",
-    "sum.golang.org",
-    "rubygems.org",
-    "maven.org",
-    "apache.org",
-    "gradle.org",
-    "packagist.org",
-    "nuget.org",
-    "google.com",
-    "osv.dev",
-    "nist.gov",
-    "shodan.io",
-    "cloudflare.com",
-}
-
-_WORKSPACE_SKIP_DIRS = {
-    ".git",
-    ".venv",
-    "venv",
-    "node_modules",
-    "dist",
-    "build",
-    "__pycache__",
-    ".data",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".mypy_cache",
-    ".uv",
-    ".tox",
-    "repos",
-    "target",
-}
 
 __all__ = [
+    "deduplicate_network_references",
     "extract_dependencies_from_text",
     "extract_network_references",
     "is_code_or_config_reference",
@@ -193,6 +124,7 @@ __all__ = [
     "is_package_repository_asset",
     "is_private_or_local_ip",
     "is_public_ip",
+    "sort_network_references",
 ]
 
 
@@ -228,12 +160,18 @@ def is_example_or_invalid_domain(target: str) -> bool:
     clean = target.strip().rstrip(".,;)>]\"'").lower()
     if not clean or clean.startswith("-") or clean.endswith("-") or "_" in clean:
         return False
-    if clean in _RESERVED_DOMAINS:
+    if clean == "localhost" or clean.endswith(".localhost"):
+        return False
+    if clean in _RFC2606_RESERVED_DOMAINS:
         return True
-    if any(clean.endswith("." + d) for d in _RESERVED_DOMAINS):
+    if any(clean.endswith("." + d) for d in _RFC2606_RESERVED_DOMAINS):
+        return True
+    if clean in _RFC2606_RESERVED_TLDS:
+        return True
+    if any(clean.endswith("." + tld) for tld in _RFC2606_RESERVED_TLDS):
         return True
     ext = _TLD_EXTRACTOR(clean)
-    if ext.suffix and ext.suffix.lower() in _RESERVED_DOMAINS:
+    if ext.suffix and ext.suffix.lower() in _RFC2606_RESERVED_TLDS:
         return True
     return False
 
@@ -248,10 +186,21 @@ def is_example_phone_number(phone_str: str) -> bool:
 
 
 @functools.lru_cache(maxsize=4096)
+def _is_unspecified_ip_host(target: str) -> bool:
+    """Check if an IP address or host is an unspecified IP (e.g. 0.0.0.0 or ::)."""
+    try:
+        return ipaddress.ip_address(target.strip()).is_unspecified
+    except ValueError:
+        return False
+
+
+@functools.lru_cache(maxsize=4096)
 def is_example_or_invalid_network_target(target: str) -> bool:
     """Check if any network target (URL, IP, domain, phone) is a documented example or invalid reference."""
     clean = target.strip().rstrip(".,;)>]\"'")
     if not clean:
+        return False
+    if clean.lower() == "localhost":
         return False
     if is_example_phone_number(clean):
         return True
@@ -261,9 +210,15 @@ def is_example_or_invalid_network_target(target: str) -> bool:
             host = (parsed.hostname or "").lower()
             if not host:
                 return False
+            if host == "localhost":
+                return False
+            if _is_unspecified_ip_host(host):
+                return True
             return is_example_or_reserved_ip(host) or is_example_or_invalid_domain(host)
         except ValueError:
             return False
+    if _is_unspecified_ip_host(clean):
+        return True
     if is_example_or_reserved_ip(clean):
         return True
     return is_example_or_invalid_domain(clean)
@@ -294,15 +249,11 @@ def is_private_or_local_ip(ip_str: str) -> bool:
     """Check whether an IP string is a private, loopback, link-local, or reserved IP address."""
     try:
         ip = ipaddress.ip_address(ip_str.strip())
-        if is_example_or_reserved_ip(ip):
-            return True
-        return (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_reserved
-            or ip.is_unspecified
-        )
+        if ip.is_unspecified:
+            return False
+        if is_example_or_reserved_ip(ip) or is_example_ip(ip):
+            return False
+        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
     except ValueError:
         return False
 
@@ -313,32 +264,55 @@ def is_local_or_reserved_domain(target: str) -> bool:
     clean = target.strip().rstrip(".,;)>]\"'").lower()
     if not clean or clean.startswith("-") or clean.endswith("-") or "_" in clean:
         return False
+    if clean == "localhost":
+        return True
     if is_example_or_invalid_domain(clean):
+        return False
+    if clean in _SPECIAL_USE_TLDS:
+        return False
+    if any(clean.endswith("." + d) for d in _SPECIAL_USE_TLDS):
         return True
     ext = _TLD_EXTRACTOR(clean)
-    if ext.suffix and ext.suffix.lower() in _RESERVED_DOMAINS:
+    if ext.suffix and ext.suffix.lower() in _SPECIAL_USE_TLDS:
         return True
     return False
 
 
 @functools.lru_cache(maxsize=16)
 def _get_workspace_filenames(root_dir_str: str = "") -> tuple[set[str], tuple[str, ...]]:
-    """Recursively discover all file names and relative paths across the workspace."""
+    """Recursively discover all file names and relative paths across the workspace respecting .gitignore."""
     root = Path(root_dir_str) if root_dir_str else Path.cwd()
     if not root.exists() or not root.is_dir():
         root = Path.cwd()
     exact_names: set[str] = set()
     all_paths: list[str] = []
+    spec = _get_pathspec_for_repo(str(root.resolve()))
     try:
         for dirpath, dirnames, filenames in os.walk(root, topdown=True):
-            # Prune skipped directory branches in-place for instant scanning
-            dirnames[:] = [
-                d
-                for d in dirnames
-                if d not in _WORKSPACE_SKIP_DIRS
-                and (not d.startswith(".") or d in (".github", ".agents"))
-            ]
+            pruned_dirs: list[str] = []
+            for d in dirnames:
+                if d == ".git":
+                    continue
+                if spec is not None:
+                    try:
+                        rel_d = (Path(dirpath) / d).relative_to(root).as_posix()
+                        if spec.match_file(rel_d + "/") or spec.match_file(rel_d):
+                            continue
+                    except ValueError:
+                        pass
+                elif d.startswith(".") and d not in (".github", ".agents"):
+                    continue
+                pruned_dirs.append(d)
+            dirnames[:] = pruned_dirs
+
             for fname in filenames:
+                if spec is not None:
+                    try:
+                        rel_f = (Path(dirpath) / fname).relative_to(root).as_posix()
+                        if spec.match_file(rel_f):
+                            continue
+                    except ValueError:
+                        pass
                 fname_lower = fname.lower()
                 exact_names.add(fname_lower)
                 all_paths.append(fname_lower)
@@ -354,34 +328,189 @@ def _get_workspace_filenames(root_dir_str: str = "") -> tuple[set[str], tuple[st
     return exact_names, tuple(all_paths)
 
 
-_CODE_CONFIG_PREFIXES = (
-    "self.",
-    "cls.",
-    "process.",
-    "ci.step.",
-    "telemetry.",
-    "logger.",
-    "log.",
-    "mcp.",
-)
+class PythonSymbolContext:
+    """Container for AST-extracted symbols, attribute chains, and telemetry keys."""
 
-_COMMON_PROPERTY_SUFFIXES = {
-    "name",
-    "email",
-    "actor",
-    "pid",
-    "group",
-    "security",
-    "docs",
-    "ping",
-    "call",
-    "run",
-    "post",
-    "collection",
-    "sdk",
-    "executable",
-    "runtime",
-}
+    __slots__ = ("symbols", "attribute_chains", "metric_keys", "dict_keys")
+
+    def __init__(
+        self,
+        symbols: set[str] | None = None,
+        attribute_chains: set[str] | None = None,
+        metric_keys: set[str] | None = None,
+        dict_keys: set[str] | None = None,
+    ) -> None:
+        self.symbols = symbols or set()
+        self.attribute_chains = attribute_chains or set()
+        self.metric_keys = metric_keys or set()
+        self.dict_keys = dict_keys or set()
+
+
+def _resolve_attribute_chain(node: ast.AST) -> str | None:
+    """Recursively resolve attribute chain like self.host or ci.step.security."""
+    parts: list[str] = []
+    curr: ast.AST | None = node
+    while isinstance(curr, ast.Attribute):
+        parts.append(curr.attr)
+        curr = curr.value
+    if isinstance(curr, ast.Name):
+        parts.append(curr.id)
+        return ".".join(reversed(parts))
+    return None
+
+
+def _resolve_call_func(node: ast.AST) -> str:
+    """Extract call target identifier or attribute chain."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return _resolve_attribute_chain(node) or node.attr
+    return ""
+
+
+class PythonSymbolVisitor(ast.NodeVisitor):
+    """AST visitor extracting declared symbols, attribute chains, and telemetry call literals."""
+
+    def __init__(self) -> None:
+        self.symbols: set[str] = set()
+        self.attribute_chains: set[str] = set()
+        self.metric_keys: set[str] = set()
+        self.dict_keys: set[str] = set()
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            self.symbols.add(alias.name.split(".")[0].lower())
+            self.symbols.add((alias.asname or alias.name).lower())
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if node.module:
+            self.symbols.add(node.module.split(".")[0].lower())
+            self.symbols.add(node.module.lower())
+        for alias in node.names:
+            self.symbols.add((alias.asname or alias.name).lower())
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.symbols.add(node.name.lower())
+        for arg in node.args.args + node.args.posonlyargs + node.args.kwonlyargs:
+            self.symbols.add(arg.arg.lower())
+        if node.args.vararg:
+            self.symbols.add(node.args.vararg.arg.lower())
+        if node.args.kwarg:
+            self.symbols.add(node.args.kwarg.arg.lower())
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.symbols.add(node.name.lower())
+        for arg in node.args.args + node.args.posonlyargs + node.args.kwonlyargs:
+            self.symbols.add(arg.arg.lower())
+        if node.args.vararg:
+            self.symbols.add(node.args.vararg.arg.lower())
+        if node.args.kwarg:
+            self.symbols.add(node.args.kwarg.arg.lower())
+        self.generic_visit(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.symbols.add(node.name.lower())
+        self.generic_visit(node)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, (ast.Store, ast.Param)):
+            self.symbols.add(node.id.lower())
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        chain = _resolve_attribute_chain(node)
+        if chain:
+            self.attribute_chains.add(chain.lower())
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        call_name = _resolve_call_func(node.func).lower()
+        if any(marker in call_name for marker in CONST_TELEMETRY_CALL_NAMES):
+            for arg in node.args:
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    self.metric_keys.add(arg.value.lower())
+            for kw in node.keywords:
+                if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                    self.metric_keys.add(kw.value.value.lower())
+        self.generic_visit(node)
+
+    def visit_Dict(self, node: ast.Dict) -> None:
+        for k in node.keys:
+            if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                self.dict_keys.add(k.value.lower())
+        self.generic_visit(node)
+
+
+@functools.lru_cache(maxsize=1024)
+def _parse_python_file_symbols(source_file: str) -> PythonSymbolContext:
+    """Parse source file using Python AST symbol parser to extract declarations and telemetry calls."""
+    if not source_file:
+        return PythonSymbolContext()
+    p = Path(source_file)
+    if not p.is_file():
+        p = Path.cwd() / p
+    if not p.is_file() or p.suffix.lower() != ".py":
+        return PythonSymbolContext()
+    try:
+        content = p.read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(content, filename=str(p))
+        visitor = PythonSymbolVisitor()
+        visitor.visit(tree)
+        return PythonSymbolContext(
+            symbols=visitor.symbols,
+            attribute_chains=visitor.attribute_chains,
+            metric_keys=visitor.metric_keys,
+            dict_keys=visitor.dict_keys,
+        )
+    except Exception:
+        return PythonSymbolContext()
+
+
+def _is_routable_dns_ip(ip_text: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip_text)
+        return not (addr.is_unspecified or addr.is_loopback)
+    except ValueError:
+        return False
+
+
+@functools.lru_cache(maxsize=2048)
+def _is_resolvable_domain(hostname: str) -> bool:
+    """Use system domain lookup tooling to check if hostname resolves via DNS to a routable IP."""
+    try:
+        results = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+        return any(_is_routable_dns_ip(str(res[4][0])) for res in results)
+    except socket.gaierror, OSError, TimeoutError:
+        return False
+
+
+def _is_metric_or_telemetry_context(
+    target: str, text_segment: str, source_file: str, line_idx: int
+) -> bool:
+    """Dynamically determine if target is used as a telemetry metric, attribute, or code key."""
+    target_lower = target.lower()
+    if is_local_or_reserved_domain(target_lower):
+        return False
+
+    if source_file:
+        context = _parse_python_file_symbols(source_file)
+        if target_lower in context.metric_keys or target_lower in context.attribute_chains:
+            return True
+
+    if target_lower.startswith(CONST_CODE_CONFIG_PREFIXES):
+        return True
+
+    parts = target_lower.split(".")
+    if len(parts) >= 2 and parts[-1] in CONST_COMMON_PROPERTY_SUFFIXES:
+        ext = _TLD_EXTRACTOR(target_lower)
+        psl_tlds = frozenset(_TLD_EXTRACTOR.tlds)
+        if not ext.suffix or ext.suffix.lower() not in psl_tlds:
+            return True
+
+    return False
 
 
 @functools.lru_cache(maxsize=1024)
@@ -437,30 +566,7 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
         if "." in clean and (path_str.endswith("/" + clean) or path_str.endswith(clean)):
             return True
 
-    # 5. Network domains and reserved hostnames without disk presence are not files
-    if is_local_or_reserved_domain(clean):
-        return False
-
-    ext = _TLD_EXTRACTOR(clean)
-    if ext.domain and ext.suffix:
-        if ext.subdomain or ext.suffix.lower() in (
-            "com",
-            "org",
-            "net",
-            "io",
-            "dev",
-            "app",
-            "gov",
-            "edu",
-            "info",
-            "co",
-            "me",
-            "internal",
-            "local",
-        ):
-            return False
-
-    # 6. Standard MIME or recognized language file reference
+    # 5. Standard MIME or recognized language file reference
     mime_type, encoding = mimetypes.guess_type(clean)
     if encoding or (
         mime_type
@@ -469,6 +575,19 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
         return True
     if Path(clean).suffix and detect_language(clean) not in ("plaintext", "org"):
         return True
+
+    # 6. Network domains and reserved hostnames without disk presence are not files
+    if is_local_or_reserved_domain(clean):
+        return False
+
+    ext = _TLD_EXTRACTOR(clean)
+    if ext.domain and ext.suffix:
+        if (
+            ext.subdomain
+            or ext.suffix.lower() in frozenset(_TLD_EXTRACTOR.tlds)
+            or is_local_or_reserved_domain(clean)
+        ):
+            return False
 
     return False
 
@@ -492,7 +611,7 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     clean_lower = clean.lower()
 
     # Common code receiver or property prefixes (e.g. self.host, ci.step.security, host.name)
-    if clean_lower.startswith(_CODE_CONFIG_PREFIXES):
+    if clean_lower.startswith(CONST_CODE_CONFIG_PREFIXES):
         return True
 
     parts = clean.split(".")
@@ -502,9 +621,22 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     first_seg = parts[0].lower()
     last_seg = parts[-1].lower()
 
+    if first_seg in CONST_STANDARD_RECEIVER_IDENTIFIERS:
+        return True
+
     # Standard Python keywords and builtins (e.g. dir(builtins))
     builtin_names = set(dir(builtins))
     stdlib_names = getattr(sys, "stdlib_module_names", set()) | set(sys.builtin_module_names)
+
+    # Check against AST-parsed symbols in source file
+    if source_file:
+        context = _parse_python_file_symbols(source_file)
+        if clean_lower in context.attribute_chains or clean_lower in context.metric_keys:
+            return True
+        if (first_seg in context.symbols or last_seg in context.symbols) and all(
+            seg.isidentifier() for seg in parts
+        ):
+            return True
 
     # If first segment is a language keyword, stdlib root module, or installed package
     if (
@@ -545,20 +677,15 @@ def is_code_or_config_reference(target: str, source_file: str = "") -> bool:
     if not ext.domain or not ext.suffix:
         return True
 
-    # If the TLD suffix or domain is a programmatic identifier and not a standard web domain suffix
-    if ext.suffix.lower() in _COMMON_PROPERTY_SUFFIXES and ext.suffix.lower() not in (
-        "com",
-        "org",
-        "net",
-        "io",
-        "dev",
-        "app",
-        "gov",
-        "edu",
-        "info",
-        "co",
-        "me",
-    ):
+    # Domain lookup tooling: inspect authoritative PSL database
+    suffix_lower = ext.suffix.lower()
+    psl_tlds = frozenset(_TLD_EXTRACTOR.tlds)
+    if suffix_lower not in psl_tlds and not is_local_or_reserved_domain(clean):
+        return True
+
+    if (
+        suffix_lower in CONST_COMMON_PROPERTY_SUFFIXES or last_seg in CONST_COMMON_PROPERTY_SUFFIXES
+    ) and not _is_resolvable_domain(clean):
         return True
 
     return False
@@ -608,12 +735,18 @@ def is_network_domain(target: str, source_file: str = "") -> bool:
     # Exclude reserved RFC domains and common public tooling registries
     if (
         registered in _RESERVED_DOMAINS
-        or registered in _EXCLUDED_PUBLIC_REGISTRIES
         or fqdn in _RESERVED_DOMAINS
-        or fqdn in _EXCLUDED_PUBLIC_REGISTRIES
-        or any(fqdn.endswith("." + exc) for exc in _RESERVED_DOMAINS | _EXCLUDED_PUBLIC_REGISTRIES)
+        or any(fqdn.endswith("." + exc) for exc in _RESERVED_DOMAINS)
     ):
         return False
+
+    if not fqdn.startswith("api."):
+        if (
+            registered in _EXCLUDED_PUBLIC_REGISTRIES
+            or fqdn in _EXCLUDED_PUBLIC_REGISTRIES
+            or any(fqdn.endswith("." + exc) for exc in _EXCLUDED_PUBLIC_REGISTRIES)
+        ):
+            return False
 
     # Check if domain name or registered name matches a workspace file
     if is_file_reference(fqdn, source_file=source_file) or is_file_reference(
@@ -651,9 +784,19 @@ def _extract_python_literals_and_comments(source: str) -> list[tuple[str, int]]:
     try:
         tree = ast.parse(source)
         parsed_ast = True
+        visitor = PythonSymbolVisitor()
+        visitor.visit(tree)
+        metric_and_dict_keys = visitor.metric_keys | visitor.dict_keys
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 line = getattr(node, "lineno", 1)
+                val = node.value.strip()
+                val_lower = val.lower()
+                if val_lower in metric_and_dict_keys and not val_lower.startswith(
+                    ("http://", "https://", "ftp://")
+                ):
+                    continue
                 literals.append((node.value, line))
     except SyntaxError, IndentationError:
         pass
@@ -864,26 +1007,36 @@ def _extract_url_reference(
     source_file: str,
     line_idx: int,
     include_local: bool,
-    exclude_examples: bool = False,
+    exclude_examples: bool = True,
 ) -> NetworkReference | None:
     """Parse and validate URL network reference."""
     if not clean_token.lower().startswith(("http://", "https://", "ftp://")):
+        return None
+    if "\\" in clean_token or ".*" in clean_token:
         return None
     try:
         parsed = urllib.parse.urlsplit(clean_token)
         if not (parsed.scheme in ("http", "https") and parsed.netloc):
             return None
         host = (parsed.hostname or "").lower()
+        if not host:
+            return None
+        try:
+            if ipaddress.ip_address(host).is_unspecified:
+                return None
+        except ValueError:
+            pass
         if is_package_repository_asset(clean_token, host):
             return None
         is_example = is_example_or_invalid_domain(host) or is_example_or_reserved_ip(host)
         if is_example and exclude_examples:
             return None
         is_local_host = (
-            is_example
+            host == "localhost"
             or is_private_or_local_ip(host)
             or is_local_or_reserved_domain(host)
             or ("." not in host)
+            or (is_example and not exclude_examples)
         )
         if is_local_host and not include_local:
             return None
@@ -911,13 +1064,15 @@ def _extract_ip_reference(
     source_file: str,
     line_idx: int,
     include_local: bool,
-    exclude_examples: bool = False,
+    exclude_examples: bool = True,
 ) -> NetworkReference | None:
     """Parse and validate IP address network reference."""
     try:
         ip = ipaddress.ip_address(clean_token)
         ip_str = str(ip)
-        is_example = is_example_or_reserved_ip(ip)
+        if ip.is_unspecified:
+            return None
+        is_example = is_example_or_reserved_ip(ip) or is_example_ip(ip)
         if is_example and exclude_examples:
             return None
         if is_public_ip(clean_token):
@@ -931,7 +1086,7 @@ def _extract_ip_reference(
                 scope="external",
                 security_status="✓ Safe",
             )
-        is_local = is_private_or_local_ip(clean_token)
+        is_local = is_private_or_local_ip(clean_token) or (is_example and not exclude_examples)
         if is_local and include_local:
             status = "✓ Safe (Documented Example)" if is_example else "✓ Safe (Local)"
             return NetworkReference(
@@ -955,7 +1110,7 @@ def _extract_domain_reference(
     source_file: str,
     line_idx: int,
     include_local: bool,
-    exclude_examples: bool = False,
+    exclude_examples: bool = True,
 ) -> NetworkReference | None:
     """Parse and validate domain/hostname network reference."""
     if not (
@@ -967,9 +1122,25 @@ def _extract_domain_reference(
         and "=" not in clean_token
         and "*" not in clean_token
     ):
+        if clean_token.lower() == "localhost":
+            if not include_local:
+                return None
+            return NetworkReference(
+                target="localhost",
+                reference_type="domain",
+                source_file=source_file,
+                line_number=line_idx,
+                is_local=True,
+                is_example=False,
+                scope="local",
+                security_status="✓ Safe (Local)",
+            )
         return None
 
     domain_candidate = clean_token.lower()
+    if domain_candidate in _SPECIAL_USE_TLDS or is_example_or_invalid_domain(domain_candidate):
+        return None
+
     if domain_candidate.endswith((".example", ".sample")) and any(
         kw in domain_candidate
         for kw in (
@@ -1008,26 +1179,24 @@ def _extract_domain_reference(
     if is_file_reference(domain_candidate, source_file=source_file):
         return None
 
+    if _is_metric_or_telemetry_context(domain_candidate, text_segment, source_file, line_idx):
+        return None
+
     if is_code_or_config_reference(domain_candidate, source_file=source_file):
         return None
 
-    is_example = is_example_or_invalid_domain(domain_candidate)
-    if is_example and exclude_examples:
-        return None
-
-    if is_example or is_local_or_reserved_domain(domain_candidate):
+    if is_local_or_reserved_domain(domain_candidate):
         if not include_local:
             return None
-        status = "✓ Safe (Documented Example)" if is_example else "✓ Safe (Local)"
         return NetworkReference(
             target=domain_candidate,
             reference_type="domain",
             source_file=source_file,
             line_number=line_idx,
             is_local=True,
-            is_example=is_example,
+            is_example=False,
             scope="local",
-            security_status=status,
+            security_status="✓ Safe (Local)",
         )
 
     if is_network_domain(domain_candidate, source_file=source_file):
@@ -1045,11 +1214,86 @@ def _extract_domain_reference(
     return None
 
 
+def _network_security_severity_rank(status: str) -> int:
+    """Map security status string to numeric severity rank (0 is highest severity)."""
+    s = status.upper()
+    if "MALICIOUS" in s or "CRITICAL" in s:
+        return 0
+    if "⚠️" in s or "FLAGGED" in s or ("RISK" in s and "LOW" not in s) or "HIGH" in s:
+        return 1
+    if "MEDIUM" in s or "SUSPICIOUS" in s or "WARNING" in s:
+        return 2
+    if "LOW" in s:
+        return 3
+    if "SAFE" in s or "CLEAN" in s:
+        return 4
+    return 5
+
+
+_REF_TYPE_RANKS = {"domain": 0, "url": 1, "ip": 2}
+
+
+def _network_reference_sort_key(n: NetworkReference) -> tuple[int, int, int, str, str]:
+    """Sort key tuple: Scope (external, local), Security (descending severity),
+    Type (domain, url, ip), Target (ascending), Location (ascending)."""
+    scope_rank = (
+        0
+        if getattr(n, "scope", "").lower() == "external" or not getattr(n, "is_local", False)
+        else 1
+    )
+    sec_rank = _network_security_severity_rank(str(getattr(n, "security_status", "")))
+    type_rank = _REF_TYPE_RANKS.get(str(getattr(n, "reference_type", "")).lower(), 3)
+    target_key = str(getattr(n, "target", "")).lower()
+    loc_key = str(getattr(n, "location", "") or "").lower()
+    return (scope_rank, sec_rank, type_rank, target_key, loc_key)
+
+
+def sort_network_references(refs: list[NetworkReference]) -> list[NetworkReference]:
+    """Sort network references by Scope (external, local), Security (descending severity),
+    Type (domain, url, ip), Target (ascending), and Location (ascending)."""
+    return sorted(refs, key=_network_reference_sort_key)
+
+
+def deduplicate_network_references(refs: list[NetworkReference]) -> list[NetworkReference]:
+    """Deduplicate network references by target and type, consolidating locations and keeping highest severity."""
+    groups: dict[tuple[str, str], list[NetworkReference]] = {}
+    for r in refs:
+        norm_target = r.target.strip().rstrip("/").lower()
+        norm_type = r.reference_type.lower()
+        groups.setdefault((norm_target, norm_type), []).append(r)
+
+    deduped: list[NetworkReference] = []
+    for group in groups.values():
+        group_sorted = sorted(
+            group, key=lambda x: _network_security_severity_rank(x.security_status)
+        )
+        primary = group_sorted[0]
+
+        all_locs: list[str] = []
+        for item in group:
+            if item.locations:
+                all_locs.extend(item.locations)
+            elif item.source_file:
+                loc = (
+                    f"{item.source_file}:{item.line_number}"
+                    if item.line_number
+                    else f"{item.source_file}:1"
+                )
+                all_locs.append(loc)
+
+        unique_locs = list(dict.fromkeys(all_locs))
+        merged = primary.model_copy(deep=True)
+        merged.locations = unique_locs
+        deduped.append(merged)
+
+    return sort_network_references(deduped)
+
+
 def extract_network_references(
     content: str,
     source_file: str = "",
     include_local: bool = True,
-    exclude_examples: bool = False,
+    exclude_examples: bool = True,
 ) -> list[NetworkReference]:
     """Extract external and local network references (IPs, URLs, and domains) from source code."""
     results: list[NetworkReference] = []
@@ -1062,7 +1306,7 @@ def extract_network_references(
     target_segments = _get_target_segments(content, source_file)
 
     for text_segment, line_idx in target_segments:
-        tokens = re.split(r"""[\s"'`<>()[\]{}]+""", text_segment)
+        tokens = re.split(r"""[\s,"'`<>()[\]{}]+""", text_segment)
 
         for token in tokens:
             if not token:
@@ -1117,7 +1361,7 @@ def extract_network_references(
                     seen.add(dom_ref.target)
                     results.append(dom_ref)
 
-    return results
+    return deduplicate_network_references(results)
 
 
 def _find_package_line(lines: list[str], pkg_token: str) -> int | None:

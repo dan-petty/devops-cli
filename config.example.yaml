@@ -122,3 +122,8 @@ k8s:
   # Target Kubernetes cluster context (e.g. minikube, kind-cluster, remote cluster).
   # When set to minikube, minikube autostarts on container startup or context switch if stopped.
   context: minikube
+
+# ── Sandbox ───────────────────────────────────────────────────────────────────
+sandbox:
+  # Exclude user home directory entirely from sandbox access (/home/**/* and ~/**/*).
+  exclude_home_dir: true

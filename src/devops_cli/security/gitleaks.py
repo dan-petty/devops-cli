@@ -16,6 +16,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.security.base import BaseSecurityScanner
 from devops_cli.telemetry import trace_span
@@ -144,10 +145,9 @@ def _resolve_scan_files(target: Path | list[Path], *, ignore_tests: bool = False
     elif target.is_file():
         candidates = [target]
     else:
+        root = find_repo_root(target)
         candidates = [
-            p
-            for p in target.rglob("*")
-            if p.is_file() and not any(part.startswith(".") for part in p.parts)
+            p for p in target.rglob("*") if p.is_file() and not is_ignored_by_git(root, p)
         ]
     if ignore_tests:
         return [p for p in candidates if not _is_test_file(p)]

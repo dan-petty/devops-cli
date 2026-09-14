@@ -612,10 +612,34 @@ def test_exception_truncation() -> None:
 
 
 def test_sandbox_workspace_validation_user_home(tmp_path: Path) -> None:
-    """Workspace validation blocks mounting user home directory."""
-    engine = WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json"))
+    """Workspace validation blocks mounting user home directory and subpaths by default."""
+    engine_default = WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json"))
+    assert engine_default.exclude_home_dir is True
+
     with pytest.raises(SandboxValidationError, match="home directory"):
-        engine.validate_workspace_dir(Path.home())
+        engine_default.validate_workspace_dir(Path.home())
+
+    with pytest.raises(SandboxValidationError, match="home directory"):
+        engine_default.validate_workspace_dir(Path.home() / "subproject")
+
+    with pytest.raises(SandboxValidationError, match="home directory"):
+        engine_default.validate_workspace_dir(Path("/home/test/workspace"))
+
+    # When exclude_home_dir is explicitly disabled:
+    engine_allow = WorkloadSandboxEngine(
+        registry=SandboxRegistry(tmp_path / "reg.json"),
+        exclude_home_dir=False,
+    )
+    assert engine_allow.exclude_home_dir is False
+
+    # Home root is still forbidden even when exclude_home_dir is False
+    with pytest.raises(SandboxValidationError, match="home directory"):
+        engine_allow.validate_workspace_dir(Path.home())
+
+    # Valid non-forbidden workspace succeeds
+    valid_dir = tmp_path / "valid_workspace"
+    valid_dir.mkdir()
+    assert engine_allow.validate_workspace_dir(valid_dir) == valid_dir.resolve()
 
 
 def test_ports_boundary_check() -> None:

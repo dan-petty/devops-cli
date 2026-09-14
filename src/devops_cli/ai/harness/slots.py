@@ -20,26 +20,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from devops_cli.ai.harness.skills import ParsedSkill, normalize_skill_name
 from devops_cli.ai.repomap import SymbolNode, parse_file_symbols
 from devops_cli.ai.router import TaskComplexity
+from devops_cli.core.repo import is_ignored_by_git
 from devops_cli.exceptions.ai import HarnessValidationError
 
 logger = logging.getLogger(__name__)
-
-
-IGNORED_EXPLORATION_DIRS: frozenset[str] = frozenset(
-    {
-        ".git",
-        ".venv",
-        "venv",
-        "__pycache__",
-        ".data",
-        ".ruff_cache",
-        ".mypy_cache",
-        ".pytest_cache",
-        "node_modules",
-        "dist",
-        "build",
-    }
-)
 
 
 class SlotState(StrEnum):
@@ -348,7 +332,7 @@ def _walk_python_files(repo_path: Path, max_files: int = 100) -> list[Path]:
         return matched
 
     for item in repo_path.rglob("*.py"):
-        if any(part in IGNORED_EXPLORATION_DIRS for part in item.parts):
+        if is_ignored_by_git(repo_path, item):
             continue
         matched.append(item)
         if len(matched) >= max_files:
@@ -509,7 +493,7 @@ class SubAgentSlot(BaseSlot):
                     duration_seconds=round(elapsed, 4),
                 )
             for item in root.rglob("*"):
-                if any(part in IGNORED_EXPLORATION_DIRS for part in item.parts):
+                if is_ignored_by_git(root, item):
                     continue
                 if item.is_file() and fnmatch.fnmatch(item.name, pattern):
                     matched_files.append(str(item.relative_to(root)))

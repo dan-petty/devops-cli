@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.core.repo import find_repo_root, find_top_level_repo_root, is_ignored_by_git
 
 
 class SymbolNode(BaseModel):
@@ -129,22 +129,13 @@ def parse_file_symbols(file_path: Path, relative_to: Path) -> FileMapNode | None
     return FileMapNode(path=rel_path, line_count=line_count, symbols=symbols)
 
 
-def _is_file_excluded(source_file: Path, include_tests: bool) -> bool:
+def _is_file_excluded(
+    source_file: Path, include_tests: bool, repo_root: Path | None = None
+) -> bool:
     if source_file.is_symlink():
         return True
-    if any(
-        part in source_file.parts
-        for part in (
-            ".venv",
-            ".git",
-            "__pycache__",
-            ".pytest_cache",
-            "build",
-            "dist",
-            ".data",
-            "node_modules",
-        )
-    ):
+    root = repo_root or find_repo_root(source_file)
+    if is_ignored_by_git(root, source_file):
         return True
     return not include_tests and "test" in source_file.name
 
@@ -156,11 +147,12 @@ def _discover_repo_files(
 ) -> list[Path]:
     from devops_cli.ai.ast.engine import EXT_TO_LANG
 
+    repo_root = find_repo_root(target_dir)
     extensions = list(EXT_TO_LANG.keys()) if multilingual else [".py"]
     found: list[Path] = []
     for ext in extensions:
         for p in target_dir.rglob(f"*{ext}"):
-            if not _is_file_excluded(p, include_tests):
+            if not _is_file_excluded(p, include_tests, repo_root):
                 found.append(p)
     return sorted(found, key=lambda f: str(f))
 

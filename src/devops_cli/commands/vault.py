@@ -106,7 +106,7 @@ def vault_get(
     set_dry_run(dry_run)
     try:
         _validate_vault_path(path)
-    except ValueError as exc:
+    except (ValueError, VaultConfigurationError) as exc:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1)
     broker = VaultSecretBroker()
@@ -153,7 +153,7 @@ def vault_set(
     set_dry_run(dry_run)
     try:
         _validate_vault_path(path)
-    except ValueError as exc:
+    except (ValueError, VaultConfigurationError) as exc:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1)
     broker = VaultSecretBroker()
@@ -204,7 +204,7 @@ def vault_sync(
     set_dry_run(dry_run)
     try:
         _validate_vault_path(path)
-    except ValueError as exc:
+    except (ValueError, VaultConfigurationError) as exc:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1)
     broker = VaultSecretBroker()
