@@ -13,6 +13,7 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.security.base import BaseSecurityScanner
 from devops_cli.telemetry import trace_span
 
@@ -87,12 +88,13 @@ def _run_native_fallback_iac_checks(target_path: Path) -> list[Finding]:
     """Fallback static checks for Dockerfiles and Kubernetes when checkov is not installed."""
     findings: list[Finding] = []
     resolved = target_path.resolve()
+    rel_root = resolved if resolved.is_dir() else resolved.parent
+    repo_root = find_repo_root(rel_root)
     target_files = [resolved] if resolved.is_file() else list(resolved.rglob("*"))
 
     for f in target_files:
-        if not f.is_file() or f.is_symlink():
+        if not f.is_file() or f.is_symlink() or is_ignored_by_git(repo_root, f):
             continue
-        rel_root = resolved if resolved.is_dir() else resolved.parent
         if not f.resolve().is_relative_to(rel_root):
             continue
         rel_str = str(f.relative_to(rel_root)) if f.is_relative_to(rel_root) else f.name

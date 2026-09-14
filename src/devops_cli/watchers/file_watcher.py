@@ -8,19 +8,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.telemetry import trace_span
-
-_IGNORED_DIRECTORIES = {
-    ".git",
-    ".data",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".mypy_cache",
-    "node_modules",
-}
 
 
 class DebouncedFileWatcher:
@@ -43,12 +32,12 @@ class DebouncedFileWatcher:
         self._running = False
         self._last_mtimes: dict[Path, float] = {}
 
-    def _should_ignore(self, path: Path) -> bool:
-        """Check whether a path or its ancestors should be ignored."""
-        for part in path.parts:
-            if part in _IGNORED_DIRECTORIES or part.startswith("."):
-                return True
-        return False
+    def _should_ignore(self, path: Path, repo_root: Path | None = None) -> bool:
+        """Check whether a path should be ignored via hidden conventions or .gitignore."""
+        if any(part.startswith(".") for part in path.parts):
+            return True
+        root = repo_root or find_repo_root(path)
+        return is_ignored_by_git(root, path)
 
     def _scan_file_target(self, root: Path, mtimes: dict[Path, float]) -> None:
         """Record mtime for a single file target."""
@@ -61,11 +50,13 @@ class DebouncedFileWatcher:
 
     def _scan_dir_target(self, root: Path, mtimes: dict[Path, float]) -> None:
         """Recursively scan a directory tree for file mtimes."""
+        repo_root = find_repo_root(root)
         for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if not self._should_ignore(Path(d))]
-            paths = (Path(dirpath) / fname for fname in filenames)
-            for fpath in paths:
-                if self._should_ignore(fpath):
+            dp = Path(dirpath)
+            dirnames[:] = [d for d in dirnames if not self._should_ignore(dp / d, repo_root)]
+            for fname in filenames:
+                fpath = dp / fname
+                if self._should_ignore(fpath, repo_root):
                     continue
                 try:
                     mtimes[fpath] = fpath.stat().st_mtime

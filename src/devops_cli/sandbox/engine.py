@@ -12,7 +12,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Final
 
-from devops_cli.config.defaults import DEFAULT_DOCKER_TIMEOUT_SECONDS
+from devops_cli.config.constants import CONST_SANDBOX_SENSITIVE_SUBPATHS
+from devops_cli.config.defaults import (
+    DEFAULT_DOCKER_TIMEOUT_SECONDS,
+    DEFAULT_SANDBOX_EXCLUDE_HOME,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.sandbox import (
     SandboxError,
@@ -54,7 +58,21 @@ _FORBIDDEN_ROOTS: Final[set[str]] = {
     "/dev",
     "/var",
 }
-_SENSITIVE_SUBPATHS: Final[set[str]] = {".ssh", ".aws", ".kube", ".git"}
+
+
+def is_home_or_subpath(target_path: Path) -> bool:
+    """Determine whether target path is or resides within user home directory (/home/**/*, ~/**/*)."""
+    try:
+        resolved = target_path.resolve()
+        home = Path.home().resolve()
+        if resolved == home or resolved.is_relative_to(home):
+            return True
+        home_root = Path("/home")
+        if home_root.exists() and (resolved == home_root or resolved.is_relative_to(home_root)):
+            return True
+    except RuntimeError, OSError, ValueError:
+        pass
+    return False
 
 
 def _get_docker_client() -> Any:
@@ -76,8 +94,22 @@ class WorkloadSandboxEngine:
 
     _prior_samples: dict[str, tuple[float, CgroupV2Metrics]] = {}
 
-    def __init__(self, registry: SandboxRegistry | None = None) -> None:
+    def __init__(
+        self,
+        registry: SandboxRegistry | None = None,
+        *,
+        exclude_home_dir: bool | None = None,
+    ) -> None:
         self.registry = registry or SandboxRegistry()
+        if exclude_home_dir is not None:
+            self.exclude_home_dir = exclude_home_dir
+        else:
+            try:
+                from devops_cli.config import load_settings
+
+                self.exclude_home_dir = load_settings().sandbox.exclude_home_dir
+            except Exception:
+                self.exclude_home_dir = DEFAULT_SANDBOX_EXCLUDE_HOME
 
     def validate_workspace_dir(self, workspace_dir: Path) -> Path:
         """Enforce strict security boundaries preventing host system root or secret mounts."""
@@ -96,17 +128,23 @@ class WorkloadSandboxEngine:
                 path=resolved_str,
             )
 
-        try:
-            if resolved == Path.home().resolve():
-                raise SandboxValidationError(
-                    f"Mounting user home directory into sandbox is forbidden: {resolved}",
-                    path=resolved_str,
-                )
-        except RuntimeError:
-            pass
+        if self.exclude_home_dir and is_home_or_subpath(resolved):
+            raise SandboxValidationError(
+                f"Sandbox access to user home directory is excluded: {resolved}",
+                path=resolved_str,
+            )
+        if not self.exclude_home_dir:
+            try:
+                if resolved == Path.home().resolve():
+                    raise SandboxValidationError(
+                        f"Mounting user home directory into sandbox is forbidden: {resolved}",
+                        path=resolved_str,
+                    )
+            except RuntimeError:
+                pass
 
-        if resolved.name in _SENSITIVE_SUBPATHS or any(
-            part in _SENSITIVE_SUBPATHS for part in resolved.parts
+        if resolved.name in CONST_SANDBOX_SENSITIVE_SUBPATHS or any(
+            part in CONST_SANDBOX_SENSITIVE_SUBPATHS for part in resolved.parts
         ):
             raise SandboxValidationError(
                 f"Mounting sensitive credential or repository metadata directory into sandbox is forbidden: {resolved}",

@@ -326,6 +326,8 @@ def view_pr(
     if repo:
         cmd.extend(["--repo", repo])
     res = run_subprocess(cmd, check=False)
+    if res.stdout:
+        typer.echo(res.stdout.rstrip())
     if res.returncode != 0:
         if _render_pr_view_fallback(number, repo):
             return
@@ -351,6 +353,8 @@ def pr_checks(
     if repo:
         cmd.extend(["--repo", repo])
     res = run_subprocess(cmd, check=False)
+    if res.stdout:
+        typer.echo(res.stdout.rstrip())
     if res.returncode != 0:
         if _render_pr_checks_fallback(number, repo):
             return

@@ -12,8 +12,8 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
-from devops_cli.core.process import run_subprocess
 from devops_cli.github.client import GitHubClient
+from devops_cli.github.rate_limiter import run_gh
 
 
 class SSHRegistrationError(RuntimeError):
@@ -68,8 +68,8 @@ def _register_with_gh(pub_key: str, title: str) -> bool:
 
 def _gh_auth_ok() -> bool:
     try:
-        result = run_subprocess(
-            ["gh", "auth", "status"],
+        result = run_gh(
+            ["auth", "status"],
             quiet=True,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
@@ -80,8 +80,8 @@ def _gh_auth_ok() -> bool:
 
 def _gh_list_keys(endpoint: str) -> set[str] | None:
     try:
-        result = run_subprocess(
-            ["gh", "api", endpoint],
+        result = run_gh(
+            ["api", endpoint],
             quiet=True,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
@@ -111,9 +111,8 @@ def _gh_list_keys(endpoint: str) -> set[str] | None:
 
 def _gh_add_key(endpoint: str, pub_key: str, title: str) -> None:
     try:
-        result = run_subprocess(
+        result = run_gh(
             [
-                "gh",
                 "api",
                 "--method",
                 "POST",
@@ -123,8 +122,7 @@ def _gh_add_key(endpoint: str, pub_key: str, title: str) -> None:
                 "-f",
                 f"key={pub_key}",
             ],
-            capture_output=True,
-            text=True,
+            quiet=True,
             check=False,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )

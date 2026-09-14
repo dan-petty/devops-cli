@@ -217,10 +217,10 @@ def test_telemetry_endpoint_sanitization() -> None:
 
 
 # 10. Docker sandbox container wait timeout
-def test_docker_sandbox_wait_timeout() -> None:
+def test_docker_sandbox_wait_timeout(tmp_path: Path) -> None:
     from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
 
-    cfg = WorkloadSandboxConfig(command=["sleep", "1"])
+    cfg = WorkloadSandboxConfig(workspace_dir=tmp_path, command=["sleep", "1"])
     runner = WorkloadSandboxRunner(cfg)
 
     mock_client = MagicMock()

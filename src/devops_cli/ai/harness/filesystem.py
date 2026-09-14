@@ -14,6 +14,7 @@ from pydantic import Field
 
 from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, RunContext, Tool
 from devops_cli.ai.harness.constants import DEFAULT_PROTECTED_PATTERNS
+from devops_cli.core.repo import is_ignored_by_git
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +231,7 @@ class FileSystem(BaseCapability):
 
         matches: list[str] = []
         for p in sorted(safe_p.rglob(pattern)):
-            if any(part.startswith(".") for part in p.relative_to(self.root).parts):
+            if is_ignored_by_git(self.root, p):
                 continue
             rel = str(p.relative_to(self.root))
             if self.denied_patterns and self._matches_pattern(rel, self.denied_patterns):
@@ -258,9 +259,7 @@ class FileSystem(BaseCapability):
 
         results: list[str] = []
         for p in sorted(safe_p.rglob(include_glob or "*")):
-            if not p.is_file() or any(
-                part.startswith(".") for part in p.relative_to(self.root).parts
-            ):
+            if not p.is_file() or is_ignored_by_git(self.root, p):
                 continue
             rel = str(p.relative_to(self.root))
             if self.denied_patterns and self._matches_pattern(rel, self.denied_patterns):

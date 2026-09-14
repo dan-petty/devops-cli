@@ -231,6 +231,10 @@ codebase or reviewing target repositories.
     endpoints.
   - Enforce subprocess safety with explicit command argument lists, bounded timeouts, and error
     handling.
+- **Strict Prohibition of Brittle Pattern Subsets & Mandatory Constants/Defaults Placement**:
+  - Matching against a list of strings or regular expressions is **ONLY acceptable if it covers 100% of possible scenarios** (i.e. mathematically bounded, closed, exhaustive domains defined by official RFCs or deterministic language grammars).
+  - Matching against a **limited or arbitrary subset of a larger or unknown list of possible values is strictly prohibited**. Never guess or match against ad-hoc prefixes, suffixes, or partial word lists (e.g. arbitrary identifier prefixes, property suffixes, or selective web TLDs). Instead, use mature, robust engineering solutions such as programming language symbol parsers (e.g. Python AST visitors, tokenizer pipelines), official registries (e.g. Mozilla Public Suffix List via `tldextract`), or system domain lookup tooling.
+  - Any string list, tuple, or frozen set that exists for matching, classification, or filtering purposes **MUST be declared in the `constants` or `defaults` submodule** (`src/devops_cli/config/constants.py` or `src/devops_cli/config/defaults.py`) rather than scattered ad-hoc across functional modules, so that it can easily be audited and reviewed for brittleness.
 - **Standard Parsers & Dynamic Introspection**: Always use established language-agnostic code
   quality standards, standard library parsers (`ast`, `tokenize`, `json`, `tomllib`, `yaml`,
   `urllib.parse`, `ipaddress`, `mimetypes`, `functools.lru_cache`), and official specifications

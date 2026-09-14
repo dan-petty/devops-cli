@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.models.library import FunctionSignature, LibraryContract
 
 logger = logging.getLogger(__name__)
@@ -286,14 +287,11 @@ class LibraryDriftAuditor:
         if not contracts:
             return DriftReport(packages_audited=[], files_scanned=0)
 
+        repo_root = find_repo_root(workspace_dir)
         py_files = [
             p
             for p in workspace_dir.rglob("*.py")
-            if not p.is_symlink()
-            and not any(
-                part in p.parts
-                for part in (".venv", ".git", "__pycache__", ".pytest_cache", ".data")
-            )
+            if not p.is_symlink() and not is_ignored_by_git(repo_root, p)
         ]
 
         all_findings: list[DriftFinding] = []

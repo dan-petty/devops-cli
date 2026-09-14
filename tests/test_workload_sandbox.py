@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.docker import app as docker_app
@@ -13,6 +14,7 @@ from devops_cli.docker.sandbox import (
     WorkloadSandboxConfig,
     WorkloadSandboxRunner,
 )
+from devops_cli.exceptions.docker import DockerSandboxError
 
 runner = CliRunner()
 
@@ -145,3 +147,27 @@ def test_sandbox_runner_subprocess_env_propagation(tmp_path: Path) -> None:
         assert "--security-opt=no-new-privileges" in cmd_args
         assert "--pids-limit=256" in cmd_args
         assert mock_subproc.call_args.kwargs.get("timeout") == int(cfg.timeout)
+
+
+def test_workload_sandbox_runner_exclude_home_dir(tmp_path: Path) -> None:
+    """Verify WorkloadSandboxRunner enforces exclude_home_dir preference."""
+    cfg_home = WorkloadSandboxConfig(workspace_dir=Path.home(), command=["echo", "hi"])
+    runner_default = WorkloadSandboxRunner(cfg_home)
+    assert runner_default.exclude_home_dir is True
+    with pytest.raises(DockerSandboxError, match="home directory"):
+        runner_default.run()
+
+    cfg_subhome = WorkloadSandboxConfig(
+        workspace_dir=Path.home() / "some_nested_dir",
+        command=["echo", "hi"],
+    )
+    runner_sub = WorkloadSandboxRunner(cfg_subhome)
+    with pytest.raises(DockerSandboxError, match="home directory"):
+        runner_sub.run()
+
+    # When exclude_home_dir is explicitly disabled:
+    runner_allow = WorkloadSandboxRunner(cfg_home, exclude_home_dir=False)
+    assert runner_allow.exclude_home_dir is False
+    # Home root is still forbidden
+    with pytest.raises(DockerSandboxError, match="home directory"):
+        runner_allow.run()

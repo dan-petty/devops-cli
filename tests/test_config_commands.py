@@ -239,6 +239,14 @@ def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyP
     dotted_set(s, "telemetry.enabled", "true")
     assert s.telemetry.enabled is True
 
+    dotted_set(s, "sandbox.exclude_home_dir", "false")
+    assert s.sandbox.exclude_home_dir is False
+    assert dotted_get(s, "sandbox.exclude_home_dir") is False
+
+    dotted_set(s, "sandbox.exclude_home_dir", "true")
+    assert s.sandbox.exclude_home_dir is True
+    assert dotted_get(s, "sandbox.exclude_home_dir") is True
+
     dotted_set(s, "ai.ollama_urls", "http://example.com:11434, http://example.com:11435")
     assert s.ai.ollama_urls == ["http://example.com:11434", "http://example.com:11435"]
 

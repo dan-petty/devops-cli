@@ -376,7 +376,7 @@ def test_query_jaeger_trace_dns_metadata_blocked(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
     spans = query_jaeger_trace(
         "0123456789abcdef0123456789abcdef",
-        jaeger_url="http://metadata-spoof.example.com:16686",
+        jaeger_url="http://example.com:16686",
     )
     assert spans == []
 

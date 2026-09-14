@@ -309,7 +309,9 @@ def _is_secret_configured(key: str) -> bool:
         gh_cmd = check_binary("gh")
         if gh_cmd:
             try:
-                res = run_subprocess(["gh", "auth", "status"], quiet=True, timeout=3.0)
+                from devops_cli.github.rate_limiter import run_gh
+
+                res = run_gh(["auth", "status"], quiet=True, timeout=3.0)
                 return res.returncode == 0
             except Exception:
                 pass
