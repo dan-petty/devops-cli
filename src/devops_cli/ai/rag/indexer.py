@@ -69,7 +69,12 @@ def _load_gitignore_spec(root: Path) -> Any:
             for line in gitignore_file.read_text(encoding="utf-8", errors="replace").splitlines()
             if line.strip() and not line.strip().startswith("#")
         ]
-        return pathspec.PathSpec.from_lines("gitignore", patterns) if patterns else None
+        if not patterns:
+            return None
+        try:
+            return pathspec.PathSpec.from_lines("gitignore", patterns)
+        except Exception:
+            return pathspec.PathSpec.from_lines("gitwildmatch", patterns)
     except Exception:
         return None
 
