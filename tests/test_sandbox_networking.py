@@ -96,7 +96,9 @@ def test_sandbox_network_config_isolated_mode() -> None:
     assert policy["kind"] == "NetworkPolicy"
     assert policy["metadata"]["name"] == "app-sandbox-network-policy"
     assert policy["metadata"]["namespace"] == "sandbox"
-    assert policy["spec"]["podSelector"] == {}
+    assert policy["spec"]["podSelector"] == {
+        "matchLabels": {"app.kubernetes.io/name": "app-sandbox"}
+    }
     assert sorted(policy["spec"]["policyTypes"]) == ["Egress", "Ingress"]
     assert policy["spec"]["ingress"] == []
     assert policy["spec"]["egress"] == []

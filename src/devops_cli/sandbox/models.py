@@ -62,14 +62,14 @@ def _validate_public_whitelist_item(item: str) -> None:
     host = _extract_host_or_ip(item)
     if not host:
         raise ValueError(f"Invalid public whitelist entry: '{item}'")
-    if is_loopback_or_private_host(host, resolve_dns=False):
+    if is_loopback_or_private_host(host, resolve_dns=True):
         raise ValueError(
             f"Public whitelist entry '{item}' (host '{host}') cannot be private, loopback, or metadata."
         )
 
 
 def _validate_local_whitelist_item(item: str) -> None:
-    """Ensure local whitelist entry does not target link-local cloud metadata (169.254.169.254)."""
+    """Ensure local whitelist entry targets local/private endpoints and not link-local metadata."""
     host = _extract_host_or_ip(item)
     if not host:
         raise ValueError(f"Invalid local whitelist entry: '{item}'")
@@ -77,15 +77,28 @@ def _validate_local_whitelist_item(item: str) -> None:
         raise ValueError(
             f"Cloud metadata '{item}' is forbidden in local whitelist to mitigate SSRF."
         )
+    if not is_loopback_or_private_host(host, resolve_dns=False) and host not in (
+        "localhost",
+        "host.docker.internal",
+    ):
+        raise ValueError(
+            f"Local whitelist entry '{item}' (host '{host}') must resolve to a private or loopback destination."
+        )
 
 
 def _build_dns_egress_rule() -> dict[str, Any]:
     """Build standard CoreDNS port 53 UDP/TCP egress rule for Kubernetes NetworkPolicy."""
     return {
+        "to": [
+            {
+                "namespaceSelector": {},
+                "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
+            }
+        ],
         "ports": [
             {"protocol": "UDP", "port": 53},
             {"protocol": "TCP", "port": 53},
-        ]
+        ],
     }
 
 
@@ -102,6 +115,7 @@ def _build_public_whitelist_egress() -> list[dict[str, Any]]:
                             "10.0.0.0/8",
                             "172.16.0.0/12",
                             "192.168.0.0/16",
+                            "169.254.0.0/16",
                             "169.254.169.254/32",
                             "127.0.0.0/8",
                         ],
@@ -123,7 +137,7 @@ def _build_local_whitelist_egress(whitelist: list[str]) -> list[dict[str, Any]]:
             local_to.append({"ipBlock": {"cidr": cidr}})
         except ValueError:
             fallback_cidr = (
-                "127.0.0.1/32" if host in ("localhost", "host.docker.internal") else "10.0.0.0/8"
+                "127.0.0.1/32" if host in ("localhost", "host.docker.internal") else f"{host}/32"
             )
             local_to.append({"ipBlock": {"cidr": fallback_cidr}})
 
@@ -193,7 +207,7 @@ class SandboxNetworkConfig(BaseModel):
         return ["--network=bridge"]
 
     def to_k8s_network_policy(
-        self, name: str = "app-sandbox", namespace: str = "sandbox"
+        self, name: str = "app-sandbox", namespace: str | None = None
     ) -> dict[str, Any]:
         """Synthesize declarative Kubernetes NetworkPolicy manifest matching the network mode."""
         target_ns = namespace or self.sandbox_namespace
@@ -205,7 +219,7 @@ class SandboxNetworkConfig(BaseModel):
                 "namespace": target_ns,
             },
             "spec": {
-                "podSelector": {},
+                "podSelector": {"matchLabels": {"app.kubernetes.io/name": name}},
                 "policyTypes": ["Ingress", "Egress"],
                 "ingress": [],
                 "egress": [],

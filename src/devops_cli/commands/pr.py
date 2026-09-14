@@ -322,12 +322,14 @@ def view_pr(
 ) -> None:
     """View details of a pull request."""
     _require_gh_cli()
+    from devops_cli.security.sanitizer import mask_secrets
+
     cmd = [CONST_GH_CLI, "pr", "view", str(number)]
     if repo:
         cmd.extend(["--repo", repo])
     res = run_subprocess(cmd, check=False)
     if res.stdout:
-        typer.echo(res.stdout.rstrip())
+        typer.echo(mask_secrets(res.stdout.rstrip()))
     if res.returncode != 0:
         if _render_pr_view_fallback(number, repo):
             return

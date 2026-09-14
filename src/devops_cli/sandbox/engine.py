@@ -93,25 +93,62 @@ def _resolve_user_string(rootless: bool) -> str | None:
     return None
 
 
+def _is_internal_network_sdk(client: Any, net_name: str) -> bool:
+    """Check if existing Docker network via SDK is an internal bridge."""
+    try:
+        net = client.networks.get(net_name)
+        attrs = getattr(net, "attrs", {}) or {}
+        if attrs.get("Internal") is True:
+            return True
+        try:
+            net.remove()
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return False
+
+
+def _create_internal_network_sdk(client: Any, net_name: str) -> bool:
+    """Create Docker internal bridge network via SDK."""
+    try:
+        client.networks.create(net_name, driver="bridge", internal=True, check_duplicate=True)
+        return True
+    except Exception as exc:
+        logger.debug("Docker SDK network creation fallback: %s", exc)
+        return False
+
+
 def _ensure_internal_network(client: Any | None = None) -> None:
     """Lazily ensure Docker internal bridge network exists for intra-namespace communication."""
     if client is not None:
-        try:
-            client.networks.get(CONST_SANDBOX_DOCKER_INTERNAL_NET)
+        if _is_internal_network_sdk(client, CONST_SANDBOX_DOCKER_INTERNAL_NET):
             return
-        except Exception:
-            try:
-                client.networks.create(
-                    CONST_SANDBOX_DOCKER_INTERNAL_NET,
-                    driver="bridge",
-                    internal=True,
-                    check_duplicate=True,
-                )
-                return
-            except Exception as exc:
-                logger.debug("Docker SDK network creation fallback: %s", exc)
+        if _create_internal_network_sdk(client, CONST_SANDBOX_DOCKER_INTERNAL_NET):
+            return
 
     try:
+        inspect_res = run_subprocess(
+            [
+                "docker",
+                "network",
+                "inspect",
+                CONST_SANDBOX_DOCKER_INTERNAL_NET,
+                "--format",
+                "{{.Internal}}",
+            ],
+            check=False,
+            timeout=10,
+        )
+        if inspect_res.returncode == 0:
+            if inspect_res.stdout.strip().lower() == "true":
+                return
+            run_subprocess(
+                ["docker", "network", "rm", CONST_SANDBOX_DOCKER_INTERNAL_NET],
+                check=False,
+                timeout=10,
+            )
+
         run_subprocess(
             ["docker", "network", "create", "--internal", CONST_SANDBOX_DOCKER_INTERNAL_NET],
             check=False,

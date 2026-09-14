@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from devops_cli.config.constants import (
     CONST_SANDBOX_DOCKER_INTERNAL_NET,
@@ -35,32 +35,69 @@ def _get_docker_client() -> Any:
     return docker.from_env(timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS))
 
 
+def _is_internal_network_sdk(client: Any, net_name: str) -> bool:
+    """Check if existing Docker network via SDK is an internal bridge."""
+    try:
+        net = client.networks.get(net_name)
+        attrs = getattr(net, "attrs", {}) or {}
+        if attrs.get("Internal") is True:
+            return True
+        try:
+            net.remove()
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return False
+
+
+def _create_internal_network_sdk(client: Any, net_name: str) -> bool:
+    """Create Docker internal bridge network via SDK."""
+    try:
+        client.networks.create(net_name, driver="bridge", internal=True, check_duplicate=True)
+        return True
+    except Exception as exc:
+        logger.debug("Docker SDK network creation fallback: %s", exc)
+        return False
+
+
 def _ensure_internal_network(client: Any | None = None) -> None:
     """Lazily ensure Docker internal bridge network exists for intra-namespace communication."""
     if client is not None:
-        try:
-            client.networks.get(CONST_SANDBOX_DOCKER_INTERNAL_NET)
+        if _is_internal_network_sdk(client, CONST_SANDBOX_DOCKER_INTERNAL_NET):
             return
-        except Exception:
-            try:
-                client.networks.create(
-                    CONST_SANDBOX_DOCKER_INTERNAL_NET,
-                    driver="bridge",
-                    internal=True,
-                    check_duplicate=True,
-                )
-                return
-            except Exception as exc:
-                logger.debug("Docker SDK network creation fallback: %s", exc)
+        if _create_internal_network_sdk(client, CONST_SANDBOX_DOCKER_INTERNAL_NET):
+            return
 
     try:
+        inspect_res = run_subprocess(
+            [
+                "docker",
+                "network",
+                "inspect",
+                CONST_SANDBOX_DOCKER_INTERNAL_NET,
+                "--format",
+                "{{.Internal}}",
+            ],
+            check=False,
+            timeout=10,
+        )
+        if inspect_res.returncode == 0:
+            if inspect_res.stdout.strip().lower() == "true":
+                return
+            run_subprocess(
+                ["docker", "network", "rm", CONST_SANDBOX_DOCKER_INTERNAL_NET],
+                check=False,
+                timeout=10,
+            )
+
         run_subprocess(
             ["docker", "network", "create", "--internal", CONST_SANDBOX_DOCKER_INTERNAL_NET],
             check=False,
             timeout=10,
         )
-    except Exception as sub_exc:
-        logger.debug("Subprocess internal network create check: %s", sub_exc)
+    except Exception as exc:
+        logger.debug("Docker CLI network create failed: %s", exc)
 
 
 class WorkloadSandboxConfig(BaseModel):
@@ -124,6 +161,16 @@ class WorkloadSandboxResult(BaseModel):
     stderr: str = ""
     container_id: str | None = None
     duration_seconds: float = 0.0
+
+    @field_validator("stdout", "stderr", mode="before")
+    @classmethod
+    def sanitize_output(cls, v: Any) -> str:
+        """Mask secrets in workload sandbox stdout/stderr."""
+        if not v:
+            return ""
+        from devops_cli.security.sanitizer import mask_secrets
+
+        return mask_secrets(str(v))
 
 
 def _check_home_boundary(resolved: Path, exclude_home_dir: bool) -> None:
