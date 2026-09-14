@@ -17,8 +17,12 @@ from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import format_duration, print_error, print_info, print_muted, print_success
-from devops_cli.telemetry.memory_profiler import MemoryProfileReport, run_memory_profiler
-from devops_cli.telemetry.tracer import trace_span
+from devops_cli.telemetry.memory_profiler import (
+    MemoryProfileReport,
+    MemoryProfilerError,
+    run_memory_profiler,
+)
+from devops_cli.telemetry.tracer import record_metric, trace_span
 
 app = new_typer(help=HELP.test.app, no_args_is_help=False)
 
@@ -419,19 +423,38 @@ def test_profile_memory(
                 top_n=top,
                 max_peak_mb=max_peak_mb,
             )
-        except ValueError as exc:
+        except (MemoryProfilerError, ValueError) as exc:
             print_error(str(exc)[:256], prefix=False)
             raise typer.Exit(1) from exc
+
+        record_metric("test.profile_memory.invocations", 1.0, attributes={"target": target})
+        record_metric(
+            "test.profile_memory.duration_seconds",
+            report.duration_seconds,
+            unit="s",
+            attributes={"target": target},
+        )
+        record_metric(
+            "test.profile_memory.peak_kb",
+            report.peak_kb,
+            unit="By",
+            attributes={"target": target},
+        )
 
         if output:
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-            print_success(f"Report written to {output}")
+            if not json_output:
+                print_success(f"Report written to {output}")
 
         if json_output:
             print(report.model_dump_json(indent=2))
         else:
             _render_memory_report(report)
 
-        if not report.passed and fail_on_leak:
+        peak_mb = report.peak_kb / 1024.0
+        if peak_mb > report.max_peak_mb:
+            raise typer.Exit(1)
+
+        if report.socket_leak_count > 0 and fail_on_leak:
             raise typer.Exit(1)

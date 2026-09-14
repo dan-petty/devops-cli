@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import socket
+import tracemalloc
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +17,7 @@ from devops_cli.telemetry.memory_profiler import (
     MemoryAllocationItem,
     MemoryProfiler,
     MemoryProfileReport,
+    MemoryProfilerError,
     count_open_sockets,
     profile_custom_callable,
     profile_fastmcp_workload,
@@ -176,10 +179,49 @@ def test_run_memory_profiler_custom_import() -> None:
     assert report.passed is True
 
 
+def test_profile_custom_async_callable() -> None:
+    async def async_workload() -> None:
+        await asyncio.sleep(0.001)
+
+    report = profile_custom_callable(
+        func=async_workload,
+        name="async_workload",
+        iterations=2,
+    )
+    assert report.target == "async_workload"
+    assert report.passed is True
+
+
+def test_run_memory_profiler_workload_exception_propagates() -> None:
+    with patch("importlib.import_module") as mock_import:
+        mock_mod = MagicMock()
+        mock_mod.fail_fn.side_effect = RuntimeError("Original workload error")
+        mock_import.return_value = mock_mod
+
+        with pytest.raises(RuntimeError) as exc_info:
+            run_memory_profiler(target="fake_mod:fail_fn", iterations=1)
+        assert "Original workload error" in str(exc_info.value)
+
+
+def test_memory_profiler_ownership_preservation() -> None:
+    if not tracemalloc.is_tracing():
+        tracemalloc.start()
+    try:
+        profiler = MemoryProfiler(target="nested-test")
+        profiler.start()
+        assert profiler._owns_tracemalloc is False
+        _ = profiler.stop(top_n=2)
+        assert tracemalloc.is_tracing() is True
+    finally:
+        if tracemalloc.is_tracing():
+            tracemalloc.stop()
+
+
 def test_run_memory_profiler_invalid_target() -> None:
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(MemoryProfilerError) as exc_info:
         run_memory_profiler(target="nonexistent_module:func", iterations=1)
     assert "Unable to resolve target" in str(exc_info.value)
+    assert isinstance(exc_info.value, ValueError)
 
 
 # -----------------------------------------------------------------------------
@@ -295,3 +337,67 @@ def test_cli_profile_memory_leak_failure(mock_run: MagicMock) -> None:
     res = runner.invoke(app, ["profile-memory", "http-pool", "--fail-on-leak"])
     assert res.exit_code == 1
     assert "FAILED" in res.stdout
+
+
+@patch("devops_cli.commands.test_cmd.run_memory_profiler")
+def test_cli_profile_memory_json_and_output(mock_run: MagicMock, tmp_path: Path) -> None:
+    out_file = tmp_path / "out.json"
+    mock_run.return_value = MemoryProfileReport(
+        target="http-pool",
+        duration_seconds=0.1,
+        current_kb=10.0,
+        peak_kb=20.0,
+        total_allocated_kb=10.0,
+        initial_sockets=0,
+        final_sockets=0,
+        socket_leak_count=0,
+        top_allocations=[],
+        max_peak_mb=50.0,
+        passed=True,
+        warnings=[],
+    )
+    res = runner.invoke(app, ["profile-memory", "http-pool", "-o", str(out_file), "--json"])
+    assert res.exit_code == 0
+    parsed = json.loads(res.stdout)
+    assert parsed["target"] == "http-pool"
+    assert out_file.exists()
+
+
+@patch("devops_cli.commands.test_cmd.run_memory_profiler")
+def test_cli_profile_memory_peak_failure_with_ignore_leak(mock_run: MagicMock) -> None:
+    mock_run.return_value = MemoryProfileReport(
+        target="http-pool",
+        duration_seconds=0.1,
+        current_kb=100.0,
+        peak_kb=60.0 * 1024.0,
+        total_allocated_kb=100.0,
+        initial_sockets=0,
+        final_sockets=0,
+        socket_leak_count=0,
+        top_allocations=[],
+        max_peak_mb=50.0,
+        passed=False,
+        warnings=["Peak memory exceeded threshold"],
+    )
+    res = runner.invoke(app, ["profile-memory", "http-pool", "--ignore-leak"])
+    assert res.exit_code == 1
+
+
+@patch("devops_cli.commands.test_cmd.run_memory_profiler")
+def test_cli_profile_memory_leak_ignored(mock_run: MagicMock) -> None:
+    mock_run.return_value = MemoryProfileReport(
+        target="http-pool",
+        duration_seconds=0.1,
+        current_kb=10.0,
+        peak_kb=20.0,
+        total_allocated_kb=10.0,
+        initial_sockets=0,
+        final_sockets=2,
+        socket_leak_count=2,
+        top_allocations=[],
+        max_peak_mb=50.0,
+        passed=False,
+        warnings=["Detected 2 unclosed socket(s)"],
+    )
+    res = runner.invoke(app, ["profile-memory", "http-pool", "--ignore-leak"])
+    assert res.exit_code == 0

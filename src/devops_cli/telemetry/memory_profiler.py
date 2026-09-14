@@ -7,17 +7,36 @@ servers, and client connection brokers.
 
 from __future__ import annotations
 
+import asyncio
 import gc
 import importlib
+import inspect
 import os
 import socket
 import time
 import tracemalloc
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from devops_cli.config.constants import CONST_EXIT_FAILURE
+from devops_cli.exceptions import DevOpsCLIError
+
+
+class MemoryProfilerError(DevOpsCLIError, ValueError):
+    """Domain exception raised when memory profiling target resolution or execution fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = "PROFILER_ERROR",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
 
 
 class MemoryAllocationItem(BaseModel):
@@ -77,7 +96,7 @@ def _count_proc_sockets(fd_dir: Path) -> int:
             target = os.readlink(entry)
             if target.startswith("socket:["):
                 count += 1
-        except OSError, FileNotFoundError:
+        except OSError:
             continue
     return count
 
@@ -102,6 +121,8 @@ class MemoryProfiler:
         self.target = target
         self._start_time: float = 0.0
         self._initial_sockets: int = 0
+        self._start_traced_bytes: int = 0
+        self._owns_tracemalloc: bool = False
         self._snapshot_start: tracemalloc.Snapshot | None = None
 
     def start(self) -> None:
@@ -110,6 +131,11 @@ class MemoryProfiler:
         self._initial_sockets = count_open_sockets()
         if not tracemalloc.is_tracing():
             tracemalloc.start(25)
+            self._owns_tracemalloc = True
+        else:
+            self._owns_tracemalloc = False
+
+        self._start_traced_bytes = tracemalloc.get_traced_memory()[0]
         self._snapshot_start = tracemalloc.take_snapshot()
         self._start_time = time.perf_counter()
 
@@ -119,14 +145,14 @@ class MemoryProfiler:
         current_bytes, peak_bytes = tracemalloc.get_traced_memory()
         snapshot_stop = tracemalloc.take_snapshot()
 
-        if tracemalloc.is_tracing():
+        if self._owns_tracemalloc and tracemalloc.is_tracing():
             tracemalloc.stop()
         gc.collect()
         final_sockets = count_open_sockets()
 
         current_kb = round(current_bytes / 1024.0, 2)
         peak_kb = round(peak_bytes / 1024.0, 2)
-        total_allocated_kb = max(0.0, peak_kb - current_kb)
+        total_allocated_kb = round((current_bytes - self._start_traced_bytes) / 1024.0, 2)
         socket_leak_count = max(0, final_sockets - self._initial_sockets)
 
         top_allocations = self._extract_top_allocations(snapshot_stop, self._snapshot_start, top_n)
@@ -215,6 +241,36 @@ class MemoryProfiler:
         return f"{size_kb:.2f} KB"
 
 
+async def _exercise_http_pool(iterations: int) -> None:
+    """Perform deterministic async HTTP connection pool requests against in-memory transport."""
+    try:
+        import httpx2 as httpx
+    except ImportError:
+        import httpx  # type: ignore[no-redef]
+    from devops_cli.http.broker import HttpClientBroker
+
+    async def _dummy_app(scope: Any, receive: Any, send: Any) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [[b"content-type", b"text/plain"]],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"OK"})
+
+    broker = HttpClientBroker(allow_private_networks=True)
+    client = await broker.get_async_client()
+    client._transport = httpx.ASGITransport(app=cast(Any, _dummy_app))
+
+    for _ in range(iterations):
+        resp = await broker.arequest("GET", "http://localhost:8080/health")
+        _ = resp.status_code
+
+    await broker.aclose()
+    broker.close()
+
+
 def profile_http_pool_workload(
     iterations: int = 10,
     top_n: int = 10,
@@ -224,12 +280,7 @@ def profile_http_pool_workload(
     profiler = MemoryProfiler(target="http-pool")
     profiler.start()
 
-    from devops_cli.http.broker import HttpClientBroker
-
-    for _ in range(iterations):
-        broker = HttpClientBroker()
-        _ = broker.get_client()
-        broker.close()
+    asyncio.run(_exercise_http_pool(iterations))
 
     return profiler.stop(top_n=top_n, max_peak_mb=max_peak_mb)
 
@@ -243,28 +294,29 @@ def profile_fastmcp_workload(
     profiler = MemoryProfiler(target="fastmcp")
     profiler.start()
 
-    from devops_cli.ai.mcp.server import mcp
+    from devops_cli.ai.mcp.server import list_mcp_tools
 
     for _ in range(iterations):
-        _ = getattr(mcp, "_tools", {})
-        _ = getattr(mcp, "_resources", {})
+        _ = list_mcp_tools()
 
     return profiler.stop(top_n=top_n, max_peak_mb=max_peak_mb)
 
 
 def profile_custom_callable(
-    func: Callable[[], Any],
+    func: Callable[..., Any],
     name: str = "custom",
     iterations: int = 5,
     top_n: int = 10,
     max_peak_mb: float = 100.0,
 ) -> MemoryProfileReport:
-    """Profile memory and socket retention for an arbitrary Python callable."""
+    """Profile memory and socket retention for an arbitrary Python sync or async callable."""
     profiler = MemoryProfiler(target=name)
     profiler.start()
 
     for _ in range(iterations):
-        func()
+        res = func()
+        if inspect.isawaitable(res):
+            asyncio.run(res)
 
     return profiler.stop(top_n=top_n, max_peak_mb=max_peak_mb)
 
@@ -289,12 +341,13 @@ def run_memory_profiler(
         try:
             mod = importlib.import_module(mod_name)
             fn = getattr(mod, func_name)
-            return profile_custom_callable(
-                fn, name=target, iterations=iterations, top_n=top_n, max_peak_mb=max_peak_mb
-            )
         except Exception as exc:
             msg = f"Unable to resolve target '{target}': {str(exc)[:256]}"
-            raise ValueError(msg) from exc
+            raise MemoryProfilerError(msg, details={"target": target}) from exc
+
+        return profile_custom_callable(
+            fn, name=target, iterations=iterations, top_n=top_n, max_peak_mb=max_peak_mb
+        )
 
     msg = f"Unable to resolve target '{target}': expected 'http-pool', 'fastmcp', or 'module:function'"
-    raise ValueError(msg)
+    raise MemoryProfilerError(msg, details={"target": target})
