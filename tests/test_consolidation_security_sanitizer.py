@@ -351,3 +351,39 @@ def test_mask_secrets_preserves_task_file_paths() -> None:
 
     hyphen_ant = "prefix-sk-ant-1234567890abcdef12345678"
     assert mask_secrets(hyphen_ant) == "prefix-<masked-anthropic-key>"
+
+
+def test_mask_secrets_word_boundaries_and_safe_paths() -> None:
+    """Ensure safe filesystem paths, task artifacts, and compound identifiers are not falsely masked."""
+    safe_samples = [
+        "docs/agent/tasks/task-090-infracost-finops-cloud-cost.md",
+        "docs/agent/tasks/task-sk-090-infracost-finops-cloud-cost.md",
+        "task-sk-memory-profiler.py",
+        "subtask-sk-memory-profiler.md",
+        "tasks/task-116-secret-sanitizer-word-boundaries.md",
+        "path/to/sk-proj-abcdef1234567890abcdef1234567890.md",
+        "sk-proj-abcdef1234567890abcdef1234567890.py",
+        "artifacts/task-sk-export.json",
+        "config/sk-settings.yaml",
+        "/workspaces/devops-cli/docs/agent/tasks/task-sk-auth.toml",
+    ]
+    for sample in safe_samples:
+        assert mask_secrets(sample) == sample, f"Falsely masked safe path: {sample}"
+
+    # Verify genuine secrets are still masked properly
+    assert mask_secrets("sk-proj-abcdef1234567890abcdef1234567890") == "<masked-openai-key>"
+    assert mask_secrets("sk-ant-api03-abcdef123456789012345678") == "<masked-anthropic-key>"
+    assert mask_secrets("prefix-sk-proj-1234567890abcdef1234") == "prefix-<masked-openai-key>"
+    assert mask_secrets("prefix-sk-ant-1234567890abcdef1234") == "prefix-<masked-anthropic-key>"
+    assert (
+        mask_secrets("service_openai_key_sk-proj-1234567890abcdef12345678")
+        == "service_openai_key_<masked-openai-key>"
+    )
+    assert (
+        mask_secrets("service_anthropic_key_sk-ant-1234567890abcdef12345678")
+        == "service_anthropic_key_<masked-anthropic-key>"
+    )
+    assert (
+        mask_secrets("Authorization: Bearer sk-proj-1234567890abcdef12345678")
+        == "Authorization: Bearer <masked-openai-key>"
+    )
