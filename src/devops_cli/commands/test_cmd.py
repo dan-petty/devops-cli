@@ -16,7 +16,15 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import ERRORS, HELP, MESSAGES
-from devops_cli.output import format_duration, print_error, print_info, print_muted, print_success
+from devops_cli.output import (
+    format_duration,
+    print_error,
+    print_info,
+    print_muted,
+    print_success,
+    write_stderr,
+    write_stdout,
+)
 from devops_cli.telemetry.memory_profiler import (
     MemoryProfileReport,
     MemoryProfilerError,
@@ -273,8 +281,29 @@ def test_sandbox(
     ] = 2.0,
     network: Annotated[
         str,
-        typer.Option("--network", "-n", help="Network mode: bridge | none | host"),
+        typer.Option(
+            "--network",
+            "-n",
+            help="Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge",
+        ),
     ] = "bridge",
+    network_mode: Annotated[
+        str | None,
+        typer.Option(
+            "--network-mode",
+            help="Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge",
+        ),
+    ] = None,
+    public_whitelist: Annotated[
+        str | None,
+        typer.Option(
+            "--public-whitelist", help="Comma-separated public domains/IPs allowed for egress"
+        ),
+    ] = None,
+    local_whitelist: Annotated[
+        str | None,
+        typer.Option("--local-whitelist", help="Comma-separated local URLs/IPs allowed for egress"),
+    ] = None,
     read_only: Annotated[
         bool,
         typer.Option("--read-only", help="Mount workspace as read-only"),
@@ -291,6 +320,18 @@ def test_sandbox(
     """Execute test command inside an isolated, disposable Docker container sandbox."""
     from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
 
+    effective_mode = network_mode or network
+    pub_list = (
+        [item.strip() for item in public_whitelist.split(",") if item.strip()]
+        if public_whitelist
+        else []
+    )
+    loc_list = (
+        [item.strip() for item in local_whitelist.split(",") if item.strip()]
+        if local_whitelist
+        else []
+    )
+
     cfg = WorkloadSandboxConfig(
         workspace_dir=workspace,
         command=command,
@@ -298,7 +339,9 @@ def test_sandbox(
         read_only=read_only,
         memory_limit=memory,
         cpu_limit=cpus,
-        network_mode=network,
+        network_mode=effective_mode,
+        public_whitelist=pub_list,
+        local_whitelist=loc_list,
         rootless=rootless,
     )
     sandbox_runner = WorkloadSandboxRunner(cfg)
@@ -311,12 +354,12 @@ def test_sandbox(
         )
         return
 
-    print_info(f"Running command in sandbox ({image}, network={network})...")
+    print_info(f"Running command in sandbox ({image}, network={cfg.network_mode})...")
     res = sandbox_runner.run()
     if res.stdout:
-        print(res.stdout, end="")
+        write_stdout(res.stdout)
     if res.stderr:
-        print_error(res.stderr, prefix=False)
+        write_stderr(res.stderr)
 
     if res.exit_code != 0:
         raise typer.Exit(res.exit_code)

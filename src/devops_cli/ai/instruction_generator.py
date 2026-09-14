@@ -276,6 +276,14 @@ codebase or reviewing target repositories.
   replacing features, schemas, configurations, or interfaces, implement clean, complete solutions
   and ruthlessly remove obsolete code, variables, aliases, fallback shims, and legacy workarounds.
   Never leave remnants or vestigial fallback paths.
+- **Mandatory Root-Cause Remediation & Instruction Hardening (Fix Underlying Cause / Prevent Recurrence)**:
+  - Whenever encountering any problem, bug, defect, failure, runtime exception, or unexpected error, AI agents and automated workflows **MUST ALWAYS INVESTIGATE AND FIX THE CAUSE OF THE UNDERLYING ISSUE** directly at its source. Applying superficial workarounds, bypassing assertions, suppressing warnings, or masking symptoms without remediating the root cause is strictly prohibited.
+  - If the underlying issue cannot be fixed immediately (such as an external dependency bug, upstream platform constraint, environment limitation, or fundamental architectural blocker), the agent **MUST PROMPTLY UPDATE AGENT INSTRUCTIONS (`AGENTS.md`)** with defensive guardrails, pre-flight checks, avoidance patterns, or operational guidelines to prevent the issue from re-occurring in future sessions.
+- **Continuous Roadmap Synthesis & Field Observations (Add Suggestions to Roadmap)**:
+  - AI agents must continuously capture high-value observations, technical debt discoveries, architectural insights, and enhancement suggestions that arise organically during engineering sessions.
+  - Any good suggestions, architectural observations, or optimization ideas that emerge while working **MUST BE PROACTIVELY ADDED TO THE ROADMAP (`docs/ROADMAP.md`)** under the appropriate upcoming milestone or future vision series, keeping the roadmap living, accurate, and aligned with real-world field observations.
+- **Continuous Interaction & Collaborative Value Improvement (Proactive Improvement Suggestions)**:
+  - In every interaction with the user, peer agents, or development workflows, AI agents must actively look for and suggest concrete, actionable ways to improve developer ergonomics, workflow speed, system resilience, documentation clarity, test coverage, and tooling efficiency whenever relevant.
 
 
 
@@ -296,6 +304,7 @@ codebase or reviewing target repositories.
   - Maintain atomic, cohesive commits with clean commit messages.
   - **No Internal References or Numeric IDs**: Commit messages and PR titles must describe technical changes using descriptive engineering terminology, never internal session timestamps, review numbers, subagent IDs, or prompt phase numbers.
 - **Pull Request Governance & Two-Stage Review Lifecycle**:
+  - **Sequential Pull Request Processing (Oldest to Newest / FIFO)**: When multiple open pull requests exist, AI agents MUST process, remediate, and shepherd pull requests in strict chronological order from oldest to newest (FIFO queue: lowest PR number / earliest creation date first). Remediating review comments, fixing CI checks, resolving merge conflicts, and verifying merge readiness on older PRs strictly takes precedence over newer PRs to eliminate cascading merge conflicts and PR starvation.
   - AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`devops pr monitor`), and leave merge approval to maintainers.
   - **Stage 1: Draft Pull Requests for In-Progress Work**:
     - Whenever opening any pull request that is not yet fully implemented, tested, and ready for review, AI agents MUST create the pull request as a draft (`gh pr create --draft` or passing `draft: true` via API). A draft pull request signals active work in progress, prevents premature review cycles, avoids false merge-readiness assumptions, while satisfying the requirement that every remote topic branch have an open pull request.

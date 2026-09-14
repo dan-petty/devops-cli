@@ -6,7 +6,7 @@ Clone, synchronize, and manage organization repositories.
 
 ## `devops repos clone-org`
 
-**Clone all repos from a GitHub org into repos/<org>/.**
+**Clone all repos from a GitHub org into `repos/<org>/.`.**
 
 ```bash
 devops repos clone-org [OPTIONS] <org>
@@ -30,7 +30,7 @@ devops repos clone-org [OPTIONS] <org>
 
 ## `devops repos clone`
 
-**Clone an individual repository into repos/_standalone/<name>/.**
+**Clone an individual repository into `repos/_standalone/<name>/.`.**
 
 ```bash
 devops repos clone [OPTIONS] <url>

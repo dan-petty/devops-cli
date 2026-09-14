@@ -5,7 +5,6 @@ This directory contains automated, agent-specific task tracking, operational sta
 ## Structure
 
 - [`tasks/`](tasks/README.md): Modular, per-task tracking documents (`task-<issue>-<slug>.md`) providing branch-isolated task state to prevent git merge conflicts across concurrent feature branches.
-- [`task.md`](task.md): Canonical index table linking to active milestone tasks and historical archives.
 - [`archive/`](archive/): Compacted historical records and development phases from completed milestone releases.
 
 ## Operational Conventions

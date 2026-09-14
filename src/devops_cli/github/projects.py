@@ -130,15 +130,14 @@ def _find_active_task_files_in_dir(task_dir: Path) -> list[Path]:
 
 def _resolve_default_task_fallbacks(task_path: Path) -> list[Path] | None:
     """Resolve standard fallback locations when default task path is requested."""
-    if task_path not in (Path("docs/agent/tasks"), Path("docs/agent/task.md")):
+    if task_path != Path("docs/agent/tasks"):
         return None
     tasks_dir = Path("docs/agent/tasks")
     if tasks_dir.is_dir():
         files = _find_active_task_files_in_dir(tasks_dir)
         if files:
             return files
-    task_file = Path("docs/agent/task.md")
-    return [task_file] if task_file.is_file() else None
+    return None
 
 
 def _resolve_task_files(task_path: Path) -> list[Path]:
@@ -147,11 +146,6 @@ def _resolve_task_files(task_path: Path) -> list[Path]:
         return _find_active_task_files_in_dir(task_path)
 
     if task_path.is_file():
-        if task_path == Path("docs/agent/task.md"):
-            tasks_dir = Path("docs/agent/tasks")
-            active = _find_active_task_files_in_dir(tasks_dir) if tasks_dir.is_dir() else []
-            if active:
-                return active
         return [task_path]
 
     fallback = _resolve_default_task_fallbacks(task_path)

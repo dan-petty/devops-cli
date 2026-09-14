@@ -13,23 +13,44 @@ import click
 import typer
 from pydantic import BaseModel, Field
 
-from devops_cli.config.constants import CONST_MARKDOWN_HEADING_LEVEL
+from devops_cli.config.constants import (
+    CONST_MARKDOWN_HEADING_LEVEL,
+    CONST_STANDARD_HTML_TAGS,
+)
 from devops_cli.config.env import EnvVarSpec, get_all_env_var_specs
 from devops_cli.output import write_text_file
 
 _RICH_TAG_RE = re.compile(
     r"\[/?(?:bold|dim|green|cyan|yellow|red|magenta|blue|italic|underline)[^\]]*\]"
 )
+_PLACEHOLDER_TAG_RE = re.compile(r"<([a-zA-Z][a-zA-Z0-9_-]*)>")
 
 _IGNORED_PARAM_NAMES = {"help", "install_completion", "show_completion"}
 
 
+def _escape_angle_brackets(text: str) -> str:
+    """Escape placeholder angle brackets like <org> outside inline code spans."""
+    if "<" not in text:
+        return text
+    parts = text.split("`")
+    for index in range(0, len(parts), 2):
+
+        def _replace_tag(match: re.Match[str]) -> str:
+            tag = match.group(1)
+            if tag.lower() in CONST_STANDARD_HTML_TAGS:
+                return match.group(0)
+            return f"\\<{tag}\\>"
+
+        parts[index] = _PLACEHOLDER_TAG_RE.sub(_replace_tag, parts[index])
+    return "`".join(parts)
+
+
 def _clean_text(text: str | None) -> str:
-    """Remove rich markup tags and normalize whitespace."""
+    """Remove rich markup tags, normalize whitespace, and escape raw angle brackets."""
     if not text:
         return ""
     cleaned = _RICH_TAG_RE.sub("", text)
-    return cleaned.strip()
+    return _escape_angle_brackets(cleaned.strip())
 
 
 def _format_type(param_type: Any) -> str:

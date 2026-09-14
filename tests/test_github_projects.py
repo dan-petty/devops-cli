@@ -30,9 +30,9 @@ def test_load_project_template() -> None:
 
 
 def test_parse_tasks_to_project_items(tmp_path: Path) -> None:
-    """parse_tasks_to_project_items converts task.md lines into ProjectItem models."""
-    sample_task_md = tmp_path / "task.md"
-    sample_task_md.write_text(
+    """parse_tasks_to_project_items converts task markdown lines into ProjectItem models."""
+    sample_task_file = tmp_path / "task-100-sample.md"
+    sample_task_file.write_text(
         "# Task Tracking\n\n"
         "### Completed Tasks\n"
         "- [x] Phase 1: Baseline CI run\n\n"
@@ -43,7 +43,7 @@ def test_parse_tasks_to_project_items(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    items = parse_tasks_to_project_items(sample_task_md)
+    items = parse_tasks_to_project_items(sample_task_file)
     assert len(items) == 3
     assert items[0].title == "Phase 1: Baseline CI run"
     assert items[0].status == "Done"
@@ -614,8 +614,8 @@ def test_audit_project_drift() -> None:
 
 def test_parse_tasks_to_project_items_wip_checked_marks_done(tmp_path: Path) -> None:
     """parse_tasks_to_project_items marks [x] items as Done even under In-Progress section."""
-    sample_task_md = tmp_path / "task.md"
-    sample_task_md.write_text(
+    sample_task_file = tmp_path / "task-100-sample.md"
+    sample_task_file.write_text(
         "# Task Tracking\n\n"
         "### In-Progress Tasks (WIP)\n"
         "- [x] Phase 2.1: Completed sub-step in WIP\n"
@@ -624,7 +624,7 @@ def test_parse_tasks_to_project_items_wip_checked_marks_done(tmp_path: Path) -> 
         "- [ ] Phase 3: Future item\n",
         encoding="utf-8",
     )
-    items = parse_tasks_to_project_items(sample_task_md)
+    items = parse_tasks_to_project_items(sample_task_file)
     assert len(items) == 3
     assert items[0].title == "Phase 2.1: Completed sub-step in WIP"
     assert items[0].status == "Done"
@@ -711,7 +711,10 @@ def test_sync_repository_issues_to_project() -> None:
             MagicMock(returncode=0, stdout="{}", stderr=""),
         ]
     )
-    with patch("devops_cli.github.projects.run_subprocess", mock_proc):
+    with (
+        patch("devops_cli.github.projects._resolve_project_owner_arg", return_value="owner"),
+        patch("devops_cli.github.projects.run_subprocess", mock_proc),
+    ):
         added = sync_repository_issues_to_project("owner", "owner/repo", 2, dry_run=False)
         assert added == 1
 

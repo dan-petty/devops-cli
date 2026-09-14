@@ -128,19 +128,42 @@ def get_github_rate_limiter() -> GitHubRateLimiter:
         return _GLOBAL_RATE_LIMITER
 
 
-def _build_cache_key(args: list[str]) -> str:
-    """Construct deterministic cache key from command arguments."""
-    return "gh:" + " ".join(args)
+def _build_cache_key(args: list[str], input: str | None = None) -> str:
+    """Construct deterministic cache key from command arguments and optional input payload."""
+    base = "gh:" + " ".join(args)
+    return f"{base}::{input}" if input else base
 
 
-def _should_cache(args: list[str], use_cache: bool) -> bool:
+def _should_cache(args: list[str], use_cache: bool, input: str | None = None) -> bool:
     """Predicate evaluating whether a GitHub command qualifies for read caching."""
-    if not use_cache or not args:
+    if not use_cache or not args or bool(input and input.strip()):
         return False
-    # Only cache read/query subcommands
+    mutating_tokens = {
+        "-X",
+        "--method",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "-f",
+        "--field",
+        "-F",
+        "--raw-field",
+        "--input",
+        "create",
+        "edit",
+        "close",
+        "ready",
+        "delete",
+        "post",
+        "patch",
+        "reply",
+        "resolve",
+        "sync",
+    }
     first = args[0]
     return first in ("api", "pr", "issue", "run", "label") and not any(
-        arg in ("-X", "create", "edit", "close", "ready", "delete", "post", "patch") for arg in args
+        arg in mutating_tokens or arg.upper() in mutating_tokens for arg in args
     )
 
 
@@ -162,9 +185,9 @@ def run_gh(
     limits with jittered exponential backoff, and returns cached read outputs when requested.
     """
     limiter = get_github_rate_limiter()
-    cache_key = _build_cache_key(args)
+    cache_key = _build_cache_key(args, input)
 
-    if _should_cache(args, use_cache):
+    if _should_cache(args, use_cache, input):
         cached_val = limiter.get_cached(cache_key)
         if cached_val is not None:
             return subprocess.CompletedProcess(

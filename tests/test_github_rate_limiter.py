@@ -161,6 +161,8 @@ def test_should_cache_predicates() -> None:
     assert _should_cache(["pr", "create"], use_cache=True) is False
     assert _should_cache(["issue", "close", "123"], use_cache=True) is False
     assert _should_cache(["pr", "ready", "42"], use_cache=True) is False
+    assert _should_cache(["api", "repos/o/r", "-f", "title=bug"], use_cache=True) is False
+    assert _should_cache(["api", "graphql"], use_cache=True, input="mutation { ... }") is False
     assert _should_cache([], use_cache=True) is False
 
 

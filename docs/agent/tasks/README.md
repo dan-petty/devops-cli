@@ -4,13 +4,12 @@ This directory contains modular, per-task tracking documents for active delivera
 
 ## Motivation & Architecture
 
-Historically, a monolithic `docs/agent/task.md` file was used for all task tracking across branches. When multiple feature branches ran concurrently, each appended lines to the same sections, causing frequent merge conflicts upon PR merge.
+Historically, a monolithic `docs/agent/task.md` file was used for task tracking across branches. When multiple feature branches ran concurrently, each appended lines to the same index table, causing frequent merge conflicts upon PR merge. To eliminate merge conflicts and enable clean multi-agent / multi-branch collaboration, `docs/agent/task.md` has been completely decommissioned and task tracking is decomposed into **isolated, per-task files**:
 
-To eliminate merge conflicts and enable clean multi-agent / multi-branch collaboration, task tracking is decomposed into **isolated, per-task files**:
-
-1. **Zero Merge Conflicts**: Each topic or feature branch creates and edits **only its dedicated task file** (`docs/agent/tasks/task-<issue>-<slug>.md`). Because git treats distinct files independently, merging branches introduces no conflicts.
-2. **Commit Context Rule**: Updates to task tracking files **MUST ONLY** occur in the context of the commits delivering the feature/fix, or when merging/closing the PR. Standalone task-tracking commits are strictly prohibited.
-3. **Automated Project Synchronization**: `devops gh project sync` (and FastMCP `gh_project_sync`) natively inspects `docs/agent/tasks/` and synchronizes all task cards into GitHub Projects v2.
+1. **Zero Merge Conflicts**: Each topic or feature branch creates and edits **only its dedicated task file** (`docs/agent/tasks/task-<issue>-<slug>.md`). Because git treats distinct files independently, merging branches introduces zero conflicts.
+2. **Decommissioned Monolithic Index**: Centralized task visualization, roadmap tracking, and sprint management are managed natively through GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and GitHub Issues views (`https://github.com/dan-petty/devops-cli/issues/views`). No central index markdown file is maintained.
+3. **Commit Context Rule**: Updates to task tracking files **MUST ONLY** occur in the context of the commits delivering the feature/fix, or when merging/closing the PR. Standalone task-tracking commits are strictly prohibited.
+4. **Automated Project Synchronization**: `devops gh project sync` (and FastMCP `gh_project_sync`) natively inspects `docs/agent/tasks/` and synchronizes all task cards into GitHub Projects v2.
 
 ---
 

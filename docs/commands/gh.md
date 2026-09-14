@@ -200,7 +200,7 @@ devops gh project status [OPTIONS]
 
 ### `devops gh project sync`
 
-**Sync task items from tasks directory or task.md into GitHub Projects status.**
+**Sync task items from docs/agent/tasks directory into GitHub Projects status.**
 
 ```bash
 devops gh project sync [OPTIONS]
@@ -210,7 +210,7 @@ devops gh project sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--task-file`, `-f` | `path` | `docs/agent/tasks` | Path to docs/agent/tasks directory or task.md |
+| `--task-file`, `-f` | `path` | `docs/agent/tasks` | Path to docs/agent/tasks directory |
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run`, `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |

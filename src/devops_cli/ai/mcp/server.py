@@ -1098,6 +1098,9 @@ def docker_sandbox(
     workspace: str = ".",
     memory: str = "2g",
     network: str = "bridge",
+    network_mode: str | None = None,
+    public_whitelist: list[str] | None = None,
+    local_whitelist: list[str] | None = None,
     read_only: bool = False,
 ) -> str:
     """Execute command inside an isolated Docker container sandbox."""
@@ -1116,6 +1119,12 @@ def docker_sandbox(
         "--network",
         network,
     ]
+    if network_mode:
+        cmd.extend(["--network-mode", network_mode])
+    if public_whitelist:
+        cmd.extend(["--public-whitelist", ",".join(public_whitelist)])
+    if local_whitelist:
+        cmd.extend(["--local-whitelist", ",".join(local_whitelist)])
     if read_only:
         cmd.append("--read-only")
     cmd.extend(command)
@@ -1131,6 +1140,9 @@ def sandbox_deploy(
     memory: str = "2g",
     cpus: float = 2.0,
     network: str = "bridge",
+    network_mode: str | None = None,
+    public_whitelist: list[str] | None = None,
+    local_whitelist: list[str] | None = None,
     read_only: bool = True,
     command: list[str] | None = None,
 ) -> str:
@@ -1152,6 +1164,12 @@ def sandbox_deploy(
         "--network",
         network,
     ]
+    if network_mode:
+        cmd.extend(["--network-mode", network_mode])
+    if public_whitelist:
+        cmd.extend(["--public-whitelist", ",".join(public_whitelist)])
+    if local_whitelist:
+        cmd.extend(["--local-whitelist", ",".join(local_whitelist)])
     if name:
         cmd.extend(["--name", name])
     if not read_only:
@@ -1165,6 +1183,35 @@ def sandbox_deploy(
     if command:
         cmd.append("--")
         cmd.extend(command)
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def sandbox_network_policy(
+    network_mode: str = "isolated",
+    name: str = "app-sandbox",
+    namespace: str = "sandbox",
+    public_whitelist: list[str] | None = None,
+    local_whitelist: list[str] | None = None,
+) -> str:
+    """Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation."""
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "sandbox",
+        "network-policy",
+        "--network-mode",
+        network_mode,
+        "--name",
+        name,
+        "--namespace",
+        namespace,
+    ]
+    if public_whitelist:
+        cmd.extend(["--public-whitelist", ",".join(public_whitelist)])
+    if local_whitelist:
+        cmd.extend(["--local-whitelist", ",".join(local_whitelist)])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
