@@ -7,19 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.17] - Unreleased
+## [0.2.17] - 2026-09-14
 
 ### Added
-- Protocol-agnostic endpoint readiness and health probing subsystem (`devops sandbox probe`).
-- Cgroup v2 metrics collection and Prometheus application scraping (`devops sandbox metrics`).
-- W3C traceparent propagation and distributed trace correlation (`devops sandbox traces`).
-- Streaming diagnostic log aggregator and panic detector (`devops sandbox logs`).
-- Automated GitOps drift detection and webhook synchronization (`devops argo gitops watch`).
-- Declarative branch protection auditor and repository secret synchronization (`devops gh branch-protection`, `secrets`).
-- Core dependency ecosystem alignment and lockfile synchronization (`pyproject.toml`).
+- **Protocol-Agnostic Endpoint Readiness & Health Probing Subsystem (`devops sandbox probe`)**:
+  - Multi-protocol health verification supporting HTTP/HTTPS, TCP socket handshakes, UDP datagram echoes, and TLS certificate validation.
+  - Granular bounded timeouts, adaptive retry policies, and structured exit reporting for container startup orchestration.
+- **Cgroup v2 Metrics Collection & Prometheus Application Scraping (`devops sandbox metrics`)**:
+  - Native Linux cgroup v2 hierarchy traversal for memory limits, CPU throttle statistics, swap usage, and I/O pressure metrics (`psi/`).
+  - Prometheus exposition format client scraping and real-time terminal metrics reporting.
+- **W3C Traceparent Propagation & Distributed Trace Correlation (`devops sandbox traces`)**:
+  - Distributed trace context injection and extraction conforming to W3C Trace Context specifications (`traceparent`, `tracestate`).
+  - Terminal waterfall timeline rendering for span durations, network latencies, and child context propagation.
+- **Streaming Diagnostic Log Aggregator & Panic Detector (`devops sandbox logs`)**:
+  - Real-time multiplexed container log tailing with regex-driven panic, deadlock, and unhandled exception detection.
+  - Color-coded severity categorizations and automated crash context diagnostics.
+- **Automated GitOps Drift Detection & Argo CD Watch (`devops argo gitops watch`)**:
+  - Automated continuous GitOps reconciliation and drift detection against remote Git repositories and target cluster states.
+  - Rich status dashboard and automatic event notifications for out-of-sync or degraded Argo CD applications.
+- **Declarative GitHub Branch Protection Ruleset Auditor & Synchronizer (`devops gh branch-protection`)**:
+  - Declarative policy specification in YAML (`.github/branch-protection.yml`) for `main` and `release/*`.
+  - Comprehensive drift detection across required reviews, status checks, admin enforcement, and merge restrictions, with automated sync.
+- **Libsodium-Sealed Repository Secrets Synchronization (`devops gh secrets`)**:
+  - Secure public-key encryption using PyNaCl libsodium sealed-boxes for GitHub Actions repository secrets.
+  - Direct synchronization from OS Keyring or HashiCorp Vault with strict zero-plaintext-leakage guarantees and bounded error truncation.
+- **DevOps CLI GitHub Operations & Pull Request Governance (`devops gh`, `devops pr`)**:
+  - Native Typer command groups for GitHub Projects v2, milestones, labels, issues, and PR lifecycle management.
+  - Multi-tiered merge readiness gating requiring 0 merge conflicts, 0 unresolved review threads, green CI checks, and approved reviews.
+  - Resilient GitHub GraphQL secondary rate limit detection and automatic REST API fallback.
+- **Mandatory Draft PRs for In-Progress Work**:
+  - Enforced policy and tooling requiring in-progress work to start as draft pull requests, preventing premature reviews and merge attempts.
+- **Automated CI Check & Review Thread Monitoring (`devops pr monitor`, `devops pr checks`)**:
+  - Real-time polling and progress inspection of remote CI checks, Copilot code reviews, and unresolved conversation threads.
 
 ### Fixed & Hardened
-- Centralized logging perimeter hardening and Fluent Bit namespace scoping (`k8s/logging/`).
+- **Kubernetes & Cloud Native Hardening**:
+  - Resolved Helm Server-Side Apply (SSA) field ownership conflicts, Loki validation errors, and PodSecurity compliance issues (`k8s/`).
+  - Centralized Fluent Bit namespace scoping and log perimeter hardening (`k8s/logging/`).
+  - Flexible Kubernetes context configuration and conditional Minikube autostart.
+- **DevSecOps Review Feedback Loop & Anti-Hallucination Datasets**:
+  - Closed-loop review remediation and test verification across all static analysis and security scanning rules.
+  - Updated anti-hallucination datasets for AI review models.
+- **Core Dependency Ecosystem Alignment**:
+  - Synchronized and locked dependencies across `uv.lock` for Python 3.14+ runtime stability.
 
 ## [0.2.16] - 2026-09-12
 

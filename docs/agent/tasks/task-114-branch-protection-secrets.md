@@ -2,7 +2,7 @@
 
 **Issue**: [#114](https://github.com/dan-petty/devops-cli/issues/114)
 **PR**: [#197](https://github.com/dan-petty/devops-cli/pull/197)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p2-medium`
 **Scope**: `scope/github`
@@ -65,4 +65,4 @@ Implement declarative branch protection policy enforcement and libsodium-encrypt
 - [x] Author unit tests in `tests/test_github_branch_protection.py` and `tests/test_github_secrets.py`.
 - [x] Run quality gates (`devops scan complexity`, `ruff`, `mypy`, `pytest`, `devops docs generate --check`).
 - [x] Commit changes, push branch, and open Draft Pull Request to `release/v0.2.17` ([#197](https://github.com/dan-petty/devops-cli/pull/197)).
-- [ ] Monitor CI checks, transition PR to ready, address review threads, and squash-merge into `release/v0.2.17`.
+- [x] Monitor CI checks, transition PR to ready, address review threads, and squash-merge into `release/v0.2.17`.
