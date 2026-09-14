@@ -276,6 +276,14 @@ codebase or reviewing target repositories.
   replacing features, schemas, configurations, or interfaces, implement clean, complete solutions
   and ruthlessly remove obsolete code, variables, aliases, fallback shims, and legacy workarounds.
   Never leave remnants or vestigial fallback paths.
+- **Mandatory Root-Cause Remediation & Instruction Hardening (Fix Underlying Cause / Prevent Recurrence)**:
+  - Whenever encountering any problem, bug, defect, failure, runtime exception, or unexpected error, AI agents and automated workflows **MUST ALWAYS INVESTIGATE AND FIX THE CAUSE OF THE UNDERLYING ISSUE** directly at its source. Applying superficial workarounds, bypassing assertions, suppressing warnings, or masking symptoms without remediating the root cause is strictly prohibited.
+  - If the underlying issue cannot be fixed immediately (such as an external dependency bug, upstream platform constraint, environment limitation, or fundamental architectural blocker), the agent **MUST PROMPTLY UPDATE AGENT INSTRUCTIONS (`AGENTS.md`)** with defensive guardrails, pre-flight checks, avoidance patterns, or operational guidelines to prevent the issue from re-occurring in future sessions.
+- **Continuous Roadmap Synthesis & Field Observations (Add Suggestions to Roadmap)**:
+  - AI agents must continuously capture high-value observations, technical debt discoveries, architectural insights, and enhancement suggestions that arise organically during engineering sessions.
+  - Any good suggestions, architectural observations, or optimization ideas that emerge while working **MUST BE PROACTIVELY ADDED TO THE ROADMAP (`docs/ROADMAP.md`)** under the appropriate upcoming milestone or future vision series, keeping the roadmap living, accurate, and aligned with real-world field observations.
+- **Continuous Interaction & Collaborative Value Improvement (Proactive Improvement Suggestions)**:
+  - In every interaction with the user, peer agents, or development workflows, AI agents must actively look for and suggest concrete, actionable ways to improve developer ergonomics, workflow speed, system resilience, documentation clarity, test coverage, and tooling efficiency whenever relevant.
 
 
 
