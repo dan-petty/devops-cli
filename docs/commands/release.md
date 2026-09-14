@@ -45,6 +45,7 @@ devops release prepare [OPTIONS] <version>
 | `--create-pr`, `-p` | `boolean` | - | Create release branch, commit changes, and open a GitHub Release PR. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
+| `--draft`, `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
 
 ---
@@ -63,7 +64,7 @@ devops release pr [OPTIONS]
 |---|---|---|---|
 | `--version`, `-v` | `string` | - | Target version string. |
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--draft` | `boolean` | - | Create pull request or entity as draft. |
+| `--draft`, `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--labels`, `-l` | `string` | `release` | Comma-separated labels to attach. |
 | `--push`, `--no-push` | `boolean` | `True` | Push commits or tags to git remote. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
