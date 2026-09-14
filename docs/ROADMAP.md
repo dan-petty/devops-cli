@@ -18,6 +18,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 12. **Hypothesis-Driven Trial-and-Error & Counterexample-Guided Synthesis (CEGIS)**: Never rely on fragile single-shot generation for complex defects, performance bottlenecks, or refactorings. Formulate falsifiable hypotheses, explore solution trees (Tree-of-Thought / MCTS) in ephemeral shadow worktrees, accumulate failing counterexamples as formal negative constraints (CEGIS), enforce cascading fast-fail verification gates, and minimize discovered patches to atomic, Pareto-optimal diffs.
 13. **Cognitive Information Foraging & Syntopical Epistemic Hygiene**: Agents must read, research, and gather information with human-like cognitive discipline—prioritizing inspectional multi-scale outlines over monolithic token dumps, traversing information scent cues with backtracking, maintaining active marginalia, triangulating claims against ground-truth primary sources, and synthesizing syntopical mental models that resolve dialectical contradictions.
 14. **Autonomous Agentic Project Governance & Grounded Lifecycle Orchestration**: Software delivery must be autonomously governed through closed-loop, agentic project management. Work items, review remediations, and architectural epics must be decomposed into atomic, traceable issues with grounded taxonomy, real-time board transitions across lifecycle states, explicit dependency tracking, and dynamic WIP budgeting to eliminate ungrounded development and project drift.
+15. **Reactive Terminal Ergonomics & Unified Workstation Command Center**: The developer terminal is the primary operational canvas. Complex multi-cloud, container, AI, and project lifecycle telemetry must be synthesized into a reactive, high-density terminal user interface (TUI) with non-blocking async workers, master-detail split screens, live log streaming, and sub-second fuzzy command dispatch, eliminating context switching to fragmented web dashboards.
 
 ---
 
@@ -522,6 +523,56 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **FastMCP Agentic Project Management Tools & Epistemic Resources (P1 - High)**:
   - *Context & Rationale*: Exposes native FastMCP tools (`gh_pm_plan`, `gh_pm_reconcile`, `gh_pm_deps`, `gh_pm_triage`, `gh_pm_sprint`, `gh_pm_report`) and dynamic system resources (`resource://gh/pm/kanban`, `resource://gh/pm/velocity`, `resource://gh/pm/critical-path`) enabling IDE-hosted AI coding assistants to manage projects, unblock dependencies, and transition cards autonomously.
 
+### Reactive Workstation Command Center, Interactive TUI & Unified Operations Hub (v0.2.23 - Scheduled)
+- [ ] **Reactive Multi-Workspace Textual TUI Architecture & Master-Detail Navigation (`devops dashboard`, `devops tui`) (P0 - Critical)**:
+  - *Context & Rationale*: Modernizes the basic Textual dashboard from static read-only tables into a reactive, multi-workspace workstation command center with non-blocking async workers (`work()`), real-time push events, and master-detail ergonomic split screens (navigation tree/list on left, contextual detail inspector with YAML/logs/markdown on right).
+  - *Unified Workspaces*: Seamlessly tabs between 7 domain workspaces: (1) `PR & Git Lifecycle`, (2) `K8s & Minikube`, (3) `Docker & Sandboxes`, (4) `SecOps & Vault`, (5) `GitOps & ArgoCD`, (6) `AI Constellation & Memory`, and (7) `Telemetry & Loki Logs`.
+  - *Stateful Navigation*: Preserves active table selections, scroll positions, and filter queries across tab switches with URL-like hash routing.
+- [ ] **Interactive GitHub Lifecycle, PR Monitor & Projects v2 Kanban Hub (`tab-github`) (P0 - Critical)**:
+  - *Context & Rationale*: Embeds full GitHub engineering workflow visibility directly inside the terminal.
+  - *Chronological FIFO PR Queue*: Live pull request queue prioritized from oldest to newest with status badges (CI check conclusion, Copilot review settling indicator, unresolved review threads counter). Selecting a PR opens an inspector pane with commit diff summary and failing check logs.
+  - *Interactive Actions*: Instant keybinding triggers to run readiness checks (`p` -> `devops pr check-readiness`), view failing run logs (`v` -> `devops gh runs view`), or open PR in browser (`o`).
+  - *Projects v2 Mini-Kanban*: Responsive columnar view showing active milestone issues across `Backlog`, `Ready`, `In Progress`, `In Review`, and `Done` with taxonomy labels.
+  - *API Quota Gauge*: Live visual token-bucket meter displaying remaining GitHub REST/GraphQL rate limits and reset countdown (`devops gh rate-limit`).
+- [ ] **Cloud-Native Cluster Runtime, Pod Inspector & Live Log Streamer (`tab-k8s`) (P0 - Critical)**:
+  - *Context & Rationale*: Transforms the primitive 10-pod table into a live, interactive Kubernetes console.
+  - *Multi-Namespace Filtering*: Namespace selector dropdown, search query bar (`/`), and status filters (`Running`, `Pending`, `CrashLoopBackOff`, `Failed`).
+  - *Integrated Log Streamer Drawer*: Embedded `RichLog` drawer streaming live container logs with auto-scroll and follow mode (`l`), backed by non-blocking Stern/Kubernetes log tailing.
+  - *Cluster Health & Minikube Overview*: Node resource allocation (CPU/Memory gauges), Minikube GPU status badge (`Active` / `Fallback`), and service ingress URL table (`devops k8s configure-urls`).
+  - *Port-Forward Daemon Manager*: Real-time list of active background port forwards (`devops k8s port-forward --status`) with one-key start and terminate controls.
+  - *Interactive Pod Actions*: Restart pod (`r`), stream logs (`l`), view manifest YAML (`y`), or inspect pod events (`e`).
+- [ ] **Docker Containers & Multi-Tier Workload Sandbox Console (`tab-docker`) (P1 - High)**:
+  - *Context & Rationale*: Comprehensive workstation container and sandbox observability hub.
+  - *Multi-Tier Sandbox Inspector*: Dedicated view of running Docker and Kubernetes sandboxes (`devops sandbox status`) showing active network modes (`isolated`, `sandbox_namespace`, `public_whitelist`, `local_whitelist`), cgroup resource limits, and health probe states.
+  - *Container Performance Metrics*: Live CPU %, memory RSS vs limit, block I/O, and network throughput sparklines.
+  - *Interactive Sandbox Controls*: Terminate sandbox (`k`), stream sandbox diagnostic logs (`l`), trigger dynamic health probe (`p`), or prune dangling volumes and images.
+- [ ] **Unified SecOps, Compliance & HashiCorp Vault Command Center (`tab-secops`) (P1 - High)**:
+  - *Context & Rationale*: Consolidates all static and dynamic security scanners into an actionable vulnerability triage center.
+  - *Scanner Severity Dashboard*: Aggregated threat summary cards (Trivy CVEs by severity, Gitleaks detected secrets, Semgrep SAST alerts, Checkov IaC failed checks). Selecting an alert displays CVE details, affected line numbers, CVSS scores, and remediation hints.
+  - *Automated Remediation Queue*: Highlights vulnerabilities resolvable via `devops scan fix` with one-key preview of auto-remediation patches.
+  - *HashiCorp Vault Secret Broker Status*: Visual broker health indicator, seal state, token lease TTL progress bar, and OS Keyring synchronization status (`devops vault status`).
+- [ ] **GitOps Fleet, ArgoCD Rollouts & Cloud Cost Monitor (`tab-gitops`) (P1 - High)**:
+  - *Context & Rationale*: Brings continuous deployment and cloud infrastructure FinOps into situational awareness.
+  - *ArgoCD Application Fleet*: Tree view of deployed GitOps applications showing sync status (`Synced`, `OutOfSync`) and health status (`Healthy`, `Progressing`, `Degraded`). One-key app synchronization trigger (`s` -> `devops argo cd apps sync`).
+  - *Argo Rollout Canary Visualizer*: Live step-by-step rollout progression with canary traffic weight and automated metric analysis results.
+  - *IaC Drift & Infracost Spend Tracker*: OpenTofu workspace state overview, drift status badge, and monthly cloud cost forecast summary (`devops tf cost`).
+- [ ] **AI Constellation Topology, RAG Health & Review Findings Studio (`tab-ai`) (P1 - High)**:
+  - *Context & Rationale*: Deep inspection of local and distributed AI inference tiers and knowledge bases.
+  - *Ollama Constellation Topology*: Node health matrix, active model weights, GPU VRAM allocation gauges, and failover circuit breaker status.
+  - *RAG Vector Tier Health*: Qdrant collection size, indexed document count, semantic drift score, and Valkey L2 embedding cache hit ratio sparkline.
+  - *Review Findings Studio*: Interactive hierarchical tree of AI code review findings with severity badges, collapsible rationale scratchpads, file diff snippet previews, and one-key finding status transitions (`MITIGATED`, `INVALIDATED`).
+- [ ] **Centralized Loki LogQL Streamer, Prometheus Sparklines & Trace Waterfalls (`tab-telemetry`) (P1 - High)**:
+  - *Context & Rationale*: Unifies the complete observability triad directly within the terminal UI.
+  - *Loki Centralized LogQL Query Console*: Embedded LogQL query input bar with syntax highlighting and live streaming log console, querying cluster-wide Fluent Bit / Loki logs without leaving the TUI.
+  - *Prometheus Performance Sparklines*: Terminal ASCII sparklines and gauges rendering real-time command execution latencies, LLM token throughput (tokens/sec), and cache hit ratios.
+  - *Trace Waterfall Modal*: Visual breakdown of recent OpenTelemetry distributed traces and multi-persona review spans with service latency waterfalls.
+- [ ] **Universal Terminal Command Palette & Fuzzy Action Launcher (P1 - High)**:
+  - *Context & Rationale*: High-velocity keyboard workflow allowing developers to execute any DevOps CLI command without exiting the TUI.
+  - *Modal Launcher (`Ctrl+P` / `:`)*: Fast fuzzy-search command palette listing all CLI subcommands (`ci run`, `scan trivy`, `release status`, `argo sync`, `vault sync`, `sandbox iterate`).
+  - *Non-Blocking Command Output Drawer*: Executes commands in a non-blocking background thread, streaming output directly into an ephemeral sliding terminal drawer.
+- [ ] **FastMCP TUI Management Tools & Dynamic Dashboard Resources (P2 - Medium)**:
+  - *Context & Rationale*: Exposes FastMCP tools (`dashboard_launch`, `dashboard_status`, `dashboard_switch_tab`) and dynamic system resources (`resource://dashboard/status`, `resource://dashboard/k8s`, `resource://dashboard/github`, `resource://dashboard/secops`) enabling AI assistants to query dashboard state, monitor workstation telemetry, and trigger UI focus programmatically.
+
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-premise and multi-cloud Kubernetes clusters with automatic service mesh routing.
 - [ ] **Autonomous Self-Healing Agent Pipeline**: Closed-loop diagnostic engine capable of discovering cluster incidents, generating corrective patches, running CI gates, and executing rollback.
@@ -617,6 +668,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Autonomous Epic Decomposition & Backlog Synthesizer (`devops gh pm plan`) | PydanticAI / Markdown | High | Low | v0.2.22 | 📋 Scheduled (P0) |
 | | Standup & Executive Velocity Reporter (`devops gh pm report`) | Markdown / Rich Panels | High | Low | v0.2.22 | 📋 Scheduled (P1) |
 | | FastMCP Agentic Project Management Tools & Resources | FastMCP / PydanticAI | High | Low | v0.2.22 | 📋 Scheduled (P1) |
+| | TUI Log Streamer Drawer & Namespace Filter | Textual RichLog / Subprocess | High | Low | v0.2.23 | 📋 Scheduled (P1) |
 | | Zero-Trust Git Commit & Tag Signature Verifier | `git`, GPG, Sigstore | High | Low | v0.3.0 | 💡 Future Vision |
 | | JIT Python 3.14 Bytecode Optimization Benchmarking | `pytest-benchmark` / JIT | Medium | Low | v0.3.0 | 💡 Future Vision |
 | **Strategic Investments** | OpenTofu Multi-Cloud IaC, Minikube Auto-Config & DevContainer Lifecycle | OpenTofu / Minikube / Python Lifecycle | High | High | v0.1.x | ✅ Completed |
@@ -707,6 +759,14 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | DAG Dependency Engine & Critical Path Unblocker (`devops gh pm deps`) | NetworkX / DAG / AST | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
 | | WIP Limit Governor & Workload Dispatcher | Pydantic / Token Budget | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 | | Agentic Sprint Cadence & Velocity Engine (`devops gh pm sprint`) | GitHub Projects v2 / Velocity | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+| | Reactive Multi-Workspace Textual TUI Architecture | Textual / Async Workers | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
+| | Interactive GitHub Lifecycle, PR Monitor & Kanban Hub | Textual / GitHub REST | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
+| | Cloud-Native Cluster Runtime & Pod Log Streamer | Textual / Kubernetes / Stern | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
+| | Docker Containers & Multi-Tier Sandbox Console | Textual / Docker SDK / cgroups | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
+| | Unified SecOps, Compliance & Vault Command Center | Textual / Trivy / Semgrep / Vault | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
+| | GitOps Fleet, Argo Rollouts & Cloud Cost Monitor | Textual / ArgoCD / Infracost | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
+| | AI Constellation Topology & Review Findings Studio | Textual / Ollama / Qdrant | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
+| | Centralized Loki LogQL Streamer & Trace Waterfalls | Textual / Loki / Prometheus | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
 | | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 | | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 | | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |
@@ -738,5 +798,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Information Scent Trail Visualizer & Breadcrumb Tree | Rich Trees / Graphviz | Medium | Low | v0.2.21 | 📋 Scheduled (P2) |
 | | Automated Triage & Sandbox Repro Validator (`devops gh pm triage`) | PydanticAI / Docker | High | Low | v0.2.22 | 📋 Scheduled (P1) |
 | | Dependency DAG Visualizer & Critical Path Graph | Mermaid / Rich Trees | Medium | Low | v0.2.22 | 📋 Scheduled (P2) |
+| | Universal Command Palette & Fuzzy Action Launcher | Textual CommandPalette | High | Low | v0.2.23 | 📋 Scheduled (P1) |
+| | FastMCP TUI Management Tools & Dynamic Resources | FastMCP / PydanticAI | Medium | Low | v0.2.23 | 📋 Scheduled (P2) |
 | **De-prioritized** | Bare-Metal OS Installers | Shell scripts | Low | High | — | ❌ Rejected (DevContainer native) |
 | | Heavyweight Monolithic Orchestrators | Full LangChain | Low | High | — | ❌ Rejected (FastMCP + PydanticAI) |
