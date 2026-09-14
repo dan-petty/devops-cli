@@ -64,6 +64,50 @@ def test_sandbox_models_serialization() -> None:
     assert restored.port_bindings[0].container_port == 8080
 
 
+def test_sandbox_models_secret_masking() -> None:
+    """Verify SandboxExecResult, SandboxLogLine, and PanicIncident mask secret tokens."""
+    from devops_cli.sandbox.models import (
+        PanicIncident,
+        PanicType,
+        SandboxExecResult,
+        SandboxLogLine,
+    )
+
+    raw_secret = "ghp_secrettoken1234567890abcdefghijklmn"
+    exec_result = SandboxExecResult(
+        instance_id="sb-1",
+        command=["echo", "secret"],
+        exit_code=0,
+        stdout=f"Output with {raw_secret}",
+        stderr=f"Error with {raw_secret}",
+    )
+    assert raw_secret not in exec_result.stdout
+    assert "<masked-github-token>" in exec_result.stdout
+    assert raw_secret not in exec_result.stderr
+    assert "<masked-github-token>" in exec_result.stderr
+
+    log_line = SandboxLogLine(
+        content=f"Log containing {raw_secret}",
+    )
+    assert raw_secret not in log_line.content
+    assert "<masked-github-token>" in log_line.content
+
+    panic = PanicIncident(
+        incident_id="pi-1",
+        instance_id="sb-1",
+        container_id="c-1",
+        panic_type=PanicType.PYTHON_TRACEBACK,
+        message=f"Panic with {raw_secret}",
+        stacktrace=[f"File {raw_secret}.py"],
+        archived_path=f"/tmp/{raw_secret}.log",
+        archive_error=f"Failed with {raw_secret}",
+    )
+    assert raw_secret not in panic.message
+    assert raw_secret not in panic.stacktrace[0]
+    assert raw_secret not in (panic.archived_path or "")
+    assert raw_secret not in (panic.archive_error or "")
+
+
 def test_port_availability_check() -> None:
     """Test is_port_available helper on free and bound ports."""
     # Binding to a port to simulate in-use port

@@ -174,6 +174,19 @@ def _sanitize_command_for_telemetry(cmd: list[str]) -> str:
     return mask_secrets(summary)[:256]
 
 
+def _validate_subprocess_cwd(cwd: Path | str | None) -> None:
+    """Validate that subprocess working directory does not violate traversal or system path security."""
+    if cwd is None:
+        return
+    from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+    from devops_cli.exceptions.security import SecurityError
+
+    validate_no_path_traversal(str(cwd), label="subprocess cwd")
+    resolved_cwd = Path(cwd).resolve()
+    if is_forbidden_system_path(resolved_cwd):
+        raise SecurityError(f"Subprocess cwd cannot reside in forbidden system directory: '{cwd}'.")
+
+
 def run_subprocess(
     cmd: list[str],
     *,
@@ -190,6 +203,7 @@ def run_subprocess(
 ) -> subprocess.CompletedProcess[str]:
     """Execute a subprocess command with unified timeout bounds, dry-run reporting,
     W3C trace context propagation, OpenTelemetry tracing, and ambient environment isolation."""
+    _validate_subprocess_cwd(cwd)
     if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(cmd):
         print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
 
@@ -322,6 +336,7 @@ async def run_subprocess_async(
 ) -> subprocess.CompletedProcess[str]:
     """Execute a subprocess command asynchronously with non-blocking I/O, unified timeout bounds,
     dry-run reporting, W3C trace context propagation, OpenTelemetry tracing, and ambient environment isolation."""
+    _validate_subprocess_cwd(cwd)
     if getattr(subprocess.run, "__module__", "") != "subprocess":
         return await asyncio.to_thread(
             run_subprocess,

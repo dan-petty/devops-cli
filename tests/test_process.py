@@ -78,3 +78,30 @@ async def test_run_subprocess_async_check_and_timeout() -> None:
     # 3. Timeout expiration
     with pytest.raises(subprocess.TimeoutExpired):
         await run_subprocess_async(["sleep", "10"], timeout=0.01)
+
+
+def test_run_subprocess_cwd_security() -> None:
+    """Verify run_subprocess rejects traversal sequences and forbidden system directories in cwd."""
+    from pathlib import Path
+
+    from devops_cli.exceptions.security import SecurityError
+
+    with pytest.raises(SecurityError):
+        run_subprocess(["echo", "hi"], cwd=Path("../../../escaped"))
+
+    with pytest.raises(SecurityError):
+        run_subprocess(["echo", "hi"], cwd=Path("/etc"))
+
+
+@pytest.mark.anyio
+async def test_run_subprocess_async_cwd_security() -> None:
+    """Verify run_subprocess_async rejects traversal sequences and forbidden system directories in cwd."""
+    from pathlib import Path
+
+    from devops_cli.exceptions.security import SecurityError
+
+    with pytest.raises(SecurityError):
+        await run_subprocess_async(["echo", "hi"], cwd=Path("../../../escaped"))
+
+    with pytest.raises(SecurityError):
+        await run_subprocess_async(["echo", "hi"], cwd=Path("/etc"))

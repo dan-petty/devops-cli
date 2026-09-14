@@ -1293,3 +1293,29 @@ class TestPrCommands:
             result = runner.invoke(app, ["check-readiness", "999"])
             assert result.exit_code == 1
             assert "Unable to retrieve details" in result.output
+
+    def test_render_threads_table_masks_secrets(self) -> None:
+        """_render_threads_table masks secret tokens in comment bodies."""
+        from devops_cli.commands.pr import _render_threads_table
+
+        mock_thread = MagicMock(
+            id="THREAD_SEC_1",
+            is_resolved=False,
+            path="src/config.py",
+            line=42,
+            comments=[
+                MagicMock(
+                    author="bot",
+                    body="Leak token: ghp_supersecrettoken1234567890abcdefghijklmn here",
+                )
+            ],
+        )
+        with patch("devops_cli.commands.pr.print_table") as mock_print_table:
+            _render_threads_table([mock_thread])
+            mock_print_table.assert_called_once()
+            rows = mock_print_table.call_args.kwargs.get("rows") or mock_print_table.call_args[
+                1
+            ].get("rows", mock_print_table.call_args[0][2])
+            rendered_comment = rows[0][4]
+            assert "ghp_supersecrettoken" not in rendered_comment
+            assert "<masked-github-token>" in rendered_comment

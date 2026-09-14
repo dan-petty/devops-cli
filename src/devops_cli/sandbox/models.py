@@ -111,6 +111,16 @@ class SandboxExecResult(BaseModel):
     stderr: str = ""
     duration_seconds: float = 0.0
 
+    @field_validator("stdout", "stderr", mode="before")
+    @classmethod
+    def sanitize_output(cls, v: Any) -> str:
+        """Mask secrets in command execution stdout/stderr."""
+        if not v:
+            return ""
+        from devops_cli.security.sanitizer import mask_secrets
+
+        return mask_secrets(str(v))
+
 
 class ProbeProtocol(StrEnum):
     """Supported network protocols for endpoint readiness and health probing."""
@@ -285,6 +295,16 @@ class PanicIncident(BaseModel):
 
         return [mask_secrets(str(line)) for line in v]
 
+    @field_validator("archived_path", "archive_error", mode="before")
+    @classmethod
+    def sanitize_archive_fields(cls, v: Any) -> str | None:
+        """Mask secrets in archived paths or archive error strings."""
+        if v is None:
+            return None
+        from devops_cli.security.sanitizer import mask_secrets
+
+        return mask_secrets(str(v))
+
 
 class SandboxLogLine(BaseModel):
     """Parsed single line of sandbox container log output."""
@@ -294,6 +314,16 @@ class SandboxLogLine(BaseModel):
     content: str
     is_panic: bool = False
     panic_type: PanicType | None = None
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def sanitize_content(cls, v: Any) -> str:
+        """Mask secrets in log line content to prevent sensitive credential leakage."""
+        if not v:
+            return ""
+        from devops_cli.security.sanitizer import mask_secrets
+
+        return mask_secrets(str(v))
 
 
 class SandboxLogsReport(BaseModel):

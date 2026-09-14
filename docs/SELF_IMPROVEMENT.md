@@ -152,3 +152,32 @@ The self-improvement loop is monitored via OpenTelemetry distributed tracing and
 | `devops_cli_review_feedback_exports_total` | Counter | Feedback records exported to `feedback_dataset.jsonl`. |
 
 Tracing spans decorated with `@trace_span("review.<phase>")` capture execution latency, prompt token counts, and completion budgets across the entire pipeline.
+
+---
+
+## 5. Historical Remediation Case Studies
+
+### Session `20260913-231617` (DevSecOps & Robustness Remediation)
+
+The DevSecOps and robustness review session `20260913-231617` produced 13 findings. 11 findings were confirmed and remediated with test-first fixes; 2 findings were classified as false-positive hallucinations and disarmed:
+
+1. **Path Containment & Traversal Hardening**:
+   - `SqlitePlanStore`: Constrained database paths to project roots, temp paths, or user home; blocked arbitrary system paths.
+   - `DEVOPS_CLI_CONFIG`: Validated path traversal and forbidden system paths when loading config from environment.
+   - `run_subprocess` / `run_subprocess_async`: Enforced path containment and system path rejection on caller-supplied `cwd`.
+   - `devcontainer` mounts: Enforced path traversal checks on volume mount targets.
+2. **SSRF & Network Egress Hardening**:
+   - `waterfall.py` (Jaeger): Blocked private RFC 1918 IP addresses (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) while preserving local loopback (`127.0.0.1`, `localhost`).
+3. **Secret Masking & Output Sanitization**:
+   - `SandboxLogLine`, `SandboxExecResult`, and `PanicIncident`: Applied `mask_secrets` via Pydantic validators.
+   - `pr.py` (`_render_threads_table`): Sanitized first comment bodies with `mask_secrets` in terminal output.
+   - `_sync_configured_k8s_context`: Masked and truncated exception details in warning output.
+   - `_start_minikube_cluster`: Sanitized status messages with `mask_secrets`.
+4. **K8s Autostart Hygiene**:
+   - `switch_context`: Respected `should_autostart_minikube()` configuration flag.
+   - `KUBECONFIG`: Validated against path traversal and forbidden system paths prior to CLI invocation.
+5. **Anti-Hallucination Catalog Updates**:
+   - Disarmed `HALLUCINATION-NONEXISTENT-FIXER-PAYLOAD` (non-existent `src/devops_cli/ai/fixer.py` and claims of unbounded payload in `repair_json_string`).
+   - Disarmed `HALLUCINATION-CI-ALLOW-BLOCKED-STATE` (false claims of insecure bypass for transient in-flight CI mergeable states).
+6. **Native DevOps CLI GitHub Rate Management**:
+   - Replaced bare `gh` invocations with native `devops gh` and centralized `run_gh()` runner featuring token-bucket pacing, quota safety thresholds, exponential backoff with jitter on secondary rate limits, and TTL read caching.

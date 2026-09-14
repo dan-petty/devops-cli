@@ -10,11 +10,9 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.commands.pr import app as pr_app
-from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.env import ENV_GITHUB_TOKEN
 from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
-from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.github.branch_protection import (
     audit_branch_protection,
@@ -55,6 +53,7 @@ from devops_cli.github.projects import (
     sync_remote_project,
     sync_remote_project_views,
 )
+from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.secrets import (
     list_repository_secrets,
     sync_repository_secrets,
@@ -111,7 +110,7 @@ def _resolve_github_token() -> str | None:
         env_val = os.environ.get(env_var)
         if env_val:
             return env_val
-    res = run_subprocess([CONST_GH_CLI, "auth", "token"], check=False, quiet=True)
+    res = run_gh(["auth", "token"], check=False, quiet=True)
     if res.returncode == 0 and res.stdout.strip():
         return res.stdout.strip()
     return None
@@ -131,10 +130,10 @@ def _get_github_client() -> GitHubClient | None:
 def _get_repo_labels(repo: str | None = None) -> list[dict[str, Any]]:
     """Retrieve repository labels via gh CLI or GitHubClient."""
     target_repo = _resolve_repo(repo)
-    cmd = [CONST_GH_CLI, "label", "list", "--json", "name,color,description"]
+    cmd = ["label", "list", "--json", "name,color,description"]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False, quiet=True)
+    res = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=30.0)
     if res.returncode == 0 and res.stdout.strip():
         try:
             return json.loads(res.stdout)  # type: ignore[no-any-return]
@@ -161,12 +160,11 @@ def _get_repo_milestones(repo: str | None = None, state: str = "all") -> list[di
             pass
 
     cmd = [
-        CONST_GH_CLI,
         "api",
         "--paginate",
         f"repos/{target_repo}/milestones?state={state}&per_page=100",
     ]
-    res = run_subprocess(cmd, check=False, quiet=True)
+    res = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=30.0)
     if res.returncode == 0 and res.stdout.strip():
         raw = parse_paginated_json(res.stdout)
         return [
@@ -187,7 +185,6 @@ def _get_repo_milestones(repo: str | None = None, state: str = "all") -> list[di
 def _get_repo_prs(repo: str | None = None, limit: int = 30) -> list[dict[str, Any]]:
     """Retrieve open pull requests for taxonomy auditing."""
     cmd = [
-        CONST_GH_CLI,
         "pr",
         "list",
         "--state",
@@ -199,7 +196,7 @@ def _get_repo_prs(repo: str | None = None, limit: int = 30) -> list[dict[str, An
     ]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False, quiet=True)
+    res = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=15.0)
     if res.returncode == 0 and res.stdout.strip():
         try:
             return json.loads(res.stdout)  # type: ignore[no-any-return]
@@ -380,7 +377,6 @@ def _close_milestone_gh_cli(target_repo: str, name: str) -> bool:
     if matched and "number" in matched:
         num = matched["number"]
         cmd = [
-            CONST_GH_CLI,
             "api",
             "-X",
             "PATCH",
@@ -388,7 +384,7 @@ def _close_milestone_gh_cli(target_repo: str, name: str) -> bool:
             "-f",
             "state=closed",
         ]
-        proc = run_subprocess(cmd, check=False)
+        proc = run_gh(cmd, check=False)
         return proc.returncode == 0
     return False
 
@@ -1000,7 +996,6 @@ def edit_issue_cmd(
         payload["state"] = state
 
     cmd = [
-        CONST_GH_CLI,
         "api",
         "--method",
         "PATCH",
@@ -1008,7 +1003,7 @@ def edit_issue_cmd(
         "--input",
         "-",
     ]
-    res = run_subprocess(cmd, input=json.dumps(payload), check=False)
+    res = run_gh(cmd, input=json.dumps(payload), check=False)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -1016,6 +1011,74 @@ def edit_issue_cmd(
         print_error(f"Failed to edit issue #{number}: {clean_err}", safe=True)
         raise typer.Exit(res.returncode)
     print_success(f"Issue #{number} updated successfully.")
+
+
+# =============================================================================
+# Command: devops gh api
+# =============================================================================
+
+
+@app.command(
+    "api",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    help=HELP.gh.api,
+)
+def api_cmd(
+    ctx: typer.Context,
+    endpoint: Annotated[
+        str, typer.Argument(help="GitHub API endpoint (e.g. repos/:owner/:repo/issues)")
+    ],
+    method: Annotated[
+        str | None,
+        typer.Option("--method", "-X", help="HTTP method (GET, POST, PUT, DELETE, PATCH)"),
+    ] = None,
+    paginate: Annotated[
+        bool,
+        typer.Option("--paginate", help="Paginate across all result pages"),
+    ] = False,
+    jq: Annotated[
+        str | None,
+        typer.Option("--jq", "-q", help="Filter JSON output using a jq expression"),
+    ] = None,
+    template: Annotated[
+        str | None,
+        typer.Option("--template", "-t", help="Format JSON output using a Go template"),
+    ] = None,
+    cache: Annotated[
+        bool,
+        typer.Option("--cache", help="Cache response in-memory for subsequent reads"),
+    ] = False,
+    cache_ttl: Annotated[
+        float,
+        typer.Option("--cache-ttl", help="Cache TTL in seconds (default 15.0)"),
+    ] = 15.0,
+) -> None:
+    """Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching."""
+    args = ["api", endpoint]
+    if method:
+        args.extend(["-X", method.upper()])
+    if paginate:
+        args.append("--paginate")
+    if jq:
+        args.extend(["-q", jq])
+    if template:
+        args.extend(["-t", template])
+    if ctx.args:
+        args.extend(ctx.args)
+
+    res = run_gh(args, use_cache=cache, cache_ttl=cache_ttl)
+    if res.returncode != 0:
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets(res.stderr.strip()[:256])
+        print_error(f"GitHub API request failed: {clean_err}", safe=True)
+        raise typer.Exit(res.returncode)
+
+    if res.stdout:
+        from devops_cli.output import write_stream
+        from devops_cli.security.sanitizer import mask_secrets
+
+        write_stream(mask_secrets(res.stdout))
 
 
 # =============================================================================
@@ -1046,7 +1109,7 @@ def rate_limit_cmd(
     ] = "table",
 ) -> None:
     """Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."""
-    res = run_subprocess([CONST_GH_CLI, "api", "rate_limit"], check=False, quiet=True)
+    res = run_gh(["api", "rate_limit"], check=False, quiet=True, use_cache=True, cache_ttl=10.0)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -1121,7 +1184,6 @@ def runs_list_cmd(
 
     target_repo = repo or _resolve_repo()
     cmd = [
-        CONST_GH_CLI,
         "run",
         "list",
         "--limit",
@@ -1134,7 +1196,7 @@ def runs_list_cmd(
     if repo:
         cmd.extend(["--repo", target_repo])
 
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False, use_cache=True, cache_ttl=10.0)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -1180,7 +1242,7 @@ def runs_view_cmd(
 ) -> None:
     """View details or failure logs of a specific workflow run."""
     target_repo = repo or _resolve_repo()
-    cmd = [CONST_GH_CLI, "run", "view", str(run_id)]
+    cmd = ["run", "view", str(run_id)]
     if log_failed:
         cmd.append("--log-failed")
     elif full_log:
@@ -1190,7 +1252,7 @@ def runs_view_cmd(
     if repo:
         cmd.extend(["--repo", target_repo])
 
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 

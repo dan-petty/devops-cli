@@ -55,8 +55,11 @@ def _sync_configured_k8s_context(name: str) -> None:
             settings.k8s.context = name
             save_settings(settings)
     except Exception as exc:
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets(str(exc))[:256]
         print_warning(
-            f"Warning: Switched context to '{name}', but failed to persist to devops-cli configuration: {exc}"
+            f"Warning: Switched context to '{name}', but failed to persist to devops-cli configuration: {clean_err}"
         )
 
 
@@ -66,17 +69,18 @@ def switch_context(
     """Switch active kubeconfig context and ensure cluster is running."""
     runtime._validate_kubeconfig_context_name(name, "context name")
     is_minikube = name.strip().lower() == "minikube"
+    should_autostart = is_minikube and runtime.should_autostart_minikube(name)
 
     if is_dry_run():
         render_dry_run_result(
             command="devops k8s switch-context",
             target=name,
             action="switch_kube_config_context",
-            details={"target_context": name, "start_minikube": is_minikube},
+            details={"target_context": name, "start_minikube": should_autostart},
         )
         return
 
-    if is_minikube and not runtime._minikube_running():
+    if should_autostart and not runtime._minikube_running():
         print_info(MESSAGES.k8s.starting_minikube, prefix=False)
         started, start_msg = runtime._start_minikube()
         if not started:

@@ -1003,16 +1003,15 @@ def close_pr(
 
 def _render_threads_table(threads: list[Any]) -> None:
     """Render PR review threads as a rich table."""
+    from devops_cli.security.sanitizer import mask_secrets
+
     rows: list[list[str]] = []
     for t in threads:
         status = "[green]Resolved[/green]" if t.is_resolved else "[bold yellow]Open[/bold yellow]"
         loc = f"{t.path}:{t.line}" if t.line else t.path
         author = t.comments[0].author if t.comments else ""
-        first_comment = (
-            (t.comments[0].body[:50] + "...")
-            if t.comments and len(t.comments[0].body) > 50
-            else (t.comments[0].body if t.comments else "")
-        )
+        raw_body = mask_secrets(t.comments[0].body) if (t.comments and t.comments[0].body) else ""
+        first_comment = (raw_body[:50] + "...") if len(raw_body) > 50 else raw_body
         first_comment = first_comment.replace("\n", " ")
         rows.append([t.id, status, loc, author, first_comment])
 

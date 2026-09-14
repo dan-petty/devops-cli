@@ -208,6 +208,18 @@ def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
     assert get_active_config_path() == cfg_file.resolve()
 
+    from devops_cli.exceptions.security import SecurityError
+
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", "/etc/passwd")
+    with pytest.raises(SecurityError):
+        get_active_config_path()
+
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", "../../../etc/shadow")
+    with pytest.raises(SecurityError):
+        get_active_config_path()
+
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
+
     loaded = load_settings()
     assert loaded.ai.model == "qwen2.5-coder:14b"
 

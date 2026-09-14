@@ -590,7 +590,16 @@ def get_active_config_path(base_dir: Path | None = None) -> Path:
     """Return active config file path (DEVOPS_CLI_CONFIG > project config > ~/.config)."""
     env_config = os.environ.get(PROJECT_CONFIG_ENV)
     if env_config:
-        return Path(env_config).resolve()
+        from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+        from devops_cli.exceptions.security import SecurityError
+
+        validate_no_path_traversal(env_config, label="DEVOPS_CLI_CONFIG")
+        resolved = Path(env_config).resolve()
+        if is_forbidden_system_path(resolved):
+            raise SecurityError(
+                f"DEVOPS_CLI_CONFIG cannot target forbidden system path: '{env_config}'."
+            )
+        return resolved
     found = _find_project_config_path(base_dir=base_dir)
     return found if found is not None else CONFIG_PATH
 
