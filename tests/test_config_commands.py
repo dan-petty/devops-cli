@@ -111,10 +111,10 @@ def test_config_init_wizard_flow(tmp_path: Path) -> None:
             side_effect=[
                 "test-org",
                 str(tmp_path),
-                "https://grafana.example.com",
+                "https://example.com",
                 "g_tok",
-                "https://prom.example.com",
-                "https://argo.example.com",
+                "https://example.com",
+                "https://example.com",
                 "a_tok",
             ],
         ),
@@ -160,7 +160,7 @@ def test_config_auth_headless_and_audit_stream(tmp_path: Path) -> None:
 
     # Audit stream
     with patch("devops_cli.core.audit.stream_audit_records", return_value=5):
-        res_stream = runner.invoke(config_app, ["audit-stream", "https://siem.internal.corp/logs"])
+        res_stream = runner.invoke(config_app, ["audit-stream", "https://example.com/logs"])
         assert res_stream.exit_code == 0
         assert "Streamed 5 audit record(s)" in res_stream.output
 
@@ -227,8 +227,8 @@ def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyP
     dotted_set(s, "telemetry.enabled", "true")
     assert s.telemetry.enabled is True
 
-    dotted_set(s, "ai.ollama_urls", "http://node1:11434, http://node2:11434")
-    assert s.ai.ollama_urls == ["http://node1:11434", "http://node2:11434"]
+    dotted_set(s, "ai.ollama_urls", "http://example.com:11434, http://example.com:11435")
+    assert s.ai.ollama_urls == ["http://example.com:11434", "http://example.com:11435"]
 
     with pytest.raises(Exception, match="Cannot set top-level"):
         dotted_set(s, "ai", "invalid")

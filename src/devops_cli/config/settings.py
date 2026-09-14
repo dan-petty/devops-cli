@@ -145,11 +145,28 @@ class QdrantConfig(BaseModel):
 
 class ValkeyConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
-    host: str = "localhost"
+    host: str = "localhost:6379"
     port: int = 6379
     password: str | None = None
     db: int = 0
     timeout: float = 2.0
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_host_port(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            raw_host = data.get("host")
+            raw_port = data.get("port")
+            if isinstance(raw_host, str):
+                clean = raw_host.strip()
+                if ":" in clean and not clean.startswith("["):
+                    parts = clean.rsplit(":", 1)
+                    if parts[1].isdigit():
+                        data["host"] = clean
+                        data["port"] = int(parts[1])
+                elif raw_port is not None:
+                    data["host"] = f"{clean}:{raw_port}"
+        return data
 
 
 class JaegerConfig(BaseModel):
@@ -164,6 +181,14 @@ class TelemetryConfig(BaseModel):
     logfire: bool = False
     logfire_token: str | None = None
     logfire_send_to_logfire: bool | str = "if-token-present"
+
+
+class KubernetesConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    context: str = Field(
+        default="minikube",
+        description="Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context)",
+    )
 
 
 class AIRAGConfig(BaseModel):
@@ -386,6 +411,7 @@ class Settings(BaseSettings):
     valkey: ValkeyConfig = ValkeyConfig()
     jaeger: JaegerConfig = JaegerConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
+    k8s: KubernetesConfig = KubernetesConfig()
     ai: AIConfig = AIConfig()
     data: DataConfig = DataConfig()
 
@@ -538,9 +564,9 @@ def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
     """Locate candidate project/devcontainer config file from env, base_dir, or ancestor directories."""
     env_config = os.environ.get(PROJECT_CONFIG_ENV)
     if env_config:
-        env_path = Path(env_config)
-        if env_path.is_file():
-            return env_path.resolve()
+        env_p = Path(env_config).resolve()
+        if not env_p.is_dir():
+            return env_p
 
     candidate_names = (
         PROJECT_CONFIG_FILENAME,
@@ -562,6 +588,9 @@ def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
 
 def get_active_config_path(base_dir: Path | None = None) -> Path:
     """Return active config file path (DEVOPS_CLI_CONFIG > project config > ~/.config)."""
+    env_config = os.environ.get(PROJECT_CONFIG_ENV)
+    if env_config:
+        return Path(env_config).resolve()
     found = _find_project_config_path(base_dir=base_dir)
     return found if found is not None else CONFIG_PATH
 
@@ -569,6 +598,16 @@ def get_active_config_path(base_dir: Path | None = None) -> Path:
 def save_settings(settings: Settings, target_path: Path | None = None) -> None:
     """Persist settings to config YAML (secrets stay in keyring only)."""
     dest_path = target_path or get_active_config_path()
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        workspace_configs = {
+            (Path.cwd() / "config.yaml").resolve(),
+            (Path("/workspaces/devops-cli") / "config.yaml").resolve(),
+        }
+        if dest_path.resolve() in workspace_configs:
+            raise ConfigurationError(
+                f"Refusing to overwrite workspace config.yaml during test execution! "
+                f"(dest_path={dest_path})"
+            )
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     data = settings.model_dump(mode="json", exclude_none=True)
     content = yaml.dump(data, default_flow_style=False, allow_unicode=True)

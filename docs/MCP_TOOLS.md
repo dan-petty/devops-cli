@@ -38,6 +38,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
 | [`docs_compact`](#docs-compact) | Compact historical release series documentation (v0.2.x -> v0.3.x). |
 | [`gh_issue_create`](#gh-issue-create) | Create a new GitHub issue linking milestone and taxonomy labels. |
+| [`gh_issue_edit`](#gh-issue-edit) | Edit an existing GitHub issue title, body, or state. |
 | [`gh_issue_list`](#gh-issue-list) | List repository issues with milestone, taxonomy labels, and status. |
 | [`gh_issue_status`](#gh-issue-status) | Display aggregated issue counts by priority, type, and milestone. |
 | [`gh_issue_triage`](#gh-issue-triage) | Audit open issues for mandatory taxonomy labels and milestone linkage. |
@@ -54,6 +55,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_project_reconcile`](#gh-project-reconcile) | Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items. |
 | [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
 | [`gh_project_sync`](#gh-project-sync) | Synchronize task items from task tracking into GitHub Projects v2 status. |
+| [`gh_rate_limit`](#gh-rate-limit) | Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
+| [`gh_run_view`](#gh-run-view) | View details and diagnostic failure logs of a specific GitHub Actions workflow run. |
+| [`gh_runs_list`](#gh-runs-list) | List recent GitHub Actions CI/CD workflow runs. |
 | [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
 | [`gh_views_audit`](#gh-views-audit) | Audit remote project views against standardized view template specifications. |
 | [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
@@ -73,8 +77,14 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_status`](#k8s-status) | Display pod status across infrastructure namespaces. |
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | Uninstall Kubernetes infrastructure or LLM stack and delete namespaces. |
 | [`k8s_validate`](#k8s-validate) | Validate Kubernetes manifest syntax and schemas against OpenAPI specifications. |
+| [`pr_check_readiness`](#pr-check-readiness) | Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state. |
 | [`pr_checks`](#pr-checks) | Inspect detailed status of GitHub Actions CI checks for a pull request. |
+| [`pr_close`](#pr-close) | Close a pull request with optional comment and remote branch deletion. |
+| [`pr_diff`](#pr-diff) | View the unified git diff for a pull request. |
+| [`pr_edit`](#pr-edit) | Edit an existing pull request title, body, or base branch. |
 | [`pr_list`](#pr-list) | List GitHub pull requests with review approval state and CI check summaries. |
+| [`pr_monitor`](#pr-monitor) | Monitor PR CI checks, Copilot reviews, and review threads until ready for merge. |
+| [`pr_ready`](#pr-ready) | Mark a draft pull request as ready for review and optionally begin monitoring. |
 | [`pr_thread_reply`](#pr-thread-reply) | Post an in-thread reply directly to a pull request review discussion thread. |
 | [`pr_thread_resolve`](#pr-thread-resolve) | Programmatically mark a pull request review discussion thread as resolved. |
 | [`pr_threads_list`](#pr-threads-list) | List review discussion threads, file locations, and comments on a pull request. |
@@ -477,6 +487,20 @@ Create a new GitHub issue linking milestone and taxonomy labels.
 | `labels` | `string` | No | - | - |
 | `repo` | `string` | No | - | - |
 
+### `gh_issue_edit`
+
+Edit an existing GitHub issue title, body, or state.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `issue_number` | `integer` | Yes | - | - |
+| `title` | `string` | No | - | - |
+| `body` | `string` | No | - | - |
+| `state` | `string` | No | - | - |
+| `repo` | `string` | No | - | - |
+
 ### `gh_issue_list`
 
 List repository issues with milestone, taxonomy labels, and status.
@@ -638,6 +662,40 @@ Synchronize task items from task tracking into GitHub Projects v2 status.
 |---|---|---|---|---|
 | `repo` | `string` | No | - | - |
 | `dry_run` | `boolean` | No | `True` | - |
+
+### `gh_rate_limit`
+
+Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `format_type` | `string` | No | `table` | - |
+
+### `gh_run_view`
+
+View details and diagnostic failure logs of a specific GitHub Actions workflow run.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `run_id` | `integer` | Yes | - | - |
+| `log_failed` | `boolean` | No | `True` | - |
+| `repo` | `string` | No | - | - |
+
+### `gh_runs_list`
+
+List recent GitHub Actions CI/CD workflow runs.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `limit` | `integer` | No | `10` | - |
+| `branch` | `string` | No | - | - |
+| `repo` | `string` | No | - | - |
 
 ### `gh_view_spec`
 
@@ -833,6 +891,19 @@ Validate Kubernetes manifest syntax and schemas against OpenAPI specifications.
 |---|---|---|---|---|
 | `manifest_path` | `string` | No | `.` | - |
 
+### `pr_check_readiness`
+
+Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pr_number` | `integer` | No | - | - |
+| `require_ready` | `boolean` | No | `False` | - |
+| `allow_blocked_state` | `boolean` | No | `False` | - |
+| `repo` | `string` | No | - | - |
+
 ### `pr_checks`
 
 Inspect detailed status of GitHub Actions CI checks for a pull request.
@@ -842,6 +913,44 @@ Inspect detailed status of GitHub Actions CI checks for a pull request.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `pr_number` | `integer` | Yes | - | - |
+
+### `pr_close`
+
+Close a pull request with optional comment and remote branch deletion.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pr_number` | `integer` | Yes | - | - |
+| `comment` | `string` | No | - | - |
+| `delete_branch` | `boolean` | No | `False` | - |
+| `repo` | `string` | No | - | - |
+
+### `pr_diff`
+
+View the unified git diff for a pull request.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pr_number` | `integer` | Yes | - | - |
+| `repo` | `string` | No | - | - |
+
+### `pr_edit`
+
+Edit an existing pull request title, body, or base branch.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pr_number` | `integer` | Yes | - | - |
+| `title` | `string` | No | - | - |
+| `body` | `string` | No | - | - |
+| `base` | `string` | No | - | - |
+| `repo` | `string` | No | - | - |
 
 ### `pr_list`
 
@@ -853,6 +962,31 @@ List GitHub pull requests with review approval state and CI check summaries.
 |---|---|---|---|---|
 | `limit` | `integer` | No | `10` | - |
 | `state` | `string` | No | `open` | - |
+
+### `pr_monitor`
+
+Monitor PR CI checks, Copilot reviews, and review threads until ready for merge.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pr_number` | `integer` | No | - | - |
+| `timeout` | `integer` | No | `300` | - |
+| `interval` | `integer` | No | `60` | - |
+| `settle_timeout` | `integer` | No | `60` | - |
+
+### `pr_ready`
+
+Mark a draft pull request as ready for review and optionally begin monitoring.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pr_number` | `integer` | Yes | - | - |
+| `monitor` | `boolean` | No | `False` | - |
+| `repo` | `string` | No | - | - |
 
 ### `pr_thread_reply`
 

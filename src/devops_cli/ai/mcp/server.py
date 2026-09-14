@@ -39,14 +39,18 @@ def _run_mcp_cmd(
     timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
 ) -> str:
     """Run a subprocess command for an MCP tool and return combined output or error status."""
+    from devops_cli.security.sanitizer import mask_secrets
+
     try:
         res = run_subprocess(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return f"Command timed out after {timeout} seconds: {' '.join(cmd)}"
+        safe_cmd = mask_secrets(" ".join(cmd))
+        return f"Command timed out after {timeout} seconds: {safe_cmd}"
     except (OSError, subprocess.SubprocessError) as exc:
-        return f"Execution failed: {exc}"
+        return f"Execution failed: {mask_secrets(str(exc))}"
 
     output = (res.stdout + ("\n" + res.stderr if res.stderr else "")).strip()
+    output = mask_secrets(output)
     if res.returncode != 0:
         return f"Command exited with status {res.returncode}:\n{output}"
     return output or "Success"
@@ -61,11 +65,18 @@ def _validate_mcp_arg(name: str, value: str) -> None:
         )
 
 
-def _validate_mcp_int_bound(name: str, value: int, min_val: int = 1) -> None:
-    """Reject integer MCP arguments below min_val to prevent negative flag-like injection or invalid arguments."""
+def _validate_mcp_int_bound(
+    name: str, value: int, min_val: int = 1, max_val: int | None = None
+) -> None:
+    """Reject integer MCP arguments outside bounds to prevent negative flag-like injection or invalid arguments."""
     if value < min_val:
         raise ValidationError(
             ERRORS.mcp.integer_below_minimum.format(name=name, value=value, min_val=min_val),
+            field=name,
+        )
+    if max_val is not None and value > max_val:
+        raise ValidationError(
+            ERRORS.mcp.integer_above_maximum.format(name=name, value=value, max_val=max_val),
             field=name,
         )
 
@@ -1817,6 +1828,207 @@ def pr_thread_resolve(thread_id: str) -> str:
         ["uv", "run", "devops", "pr", "threads", "resolve", thread_id],
         timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
     )
+
+
+@mcp.tool()
+def pr_monitor(
+    pr_number: int | None = None,
+    timeout: int = 300,
+    interval: int = 60,
+    settle_timeout: int = 60,
+) -> str:
+    """Monitor PR CI checks, Copilot reviews, and review threads until ready for merge."""
+    _validate_mcp_int_bound("timeout", timeout, min_val=10, max_val=1800)
+    _validate_mcp_int_bound("interval", interval, min_val=2, max_val=120)
+    _validate_mcp_int_bound("settle_timeout", settle_timeout, min_val=0, max_val=300)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "pr",
+        "monitor",
+        "--timeout",
+        str(timeout),
+        "--interval",
+        str(interval),
+        "--settle-timeout",
+        str(settle_timeout),
+    ]
+    if pr_number is not None:
+        _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+        cmd.append(str(pr_number))
+    return _run_mcp_cmd(cmd, timeout=float(timeout + 30))
+
+
+@mcp.tool()
+def pr_ready(
+    pr_number: int,
+    monitor: bool = False,
+    repo: str | None = None,
+) -> str:
+    """Mark a draft pull request as ready for review and optionally begin monitoring."""
+    _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+    cmd = ["uv", "run", "devops", "pr", "ready", str(pr_number)]
+    if monitor:
+        cmd.append("--monitor")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    timeout = (
+        DEFAULT_MCP_TOOL_TIMEOUT_SECONDS * 2 if monitor else DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+    )
+    return _run_mcp_cmd(cmd, timeout=timeout)
+
+
+@mcp.tool()
+def pr_check_readiness(
+    pr_number: int | None = None,
+    require_ready: bool = False,
+    allow_blocked_state: bool = False,
+    repo: str | None = None,
+) -> str:
+    """Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state."""
+    cmd = ["uv", "run", "devops", "pr", "check-readiness"]
+    if pr_number is not None:
+        _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+        cmd.append(str(pr_number))
+    if require_ready:
+        cmd.append("--require-ready")
+    if allow_blocked_state:
+        cmd.append("--allow-blocked-state")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def pr_diff(pr_number: int, repo: str | None = None) -> str:
+    """View the unified git diff for a pull request."""
+    _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+    cmd = ["uv", "run", "devops", "pr", "diff", str(pr_number)]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def pr_close(
+    pr_number: int,
+    comment: str | None = None,
+    delete_branch: bool = False,
+    repo: str | None = None,
+) -> str:
+    """Close a pull request with optional comment and remote branch deletion."""
+    _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+    cmd = ["uv", "run", "devops", "pr", "close", str(pr_number)]
+    if comment:
+        _validate_mcp_arg("comment", comment)
+        cmd.extend(["--comment", comment])
+    if delete_branch:
+        cmd.append("--delete-branch")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_rate_limit(format_type: str = "table") -> str:
+    """Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."""
+    _validate_mcp_arg("format_type", format_type)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "gh", "rate-limit", "--format", format_type],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def gh_runs_list(
+    limit: int = 10,
+    branch: str | None = None,
+    repo: str | None = None,
+) -> str:
+    """List recent GitHub Actions CI/CD workflow runs."""
+    _validate_mcp_int_bound("limit", limit, min_val=1, max_val=100)
+    cmd = ["uv", "run", "devops", "gh", "runs", "list", "--limit", str(limit)]
+    if branch:
+        _validate_mcp_arg("branch", branch)
+        cmd.extend(["--branch", branch])
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_run_view(
+    run_id: int,
+    log_failed: bool = True,
+    repo: str | None = None,
+) -> str:
+    """View details and diagnostic failure logs of a specific GitHub Actions workflow run."""
+    _validate_mcp_int_bound("run_id", run_id, min_val=1)
+    cmd = ["uv", "run", "devops", "gh", "runs", "view", str(run_id)]
+    if log_failed:
+        cmd.append("--log-failed")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def pr_edit(
+    pr_number: int,
+    title: str | None = None,
+    body: str | None = None,
+    base: str | None = None,
+    repo: str | None = None,
+) -> str:
+    """Edit an existing pull request title, body, or base branch."""
+    _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
+    cmd = ["uv", "run", "devops", "pr", "edit", str(pr_number)]
+    if title:
+        _validate_mcp_arg("title", title)
+        cmd.extend(["--title", title])
+    if body:
+        _validate_mcp_arg("body", body)
+        cmd.extend(["--body", body])
+    if base:
+        _validate_mcp_arg("base", base)
+        cmd.extend(["--base", base])
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_issue_edit(
+    issue_number: int,
+    title: str | None = None,
+    body: str | None = None,
+    state: str | None = None,
+    repo: str | None = None,
+) -> str:
+    """Edit an existing GitHub issue title, body, or state."""
+    _validate_mcp_int_bound("issue_number", issue_number, min_val=1)
+    cmd = ["uv", "run", "devops", "gh", "issues", "edit", str(issue_number)]
+    if title:
+        _validate_mcp_arg("title", title)
+        cmd.extend(["--title", title])
+    if body:
+        _validate_mcp_arg("body", body)
+        cmd.extend(["--body", body])
+    if state:
+        _validate_mcp_arg("state", state)
+        cmd.extend(["--state", state])
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
 @mcp.tool()

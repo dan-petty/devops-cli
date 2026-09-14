@@ -7,6 +7,8 @@ import logging
 import os
 import time
 import uuid
+from collections import deque
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Final
 
@@ -17,18 +19,28 @@ from devops_cli.exceptions.sandbox import (
     SandboxNotFoundError,
     SandboxValidationError,
 )
+from devops_cli.sandbox.logs import PanicDetector, parse_docker_log_line
 from devops_cli.sandbox.models import (
+    CgroupV2Metrics,
+    PanicIncident,
     PortBinding,
+    ProbeProtocol,
     SandboxDeployConfig,
     SandboxExecResult,
     SandboxInstance,
+    SandboxLogLine,
+    SandboxLogsReport,
+    SandboxMetricsSnapshot,
+    SandboxProbeReport,
     SandboxStatus,
 )
 from devops_cli.sandbox.ports import allocate_ports
 from devops_cli.sandbox.registry import SandboxRegistry
-from devops_cli.telemetry import trace_span
+from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
+
+MAX_FOLLOW_BUFFER_LINES: Final[int] = 1000
 
 _FORBIDDEN_ROOTS: Final[set[str]] = {
     "/",
@@ -61,6 +73,8 @@ def _resolve_user_string(rootless: bool) -> str | None:
 
 class WorkloadSandboxEngine:
     """Orchestrator for managing isolated background Docker container sandboxes."""
+
+    _prior_samples: dict[str, tuple[float, CgroupV2Metrics]] = {}
 
     def __init__(self, registry: SandboxRegistry | None = None) -> None:
         self.registry = registry or SandboxRegistry()
@@ -433,6 +447,331 @@ class WorkloadSandboxEngine:
             stderr=proc.stderr,
             duration_seconds=duration,
         )
+
+    def probe(
+        self,
+        identifier: str,
+        protocols: list[ProbeProtocol] | None = None,
+        http_paths: list[str] | None = None,
+        expected_statuses: list[int] | None = None,
+        regex: str | None = None,
+        timeout: float = 5.0,
+        latency_budget_ms: float | None = None,
+    ) -> SandboxProbeReport:
+        """Run health and readiness probes against a deployed sandbox instance."""
+        inst = self.registry.get_instance(identifier)
+        if not inst:
+            raise SandboxNotFoundError(
+                f"Cannot probe; sandbox instance '{identifier}' not found",
+                identifier=identifier,
+            )
+        from devops_cli.sandbox.probe import run_sandbox_probes
+
+        return run_sandbox_probes(
+            target_or_instance=inst,
+            protocols=protocols,
+            http_paths=http_paths,
+            expected_statuses=expected_statuses,
+            regex=regex,
+            timeout=timeout,
+            latency_budget_ms=latency_budget_ms,
+        )
+
+    def metrics(
+        self,
+        identifier: str,
+        prom_endpoint: str = "/metrics",
+        timeout: float = 5.0,
+        memory_threshold_pct: float = 80.0,
+        cpu_threshold_pct: float = 85.0,
+        latency_sla_ms: float | None = None,
+    ) -> SandboxMetricsSnapshot:
+        """Capture real-time cgroup v2 metrics and scrape Prometheus application metrics."""
+        inst = self.registry.get_instance(identifier)
+        if not inst:
+            raise SandboxNotFoundError(
+                f"Cannot capture metrics; sandbox instance '{identifier}' not found",
+                identifier=identifier,
+            )
+        from devops_cli.sandbox.metrics import collect_sandbox_metrics
+
+        now = time.monotonic()
+        prior_key = inst.container_id or identifier
+        prev_entry = self._prior_samples.get(prior_key)
+        prev_cpu: int | None = None
+        prev_cgroup: CgroupV2Metrics | None = None
+        elapsed: float | None = None
+        if prev_entry is not None:
+            prev_ts, prev_cgroup = prev_entry
+            elapsed = max(0.001, now - prev_ts)
+            prev_cpu = prev_cgroup.cpu_usage_usec
+
+        with trace_span(
+            "sandbox.engine.metrics",
+            attributes={
+                "sandbox.identifier": identifier,
+                "sandbox.container_id": inst.container_id or "",
+                "sandbox.prom_endpoint": prom_endpoint,
+            },
+        ):
+            snapshot = collect_sandbox_metrics(
+                instance_or_target=inst,
+                prom_endpoint=prom_endpoint,
+                timeout=timeout,
+                memory_threshold_pct=memory_threshold_pct,
+                cpu_threshold_pct=cpu_threshold_pct,
+                latency_sla_ms=latency_sla_ms,
+                previous_cgroup=prev_cgroup,
+                previous_cpu_usec=prev_cpu,
+                elapsed_sec=elapsed,
+            )
+            if snapshot.cgroup is not None:
+                self._prior_samples[prior_key] = (now, snapshot.cgroup)
+
+            record_metric(
+                "devops_cli.sandbox.metrics_collected",
+                1.0,
+                unit="1",
+                attributes={"healthy": snapshot.is_healthy},
+            )
+            return snapshot
+
+    def traces(
+        self,
+        identifier: str | None = None,
+        trace_id: str | None = None,
+        last: bool = False,
+        jaeger_url: str | None = None,
+    ) -> tuple[str, list[dict[str, Any]]]:
+        """Retrieve distributed trace spans for a sandbox instance or trace ID."""
+        from devops_cli.telemetry.waterfall import resolve_trace_spans
+
+        target_trace_id = trace_id
+        if not target_trace_id and identifier:
+            try:
+                instances = self.status(identifier=identifier)
+                if instances:
+                    target_trace_id = instances[0].metadata.get("trace_id")
+            except SandboxError, OSError:
+                pass
+
+        return resolve_trace_spans(trace_id=target_trace_id, jaeger_url=jaeger_url)
+
+    @trace_span("sandbox.logs")
+    def logs(
+        self,
+        identifier: str | None = None,
+        follow: bool = False,
+        tail: int | str = 100,
+        timestamps: bool = True,
+        detect_panics_flag: bool = True,
+        archive_incidents: bool = True,
+        incident_dir: Path | None = None,
+        line_callback: Callable[[SandboxLogLine, PanicIncident | None], None] | None = None,
+    ) -> SandboxLogsReport:
+        """Stream and collect container stdout/stderr logs with automated panic detection."""
+        instances = self.status(identifier=identifier)
+        if not instances:
+            raise SandboxNotFoundError(f"Sandbox instance '{identifier}' not found.")
+        inst = instances[0]
+
+        raw_stream = _fetch_container_logs_raw(
+            container_id=inst.container_id,
+            tail=tail,
+            timestamps=timestamps,
+            follow=follow,
+        )
+
+        parsed_lines, incidents, total_count = _aggregate_log_stream(
+            raw_stream=raw_stream,
+            instance_id=inst.instance_id,
+            container_id=inst.container_id,
+            detect_panics=detect_panics_flag,
+            archive_incidents=archive_incidents,
+            incident_dir=incident_dir,
+            line_callback=line_callback,
+            follow=follow,
+        )
+
+        record_metric(
+            "devops.sandbox.logs.lines",
+            float(total_count),
+            unit="1",
+            attributes={"instance_id": inst.instance_id},
+        )
+        if incidents:
+            record_metric(
+                "devops.sandbox.logs.panics",
+                float(len(incidents)),
+                unit="1",
+                attributes={"instance_id": inst.instance_id},
+            )
+
+        return SandboxLogsReport(
+            instance_id=inst.instance_id,
+            container_id=inst.container_id,
+            total_lines=total_count,
+            panics_detected=len(incidents),
+            incidents=incidents,
+            lines=parsed_lines,
+        )
+
+
+def _normalize_log_chunk(chunk: Any) -> list[tuple[str, str]]:
+    """Convert raw docker logs output or demux tuple into (line, stream) pairs."""
+    if isinstance(chunk, tuple) and len(chunk) == 2:
+        out_bytes, err_bytes = chunk
+        pairs: list[tuple[str, str]] = []
+        if out_bytes:
+            text = (
+                out_bytes.decode("utf-8", errors="replace")
+                if isinstance(out_bytes, (bytes, bytearray))
+                else str(out_bytes)
+            )
+            pairs.extend((line, "stdout") for line in text.splitlines())
+        if err_bytes:
+            text = (
+                err_bytes.decode("utf-8", errors="replace")
+                if isinstance(err_bytes, (bytes, bytearray))
+                else str(err_bytes)
+            )
+            pairs.extend((line, "stderr") for line in text.splitlines())
+        return pairs
+    text = (
+        chunk.decode("utf-8", errors="replace")
+        if isinstance(chunk, (bytes, bytearray))
+        else str(chunk)
+    )
+    return [(line, "stdout") for line in text.splitlines()]
+
+
+def _fetch_logs_via_subprocess(
+    container_id: str,
+    tail: int | str,
+    timestamps: bool,
+    follow: bool = False,
+) -> tuple[bytes | None, bytes | None]:
+    """Fallback to docker logs via CLI subprocess with stream preservation and error checking."""
+    cmd = ["docker", "logs"]
+    if follow:
+        cmd.append("--follow")
+    if timestamps:
+        cmd.append("--timestamps")
+    if tail != "all":
+        cmd.extend(["--tail", str(tail)])
+    cmd.append(container_id)
+    proc = run_subprocess(cmd, check=False)
+    if proc.returncode != 0:
+        err_msg = proc.stderr.strip() if proc.stderr else f"process exited with {proc.returncode}"
+        raise SandboxError(f"docker logs failed for container '{container_id}': {err_msg}")
+    out_bytes = proc.stdout.encode("utf-8") if proc.stdout else None
+    err_bytes = proc.stderr.encode("utf-8") if proc.stderr else None
+    return (out_bytes, err_bytes)
+
+
+def _fetch_container_logs_raw(
+    container_id: str,
+    tail: int | str,
+    timestamps: bool,
+    follow: bool,
+) -> Any:
+    """Fetch logs from container using Docker SDK with fallback to CLI subprocess."""
+    try:
+        client = _get_docker_client()
+        container = client.containers.get(container_id)
+        return container.logs(
+            stdout=True,
+            stderr=True,
+            stream=follow,
+            follow=follow,
+            tail=tail,
+            timestamps=timestamps,
+            demux=True,
+        )
+    except Exception as exc:
+        logger.debug("Docker SDK logs failed (%s); fallback to subprocess", exc)
+        return _fetch_logs_via_subprocess(container_id, tail, timestamps, follow=follow)
+
+
+def _process_log_line(
+    line_text: str,
+    stream_name: str,
+    detector: PanicDetector | None,
+    line_callback: Callable[[SandboxLogLine, PanicIncident | None], None] | None,
+) -> tuple[SandboxLogLine, list[PanicIncident]]:
+    """Parse line, feed to detector if present, and notify callback."""
+    line_model = parse_docker_log_line(line_text, default_stream=stream_name)
+    detected = detector.feed_line(line_model) if detector else []
+    if line_callback:
+        if detected:
+            for inc in detected:
+                line_callback(line_model, inc)
+        else:
+            line_callback(line_model, None)
+    return line_model, detected
+
+
+def _flush_detector(
+    detector: PanicDetector | None,
+    line_callback: Callable[[SandboxLogLine, PanicIncident | None], None] | None,
+) -> list[PanicIncident]:
+    """Flush pending incidents from detector and notify callback."""
+    if not detector:
+        return []
+    flushed = detector.flush()
+    if line_callback:
+        for inc in flushed:
+            line_callback(
+                SandboxLogLine(
+                    content=f"Incident finalized: {inc.incident_id}",
+                    is_panic=True,
+                    stream=inc.log_stream,
+                ),
+                inc,
+            )
+    return flushed
+
+
+def _aggregate_log_stream(
+    raw_stream: Any,
+    instance_id: str,
+    container_id: str,
+    detect_panics: bool,
+    archive_incidents: bool,
+    incident_dir: Path | None,
+    line_callback: Callable[[SandboxLogLine, PanicIncident | None], None] | None,
+    follow: bool = False,
+) -> tuple[list[SandboxLogLine], list[PanicIncident], int]:
+    """Parse streaming log lines incrementally, detecting panics and bounding memory."""
+    detector = (
+        PanicDetector(
+            instance_id=instance_id,
+            container_id=container_id,
+            archive=archive_incidents,
+            base_dir=incident_dir,
+        )
+        if detect_panics
+        else None
+    )
+    retained_buffer: deque[SandboxLogLine] = deque(
+        maxlen=MAX_FOLLOW_BUFFER_LINES if follow else None
+    )
+    incidents: list[PanicIncident] = []
+    total_count = 0
+
+    iterable = [raw_stream] if isinstance(raw_stream, (tuple, str, bytes)) else raw_stream
+
+    for chunk in iterable:
+        for line_text, stream_name in _normalize_log_chunk(chunk):
+            line_model, detected = _process_log_line(
+                line_text, stream_name, detector, line_callback
+            )
+            incidents.extend(detected)
+            total_count += 1
+            retained_buffer.append(line_model)
+
+    incidents.extend(_flush_detector(detector, line_callback))
+    return list(retained_buffer), incidents, total_count
 
 
 __all__ = ["WorkloadSandboxEngine"]

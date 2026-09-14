@@ -123,8 +123,32 @@ class KubernetesLoggingError(KubernetesError, RuntimeError):
         )
 
 
+class GitOpsSyncError(KubernetesError, RuntimeError):
+    """Raised when GitOps synchronization trigger or reconciliation fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        app_name: str | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = "GITOPS_SYNC_ERROR",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"app_name": app_name[:256] if app_name else None}
+        if details:
+            err_details.update(details)
+        super().__init__(
+            message,
+            exit_code=exit_code,
+            error_code=error_code,
+            details=err_details,
+        )
+
+
 __all__ = [
     "ChaosExecutionError",
+    "GitOpsSyncError",
     "KubernetesContextError",
     "KubernetesDeployError",
     "KubernetesError",

@@ -572,3 +572,13 @@ class TestConstellationCLI:
         res = runner.invoke(app, ["ai", "constellation"])
         assert res.exit_code == 0
         assert "t-table-1" in res.stdout or "Agent Constellation Tasks" in res.stdout
+
+    def test_resolve_data_dir_rejects_forbidden_system_paths(self) -> None:
+        """Verify _resolve_data_dir raises SecurityError on forbidden system directories."""
+        from devops_cli.ai.controller.manager import _resolve_data_dir
+        from devops_cli.exceptions.security import SecurityError
+
+        with pytest.raises(
+            SecurityError, match="Data directory cannot be located in forbidden system path"
+        ):
+            _resolve_data_dir("/etc")

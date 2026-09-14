@@ -96,6 +96,41 @@ def _parse_single_issue(item: dict[str, Any]) -> GitHubIssue:
     )
 
 
+def _fetch_issues_rest(
+    repo: str,
+    state: str = "open",
+    milestone: str | None = None,
+    labels: list[str] | None = None,
+    limit: int = 30,
+) -> list[GitHubIssue]:
+    """Retrieve issues via GitHub REST API when gh issue list encounters rate limits or errors."""
+    api_path = f"repos/{repo}/issues?state={state}&per_page={min(max(limit, 1), 100)}"
+    if labels:
+        api_path += f"&labels={','.join(labels)}"
+    cmd = [CONST_GH_CLI, "api", api_path]
+    res = run_subprocess(cmd, check=False, quiet=True)
+    if res.returncode != 0 or not res.stdout.strip():
+        return []
+    try:
+        raw_list = json.loads(res.stdout)
+        if not isinstance(raw_list, list):
+            return []
+        issues: list[GitHubIssue] = []
+        for item in raw_list:
+            if not isinstance(item, dict) or "pull_request" in item:
+                continue
+            parsed = _parse_single_issue(item)
+            if milestone and parsed.milestone != milestone:
+                continue
+            issues.append(parsed)
+            if len(issues) >= limit:
+                break
+        return issues
+    except Exception as exc:
+        logger.debug("Failed to parse REST issues: %s", exc)
+        return []
+
+
 def get_repository_issues(
     repo: str,
     state: str = "open",
@@ -104,7 +139,7 @@ def get_repository_issues(
     labels: list[str] | None = None,
     limit: int = 30,
 ) -> list[GitHubIssue]:
-    """Retrieve issues from repository via gh issue list."""
+    """Retrieve issues from repository via gh issue list with REST fallback."""
     cmd = [
         CONST_GH_CLI,
         "issue",
@@ -127,17 +162,21 @@ def get_repository_issues(
         cmd.extend(["--label", lbl])
 
     res = run_subprocess(cmd, check=False, quiet=True)
-    if res.returncode != 0 or not res.stdout.strip():
-        return []
+    if res.returncode == 0 and res.stdout.strip():
+        try:
+            raw_list = json.loads(res.stdout)
+            if isinstance(raw_list, list):
+                return [_parse_single_issue(item) for item in raw_list if isinstance(item, dict)]
+        except Exception as exc:
+            logger.debug("Failed to parse issues: %s", exc)
 
-    try:
-        raw_list = json.loads(res.stdout)
-        if not isinstance(raw_list, list):
-            return []
-        return [_parse_single_issue(item) for item in raw_list if isinstance(item, dict)]
-    except Exception as exc:
-        logger.debug("Failed to parse issues: %s", exc)
-        return []
+    return _fetch_issues_rest(
+        repo,
+        state=state,
+        milestone=milestone,
+        labels=all_labels,
+        limit=limit,
+    )
 
 
 def _build_create_issue_cmd(

@@ -174,3 +174,117 @@ def test_create_repository_issue_failure_bounds_title_in_error_details() -> None
         assert "title" in err.details
         assert len(err.details["title"]) <= 256
         assert err.details["title"] == huge_title[:256]
+
+
+def test_get_repository_issues_graphql_rate_limit_fallback_to_rest() -> None:
+    """Verify get_repository_issues falls back to REST API when gh issue list hits GraphQL rate limit."""
+    mock_gh_cli_err = MagicMock(
+        returncode=1,
+        stderr="GraphQL: API rate limit already exceeded for user ID 7726889.",
+        stdout="",
+    )
+    rest_issues_payload = [
+        {
+            "number": 180,
+            "title": "fix(github): add REST API fallback",
+            "state": "open",
+            "milestone": {"title": "v0.2.17"},
+            "labels": [{"name": "type/bug"}, {"name": "scope/github"}],
+            "assignees": [{"login": "dan-petty"}],
+            "html_url": "https://example.com/dan-petty/devops-cli/issues/180",
+        },
+        {
+            "number": 182,
+            "title": "A pull request item",
+            "state": "open",
+            "pull_request": {"url": "https://example.com/dan-petty/devops-cli/pulls/182"},
+            "labels": [],
+            "html_url": "https://example.com/dan-petty/devops-cli/pull/182",
+        },
+    ]
+    mock_rest_res = MagicMock(returncode=0, stdout=json.dumps(rest_issues_payload), stderr="")
+
+    with patch(
+        "devops_cli.github.issues.run_subprocess", side_effect=[mock_gh_cli_err, mock_rest_res]
+    ):
+        issues = get_repository_issues("dan-petty/devops-cli", milestone="v0.2.17")
+        assert len(issues) == 1
+        assert issues[0].number == 180
+        assert issues[0].title == "fix(github): add REST API fallback"
+        assert issues[0].milestone == "v0.2.17"
+        assert "type/bug" in issues[0].labels
+
+
+def test_issue_triage_audit_empty_total_open() -> None:
+    """compliance_rate returns 100.0 when total_open is 0."""
+    audit = IssueTriageAudit(total_open=0, valid_count=0)
+    assert audit.compliance_rate == 100.0
+
+
+def test_issue_parsing_helpers_edge_cases() -> None:
+    """Helper functions handle invalid types, string assignees/labels, and string milestones."""
+    from devops_cli.github.issues import (
+        _parse_issue_assignees,
+        _parse_issue_labels,
+        _parse_single_issue,
+    )
+
+    assert _parse_issue_labels(None) == []
+    assert _parse_issue_labels(["plain_string_label", {"name": "dict_label"}]) == [
+        "plain_string_label",
+        "dict_label",
+    ]
+
+    assert _parse_issue_assignees(None) == []
+    assert _parse_issue_assignees(["plain_user", {"login": "dict_user"}]) == [
+        "plain_user",
+        "dict_user",
+    ]
+
+    issue = _parse_single_issue(
+        {
+            "number": 99,
+            "title": "Title",
+            "milestone": "v0.2.17",
+            "labels": ["type/bug"],
+        }
+    )
+    assert issue.milestone == "v0.2.17"
+
+
+def test_fetch_issues_rest_filtering_and_limits() -> None:
+    """Verify _fetch_issues_rest honors labels, filters mismatched milestones, and enforces limit."""
+    from devops_cli.github.issues import _fetch_issues_rest
+
+    payload = [
+        {"number": 1, "title": "Issue 1", "milestone": {"title": "v0.2.17"}, "labels": []},
+        {"number": 2, "title": "Issue 2", "milestone": {"title": "v0.2.18"}, "labels": []},
+        {"number": 3, "title": "Issue 3", "milestone": {"title": "v0.2.17"}, "labels": []},
+    ]
+    mock_res = MagicMock(returncode=0, stdout=json.dumps(payload), stderr="")
+    with patch("devops_cli.github.issues.run_subprocess", return_value=mock_res):
+        issues = _fetch_issues_rest(
+            "dan-petty/devops-cli",
+            milestone="v0.2.17",
+            labels=["type/bug"],
+            limit=1,
+        )
+        assert len(issues) == 1
+        assert issues[0].number == 1
+
+
+def test_fetch_issues_rest_errors_and_invalid_json() -> None:
+    """Verify _fetch_issues_rest returns empty list on subprocess error or bad JSON."""
+    from devops_cli.github.issues import _fetch_issues_rest
+
+    mock_fail = MagicMock(returncode=1, stdout="", stderr="Error")
+    with patch("devops_cli.github.issues.run_subprocess", return_value=mock_fail):
+        assert _fetch_issues_rest("dan-petty/devops-cli") == []
+
+    mock_bad_json = MagicMock(returncode=0, stdout="not-json", stderr="")
+    with patch("devops_cli.github.issues.run_subprocess", return_value=mock_bad_json):
+        assert _fetch_issues_rest("dan-petty/devops-cli") == []
+
+    mock_not_list = MagicMock(returncode=0, stdout="{}", stderr="")
+    with patch("devops_cli.github.issues.run_subprocess", return_value=mock_not_list):
+        assert _fetch_issues_rest("dan-petty/devops-cli") == []

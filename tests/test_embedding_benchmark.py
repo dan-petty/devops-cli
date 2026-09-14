@@ -90,7 +90,7 @@ def test_embedding_benchmark_runner_multi_server_dry_run() -> None:
     """Test Cartesian execution across multiple backend servers."""
     bench_runner = EmbeddingBenchmarkRunner(
         models=["nomic-embed-text:latest", "qwen3-embedding:0.6b"],
-        servers=["http://node-1.example.internal:11434", "http://node-2.example.internal:11434"],
+        servers=["http://example.com:11434", "http://example.com:11435"],
         is_dry_run=True,
     )
     report = bench_runner.run()
@@ -271,7 +271,7 @@ def test_compute_ndcg_and_report_rendering() -> None:
     runner = EmbeddingBenchmarkRunner(models=["m1", "m2"], is_dry_run=True)
     res_1 = EmbeddingBenchmarkResult(
         model="m1",
-        server="http://node1:11434",
+        server="http://example.com:11434",
         dimension=768,
         recall_at_1=90.0,
         recall_at_3=95.0,
@@ -297,7 +297,7 @@ def test_compute_ndcg_and_report_rendering() -> None:
     )
     res_2 = EmbeddingBenchmarkResult(
         model="m2",
-        server="http://node2:11434",
+        server="http://example.com:11435",
         dimension=384,
         recall_at_1=80.0,
         recall_at_3=90.0,
@@ -316,7 +316,7 @@ def test_compute_ndcg_and_report_rendering() -> None:
         memory_kb_per_vector=1.5,
     )
     srv_1 = EmbeddingServerSummary(
-        server="http://node1:11434",
+        server="http://example.com:11434",
         avg_latency_p50_ms=12.5,
         avg_throughput_items_per_sec=80.0,
         models_evaluated_count=1,
@@ -324,7 +324,7 @@ def test_compute_ndcg_and_report_rendering() -> None:
         top_score_model="m1",
     )
     srv_2 = EmbeddingServerSummary(
-        server="http://node2:11434",
+        server="http://example.com:11435",
         avg_latency_p50_ms=8.0,
         avg_throughput_items_per_sec=120.0,
         models_evaluated_count=1,
@@ -335,7 +335,7 @@ def test_compute_ndcg_and_report_rendering() -> None:
         session_id="20260826-sess",
         models=[res_1, res_2],
         server_benchmarks=[srv_1, srv_2],
-        recommendations=["Deploy m1 on node1 for security-critical retrieval."],
+        recommendations=["Deploy m1 on example.com for security-critical retrieval."],
         is_dry_run=True,
     )
 

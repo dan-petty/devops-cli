@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from devops_cli.telemetry.context import (
     extract_traceparent,
+    extract_traceparent_from_headers,
+    generate_span_id,
+    generate_trace_id,
+    generate_traceparent,
     inject_traceparent_headers,
 )
 from devops_cli.telemetry.logfire import (
@@ -21,6 +25,17 @@ from devops_cli.telemetry.logging_bridge import (
     TraceCorrelationFilter,
     attach_trace_correlation_filter,
     get_current_trace_correlation,
+)
+from devops_cli.telemetry.memory_profiler import (
+    MemoryAllocationItem,
+    MemoryProfiler,
+    MemoryProfileReport,
+    MemoryProfilerError,
+    count_open_sockets,
+    profile_custom_callable,
+    profile_fastmcp_workload,
+    profile_http_pool_workload,
+    run_memory_profiler,
 )
 from devops_cli.telemetry.metrics import (
     GLOBAL_METRICS,
@@ -43,10 +58,26 @@ from devops_cli.telemetry.tracer import (
     trace_span,
     traced,
 )
+from devops_cli.telemetry.waterfall import (
+    flatten_waterfall_tree,
+    normalize_jaeger_spans,
+    query_jaeger_trace,
+    render_waterfall_bar,
+    resolve_trace_spans,
+)
 
 __all__ = [
     "AgentTurnHandle",
     "GLOBAL_METRICS",
+    "MemoryAllocationItem",
+    "MemoryProfiler",
+    "MemoryProfilerError",
+    "MemoryProfileReport",
+    "count_open_sockets",
+    "profile_custom_callable",
+    "profile_fastmcp_workload",
+    "profile_http_pool_workload",
+    "run_memory_profiler",
     "ContextPropagatingThreadPoolExecutor",
     "InMemoryMetricsRegistry",
     "LogfireBridge",
@@ -59,6 +90,11 @@ __all__ = [
     "build_span_waterfall_tree",
     "clear_span_buffer",
     "extract_traceparent",
+    "extract_traceparent_from_headers",
+    "flatten_waterfall_tree",
+    "generate_span_id",
+    "generate_trace_id",
+    "generate_traceparent",
     "get_current_span_context",
     "get_current_trace_correlation",
     "get_logfire_bridge",
@@ -68,12 +104,16 @@ __all__ = [
     "inject_trace_context",
     "inject_traceparent_headers",
     "logfire_agent_turn",
+    "normalize_jaeger_spans",
+    "query_jaeger_trace",
     "record_completed_span",
     "record_metric",
     "render_agent_turn_panel",
     "render_agent_turn_table",
+    "render_waterfall_bar",
     "reset_logfire_bridge",
     "reset_tracer",
+    "resolve_trace_spans",
     "trace_span",
     "traced",
 ]

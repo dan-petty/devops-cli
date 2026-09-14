@@ -25,7 +25,7 @@ def test_try_retrieve_rag_context_success() -> None:
         patch("devops_cli.ai.rag.retriever.SemanticRetriever.retrieve_context") as mock_ctx,
     ):
         mock_st.return_value.ai.rag.enabled = True
-        mock_st.return_value.qdrant.url = "http://mock:6333"
+        mock_st.return_value.qdrant.url = "http://example.com:6333"
         mock_st.return_value.qdrant.collection_prefix = "devops"
         mock_ctx.return_value.has_results = True
         mock_ctx.return_value.formatted_text = "<rag_context>mock content</rag_context>"

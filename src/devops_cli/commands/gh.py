@@ -16,6 +16,11 @@ from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
+from devops_cli.github.branch_protection import (
+    audit_branch_protection,
+    load_branch_protection_policies,
+    sync_branch_protection,
+)
 from devops_cli.github.client import GhCliClient, GitHubClient, parse_paginated_json
 from devops_cli.github.issues import (
     audit_issues_triage,
@@ -50,6 +55,10 @@ from devops_cli.github.projects import (
     sync_remote_project,
     sync_remote_project_views,
 )
+from devops_cli.github.secrets import (
+    list_repository_secrets,
+    sync_repository_secrets,
+)
 from devops_cli.lang import HELP
 from devops_cli.output import (
     print,
@@ -68,6 +77,9 @@ project_app = new_typer(help=HELP.gh.project_app, no_args_is_help=True)
 views_app = new_typer(help=HELP.gh.views_app, no_args_is_help=True)
 pages_app = new_typer(help=HELP.gh.pages_app, no_args_is_help=True)
 issues_app = new_typer(help=HELP.gh.issues_app, no_args_is_help=True)
+runs_app = new_typer(help=HELP.gh.runs_app, no_args_is_help=True)
+branch_protection_app = new_typer(help=HELP.gh.branch_protection_app, no_args_is_help=True)
+secrets_app = new_typer(help=HELP.gh.secrets_app, no_args_is_help=True)
 
 app.add_typer(labels_app, name="labels")
 app.add_typer(milestones_app, name="milestones")
@@ -75,6 +87,9 @@ app.add_typer(project_app, name="project")
 app.add_typer(views_app, name="views")
 app.add_typer(pages_app, name="pages")
 app.add_typer(issues_app, name="issues")
+app.add_typer(runs_app, name="runs")
+app.add_typer(branch_protection_app, name="branch-protection")
+app.add_typer(secrets_app, name="secrets")
 app.add_typer(pr_app, name="pr")
 
 
@@ -944,3 +959,430 @@ def issues_status_cmd(
         ["By Milestone", m_str or "none"],
     ]
     print_table(f"GitHub Issues Status Summary ({target_repo})", columns, rows)
+
+
+@issues_app.command("edit", help=HELP.gh.issues_edit)
+def edit_issue_cmd(
+    number: Annotated[int, typer.Argument(help="Issue number to edit.")],
+    title: Annotated[
+        str | None,
+        typer.Option("--title", "-t", help="New issue title."),
+    ] = None,
+    body: Annotated[
+        str | None,
+        typer.Option("--body", "-b", help="New issue body text."),
+    ] = None,
+    state: Annotated[
+        str | None,
+        typer.Option("--state", "-s", help="New state (open or closed)."),
+    ] = None,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help="Target repository"),
+    ] = None,
+) -> None:
+    """Edit an existing GitHub issue title, body, or state."""
+    target_repo = repo or _resolve_repo()
+    if not target_repo or "/" not in target_repo:
+        print_error("Cannot resolve target repository.")
+        raise typer.Exit(1)
+    if not any([title, body, state]):
+        print_warning("No changes specified. Use --title, --body, or --state.")
+        return
+
+    owner, repo_name = target_repo.split("/", 1)
+    payload: dict[str, Any] = {}
+    if title is not None:
+        payload["title"] = title
+    if body is not None:
+        payload["body"] = body
+    if state is not None:
+        payload["state"] = state
+
+    cmd = [
+        CONST_GH_CLI,
+        "api",
+        "--method",
+        "PATCH",
+        f"repos/{owner}/{repo_name}/issues/{number}",
+        "--input",
+        "-",
+    ]
+    res = run_subprocess(cmd, input=json.dumps(payload), check=False)
+    if res.returncode != 0:
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets(res.stderr.strip()[:256])
+        print_error(f"Failed to edit issue #{number}: {clean_err}", safe=True)
+        raise typer.Exit(res.returncode)
+    print_success(f"Issue #{number} updated successfully.")
+
+
+# =============================================================================
+# Command: devops gh rate-limit
+# =============================================================================
+
+
+def _format_reset_time(epoch_seconds: int) -> str:
+    """Format an epoch timestamp into a human-readable UTC string and countdown."""
+    import datetime
+    import time
+
+    now = time.time()
+    diff = int(epoch_seconds - now)
+    dt_str = datetime.datetime.fromtimestamp(epoch_seconds, datetime.UTC).strftime("%H:%M:%S UTC")
+    if diff <= 0:
+        return f"{dt_str} (ready)"
+    mins, secs = divmod(diff, 60)
+    return f"{dt_str} (in {mins}m {secs}s)"
+
+
+@app.command("rate-limit", help=HELP.gh.rate_limit)
+@app.command("rate_limit", hidden=True)
+def rate_limit_cmd(
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = "table",
+) -> None:
+    """Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."""
+    res = run_subprocess([CONST_GH_CLI, "api", "rate_limit"], check=False, quiet=True)
+    if res.returncode != 0:
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets(res.stderr.strip()[:256])
+        print_error(f"Failed to query rate limits: {clean_err}", safe=True)
+        raise typer.Exit(res.returncode)
+
+    try:
+        data = json.loads(res.stdout) if res.stdout.strip() else {}
+    except json.JSONDecodeError:
+        data = {}
+
+    if output_format not in {"table", "json"}:
+        print_error(f"Unsupported format '{output_format}'. Supported formats: table, json.")
+        raise typer.Exit(1)
+
+    if output_format == "json":
+        from devops_cli.output import write_stream
+
+        write_stream(json.dumps(data, indent=2) + "\n")
+        return
+
+    resources = data.get("resources", {})
+    rows: list[list[str]] = []
+    for res_name, info in sorted(resources.items()):
+        if not isinstance(info, dict):
+            continue
+        limit = str(info.get("limit", 0))
+        used = str(info.get("used", 0))
+        remaining = str(info.get("remaining", 0))
+        reset_epoch = info.get("reset", 0)
+        reset_str = _format_reset_time(reset_epoch) if reset_epoch else "-"
+        rows.append([res_name, limit, used, remaining, reset_str])
+
+    print_table(
+        title="GitHub API Rate Limits & Quotas",
+        columns=["Resource", "Limit", "Used", "Remaining", "Reset"],
+        rows=rows,
+    )
+
+
+# =============================================================================
+# Command Group: devops gh runs
+# =============================================================================
+
+
+def _format_run_status(status: str, conclusion: str) -> str:
+    """Format workflow run status badge."""
+    upper_conclusion = conclusion.upper()
+    if upper_conclusion == "SUCCESS":
+        return "[green]✓ Success[/green]"
+    if upper_conclusion in {"FAILURE", "TIMED_OUT", "STARTUP_FAILURE"}:
+        return f"[bold red]✗ {conclusion}[/bold red]"
+    if status.upper() == "COMPLETED":
+        return f"[dim]{conclusion or status}[/dim]"
+    return f"[yellow]● {status}[/yellow]"
+
+
+@runs_app.command("list", help=HELP.gh.runs_list)
+def runs_list_cmd(
+    limit: Annotated[int, typer.Option("--limit", "-n", help=HELP.options.limit)] = 10,
+    branch: Annotated[str | None, typer.Option("--branch", "-b", help="Filter by branch")] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = "table",
+) -> None:
+    """List recent GitHub Actions workflow runs."""
+    if output_format not in {"table", "json"}:
+        print_error(f"Unsupported format '{output_format}'. Supported formats: table, json.")
+        raise typer.Exit(1)
+
+    target_repo = repo or _resolve_repo()
+    cmd = [
+        CONST_GH_CLI,
+        "run",
+        "list",
+        "--limit",
+        str(limit),
+        "--json",
+        "databaseId,name,status,conclusion,headBranch,event,url",
+    ]
+    if branch:
+        cmd.extend(["--branch", branch])
+    if repo:
+        cmd.extend(["--repo", target_repo])
+
+    res = run_subprocess(cmd, check=False)
+    if res.returncode != 0:
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets(res.stderr.strip()[:256])
+        print_error(f"Failed to list workflow runs: {clean_err}", safe=True)
+        raise typer.Exit(res.returncode)
+
+    try:
+        runs = json.loads(res.stdout) if res.stdout.strip() else []
+    except json.JSONDecodeError:
+        runs = []
+
+    if output_format == "json":
+        from devops_cli.output import write_stream
+
+        write_stream(json.dumps(runs, indent=2) + "\n")
+        return
+
+    rows: list[list[str]] = []
+    for r in runs:
+        run_id = str(r.get("databaseId", ""))
+        name = str(r.get("name", ""))
+        st_badge = _format_run_status(str(r.get("status", "")), str(r.get("conclusion") or ""))
+        br = str(r.get("headBranch", ""))
+        evt = str(r.get("event", ""))
+        url = str(r.get("url", ""))
+        rows.append([run_id, name, st_badge, br, evt, url])
+
+    print_table(
+        title=f"Workflow Runs ({target_repo})",
+        columns=["Run ID", "Workflow", "Status", "Branch", "Event", "URL"],
+        rows=rows,
+    )
+
+
+@runs_app.command("view", help=HELP.gh.runs_view)
+def runs_view_cmd(
+    run_id: Annotated[int, typer.Argument(help="Workflow run database ID.")],
+    log_failed: Annotated[bool, typer.Option("--log-failed", help=HELP.gh.runs_log_failed)] = False,
+    full_log: Annotated[bool, typer.Option("--log", help=HELP.gh.runs_log)] = False,
+    job: Annotated[str | None, typer.Option("--job", "-j", help=HELP.gh.runs_job)] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """View details or failure logs of a specific workflow run."""
+    target_repo = repo or _resolve_repo()
+    cmd = [CONST_GH_CLI, "run", "view", str(run_id)]
+    if log_failed:
+        cmd.append("--log-failed")
+    elif full_log:
+        cmd.append("--log")
+    if job:
+        cmd.extend(["--job", job])
+    if repo:
+        cmd.extend(["--repo", target_repo])
+
+    res = run_subprocess(cmd, check=False)
+    if res.returncode != 0:
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets(res.stderr.strip()[:256])
+        print_error(f"Failed to view workflow run #{run_id}: {clean_err}", safe=True)
+        raise typer.Exit(res.returncode)
+
+    if res.stdout:
+        from devops_cli.output import write_stream
+        from devops_cli.security.sanitizer import mask_secrets
+
+        write_stream(mask_secrets(res.stdout.rstrip()) + "\n")
+
+
+# =============================================================================
+# Branch Protection Subcommands
+# =============================================================================
+
+
+@branch_protection_app.command("audit", help=HELP.gh.branch_protection_audit)
+def audit_branch_protection_cmd(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option("--branch", "-b", help=HELP.gh.branch_protection_branch),
+    ] = None,
+    policy_file: Annotated[
+        Path,
+        typer.Option("--policy-file", "-f", help=HELP.gh.branch_protection_policy_file),
+    ] = Path(".github/branch-protection.yml"),
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+) -> None:
+    """Audit branch protection against declarative policy specifications."""
+    target_repo = _resolve_repo(repo)
+    try:
+        policies = load_branch_protection_policies(policy_file)
+    except Exception as exc:
+        print_error(f"Failed to load branch protection policies: {exc}")
+        raise typer.Exit(1) from exc
+
+    results = audit_branch_protection(target_repo, policies, branch=branch)
+
+    if json_output:
+        from devops_cli.output import write_stream
+
+        payload = [r.model_dump() for r in results]
+        write_stream(json.dumps(payload, indent=2) + "\n")
+        return
+
+    columns = ["Branch", "Status", "Drift / Findings"]
+    rows: list[list[str]] = []
+    has_drift = False
+
+    for r in results:
+        if r.is_compliant:
+            status_text = "[green]COMPLIANT[/green]"
+            findings_text = "[green]All protection rules match desired policy[/green]"
+        else:
+            has_drift = True
+            status_text = "[bold red]NON-COMPLIANT[/bold red]"
+            findings_text = "\n".join(f"• {msg}" for msg in r.drift_summary)
+        rows.append([r.branch, status_text, findings_text])
+
+    print_table(f"Branch Protection Audit ({target_repo})", columns, rows)
+    if has_drift:
+        print_warning(
+            "Branch protection drift detected. Run 'devops gh branch-protection sync' to remediate."
+        )
+    else:
+        print_success("All evaluated branches comply with declarative protection policies!")
+
+
+@branch_protection_app.command("sync", help=HELP.gh.branch_protection_sync)
+def sync_branch_protection_cmd(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option("--branch", "-b", help=HELP.gh.branch_protection_branch),
+    ] = None,
+    policy_file: Annotated[
+        Path,
+        typer.Option("--policy-file", "-f", help=HELP.gh.branch_protection_policy_file),
+    ] = Path(".github/branch-protection.yml"),
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Preview branch protection synchronization without applying mutations",
+        ),
+    ] = False,
+) -> None:
+    """Synchronize repository branch protection rules against declarative policy specifications."""
+    target_repo = _resolve_repo(repo)
+    try:
+        policies = load_branch_protection_policies(policy_file)
+    except Exception as exc:
+        print_error(f"Failed to load branch protection policies: {exc}")
+        raise typer.Exit(1) from exc
+
+    res = sync_branch_protection(target_repo, policies, branch=branch, dry_run=dry_run)
+    mode_text = "[yellow][DRY RUN][/yellow] " if res.dry_run else ""
+    summary_parts = [
+        f"{len(res.synced_branches)} synced ({', '.join(res.synced_branches) or 'none'})",
+        f"{len(res.skipped_branches)} skipped ({', '.join(res.skipped_branches) or 'none'})",
+    ]
+    if res.failed_branches:
+        summary_parts.append(
+            f"[bold red]{len(res.failed_branches)} failed[/bold red] ({', '.join(res.failed_branches)})"
+        )
+
+    msg = (
+        f"{mode_text}Branch protection sync complete for {target_repo}: {'; '.join(summary_parts)}."
+    )
+    if res.failed_branches:
+        print_warning(msg)
+        raise typer.Exit(1)
+    print_success(msg)
+
+
+# =============================================================================
+# Secrets Subcommands
+# =============================================================================
+
+
+@secrets_app.command("sync", help=HELP.gh.secrets_sync)
+def sync_secrets_cmd(
+    secret_names: Annotated[
+        str,
+        typer.Option("--secret-names", "-n", help=HELP.gh.secrets_names),
+    ],
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    source: Annotated[
+        str,
+        typer.Option("--source", "-s", help=HELP.gh.secrets_source),
+    ] = "keyring",
+    vault_path: Annotated[
+        str,
+        typer.Option("--vault-path", help=HELP.gh.secrets_vault_path),
+    ] = "secret/devops",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Preview secret synchronization without mutations"),
+    ] = False,
+) -> None:
+    """Synchronize repository secrets from OS Keyring or HashiCorp Vault with libsodium sealing."""
+    target_repo = _resolve_repo(repo)
+    names = [n.strip() for n in secret_names.split(",") if n.strip()]
+    if not names:
+        print_warning("No secret names provided to synchronize.")
+        return
+
+    try:
+        result = sync_repository_secrets(
+            repo=target_repo,
+            secret_names=names,
+            source=source,
+            vault_path=vault_path,
+            dry_run=dry_run,
+        )
+    except Exception as exc:
+        print_error(f"Secret synchronization failed: {exc}")
+        raise typer.Exit(1) from exc
+
+    columns = ["Secret Name", "Source", "Status", "Details"]
+    rows = [[it.name, it.source, it.status.upper(), it.message] for it in result.items]
+    mode_text = "[yellow][DRY RUN][/yellow] " if result.dry_run else ""
+    print_table(f"{mode_text}Repository Secret Synchronization ({target_repo})", columns, rows)
+
+    summary = (
+        f"{mode_text}Synced: {len(result.synced_secrets)}, "
+        f"Missing in source: {len(result.missing_secrets)}, "
+        f"Failed: {len(result.failed_secrets)}"
+    )
+    if result.failed_secrets or result.missing_secrets:
+        print_warning(summary)
+        if result.failed_secrets:
+            raise typer.Exit(1)
+    else:
+        print_success(summary)
+
+
+@secrets_app.command("list")
+def list_secrets_cmd(
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """List Actions secrets configured in the repository (names only, values are hidden)."""
+    target_repo = _resolve_repo(repo)
+    secrets = list_repository_secrets(target_repo)
+    if not secrets:
+        print_info(f"No repository secrets found for {target_repo}.")
+        return
+
+    columns = ["#", "Secret Name"]
+    rows = [[str(idx + 1), s] for idx, s in enumerate(secrets)]
+    print_table(f"Repository Secrets ({target_repo})", columns, rows)

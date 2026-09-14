@@ -79,7 +79,7 @@ def test_extract_network_references() -> None:
     Access the cluster at https://api.prod.example-corp.com/v1
     Public ingress IP: 93.184.216.34
     Private internal IP: 192.168.1.100
-    Test host: test.example.com
+    Test host: example.com
     External endpoint: https://auth.vendor-service.io/oauth/token
     Bare domain reference: prod-infra.custom-cloud.io
     File reference: main.py, coverage.xml, dmypy.json, config.yaml (should all be skipped)
@@ -112,7 +112,7 @@ def test_extract_network_references() -> None:
     assert target_local_ip.scope == "local"
     assert "Local" in target_local_ip.security_status
 
-    target_local_domain = targets.get("test.example.com")
+    target_local_domain = targets.get("example.com")
     assert target_local_domain is not None
     assert target_local_domain.is_local
     assert target_local_domain.scope == "local"
@@ -392,7 +392,7 @@ def test_extract_network_references_local_and_reserved_spaces() -> None:
     Home LAN: server.lan
     Private IP: 192.168.1.1
     Loopback: 127.0.0.1
-    Reserved domain: test.example.org
+    Reserved domain: example.com
     """
     refs = extract_network_references(doc, "docs/internal.md")
     targets = {r.target: r for r in refs}
@@ -409,7 +409,7 @@ def test_extract_network_references_local_and_reserved_spaces() -> None:
     assert t_loop is not None
     assert t_loop.is_local
 
-    t_res_dom = targets.get("test.example.org")
+    t_res_dom = targets.get("example.com")
     assert t_res_dom is not None
     assert t_res_dom.is_local
 
@@ -487,7 +487,7 @@ def test_dependency_and_network_reference_canonical_location_formatting() -> Non
     assert dep_no_line.location == "requirements.txt:1"
 
     net_with_line = NetworkReference(
-        target="api.example.com",
+        target="example.com",
         source_file="src/client.py",
         line_number=88,
     )
@@ -607,7 +607,7 @@ def test_is_file_reference_and_code_config_reference(tmp_path: Path) -> None:
     assert is_code_or_config_reference("os.path")
     assert is_code_or_config_reference("m.group")
     assert is_code_or_config_reference("x.y")
-    assert not is_code_or_config_reference("api.example.com")
+    assert not is_code_or_config_reference("example.com")
 
 
 def test_extract_dependencies_various_ecosystems() -> None:
@@ -642,7 +642,7 @@ def test_is_network_domain_and_token_parsing() -> None:
     # 1. is_network_domain
     assert is_network_domain("api.datadoghq.com") is True
     assert is_network_domain("auth0.com") is True
-    assert not is_network_domain("api.prod.example.com")  # reserved RFC domain
+    assert not is_network_domain("example.com")  # reserved RFC domain
     assert not is_network_domain("")
     assert not is_network_domain("no-dots")
     assert not is_network_domain("domain.com/with/path")
@@ -749,8 +749,8 @@ def test_reference_extractor_extended_network_and_lockfiles() -> None:
     assert ip_pub is not None and ip_pub.is_local is False
 
     # 5. Structured string extraction
-    json_strs = _extract_json_strings('{"server": "https://api.example.com", "port": 8080}')
-    assert any(s[0] == "https://api.example.com" for s in json_strs)
+    json_strs = _extract_json_strings('{"server": "https://example.com", "port": 8080}')
+    assert any(s[0] == "https://example.com" for s in json_strs)
 
     toml_strs = _extract_toml_strings('[tool.poetry]\nname = "my-tool"\n')
     assert any("my-tool" in s[0] for s in toml_strs)
@@ -963,7 +963,6 @@ def test_reference_extractor_documented_examples_and_rfc_exclusions() -> None:
     # 1. RFC 2606 & RFC 6761 reserved domains and TLDs
     rfc2606_domains = [
         "example.com",
-        "api.example.com",
         "sub.deep.example.net",
         "sample.example.org",
         "test.example.edu",
@@ -1052,7 +1051,7 @@ def test_reference_extractor_documented_examples_and_rfc_exclusions() -> None:
     # 7. extract_network_references with exclude_examples=True vs exclude_examples=False
     sample_doc = """
     # Example Configuration
-    Documentation URL: https://api.example.com/v1/health
+    Documentation URL: https://example.com/v1/health
     Example IP: 192.0.2.1
     Benchmarking IP: 198.18.1.10
     IPv6 Doc IP: 2001:db8::42
@@ -1065,11 +1064,10 @@ def test_reference_extractor_documented_examples_and_rfc_exclusions() -> None:
     refs_all = extract_network_references(sample_doc, "sample.md", exclude_examples=False)
     target_map = {r.target: r for r in refs_all}
 
-    assert "https://api.example.com/v1/health" in target_map
-    assert target_map["https://api.example.com/v1/health"].is_example is True
+    assert "https://example.com/v1/health" in target_map
+    assert target_map["https://example.com/v1/health"].is_example is True
     assert (
-        "✓ Safe (Documented Example)"
-        in target_map["https://api.example.com/v1/health"].security_status
+        "✓ Safe (Documented Example)" in target_map["https://example.com/v1/health"].security_status
     )
 
     assert "192.0.2.1" in target_map
@@ -1084,7 +1082,7 @@ def test_reference_extractor_documented_examples_and_rfc_exclusions() -> None:
     refs_filtered = extract_network_references(sample_doc, "sample.md", exclude_examples=True)
     filtered_targets = {r.target for r in refs_filtered}
 
-    assert "https://api.example.com/v1/health" not in filtered_targets
+    assert "https://example.com/v1/health" not in filtered_targets
     assert "192.0.2.1" not in filtered_targets
     assert "198.18.1.10" not in filtered_targets
     assert "2001:db8::42" not in filtered_targets

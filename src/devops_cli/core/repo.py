@@ -200,16 +200,22 @@ def get_repo_origin_name(repo_root: Path | None = None) -> str | None:
     import re
 
     root = repo_root or find_repo_root()
-    if not (root / ".git").exists():
-        return None
+    if (root / ".git").exists():
+        proc = run_subprocess(["git", "remote", "get-url", "origin"], cwd=root, quiet=True)
+        if proc.returncode == 0 and proc.stdout.strip():
+            raw = proc.stdout.strip()
+            match = re.search(r"[:/]([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+?)(?:\.git)?$", raw)
+            if match:
+                return match.group(1)
 
-    proc = run_subprocess(["git", "remote", "get-url", "origin"], cwd=root, quiet=True)
-    if proc.returncode != 0 or not proc.stdout.strip():
-        return None
+    if repo_root is None:
+        import os
 
-    raw = proc.stdout.strip()
-    match = re.search(r"[:/]([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+?)(?:\.git)?$", raw)
-    return match.group(1) if match else None
+        env_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+        if env_repo and "/" in env_repo:
+            return env_repo
+
+    return None
 
 
 def is_safe_subpath(root: Path | str, target: Path | str) -> bool:

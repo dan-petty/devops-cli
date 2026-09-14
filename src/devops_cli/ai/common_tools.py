@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 if TYPE_CHECKING:
     from devops_cli.ai.agents.tools import Tool
 
+from devops_cli.core.validation import validate_url_egress
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.http.client import new_http_client
 
@@ -306,6 +307,35 @@ def _html_to_markdown(raw_html: str) -> str:
 # =============================================================================
 
 
+def _validate_fetch_domain(
+    hostname: str,
+    allowed_domains: list[str] | None,
+    blocked_domains: list[str] | None,
+) -> None:
+    """Validate requested hostname against domain allow/block lists."""
+    if blocked_domains and any(
+        hostname == d.lower() or hostname.endswith(f".{d.lower()}") for d in blocked_domains
+    ):
+        raise ValueError(f"Domain '{hostname}' is in blocked_domains")
+
+    if allowed_domains and not any(
+        hostname == d.lower() or hostname.endswith(f".{d.lower()}") for d in allowed_domains
+    ):
+        raise ValueError(f"Domain '{hostname}' is not in allowed_domains")
+
+
+def _validate_response_egress(resp: Any, fallback_url: str) -> None:
+    """Validate redirected response target against SSRF and DNS rebinding."""
+    if not hasattr(resp, "url") or not resp.url:
+        return
+    target_str = str(resp.url)
+    if target_str.startswith(("http://", "https://")):
+        validate_url_egress(target_str, purpose="web_fetch", allow_private=False)
+    elif raw_host := getattr(resp.url, "host", None) or getattr(resp.url, "hostname", None):
+        if _is_private_or_loopback(str(raw_host)):
+            raise SSRFBlockedError(target_url=target_str or fallback_url)
+
+
 def web_fetch_tool(
     *,
     max_content_length: int | None = 50000,
@@ -323,36 +353,17 @@ def web_fetch_tool(
             raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
 
         hostname = (parsed.hostname or "").lower()
-        if blocked_domains and any(
-            hostname == d.lower() or hostname.endswith(f".{d.lower()}") for d in blocked_domains
-        ):
-            raise ValueError(f"Domain '{hostname}' is in blocked_domains")
-
-        if allowed_domains and not any(
-            hostname == d.lower() or hostname.endswith(f".{d.lower()}") for d in allowed_domains
-        ):
-            raise ValueError(f"Domain '{hostname}' is not in allowed_domains")
-
-        if _is_private_or_loopback(hostname):
-            raise SSRFBlockedError(target_url=url)
+        _validate_fetch_domain(hostname, allowed_domains, blocked_domains)
+        validate_url_egress(url, purpose="web_fetch", allow_private=False)
 
         client = new_http_client(headers=headers or {})
         try:
             resp = client.get(url, follow_redirects=True, timeout=15.0)
-            final_host = ""
-            if hasattr(resp, "url"):
-                raw_host = getattr(resp.url, "host", None) or getattr(resp.url, "hostname", None)
-                if isinstance(raw_host, str):
-                    final_host = raw_host
-                elif isinstance(resp.url, str):
-                    final_host = urllib.parse.urlparse(resp.url).hostname or ""
-            if final_host and _is_private_or_loopback(final_host):
-                raise SSRFBlockedError(target_url=str(getattr(resp, "url", url)))
-            if not final_host and _is_private_or_loopback(hostname):
-                raise SSRFBlockedError(target_url=url)
-
+            _validate_response_egress(resp, url)
             resp.raise_for_status()
-            if max_download_bytes is not None and len(resp.content) > max_download_bytes:
+
+            raw_bytes = resp.content
+            if max_download_bytes is not None and len(raw_bytes) > max_download_bytes:
                 content_text = resp.text[:max_download_bytes]
             else:
                 content_text = resp.text

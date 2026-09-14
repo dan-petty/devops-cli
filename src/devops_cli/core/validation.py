@@ -213,8 +213,19 @@ def validate_url(
     }
     permitted_private = allow_private or allow_env
 
-    if not permitted_private and parsed.hostname:
-        _enforce_non_private_ssrf(clean_url, parsed.hostname, parsed.scheme, parsed.port, purpose)
+    if parsed.hostname:
+        raw_host = parsed.hostname.strip("[]").lower()
+        if raw_host in ("169.254.169.254", "metadata.google.internal") or raw_host.startswith(
+            "169.254."
+        ):
+            raise SSRFBlockedError(
+                clean_url,
+                reason=f"Access to link-local or cloud metadata services ({parsed.hostname}) is prohibited.",
+            )
+        if not permitted_private:
+            _enforce_non_private_ssrf(
+                clean_url, parsed.hostname, parsed.scheme, parsed.port, purpose
+            )
 
     return clean_url
 
@@ -342,6 +353,23 @@ def validate_k8s_name(value: str, label: str = "resource", *, namespace: bool = 
         print_error(f"Invalid {label}: {value!r}. Must be a valid RFC 1123 name.", prefix=False)
         raise typer.Exit(1)
     return value
+
+
+def validate_k8s_context_name(value: str, label: str = "context name") -> str:
+    """Validate that a kubeconfig context name is safe and non-empty.
+
+    Allows letters, digits, '.', '-', '_', ':', '/', '@', matching standard kubeconfig
+    naming patterns (including AWS EKS ARNs, GKE clusters, Docker Desktop, and user accounts)
+    while rejecting empty strings, control characters, and shell injection tokens.
+    """
+    clean_val = value.strip()
+    if not clean_val or not re.match(r"^[\w\.\:\-\/@]+$", clean_val):
+        print_error(
+            f"Invalid {label}: {value!r}. Must contain only alphanumeric, '.', '-', '_', ':', '/', or '@' characters.",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+    return clean_val
 
 
 def validate_version_str(version: str, tool_name: str = "tool") -> str:

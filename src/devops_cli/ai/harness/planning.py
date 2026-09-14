@@ -21,7 +21,9 @@ from devops_cli.ai.agents.pydantic_agent import (
     RunContext,
     Tool,
 )
+from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
 from devops_cli.exceptions.ai import HarnessValidationError
+from devops_cli.exceptions.security import SecurityError
 from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -187,7 +189,15 @@ class SqlitePlanStore(PlanStore):
         event_emitter: PlanEventEmitter | None = None,
     ) -> None:
         super().__init__(event_emitter=event_emitter)
-        self.db_path = str(db_path)
+        raw_path = str(db_path)
+        if raw_path != ":memory:":
+            validate_no_path_traversal(raw_path, label="SqlitePlanStore db_path")
+            resolved_path = Path(raw_path).resolve()
+            if is_forbidden_system_path(resolved_path):
+                raise SecurityError(
+                    f"SqlitePlanStore db_path cannot reside in forbidden system directory: '{raw_path}'."
+                )
+        self.db_path = raw_path
         self.session = session
         self._init_db()
 

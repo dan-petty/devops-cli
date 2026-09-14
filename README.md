@@ -188,7 +188,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops workspace clean [OPTIONS]` | Clean stale review sessions, old analysis caches, and temporary traces under .data/. |
 | **install-tools** | `devops install-tools status [OPTIONS]` | Show installation status and versions for all managed tools. |
 | **k8s** | `devops k8s contexts` | List kubeconfig contexts and mark the active one. |
-|  | `devops k8s switch-context <name>` | Switch active kubeconfig context. |
+|  | `devops k8s switch-context <name>` | Switch active kubeconfig context and ensure cluster is running. |
 |  | `devops k8s status` | Show node and pod summary for the current context. |
 |  | `devops k8s apply [OPTIONS] <path>` | Apply a Kubernetes manifest (delegates to kubectl). |
 |  | `devops k8s logs [OPTIONS] <pod> <query_arg>` | Stream pod logs or execute LogQL queries across cluster log streams. |
@@ -236,6 +236,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops argo workflows COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 |  | `devops argo rollouts COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 |  | `devops argo fleet COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
+|  | `devops argo gitops COMMAND [ARGS]...` | Argo CD, Workflows, and Rollouts management. |
 | **config** | `devops config show` | Print all configuration values, masking secrets. |
 |  | `devops config get <key>` | Print a single configuration value. |
 |  | `devops config set <key> <value>` | Set a configuration value. Tokens are stored in the OS keyring. |
@@ -324,15 +325,25 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 | **pr** | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
+|  | `devops pr wait [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
+|  | `devops pr monitor [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
 |  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, or body. |
 |  | `devops pr create [OPTIONS]` | Create a pull request with automatic release branch target validation. |
+|  | `devops pr ready [OPTIONS] <number>` | Mark a draft pull request as ready for review. |
+|  | `devops pr diff [OPTIONS] <number>` | View diff of a pull request. |
+|  | `devops pr close [OPTIONS] <number>` | Close a pull request. |
+|  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
-| **gh** | `devops gh labels COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+| **gh** | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
+|  | `devops gh labels COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh milestones COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh project COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh views COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh pages COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh issues COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh runs COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh branch-protection COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
+|  | `devops gh secrets COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh pr COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 | **tf** | `devops tf init [OPTIONS] <directory>` | Initialize an OpenTofu working directory. |
 |  | `devops tf plan [OPTIONS] <directory>` | Generate and show an OpenTofu execution plan. |
@@ -361,6 +372,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 | **test** | `devops test run [OPTIONS] <target>` | Execute pytest test suite with optional git-diff aware test selection. |
 |  | `devops test load [OPTIONS] <script_path>` | Execute developer-centric load, spike, and latency tests against services using k6. |
 |  | `devops test sandbox [OPTIONS] <command>` | Execute test command inside an isolated, disposable Docker container sandbox. |
+|  | `devops test profile-memory [OPTIONS] <target>` | Deterministic async memory and connection pool profiler using tracemalloc. |
 | **pipeline** | `devops pipeline [OPTIONS] <pipeline_path>` | Execute reproducible, containerized developer pipelines with Dagger. |
 | **vault** | `devops vault status [OPTIONS]` | Inspect HashiCorp Vault cluster health and initialization status. |
 |  | `devops vault get [OPTIONS] <path>` | Fetch secret value from Vault or OS Keyring fallback. |
@@ -379,6 +391,10 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops sandbox status [OPTIONS] <instance_id>` | Inspect status of deployed sandbox containers. |
 |  | `devops sandbox stop [OPTIONS] <instance_id>` | Gracefully stop and tear down a sandbox container. |
 |  | `devops sandbox exec [OPTIONS] <instance_id> <command>` | Execute a command inside an active sandbox container. |
+|  | `devops sandbox probe [OPTIONS] <identifier>` | Probe endpoint readiness and service health across network protocols. |
+|  | `devops sandbox metrics [OPTIONS] <identifier>` | Capture real-time cgroup v2 metrics and scrape Prometheus application metrics. |
+|  | `devops sandbox traces [OPTIONS] <identifier>` | Visualize distributed trace waterfall and cross-service latency for sandbox workloads. |
+|  | `devops sandbox logs [OPTIONS] <identifier>` | Stream stdout/stderr container logs with automated panic and crash detection. |
 | **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **format** | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |

@@ -750,7 +750,7 @@ def test_native_tools_web_search_and_code_execution() -> None:
     search_tool = WebSearchTool(
         search_context_size="high",
         user_location=loc,
-        blocked_domains=["spam.com"],
+        blocked_domains=["example.com"],
         max_uses=5,
     )
     native_search_cap = NativeTool(tool=search_tool)
@@ -758,7 +758,7 @@ def test_native_tools_web_search_and_code_execution() -> None:
     assert settings["native_web_search"] is True
     assert settings["web_search_config"]["search_context_size"] == "high"
     assert settings["web_search_config"]["user_location"]["city"] == "San Francisco"
-    assert settings["web_search_config"]["blocked_domains"] == ["spam.com"]
+    assert settings["web_search_config"]["blocked_domains"] == ["example.com"]
 
     code_tool = CodeExecutionTool(language="python", timeout=30.0)
     native_code_cap = NativeTool(tool=code_tool)
@@ -790,7 +790,7 @@ def test_mcp_capability_and_native_server_tool() -> None:
     # 1. Native MCP server tool
     mcp_tool = MCPServerTool(
         id="cluster-mcp",
-        url="https://mcp.devops.internal/sse",
+        url="https://example.com/sse",
         authorization_token="bearer-token-123",
         description="Kubernetes cluster MCP server",
     )
@@ -806,7 +806,7 @@ def test_mcp_capability_and_native_server_tool() -> None:
 
     local_t = Tool.from_function(sample_mcp_tool, name="calc_double")
     mcp_cap = MCP(
-        url="https://mcp.devops.internal/sse",
+        url="https://example.com/sse",
         native=True,
         local=[local_t],
     )
@@ -816,10 +816,10 @@ def test_mcp_capability_and_native_server_tool() -> None:
 
     mcp_settings = mcp_cap.get_model_settings()
     assert mcp_settings["native_mcp_server"] is True
-    assert mcp_settings["mcp_server_config"]["url"] == "https://mcp.devops.internal/sse"
+    assert mcp_settings["mcp_server_config"]["url"] == "https://example.com/sse"
 
     # 3. Strict native mode (local=False)
-    strict_native = MCP("https://mcp.devops.internal/sse", native=True, local=False)
+    strict_native = MCP("https://example.com/sse", native=True, local=False)
     assert strict_native.get_tools() == []
 
 
@@ -1117,11 +1117,11 @@ def test_resolve_pydantic_ai_model() -> None:
 
     # 4. Ollama model resolution with settings
     custom_settings = Settings()
-    custom_settings.ai.ollama_urls = ["http://my-ollama-cluster:11434"]
+    custom_settings.ai.ollama_urls = ["http://example.com:11434"]
     m_ollama = resolve_pydantic_ai_model("ollama:qwen2.5-coder:latest", settings=custom_settings)
     assert isinstance(m_ollama, OllamaModel)
     assert m_ollama.model_name == "qwen2.5-coder:latest"
-    assert "my-ollama-cluster" in str(m_ollama.provider.base_url)
+    assert "example.com" in str(m_ollama.provider.base_url)
 
 
 def test_create_pydantic_ai_agent_native_execution() -> None:

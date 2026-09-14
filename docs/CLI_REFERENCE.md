@@ -591,7 +591,7 @@ devops k8s contexts
 
 ### `devops k8s switch-context`
 
-**Switch active kubeconfig context.**
+**Switch active kubeconfig context and ensure cluster is running.**
 
 ```bash
 devops k8s switch-context <name>
@@ -690,10 +690,10 @@ devops k8s bootstrap-openwebui [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--email`, `-e` | `string` | `admin@localhost` | Admin email address. |
-| `--name`, `-n` | `string` | `Admin` | Admin display name. |
-| `--password`, `-p` | `string` | - | Admin password. |
-| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--email`, `-e` | `string` | `admin@localhost` | Email address for the local administrator account. |
+| `--password`, `-p` | `string` | - | Password for administrator. If omitted, securely generated and stored in OS Keyring. |
+| `--name`, `-n` | `string` | `Local Administrator` | Full display name for the administrator. |
+| `--context`, `-c` | `string` | - | Kubernetes context to target (defaults to config default or active). |
 | `--show-password` | `boolean` | - | Display generated admin password in plain text instead of masking. |
 
 ### `devops k8s deploy-stack`
@@ -1487,6 +1487,70 @@ devops argo cd fleet sync [OPTIONS] <app_name>
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
+#### `devops argo cd gitops`
+
+```bash
+devops argo cd gitops COMMAND [ARGS]...
+```
+
+##### `devops argo cd gitops watch`
+
+**Monitor Kubernetes and Helm manifests for drift and trigger instant ArgoCD sync.**
+
+```bash
+devops argo cd gitops watch [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to monitor |
+| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--debounce-ms` | `integer` | `500` | Debounce delay in milliseconds to aggregate rapid modifications |
+| `--interval`, `-i` | `float` | `1.0` | Watch polling interval in seconds |
+| `--max-events` | `integer` | - | Maximum change events to process before exiting |
+| `--once` | `boolean` | - | Check manifest drift once, trigger sync if drifted, and exit immediately |
+| `--mode`, `-m` | `string` | `api` | Synchronization trigger mode ('api' or 'webhook') |
+| `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
+| `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
+##### `devops argo cd gitops drift`
+
+**Inspect and report local manifest state and detect any unstaged or modified files.**
+
+```bash
+devops argo cd gitops drift [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to inspect |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
+##### `devops argo cd gitops sync`
+
+**Trigger an immediate GitOps synchronization for an ArgoCD application.**
+
+```bash
+devops argo cd gitops sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--mode`, `-m` | `string` | `api` | Synchronization trigger mode ('api' or 'webhook') |
+| `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
+| `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
 #### `devops argo cd apps`
 
 ```bash
@@ -1781,6 +1845,70 @@ devops argo fleet sync [OPTIONS] <app_name>
 | `--concurrency`, `-p` | `integer` | `3` | Maximum concurrent cluster synchronization workers |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
+### `devops argo gitops`
+
+```bash
+devops argo gitops COMMAND [ARGS]...
+```
+
+#### `devops argo gitops watch`
+
+**Monitor Kubernetes and Helm manifests for drift and trigger instant ArgoCD sync.**
+
+```bash
+devops argo gitops watch [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to monitor |
+| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--debounce-ms` | `integer` | `500` | Debounce delay in milliseconds to aggregate rapid modifications |
+| `--interval`, `-i` | `float` | `1.0` | Watch polling interval in seconds |
+| `--max-events` | `integer` | - | Maximum change events to process before exiting |
+| `--once` | `boolean` | - | Check manifest drift once, trigger sync if drifted, and exit immediately |
+| `--mode`, `-m` | `string` | `api` | Synchronization trigger mode ('api' or 'webhook') |
+| `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
+| `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
+#### `devops argo gitops drift`
+
+**Inspect and report local manifest state and detect any unstaged or modified files.**
+
+```bash
+devops argo gitops drift [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to inspect |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
+#### `devops argo gitops sync`
+
+**Trigger an immediate GitOps synchronization for an ArgoCD application.**
+
+```bash
+devops argo gitops sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--app-name`, `-a` | `string` | `root-app` | Application name. |
+| `--mode`, `-m` | `string` | `api` | Synchronization trigger mode ('api' or 'webhook') |
+| `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
+| `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
@@ -4082,6 +4210,56 @@ devops pr checks [OPTIONS] <number>
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
+### `devops pr wait`
+
+**Monitor PR checks, Copilot review sessions, and unresolved threads until ready.**
+
+```bash
+devops pr wait [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
+| `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
+| `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
+| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+### `devops pr monitor`
+
+**Monitor PR checks, Copilot review sessions, and unresolved threads until ready.**
+
+```bash
+devops pr monitor [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
+| `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
+| `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
+| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
 ### `devops pr edit`
 
 **Edit pull request base branch, title, or body.**
@@ -4121,6 +4299,94 @@ devops pr create [OPTIONS]
 | `--body`, `-b` | `string` | `` | Body or description text. |
 | `--base`, `-B` | `string` | - | Base git branch to diff against (default: main). |
 | `--draft`, `-d` | `boolean` | - | Create pull request or entity as draft. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+### `devops pr ready`
+
+**Mark a draft pull request as ready for review.**
+
+```bash
+devops pr ready [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--monitor`, `-m` | `boolean` | - | Automatically transition to monitoring checks and reviews after marking ready. |
+
+### `devops pr diff`
+
+**View diff of a pull request.**
+
+```bash
+devops pr diff [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--color` | `string` | `auto` | Whether to colorize diff (always, never, auto). |
+
+### `devops pr close`
+
+**Close a pull request.**
+
+```bash
+devops pr close [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--comment`, `-c` | `string` | - | Comment text to include when closing the pull request. |
+| `--delete-branch`, `-d` | `boolean` | - | Delete remote topic branch upon closing. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+### `devops pr check-readiness`
+
+**Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.**
+
+```bash
+devops pr check-readiness [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | PR number to verify (defaults to current branch PR) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
+| `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
+| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
+| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops pr threads`
@@ -4194,11 +4460,46 @@ devops pr threads unresolve <thread_id>
 |---|---|---|---|
 | `<thread_id>` | `string` | Yes | Review thread GraphQL ID (e.g. PRRT_...). |
 
+#### `devops pr threads resolve-all`
+
+**Resolve all or replied review discussion threads for a pull request.**
+
+```bash
+devops pr threads resolve-all [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received one or more in-thread replies. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
 ---
 
 ## devops gh
 
 GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
+
+### `devops gh rate-limit`
+
+**Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns.**
+
+```bash
+devops gh rate-limit [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 
 ### `devops gh labels`
 
@@ -4641,6 +4942,153 @@ devops gh issues status [OPTIONS]
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository |
 
+#### `devops gh issues edit`
+
+**Edit an existing issue title, body, or state.**
+
+```bash
+devops gh issues edit [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Issue number to edit. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--title`, `-t` | `string` | - | New issue title. |
+| `--body`, `-b` | `string` | - | New issue body text. |
+| `--state`, `-s` | `string` | - | New state (open or closed). |
+| `--repo`, `-R` | `string` | - | Target repository |
+
+### `devops gh runs`
+
+```bash
+devops gh runs COMMAND [ARGS]...
+```
+
+#### `devops gh runs list`
+
+**List recent workflow runs for the repository or branch.**
+
+```bash
+devops gh runs list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--limit`, `-n` | `integer` | `10` | Maximum number of items to return or display. |
+| `--branch`, `-b` | `string` | - | Filter by branch |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+
+#### `devops gh runs view`
+
+**View details and failure logs of a specific workflow run.**
+
+```bash
+devops gh runs view [OPTIONS] <run_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<run_id>` | `integer` | Yes | Workflow run database ID. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--log-failed` | `boolean` | - | Display logs for failed jobs or steps in the workflow run. |
+| `--log` | `boolean` | - | Display full execution logs for the workflow run. |
+| `--job`, `-j` | `string` | - | Filter workflow run logs to a specific job ID. |
+| `--repo`, `-R` | `string` | - | Target repository |
+
+### `devops gh branch-protection`
+
+```bash
+devops gh branch-protection COMMAND [ARGS]...
+```
+
+#### `devops gh branch-protection audit`
+
+**Audit repository branch protection rulesets against declarative policy specification.**
+
+```bash
+devops gh branch-protection audit [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--branch`, `-b` | `string` | - | Target specific branch for protection audit or synchronization. |
+| `--policy-file`, `-f` | `path` | `.github/branch-protection.yml` | Path to declarative branch protection policy YAML file. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+#### `devops gh branch-protection sync`
+
+**Synchronize repository branch protection rulesets against declarative policy specification.**
+
+```bash
+devops gh branch-protection sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--branch`, `-b` | `string` | - | Target specific branch for protection audit or synchronization. |
+| `--policy-file`, `-f` | `path` | `.github/branch-protection.yml` | Path to declarative branch protection policy YAML file. |
+| `--dry-run` | `boolean` | - | Preview branch protection synchronization without applying mutations |
+
+### `devops gh secrets`
+
+```bash
+devops gh secrets COMMAND [ARGS]...
+```
+
+#### `devops gh secrets sync`
+
+**Synchronize repository secrets from OS Keyring or HashiCorp Vault with libsodium sealing.**
+
+```bash
+devops gh secrets sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--secret-names`, `-n` | `string` | - | Comma-separated list of secret names to synchronize. |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--source`, `-s` | `string` | `keyring` | Source store for secrets to synchronize (keyring or vault). |
+| `--vault-path` | `string` | `secret/devops` | Vault KV-v2 secret path when source is vault (default: secret/devops). |
+| `--dry-run` | `boolean` | - | Preview secret synchronization without mutations |
+
+#### `devops gh secrets list`
+
+**List Actions secrets configured in the repository (names only, values are hidden).**
+
+```bash
+devops gh secrets list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
 ### `devops gh pr`
 
 ```bash
@@ -4703,6 +5151,56 @@ devops gh pr checks [OPTIONS] <number>
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
+#### `devops gh pr wait`
+
+**Monitor PR checks, Copilot review sessions, and unresolved threads until ready.**
+
+```bash
+devops gh pr wait [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
+| `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
+| `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
+| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+#### `devops gh pr monitor`
+
+**Monitor PR checks, Copilot review sessions, and unresolved threads until ready.**
+
+```bash
+devops gh pr monitor [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
+| `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
+| `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
+| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
 #### `devops gh pr edit`
 
 **Edit pull request base branch, title, or body.**
@@ -4742,6 +5240,94 @@ devops gh pr create [OPTIONS]
 | `--body`, `-b` | `string` | `` | Body or description text. |
 | `--base`, `-B` | `string` | - | Base git branch to diff against (default: main). |
 | `--draft`, `-d` | `boolean` | - | Create pull request or entity as draft. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+#### `devops gh pr ready`
+
+**Mark a draft pull request as ready for review.**
+
+```bash
+devops gh pr ready [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--monitor`, `-m` | `boolean` | - | Automatically transition to monitoring checks and reviews after marking ready. |
+
+#### `devops gh pr diff`
+
+**View diff of a pull request.**
+
+```bash
+devops gh pr diff [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--color` | `string` | `auto` | Whether to colorize diff (always, never, auto). |
+
+#### `devops gh pr close`
+
+**Close a pull request.**
+
+```bash
+devops gh pr close [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--comment`, `-c` | `string` | - | Comment text to include when closing the pull request. |
+| `--delete-branch`, `-d` | `boolean` | - | Delete remote topic branch upon closing. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+#### `devops gh pr check-readiness`
+
+**Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.**
+
+```bash
+devops gh pr check-readiness [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | PR number to verify (defaults to current branch PR) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
+| `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
+| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
+| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 #### `devops gh pr threads`
@@ -4814,6 +5400,27 @@ devops gh pr threads unresolve <thread_id>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<thread_id>` | `string` | Yes | Review thread GraphQL ID (e.g. PRRT_...). |
+
+##### `devops gh pr threads resolve-all`
+
+**Resolve all or replied review discussion threads for a pull request.**
+
+```bash
+devops gh pr threads resolve-all [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received one or more in-thread replies. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
 
@@ -5386,6 +5993,32 @@ devops test sandbox [OPTIONS] <command>
 | `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
 | `--dry-run` | `boolean` | - | Simulate test execution. |
 
+### `devops test profile-memory`
+
+**Deterministic async memory and connection pool profiler using tracemalloc.**
+
+```bash
+devops test profile-memory [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `string` | No | Target workload: 'http-pool', 'fastmcp', or importable 'module:function'. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--iterations`, `-i` | `integer` | `10` | Number of iterations to execute during profiling. |
+| `--top`, `-t` | `integer` | `10` | Number of top memory allocation lines to display. |
+| `--max-peak-mb` | `float` | `50.0` | Maximum acceptable peak memory threshold in megabytes. |
+| `--fail-on-leak`, `--ignore-leak` | `boolean` | `True` | Exit with non-zero status if socket leaks are detected. |
+| `--output`, `-o` | `path` | - | File path to export structured memory profiling report. |
+| `--json` | `boolean` | - | Format report output as JSON. |
+| `--dry-run` | `boolean` | - | Simulate test execution. |
+
 ---
 
 ## devops pipeline
@@ -5775,6 +6408,111 @@ devops sandbox exec [OPTIONS] <instance_id> <command>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--workdir`, `-w` | `string` | - | Working directory inside the container for command execution. |
+
+### `devops sandbox probe`
+
+**Probe endpoint readiness and service health across network protocols.**
+
+```bash
+devops sandbox probe [OPTIONS] <identifier>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<identifier>` | `string` | Yes | Unique instance ID or name of the sandbox. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--protocol`, `-p` | `string` | - | Network protocol(s) to probe (tcp, http, openapi, grpc). |
+| `--path` | `string` | - | HTTP request path(s) to probe for readiness. |
+| `--expected-status` | `string` | - | Expected HTTP response status code(s). |
+| `--regex`, `-r` | `string` | - | Regex pattern to assert against HTTP response body. |
+| `--latency-sla` | `float` | - | Maximum acceptable response latency budget in milliseconds. |
+| `--timeout`, `-t` | `float` | `5.0` | Graceful stop timeout in seconds before SIGKILL. |
+| `--json` | `boolean` | - | Output details in structured JSON format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops sandbox metrics`
+
+**Capture real-time cgroup v2 metrics and scrape Prometheus application metrics.**
+
+```bash
+devops sandbox metrics [OPTIONS] <identifier>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<identifier>` | `string` | Yes | Unique instance ID or name of the sandbox. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--prom-endpoint`, `-p`, `--path` | `string` | `/metrics` | Prometheus metrics scrape path (default /metrics). |
+| `--timeout`, `-t` | `float` | `5.0` | HTTP timeout in seconds for Prometheus metrics scraping (default: 5.0). |
+| `--warn-memory-pct` | `float` | `80.0` | Warning threshold percentage for container memory consumption. |
+| `--warn-cpu-pct` | `float` | `85.0` | Warning threshold percentage for container CPU utilization. |
+| `--latency-sla-ms` | `float` | - | Maximum acceptable average HTTP request latency SLA in milliseconds (disabled by default). |
+| `--json` | `boolean` | - | Output details in structured JSON format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops sandbox traces`
+
+**Visualize distributed trace waterfall and cross-service latency for sandbox workloads.**
+
+```bash
+devops sandbox traces [OPTIONS] <identifier>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<identifier>` | `string` | No | Unique instance ID or name of the sandbox. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--trace-id`, `-t` | `string` | - | Specific OpenTelemetry trace ID to retrieve and visualize. |
+| `--last`, `-l` | `boolean` | - | Visualize spans for the most recently executed trace. |
+| `--probe` | `boolean` | - | Execute an endpoint health probe before visualizing the resulting trace. |
+| `--jaeger-url` | `string` | - | Override Jaeger Query HTTP endpoint (default: http://localhost:16686). |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops sandbox logs`
+
+**Stream stdout/stderr container logs with automated panic and crash detection.**
+
+```bash
+devops sandbox logs [OPTIONS] <identifier>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<identifier>` | `string` | No | Unique instance ID or name of the sandbox. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--follow`, `-f` | `boolean` | - | Follow log output continuously in live stream mode. |
+| `--tail`, `-n` | `integer` | `100` | Number of lines to show from the end of the logs (default: 100). |
+| `--timestamps`, `-t` | `boolean` | `True` | Show timestamps in log output. |
+| `--detect-panics`, `--no-detect-panics` | `boolean` | `True` | Automatically detect panics, stacktraces, and segfaults. |
+| `--archive-incidents`, `--no-archive-incidents` | `boolean` | `True` | Archive incident records to JSON files |
+| `--incident-dir` | `path` | - | Directory path to persist structured panic incident records. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

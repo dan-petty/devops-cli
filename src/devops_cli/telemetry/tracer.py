@@ -199,38 +199,36 @@ def _extract_span_attributes(raw_attrs: Any) -> dict[str, Any]:
     return attrs
 
 
-def build_span_waterfall_tree(spans: list[dict[str, Any]]) -> list[SpanWaterfallNode]:
-    """Convert raw span dicts into a structured hierarchy with relative waterfall offsets and percentage durations."""
-    if not spans:
-        return []
+def _build_waterfall_node(s: dict[str, Any]) -> SpanWaterfallNode:
+    """Construct a SpanWaterfallNode from a raw span dictionary."""
+    span_id = str(s.get("spanId", ""))
+    trace_id = str(s.get("traceId", ""))
+    name = str(s.get("name", "unknown"))
+    parent_id = s.get("parentSpanId")
+    start_ns = int(s.get("startTimeUnixNano", 0))
+    end_ns = int(s.get("endTimeUnixNano", start_ns))
+    dur_ms = max(0.0, (end_ns - start_ns) / 1e6)
+    status_info = s.get("status", {})
+    status_code = status_info.get("code", "STATUS_CODE_OK")
+    status_msg = status_info.get("message", "")
+    attrs = _extract_span_attributes(s.get("attributes", []))
 
-    nodes: dict[str, SpanWaterfallNode] = {}
-    for s in spans:
-        span_id = str(s.get("spanId", ""))
-        trace_id = str(s.get("traceId", ""))
-        name = str(s.get("name", "unknown"))
-        parent_id = s.get("parentSpanId")
-        start_ns = int(s.get("startTimeUnixNano", 0))
-        end_ns = int(s.get("endTimeUnixNano", start_ns))
-        dur_ms = max(0.0, (end_ns - start_ns) / 1e6)
-        status_info = s.get("status", {})
-        status_code = status_info.get("code", "STATUS_CODE_OK")
-        status_msg = status_info.get("message", "")
-        attrs = _extract_span_attributes(s.get("attributes", []))
+    return SpanWaterfallNode(
+        span_id=span_id,
+        trace_id=trace_id,
+        name=name,
+        parent_id=str(parent_id) if parent_id else None,
+        start_time_ns=start_ns,
+        end_time_ns=end_ns,
+        duration_ms=dur_ms,
+        status_code=status_code,
+        status_message=status_msg,
+        attributes=attrs,
+    )
 
-        nodes[span_id] = SpanWaterfallNode(
-            span_id=span_id,
-            trace_id=trace_id,
-            name=name,
-            parent_id=str(parent_id) if parent_id else None,
-            start_time_ns=start_ns,
-            end_time_ns=end_ns,
-            duration_ms=dur_ms,
-            status_code=status_code,
-            status_message=status_msg,
-            attributes=attrs,
-        )
 
+def _compute_relative_waterfall_offsets(nodes: dict[str, SpanWaterfallNode]) -> None:
+    """Calculate relative offset and duration percentages across all nodes."""
     min_start_ns = min(n.start_time_ns for n in nodes.values())
     max_end_ns = max(n.end_time_ns for n in nodes.values())
     total_span_ns = max(1, max_end_ns - min_start_ns)
@@ -241,25 +239,40 @@ def build_span_waterfall_tree(spans: list[dict[str, Any]]) -> list[SpanWaterfall
         n.relative_offset_pct = (offset_ns / total_span_ns) * 100.0
         n.relative_duration_pct = max(1.0, (dur_ns / total_span_ns) * 100.0)
 
+
+def _assign_waterfall_depth(node: SpanWaterfallNode, current_depth: int) -> None:
+    """Recursively assign depth levels to waterfall nodes."""
+    node.depth = current_depth
+    node.children.sort(key=lambda x: x.start_time_ns)
+    for child in node.children:
+        _assign_waterfall_depth(child, current_depth + 1)
+
+
+def _link_waterfall_hierarchy(nodes: dict[str, SpanWaterfallNode]) -> list[SpanWaterfallNode]:
+    """Assemble flat nodes into parent-child tree hierarchy and order by start time."""
     roots: list[SpanWaterfallNode] = []
     for n in nodes.values():
         if n.parent_id and n.parent_id in nodes and n.parent_id != n.span_id:
-            parent_node = nodes[n.parent_id]
-            parent_node.children.append(n)
+            nodes[n.parent_id].children.append(n)
         else:
             roots.append(n)
 
-    def _assign_depth(node: SpanWaterfallNode, current_depth: int) -> None:
-        node.depth = current_depth
-        node.children.sort(key=lambda x: x.start_time_ns)
-        for child in node.children:
-            _assign_depth(child, current_depth + 1)
-
     roots.sort(key=lambda x: x.start_time_ns)
     for root in roots:
-        _assign_depth(root, 0)
-
+        _assign_waterfall_depth(root, 0)
     return roots
+
+
+def build_span_waterfall_tree(spans: list[dict[str, Any]]) -> list[SpanWaterfallNode]:
+    """Convert raw span dicts into a structured hierarchy with relative waterfall offsets and percentage durations."""
+    if not spans:
+        return []
+
+    nodes: dict[str, SpanWaterfallNode] = {
+        str(s.get("spanId", "")): _build_waterfall_node(s) for s in spans
+    }
+    _compute_relative_waterfall_offsets(nodes)
+    return _link_waterfall_hierarchy(nodes)
 
 
 class SpanHandle(str):

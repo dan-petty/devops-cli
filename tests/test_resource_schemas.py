@@ -347,7 +347,7 @@ def test_tf_resource_models_roundtrip() -> None:
         resources_added=2,
         resources_changed=1,
         resources_destroyed=0,
-        outputs={"cluster_endpoint": "https://k8s.example.com"},
+        outputs={"cluster_endpoint": "https://example.com"},
         success=True,
     )
     assert apply_res.resources_added == 2

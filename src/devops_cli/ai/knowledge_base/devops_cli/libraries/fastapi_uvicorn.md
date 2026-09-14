@@ -7,7 +7,7 @@
 | **Official Documentation** | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/) • [uvicorn.org](https://www.uvicorn.org/) |
 | **Public Git Repository** | [github.com/fastapi/fastapi](https://github.com/fastapi/fastapi) • [github.com/encode/uvicorn](https://github.com/encode/uvicorn) |
 | **Official PyPI Package** | [pypi.org/project/fastapi](https://pypi.org/project/fastapi/) (`0.141.1`) • [pypi.org/project/uvicorn](https://pypi.org/project/uvicorn/) (`0.52.4`) |
-| **DevOps CLI Integration** | [`src/devops_cli/server/`](file:///workspaces/devops-cli/src/devops_cli/server/) • [`src/devops_cli/commands/serve.py`](file:///workspaces/devops-cli/src/devops_cli/commands/serve.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/server/`](../../../../../src/devops_cli/server/) • [`src/devops_cli/commands/serve.py`](../../../../../src/devops_cli/commands/serve.py) |
 
 ---
 

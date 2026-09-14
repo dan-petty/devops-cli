@@ -98,3 +98,11 @@ def test_sqlite_step_store_path_traversal() -> None:
 
     with pytest.raises(ValueError, match="Directory traversal not permitted"):
         SqliteStepStore(db_path="../escaped.db")
+
+
+def test_step_persistence_direct_save_step_masks_credentials() -> None:
+    """Verify save_step masks sensitive keys in direct payload calls."""
+    cap = StepPersistence(store=InMemoryStepStore())
+    step = cap.save_step(kind="custom", payload={"api_token": "secret_123", "normal": "data"})
+    assert step.payload["api_token"] == "***REDACTED***"
+    assert step.payload["normal"] == "data"

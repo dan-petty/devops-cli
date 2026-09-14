@@ -512,6 +512,18 @@ def test_planning_sqlite_store(tmp_path: Path) -> None:
     assert store.get_items()[0].content == "Fresh Step"
 
 
+def test_sqlite_plan_store_path_security() -> None:
+    """Verify SqlitePlanStore rejects directory traversal and forbidden system paths."""
+    from devops_cli.ai.harness import SqlitePlanStore
+    from devops_cli.exceptions.security import SecurityError
+
+    with pytest.raises(SecurityError):
+        SqlitePlanStore(db_path="/etc/plans.db")
+
+    with pytest.raises(SecurityError):
+        SqlitePlanStore(db_path="../../../escaped_plans.db")
+
+
 def test_planning_capability_tools() -> None:
     from devops_cli.ai.harness import Planning
 

@@ -311,8 +311,8 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Principal DevSecOps Finding Remediation & Autonomous Review Guardrails (P1 - High, Issue #154, PR #155)**:
   - *Context & Rationale*: Remediated all DevSecOps findings (SSRF fail-closed DNS guards, token redactions, AST verification, and subprocess isolation), and expanded the common hallucination scrutiny catalog.
 
-### Sandbox Runtime Observability, Dynamic Probing & Telemetry Correlation (v0.2.17 - Scheduled)
-- [ ] **Comprehensive Endpoint, Readiness & Health Probing Subsystem (`devops sandbox probe`) (P0 - Critical, Issue #107)**:
+### Sandbox Runtime Observability, Dynamic Probing & Telemetry Correlation (v0.2.17 - Completed)
+- [x] **Comprehensive Endpoint, Readiness & Health Probing Subsystem (`devops sandbox probe`) (P0 - Critical, Issue #107)**:
   - *Context & Rationale*: Protocol-agnostic probing engine evaluating application health before initiating integration workflows or fuzz testing.
   - *Probe Modules*:
     - **Socket Reachability**: Non-blocking TCP connection verification asserting port listener readiness.
@@ -320,23 +320,23 @@ High-density product roadmap, engineering milestones, and open-source integratio
     - **OpenAPI Schema Crawler**: Automatic discovery and parsing of `/openapi.json` executing safe schema-validated GET probes.
     - **gRPC Probing**: Health check execution via standard `grpc.health.v1.Health/Check` and reflection exploration without requiring pre-compiled `.proto` stubs.
   - *Pydantic Models*: Typed `SandboxProbeReport` and `EndpointProbeResult` with Rich terminal formatting and JSON export.
-- [ ] **Cgroup Metrics, Prometheus Scraping & Real-Time Telemetry (`devops sandbox metrics`) (P1 - High, Issue #108)**:
+- [x] **Cgroup Metrics, Prometheus Scraping & Real-Time Telemetry (`devops sandbox metrics`) (P1 - High, Issue #108)**:
   - *Context & Rationale*: Real-time container telemetry capturing cgroup v2 metrics (CPU utilization %, memory RSS, page faults, open file descriptors, network RX/TX bytes) and scraping application `/metrics` endpoints for error rates and latency histograms. Emits automated threshold warnings for memory leak trajectories.
-- [ ] **Traceparent Propagation & Distributed Trace Correlation (`devops sandbox traces`) (P1 - High, Issue #109)**:
+- [x] **Traceparent Propagation & Distributed Trace Correlation (`devops sandbox traces`) (P1 - High, Issue #109)**:
   - *Context & Rationale*: Automatic W3C Trace Context (`traceparent`, `tracestate`) header injection into synthetic probes, linking test executions directly with internal application spans received by local OpenTelemetry Collector, Jaeger, and Logfire. Provides terminal waterfall visualization of cross-service latencies.
-- [ ] **Streaming Diagnostic Log Aggregator & Panic Detector (`devops sandbox logs`) (P1 - High, Issue #110)**:
+- [x] **Streaming Diagnostic Log Aggregator & Panic Detector (`devops sandbox logs`) (P1 - High, Issue #110)**:
   - *Context & Rationale*: Multiplexed stdout/stderr log streaming with follow mode (`-f`), buffer management, and automated regex panic detection (Python tracebacks, Go panics, Java stacktraces, Rust panics, segfaults), archiving structured incident records in `.data/sandbox/incidents/<id>.json`.
-- [ ] **Automated GitOps Drift Detection & Webhook Synchronization (`devops argo gitops watch`) (P1 - High, Issue #111)**:
+- [x] **Automated GitOps Drift Detection & Webhook Synchronization (`devops argo gitops watch`) (P1 - High, Issue #111)**:
   - *Context & Rationale*: Eliminates polling delays by triggering instant ArgoCD app reconciliations upon local git commits or inotify filesystem changes.
-- [ ] **Local GitOps Project Orchestration Pipeline (`devops argo cd apps bootstrap-gitops`) (P1 - High)**:
+- [x] **Local GitOps Project Orchestration Pipeline (`devops argo cd apps bootstrap-gitops`) (P1 - High)**:
   - *Context & Rationale*: One-click bootstrap configuring the local background Git daemon (`git://host.minikube.internal:9418/k8s`), ArgoCD Root Application ("App of Apps"), and multi-stack lifecycle (`infra`, `llm`, `logging`).
-- [ ] **Extended GitHub Enterprise Automation & Secret Sync (`devops gh branch-protection`, `secrets`) (P2 - Medium, Issue #114)**:
+- [x] **Extended GitHub Enterprise Automation & Secret Sync (`devops gh branch-protection`, `secrets`) (P2 - Medium, Issue #114)**:
   - *Context & Rationale*: Declarative branch protection policy enforcement and libsodium-encrypted secret synchronization from OS Keyring/Vault to GitHub repository secrets.
-- [ ] **Core Dependency Ecosystem Alignment & Lockfile Synchronization (`pyproject.toml`) (P2 - Medium, Issue #115)**:
+- [x] **Core Dependency Ecosystem Alignment & Lockfile Synchronization (`pyproject.toml`) (P2 - Medium, Issue #115)**:
   - *Context & Rationale*: Scheduled compatibility validation and lockfile updates across `typer`, `pydantic-ai`, `httpx2`, `ruff`, and `anthropic`.
-- [ ] **Centralized Logging Perimeter Hardening & Fluent Bit Namespace Scoping (P2 - Medium, Issue #121)**:
+- [x] **Centralized Logging Perimeter Hardening & Fluent Bit Namespace Scoping (P2 - Medium, Issue #121)**:
   - *Context & Rationale*: Harden Fluent Bit log forwarding perimeter to enforce explicit namespace whitelisting and drop un-sanitized log streams before entering Loki.
-- [ ] **Deterministic Async Memory & Connection Pool Profiler (`devops test profile-memory`) (P2 - Medium)**:
+- [x] **Deterministic Async Memory & Connection Pool Profiler (`devops test profile-memory`) (P2 - Medium, Issue #199)**:
   - *Context & Rationale*: Diagnostic tool leveraging Python `tracemalloc` to validate socket lifecycles and catch memory leaks across background daemons and FastMCP workers.
 
 ### Dynamic API Fuzzing, Deterministic Evaluator Battery & Workload Security (v0.2.18 - Scheduled)
@@ -602,10 +602,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | GitHub Pages Publishing & Deployment Verification CLI (`devops gh pages`) | Python / Jekyll / GitHub REST | High | Low | v0.2.14 | ✅ Completed |
 | | FastMCP GitHub Pages, Issues & Views Tools (10 Tools) | FastMCP / Pydantic | High | Low | v0.2.14 | ✅ Completed |
 | | FastMCP Library Tools & Indexed Resource | FastMCP / Qdrant | High | Low | v0.2.14 | ✅ Completed |
-| | Declarative Branch Protection Auditor (`devops gh branch-protection`) | GitHub REST / Policy | High | Low | v0.2.17 | 📋 Scheduled (P2) |
-| | Workstation Secret to GitHub Secret Sync (`devops gh secrets`) | `PyNaCl` / Keyring / Vault | High | Low | v0.2.17 | 📋 Scheduled (P2) |
-| | Deterministic Async Memory & Pool Profiler | `asyncio` / `tracemalloc` | Medium | Low | v0.2.17 | 📋 Scheduled (P2) |
-| | Endpoint & Readiness Probing Subsystem (`devops sandbox probe`) | Standard Library (`http.client`, `socket`) | High | Low | v0.2.17 | 📋 Scheduled (P0) |
+| | Declarative Branch Protection Auditor (`devops gh branch-protection`) | GitHub REST / Policy | High | Low | v0.2.17 | ✅ Completed |
+| | Workstation Secret to GitHub Secret Sync (`devops gh secrets`) | `PyNaCl` / Keyring / Vault | High | Low | v0.2.17 | ✅ Completed |
+| | Deterministic Async Memory & Pool Profiler | `asyncio` / `tracemalloc` | Medium | Low | v0.2.17 | ✅ Completed |
+| | Endpoint & Readiness Probing Subsystem (`devops sandbox probe`) | Standard Library (`http.client`, `socket`) | High | Low | v0.2.17 | ✅ Completed |
 | | Minimal Fuzzing Repro Case Generator (`.data/sandbox/repros/`) | Standard Library (`json`, `pathlib`) | High | Low | v0.2.18 | 📋 Scheduled (P0) |
 | | Container Filesystem Mutation Auditor (`docker diff`) | Docker CLI / Subprocess | High | Low | v0.2.18 | 📋 Scheduled (P1) |
 | | Ephemeral Shadow Worktrees & CoW State Snapshots (`devops sandbox worktree`) | Git Worktrees / CoW | High | Low | v0.2.20 | 📋 Scheduled (P0) |
@@ -679,13 +679,13 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Multi-Cluster ArgoCD Fleet Sync & Rollouts | Argo Rollouts / Prometheus | High | High | v0.2.15 | ✅ Completed (P1) |
 | | Optimize Caching Configuration Across All GitHub Workflows | GitHub Actions / `actions/cache` | High | Low | v0.2.15 | ✅ Completed (P2) |
 | | Modularize Agent Task Tracking to Eliminate Merge Conflicts | `docs/agent/tasks/` / Projects v2 | High | Low | v0.2.15 | ✅ Completed (P1) |
-| | Automated GitOps Drift Detection & Webhook Sync | Watchdog / ArgoCD REST | High | Medium | v0.2.17 | 📋 Scheduled (P1) |
+| | Automated GitOps Drift Detection & Webhook Sync | Watchdog / ArgoCD REST | High | Medium | v0.2.17 | ✅ Completed (P1) |
 | | Sigstore Cosign Container Provenance (`devops docker sign|verify`) | `cosign` CLI / OS Keyring | High | Medium | v0.2.18 | 📋 Scheduled (P1) |
 | | Falco eBPF Runtime Security & Anomaly Streamer | `falco` / eBPF | High | Medium | v0.2.18 | 📋 Scheduled (P2) |
-| | Ephemeral Workload Sandbox Lifecycle Engine (`devops sandbox`) | Docker SDK / Rootless Containers | High | Medium | v0.2.16 | 🔄 In Review (PR #157) |
+| | Ephemeral Workload Sandbox Lifecycle Engine (`devops sandbox`) | Docker SDK / Rootless Containers | High | Medium | v0.2.16 | ✅ Completed |
 | | Deterministic Evaluator Battery & Structured Diagnostic Feedback | `pytest` / `ruff` / `mypy` / `bandit` / `trivy` | High | Medium | v0.2.18 | 📋 Scheduled (P0) |
-| | Cgroup Metrics & Prometheus Scraping Subsystem | `prometheus-client` / cgroups | High | Medium | v0.2.17 | 📋 Scheduled (P1) |
-| | W3C Traceparent Propagation & Distributed Trace Correlation | OpenTelemetry SDK / Jaeger | High | Medium | v0.2.17 | 📋 Scheduled (P1) |
+| | Cgroup Metrics & Prometheus Scraping Subsystem | `prometheus-client` / cgroups | High | Medium | v0.2.17 | ✅ Completed (P1) |
+| | W3C Traceparent Propagation & Distributed Trace Correlation | OpenTelemetry SDK / Jaeger | High | Medium | v0.2.17 | ✅ Completed (P1) |
 | | OpenAPI & Schema-Driven Dynamic API Fuzzer (`devops sandbox fuzz`) | `hypothesis` / OpenAPI / Mutators | High | Medium | v0.2.18 | 📋 Scheduled (P0) |
 | | Agentic Sandbox Iteration Orchestration Loop (`devops sandbox iterate`) | PydanticAI / Docker / Evaluators | High | High | v0.2.18 | 📋 Scheduled (P0) |
 | | Regression Lock Engine & State Tracker (`IterationState`) | AST / Git / Pytest | High | Medium | v0.2.18 | 📋 Scheduled (P1) |
@@ -723,10 +723,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | | Logfire Structured AI Observability Bridge | `logfire` SDK / OTel | Medium | Medium | v0.2.13 | ✅ Completed |
 | | Autonomous RAG Index Drift Detection & Auto-Reindexing | Git / Qdrant Sync | Medium | Low | v0.2.14 | ✅ Completed |
 | | FastMCP K8s Centralized Log Tools (`k8s_logs_query`, `k8s_logs_tail`) | FastMCP / Loki REST API | High | Low | v0.2.15 | ✅ Completed (P0) |
-| | Local GitOps Project Orchestration Pipeline | Git Daemon / ArgoCD App-of-Apps | High | Medium | v0.2.17 | 📋 Scheduled (P1) |
-| | Core Dependency Ecosystem Alignment | `uv lock --upgrade` / PyPI | Medium | Low | v0.2.17 | 📋 Scheduled (P2) |
-| | Streaming Diagnostic Log Aggregator & Stacktrace Detector | `rich.live` / Regex | Medium | Low | v0.2.17 | 📋 Scheduled (P1) |
-| | Zero-Trust Filesystem & Credential Boundary Sandbox | `Path.is_relative_to` / Keyring | High | Low | v0.2.16 | 🔄 In Review (PR #157) |
+| | Local GitOps Project Orchestration Pipeline | Git Daemon / ArgoCD App-of-Apps | High | Medium | v0.2.17 | ✅ Completed (P1) |
+| | Core Dependency Ecosystem Alignment | `uv lock --upgrade` / PyPI | Medium | Low | v0.2.17 | ✅ Completed (P2) |
+| | Streaming Diagnostic Log Aggregator & Stacktrace Detector | `rich.live` / Regex | Medium | Low | v0.2.17 | ✅ Completed (P1) |
+| | Zero-Trust Filesystem & Credential Boundary Sandbox | `Path.is_relative_to` / Keyring | High | Low | v0.2.16 | ✅ Completed |
 | | Sandbox Chaos Fault & Resource Exhaustion Injection | `tc` / cgroups / Signals | Medium | Medium | v0.2.18 | 📋 Scheduled (P1) |
 | | Sandbox Iteration Audit Trail & Replay Logger | JSONL / `.data/sandbox` | Medium | Low | v0.2.18 | 📋 Scheduled (P1) |
 | | FastMCP Sandbox Tools & Dynamic System Resources | FastMCP / PydanticAI | High | Low | v0.2.18 | 📋 Scheduled (P1) |

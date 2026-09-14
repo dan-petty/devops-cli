@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -111,10 +112,216 @@ class SandboxExecResult(BaseModel):
     duration_seconds: float = 0.0
 
 
+class ProbeProtocol(StrEnum):
+    """Supported network protocols for endpoint readiness and health probing."""
+
+    TCP = "tcp"
+    HTTP = "http"
+    OPENAPI = "openapi"
+    GRPC = "grpc"
+
+
+class ProbeStatus(StrEnum):
+    """Outcome status for individual probes and aggregated report."""
+
+    PASS = "pass"
+    FAIL = "fail"
+    TIMEOUT = "timeout"
+    SKIPPED = "skipped"
+
+
+def _sanitize_nested_detail(val: Any) -> Any:
+    """Recursively mask secrets and truncate strings to <= 1024 chars."""
+    if isinstance(val, str):
+        from devops_cli.security.sanitizer import mask_secrets
+
+        masked = mask_secrets(val)
+        return masked[:1021] + "..." if len(masked) > 1024 else masked
+    if isinstance(val, dict):
+        return {str(k): _sanitize_nested_detail(v) for k, v in val.items()}
+    if isinstance(val, (list, tuple)):
+        return [_sanitize_nested_detail(item) for item in val]
+    return val
+
+
+class EndpointProbeResult(BaseModel):
+    """Individual probe outcome for a specific target endpoint and protocol."""
+
+    protocol: ProbeProtocol
+    target: str
+    status: ProbeStatus
+    latency_ms: float = 0.0
+    status_code: int | None = None
+    message: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    @field_validator("details", mode="before")
+    @classmethod
+    def sanitize_and_truncate_details(cls, v: Any) -> dict[str, Any]:
+        """Truncate large string details and mask secrets to prevent log bloat and leakage."""
+        if not isinstance(v, dict):
+            return {}
+        return {str(k): _sanitize_nested_detail(val) for k, val in v.items()}
+
+
+class SandboxProbeReport(BaseModel):
+    """Aggregated health and readiness report for a sandbox or target."""
+
+    instance_id: str | None = None
+    target: str
+    overall_status: ProbeStatus
+    total_probes: int = 0
+    passed_probes: int = 0
+    failed_probes: int = 0
+    duration_seconds: float = 0.0
+    trace_id: str | None = None
+    results: list[EndpointProbeResult] = Field(default_factory=list)
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+
+class CgroupV2Metrics(BaseModel):
+    """Container resource telemetry extracted from cgroup v2 controllers."""
+
+    cpu_percent: float | None = None
+    cpu_usage_usec: int = 0
+    memory_current_bytes: int = 0
+    memory_peak_bytes: int | None = None
+    memory_limit_bytes: int | None = None
+    memory_usage_percent: float | None = None
+    page_faults_total: int = 0
+    pids_current: int = 0
+    open_fds_count: int | None = None
+    io_read_bytes: int = 0
+    io_write_bytes: int = 0
+    network_rx_bytes: int = 0
+    network_tx_bytes: int = 0
+
+    @property
+    def memory_current_mb(self) -> float:
+        """Return current memory consumption in megabytes."""
+        return round(self.memory_current_bytes / (1024 * 1024), 2)
+
+    @property
+    def memory_limit_mb(self) -> float | None:
+        """Return configured memory limit in megabytes if bounded."""
+        return (
+            round(self.memory_limit_bytes / (1024 * 1024), 2)
+            if self.memory_limit_bytes is not None
+            else None
+        )
+
+
+class PrometheusMetric(BaseModel):
+    """Single Prometheus metric sample with labels and value."""
+
+    name: str
+    metric_type: str = "untyped"
+    labels: dict[str, str] = Field(default_factory=dict)
+    value: float = 0.0
+    timestamp: str | None = None
+
+
+class SandboxMetricsSnapshot(BaseModel):
+    """Point-in-time container resource telemetry and application metrics snapshot."""
+
+    instance_id: str | None = None
+    target: str
+    cgroup: CgroupV2Metrics | None = None
+    prometheus_metrics: list[PrometheusMetric] = Field(default_factory=list)
+    scrape_error: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    @property
+    def is_healthy(self) -> bool:
+        """Check if snapshot has no threshold warnings or scrape errors."""
+        if self.scrape_error is not None:
+            return False
+        return len(self.warnings) == 0
+
+
+class PanicType(StrEnum):
+    """Categorization of detected runtime crashes, panics, and stacktraces."""
+
+    PYTHON_TRACEBACK = "python_traceback"
+    GO_PANIC = "go_panic"
+    JAVA_STACKTRACE = "java_stacktrace"
+    RUST_PANIC = "rust_panic"
+    SEGFAULT = "segfault"
+    UNKNOWN = "unknown"
+
+
+class PanicIncident(BaseModel):
+    """Structured diagnostic incident record captured from workload container logs."""
+
+    incident_id: str
+    instance_id: str
+    container_id: str
+    panic_type: PanicType
+    message: str
+    stacktrace: list[str] = Field(default_factory=list)
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    log_stream: str = "stderr"
+    archived_path: str | None = None
+    archive_error: str | None = None
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def enforce_message_length_cap(cls, v: Any) -> str:
+        """Cap incident message length to 256 chars and mask secrets to prevent leakage."""
+        from devops_cli.security.sanitizer import mask_secrets
+
+        text = mask_secrets(str(v)) if v else ""
+        return text[:256] if len(text) > 256 else text
+
+    @field_validator("stacktrace", mode="before")
+    @classmethod
+    def sanitize_stacktrace(cls, v: Any) -> list[str]:
+        """Mask secrets in stacktrace lines."""
+        if not isinstance(v, list):
+            return []
+        from devops_cli.security.sanitizer import mask_secrets
+
+        return [mask_secrets(str(line)) for line in v]
+
+
+class SandboxLogLine(BaseModel):
+    """Parsed single line of sandbox container log output."""
+
+    timestamp: str | None = None
+    stream: str = "stdout"
+    content: str
+    is_panic: bool = False
+    panic_type: PanicType | None = None
+
+
+class SandboxLogsReport(BaseModel):
+    """Aggregated container logs, statistics, and detected panic incident collection."""
+
+    instance_id: str
+    container_id: str
+    total_lines: int = 0
+    panics_detected: int = 0
+    incidents: list[PanicIncident] = Field(default_factory=list)
+    lines: list[SandboxLogLine] = Field(default_factory=list)
+
+
 __all__ = [
+    "CgroupV2Metrics",
+    "EndpointProbeResult",
+    "PanicIncident",
+    "PanicType",
     "PortBinding",
+    "ProbeProtocol",
+    "ProbeStatus",
+    "PrometheusMetric",
     "SandboxDeployConfig",
     "SandboxExecResult",
     "SandboxInstance",
+    "SandboxLogLine",
+    "SandboxLogsReport",
+    "SandboxMetricsSnapshot",
+    "SandboxProbeReport",
     "SandboxStatus",
 ]

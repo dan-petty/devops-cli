@@ -66,6 +66,60 @@ devops pr checks [OPTIONS] <number>
 
 ---
 
+## `devops pr wait`
+
+**Monitor PR checks, Copilot review sessions, and unresolved threads until ready.**
+
+```bash
+devops pr wait [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
+| `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
+| `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
+| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+---
+
+## `devops pr monitor`
+
+**Monitor PR checks, Copilot review sessions, and unresolved threads until ready.**
+
+```bash
+devops pr monitor [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
+| `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
+| `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
+| `--require-reviews`, `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+---
+
 ## `devops pr edit`
 
 **Edit pull request base branch, title, or body.**
@@ -107,6 +161,102 @@ devops pr create [OPTIONS]
 | `--body`, `-b` | `string` | `` | Body or description text. |
 | `--base`, `-B` | `string` | - | Base git branch to diff against (default: main). |
 | `--draft`, `-d` | `boolean` | - | Create pull request or entity as draft. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+---
+
+## `devops pr ready`
+
+**Mark a draft pull request as ready for review.**
+
+```bash
+devops pr ready [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--monitor`, `-m` | `boolean` | - | Automatically transition to monitoring checks and reviews after marking ready. |
+
+---
+
+## `devops pr diff`
+
+**View diff of a pull request.**
+
+```bash
+devops pr diff [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--color` | `string` | `auto` | Whether to colorize diff (always, never, auto). |
+
+---
+
+## `devops pr close`
+
+**Close a pull request.**
+
+```bash
+devops pr close [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--comment`, `-c` | `string` | - | Comment text to include when closing the pull request. |
+| `--delete-branch`, `-d` | `boolean` | - | Delete remote topic branch upon closing. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+---
+
+## `devops pr check-readiness`
+
+**Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state.**
+
+```bash
+devops pr check-readiness [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | PR number to verify (defaults to current branch PR) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
+| `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
+| `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
+| `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---
@@ -181,5 +331,26 @@ devops pr threads unresolve <thread_id>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<thread_id>` | `string` | Yes | Review thread GraphQL ID (e.g. PRRT_...). |
+
+### `devops pr threads resolve-all`
+
+**Resolve all or replied review discussion threads for a pull request.**
+
+```bash
+devops pr threads resolve-all [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--only-replied`, `--all` | `boolean` | `True` | Only resolve threads that have received one or more in-thread replies. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ---

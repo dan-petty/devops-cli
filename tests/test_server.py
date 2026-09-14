@@ -147,16 +147,16 @@ def test_config_recursive_redaction_helper() -> None:
 
 def test_server_cors_configuration() -> None:
     """Test server CORS middleware uses safe explicit origin list."""
-    app = create_app(cors_origins=["https://dashboard.example.com"])
+    app = create_app(cors_origins=["https://example.com"])
     custom_client = TestClient(app)
     res = custom_client.options(
         "/",
         headers={
-            "Origin": "https://dashboard.example.com",
+            "Origin": "https://example.com",
             "Access-Control-Request-Method": "GET",
         },
     )
-    assert res.headers.get("access-control-allow-origin") == "https://dashboard.example.com"
+    assert res.headers.get("access-control-allow-origin") == "https://example.com"
 
 
 def test_workspaces_endpoint_empty_repos(

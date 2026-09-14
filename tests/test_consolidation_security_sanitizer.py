@@ -121,7 +121,7 @@ def test_devops_cli_error_masks_message_and_details() -> None:
 
     raw_token = "ghp_1234567890abcdef1234"
     raw_pass = "password='SuperSecretPass123!'"
-    raw_url = "https://user:mypassword999@vault.internal:8200"
+    raw_url = "https://user:mypassword999@example.com:8200"
 
     err = DevOpsCLIError(
         f"Failed operation with token {raw_token}",
@@ -245,6 +245,12 @@ def test_sanitize_command_args_for_display() -> None:
         "--verbose",
         "status",
     ]
+
+    cmd_pos = ["devops", "deploy", "ghp_1234567890abcdef1234567890", "regular_arg"]
+    sanitized_pos = sanitize_command_args_for_display(cmd_pos)
+    assert "ghp_1234567890abcdef1234567890" not in sanitized_pos[2]
+    assert "<masked-github-token>" in sanitized_pos[2]
+    assert sanitized_pos[3] == "regular_arg"
 
 
 def test_sanitize_telemetry_endpoint() -> None:

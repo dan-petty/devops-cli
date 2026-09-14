@@ -132,6 +132,7 @@ def show() -> None:
     _row(opt.AI_API_BASE_URL, settings.ai.api_base_url)
     _row(opt.AI_ALLOW_PRIVATE_NETWORK, settings.ai.allow_private_network)
     _secret_row(opt.AI_API_KEY, _is_secret_configured(opt.AI_API_KEY))
+    _row(opt.K8S_CONTEXT, settings.k8s.context)
 
     print_table(
         title=MESSAGES.config.header,

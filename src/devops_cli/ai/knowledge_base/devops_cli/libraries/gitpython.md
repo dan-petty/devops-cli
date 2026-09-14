@@ -7,7 +7,7 @@
 | **Official Documentation** | [gitpython.readthedocs.io](https://gitpython.readthedocs.io/) |
 | **Public Git Repository** | [github.com/gitpython-developers/GitPython](https://github.com/gitpython-developers/GitPython) |
 | **Official PyPI Package** | [pypi.org/project/GitPython](https://pypi.org/project/GitPython/) (`3.1.60`) |
-| **DevOps CLI Integration** | [`src/devops_cli/git/`](file:///workspaces/devops-cli/src/devops_cli/git/) • [`src/devops_cli/commands/branches.py`](file:///workspaces/devops-cli/src/devops_cli/commands/branches.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/git/`](../../../../../src/devops_cli/git/) • [`src/devops_cli/commands/branches.py`](../../../../../src/devops_cli/commands/branches.py) |
 
 ---
 

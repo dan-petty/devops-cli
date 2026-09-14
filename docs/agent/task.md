@@ -6,7 +6,34 @@
 
 ---
 
-## Active Milestone: v0.2.16
+## Active Milestone: v0.2.17 (Sandbox Runtime Observability, Dynamic Probing & Telemetry Correlation)
+
+| Issue | PR | Title | Status | Task File |
+| :--- | :--- | :--- | :--- | :--- |
+| [#107](https://github.com/dan-petty/devops-cli/issues/107) | [#163](https://github.com/dan-petty/devops-cli/pull/163) | Protocol-agnostic endpoint readiness and health probing subsystem (`devops sandbox probe`) | `Done` | [`task-107-sandbox-probe-subsystem.md`](tasks/task-107-sandbox-probe-subsystem.md) |
+| [#108](https://github.com/dan-petty/devops-cli/issues/108) | [#164](https://github.com/dan-petty/devops-cli/pull/164) | Cgroup v2 metrics collection and Prometheus application scraping (`devops sandbox metrics`) | `Done` | [`task-108-sandbox-metrics-cgroup-prom.md`](tasks/task-108-sandbox-metrics-cgroup-prom.md) |
+| [#109](https://github.com/dan-petty/devops-cli/issues/109) | [#178](https://github.com/dan-petty/devops-cli/pull/178) | W3C traceparent propagation and distributed trace correlation (`devops sandbox traces`) | `Done` | [`task-109-sandbox-traces-w3c-waterfall.md`](tasks/task-109-sandbox-traces-w3c-waterfall.md) |
+| [#110](https://github.com/dan-petty/devops-cli/issues/110) | [#179](https://github.com/dan-petty/devops-cli/pull/179) | Streaming diagnostic log aggregator and panic detector (`devops sandbox logs`) | `Done` | [`task-110-sandbox-logs-panic-detector.md`](tasks/task-110-sandbox-logs-panic-detector.md) |
+| [#111](https://github.com/dan-petty/devops-cli/issues/111) | [#195](https://github.com/dan-petty/devops-cli/pull/195) | Automated GitOps drift detection and webhook synchronization (`devops argo gitops watch`) | `Done` | [`task-111-argo-gitops-watch.md`](tasks/task-111-argo-gitops-watch.md) |
+| [#114](https://github.com/dan-petty/devops-cli/issues/114) | [#197](https://github.com/dan-petty/devops-cli/pull/197) | Declarative branch protection auditor and repository secret synchronization | `Done` | [`task-114-branch-protection-secrets.md`](tasks/task-114-branch-protection-secrets.md) |
+| [#115](https://github.com/dan-petty/devops-cli/issues/115) | [#194](https://github.com/dan-petty/devops-cli/pull/194) | Core dependency ecosystem alignment and lockfile synchronization | `Done` | [`task-115-core-dependency-alignment.md`](tasks/task-115-core-dependency-alignment.md) |
+| [#121](https://github.com/dan-petty/devops-cli/issues/121) | [#193](https://github.com/dan-petty/devops-cli/pull/193) | Centralized logging perimeter hardening and Fluent Bit namespace scoping | `Done` | [`task-121-logging-perimeter-hardening.md`](tasks/task-121-logging-perimeter-hardening.md) |
+| [#165](https://github.com/dan-petty/devops-cli/issues/165) | [#166](https://github.com/dan-petty/devops-cli/pull/166) | Require draft pull requests for in-progress work | `Done` | [`task-165-require-draft-prs-for-in-progress-work.md`](tasks/task-165-require-draft-prs-for-in-progress-work.md) |
+| [#170](https://github.com/dan-petty/devops-cli/issues/170) | [#171](https://github.com/dan-petty/devops-cli/pull/171) | Automated PR monitoring for CI checks, Copilot reviews & review threads | `Done` | [`task-170-pr-monitor-copilot-checks.md`](tasks/task-170-pr-monitor-copilot-checks.md) |
+| [#172](https://github.com/dan-petty/devops-cli/issues/172) | [#174](https://github.com/dan-petty/devops-cli/pull/174) | Configurable K8s context setting and conditional Minikube autostart | `Done` | [`task-172-k8s-context-minikube-autostart.md`](tasks/task-172-k8s-context-minikube-autostart.md) |
+| [#175](https://github.com/dan-petty/devops-cli/issues/175) | [#173](https://github.com/dan-petty/devops-cli/pull/173) | Project field options synchronization, complete pagination & generic owner resolution | `Done` | [`task-175-project-field-sync-pagination.md`](tasks/task-175-project-field-sync-pagination.md) |
+| [#176](https://github.com/dan-petty/devops-cli/issues/176) | [#177](https://github.com/dan-petty/devops-cli/pull/177) | Remediate DevSecOps review findings & enhance review self-improvement loop | `Done` | [`task-176-review-findings-self-improvement.md`](tasks/task-176-review-findings-self-improvement.md) |
+| [#183](https://github.com/dan-petty/devops-cli/issues/183) | [#182](https://github.com/dan-petty/devops-cli/pull/182) | Resolve Helm Stack Deploy SSA Conflicts, Loki Validation, and PodSecurity Failures | `Done` | [`task-183-stack-deploy-conflicts.md`](tasks/task-183-stack-deploy-conflicts.md) |
+| [#183](https://github.com/dan-petty/devops-cli/issues/183) | [#184](https://github.com/dan-petty/devops-cli/pull/184) | Gate PR Merge Readiness on Required Approvals, Mergeable State, and Reviewer Feedback | `Done` | [`task-183-pr-merge-readiness-gating.md`](tasks/task-183-pr-merge-readiness-gating.md) |
+| [#185](https://github.com/dan-petty/devops-cli/issues/185) | [#186](https://github.com/dan-petty/devops-cli/pull/186) | Remediate session 20260913-060209 findings and enhance review self-improvement loop | `Done` | [`task-185-review-remediation-self-improvement.md`](tasks/task-185-review-remediation-self-improvement.md) |
+| [#181](https://github.com/dan-petty/devops-cli/issues/181) | [#187](https://github.com/dan-petty/devops-cli/pull/187) | Implement native devops cli functionality for gh operations and pr governance | `Done` | [`task-181-native-gh-cli-pr-governance.md`](tasks/task-181-native-gh-cli-pr-governance.md) |
+| [#188](https://github.com/dan-petty/devops-cli/issues/188) | [#187](https://github.com/dan-petty/devops-cli/pull/187) | Gate pull request workflow on unresolved review threads and merge blockers | `Done` | [`task-188-ci-pr-merge-readiness-workflow-gate.md`](tasks/task-188-ci-pr-merge-readiness-workflow-gate.md) |
+| [#199](https://github.com/dan-petty/devops-cli/issues/199) | [#200](https://github.com/dan-petty/devops-cli/pull/200) | Deterministic async memory and connection pool profiler (`devops test profile-memory`) | `In Review` | [`task-199-async-memory-profiler.md`](tasks/task-199-async-memory-profiler.md) |
+
+
+---
+
+## Completed Milestone: v0.2.16
 
 | Issue | PR | Title | Status | Task File |
 | :--- | :--- | :--- | :--- | :--- |
@@ -25,21 +52,6 @@
 | [#106](https://github.com/dan-petty/devops-cli/issues/106) | [#157](https://github.com/dan-petty/devops-cli/pull/157) | Long-Running Workload Sandbox Lifecycle Engine (`devops sandbox`) | `Done` | [`task-106-workload-sandbox-lifecycle-engine.md`](tasks/task-106-workload-sandbox-lifecycle-engine.md) |
 | [#140](https://github.com/dan-petty/devops-cli/issues/140) | [#160](https://github.com/dan-petty/devops-cli/pull/160) | Add release notes extraction fallback and enforce changelog version check | `Done` | [`task-140-release-notes-extraction-fallback-and-changelog-check.md`](tasks/task-140-release-notes-extraction-fallback-and-changelog-check.md) |
 | [#158](https://github.com/dan-petty/devops-cli/issues/158) | [#159](https://github.com/dan-petty/devops-cli/pull/159) | Automatically Apply Formatting and Linting Across CLI and CI Commands | `Done` | [`task-158-automatically-apply-formatting-and-linting.md`](tasks/task-158-automatically-apply-formatting-and-linting.md) |
-
----
-
-## Scheduled Milestone: v0.2.17 (Sandbox Runtime Observability, Dynamic Probing & Telemetry Correlation)
-
-| Issue | PR | Title | Status | Task File |
-| :--- | :--- | :--- | :--- | :--- |
-| [#107](https://github.com/dan-petty/devops-cli/issues/107) | TBD | Protocol-agnostic endpoint readiness and health probing subsystem (`devops sandbox probe`) | `Ready` | Backlog |
-| [#108](https://github.com/dan-petty/devops-cli/issues/108) | TBD | Cgroup v2 metrics collection and Prometheus application scraping (`devops sandbox metrics`) | `Ready` | Backlog |
-| [#109](https://github.com/dan-petty/devops-cli/issues/109) | TBD | W3C traceparent propagation and distributed trace correlation (`devops sandbox traces`) | `Ready` | Backlog |
-| [#110](https://github.com/dan-petty/devops-cli/issues/110) | TBD | Streaming diagnostic log aggregator and panic detector (`devops sandbox logs`) | `Ready` | Backlog |
-| [#111](https://github.com/dan-petty/devops-cli/issues/111) | TBD | Automated GitOps drift detection and webhook synchronization (`devops argo gitops watch`) | `Ready` | Backlog |
-| [#114](https://github.com/dan-petty/devops-cli/issues/114) | TBD | Declarative branch protection auditor and repository secret synchronization | `Ready` | Backlog |
-| [#115](https://github.com/dan-petty/devops-cli/issues/115) | TBD | Core dependency ecosystem alignment and lockfile synchronization | `Ready` | Backlog |
-| [#121](https://github.com/dan-petty/devops-cli/issues/121) | TBD | Centralized logging perimeter hardening and Fluent Bit namespace scoping | `Ready` | Backlog |
 
 ---
 

@@ -138,3 +138,9 @@ def test_fix_llm_response_schema_validation() -> None:
     assert fixed.parsed_model.name == "DevOpsAgent"
     assert fixed.parsed_model.count == 10
     assert fixed.parsed_model.active is True
+
+
+def test_repair_json_string_rejects_oversized_payload() -> None:
+    """Verify repair_json_string returns None when input exceeds max length."""
+    oversized = "{" + (" " * (6 * 1024 * 1024)) + "}"
+    assert repair_json_string(oversized) is None

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Annotated, Any
+from typing import Annotated
 
 import typer
 
@@ -26,6 +26,12 @@ from devops_cli.telemetry.tracer import (
     get_tracer,
     record_metric,
     trace_span,
+)
+from devops_cli.telemetry.waterfall import (
+    flatten_waterfall_tree as _flatten_tree_for_display,
+)
+from devops_cli.telemetry.waterfall import (
+    render_waterfall_bar as _render_waterfall_bar,
 )
 
 app = new_typer(
@@ -234,42 +240,6 @@ def telemetry_test_cmd(
 # =============================================================================
 # Command: devops telemetry profile
 # =============================================================================
-
-
-def _render_waterfall_bar(
-    offset_pct: float, dur_pct: float, total_slots: int = 24, is_error: bool = False
-) -> str:
-    start_slot = min(total_slots - 1, int(offset_pct / 100.0 * total_slots))
-    span_len = max(1, min(total_slots - start_slot, int(dur_pct / 100.0 * total_slots)))
-
-    lead = " " * start_slot
-    bar = "█" * span_len
-    trail = " " * (total_slots - start_slot - span_len)
-
-    color = (
-        "red"
-        if is_error
-        else ("green" if dur_pct < 25 else ("yellow" if dur_pct < 65 else "magenta"))
-    )
-    return f"[{color}]{lead}{bar}{trail}[/{color}]"
-
-
-def _flatten_tree_for_display(
-    nodes: list[Any],
-) -> list[tuple[Any, str]]:
-    rows: list[tuple[Any, str]] = []
-
-    def _walk(node: Any, prefix: str = "", is_last: bool = True) -> None:
-        marker = "└─ " if is_last else "├─ "
-        display_prefix = prefix + marker if node.depth > 0 else ""
-        rows.append((node, display_prefix))
-        child_prefix = prefix + ("   " if is_last else "│  ") if node.depth > 0 else ""
-        for i, child in enumerate(node.children):
-            _walk(child, child_prefix, i == len(node.children) - 1)
-
-    for i, root in enumerate(nodes):
-        _walk(root, "", i == len(nodes) - 1)
-    return rows
 
 
 @app.command("profile")

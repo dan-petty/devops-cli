@@ -17,7 +17,12 @@ from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import format_duration, print_error, print_info, print_muted, print_success
-from devops_cli.telemetry.tracer import trace_span
+from devops_cli.telemetry.memory_profiler import (
+    MemoryProfileReport,
+    MemoryProfilerError,
+    run_memory_profiler,
+)
+from devops_cli.telemetry.tracer import record_metric, trace_span
 
 app = new_typer(help=HELP.test.app, no_args_is_help=False)
 
@@ -316,3 +321,140 @@ def test_sandbox(
     if res.exit_code != 0:
         raise typer.Exit(res.exit_code)
     print_success(f"✓ Sandbox workload completed in {format_duration(res.duration_seconds)}")
+
+
+def _render_memory_report(report: MemoryProfileReport) -> None:
+    """Render memory profile summary and top allocation table using output subsystem."""
+    from devops_cli.output import print_key_values, print_table
+
+    status_str = "[green]PASSED[/green]" if report.passed else "[red]FAILED[/red]"
+    leak_str = (
+        f"[red]{report.socket_leak_count}[/red]"
+        if report.socket_leak_count > 0
+        else "[green]0[/green]"
+    )
+    summary_items = [
+        ("Target", str(report.target)),
+        ("Duration", f"{report.duration_seconds:.3f}s"),
+        ("Current Heap", f"{report.current_kb:.2f} KB"),
+        ("Peak Heap", f"{report.peak_kb:.2f} KB ({report.peak_kb / 1024.0:.2f} MB)"),
+        ("Max Peak Threshold", f"{report.max_peak_mb:.2f} MB"),
+        ("Net Delta", f"{report.total_allocated_kb:.2f} KB"),
+        ("Sockets (Init/Final)", f"{report.initial_sockets} / {report.final_sockets}"),
+        ("Socket Leak Count", leak_str),
+        ("Overall Result", status_str),
+    ]
+
+    print_key_values(f"Memory Profiling Report: {report.target}", summary_items)
+
+    for warn in report.warnings:
+        print_error(f"Warning: {warn}", prefix=False)
+
+    if report.top_allocations:
+        columns = ["Rank", "Source Location", "Size", "Count"]
+        rows = [
+            [
+                str(idx),
+                f"{item.filename}:{item.line_number}",
+                item.size_human,
+                str(item.count),
+            ]
+            for idx, item in enumerate(report.top_allocations, start=1)
+        ]
+        print_table(columns=columns, rows=rows, title="Top Memory Allocations")
+
+
+@app.command("profile-memory")
+def test_profile_memory(
+    target: Annotated[
+        str,
+        typer.Argument(help=HELP.test.profile_target),
+    ] = "http-pool",
+    iterations: Annotated[
+        int,
+        typer.Option("--iterations", "-i", help=HELP.test.profile_iterations),
+    ] = 10,
+    top: Annotated[
+        int,
+        typer.Option("--top", "-t", help=HELP.test.profile_top),
+    ] = 10,
+    max_peak_mb: Annotated[
+        float,
+        typer.Option("--max-peak-mb", help=HELP.test.profile_max_peak_mb),
+    ] = 50.0,
+    fail_on_leak: Annotated[
+        bool,
+        typer.Option("--fail-on-leak/--ignore-leak", help=HELP.test.profile_fail_on_leak),
+    ] = True,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help=HELP.test.profile_output),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.test.json),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.test.dry_run),
+    ] = False,
+) -> None:
+    """Deterministic async memory and connection pool profiler using tracemalloc."""
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command=f"devops test profile-memory {target}",
+            action="profile_async_memory",
+            details={
+                "target": target,
+                "iterations": iterations,
+                "top": top,
+                "max_peak_mb": max_peak_mb,
+                "fail_on_leak": fail_on_leak,
+                "output": str(output) if output else None,
+            },
+        )
+        return
+
+    with trace_span("test.profile_memory", attributes={"target": target, "iterations": iterations}):
+        try:
+            report = run_memory_profiler(
+                target=target,
+                iterations=iterations,
+                top_n=top,
+                max_peak_mb=max_peak_mb,
+            )
+        except (MemoryProfilerError, ValueError) as exc:
+            print_error(str(exc)[:256], prefix=False)
+            raise typer.Exit(1) from exc
+
+        record_metric("test.profile_memory.invocations", 1.0, attributes={"target": target})
+        record_metric(
+            "test.profile_memory.duration_seconds",
+            report.duration_seconds,
+            unit="s",
+            attributes={"target": target},
+        )
+        record_metric(
+            "test.profile_memory.peak_kb",
+            report.peak_kb,
+            unit="By",
+            attributes={"target": target},
+        )
+
+        if output:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+            if not json_output:
+                print_success(f"Report written to {output}")
+
+        if json_output:
+            print(report.model_dump_json(indent=2))
+        else:
+            _render_memory_report(report)
+
+        peak_mb = report.peak_kb / 1024.0
+        if peak_mb > report.max_peak_mb:
+            raise typer.Exit(1)
+
+        if report.socket_leak_count > 0 and fail_on_leak:
+            raise typer.Exit(1)

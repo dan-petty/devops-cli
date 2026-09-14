@@ -226,7 +226,7 @@ def test_ensure_qdrant_api_key_secret_lifecycle() -> None:
 
         # Assert secret was applied via stdin and secret key was NOT passed in argv
         apply_call = mock_run.call_args_list[1]
-        assert apply_call.args[0] == ["kubectl", "apply", "-f", "-"]
+        assert apply_call.args[0][:4] == ["kubectl", "apply", "-f", "-"]
         assert apply_call.kwargs.get("input") is not None
         assert f'"api-key": "{key}"' in apply_call.kwargs["input"]
         assert not any(key in arg for arg in apply_call.args[0])

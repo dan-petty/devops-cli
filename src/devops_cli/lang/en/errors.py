@@ -135,6 +135,7 @@ class MCPErrorMessages:
         "Hyphen-prefixed values could be interpreted as flags by the underlying command."
     )
     integer_below_minimum: str = "Invalid value for '{name}': {value}. Must be >= {min_val}."
+    integer_above_maximum: str = "Invalid value for '{name}': {value}. Must be <= {max_val}."
     conflicting_symbol_and_pattern: str = (
         "Cannot specify both 'symbol' and 'pattern'; provide one or the other."
     )
@@ -199,6 +200,14 @@ class TfErrorMessages:
 class PRErrorMessages:
     list_failed: str = "Failed to list PRs: {error}"
     invalid_number: str = "Invalid PR number: {number}"
+    no_pr_for_branch: str = "No open pull request found for current branch '{branch}'."
+    monitor_timeout: str = (
+        "PR #{number} monitoring timed out after {timeout}s: checks or reviews still pending."
+    )
+    checks_failed: str = (
+        "✗ Remote CI checks failed on PR #{number} ({failed_count} failing check(s))."
+    )
+    unresolved_threads: str = "✗ PR #{number} has {count} unresolved review discussion thread(s)."
 
 
 @dataclass(frozen=True)

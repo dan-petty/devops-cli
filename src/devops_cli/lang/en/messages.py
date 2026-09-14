@@ -433,6 +433,17 @@ class PRMessages:
         "Pull request created successfully targeting base [bold]{target}[/bold]: {url}"
     )
     pr_updated_success: str = "Successfully updated PR #{number}"
+    monitoring_pr: str = "Monitoring PR #{number} for CI checks and review completion..."
+    pr_ready_success: str = "PR #{number} is 100% READY FOR MERGING: All checks passed, reviews complete, 0 unresolved threads."
+    pr_marked_ready_success: str = "PR #{number} marked as ready for review."
+    pr_already_ready: str = "PR #{number} is already marked ready for review."
+    pr_closed_success: str = "PR #{number} closed successfully."
+    pr_still_draft_error: str = (
+        "PR #{number} is still in draft state after ready conversion command."
+    )
+    checks_passed: str = "✓ All CI checks passed ({count}/{count} completed successfully)."
+    copilot_review_active: str = "Copilot review session is currently active..."
+    copilot_review_complete: str = "Copilot review session complete."
 
 
 @dataclass(frozen=True)

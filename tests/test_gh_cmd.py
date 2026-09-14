@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -331,3 +332,290 @@ def test_gh_pr_threads_alias() -> None:
         )
         assert result.exit_code == 0
         assert "No review threads found" in result.output
+
+
+def test_gh_rate_limit_table() -> None:
+    """devops gh rate-limit displays formatted rate limit table."""
+    mock_rate_limit = json.dumps(
+        {
+            "resources": {
+                "core": {"limit": 5000, "used": 10, "remaining": 4990, "reset": 1789249509},
+                "graphql": {"limit": 5000, "used": 5000, "remaining": 0, "reset": 1789246767},
+                "search": {"limit": 30, "used": 2, "remaining": 28, "reset": 1789245969},
+            }
+        }
+    )
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(returncode=0, stdout=mock_rate_limit, stderr=""),
+        ),
+    ):
+        result = runner.invoke(app, ["rate-limit"])
+        assert result.exit_code == 0
+        assert "GitHub API Rate Limits" in result.output
+        assert "graphql" in result.output
+        assert "4990" in result.output
+
+
+def test_gh_runs_list() -> None:
+    """devops gh runs list renders recent workflow runs table."""
+    mock_runs = json.dumps(
+        [
+            {
+                "databaseId": 12345678,
+                "name": "CI Quality Gate",
+                "status": "completed",
+                "conclusion": "success",
+                "headBranch": "feat/181",
+                "event": "push",
+                "url": "https://example.com/org/repo/actions/runs/12345678",
+            }
+        ]
+    )
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(returncode=0, stdout=mock_runs, stderr=""),
+        ),
+    ):
+        result = runner.invoke(app, ["runs", "list"])
+        assert result.exit_code == 0
+        assert "CI Quality Gate" in result.output
+        assert "12345678" in result.output
+
+
+def test_gh_runs_view_failed_logs() -> None:
+    """devops gh runs view with --log-failed fetches failed workflow logs."""
+    mock_log = "Error: Step failed with exit code 1"
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(returncode=0, stdout=mock_log, stderr=""),
+        ) as mock_subprocess,
+    ):
+        result = runner.invoke(app, ["runs", "view", "12345678", "--log-failed"])
+        assert result.exit_code == 0
+        assert "Step failed" in result.output
+        args = mock_subprocess.call_args[0][0]
+        assert "run" in args
+        assert "view" in args
+        assert "12345678" in args
+        assert "--log-failed" in args
+
+
+def test_gh_issues_edit_success() -> None:
+    """devops gh issues edit patches issue title, body, and state via stdin."""
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(returncode=0, stdout="", stderr=""),
+        ) as mock_sub,
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "issues",
+                "edit",
+                "185",
+                "--title",
+                "Updated Title",
+                "--body",
+                "Updated Body",
+                "--state",
+                "closed",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "updated successfully" in result.output
+        cmd = mock_sub.call_args[0][0]
+        assert "PATCH" in cmd
+        assert "issues/185" in cmd[4]
+        assert "--input" in cmd
+        payload = json.loads(mock_sub.call_args.kwargs["input"])
+        assert payload["title"] == "Updated Title"
+        assert payload["body"] == "Updated Body"
+        assert payload["state"] == "closed"
+
+
+def test_gh_issues_edit_error_masked() -> None:
+    """devops gh issues edit masks secret tokens in error output."""
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="HTTP 401: Bad credentials token ghp_secrettoken1234567890abcdefghijklmn",
+            ),
+        ),
+    ):
+        result = runner.invoke(app, ["issues", "edit", "185", "--title", "New Title"])
+        assert result.exit_code == 1
+        assert "ghp_secrettoken" not in result.output
+
+
+def test_gh_issues_edit_no_changes() -> None:
+    """devops gh issues edit warns when no changes are specified."""
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+    ):
+        result = runner.invoke(app, ["issues", "edit", "185"])
+        assert result.exit_code == 0
+        assert "No changes specified" in result.output
+
+
+def test_gh_rate_limit_error_masked() -> None:
+    """devops gh rate-limit masks secrets on error."""
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="Error ghp_secrettoken1234567890abcdefghijklmn",
+            ),
+        ),
+    ):
+        result = runner.invoke(app, ["rate-limit"])
+        assert result.exit_code == 1
+        assert "ghp_secrettoken" not in result.output
+
+
+def test_gh_runs_list_error_masked() -> None:
+    """devops gh runs list masks secrets on error."""
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="Error ghp_secrettoken1234567890abcdefghijklmn",
+            ),
+        ),
+    ):
+        result = runner.invoke(app, ["runs", "list"])
+        assert result.exit_code == 1
+        assert "ghp_secrettoken" not in result.output
+
+
+def test_gh_runs_view_error_masked() -> None:
+    """devops gh runs view masks secrets on error."""
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="Error ghp_secrettoken1234567890abcdefghijklmn",
+            ),
+        ),
+    ):
+        result = runner.invoke(app, ["runs", "view", "123456"])
+        assert result.exit_code == 1
+        assert "ghp_secrettoken" not in result.output
+
+
+def test_gh_rate_limit_json() -> None:
+    """devops gh rate-limit --format json outputs valid json."""
+    mock_data = json.dumps({"resources": {"core": {"limit": 5000, "remaining": 4999}}})
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(returncode=0, stdout=mock_data, stderr=""),
+        ),
+    ):
+        result = runner.invoke(app, ["rate-limit", "--format", "json"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert "resources" in parsed
+
+
+def test_gh_rate_limit_invalid_format() -> None:
+    """devops gh rate-limit --format invalid exits with error."""
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(returncode=0, stdout="{}", stderr=""),
+        ),
+    ):
+        result = runner.invoke(app, ["rate-limit", "--format", "xml"])
+        assert result.exit_code == 1
+        assert "Unsupported format" in result.output
+
+
+def test_gh_runs_list_json() -> None:
+    """devops gh runs list --format json outputs serialized json list."""
+    mock_runs = json.dumps([{"databaseId": 1234, "name": "CI", "status": "completed"}])
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(returncode=0, stdout=mock_runs, stderr=""),
+        ),
+    ):
+        result = runner.invoke(app, ["runs", "list", "--format", "json"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert len(parsed) == 1
+        assert parsed[0]["databaseId"] == 1234
+
+
+def test_gh_runs_list_options() -> None:
+    """devops gh runs list forwards branch and repo flags."""
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(returncode=0, stdout="[]", stderr=""),
+        ) as mock_sub,
+    ):
+        result = runner.invoke(
+            app, ["runs", "list", "--branch", "feat/test", "--repo", "custom/repo"]
+        )
+        assert result.exit_code == 0
+        cmd = mock_sub.call_args[0][0]
+        assert "--branch" in cmd
+        assert "feat/test" in cmd
+        assert "--repo" in cmd
+        assert "custom/repo" in cmd
+
+
+def test_gh_runs_view_full_log_and_job() -> None:
+    """devops gh runs view forwards --log, --job, and --repo."""
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch(
+            "devops_cli.commands.gh.run_subprocess",
+            return_value=MagicMock(returncode=0, stdout="Job log content\n", stderr=""),
+        ) as mock_sub,
+    ):
+        result = runner.invoke(
+            app, ["runs", "view", "999", "--log", "--job", "build", "--repo", "custom/repo"]
+        )
+        assert result.exit_code == 0
+        assert "Job log content" in result.output
+        cmd = mock_sub.call_args[0][0]
+        assert "--log" in cmd
+        assert "--job" in cmd
+        assert "build" in cmd
+        assert "--repo" in cmd
+        assert "custom/repo" in cmd

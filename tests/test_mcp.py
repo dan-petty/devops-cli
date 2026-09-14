@@ -361,6 +361,7 @@ def test_expanded_mcp_tools_and_prompts_execution() -> None:
         k8s_validate,
         pr_checks,
         pr_list,
+        pr_monitor,
         scan_aibom,
         scan_checkov,
         scan_complexity,
@@ -406,6 +407,8 @@ def test_expanded_mcp_tools_and_prompts_execution() -> None:
         assert branches_list() == "mock_output"
         assert pr_list(limit=5) == "mock_output"
         assert pr_checks(32) == "mock_output"
+        assert pr_monitor(168, timeout=60, interval=5, settle_timeout=10) == "mock_output"
+        assert pr_monitor() == "mock_output"
 
     # Prompts return formatted strings
     review_p = code_review_prompt(persona="architect", target="src/devops_cli")
@@ -430,13 +433,21 @@ def test_mcp_helpers_and_error_branches() -> None:
         "devops_cli.ai.mcp.server.run_subprocess",
         side_effect=subprocess.TimeoutExpired(cmd=["uv"], timeout=5.0),
     ):
-        res_to = _run_mcp_cmd(["uv", "run", "devops"], timeout=5.0)
+        res_to = _run_mcp_cmd(
+            ["uv", "run", "devops", "ghp_secrettoken1234567890abcdefghijklmn"],
+            timeout=5.0,
+        )
         assert "timed out after 5.0 seconds" in res_to
+        assert "ghp_secrettoken" not in res_to
 
     # 3. _run_mcp_cmd OSError
-    with patch("devops_cli.ai.mcp.server.run_subprocess", side_effect=OSError("binary not found")):
+    with patch(
+        "devops_cli.ai.mcp.server.run_subprocess",
+        side_effect=OSError("binary not found with ghp_secrettoken1234567890abcdefghijklmn"),
+    ):
         res_os = _run_mcp_cmd(["uv"])
         assert "Execution failed" in res_os
+        assert "ghp_secrettoken" not in res_os
 
     # 4. _run_mcp_cmd non-zero exit code
     mock_fail = subprocess.CompletedProcess(
@@ -464,6 +475,7 @@ def test_mcp_integer_bounds_validation() -> None:
         ai_architecture,
         pr_checks,
         pr_list,
+        pr_monitor,
         review_pr,
         verify_finding,
     )
@@ -471,16 +483,28 @@ def test_mcp_integer_bounds_validation() -> None:
     # Helper directly
     _validate_mcp_int_bound("valid_field", 1, min_val=1)
     _validate_mcp_int_bound("valid_field", 0, min_val=0)
+    _validate_mcp_int_bound("valid_field", 5, min_val=1, max_val=10)
     with pytest.raises(ValidationError, match="Must be >= 1"):
         _validate_mcp_int_bound("bad_field", 0, min_val=1)
     with pytest.raises(ValidationError, match="Must be >= 1"):
         _validate_mcp_int_bound("bad_field", -1, min_val=1)
+    with pytest.raises(ValidationError, match="Must be <= 10"):
+        _validate_mcp_int_bound("bad_field", 11, min_val=1, max_val=10)
 
     # Tools bounds
     with pytest.raises(ValidationError, match="pr_number"):
         pr_checks(0)
     with pytest.raises(ValidationError, match="pr_number"):
         pr_checks(-5)
+
+    with pytest.raises(ValidationError, match="timeout"):
+        pr_monitor(timeout=5)
+    with pytest.raises(ValidationError, match="timeout"):
+        pr_monitor(timeout=2000)
+    with pytest.raises(ValidationError, match="interval"):
+        pr_monitor(interval=1)
+    with pytest.raises(ValidationError, match="interval"):
+        pr_monitor(interval=200)
 
     with pytest.raises(ValidationError, match="number"):
         review_pr(0)

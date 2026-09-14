@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -10,6 +11,8 @@ from pydantic import BaseModel, Field
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
+
+logger = logging.getLogger(__name__)
 
 
 class ReviewComment(BaseModel):
@@ -176,14 +179,116 @@ def _parse_review_thread(node: dict[str, Any]) -> ReviewThread:
     )
 
 
-def list_pr_review_threads(
+def _is_rate_limit_error(msg: str) -> bool:
+    """Check if an error message indicates GitHub GraphQL rate limit exhaustion."""
+    lower = msg.lower()
+    return (
+        "rate limit" in lower
+        or "secondary rate" in lower
+        or "exceeded for user id" in lower
+        or "429" in lower
+    )
+
+
+def _group_rest_comments(raw_comments: list[dict[str, Any]]) -> list[ReviewThread]:
+    """Group REST comments into ReviewThread instances with attached replies."""
+    threads_map: dict[int, ReviewThread] = {}
+    replies: list[dict[str, Any]] = []
+
+    for item in raw_comments:
+        if not isinstance(item, dict):
+            continue
+        reply_to = item.get("in_reply_to_id")
+        cid = item.get("id")
+        if reply_to is None and cid is not None:
+            node_id = str(item.get("node_id") or cid)
+            user_obj = item.get("user")
+            author = str(user_obj.get("login", "")) if isinstance(user_obj, dict) else ""
+            root_comment = ReviewComment(
+                id=str(cid),
+                body=str(item.get("body", "")),
+                author=author,
+                created_at=str(item.get("created_at", "")),
+            )
+            threads_map[int(cid)] = ReviewThread(
+                id=node_id,
+                is_resolved=False,
+                path=str(item.get("path", "") or ""),
+                line=item.get("line"),
+                comments=[root_comment],
+            )
+        elif reply_to is not None:
+            replies.append(item)
+
+    for reply in replies:
+        parent_id = reply.get("in_reply_to_id")
+        if parent_id is not None and int(parent_id) in threads_map:
+            user_obj = reply.get("user")
+            author = str(user_obj.get("login", "")) if isinstance(user_obj, dict) else ""
+            threads_map[int(parent_id)].comments.append(
+                ReviewComment(
+                    id=str(reply.get("id", "")),
+                    body=str(reply.get("body", "")),
+                    author=author,
+                    created_at=str(reply.get("created_at", "")),
+                )
+            )
+
+    return list(threads_map.values())
+
+
+def fetch_review_threads_rest(
     owner: str,
     repo: str,
     pr_number: int,
     unresolved_only: bool = False,
 ) -> list[ReviewThread]:
-    """Retrieve PR review discussion threads via GitHub GraphQL API with cursor pagination."""
+    """Retrieve review threads via GitHub REST API with pagination as a fallback when GraphQL is unavailable.
+
+    Fails closed by treating all root review comments as unresolved threads since REST
+    does not expose thread resolution status. Groups in-thread replies under their root comment.
+    """
     repo_name = repo.split("/")[-1]
+    cmd = [
+        CONST_GH_CLI,
+        "api",
+        "--paginate",
+        f"repos/{owner}/{repo_name}/pulls/{pr_number}/comments",
+    ]
+    proc = run_subprocess(cmd)
+    if proc.returncode != 0:
+        err = proc.stderr.strip()[:256] if proc.stderr else f"Exit code {proc.returncode}"
+        raise GitHubOperationError(
+            f"Failed to fetch review comments for PR #{pr_number}: {err}",
+            operation="fetch_review_threads_rest",
+            details={"owner": owner, "repo": repo_name, "pr": pr_number},
+        )
+
+    if not proc.stdout.strip():
+        return []
+
+    try:
+        data = json.loads(proc.stdout)
+        if not isinstance(data, list):
+            return []
+        threads = _group_rest_comments(data)
+        if unresolved_only:
+            return [t for t in threads if not t.is_resolved]
+        return threads
+    except json.JSONDecodeError as exc:
+        raise GitHubOperationError(
+            f"Malformed review comment response for PR #{pr_number}: {str(exc)[:256]}",
+            operation="fetch_review_threads_rest",
+        ) from exc
+
+
+def _list_pr_review_threads_graphql(
+    owner: str,
+    repo_name: str,
+    pr_number: int,
+    unresolved_only: bool = False,
+) -> list[ReviewThread]:
+    """Execute paginated GraphQL query to retrieve PR review threads."""
     threads: list[ReviewThread] = []
     cursor: str | None = None
 
@@ -214,6 +319,32 @@ def list_pr_review_threads(
     if unresolved_only:
         return [t for t in threads if not t.is_resolved]
     return threads
+
+
+def list_pr_review_threads(
+    owner: str,
+    repo: str,
+    pr_number: int,
+    unresolved_only: bool = False,
+) -> list[ReviewThread]:
+    """Retrieve PR review discussion threads via GitHub GraphQL API with cursor pagination.
+
+    Automatically falls back to the GitHub REST API when GraphQL rate limits or secondary
+    rate limits are encountered.
+    """
+    repo_name = repo.split("/")[-1]
+    try:
+        return _list_pr_review_threads_graphql(owner, repo_name, pr_number, unresolved_only)
+    except GitHubOperationError as exc:
+        if _is_rate_limit_error(str(exc)):
+            logger.warning(
+                "GitHub GraphQL rate limit exceeded for PR #%d review threads; falling back to REST API.",
+                pr_number,
+            )
+            return fetch_review_threads_rest(
+                owner, repo_name, pr_number, unresolved_only=unresolved_only
+            )
+        raise
 
 
 def reply_pr_review_thread(thread_id: str, body: str) -> ReviewComment:
@@ -251,3 +382,43 @@ def unresolve_pr_review_thread(thread_id: str) -> ThreadResolutionResult:
     thread_data = data.get("data", {}).get("unresolveReviewThread", {}).get("thread", {})
     is_resolved = bool(thread_data.get("isResolved", False))
     return ThreadResolutionResult(thread_id=thread_id, is_resolved=is_resolved, success=True)
+
+
+def _attempt_resolve_thread(thread_id: str, pr_number: int) -> ThreadResolutionResult:
+    """Attempt to resolve an individual PR review thread, logging any failure defensively."""
+    try:
+        return resolve_pr_review_thread(thread_id)
+    except GitHubOperationError as exc:
+        logger.warning(
+            "Failed to resolve review thread %s on PR #%d: %s",
+            thread_id,
+            pr_number,
+            str(exc)[:256],
+        )
+        return ThreadResolutionResult(thread_id=thread_id, is_resolved=False, success=False)
+
+
+def resolve_all_pr_review_threads(
+    owner: str,
+    repo: str,
+    pr_number: int,
+    only_replied: bool = True,
+) -> list[ThreadResolutionResult]:
+    """Resolve review discussion threads on a PR, optionally filtering to replied-only threads.
+
+    Args:
+        owner: Repository owner/org.
+        repo: Repository name (with or without owner prefix).
+        pr_number: Pull request number.
+        only_replied: If True, only threads with at least one reply (len(comments) > 1) are resolved.
+
+    Returns:
+        List of ThreadResolutionResult for each attempted thread resolution.
+    """
+    repo_name = repo.split("/")[-1]
+    unresolved = list_pr_review_threads(owner, repo_name, pr_number, unresolved_only=True)
+    if not unresolved:
+        return []
+
+    targets = [t for t in unresolved if not only_replied or len(t.comments) > 1]
+    return [_attempt_resolve_thread(t.id, pr_number) for t in targets]

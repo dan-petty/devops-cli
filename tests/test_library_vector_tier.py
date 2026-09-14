@@ -485,7 +485,7 @@ def test_index_doc_chunks_namespaced_point_ids() -> None:
         chunk_id="intro_001",
         title="Introduction",
         content="Welcome to the library docs.",
-        source="https://docs.example.com",
+        source="https://example.com",
     )
     count = store.index_doc_chunks([chunk], package_name="demo-pkg")
     assert count == 1

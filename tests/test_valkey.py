@@ -242,7 +242,7 @@ class TestValkeyClient:
             with pytest.raises(
                 ValkeyConnectionError, match="link-local metadata endpoints are prohibited"
             ):
-                ValkeyClient(host="metadata.local", port=6379)
+                ValkeyClient(host="example.com", port=6379)
 
     def test_hostname_resolving_to_private_rejected_when_not_allowed(self) -> None:
         with patch(
@@ -250,12 +250,12 @@ class TestValkeyClient:
             return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 6379))],
         ):
             with pytest.raises(ValkeyConnectionError, match="non-public IP disallowed"):
-                ValkeyClient(host="internal.valkey.service", allow_private_network=False)
+                ValkeyClient(host="example.com", allow_private_network=False)
 
     def test_hostname_dns_failure_rejected_when_private_not_allowed(self) -> None:
         with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")):
             with pytest.raises(ValkeyConnectionError, match="DNS resolution failed"):
-                ValkeyClient(host="unresolvable.valkey.internal", allow_private_network=False)
+                ValkeyClient(host="example.com", allow_private_network=False)
 
     def test_scan_and_scan_iter(self) -> None:
         client = ValkeyClient(host="127.0.0.1", port=6379)
@@ -620,3 +620,29 @@ class TestValkeyCliCommands:
         assert res.exit_code != 0
         assert "ghp_secretvalkey" not in res.output
         assert "<masked-github-token>" in res.output
+
+
+def test_parse_valkey_endpoint_formats() -> None:
+    """Ensure parse_valkey_endpoint handles hostname:port, raw host, and uri schemes."""
+    from devops_cli.valkey.client import parse_valkey_endpoint
+
+    assert parse_valkey_endpoint("localhost:6379") == ("localhost", 6379)
+    assert parse_valkey_endpoint("127.0.0.1:6380") == ("127.0.0.1", 6380)
+    assert parse_valkey_endpoint("localhost", default_port=6379) == ("localhost", 6379)
+    assert parse_valkey_endpoint("valkey://localhost:6379") == ("localhost", 6379)
+    assert parse_valkey_endpoint("redis://127.0.0.1:6379") == ("127.0.0.1", 6379)
+    assert parse_valkey_endpoint("[::1]:6379") == ("::1", 6379)
+    assert parse_valkey_endpoint("[::1]") == ("::1", 6379)
+
+
+def test_valkey_config_hostname_port_normalization() -> None:
+    """Ensure ValkeyConfig normalizes host and port into standard hostname:port."""
+    from devops_cli.config.settings import ValkeyConfig
+
+    cfg1 = ValkeyConfig(host="localhost:6379")
+    assert cfg1.host == "localhost:6379"
+    assert cfg1.port == 6379
+
+    cfg2 = ValkeyConfig(host="localhost", port=6380)
+    assert cfg2.host == "localhost:6380"
+    assert cfg2.port == 6380

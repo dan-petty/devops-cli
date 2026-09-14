@@ -62,7 +62,7 @@ def test_k8s_enable_tls_dry_run(tmp_path: Path) -> None:
 def test_k8s_create_tls_secret_live(mock_cmd: MagicMock, tmp_path: Path) -> None:
     """devops k8s create-tls-secret executes kubectl create secret tls."""
     cert_path, key_path, _ = generate_server_certificate(
-        common_name="app.local",
+        common_name="example.com",
         output_dir=tmp_path,
     )
 

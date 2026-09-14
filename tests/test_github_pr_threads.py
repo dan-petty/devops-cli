@@ -234,3 +234,214 @@ def test_list_pr_review_threads_pagination() -> None:
         assert len(threads) == 2
         assert threads[0].id == "PRRT_1"
         assert threads[1].id == "PRRT_2"
+
+
+def test_list_pr_review_threads_graphql_rate_limit_fallback_to_rest() -> None:
+    """Verify list_pr_review_threads falls back to REST when GraphQL hits rate limits."""
+    mock_graphql_err = MagicMock()
+    mock_graphql_err.returncode = 1
+    mock_graphql_err.stderr = "GraphQL: API rate limit already exceeded for user ID 7726889."
+    mock_graphql_err.stdout = ""
+
+    rest_comments = [
+        {
+            "id": 101,
+            "node_id": "PRRC_node_101",
+            "in_reply_to_id": None,
+            "body": "Root comment on security",
+            "user": {"login": "security-reviewer"},
+            "path": "src/devops_cli/security.py",
+            "line": 42,
+            "created_at": "2026-09-09T10:00:00Z",
+        },
+        {
+            "id": 102,
+            "node_id": "PRRC_node_102",
+            "in_reply_to_id": 101,
+            "body": "Addressed with bounded timeout",
+            "user": {"login": "dan-petty"},
+            "path": "src/devops_cli/security.py",
+            "line": 42,
+            "created_at": "2026-09-09T10:05:00Z",
+        },
+        {
+            "id": 201,
+            "node_id": "PRRC_node_201",
+            "in_reply_to_id": None,
+            "body": "Independent comment",
+            "user": {"login": "copilot"},
+            "path": "src/devops_cli/main.py",
+            "line": 15,
+            "created_at": "2026-09-09T10:10:00Z",
+        },
+    ]
+    mock_rest_res = MagicMock()
+    mock_rest_res.returncode = 0
+    mock_rest_res.stdout = json.dumps(rest_comments)
+    mock_rest_res.stderr = ""
+
+    with patch(
+        "devops_cli.github.pr_threads.run_subprocess", side_effect=[mock_graphql_err, mock_rest_res]
+    ):
+        threads = list_pr_review_threads(
+            owner="dan-petty",
+            repo="devops-cli",
+            pr_number=83,
+            unresolved_only=False,
+        )
+        assert len(threads) == 2
+        # Verify thread 1 contains both root comment and reply
+        assert threads[0].id == "PRRC_node_101"
+        assert threads[0].path == "src/devops_cli/security.py"
+        assert threads[0].line == 42
+        assert len(threads[0].comments) == 2
+        assert threads[0].comments[0].id == "101"
+        assert threads[0].comments[0].author == "security-reviewer"
+        assert threads[0].comments[1].id == "102"
+        assert threads[0].comments[1].author == "dan-petty"
+
+        # Verify thread 2
+        assert threads[1].id == "PRRC_node_201"
+        assert threads[1].path == "src/devops_cli/main.py"
+        assert len(threads[1].comments) == 1
+
+
+def test_list_pr_review_threads_graphql_generic_error_propagates() -> None:
+    """Verify non-rate-limit GraphQL errors are raised without attempting REST fallback."""
+    mock_graphql_err = MagicMock()
+    mock_graphql_err.returncode = 1
+    mock_graphql_err.stderr = "Could not resolve to a Repository with the name 'unknown'."
+    mock_graphql_err.stdout = ""
+
+    with patch("devops_cli.github.pr_threads.run_subprocess", return_value=mock_graphql_err):
+        with pytest.raises(GitHubOperationError, match="Could not resolve to a Repository"):
+            list_pr_review_threads(owner="dan-petty", repo="devops-cli", pr_number=83)
+
+
+def test_fetch_review_threads_rest_empty() -> None:
+    """Verify fetch_review_threads_rest returns empty list when no comments exist."""
+    from devops_cli.github.pr_threads import fetch_review_threads_rest
+
+    mock_rest = MagicMock(returncode=0, stdout="[]", stderr="")
+    with patch("devops_cli.github.pr_threads.run_subprocess", return_value=mock_rest):
+        threads = fetch_review_threads_rest(owner="dan-petty", repo="devops-cli", pr_number=83)
+        assert threads == []
+
+
+def test_resolve_all_pr_review_threads_only_replied() -> None:
+    """Verify resolve_all_pr_review_threads only targets threads with replies when only_replied=True."""
+    from devops_cli.github.pr_threads import (
+        ReviewComment,
+        ReviewThread,
+        ThreadResolutionResult,
+        resolve_all_pr_review_threads,
+    )
+
+    t1 = ReviewThread(
+        id="PRRT_1",
+        is_resolved=False,
+        comments=[
+            ReviewComment(id="c1", body="Issue"),
+            ReviewComment(id="c2", body="Fixed in commit abc"),
+        ],
+    )
+    t2 = ReviewThread(
+        id="PRRT_2",
+        is_resolved=False,
+        comments=[ReviewComment(id="c3", body="Unaddressed issue")],
+    )
+
+    with (
+        patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[t1, t2]),
+        patch(
+            "devops_cli.github.pr_threads.resolve_pr_review_thread",
+            return_value=ThreadResolutionResult(thread_id="PRRT_1", is_resolved=True, success=True),
+        ) as mock_resolve,
+    ):
+        results = resolve_all_pr_review_threads("dan-petty", "devops-cli", 200, only_replied=True)
+        assert len(results) == 1
+        assert results[0].thread_id == "PRRT_1"
+        assert results[0].is_resolved is True
+        mock_resolve.assert_called_once_with("PRRT_1")
+
+
+def test_resolve_all_pr_review_threads_all() -> None:
+    """Verify resolve_all_pr_review_threads resolves all threads when only_replied=False."""
+    from devops_cli.github.pr_threads import (
+        ReviewComment,
+        ReviewThread,
+        ThreadResolutionResult,
+        resolve_all_pr_review_threads,
+    )
+
+    t1 = ReviewThread(
+        id="PRRT_1",
+        is_resolved=False,
+        comments=[ReviewComment(id="c1", body="Comment 1"), ReviewComment(id="c2", body="Reply")],
+    )
+    t2 = ReviewThread(
+        id="PRRT_2",
+        is_resolved=False,
+        comments=[ReviewComment(id="c3", body="Comment 2")],
+    )
+
+    def side_effect(tid: str) -> ThreadResolutionResult:
+        return ThreadResolutionResult(thread_id=tid, is_resolved=True, success=True)
+
+    with (
+        patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[t1, t2]),
+        patch(
+            "devops_cli.github.pr_threads.resolve_pr_review_thread", side_effect=side_effect
+        ) as mock_resolve,
+    ):
+        results = resolve_all_pr_review_threads("dan-petty", "devops-cli", 200, only_replied=False)
+        assert len(results) == 2
+        assert mock_resolve.call_count == 2
+
+
+def test_resolve_all_pr_review_threads_handles_individual_errors() -> None:
+    """Verify individual thread resolution errors are logged and captured without failing the batch."""
+    from devops_cli.github.pr_threads import (
+        ReviewComment,
+        ReviewThread,
+        ThreadResolutionResult,
+        resolve_all_pr_review_threads,
+    )
+
+    t1 = ReviewThread(
+        id="PRRT_1",
+        is_resolved=False,
+        comments=[ReviewComment(id="c1", body="Comment 1"), ReviewComment(id="c2", body="Reply")],
+    )
+    t2 = ReviewThread(
+        id="PRRT_2",
+        is_resolved=False,
+        comments=[ReviewComment(id="c3", body="Comment 2"), ReviewComment(id="c4", body="Reply")],
+    )
+
+    def side_effect(tid: str) -> ThreadResolutionResult:
+        if tid == "PRRT_1":
+            raise GitHubOperationError("GraphQL timeout")
+        return ThreadResolutionResult(thread_id=tid, is_resolved=True, success=True)
+
+    with (
+        patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[t1, t2]),
+        patch("devops_cli.github.pr_threads.resolve_pr_review_thread", side_effect=side_effect),
+    ):
+        results = resolve_all_pr_review_threads("dan-petty", "devops-cli", 200, only_replied=True)
+        assert len(results) == 2
+        assert results[0].thread_id == "PRRT_1"
+        assert results[0].success is False
+        assert results[0].is_resolved is False
+        assert results[1].thread_id == "PRRT_2"
+        assert results[1].success is True
+        assert results[1].is_resolved is True
+
+
+def test_resolve_all_pr_review_threads_empty() -> None:
+    """Verify resolve_all_pr_review_threads returns empty list when no unresolved threads exist."""
+    from devops_cli.github.pr_threads import resolve_all_pr_review_threads
+
+    with patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]):
+        results = resolve_all_pr_review_threads("dan-petty", "devops-cli", 200)
+        assert results == []

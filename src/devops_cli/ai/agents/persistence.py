@@ -36,7 +36,8 @@ class StepPersistence(BaseCapability):
     ) -> StepRecord:
         """Persist a discrete step record."""
         target_run_id = run_id or self.current_run_id
-        step = StepRecord(run_id=target_run_id, kind=kind, payload=payload)
+        clean_payload = _mask_sensitive_data(payload)
+        step = StepRecord(run_id=target_run_id, kind=kind, payload=clean_payload)
         self.store.save_step(step)
         return step
 

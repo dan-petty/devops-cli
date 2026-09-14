@@ -127,7 +127,7 @@ class TestPydanticAIRetriesSubsystem:
             wrapped=FlakyTransport(),
         )
         with httpx2.Client(transport=transport) as client:
-            resp = client.get("https://test.local/ai")
+            resp = client.get("https://example.com/ai")
             assert resp.status_code == 200
             assert resp.json() == {"result": "recovered"}
             assert attempts == 2
@@ -152,7 +152,7 @@ class TestPydanticAIRetriesSubsystem:
             wrapped=FlakyAsyncTransport(),
         )
         async with httpx2.AsyncClient(transport=transport) as client:
-            resp = await client.get("https://test.local/ai/async")
+            resp = await client.get("https://example.com/ai/async")
             assert resp.status_code == 200
             assert resp.json() == {"status": "ok"}
             assert attempts == 2

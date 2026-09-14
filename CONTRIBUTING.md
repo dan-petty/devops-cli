@@ -74,6 +74,9 @@ uv run pre-commit install
 - **Branch Targeting**:
   - All feature, fix, refactoring, and docs branches **must target the active release branch** (e.g. `--base release/v0.2.11`), **NEVER** `main` directly.
   - Official release branches target `main` when cutting an official release tag.
+- **Draft Pull Requests for In-Progress Work**:
+  - Open pull requests as drafts (`gh pr create --draft`) whenever implementation is ongoing or not yet ready for final maintainer review and merge.
+  - Convert to ready for review (`gh pr ready <pr-number>`) once all features, tests, and CI quality gates pass.
 - **Conventional Commits**:
   All commits must strictly follow the Conventional Commits format:
   ```

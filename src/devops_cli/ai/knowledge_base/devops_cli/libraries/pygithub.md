@@ -7,7 +7,7 @@
 | **Official Documentation** | [pygithub.readthedocs.io](https://pygithub.readthedocs.io/) |
 | **Public Git Repository** | [github.com/PyGithub/PyGithub](https://github.com/PyGithub/PyGithub) |
 | **Official PyPI Package** | [pypi.org/project/PyGithub](https://pypi.org/project/PyGithub/) (`2.10.0`) |
-| **DevOps CLI Integration** | [`src/devops_cli/commands/pr.py`](file:///workspaces/devops-cli/src/devops_cli/commands/pr.py) • [`src/devops_cli/commands/release.py`](file:///workspaces/devops-cli/src/devops_cli/commands/release.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/commands/pr.py`](../../../../../src/devops_cli/commands/pr.py) • [`src/devops_cli/commands/release.py`](../../../../../src/devops_cli/commands/release.py) |
 
 ---
 

@@ -48,9 +48,11 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.exceptions.k8s import (
     ChaosExecutionError,
+    GitOpsSyncError,
     KubernetesContextError,
     KubernetesDeployError,
     KubernetesError,
+    KubernetesLoggingError,
 )
 from devops_cli.exceptions.sandbox import (
     SandboxError,
@@ -115,6 +117,7 @@ __all__ = [
     "DocsIngestionError",
     "GitHubOperationError",
     "GitOperationError",
+    "GitOpsSyncError",
     "HarnessExecutionError",
     "HarnessValidationError",
     "IncompleteToolCall",
@@ -125,6 +128,7 @@ __all__ = [
     "KubernetesContextError",
     "KubernetesDeployError",
     "KubernetesError",
+    "KubernetesLoggingError",
     "LibraryIngestionError",
     "LibraryNotFoundError",
     "LLMInferenceError",

@@ -54,9 +54,9 @@ def test_tls_cert_command_live(tmp_path: Path) -> None:
             "--output-dir",
             str(tmp_path),
             "--common-name",
-            "app.local",
+            "example.com",
             "--san",
-            "app.local",
+            "example.com",
             "--san",
             "127.0.0.1",
         ],
@@ -82,7 +82,7 @@ def test_tls_inspect_and_verify_command(tmp_path: Path) -> None:
     """devops tls inspect and devops tls verify work on generated certificates."""
     ca_cert, ca_key = generate_ca_certificate(output_dir=tmp_path)
     srv_cert, _, _ = generate_server_certificate(
-        common_name="service.local",
+        common_name="example.com",
         ca_cert_path=ca_cert,
         ca_key_path=ca_key,
         output_dir=tmp_path,
@@ -92,7 +92,7 @@ def test_tls_inspect_and_verify_command(tmp_path: Path) -> None:
     inspect_res = runner.invoke(app, ["inspect", str(srv_cert)])
     assert inspect_res.exit_code == 0
     assert "Certificate Inspection" in inspect_res.output
-    assert "service.local" in inspect_res.output
+    assert "example.com" in inspect_res.output
 
     # Test verify
     verify_res = runner.invoke(app, ["verify", str(srv_cert), "--ca-cert", str(ca_cert)])
@@ -177,7 +177,7 @@ def test_tls_dry_runs_and_verification_failures(tmp_path: Path) -> None:
     set_dry_run(True)
     try:
         res_cert_dry = runner.invoke(
-            app, ["cert", "--common-name", "test.local", "--output-dir", str(tmp_path)]
+            app, ["cert", "--common-name", "example.com", "--output-dir", str(tmp_path)]
         )
         assert res_cert_dry.exit_code == 0
         assert "generate_tls_certificate" in res_cert_dry.output

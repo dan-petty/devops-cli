@@ -29,6 +29,22 @@ def parse_info_response(info_text: str) -> dict[str, str]:
     return result
 
 
+def parse_valkey_endpoint(endpoint: str, default_port: int = 6379) -> tuple[str, int]:
+    """Parse a hostname, hostname:port, or Valkey/Redis URI into host and port."""
+    clean = endpoint.strip()
+    clean = clean.removeprefix("valkey://").removeprefix("redis://").removeprefix("tcp://")
+    if clean.startswith("[") and "]:" in clean:
+        h, p = clean[1:].split("]:", 1)
+        return h, int(p) if p.isdigit() else default_port
+    if clean.startswith("[") and clean.endswith("]"):
+        return clean[1:-1], default_port
+    if clean.count(":") == 1:
+        parts = clean.rsplit(":", 1)
+        if parts[1].isdigit():
+            return parts[0], int(parts[1])
+    return clean, default_port
+
+
 class ValkeyClient:
     """Lightweight pure-Python client for Valkey using RESP2/RESP3 wire protocol."""
 
@@ -41,8 +57,7 @@ class ValkeyClient:
         timeout: float = 2.0,
         allow_private_network: bool = True,
     ) -> None:
-        self.host = host
-        self.port = port
+        self.host, self.port = parse_valkey_endpoint(host, default_port=port)
         self.password = password
         self.db = db
         self.timeout = timeout

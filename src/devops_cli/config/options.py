@@ -71,6 +71,9 @@ AI_CACHE_BACKEND = "ai.cache.backend"
 TELEMETRY_LOGFIRE = "telemetry.logfire"
 TELEMETRY_LOGFIRE_TOKEN = "telemetry.logfire_token"
 
+# Kubernetes Cluster & Minikube Configuration
+K8S_CONTEXT = "k8s.context"
+
 # Data Storage & Artifact Paths
 DATA_DIR = "data.dir"
 DATA_ANALYSIS_DIR = "data.analysis_dir"

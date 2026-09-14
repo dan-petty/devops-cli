@@ -49,6 +49,14 @@ OpenTelemetry distributed tracing and Prometheus metric export settings.
 | `logfire_token` | `Union` | - | - | - |
 | `logfire_send_to_logfire` | `Union` | `if-token-present` | - | - |
 
+## Kubernetes Configuration (`k8s`)
+
+Kubernetes cluster connection, Minikube, Helm, and Kustomize settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `context` | `str` | `minikube` | `DEVOPS_CLI_K8S_CONTEXT` | Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context) |
+
 ## AI & LLM Configuration (`ai`)
 
 AI code review, multi-agent pipelines, RAG semantic search, and embeddings.

@@ -7,7 +7,7 @@
 | **Official Documentation** | [bandit.readthedocs.io](https://bandit.readthedocs.io/) • [github.com/rhysd/actionlint](https://github.com/rhysd/actionlint) |
 | **Public Git Repository** | [github.com/PyCQA/bandit](https://github.com/PyCQA/bandit) • [github.com/rhysd/actionlint](https://github.com/rhysd/actionlint) |
 | **Official PyPI Packages** | `bandit==1.9.4`, `actionlint-py==1.7.12.24` |
-| **DevOps CLI Integration** | [`src/devops_cli/commands/ci.py`](file:///workspaces/devops-cli/src/devops_cli/commands/ci.py) • [`src/devops_cli/security/`](file:///workspaces/devops-cli/src/devops_cli/security/) |
+| **DevOps CLI Integration** | [`src/devops_cli/commands/ci.py`](../../../../../src/devops_cli/commands/ci.py) • [`src/devops_cli/security/`](../../../../../src/devops_cli/security/) |
 
 ---
 

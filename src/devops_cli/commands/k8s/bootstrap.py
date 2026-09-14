@@ -13,7 +13,6 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_ALL_STACK,
     DEFAULT_K8S_DIR,
 )
-from devops_cli.core.binaries import check_binary
 from devops_cli.dry_run import dry_run_command
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -44,20 +43,10 @@ def bootstrap(
     if not runtime._minikube_running():
         if auto_start:
             print_info(MESSAGES.k8s.starting_minikube, prefix=False)
-            has_gpu = check_binary("nvidia-smi")
-            started = False
-            if has_gpu:
-                start_res = runtime._run_cmd(
-                    ["minikube", "start", "--driver=docker", "--gpus=all"], check=False
-                )
-                started = start_res.returncode == 0 and runtime._minikube_running()
-            if not started:
-                start_res = runtime._run_cmd(["minikube", "start", "--driver=docker"], check=False)
-                started = start_res.returncode == 0 and runtime._minikube_running()
+            started, _ = runtime._start_minikube()
             if not started:
                 print_error(MESSAGES.k8s.failed_start_minikube, prefix=False)
                 raise typer.Exit(1)
-            runtime._run_cmd(["minikube", "update-context"], check=False)
         else:
             print_error(
                 MESSAGES.k8s.minikube_not_running,

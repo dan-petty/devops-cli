@@ -95,8 +95,9 @@ def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | Non
 
 def _detect_service_url(service: str, namespace: str, context: str | None = None) -> str | None:
     """Query service URL via minikube service or kubectl nodePort/cluster info."""
-    # 1. Try minikube service if context is not explicit non-minikube
-    if not context or context == "minikube":
+    effective_ctx = runtime.resolve_effective_context(context)
+    # 1. Try minikube service if context is minikube
+    if effective_ctx and effective_ctx.strip().lower() == "minikube":
         try:
             res = runtime.run_subprocess(
                 ["minikube", "service", service, "-n", namespace, "--url"],
@@ -115,7 +116,7 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
 
     # 2. Generic K8s nodePort or loadBalancer detection via kubectl
     try:
-        ctx_args = ["--context", context] if context else []
+        ctx_args = ["--context", effective_ctx] if effective_ctx else []
         svc_res = runtime.run_subprocess(
             ["kubectl", "get", "svc", service, "-n", namespace, "-o", "json"] + ctx_args,
             capture_output=True,
@@ -208,8 +209,9 @@ def configure_urls(
     ] = None,
 ) -> None:
     """Auto-detect Kubernetes stack URLs and update CLI config."""
-    if context:
-        runtime._validate_k8s_identifier(context, "context")
+    effective_context = runtime.resolve_effective_context(context)
+    if effective_context:
+        runtime._validate_kubeconfig_context_name(effective_context, "context")
 
     selected_stacks = _resolve_stacks(stack)
 
@@ -241,12 +243,12 @@ def configure_urls(
         )
         return
 
-    if not runtime._cluster_reachable(context=context):
+    if not runtime._cluster_reachable(context=effective_context):
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         raise typer.Exit(1)
 
     print_info(
-        f"[bold]Detecting {stack} service URLs (context: {context or 'active'})...[/bold]",
+        f"[bold]Detecting {stack} service URLs (context: {effective_context or 'active'})...[/bold]",
         prefix=False,
     )
 
@@ -256,12 +258,14 @@ def configure_urls(
     configured: dict[str, str] = {}
 
     if "infra" in selected_stacks:
-        raw_argocd = _detect_service_url("argocd-server", "argocd", context=context)
-        raw_grafana = _detect_service_url("kube-prometheus-grafana", "monitoring", context=context)
-        raw_prom = _detect_service_url(
-            "kube-prometheus-kube-prome-prometheus", "monitoring", context=context
+        raw_argocd = _detect_service_url("argocd-server", "argocd", context=effective_context)
+        raw_grafana = _detect_service_url(
+            "kube-prometheus-grafana", "monitoring", context=effective_context
         )
-        raw_jaeger = _detect_service_url("jaeger", "otel", context=context)
+        raw_prom = _detect_service_url(
+            "kube-prometheus-kube-prome-prometheus", "monitoring", context=effective_context
+        )
+        raw_jaeger = _detect_service_url("jaeger", "otel", context=effective_context)
 
         argocd_url = _resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])
         grafana_url = _resolve_accessible_url(
@@ -286,10 +290,10 @@ def configure_urls(
             configured["otel.endpoint"] = "http://localhost:4318"
 
     if "llm" in selected_stacks:
-        raw_ollama = _detect_service_url("ollama", "llm", context=context)
-        raw_webui = _detect_service_url("open-webui", "llm", context=context)
-        raw_qdrant = _detect_service_url("qdrant", "llm", context=context)
-        raw_valkey = _detect_service_url("valkey", "llm", context=context)
+        raw_ollama = _detect_service_url("ollama", "llm", context=effective_context)
+        raw_webui = _detect_service_url("open-webui", "llm", context=effective_context)
+        raw_qdrant = _detect_service_url("qdrant", "llm", context=effective_context)
+        raw_valkey = _detect_service_url("valkey", "llm", context=effective_context)
 
         ollama_url = _resolve_accessible_url(raw_ollama, preferred_localhost_ports=[11434])
         webui_url = _resolve_accessible_url(raw_webui, preferred_localhost_ports=[3000, 8080])
@@ -351,8 +355,9 @@ def port_forward(
     """Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config."""
     import time
 
-    if context:
-        runtime._validate_k8s_identifier(context, "context")
+    effective_context = runtime.resolve_effective_context(context)
+    if effective_context:
+        runtime._validate_kubeconfig_context_name(effective_context, "context")
 
     selected_stacks = _resolve_stacks(stack)
 
@@ -385,7 +390,7 @@ def port_forward(
         )
         return
 
-    if not runtime._cluster_reachable(context=context):
+    if not runtime._cluster_reachable(context=effective_context):
         print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
         raise typer.Exit(1)
 
@@ -420,7 +425,7 @@ def port_forward(
     daemon_mgr = get_daemon_manager()
     active_forwards: list[PortForwardInfo] = daemon_mgr.list_forwards()
 
-    ctx_args = ["--context", context] if context else []
+    ctx_args = ["--context", effective_context] if effective_context else []
     for ns, svc, lport, rport in services:
         cmd = [
             "kubectl",
@@ -448,7 +453,7 @@ def port_forward(
 
     daemon_mgr.save_forwards(active_forwards)
     time.sleep(1.0)
-    configure_urls(stack=stack, context=context)
+    configure_urls(stack=stack, context=effective_context)
 
 
 def port_forward_status() -> None:

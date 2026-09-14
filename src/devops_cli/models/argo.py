@@ -94,3 +94,25 @@ class RolloutAnalysisResult(BaseModel):
     metric_results: list[dict[str, object]] = []
     action_taken: str = "promoted"
     reason: str = ""
+
+
+class GitOpsDriftEvent(BaseModel):
+    """Single file drift detection event."""
+
+    path: str
+    change_type: Literal["modified", "created", "deleted"]
+    timestamp: float
+    file_hash: str = ""
+
+
+class GitOpsSyncTriggerResult(BaseModel):
+    """Outcome of an automated GitOps sync trigger."""
+
+    app_name: str
+    changed_files: list[str] = []
+    status: Literal["Synced", "Triggered", "Skipped", "Failed", "DryRun"] = "Synced"
+    sync_mode: Literal["api", "webhook"] = "api"
+    message: str = ""
+    duration_seconds: float = 0.0
+    timestamp: float = 0.0
+    success: bool = True

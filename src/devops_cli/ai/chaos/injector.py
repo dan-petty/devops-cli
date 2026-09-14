@@ -121,7 +121,7 @@ class ModelChaosInjector:
         simulated_delay = (
             min(self.config.latency_ms / 1000.0, 0.01)
             if self.config.dry_run
-            else (self.config.latency_ms / 1000.0)
+            else min(self.config.latency_ms / 1000.0, 30.0)
         )
         time.sleep(simulated_delay)
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0

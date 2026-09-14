@@ -45,7 +45,15 @@ class SSRFBlockedError(SecurityError):
         scheme_str = f"{parsed.scheme}://" if parsed.scheme else ""
         safe_url = f"{scheme_str}{safe_host}{port_str}{parsed.path or ''}"
         msg = f"SSRF blocked: {safe_url} ({reason})"
-        err_details: dict[str, Any] = {"target_url": target_url, "reason": reason}
+        clean_target = str(target_url)
+        if parsed.password or parsed.username:
+            netloc = parsed.netloc
+            if "@" in netloc:
+                _, _, host_part = netloc.partition("@")
+                clean_target = parsed._replace(netloc=f"<auth>@{host_part}").geturl()
+        bounded_target = clean_target[:256]
+        bounded_reason = str(reason)[:256]
+        err_details: dict[str, Any] = {"target_url": bounded_target, "reason": bounded_reason}
         if details:
             err_details.update(details)
         super().__init__(
