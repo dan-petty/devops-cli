@@ -348,14 +348,18 @@ def test_sandbox(
 
     print_info(f"Running command in sandbox ({image}, network={cfg.network_mode})...")
     res = sandbox_runner.run()
+    import sys
+
     from devops_cli.security.sanitizer import mask_secrets
 
     clean_out = mask_secrets(res.stdout)
     clean_err = mask_secrets(res.stderr)
     if clean_out:
-        print(clean_out, end="")
+        sys.stdout.write(clean_out)
+        sys.stdout.flush()
     if clean_err:
-        print_error(clean_err, prefix=False)
+        sys.stderr.write(clean_err)
+        sys.stderr.flush()
 
     if res.exit_code != 0:
         raise typer.Exit(res.exit_code)
