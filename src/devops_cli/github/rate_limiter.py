@@ -149,6 +149,7 @@ class GitHubAdaptiveLimiter:
 
         self.k = k if k is not None else (DEFAULT_GH_SHAPING_K * (self.quota / 5000.0))
         self.lock = asyncio.Lock()
+        self._live_window_updated = False
 
     def update_window_state(self, remaining: int, limit: int, epoch_reset: float | int) -> None:
         """Call this using headers parsed from your HTTP responses or gh api."""
@@ -156,6 +157,7 @@ class GitHubAdaptiveLimiter:
         self.remaining = max(0, remaining)
         self.seconds_until_reset = max(1.0, float(epoch_reset - time.time()))
         self.k = DEFAULT_GH_SHAPING_K * (self.quota / 5000.0)
+        self._live_window_updated = True
 
     @property
     def window_seconds(self) -> float:
@@ -184,34 +186,33 @@ class GitHubAdaptiveLimiter:
     def get_allowed_rate(self) -> float:
         """Calculate context-aware natural and burst baselines based on actual time remaining."""
         if self.remaining <= 0:
-            return 0.0001
+            return 0.0
 
-        # Calculate context-aware natural and burst baselines based on actual time remaining
-        natural_rate = self.remaining / max(1.0, self.seconds_until_reset)
-        initial_burst_rate = self.burst_multiplier * natural_rate
-
-        # Express consumption as distance from absolute threshold zero
         consumed_tokens = self.quota - self.remaining
         total_quota = max(1, self.quota)
 
         if consumed_tokens >= total_quota:
-            return 0.0001
+            return 0.0
+
+        if self._live_window_updated:
+            natural_rate = self.remaining / max(1.0, self.seconds_until_reset)
+        else:
+            natural_rate = self.quota / max(1.0, self.seconds_until_reset)
+        initial_burst_rate = self.burst_multiplier * natural_rate
 
         effective_k = (
             self.k if self.k is not None else (DEFAULT_GH_SHAPING_K * (total_quota / 5000.0))
         )
         exponent = -effective_k * ((1.0 / (total_quota - consumed_tokens)) - (1.0 / total_quota))
         if exponent < -700.0:
-            return 0.0001
+            return 0.0
         return initial_burst_rate * math.exp(exponent)
 
     async def acquire(self) -> float:
         """Blocks until a request is permitted based on the dynamic throttle."""
         async with self.lock:
             current_rate = self.get_allowed_rate()
-
-            # Reciprocal conversion into specific inter-request delay
-            delay = 1.0 / current_rate
+            delay = (1.0 / current_rate) if current_rate > 0.0 else 60.0
             if delay > 10.0:
                 logger.warning("[Adaptive] Brake engaged. Tight throttling. Delaying %.2fs", delay)
 
@@ -222,7 +223,7 @@ class GitHubAdaptiveLimiter:
     def acquire_sync(self) -> float:
         """Blocks synchronously until a request is permitted based on the dynamic throttle."""
         current_rate = self.get_allowed_rate()
-        delay = 1.0 / current_rate
+        delay = (1.0 / current_rate) if current_rate > 0.0 else 60.0
         if delay > 10.0:
             logger.warning("[Adaptive] Brake engaged. Tight throttling. Delaying %.2fs", delay)
         time.sleep(delay)
@@ -251,6 +252,8 @@ def calculate_allowed_rate(
         k=k,
     )
     limiter.remaining = remaining
+    if time_left is not None and time_left > 0:
+        limiter._live_window_updated = True
     return limiter.get_allowed_rate()
 
 

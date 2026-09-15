@@ -137,3 +137,51 @@ def test_reconcile_project_custom_fields_live() -> None:
         # Verify item-edit was called
         edit_calls = [c for c in mock_cmd.call_args_list if "item-edit" in c[0][0]]
         assert len(edit_calls) >= 5  # Status, Priority, Category, Value, Effort
+
+
+def test_is_graphql_quota_exhausted() -> None:
+    from devops_cli.github.projects import _is_graphql_quota_exhausted
+    from devops_cli.github.rate_limiter import QuotaState
+
+    mock_limiter = MagicMock()
+    # When last_updated is 0, not exhausted
+    mock_limiter.get_quota.return_value = QuotaState(remaining=10, last_updated=0.0)
+    with patch("devops_cli.github.projects.get_github_rate_limiter", return_value=mock_limiter):
+        assert _is_graphql_quota_exhausted(threshold=25) is False
+
+    # When remaining < threshold and last_updated > 0, exhausted
+    mock_limiter.get_quota.return_value = QuotaState(remaining=10, last_updated=100.0)
+    with patch("devops_cli.github.projects.get_github_rate_limiter", return_value=mock_limiter):
+        assert _is_graphql_quota_exhausted(threshold=25) is True
+
+    # When remaining >= threshold, not exhausted
+    mock_limiter.get_quota.return_value = QuotaState(remaining=100, last_updated=100.0)
+    with patch("devops_cli.github.projects.get_github_rate_limiter", return_value=mock_limiter):
+        assert _is_graphql_quota_exhausted(threshold=25) is False
+
+
+def test_reconcile_project_custom_fields_quota_exhausted() -> None:
+    with patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=True):
+        res = reconcile_project_custom_fields(
+            owner="owner",
+            repo="owner/repo",
+            project_number=2,
+            dry_run=False,
+        )
+        assert res["items_evaluated"] == 0
+        assert res["items_reconciled"] == 0
+
+
+def test_reconcile_project_custom_fields_empty_items_data() -> None:
+    with (
+        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
+        patch("devops_cli.github.projects._fetch_project_items_data", return_value={}),
+    ):
+        res = reconcile_project_custom_fields(
+            owner="owner",
+            repo="owner/repo",
+            project_number=2,
+            dry_run=False,
+        )
+        assert res["items_evaluated"] == 0
+        assert res["items_reconciled"] == 0
