@@ -6,15 +6,21 @@ import json
 import logging
 import re
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.defaults import DEFAULT_GH_BULK_QUOTA_THRESHOLD
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.client import parse_paginated_json
-from devops_cli.github.rate_limiter import run_gh
+from devops_cli.github.rate_limiter import (
+    extract_json_payload,
+    get_github_rate_limiter,
+    run_gh,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -324,14 +330,11 @@ def _find_project_via_rest(owner: str, name_or_short: str) -> dict[str, Any] | N
         proc = run_gh(cmd, check=False, quiet=True)
         if proc.returncode != 0 or not proc.stdout.strip():
             continue
-        try:
-            data = json.loads(proc.stdout)
-            if isinstance(data, list):
-                match = _find_project_in_list(data, name_or_short)
-                if match:
-                    return match
-        except json.JSONDecodeError:
-            continue
+        data = extract_json_payload(proc.stdout)
+        if isinstance(data, list):
+            match = _find_project_in_list(data, name_or_short)
+            if match:
+                return match
     return None
 
 
@@ -389,16 +392,13 @@ def _find_project_via_cli(owner: str, name_or_short: str) -> dict[str, Any] | No
         err = f"{proc.stderr or ''} {proc.stdout or ''}"
         check_github_rate_limit_error(err, operation="find_remote_project")
         return None
-    try:
-        data = json.loads(proc.stdout or "{}")
-        projects = (
-            data.get("projects", [])
-            if isinstance(data, dict)
-            else (data if isinstance(data, list) else [])
-        )
-        return _find_project_in_list(projects, name_or_short)
-    except Exception:
-        return None
+    data = extract_json_payload(proc.stdout)
+    projects = (
+        data.get("projects", [])
+        if isinstance(data, dict)
+        else (data if isinstance(data, list) else [])
+    )
+    return _find_project_in_list(projects, name_or_short)
 
 
 def find_remote_project(owner: str, name_or_short: str) -> dict[str, Any] | None:
@@ -431,11 +431,8 @@ def create_remote_project(owner: str, title: str) -> dict[str, Any]:
             operation="create_remote_project",
             details={"owner": owner, "title": title},
         )
-    try:
-        parsed = json.loads(proc.stdout or "{}")
-        return cast(dict[str, Any], parsed) if isinstance(parsed, dict) else {"title": title}
-    except Exception:
-        return {"title": title}
+    parsed = extract_json_payload(proc.stdout)
+    return cast(dict[str, Any], parsed) if isinstance(parsed, dict) else {"title": title}
 
 
 def link_project_to_repository(project_number: int, owner: str, repo: str) -> bool:
@@ -569,20 +566,15 @@ def _fetch_existing_fields_by_name(
     )
     if list_proc.returncode != 0 or not list_proc.stdout.strip():
         return {}
-    try:
-        data = json.loads(list_proc.stdout)
-        raw_fields = (
-            data.get("fields", [])
-            if isinstance(data, dict)
-            else (data if isinstance(data, list) else [])
-        )
-        return {
-            str(rf["name"]).lower(): rf
-            for rf in raw_fields
-            if isinstance(rf, dict) and "name" in rf
-        }
-    except Exception:
-        return {}
+    data = extract_json_payload(list_proc.stdout)
+    raw_fields = (
+        data.get("fields", [])
+        if isinstance(data, dict)
+        else (data if isinstance(data, list) else [])
+    )
+    return {
+        str(rf["name"]).lower(): rf for rf in raw_fields if isinstance(rf, dict) and "name" in rf
+    }
 
 
 def provision_remote_project_fields(
@@ -653,15 +645,25 @@ def _extract_item_url(it: dict[str, Any]) -> str | None:
     return content.get("url") or content.get("html_url") or it.get("url") or it.get("html_url")
 
 
+def _normalize_field_value(raw: Any) -> str | None:
+    """Normalize raw field value to string or None."""
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        return str(raw.get("name") or raw.get("title") or "")
+    return str(raw)
+
+
 def _extract_item_fields(it: dict[str, Any]) -> dict[str, str | None]:
-    """Extract custom field mapping from project item."""
+    """Extract custom field mapping from project item, handling case variance."""
+    fields_by_lower = {str(k).lower(): _normalize_field_value(v) for k, v in it.items()}
     return {
-        "status": it.get("status"),
-        "priority": it.get("priority"),
-        "category": it.get("category"),
-        "value": it.get("value"),
-        "effort": it.get("effort"),
-        "id": it.get("id"),
+        "status": fields_by_lower.get("status"),
+        "priority": fields_by_lower.get("priority"),
+        "category": fields_by_lower.get("category"),
+        "value": fields_by_lower.get("value"),
+        "effort": fields_by_lower.get("effort"),
+        "id": fields_by_lower.get("id"),
     }
 
 
@@ -669,20 +671,29 @@ def _parse_project_items_json(stdout: str) -> dict[str, dict[str, str | None]]:
     """Parse output of gh project item-list or REST items into mapping of URL -> {field: value}."""
     if not stdout or not stdout.strip():
         return {}
-    try:
-        payload = json.loads(stdout)
-        raw_items = payload.get("items", []) if isinstance(payload, dict) else payload
-        if not isinstance(raw_items, list):
-            return {}
-        items_data: dict[str, dict[str, str | None]] = {}
-        for it in raw_items:
-            if isinstance(it, dict):
-                url = _extract_item_url(it)
-                if url:
-                    items_data[url] = _extract_item_fields(it)
-        return items_data
-    except Exception:
+    payload = extract_json_payload(stdout)
+    raw_items = payload.get("items", []) if isinstance(payload, dict) else payload
+    if not isinstance(raw_items, list):
         return {}
+    items_data: dict[str, dict[str, str | None]] = {}
+    for it in raw_items:
+        if isinstance(it, dict):
+            url = _extract_item_url(it)
+            if url:
+                items_data[url] = _extract_item_fields(it)
+    return items_data
+
+
+def _is_graphql_quota_critical(
+    threshold: int = DEFAULT_GH_BULK_QUOTA_THRESHOLD,
+) -> tuple[bool, int, float]:
+    """Check if GraphQL quota is critically low to avoid burning quota on bulk operations."""
+    limiter = get_github_rate_limiter()
+    quota = limiter.get_quota("graphql")
+    now = time.time()
+    if quota.last_updated > 0 and quota.reset_epoch > now and quota.remaining < threshold:
+        return True, quota.remaining, quota.reset_epoch
+    return False, quota.remaining, quota.reset_epoch
 
 
 def _fetch_project_items_data(owner: str, project_number: int) -> dict[str, dict[str, str | None]]:
@@ -781,6 +792,17 @@ def sync_repository_issues_to_project(
 ) -> int:
     """Synchronize open and active repository issues to the project board."""
     if dry_run:
+        return 0
+
+    is_crit, rem, reset_ep = _is_graphql_quota_critical()
+    if is_crit:
+        mins_left = max(0.0, (reset_ep - time.time()) / 60.0)
+        logger.warning(
+            "GitHub GraphQL quota critically low (%d remaining, resets in %.1fm). "
+            "Skipping bulk issue sync to project to protect quota.",
+            rem,
+            mins_left,
+        )
         return 0
 
     owner_arg = _resolve_project_owner_arg(owner)
@@ -1119,6 +1141,25 @@ def reconcile_project_custom_fields(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Reconcile custom field values (Status, Priority, Category, Value, Effort) on project items."""
+    is_crit, rem, reset_ep = _is_graphql_quota_critical()
+    if is_crit and not dry_run:
+        mins_left = max(0.0, (reset_ep - time.time()) / 60.0)
+        logger.warning(
+            "GitHub GraphQL quota critically low (%d remaining, resets in %.1fm). "
+            "Skipping project custom field reconciliation to protect quota.",
+            rem,
+            mins_left,
+        )
+        return {
+            "project_number": project_number,
+            "owner": owner,
+            "repo": repo,
+            "items_evaluated": 0,
+            "items_reconciled": 0,
+            "dry_run": dry_run,
+            "skipped_due_to_quota": True,
+        }
+
     items_data = _fetch_project_items_data(owner, project_number)
     issues = _fetch_repository_issues(repo)
     prs = _fetch_repository_prs(repo)
@@ -1162,6 +1203,26 @@ def sync_remote_project(
             items_synced=len(items),
             dry_run=True,
             linked=True,
+        )
+
+    is_crit, rem, reset_ep = _is_graphql_quota_critical()
+    if is_crit:
+        mins_left = max(0.0, (reset_ep - time.time()) / 60.0)
+        logger.warning(
+            "GitHub GraphQL quota critically low (%d remaining, resets in %.1fm). "
+            "Skipping bulk project sync operations to protect quota.",
+            rem,
+            mins_left,
+        )
+        return ProjectSyncResult(
+            project_number=1,
+            project_title=template.name,
+            owner=owner,
+            repo=repo,
+            fields_provisioned=[],
+            items_synced=0,
+            dry_run=False,
+            linked=False,
         )
 
     verify_project_auth_scopes()
@@ -1215,16 +1276,15 @@ def get_remote_project_views(
     proc = run_gh(cmd, check=False, quiet=True)
     if proc.returncode != 0 or not proc.stdout:
         return None, None, []
-    try:
-        data = json.loads(proc.stdout)
-        nodes = data.get("data", {}).get("repository", {}).get("projectsV2", {}).get("nodes", [])
-        if not nodes:
-            return None, None, []
-        proj = nodes[0]
-        views: list[dict[str, str]] = proj.get("views", {}).get("nodes", [])
-        return proj.get("id"), proj.get("number"), views
-    except json.JSONDecodeError, AttributeError, KeyError:
+    data = extract_json_payload(proc.stdout)
+    if not isinstance(data, dict):
         return None, None, []
+    nodes = data.get("data", {}).get("repository", {}).get("projectsV2", {}).get("nodes", [])
+    if not nodes:
+        return None, None, []
+    proj = nodes[0]
+    views: list[dict[str, str]] = proj.get("views", {}).get("nodes", [])
+    return proj.get("id"), proj.get("number"), views
 
 
 def _create_project_view(project_id: str, name: str, layout: str) -> bool:
@@ -1303,23 +1363,20 @@ def _list_projects_via_rest(owner: str) -> list[dict[str, Any]]:
         proc = run_gh(cmd, check=False, quiet=True)
         if proc.returncode != 0 or not proc.stdout.strip():
             continue
-        try:
-            data = json.loads(proc.stdout)
-            if isinstance(data, list) and data:
-                return [
-                    {
-                        "number": p.get("number", 0),
-                        "title": p.get("title", ""),
-                        "state": p.get("state", "open"),
-                        "id": p.get("node_id") or str(p.get("id", "")),
-                        "url": p.get("html_url")
-                        or f"https://github.com/users/{owner}/projects/{p.get('number', '')}",
-                    }
-                    for p in data
-                    if isinstance(p, dict)
-                ]
-        except json.JSONDecodeError:
-            continue
+        data = extract_json_payload(proc.stdout)
+        if isinstance(data, list) and data:
+            return [
+                {
+                    "number": p.get("number", 0),
+                    "title": p.get("title", ""),
+                    "state": p.get("state", "open"),
+                    "id": p.get("node_id") or str(p.get("id", "")),
+                    "url": p.get("html_url")
+                    or f"https://github.com/users/{owner}/projects/{p.get('number', '')}",
+                }
+                for p in data
+                if isinstance(p, dict)
+            ]
     return []
 
 
@@ -1341,17 +1398,13 @@ def _list_projects_via_cli(owner: str) -> list[dict[str, Any]]:
     proc = _run_project_cli(cmd, owner_arg=owner_arg)
     if proc.returncode != 0 or not proc.stdout.strip():
         return []
-    try:
-        data = json.loads(proc.stdout)
-        raw = (
-            data.get("projects", [])
-            if isinstance(data, dict)
-            else (data if isinstance(data, list) else [])
-        )
-        return [_format_project_list_entry(p) for p in raw if isinstance(p, dict)]
-    except Exception as exc:
-        logger.debug("Failed to parse project list: %s", exc)
-        return []
+    data = extract_json_payload(proc.stdout)
+    raw = (
+        data.get("projects", [])
+        if isinstance(data, dict)
+        else (data if isinstance(data, list) else [])
+    )
+    return [_format_project_list_entry(p) for p in raw if isinstance(p, dict)]
 
 
 def list_remote_projects(owner: str) -> list[dict[str, Any]]:

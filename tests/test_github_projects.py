@@ -956,3 +956,121 @@ def test_reconcile_single_item_edits_only_drifted_fields() -> None:
         assert call_args[3] == "Priority"
         assert call_args[4] == "P1-High"
         assert current_with_drift["priority"] == "P1-High"
+
+
+def test_extract_item_fields_case_insensitive() -> None:
+    """_extract_item_fields extracts custom fields regardless of casing or dict formatting."""
+    from devops_cli.github.projects import _extract_item_fields
+
+    item = {
+        "Status": "Done",
+        "PRIORITY": "P1-High",
+        "Category": {"name": "Quick Win"},
+        "value": "High",
+        "Effort": "Low",
+        "id": "ITEM_1",
+    }
+    extracted = _extract_item_fields(item)
+    assert extracted["status"] == "Done"
+    assert extracted["priority"] == "P1-High"
+    assert extracted["category"] == "Quick Win"
+    assert extracted["value"] == "High"
+    assert extracted["effort"] == "Low"
+    assert extracted["id"] == "ITEM_1"
+
+
+def test_parse_project_items_json_with_preamble() -> None:
+    """_parse_project_items_json correctly parses JSON with diagnostic preambles."""
+    from devops_cli.github.projects import _parse_project_items_json
+
+    raw_output = """
+Fetching ViewerOwner...
+Fetching ViewerProjectWithItems...
+{
+  "items": [
+    {
+      "id": "ITEM_1",
+      "Status": "In Progress",
+      "Priority": "P1-High",
+      "content": {"url": "https://example.com/owner/repo/issues/10"}
+    }
+  ]
+}
+"""
+    data = _parse_project_items_json(raw_output)
+    assert "https://example.com/owner/repo/issues/10" in data
+    assert data["https://example.com/owner/repo/issues/10"]["status"] == "In Progress"
+    assert data["https://example.com/owner/repo/issues/10"]["priority"] == "P1-High"
+
+
+def test_is_graphql_quota_critical() -> None:
+    """_is_graphql_quota_critical reports True when remaining quota is below threshold."""
+    import time
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.github.projects import _is_graphql_quota_critical
+    from devops_cli.github.rate_limiter import QuotaState
+
+    mock_limiter = MagicMock()
+    # Below threshold (43 < 250) and active window
+    mock_limiter.get_quota.return_value = QuotaState(
+        limit=5000,
+        remaining=43,
+        used=4957,
+        reset_epoch=time.time() + 600,
+        last_updated=time.time(),
+    )
+    with patch("devops_cli.github.projects.get_github_rate_limiter", return_value=mock_limiter):
+        is_crit, rem, _ = _is_graphql_quota_critical(threshold=250)
+        assert is_crit is True
+        assert rem == 43
+
+    # Above threshold (500 >= 250)
+    mock_limiter.get_quota.return_value = QuotaState(
+        limit=5000,
+        remaining=500,
+        used=4500,
+        reset_epoch=time.time() + 600,
+        last_updated=time.time(),
+    )
+    with patch("devops_cli.github.projects.get_github_rate_limiter", return_value=mock_limiter):
+        is_crit, rem, _ = _is_graphql_quota_critical(threshold=250)
+        assert is_crit is False
+        assert rem == 500
+
+
+def test_reconcile_project_custom_fields_circuit_breaker() -> None:
+    """reconcile_project_custom_fields skips mutations when quota is critical."""
+    from unittest.mock import patch
+
+    from devops_cli.github.projects import reconcile_project_custom_fields
+
+    with (
+        patch(
+            "devops_cli.github.projects._is_graphql_quota_critical",
+            return_value=(True, 30, 9999999999.0),
+        ),
+        patch("devops_cli.github.projects._fetch_project_items_data") as mock_fetch,
+    ):
+        result = reconcile_project_custom_fields("owner", "repo", 2, dry_run=False)
+        assert result["skipped_due_to_quota"] is True
+        assert result["items_reconciled"] == 0
+        mock_fetch.assert_not_called()
+
+
+def test_sync_repository_issues_circuit_breaker() -> None:
+    """sync_repository_issues_to_project skips issue sync when quota is critical."""
+    from unittest.mock import patch
+
+    from devops_cli.github.projects import sync_repository_issues_to_project
+
+    with (
+        patch(
+            "devops_cli.github.projects._is_graphql_quota_critical",
+            return_value=(True, 25, 9999999999.0),
+        ),
+        patch("devops_cli.github.projects._fetch_project_items_data") as mock_fetch,
+    ):
+        added = sync_repository_issues_to_project("owner", "repo", 2, dry_run=False)
+        assert added == 0
+        mock_fetch.assert_not_called()

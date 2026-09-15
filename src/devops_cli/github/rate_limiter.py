@@ -96,6 +96,22 @@ def _save_disk_quota(quotas: dict[str, QuotaState], path: Path) -> None:
         pass
 
 
+def extract_json_payload(raw_stdout: str) -> Any:
+    """Extract JSON object or array from CLI output that may contain diagnostic preamble."""
+    if not raw_stdout:
+        return {}
+    clean = raw_stdout.strip()
+    idx_obj = clean.find("{")
+    idx_arr = clean.find("[")
+    if idx_obj == -1 and idx_arr == -1:
+        return {}
+    start_idx = idx_obj if (idx_arr == -1 or (idx_obj != -1 and idx_obj < idx_arr)) else idx_arr
+    try:
+        return json.loads(clean[start_idx:])
+    except Exception:
+        return {}
+
+
 def _threshold_delay_floor(remaining: int, time_left: float, min_interval: float) -> float:
     """Determine minimum threshold delay floor based on remaining quota."""
     if remaining <= 20:
@@ -605,12 +621,41 @@ def _check_cached_result(
     )
 
 
+def _is_rate_limit_check(args: list[str]) -> bool:
+    """Determine whether the command is a read-only rate limit inspection."""
+    clean = [a.lower() for a in args if a not in (CONST_GH_CLI, "gh")]
+    return len(clean) >= 2 and clean[0] == "api" and clean[1].lstrip("/") == "rate_limit"
+
+
+def _extract_rate_limit_endpoint_response(output: str, limiter: GitHubRateLimiter) -> None:
+    """Update quotas directly from /rate_limit endpoint response."""
+    payload = extract_json_payload(output)
+    if not isinstance(payload, dict):
+        return
+    resources = payload.get("resources", {})
+    if not isinstance(resources, dict):
+        return
+    for r_name, r_info in resources.items():
+        if isinstance(r_info, dict) and "remaining" in r_info and "limit" in r_info:
+            limiter.update_quota(
+                r_name,
+                remaining=int(r_info["remaining"]),
+                limit=int(r_info["limit"]),
+                reset_epoch=float(r_info.get("reset", 0.0)),
+            )
+
+
 def _post_process_run(
     proc: subprocess.CompletedProcess[str],
     resource: str,
     limiter: GitHubRateLimiter,
+    is_rate_limit_check: bool = False,
 ) -> None:
     """Extract rate limit metrics and pessimistically decrement quota when headers are absent."""
+    if is_rate_limit_check and proc.stdout:
+        _extract_rate_limit_endpoint_response(proc.stdout, limiter)
+        return
+
     _parse_rate_limit_from_output(proc.stdout, resource, limiter)
     stdout_clean = proc.stdout or ""
     if "rateLimit" not in stdout_clean and "x-ratelimit-remaining" not in stdout_clean.lower():
@@ -686,14 +731,16 @@ def run_gh(
     resource = _detect_resource(clean_args)
     cache_key = _build_cache_key(clean_args, input)
     last_res: subprocess.CompletedProcess[str] | None = None
+    is_check = _is_rate_limit_check(clean_args)
 
     for attempts in range(max_retries + 1):
-        limiter.acquire(resource=resource)
+        if not is_check:
+            limiter.acquire(resource=resource)
         proc = run_subprocess(
             full_cmd, input=input, cwd=cwd, check=False, quiet=quiet, timeout=timeout
         )
         last_res = proc
-        _post_process_run(proc, resource, limiter)
+        _post_process_run(proc, resource, limiter, is_rate_limit_check=is_check)
 
         if proc.returncode == 0:
             if _should_cache(clean_args, use_cache) and proc.stdout:

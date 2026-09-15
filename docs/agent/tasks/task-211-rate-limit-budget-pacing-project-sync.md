@@ -21,14 +21,18 @@ The GitHub GraphQL rate limiter previously permitted rapid quota exhaustion (bur
 1. **Window-Budget Pacing ([`rate_limiter.py`](file:///workspaces/devops-cli/src/devops_cli/github/rate_limiter.py))**:
    - Calculate pacing delay dynamically: $\text{delay} = \max\left(\text{min\_interval},\; \frac{\text{reset\_epoch} - \text{now}}{\text{remaining}} \times \text{cost\_factor}\right)$.
    - Minimum floor scaling: 15.0s floor below 100 remaining, 30.0s floor below 20 remaining.
+   - Pacing exemption for rate limit inspections (`_is_rate_limit_check`), preventing `devops gh rate-limit` hangs.
 2. **Cross-Process Quota Persistence ([`.data/cache/gh_quota.json`](file:///workspaces/devops-cli/.data/cache/gh_quota.json))**:
    - Persist rate limit metrics to disk and load on startup across independent CLI processes.
    - Pessimistic decrements for headerless GraphQL commands via `decrement_quota_estimate()`.
    - Test isolation via `resolve_quota_cache_path()` honoring `DEVOPS_CLI_DATA_DIR`.
-3. **Diff-Only Project Reconciliation ([`projects.py`](file:///workspaces/devops-cli/src/devops_cli/github/projects.py))**:
+3. **Diff-Only Project Reconciliation & Quota Circuit Breakers ([`projects.py`](file:///workspaces/devops-cli/src/devops_cli/github/projects.py))**:
    - Query existing items and fields in a single cached call (`gh project item-list`).
+   - Parse JSON robustly with `extract_json_payload()` to ignore CLI preambles (`Fetching ViewerOwner...`).
+   - Extract and normalize fields case-insensitively with `_extract_item_fields()`.
    - Diff intended fields against current values via `_filter_differing_fields()`.
    - Skip field mutations when values already match, reducing steady-state mutations to 0.
+   - Circuit breaker (`DEFAULT_GH_BULK_QUOTA_THRESHOLD = 250`) to short-circuit bulk project sync when GraphQL quota is critically low.
 4. **No-REST Fallback**:
    - Strictly honor GraphQL quotas and backoff in PR threads and monitor without REST fallbacks.
 
