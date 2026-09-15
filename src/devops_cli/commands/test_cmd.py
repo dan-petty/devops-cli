@@ -272,11 +272,19 @@ _ALLOWED_NETWORK_MODES: frozenset[str] = frozenset(
 )
 
 
-def _parse_whitelist(raw: str | None) -> list[str]:
+def _parse_whitelist(raw: str | None, name: str = "public") -> list[str]:
     """Parse comma-separated whitelist tokens without restricting valid URL formats."""
     if not raw:
         return []
-    return [cleaned for token in raw.split(",") if (cleaned := token.strip())]
+    items: list[str] = []
+    for token in raw.split(","):
+        cleaned = token.strip()
+        if not cleaned:
+            continue
+        if " " in cleaned:
+            raise typer.BadParameter(f"Invalid {name} whitelist entry: '{cleaned}'")
+        items.append(cleaned)
+    return items
 
 
 def _validate_sandbox_network(
@@ -297,8 +305,8 @@ def _validate_sandbox_network(
         )
     return (
         mode,
-        _parse_whitelist(public_whitelist),
-        _parse_whitelist(local_whitelist),
+        _parse_whitelist(public_whitelist, "public"),
+        _parse_whitelist(local_whitelist, "local"),
     )
 
 

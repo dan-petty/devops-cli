@@ -29,7 +29,7 @@ devops sandbox deploy [OPTIONS] <command>
 | `--memory`, `-m` | `string` | `2g` | Memory limit for the container (e.g. 512m, 2g). |
 | `--cpus`, `-c` | `float` | `2.0` | CPU quota limit for the container (e.g. 1.0, 2.0). |
 | `--read-only` | `boolean` | `True` | Mount root filesystem as read-only with a tmpfs /tmp. |
-| `--network` | `string` | `bridge` | Docker network mode (bridge | host | none). |
+| `--network` | `string` | `isolated` | Docker network mode (bridge | host | none). |
 | `--network-mode` | `string` | - | Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
 | `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
 | `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |

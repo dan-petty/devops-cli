@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from devops_cli.config.defaults import DEFAULT_PROJECT_NAME, DEFAULT_PROJECT_VERSION
+from devops_cli.config.defaults import DEFAULT_PROJECT_NAME
 
 
 @dataclass
@@ -81,9 +81,12 @@ def extract_workspace_components(workspace_dir: Path) -> list[SBOMComponent]:
 def generate_cyclonedx_sbom(
     workspace_dir: Path,
     project_name: str = DEFAULT_PROJECT_NAME,
-    project_version: str = DEFAULT_PROJECT_VERSION,
+    project_version: str | None = None,
 ) -> dict[str, Any]:
     """Generate CycloneDX 1.5 JSON SBOM representation."""
+    from devops_cli import __version__
+
+    effective_version = project_version or __version__
     components = extract_workspace_components(workspace_dir)
     timestamp = datetime.now(UTC).isoformat()
 
@@ -97,14 +100,14 @@ def generate_cyclonedx_sbom(
                 {
                     "vendor": "devops-cli",
                     "name": "devops scan sbom",
-                    "version": project_version,
+                    "version": effective_version,
                 }
             ],
             "component": {
                 "name": project_name,
-                "version": project_version,
+                "version": effective_version,
                 "type": "application",
-                "purl": f"pkg:pypi/{project_name}@{project_version}",
+                "purl": f"pkg:pypi/{project_name}@{effective_version}",
             },
         },
         "components": [
@@ -123,9 +126,12 @@ def generate_cyclonedx_sbom(
 def generate_spdx_sbom(
     workspace_dir: Path,
     project_name: str = DEFAULT_PROJECT_NAME,
-    project_version: str = DEFAULT_PROJECT_VERSION,
+    project_version: str | None = None,
 ) -> dict[str, Any]:
     """Generate SPDX 2.3 JSON SBOM representation."""
+    from devops_cli import __version__
+
+    effective_version = project_version or __version__
     components = extract_workspace_components(workspace_dir)
     timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     spdx_id_root = f"SPDXRef-Package-{project_name}"
@@ -134,7 +140,7 @@ def generate_spdx_sbom(
         {
             "SPDXID": spdx_id_root,
             "name": project_name,
-            "versionInfo": project_version,
+            "versionInfo": effective_version,
             "downloadLocation": "NOASSERTION",
             "filesAnalyzed": False,
         }

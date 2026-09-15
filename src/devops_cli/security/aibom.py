@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from devops_cli.config.defaults import (
     DEFAULT_AI_CONTEXT_WINDOW,
     DEFAULT_PROJECT_NAME,
-    DEFAULT_PROJECT_VERSION,
     DEFAULT_QUANTIZATION_BITS,
 )
 from devops_cli.telemetry.tracer import trace_span
@@ -304,9 +303,12 @@ def extract_aibom_components(workspace_dir: Path) -> list[AIBOMComponent]:
 def generate_aibom(
     workspace_dir: Path,
     project_name: str = DEFAULT_PROJECT_NAME,
-    project_version: str = DEFAULT_PROJECT_VERSION,
+    project_version: str | None = None,
 ) -> dict[str, Any]:
     """Generate a CycloneDX 1.5 compliant AI Bill of Materials (AIBOM) JSON payload."""
+    from devops_cli import __version__
+
+    effective_version = project_version or __version__
     components = extract_aibom_components(workspace_dir)
 
     bom_components: list[dict[str, Any]] = []
@@ -360,10 +362,10 @@ def generate_aibom(
             "component": {
                 "type": "application",
                 "name": project_name,
-                "version": project_version,
+                "version": effective_version,
             },
             "tools": [
-                {"vendor": "DevOps CLI", "name": "devops-cli-aibom", "version": project_version}
+                {"vendor": "DevOps CLI", "name": "devops-cli-aibom", "version": effective_version}
             ],
         },
         "components": bom_components,

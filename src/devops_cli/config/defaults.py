@@ -406,7 +406,7 @@ DEFAULT_SQLITE_MEMORY_DB_PATH: str = ":memory:"
 DEFAULT_AI_DURABLE_AGENT_NAME: str = "durable_agent"
 DEFAULT_SIGNATURE_BODY: str = "..."
 DEFAULT_TOOL_INTERFACE_FORMAT: Literal["python", "markdown"] = "python"
-DEFAULT_PROJECT_VERSION: str = "0.2.18"
+DEFAULT_PROJECT_VERSION: str = "0.1.0"
 DEFAULT_PYTHON_REQUIRES: str = ">=3.14"
 
 # ── AI Bridge, Personas & Guardrails Defaults ────────────────────────────────
