@@ -6,19 +6,16 @@ import json
 import logging
 import re
 import subprocess
-import time
 from pathlib import Path
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
-from devops_cli.config.defaults import DEFAULT_GH_BULK_QUOTA_THRESHOLD
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.client import parse_paginated_json
 from devops_cli.github.rate_limiter import (
     extract_json_payload,
-    get_github_rate_limiter,
     run_gh,
 )
 
@@ -684,18 +681,6 @@ def _parse_project_items_json(stdout: str) -> dict[str, dict[str, str | None]]:
     return items_data
 
 
-def _is_graphql_quota_critical(
-    threshold: int = DEFAULT_GH_BULK_QUOTA_THRESHOLD,
-) -> tuple[bool, int, float]:
-    """Check if GraphQL quota is critically low to avoid burning quota on bulk operations."""
-    limiter = get_github_rate_limiter()
-    quota = limiter.get_quota("graphql")
-    now = time.time()
-    if quota.last_updated > 0 and quota.reset_epoch > now and quota.remaining < threshold:
-        return True, quota.remaining, quota.reset_epoch
-    return False, quota.remaining, quota.reset_epoch
-
-
 def _fetch_project_items_data(owner: str, project_number: int) -> dict[str, dict[str, str | None]]:
     """Retrieve items and current custom field values from the project board."""
     owner_arg = _resolve_project_owner_arg(owner)
@@ -792,17 +777,6 @@ def sync_repository_issues_to_project(
 ) -> int:
     """Synchronize open and active repository issues to the project board."""
     if dry_run:
-        return 0
-
-    is_crit, rem, reset_ep = _is_graphql_quota_critical()
-    if is_crit:
-        mins_left = max(0.0, (reset_ep - time.time()) / 60.0)
-        logger.warning(
-            "GitHub GraphQL quota critically low (%d remaining, resets in %.1fm). "
-            "Skipping bulk issue sync to project to protect quota.",
-            rem,
-            mins_left,
-        )
         return 0
 
     owner_arg = _resolve_project_owner_arg(owner)
@@ -1141,25 +1115,6 @@ def reconcile_project_custom_fields(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Reconcile custom field values (Status, Priority, Category, Value, Effort) on project items."""
-    is_crit, rem, reset_ep = _is_graphql_quota_critical()
-    if is_crit and not dry_run:
-        mins_left = max(0.0, (reset_ep - time.time()) / 60.0)
-        logger.warning(
-            "GitHub GraphQL quota critically low (%d remaining, resets in %.1fm). "
-            "Skipping project custom field reconciliation to protect quota.",
-            rem,
-            mins_left,
-        )
-        return {
-            "project_number": project_number,
-            "owner": owner,
-            "repo": repo,
-            "items_evaluated": 0,
-            "items_reconciled": 0,
-            "dry_run": dry_run,
-            "skipped_due_to_quota": True,
-        }
-
     items_data = _fetch_project_items_data(owner, project_number)
     issues = _fetch_repository_issues(repo)
     prs = _fetch_repository_prs(repo)
@@ -1203,26 +1158,6 @@ def sync_remote_project(
             items_synced=len(items),
             dry_run=True,
             linked=True,
-        )
-
-    is_crit, rem, reset_ep = _is_graphql_quota_critical()
-    if is_crit:
-        mins_left = max(0.0, (reset_ep - time.time()) / 60.0)
-        logger.warning(
-            "GitHub GraphQL quota critically low (%d remaining, resets in %.1fm). "
-            "Skipping bulk project sync operations to protect quota.",
-            rem,
-            mins_left,
-        )
-        return ProjectSyncResult(
-            project_number=1,
-            project_title=template.name,
-            owner=owner,
-            repo=repo,
-            fields_provisioned=[],
-            items_synced=0,
-            dry_run=False,
-            linked=False,
         )
 
     verify_project_auth_scopes()

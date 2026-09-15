@@ -35,13 +35,35 @@ def test_rate_limiter_pacing() -> None:
     assert elapsed >= 0.045, f"Expected pacing delay >= 0.045s, got {elapsed}s"
 
 
-def test_rate_limiter_quota_warning() -> None:
-    """Verify rate limiter detects low quota and returns warning state."""
-    limiter = GitHubRateLimiter()
-    assert limiter.is_quota_low(remaining=1000) is False
-    assert limiter.is_quota_low(remaining=50) is True
-    assert limiter.is_quota_critical(remaining=50) is False
-    assert limiter.is_quota_critical(remaining=10) is True
+def test_calculate_exponential_backoff() -> None:
+    """Verify exponential backoff smoothly scales with percentage of quota used vs available."""
+    from devops_cli.github.rate_limiter import calculate_exponential_backoff
+
+    # 0% used -> min_interval
+    assert calculate_exponential_backoff(used=0, remaining=5000, limit=5000) == 0.5
+
+    # 50% used (ratio 1.0) -> slight increase (~0.61s)
+    d_50 = calculate_exponential_backoff(used=2500, remaining=2500, limit=5000)
+    assert 0.55 < d_50 < 0.75
+
+    # 85% used (ratio ~5.67) -> moderate increase (~1.5s to 3.5s)
+    d_85 = calculate_exponential_backoff(used=4250, remaining=750, limit=5000)
+    assert 1.5 < d_85 < 4.0
+
+    # 95% used (ratio 19.0) -> high backoff (~15s to 35s)
+    d_95 = calculate_exponential_backoff(used=4750, remaining=250, limit=5000)
+    assert 15.0 < d_95 < 35.0
+
+    # 99% used -> capped at max_delay (60.0s)
+    d_99 = calculate_exponential_backoff(used=4950, remaining=50, limit=5000)
+    assert d_99 == 60.0
+
+    # 0 remaining -> max_delay (60.0s)
+    assert calculate_exponential_backoff(used=5000, remaining=0, limit=5000) == 60.0
+
+    # Scales proportionally on small limit resources (e.g. search limit 30)
+    d_search_50 = calculate_exponential_backoff(used=15, remaining=15, limit=30)
+    assert 0.55 < d_search_50 < 0.75
 
 
 def test_rate_limiter_backoff_calculation() -> None:
@@ -193,54 +215,27 @@ def test_rate_limiter_env_interval_override(monkeypatch: pytest.MonkeyPatch) -> 
     assert fallback_limiter.min_interval == rl_mod.DEFAULT_GH_MIN_INTERVAL_SECONDS
 
 
-def test_calculate_adaptive_delay_from_ratio() -> None:
-    """Verify adaptive delay progressively backs off as ratio approaches zero."""
-    from devops_cli.github.rate_limiter import _calculate_adaptive_delay_from_ratio
-
-    min_int = 0.5
-    # High quota (>50% remaining)
-    assert _calculate_adaptive_delay_from_ratio(1.0, min_int) == min_int
-    assert _calculate_adaptive_delay_from_ratio(0.75, min_int) == min_int
-    assert _calculate_adaptive_delay_from_ratio(0.51, min_int) == min_int
-
-    # 25% to 50% remaining: 0.5s to 2.0s
-    d_40 = _calculate_adaptive_delay_from_ratio(0.40, min_int)
-    assert 0.5 < d_40 < 2.0
-
-    # 10% to 25% remaining: 2.0s to 5.0s
-    d_20 = _calculate_adaptive_delay_from_ratio(0.20, min_int)
-    assert 2.0 < d_20 < 5.0
-
-    # 2% to 10% remaining: 5.0s to 15.0s
-    d_5 = _calculate_adaptive_delay_from_ratio(0.05, min_int)
-    assert 5.0 < d_5 < 15.0
-
-    # <2% remaining: 15.0s to 30.0s
-    d_1 = _calculate_adaptive_delay_from_ratio(0.01, min_int)
-    assert 15.0 < d_1 <= 30.0
-    assert _calculate_adaptive_delay_from_ratio(0.0, min_int) == 30.0
-
-
 def test_rate_limiter_adaptive_quota_tracking() -> None:
-    """Verify GitHubRateLimiter tracks quota and applies progressive delay."""
+    """Verify GitHubRateLimiter tracks quota and applies exponential delay."""
     limiter = GitHubRateLimiter(min_interval=0.5)
 
     # Initial state (uninitialized) returns min_interval
     assert limiter.calculate_adaptive_delay("graphql") == 0.5
 
-    # Update with 4000/5000 remaining (80%) -> min_interval
+    # Update with 4000/5000 remaining (20% used) -> low backoff near min_interval
     limiter.update_quota("graphql", remaining=4000, limit=5000)
-    assert limiter.calculate_adaptive_delay("graphql") == 0.5
+    delay_20 = limiter.calculate_adaptive_delay("graphql")
+    assert 0.5 <= delay_20 < 0.8
 
-    # Update with 600/5000 remaining (12%) -> between 2.0s and 5.0s
-    limiter.update_quota("graphql", remaining=600, limit=5000)
-    delay_12 = limiter.calculate_adaptive_delay("graphql")
-    assert 2.0 < delay_12 < 5.0
+    # Update with 500/5000 remaining (90% used) -> progressive exponential delay
+    limiter.update_quota("graphql", remaining=500, limit=5000)
+    delay_90 = limiter.calculate_adaptive_delay("graphql")
+    assert delay_90 > 2.0
 
-    # Update with 50/5000 remaining (1%) -> between 15.0s and 30.0s
+    # Update with 50/5000 remaining (99% used) -> high exponential delay
     limiter.update_quota("graphql", remaining=50, limit=5000)
-    delay_1 = limiter.calculate_adaptive_delay("graphql")
-    assert 15.0 < delay_1 < 30.0
+    delay_99 = limiter.calculate_adaptive_delay("graphql")
+    assert delay_99 >= 40.0
 
     # Update with 0 remaining and reset 25s in future -> wait ~25s
     now = time.time()
@@ -308,10 +303,10 @@ def test_rate_limiter_window_budget_pacing() -> None:
     delay = limiter.calculate_adaptive_delay("graphql")
     assert 5.5 <= delay <= 6.5, f"Expected budget delay around 6.0s, got {delay}s"
 
-    # 10 minutes left (600s) and 4000 tokens remaining -> pacing can be min_interval (0.5s)
+    # 10 minutes left (600s) and 4000 tokens remaining -> pacing near min_interval (0.5s)
     limiter.update_quota("graphql", remaining=4000, limit=5000, reset_epoch=now + 600.0)
     delay_fast = limiter.calculate_adaptive_delay("graphql")
-    assert delay_fast == 0.5
+    assert 0.5 <= delay_fast <= 0.6
 
 
 def test_rate_limiter_disk_quota_persistence(tmp_path: Path) -> None:

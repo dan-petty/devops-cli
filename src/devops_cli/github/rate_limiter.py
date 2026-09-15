@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import random
 import subprocess
@@ -23,9 +24,8 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_GH_CACHE_TTL_SECONDS,
-    DEFAULT_GH_CRITICAL_QUOTA_THRESHOLD,
+    DEFAULT_GH_EXPONENTIAL_DIVISOR,
     DEFAULT_GH_GRAPHQL_COST_FACTOR,
-    DEFAULT_GH_LOW_QUOTA_THRESHOLD,
     DEFAULT_GH_MIN_INTERVAL_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
@@ -112,21 +112,40 @@ def extract_json_payload(raw_stdout: str) -> Any:
         return {}
 
 
-def _threshold_delay_floor(remaining: int, time_left: float, min_interval: float) -> float:
-    """Determine minimum threshold delay floor based on remaining quota."""
-    if remaining <= 20:
-        return min(60.0, max(15.0, time_left)) if time_left > 0 else 30.0
-    if remaining <= 50:
-        return 20.0
-    if remaining <= 100:
-        return 15.0
-    if remaining <= 250:
-        return 8.0
-    if remaining <= 500:
-        return 4.0
-    if remaining <= 1000:
-        return 2.0
-    return min_interval
+def calculate_exponential_backoff(
+    used: int,
+    remaining: int,
+    limit: int,
+    min_interval: float = DEFAULT_GH_MIN_INTERVAL_SECONDS,
+    max_delay: float = 60.0,
+    divisor: float = DEFAULT_GH_EXPONENTIAL_DIVISOR,
+) -> float:
+    """Calculate exponential backoff delay based on percentage of quota used vs available.
+
+    Smoothly scales request pacing delay exponentially as the percentage of consumed quota
+    rises relative to available quota, eliminating fixed numeric threshold steps.
+
+    Args:
+        used: Amount of quota consumed in current window.
+        remaining: Amount of quota currently remaining (available).
+        limit: Total quota limit for the window.
+        min_interval: Baseline inter-request delay.
+        max_delay: Maximum delay cap in seconds.
+        divisor: Scaling divisor controlling exponential backoff steepness.
+
+    Returns:
+        Calculated delay in seconds between min_interval and max_delay.
+    """
+    clean_limit = max(1, limit)
+    clean_used = max(0, used)
+    clean_rem = max(0, remaining)
+    pct_used = min(1.0, clean_used / clean_limit)
+    pct_avail = min(1.0, clean_rem / clean_limit)
+    if pct_avail <= 0.0:
+        return max_delay
+    used_vs_available = pct_used / max(0.001, pct_avail)
+    delay = min_interval * math.pow(2.0, used_vs_available / divisor)
+    return min(max_delay, max(min_interval, delay))
 
 
 def _calculate_budget_delay(
@@ -136,48 +155,28 @@ def _calculate_budget_delay(
     min_interval: float,
     resource: str = "core",
 ) -> float:
-    """Calculate pacing delay based on window time budget and remaining quota."""
-    if remaining <= 0:
-        return 30.0
+    """Calculate pacing delay based on window time budget and exponential quota backoff."""
     now = time.time()
     time_left = max(1.0, reset_epoch - now) if reset_epoch > now else 0.0
+
+    if remaining <= 0:
+        return min(60.0, max(5.0, time_left)) if time_left > 0 else 60.0
+
+    clean_limit = max(1, limit)
+    used = max(0, clean_limit - remaining)
+    exponential_delay = calculate_exponential_backoff(
+        used=used,
+        remaining=remaining,
+        limit=clean_limit,
+        min_interval=min_interval,
+    )
+
     cost_factor = DEFAULT_GH_GRAPHQL_COST_FACTOR if resource == "graphql" else 1.0
-
-    threshold_delay = _threshold_delay_floor(remaining, time_left, min_interval)
-    if remaining <= 20:
-        return threshold_delay
-
     if time_left > 0.0:
-        budget_delay = (time_left / remaining) * cost_factor
-        return min(60.0, max(min_interval, threshold_delay, budget_delay))
+        budget_delay = (time_left / max(1, remaining)) * cost_factor
+        return min(60.0, max(min_interval, exponential_delay, budget_delay))
 
-    ratio = max(0.0, min(1.0, remaining / max(1, limit)))
-    return max(threshold_delay, _calculate_adaptive_delay_from_ratio(ratio, min_interval))
-
-
-def _calculate_adaptive_delay_from_ratio(ratio: float, min_interval: float) -> float:
-    """Calculate adaptive delay in seconds based on fraction of quota remaining.
-
-    Progressively backs off request rate the closer remaining quota gets to zero:
-    - ratio > 0.50 (>50% remaining): min_interval (default 0.5s)
-    - 0.25 < ratio <= 0.50 (25% - 50% remaining): min_interval to 2.0s
-    - 0.10 < ratio <= 0.25 (10% - 25% remaining): 2.0s to 5.0s
-    - 0.02 < ratio <= 0.10 (2% - 10% remaining): 5.0s to 15.0s
-    - ratio <= 0.02 (<2% remaining): 15.0s to 30.0s
-    """
-    if ratio > 0.50:
-        return min_interval
-    if ratio > 0.25:
-        fraction = (0.50 - ratio) / 0.25
-        return min_interval + fraction * (2.0 - min_interval)
-    if ratio > 0.10:
-        fraction = (0.25 - ratio) / 0.15
-        return 2.0 + fraction * 3.0
-    if ratio > 0.02:
-        fraction = (0.10 - ratio) / 0.08
-        return 5.0 + fraction * 10.0
-    fraction = max(0.0, (0.02 - ratio) / 0.02)
-    return 15.0 + fraction * 15.0
+    return exponential_delay
 
 
 def _detect_resource(args: list[str]) -> str:
@@ -338,13 +337,9 @@ class GitHubRateLimiter:
     def __init__(
         self,
         min_interval: float = DEFAULT_GH_MIN_INTERVAL_SECONDS,
-        low_threshold: int = DEFAULT_GH_LOW_QUOTA_THRESHOLD,
-        critical_threshold: int = DEFAULT_GH_CRITICAL_QUOTA_THRESHOLD,
         persist_path: Path | None = None,
     ) -> None:
         self.min_interval = min_interval
-        self.low_threshold = low_threshold
-        self.critical_threshold = critical_threshold
         self.persist_path = persist_path
         self._last_request_time: float = 0.0
         self._lock = threading.Lock()
@@ -462,14 +457,6 @@ class GitHubRateLimiter:
                 time.sleep(sleep_duration)
             self._last_request_time = time.perf_counter()
             return sleep_duration
-
-    def is_quota_low(self, remaining: int) -> bool:
-        """Return True if remaining rate limit quota is below the warning threshold."""
-        return remaining <= self.low_threshold
-
-    def is_quota_critical(self, remaining: int) -> bool:
-        """Return True if remaining rate limit quota is critically exhausted."""
-        return remaining <= self.critical_threshold
 
     def is_rate_limit_error(self, message: str) -> bool:
         """Detect whether an error output indicates primary or secondary GitHub rate limits."""
