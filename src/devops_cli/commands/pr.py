@@ -8,7 +8,7 @@ from typing import Annotated, Any, cast
 
 import typer
 
-from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.constants import CONST_GH_CLI, CONST_GH_FAILING_CHECK_CONCLUSIONS
 from devops_cli.config.defaults import DEFAULT_PR_LIMIT, DEFAULT_PR_STATE
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
@@ -893,6 +893,79 @@ def _handle_pr_ready_failure(stderr_text: str, number: int) -> None:
     print_error(f"Failed to mark PR #{number} ready: {clean_err or 'Unknown error'}", safe=True)
 
 
+def _extract_pr_head_sha(pr_data: dict[str, Any] | None) -> str:
+    """Extract git commit SHA from PR head data dictionary."""
+    if not pr_data:
+        return ""
+    head = pr_data.get("head")
+    return str(head.get("sha", "")) if isinstance(head, dict) else ""
+
+
+def _parse_check_run_failures(raw_json: str) -> list[str]:
+    """Parse check-runs response JSON and return names of failing checks."""
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return []
+    return [
+        f"{cr.get('name', 'unknown')} ({conclusion})"
+        for cr in data.get("check_runs", [])
+        if (conclusion := str(cr.get("conclusion") or "").lower())
+        in CONST_GH_FAILING_CHECK_CONCLUSIONS
+    ]
+
+
+def _fetch_commit_check_runs(repo: str | None, sha: str) -> str:
+    """Query GitHub API for check runs on a specific commit SHA."""
+    from devops_cli.core.repo import get_repo_origin_name
+
+    target = repo or get_repo_origin_name()
+    if not target or "/" not in target:
+        return ""
+    owner, repo_name = target.split("/", 1)
+    res = run_subprocess(
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{sha}/check-runs"],
+        check=False,
+        quiet=True,
+    )
+    return res.stdout.strip() if res.returncode == 0 else ""
+
+
+def _get_failing_checks(number: int, repo: str | None, pr_data: dict[str, Any] | None) -> list[str]:
+    """Inspect PR commit check runs for failing conclusions."""
+    active_data = pr_data or _fetch_pr_details(number, repo)
+    sha = _extract_pr_head_sha(active_data)
+    if not sha:
+        return []
+    raw_json = _fetch_commit_check_runs(repo, sha)
+    return _parse_check_run_failures(raw_json) if raw_json else []
+
+
+def _validate_pr_ready_checks(
+    number: int, repo: str | None, pr_data: dict[str, Any] | None
+) -> None:
+    """Ensure PR has no failing commit check runs prior to marking ready."""
+    failing = _get_failing_checks(number, repo, pr_data)
+    if not failing:
+        return
+    print_error(
+        f"Cannot mark PR #{number} as ready for review: {len(failing)} check(s) failed:",
+        safe=True,
+    )
+    for item in failing:
+        print_error(f"  ✗ {item}", prefix=False, safe=True)
+    print_info("Pass --force to override failing check verification.")
+    raise typer.Exit(1)
+
+
+def _verify_pr_draft_transition(number: int, repo: str | None) -> None:
+    """Verify that the pull request transitioned out of draft state."""
+    post_data = _fetch_pr_details(number, repo)
+    if not post_data or post_data.get("draft", True):
+        print_error(MESSAGES.pr.pr_still_draft_error.format(number=number))
+        raise typer.Exit(1)
+
+
 @app.command("ready")
 def ready_pr(
     number: Annotated[int, typer.Argument(help=HELP.pr.number)],
@@ -904,6 +977,12 @@ def ready_pr(
         bool,
         typer.Option("--monitor", "-m", help=HELP.pr.ready_monitor),
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force", "-f", help="Bypass failing check verification and force ready status"
+        ),
+    ] = False,
 ) -> None:
     """Mark a draft pull request as ready for review."""
     _require_gh_cli()
@@ -914,6 +993,9 @@ def ready_pr(
             monitor_pr_command(number=number, repo=repo)
         return
 
+    if not force:
+        _validate_pr_ready_checks(number, repo, pr_data)
+
     cmd = [CONST_GH_CLI, "pr", "ready", str(number)]
     if repo:
         cmd.extend(["--repo", repo])
@@ -922,11 +1004,7 @@ def ready_pr(
         _handle_pr_ready_failure(res.stderr, number)
         raise typer.Exit(1)
 
-    post_data = _fetch_pr_details(number, repo)
-    if not post_data or post_data.get("draft", True):
-        print_error(MESSAGES.pr.pr_still_draft_error.format(number=number))
-        raise typer.Exit(1)
-
+    _verify_pr_draft_transition(number, repo)
     print_success(MESSAGES.pr.pr_marked_ready_success.format(number=number))
     if monitor:
         monitor_pr_command(number=number, repo=repo)

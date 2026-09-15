@@ -487,3 +487,36 @@ def test_fastmcp_pr_check_readiness_tool() -> None:
             ],
             timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
         )
+
+
+def test_fastmcp_pr_ready_tool() -> None:
+    """Verify pr_ready FastMCP execution contract."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import pr_ready
+    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
+        mock_cmd.return_value = "PR #212 is ready for review"
+
+        res = pr_ready(
+            pr_number=212,
+            monitor=False,
+            force=True,
+            repo="owner/repo",
+        )
+        assert "is ready for review" in res
+        mock_cmd.assert_called_with(
+            [
+                "uv",
+                "run",
+                "devops",
+                "pr",
+                "ready",
+                "212",
+                "--force",
+                "--repo",
+                "owner/repo",
+            ],
+            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )

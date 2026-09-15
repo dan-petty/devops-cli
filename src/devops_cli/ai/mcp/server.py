@@ -1946,6 +1946,7 @@ def pr_monitor(
 def pr_ready(
     pr_number: int,
     monitor: bool = False,
+    force: bool = False,
     repo: str | None = None,
 ) -> str:
     """Mark a draft pull request as ready for review and optionally begin monitoring."""
@@ -1953,6 +1954,8 @@ def pr_ready(
     cmd = ["uv", "run", "devops", "pr", "ready", str(pr_number)]
     if monitor:
         cmd.append("--monitor")
+    if force:
+        cmd.append("--force")
     if repo:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])

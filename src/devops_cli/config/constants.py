@@ -258,6 +258,15 @@ CONST_RECOMMENDATION_BLOCK = "BLOCK"
 # ── GitHub CLI & Pull Requests ────────────────────────────────────────────────
 CONST_GH_CLI = "gh"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
+CONST_GH_FAILING_CHECK_CONCLUSIONS: Final[frozenset[str]] = frozenset(
+    {
+        "failure",
+        "timed_out",
+        "cancelled",
+        "action_required",
+        "startup_failure",
+    }
+)
 CONST_BRANCH_PREFIXES: tuple[str, ...] = (
     "feat/",
     "fix/",

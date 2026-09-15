@@ -57,7 +57,7 @@ jobs:
           python-version: "3.14"
 
       - name: Synchronize CLI dependencies
-        run: uv sync --only-group main
+        run: uv sync --no-dev
 
       - name: Reconcile Project Custom Fields & Card States
         env:
