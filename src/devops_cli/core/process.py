@@ -144,7 +144,22 @@ def build_subprocess_env(
             if not _is_env_var_denied(k) and _is_env_var_allowed(k, extra_allowed=extra_set)
         }
     if env:
-        base_env.update(env)
+        from devops_cli.exceptions.security import SecurityError
+
+        dangerous_env_keys = {
+            "LD_PRELOAD",
+            "LD_LIBRARY_PATH",
+            "DYLD_INSERT_LIBRARIES",
+            "DYLD_LIBRARY_PATH",
+            "BASH_ENV",
+            "ENV",
+        }
+        for k, v in env.items():
+            if k.upper() in dangerous_env_keys:
+                raise SecurityError(f"Prohibited dangerous environment variable override: '{k}'")
+            if "\x00" in k or "\x00" in str(v):
+                raise SecurityError(f"Null byte in environment variable prohibited: '{k}'")
+            base_env[k] = str(v)
     return base_env
 
 

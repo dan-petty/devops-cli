@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from devops_cli.config.defaults import DEFAULT_PROJECT_NAME, DEFAULT_PROJECT_VERSION
+
 
 @dataclass
 class SBOMComponent:
@@ -78,8 +80,8 @@ def extract_workspace_components(workspace_dir: Path) -> list[SBOMComponent]:
 
 def generate_cyclonedx_sbom(
     workspace_dir: Path,
-    project_name: str = "devops-cli",
-    project_version: str = "0.2.6",
+    project_name: str = DEFAULT_PROJECT_NAME,
+    project_version: str = DEFAULT_PROJECT_VERSION,
 ) -> dict[str, Any]:
     """Generate CycloneDX 1.5 JSON SBOM representation."""
     components = extract_workspace_components(workspace_dir)
@@ -120,8 +122,8 @@ def generate_cyclonedx_sbom(
 
 def generate_spdx_sbom(
     workspace_dir: Path,
-    project_name: str = "devops-cli",
-    project_version: str = "0.2.6",
+    project_name: str = DEFAULT_PROJECT_NAME,
+    project_version: str = DEFAULT_PROJECT_VERSION,
 ) -> dict[str, Any]:
     """Generate SPDX 2.3 JSON SBOM representation."""
     components = extract_workspace_components(workspace_dir)

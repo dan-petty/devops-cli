@@ -65,6 +65,27 @@ def should_ignore_dir(path_or_name: str | Path, repo_root: Path | None = None) -
     return is_ignored_by_git(root, p)
 
 
+def _record_manifest_entry(
+    fpath: Path,
+    repo_root: Path | None,
+    state: dict[Path, tuple[float, str]],
+) -> None:
+    """Record manifest entry if file is safe, contained, and a valid manifest."""
+    if fpath.is_symlink():
+        return
+    if is_ignored_by_git(repo_root, fpath) or not is_manifest_file(fpath):
+        return
+    try:
+        resolved = fpath.resolve()
+        if repo_root and not resolved.is_relative_to(repo_root):
+            return
+        mtime = resolved.stat().st_mtime
+        sha = compute_file_hash(resolved)
+        state[resolved] = (mtime, sha)
+    except OSError:
+        pass
+
+
 def _scan_directory_manifests(root: Path, state: dict[Path, tuple[float, str]]) -> None:
     """Recursively scan a directory tree and record manifest modification timestamps and hashes."""
     repo_root = find_repo_root(root)
@@ -72,16 +93,7 @@ def _scan_directory_manifests(root: Path, state: dict[Path, tuple[float, str]]) 
         dp = Path(dirpath)
         dirnames[:] = [d for d in dirnames if not is_ignored_by_git(repo_root, dp / d)]
         for fname in filenames:
-            fpath = dp / fname
-            if is_ignored_by_git(repo_root, fpath) or not is_manifest_file(fpath):
-                continue
-            try:
-                resolved = fpath.resolve()
-                mtime = resolved.stat().st_mtime
-                sha = compute_file_hash(resolved)
-                state[resolved] = (mtime, sha)
-            except OSError:
-                continue
+            _record_manifest_entry(dp / fname, repo_root, state)
 
 
 def compute_manifest_state(

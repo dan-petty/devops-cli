@@ -13,7 +13,6 @@ from devops_cli.config.constants import (
     CONST_CONFIG_DIR,
     CONST_DOCS_DIR_PATH,
     CONST_FEEDBACK_DATASET_NAME,
-    CONST_GH_QUOTA_CACHE_FILENAME,
     CONST_HALLUCINATIONS_FILE_NAME,
     CONST_INDEX_CACHE_FILENAME,
     CONST_LLM_CACHE_DIR_NAME,
@@ -365,16 +364,6 @@ DEFAULT_OTEL_TEST_TIMEOUT: float = 1.0
 DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS: int = 50
 DEFAULT_TELEMETRY_TEST_NAME: str = "devops-cli.manual_test"
 
-# ── GitHub CLI & Rate Limiting Defaults ───────────────────────────────────────
-DEFAULT_GH_INITIAL_QUOTA: int = 1  # Default initial rate limit quota for GitHub core/graphql
-DEFAULT_GH_WINDOW_SECONDS: float = 999999999  # Standard rate limit cycle window (999999999 second)
-DEFAULT_GH_MIN_INTERVAL_SECONDS: float = 0.5  # Fallback minimum inter-request pacing interval
-DEFAULT_GH_BURST_MULTIPLIER: float = 2.0  # Multiplier on natural rate for initial burst allowance
-DEFAULT_GH_SHAPING_K: float = 1500.0  # Shaping constant for exponential decay glide profile
-DEFAULT_GH_CACHE_TTL_SECONDS: float = 15.0
-DEFAULT_GH_GRAPHQL_COST_FACTOR: float = 2.0
-DEFAULT_GH_QUOTA_CACHE_PATH: Path = DEFAULT_CACHE_DATA_DIR / CONST_GH_QUOTA_CACHE_FILENAME
-
 # ── AI Formatting & XML Prompt Serialization Defaults ────────────────────────
 DEFAULT_XML_INDENT: str = "  "
 DEFAULT_XML_ITEM_TAG: str = "item"
@@ -474,3 +463,95 @@ DEFAULT_THINKING_EFFORT: str = "medium"
 DEFAULT_REASONING_FORMAT: str = "parsed"
 DEFAULT_PROMPT_INJECTION_DEFENDER_ID: str = "prompt_injection_defender"
 DEFAULT_GUARDRAIL_CAPABILITY_ID: str = "guardrails"
+
+# ── Valkey Defaults ─────────────────────────────────────────────────────────
+DEFAULT_VALKEY_HOST: str = "localhost"
+DEFAULT_VALKEY_TIMEOUT_SECONDS: float = 2.0
+DEFAULT_VALKEY_PATTERN: str = "*"
+DEFAULT_VALKEY_RATE_KEY_PREFIX: str = "rate:limiter"
+DEFAULT_VALKEY_RATE_PER_MINUTE: int = 60
+DEFAULT_VALKEY_BURST_CAPACITY: int = 60
+DEFAULT_VALKEY_TOKEN_COST: int = 1
+DEFAULT_VALKEY_KEY_SUFFIX: str = "default"
+DEFAULT_VALKEY_SCAN_COUNT: int = 100
+
+# ── Watcher Defaults ────────────────────────────────────────────────────────
+DEFAULT_FILE_WATCHER_DEBOUNCE_MS: int = 500
+DEFAULT_FILE_WATCHER_INTERVAL_SECONDS: float = 0.5
+DEFAULT_FILE_WATCHER_NAME: str = "file_watcher"
+DEFAULT_RESOURCE_WATCHER_INTERVAL_SECONDS: float = 2.0
+DEFAULT_RESOURCE_WATCHER_NAME: str = "resource_watcher"
+
+# ── Project, Security & SBOM Defaults ───────────────────────────────────────
+DEFAULT_PROJECT_NAME: str = "devops-cli"
+DEFAULT_DEPENDENCY_MIN_SEVERITY: str = "HIGH"
+DEFAULT_SBOM_FORMAT: str = "cyclonedx"
+DEFAULT_MAX_COMPLEXITY: int = 10
+DEFAULT_MAX_NESTING_DEPTH: int = 5
+DEFAULT_QUANTIZATION_BITS: int = 16
+
+# ── Sandbox Defaults ────────────────────────────────────────────────────────
+DEFAULT_SANDBOX_TIMEOUT_SECONDS: int = 10
+DEFAULT_PROBE_TIMEOUT_SECONDS: float = 5.0
+DEFAULT_PROM_ENDPOINT: str = "/metrics"
+DEFAULT_MEMORY_THRESHOLD_PCT: float = 80.0
+DEFAULT_CPU_THRESHOLD_PCT: float = 85.0
+DEFAULT_SANDBOX_LOG_TAIL: int = 100
+DEFAULT_SANDBOX_NAME: str = "app-sandbox"
+DEFAULT_SANDBOX_IMAGE: str = "python:3.14-slim"
+DEFAULT_SANDBOX_MEMORY: str = "2g"
+DEFAULT_SANDBOX_CPUS: float = 2.0
+DEFAULT_SANDBOX_NETWORK: str = "isolated"
+DEFAULT_LOG_STREAM: str = "stdout"
+DEFAULT_SANDBOX_INSTANCE_ID: str = "sandbox"
+DEFAULT_CONTAINER_ENGINE: str = "docker"
+DEFAULT_OPENAPI_SCHEMA_PATH: str = "/openapi.json"
+
+# ── Kubernetes & Argo Defaults ──────────────────────────────────────────────
+DEFAULT_CHAOS_DURATION_SECONDS: int = 30
+DEFAULT_ARGOCD_NAMESPACE: str = "argocd"
+DEFAULT_LLM_NAMESPACE: str = "llm"
+DEFAULT_BOOTSTRAP_STACK: str = "infra"
+DEFAULT_LOG_QUERY_LIMIT: int = 100
+DEFAULT_LOG_QUERY_SINCE: str = "1h"
+DEFAULT_LOG_TAIL_LINES: int = 100
+DEFAULT_K8S_POLICY_ENGINE: str = "kyverno"
+DEFAULT_ARGO_FLEET_NAME: str = "default-fleet"
+DEFAULT_ARGO_FLEET_CONCURRENCY: int = 3
+DEFAULT_GIT_BRANCH: str = "main"
+DEFAULT_ARGO_SYNC_MODE: str = "api"
+
+# ── GitHub & PR Defaults ───────────────────────────────────────────────────
+DEFAULT_GH_STATE_ALL: str = "all"
+DEFAULT_ISSUE_STATE: str = "open"
+DEFAULT_GH_ISSUE_LIMIT: int = 30
+DEFAULT_GH_PAGES_LIMIT: int = 5
+DEFAULT_PR_MONITOR_TIMEOUT_SECONDS: int = 300
+DEFAULT_PR_MONITOR_INTERVAL_SECONDS: int = 60
+DEFAULT_PR_MONITOR_SETTLE_TIMEOUT_SECONDS: int = 60
+DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS: float = 30.0
+DEFAULT_GH_MAX_RETRIES: int = 2
+DEFAULT_GH_RESOURCE: str = "core"
+DEFAULT_GH_CACHE_TTL_SECONDS: float = 1.0
+DEFAULT_GH_NO_DELAY_USED_PERCENT: float = 25.0
+DEFAULT_VAULT_SECRET_PATH: str = "secret/devops"
+DEFAULT_SECRET_SOURCE: str = "keyring"
+
+# ── Telemetry & Docs Defaults ───────────────────────────────────────────────
+DEFAULT_PROFILER_ITERATIONS: int = 10
+DEFAULT_PROFILER_TOP_N: int = 10
+DEFAULT_PROFILER_MAX_PEAK_MB: float = 100.0
+DEFAULT_PROFILER_TARGET: str = "http-pool"
+DEFAULT_WATERFALL_SLOTS: int = 24
+DEFAULT_JAEGER_TIMEOUT_SECONDS: float = 5.0
+DEFAULT_LOGFIRE_TIMEOUT_MILLIS: int = 30000
+DEFAULT_DOCS_SERIES: str = "v0.2"
+
+# ── AI Retries, Review Pool & Hallucination Defaults ─────────────────────────
+DEFAULT_AI_MAX_ATTEMPTS: int = 3
+DEFAULT_AI_MIN_WAIT: float = 0.5
+DEFAULT_AI_MAX_WAIT: float = 60.0
+DEFAULT_REVIEW_POOL_RATE: float = 10.0
+DEFAULT_REVIEW_POOL_CAPACITY: float = 10.0
+DEFAULT_REVIEW_POOL_MAX_CONCURRENCY: int = 4
+DEFAULT_HALLUCINATION_SIMILARITY_THRESHOLD: float = 0.5

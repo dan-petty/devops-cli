@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Literal
@@ -63,6 +64,19 @@ def _validate_mcp_arg(name: str, value: str) -> None:
             ERRORS.mcp.hyphen_prefixed_argument.format(name=name),
             field=name,
         )
+
+
+def _validate_mcp_whitelist(name: str, items: list[str] | None) -> None:
+    """Reject whitelist items that start with a hyphen or contain forbidden characters."""
+    if not items:
+        return
+    for item in items:
+        _validate_mcp_arg(name, item)
+        if not re.match(r"^[a-zA-Z0-9_\-.:*]+$", item):
+            raise ValidationError(
+                f"Invalid characters in {name} whitelist item: '{item}'",
+                field=name,
+            )
 
 
 def _validate_mcp_int_bound(
@@ -1097,13 +1111,20 @@ def docker_sandbox(
     image: str = "python:3.14-slim",
     workspace: str = ".",
     memory: str = "2g",
-    network: str = "bridge",
+    network: str = "isolated",
     network_mode: str | None = None,
     public_whitelist: list[str] | None = None,
     local_whitelist: list[str] | None = None,
     read_only: bool = False,
 ) -> str:
     """Execute command inside an isolated Docker container sandbox."""
+    _validate_mcp_arg("image", image)
+    _validate_mcp_arg("workspace", workspace)
+    _validate_mcp_arg("network", network)
+    if network_mode:
+        _validate_mcp_arg("network_mode", network_mode)
+    _validate_mcp_whitelist("public_whitelist", public_whitelist)
+    _validate_mcp_whitelist("local_whitelist", local_whitelist)
     cmd = [
         "uv",
         "run",
@@ -1139,7 +1160,7 @@ def sandbox_deploy(
     workspace: str = ".",
     memory: str = "2g",
     cpus: float = 2.0,
-    network: str = "bridge",
+    network: str = "isolated",
     network_mode: str | None = None,
     public_whitelist: list[str] | None = None,
     local_whitelist: list[str] | None = None,
@@ -1147,6 +1168,15 @@ def sandbox_deploy(
     command: list[str] | None = None,
 ) -> str:
     """Deploy an isolated workload container sandbox with security containment and port allocation."""
+    _validate_mcp_arg("image", image)
+    _validate_mcp_arg("workspace", workspace)
+    _validate_mcp_arg("network", network)
+    if network_mode:
+        _validate_mcp_arg("network_mode", network_mode)
+    if name:
+        _validate_mcp_arg("name", name)
+    _validate_mcp_whitelist("public_whitelist", public_whitelist)
+    _validate_mcp_whitelist("local_whitelist", local_whitelist)
     cmd = [
         "uv",
         "run",
@@ -1195,6 +1225,11 @@ def sandbox_network_policy(
     local_whitelist: list[str] | None = None,
 ) -> str:
     """Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation."""
+    _validate_mcp_arg("network_mode", network_mode)
+    _validate_mcp_arg("name", name)
+    _validate_mcp_arg("namespace", namespace)
+    _validate_mcp_whitelist("public_whitelist", public_whitelist)
+    _validate_mcp_whitelist("local_whitelist", local_whitelist)
     cmd = [
         "uv",
         "run",

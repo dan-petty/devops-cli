@@ -5,7 +5,12 @@ from __future__ import annotations
 import base64
 import itertools
 
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_ARGOCD_NAMESPACE,
+    DEFAULT_BOOTSTRAP_STACK,
+    DEFAULT_LLM_NAMESPACE,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.config.settings import _keyring_set
 from devops_cli.core.process import run_subprocess
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
@@ -77,7 +82,7 @@ def fetch_secret_field(
 
 @trace_span("k8s.credentials.argocd")
 def fetch_argocd_password(
-    namespace: str = "argocd",
+    namespace: str = DEFAULT_ARGOCD_NAMESPACE,
     context: str | None = None,
     save_to_keyring: bool = True,
 ) -> str | None:
@@ -138,7 +143,7 @@ def fetch_grafana_password(
 
 @trace_span("k8s.credentials.qdrant")
 def fetch_qdrant_api_key(
-    namespace: str = "llm",
+    namespace: str = DEFAULT_LLM_NAMESPACE,
     context: str | None = None,
     save_to_keyring: bool = True,
 ) -> str | None:
@@ -160,7 +165,7 @@ def fetch_qdrant_api_key(
 @trace_span("k8s.credentials.sync")
 def sync_k8s_credentials(
     context: str | None = None,
-    stack: str = "infra",
+    stack: str = DEFAULT_BOOTSTRAP_STACK,
     save_to_keyring: bool = True,
 ) -> dict[str, bool]:
     """Discover and synchronize Kubernetes stack credentials into OS Keyring."""

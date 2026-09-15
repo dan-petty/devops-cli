@@ -12,6 +12,12 @@ from typing import Any
 
 import httpx2
 
+from devops_cli.config.defaults import (
+    DEFAULT_K8S_NAMESPACE,
+    DEFAULT_LOG_QUERY_LIMIT,
+    DEFAULT_LOG_QUERY_SINCE,
+    DEFAULT_LOKI_URL,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import is_valid_k8s_name, validate_url_egress
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
@@ -20,8 +26,6 @@ from devops_cli.exceptions.k8s import KubernetesLoggingError
 from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_LOKI_URL = "http://localhost:3100"
 
 
 _TRACE_ID_REGEX = re.compile(
@@ -282,8 +286,8 @@ def _parse_duration_to_seconds(duration_str: str) -> int:
 
 def execute_kubectl_logql(
     query: LogQLQuery,
-    namespace: str = "default",
-    limit: int = 100,
+    namespace: str = DEFAULT_K8S_NAMESPACE,
+    limit: int = DEFAULT_LOG_QUERY_LIMIT,
     since: str | None = None,
 ) -> LogQueryResult:
     """Query logs via kubectl across matching pods with in-memory LogQL filtering."""
@@ -341,8 +345,8 @@ def execute_kubectl_logql(
 def execute_loki_query(
     query: LogQLQuery,
     loki_url: str = DEFAULT_LOKI_URL,
-    limit: int = 100,
-    since: str = "1h",
+    limit: int = DEFAULT_LOG_QUERY_LIMIT,
+    since: str = DEFAULT_LOG_QUERY_SINCE,
 ) -> LogQueryResult:
     """Execute LogQL query against Loki REST API (/loki/api/v1/query_range)."""
     valid_url = validate_url_egress(loki_url, purpose="Loki", allow_private=True)
@@ -410,8 +414,8 @@ def execute_logql_query(
     query: LogQLQuery | str,
     namespace: str | None = None,
     loki_url: str | None = None,
-    limit: int = 100,
-    since: str = "1h",
+    limit: int = DEFAULT_LOG_QUERY_LIMIT,
+    since: str = DEFAULT_LOG_QUERY_SINCE,
     dry_run: bool = False,
 ) -> LogQueryResult:
     """High-level query entrypoint with automatic Loki to kubectl fallback."""

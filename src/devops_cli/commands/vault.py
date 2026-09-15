@@ -19,6 +19,7 @@ from devops_cli.output import (
     print_table,
     render_dry_run_result,
 )
+from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.security.vault_broker import VaultSecretBroker
 
 VAULT_PATH_PATTERN = re.compile(r"^(?:vault://)?[a-zA-Z0-9_\-./#]+$")
@@ -107,7 +108,7 @@ def vault_get(
     try:
         _validate_vault_path(path)
     except (ValueError, VaultConfigurationError) as exc:
-        print_error(str(exc), prefix=False)
+        print_error(mask_secrets(str(exc)), prefix=False)
         raise typer.Exit(1)
     broker = VaultSecretBroker()
 
@@ -154,7 +155,7 @@ def vault_set(
     try:
         _validate_vault_path(path)
     except (ValueError, VaultConfigurationError) as exc:
-        print_error(str(exc), prefix=False)
+        print_error(mask_secrets(str(exc)), prefix=False)
         raise typer.Exit(1)
     broker = VaultSecretBroker()
     payload: dict[str, str] = {}
@@ -205,7 +206,7 @@ def vault_sync(
     try:
         _validate_vault_path(path)
     except (ValueError, VaultConfigurationError) as exc:
-        print_error(str(exc), prefix=False)
+        print_error(mask_secrets(str(exc)), prefix=False)
         raise typer.Exit(1)
     broker = VaultSecretBroker()
 

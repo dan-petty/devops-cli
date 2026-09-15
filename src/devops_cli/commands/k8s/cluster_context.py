@@ -81,12 +81,14 @@ def switch_context(
         return
 
     if should_autostart and not runtime._minikube_running():
+        from devops_cli.security.sanitizer import mask_secrets
+
         print_info(MESSAGES.k8s.starting_minikube, prefix=False)
         started, start_msg = runtime._start_minikube()
         if not started:
             print_error(MESSAGES.k8s.failed_start_minikube, prefix=False)
             raise typer.Exit(1)
-        print_info(start_msg, prefix=False)
+        print_info(mask_secrets(start_msg), prefix=False)
 
     cmd = ["kubectl", "config", "use-context", name]
     runtime._run_cmd(cmd, check=True)

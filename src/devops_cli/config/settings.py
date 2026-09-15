@@ -589,8 +589,12 @@ def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
     for d in (start_dir, *start_dir.parents):
         for name in candidate_names:
             p = d / name
-            if p.is_file():
-                return p.resolve()
+            if p.is_file() and not p.is_symlink():
+                from devops_cli.core.paths import is_forbidden_system_path
+
+                resolved = p.resolve()
+                if not is_forbidden_system_path(resolved):
+                    return resolved
         if (d / ".git").exists() or (d / ".devcontainer").exists():
             break
     return None

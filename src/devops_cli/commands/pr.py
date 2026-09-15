@@ -269,8 +269,11 @@ def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
     if not target or "/" not in target:
         return False
     owner, repo_name = target.split("/", 1)
-    res = run_subprocess(
-        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{sha}/check-runs"],
+    from devops_cli.github.rate_limiter import run_gh
+    from devops_cli.security.sanitizer import mask_secrets
+
+    res = run_gh(
+        ["api", f"repos/{owner}/{repo_name}/commits/{sha}/check-runs"],
         check=False,
         quiet=True,
     )
@@ -286,7 +289,7 @@ def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
         return True
     rows = []
     for cr in check_runs:
-        name = str(cr.get("name", ""))
+        name = mask_secrets(str(cr.get("name", "")))
         conclusion = str(cr.get("conclusion") or "")
         status = str(cr.get("status") or "")
         if conclusion == "success":
@@ -297,7 +300,7 @@ def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
             badge = f"[bold red]✗ {conclusion}[/bold red]"
         else:
             badge = f"[dim]{status}[/dim]"
-        url = str(cr.get("html_url", ""))
+        url = mask_secrets(str(cr.get("html_url", "")))
         rows.append([name, badge, url])
     print_table(
         title=f"CI Quality Gate Checks (PR #{number})",
@@ -351,15 +354,20 @@ def pr_checks(
 ) -> None:
     """Check remote CI quality gate status on a pull request."""
     _require_gh_cli()
-    cmd = [CONST_GH_CLI, "pr", "checks", str(number)]
+    from devops_cli.github.rate_limiter import run_gh
+    from devops_cli.security.sanitizer import mask_secrets
+
+    args = ["pr", "checks", str(number)]
     if repo:
-        cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False)
+        args.extend(["--repo", repo])
+    res = run_gh(args, check=False)
     if res.stdout:
-        typer.echo(res.stdout.rstrip())
+        typer.echo(mask_secrets(res.stdout.rstrip()))
     if res.returncode != 0:
         if _render_pr_checks_fallback(number, repo):
             return
+        if res.stderr:
+            typer.echo(mask_secrets(res.stderr.rstrip()), err=True)
         raise typer.Exit(res.returncode)
 
 

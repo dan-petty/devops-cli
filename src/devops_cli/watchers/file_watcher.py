@@ -8,6 +8,11 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from devops_cli.config.defaults import (
+    DEFAULT_FILE_WATCHER_DEBOUNCE_MS,
+    DEFAULT_FILE_WATCHER_INTERVAL_SECONDS,
+    DEFAULT_FILE_WATCHER_NAME,
+)
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.telemetry import trace_span
 
@@ -20,9 +25,9 @@ class DebouncedFileWatcher:
         watch_paths: Sequence[Path | str],
         on_change: Callable[[list[Path]], None],
         *,
-        debounce_ms: int = 500,
-        poll_interval_seconds: float = 0.5,
-        name: str = "file_watcher",
+        debounce_ms: int = DEFAULT_FILE_WATCHER_DEBOUNCE_MS,
+        poll_interval_seconds: float = DEFAULT_FILE_WATCHER_INTERVAL_SECONDS,
+        name: str = DEFAULT_FILE_WATCHER_NAME,
     ) -> None:
         self.watch_paths = [Path(p).resolve() for p in watch_paths]
         self.on_change = on_change

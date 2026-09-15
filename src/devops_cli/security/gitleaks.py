@@ -136,18 +136,34 @@ def _is_test_file(path: Path | str) -> bool:
     return bool({"tests", "test", "__tests__"}.intersection(parts))
 
 
+def _is_safe_file(path: Path, root: Path | None) -> bool:
+    """Validate that path exists, is a regular file, not a symlink, and contained within root."""
+    if not path.exists() or not path.is_file() or path.is_symlink():
+        return False
+    if root is not None:
+        try:
+            resolved = path.resolve()
+            if not resolved.is_relative_to(root):
+                return False
+        except OSError:
+            return False
+    return True
+
+
 def _resolve_scan_files(target: Path | list[Path], *, ignore_tests: bool = False) -> list[Path]:
     """Resolve flat list of regular non-hidden files from target path or list."""
     if isinstance(target, list):
-        candidates = [p for p in target if p.exists() and p.is_file()]
+        candidates = [p for p in target if _is_safe_file(p, find_repo_root(p))]
     elif not target.exists():
         return []
     elif target.is_file():
-        candidates = [target]
+        candidates = [target] if _is_safe_file(target, find_repo_root(target)) else []
     else:
         root = find_repo_root(target)
         candidates = [
-            p for p in target.rglob("*") if p.is_file() and not is_ignored_by_git(root, p)
+            p
+            for p in target.rglob("*")
+            if _is_safe_file(p, root) and not is_ignored_by_git(root, p)
         ]
     if ignore_tests:
         return [p for p in candidates if not _is_test_file(p)]
