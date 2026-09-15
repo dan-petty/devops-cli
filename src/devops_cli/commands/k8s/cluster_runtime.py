@@ -42,6 +42,25 @@ def _run_cmd(
     capture: bool = False,
     timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
+    import os
+    from pathlib import Path
+
+    from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+    from devops_cli.exceptions.security import SecurityError
+
+    kubeconfig = os.environ.get("KUBECONFIG")
+    if kubeconfig:
+        for entry in kubeconfig.split(os.pathsep):
+            clean_entry = entry.strip()
+            if not clean_entry:
+                continue
+            validate_no_path_traversal(clean_entry, label="KUBECONFIG")
+            resolved = Path(clean_entry).resolve()
+            if is_forbidden_system_path(resolved):
+                raise SecurityError(
+                    f"KUBECONFIG cannot point to forbidden system directory: '{clean_entry}'."
+                )
+
     return run_subprocess(
         cmd,
         input=input,

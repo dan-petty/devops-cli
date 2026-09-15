@@ -43,7 +43,6 @@ from devops_cli.ai.review_schema import (
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
-    CONST_GITIGNORE_DIRS,
     CONST_REVIEW_GENERATED_FILES,
 )
 from devops_cli.config.defaults import (
@@ -1205,16 +1204,10 @@ def _is_candidate_file_included(
     """Predicate determining if candidate file should be included in review scope."""
     if not candidate_path.is_file():
         return False
-    if any(part in CONST_GITIGNORE_DIRS for part in candidate_path.parts):
-        return False
     if candidate_path.name in CONST_REVIEW_GENERATED_FILES:
         return False
-    if (
-        not is_from_git
-        and repo_root is not None
-        and not root_ignored
-        and is_ignored_by_git(repo_root, candidate_path)
-    ):
+    effective_root = repo_root or find_repo_root(candidate_path)
+    if not is_from_git and not root_ignored and is_ignored_by_git(effective_root, candidate_path):
         return False
 
     try:

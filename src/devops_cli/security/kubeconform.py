@@ -13,6 +13,7 @@ from devops_cli.config.defaults import (
     DEFAULT_KUBECONFORM_VERSION,
     DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
 )
+from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.security.base import BaseSecurityScanner
 from devops_cli.telemetry import trace_span
 
@@ -45,9 +46,10 @@ def _run_native_fallback_k8s_validation(manifest_path: Path) -> list[Finding]:
     resolved = manifest_path.resolve()
     files = list(resolved.rglob("*.yaml")) if resolved.is_dir() else [resolved]
     rel_root = resolved if resolved.is_dir() else resolved.parent
+    repo_root = find_repo_root(rel_root)
 
     for f in files:
-        if not f.is_file() or any(part.startswith(".") for part in f.parts):
+        if not f.is_file() or is_ignored_by_git(repo_root, f):
             continue
         try:
             if not f.resolve().is_relative_to(rel_root):

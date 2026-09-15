@@ -12,6 +12,7 @@ from devops_cli.security.kubelinter import KubelinterScanner, run_kubelinter_sca
 from devops_cli.security.pluto import PlutoScanner, run_pluto_scan
 from devops_cli.security.popeye import PopeyeScanner, run_popeye_scan
 from devops_cli.security.reference_extractor import (
+    deduplicate_network_references,
     extract_dependencies_from_text,
     extract_network_references,
     is_example_ip,
@@ -24,6 +25,7 @@ from devops_cli.security.reference_extractor import (
     is_network_domain,
     is_private_or_local_ip,
     is_public_ip,
+    sort_network_references,
 )
 from devops_cli.security.registry import ScannerRegistry, global_scanner_registry
 from devops_cli.security.sanitizer import (
@@ -64,6 +66,7 @@ __all__ = [
     "ShodanInternetDBClient",
     "TflintScanner",
     "TrivyScanner",
+    "deduplicate_network_references",
     "extract_dependencies_from_text",
     "extract_network_references",
     "global_scanner_registry",
@@ -96,4 +99,5 @@ __all__ = [
     "sanitize_prompt_boundary_tags",
     "sanitize_prompt_injection",
     "sanitize_telemetry_endpoint",
+    "sort_network_references",
 ]

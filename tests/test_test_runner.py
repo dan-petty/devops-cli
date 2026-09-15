@@ -121,3 +121,71 @@ def test_test_load_missing_k6_and_failure(tmp_path: Path) -> None:
     ):
         res_fail = runner.invoke(app_cli, ["load", "--summary-export", str(export_file)])
         assert res_fail.exit_code == 2
+
+
+def test_parse_whitelist_and_validate_sandbox_network() -> None:
+    """Verify _parse_whitelist and _validate_sandbox_network handle valid and invalid inputs."""
+    import pytest
+    import typer
+
+    from devops_cli.commands.test_cmd import _parse_whitelist, _validate_sandbox_network
+
+    # Empty raw returns empty list
+    assert _parse_whitelist(None, "public") == []
+    assert _parse_whitelist("", "public") == []
+
+    # Valid tokens
+    tokens = _parse_whitelist("example.com, 127.0.0.1:8080 , api.service", "public")
+    assert tokens == ["example.com", "127.0.0.1:8080", "api.service"]
+
+    # Invalid token with forbidden characters
+    with pytest.raises(typer.BadParameter, match="Invalid public whitelist entry"):
+        _parse_whitelist("invalid token with spaces", "public")
+
+    # Invalid network mode
+    with pytest.raises(typer.BadParameter, match="Invalid network mode"):
+        _validate_sandbox_network("invalid-mode", "isolated", None, None)
+
+    # Valid bridge mode with warning
+    mode, pub, loc = _validate_sandbox_network("bridge", "bridge", "example.com", "localhost:8000")
+    assert mode == "bridge"
+    assert pub == ["example.com"]
+    assert loc == ["localhost:8000"]
+
+
+def test_test_sandbox_execution_and_failure() -> None:
+    """Verify test sandbox execution outputs and error exit codes."""
+    mock_runner = MagicMock()
+    mock_runner.run.return_value = MagicMock(
+        exit_code=0, stdout="Container output", stderr="Warning output", duration_seconds=1.23
+    )
+
+    with (
+        patch("devops_cli.docker.sandbox.WorkloadSandboxRunner", return_value=mock_runner),
+        patch("devops_cli.commands.test_cmd.print_info"),
+        patch("devops_cli.commands.test_cmd.print_success"),
+    ):
+        res = runner.invoke(app_cli, ["sandbox", "echo", "hello"])
+        assert res.exit_code == 0
+
+    # Non-zero exit code
+    mock_runner_fail = MagicMock()
+    mock_runner_fail.run.return_value = MagicMock(
+        exit_code=42, stdout="", stderr="Crash", duration_seconds=0.5
+    )
+    with patch("devops_cli.docker.sandbox.WorkloadSandboxRunner", return_value=mock_runner_fail):
+        res_fail = runner.invoke(app_cli, ["sandbox", "false"])
+        assert res_fail.exit_code == 42
+
+
+def test_profile_memory_error_handling() -> None:
+    """Verify profile-memory handles MemoryProfilerError with exit code 1."""
+    from devops_cli.telemetry.memory_profiler import MemoryProfilerError
+
+    with patch(
+        "devops_cli.commands.test_cmd.run_memory_profiler",
+        side_effect=MemoryProfilerError("profiling failed"),
+    ):
+        res = runner.invoke(app_cli, ["profile-memory", "devops_cli.main:app"])
+        assert res.exit_code == 1
+        assert "profiling failed" in res.output

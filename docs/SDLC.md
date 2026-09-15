@@ -75,10 +75,11 @@ Every significant feature, structural refactoring, or tooling upgrade begins wit
    - Link each issue to the active release milestone, apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`), and synchronize to GitHub Projects v2 board (`https://github.com/dan-petty/devops-cli/projects`) and repository issue views (`https://github.com/dan-petty/devops-cli/issues/views`).
    - The open issues queue (`https://github.com/dan-petty/devops-cli/issues?q=is%3Aissue+state%3Aopen`), projects tab (`https://github.com/dan-petty/devops-cli/projects`), and issue views (`https://github.com/dan-petty/devops-cli/issues/views`) must never be left empty while an active milestone exists with planned deliverables.
 4. **Transparent Task Status Tracking**:
-   - Maintain dynamic task status in [`docs/agent/task.md`](agent/task.md) divided into:
-     - **Pending Tasks**: Queued deliverables and backlog milestones.
-     - **In-Progress Tasks (WIP)**: Active focus items and files currently under modification.
-     - **Completed Tasks**: Verified implementations, green test gates, and synchronized documentation.
+   - Maintain dynamic task status exclusively in isolated modular files under [`docs/agent/tasks/`](agent/tasks/README.md) (`task-<issue>-<slug>.md`) divided into:
+     - **Backlog / Ready**: Queued deliverables and scoped milestones.
+     - **In Progress (WIP)**: Active focus items and files currently under modification.
+     - **In Review / Done**: Pull requests in review and verified implementations.
+   - Centralized task visualization, roadmap tracking, and sprint management are managed natively through GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and GitHub Issues views (`https://github.com/dan-petty/devops-cli/issues/views`).
 5. **Target Branch Selection**:
    - Identify active release branch (`git fetch origin`, inspect `origin/release/vX.Y.Z`).
    - Create isolated topic branch from fresh upstream: `git checkout -b feat/<description> origin/release/vX.Y.Z`.
@@ -271,6 +272,9 @@ gitGraph
   - **Roadmap-Linked Milestones (`docs/ROADMAP.md`)**: Release branches and topic PRs associate directly with release milestones extracted from `ROADMAP.md` and reconciled via `devops gh milestones sync`.
   - **Standardized Projects v2 & Issues Views (`https://github.com/dan-petty/devops-cli/projects` & `https://github.com/dan-petty/devops-cli/issues/views`)**: Four standardized views (*Sprint Kanban*, *Roadmap Timeline*, *Triage & Quality Table*, *Value vs Effort Priority Matrix*) track features across lifecycles (`Backlog` -> `Ready` -> `In Progress` -> `In Review` -> `Done`), audited via `devops gh views list` / `spec` and synced via `devops gh project sync` with mandatory repository board linkage (`devops gh project link <number>`) so projects appear under `https://github.com/dan-petty/devops-cli/projects` and views under `https://github.com/dan-petty/devops-cli/issues/views`.
 - **Human-in-the-Loop Merging**: AI agents prepare PRs, monitor remote GitHub Actions CI, and remediate failures. AI agents **never merge PRs autonomously**. Maintainers approve and squash-merge.
+- **Sequential Pull Request Processing Queue (Strict Oldest-to-Newest / FIFO Execution)**:
+  - When multiple open PRs exist across the repository or targeting an active release branch, AI agents and contributors **MUST ALWAYS process and advance pull requests in strict chronological order from oldest to newest** (FIFO queue: lowest PR number / earliest creation date first).
+  - Remediating review comments, fixing CI failures, resolving merge conflicts, and verifying merge readiness on older PRs **strictly takes precedence** over authoring, advancing, or reviewing newer PRs to eliminate cascading merge conflicts, branch divergence, and PR starvation.
 - **Two-Stage PR Review Lifecycle & Post-Ready Copilot Monitoring**:
   - **Stage 1 (In-Progress Draft)**: Pull requests for in-progress work are created as drafts (`gh pr create --draft`). CI checks are monitored on every push.
   - **Stage 2 (Transition to Ready for Review)**: Once all work is completed, CI checks pass, and comments are addressed, agents convert the draft pull request to ready for review (`gh pr ready <pr_number>`).
@@ -332,7 +336,7 @@ flowchart TD
 
 | SDLC Phase | Activity | Primary Tool / Command | Verification Gate |
 | :--- | :--- | :--- | :--- |
-| **1. Inception** | RFC & Task Tracking | `docs/agent/task.md`, `ROADMAP.md` | Clear backlog categorization (Pending, WIP, Done) |
+| **1. Inception** | RFC & Task Tracking | `docs/agent/tasks/`, `ROADMAP.md` | Clear backlog categorization (Pending, WIP, Done) |
 | **2. Specification** | Test-First Authoring | `pytest tests/test_<feature>.py` | Clean initial failure (asserting new behavior) |
 | **3. Implementation**| Invariant Enforcement | `tests/test_architectural_invariants.py` | Complexity $\le 10$, Nesting $\le 5$, zero bare exceptions |
 | **4. Verification**  | Full CI Suite | `devops ci` (or `uv run devops ci`) | 10/10 green quality gates, coverage $\ge 90\%$ |

@@ -14,6 +14,12 @@ from devops_cli.ai.client import LLMClient
 from devops_cli.ai.concurrency import AnyConcurrencyLimit, limit_model_concurrency
 from devops_cli.ai.personas import PERSONAS, Persona
 from devops_cli.ai.review_schema import ReviewResult
+from devops_cli.config.defaults import (
+    DEFAULT_AI_AGENT_PERSONA,
+    DEFAULT_AI_CONTEXT_TOKEN_BUDGET,
+    DEFAULT_AI_END_STRATEGY,
+    DEFAULT_CURRENT_PATH,
+)
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
 
 logger = logging.getLogger(__name__)
@@ -25,9 +31,9 @@ class DevOpsAgentContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
 
     settings: Settings | None = None
-    target_repo: str = "."
-    active_persona: str = "devsecops"
-    context_tokens_budget: int = 16384
+    target_repo: str = str(DEFAULT_CURRENT_PATH)
+    active_persona: str = DEFAULT_AI_AGENT_PERSONA
+    context_tokens_budget: int = DEFAULT_AI_CONTEXT_TOKEN_BUDGET
     capabilities: list[BaseCapability] = Field(default_factory=list)
     tools: list[Any] = Field(default_factory=list)
     client: LLMClient | None = None
@@ -147,7 +153,7 @@ def create_pydantic_ai_agent(
     capabilities: Sequence[BaseCapability] | None = None,
     tools: Sequence[Any] | None = None,
     client: LLMClient | None = None,
-    end_strategy: str = "graceful",
+    end_strategy: str = DEFAULT_AI_END_STRATEGY,
     retries: int | None = None,
     max_concurrency: AnyConcurrencyLimit = None,
     model_concurrency: AnyConcurrencyLimit = None,

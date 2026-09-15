@@ -19,6 +19,7 @@ from devops_cli.config.defaults import (
 BIN_ACTIONLINT: str = "actionlint"
 BIN_ARGOCD: str = "argocd"
 BIN_BANDIT: str = "bandit"
+BIN_COSIGN: str = "cosign"
 BIN_DAGGER: str = "dagger"
 BIN_DIFFT: str = "difft"
 BIN_DOCKER: str = "docker"
@@ -311,4 +312,54 @@ def build_dagger_cmd(
         cmd.append(function_name)
     if args:
         cmd.extend(args)
+    return cmd
+
+
+def build_cosign_sign_cmd(
+    image: str,
+    *,
+    key: str | None = None,
+    keyless: bool = True,
+    upload: bool = True,
+    annotations: Sequence[str] | None = None,
+) -> list[str]:
+    """Build a cosign sign command for container image signing."""
+    cmd = [BIN_COSIGN, "sign"]
+    if key:
+        cmd.extend(["--key", key])
+    elif keyless:
+        cmd.append("--yes")
+    if not upload:
+        cmd.append("--upload=false")
+    if annotations:
+        for annotation in annotations:
+            cmd.extend(["-a", annotation])
+    cmd.append(image)
+    return cmd
+
+
+def build_cosign_verify_cmd(
+    image: str,
+    *,
+    key: str | None = None,
+    cert_identity: str | None = None,
+    cert_issuer: str | None = None,
+    attestation: bool = False,
+    predicate_type: str | None = None,
+    insecure_ignore_tlog: bool = False,
+) -> list[str]:
+    """Build a cosign verify or verify-attestation command."""
+    subcmd = "verify-attestation" if attestation else "verify"
+    cmd = [BIN_COSIGN, subcmd, "--output", "json"]
+    if key:
+        cmd.extend(["--key", key])
+    if cert_identity:
+        cmd.extend(["--certificate-identity", cert_identity])
+    if cert_issuer:
+        cmd.extend(["--certificate-oidc-issuer", cert_issuer])
+    if predicate_type:
+        cmd.extend(["--type", predicate_type])
+    if insecure_ignore_tlog:
+        cmd.append("--insecure-ignore-tlog=true")
+    cmd.append(image)
     return cmd

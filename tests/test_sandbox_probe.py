@@ -636,7 +636,7 @@ def test_probe_tcp_metadata_trailing_dot_and_dns_blocked(monkeypatch: pytest.Mon
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))]
 
     monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
-    res_dns = probe_tcp("metadata-spoof.example.com", 80)
+    res_dns = probe_tcp("example.com", 80)
     assert res_dns.status == ProbeStatus.FAIL
     assert "prohibited" in res_dns.message.lower()
 
@@ -692,6 +692,6 @@ def test_probe_http_metadata_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))]
 
     monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
-    res_dns = probe_http("http://metadata-spoof.example.com/computeMetadata/v1")
+    res_dns = probe_http("http://example.com/computeMetadata/v1")
     assert res_dns.status == ProbeStatus.FAIL
     assert "prohibited" in res_dns.message.lower()

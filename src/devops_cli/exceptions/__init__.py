@@ -43,6 +43,7 @@ from devops_cli.exceptions.docs import DocCompactionError
 from devops_cli.exceptions.git import (
     BranchAlreadyExistsError,
     GitHubOperationError,
+    GitHubRateLimitError,
     GitOperationError,
     InvalidBranchNameError,
 )
@@ -116,6 +117,7 @@ __all__ = [
     "DocCompactionError",
     "DocsIngestionError",
     "GitHubOperationError",
+    "GitHubRateLimitError",
     "GitOperationError",
     "GitOpsSyncError",
     "HarnessExecutionError",

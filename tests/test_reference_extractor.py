@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from devops_cli.models.vulnerability import NetworkReference
 from devops_cli.security.reference_extractor import (
+    deduplicate_network_references,
     extract_dependencies_from_text,
     extract_network_references,
+    is_code_or_config_reference,
     is_public_ip,
+    sort_network_references,
 )
 
 
@@ -79,7 +83,8 @@ def test_extract_network_references() -> None:
     Access the cluster at https://api.prod.example-corp.com/v1
     Public ingress IP: 93.184.216.34
     Private internal IP: 192.168.1.100
-    Test host: example.com
+    Test host: localhost
+    Example doc: example.com
     External endpoint: https://auth.vendor-service.io/oauth/token
     Bare domain reference: prod-infra.custom-cloud.io
     File reference: main.py, coverage.xml, dmypy.json, config.yaml (should all be skipped)
@@ -112,10 +117,13 @@ def test_extract_network_references() -> None:
     assert target_local_ip.scope == "local"
     assert "Local" in target_local_ip.security_status
 
-    target_local_domain = targets.get("example.com")
+    target_local_domain = targets.get("localhost")
     assert target_local_domain is not None
     assert target_local_domain.is_local
     assert target_local_domain.scope == "local"
+
+    # RFC 2606 example domains must NOT be listed
+    assert targets.get("example.com") is None
 
     # Non-network file references skipped
     assert targets.get("main.py") is None
@@ -409,9 +417,7 @@ def test_extract_network_references_local_and_reserved_spaces() -> None:
     assert t_loop is not None
     assert t_loop.is_local
 
-    t_res_dom = targets.get("example.com")
-    assert t_res_dom is not None
-    assert t_res_dom.is_local
+    assert targets.get("example.com") is None
 
     t_svc_dns = targets.get("jaeger.otel.svc.cluster.local")
     assert t_svc_dns is not None
@@ -960,7 +966,7 @@ def test_reference_extractor_documented_examples_and_rfc_exclusions() -> None:
         is_public_ip,
     )
 
-    # 1. RFC 2606 & RFC 6761 reserved domains and TLDs
+    # 1. RFC 2606 reserved domains and TLDs
     rfc2606_domains = [
         "example.com",
         "sub.deep.example.net",
@@ -969,16 +975,16 @@ def test_reference_extractor_documented_examples_and_rfc_exclusions() -> None:
         "service.example",
         "broken.invalid",
         "staging.test",
-        "app.localhost",
-        "secret.onion",
-        "gateway.home.arpa",
-        "worker.internal",
     ]
     for d in rfc2606_domains:
         assert is_example_or_invalid_domain(d) is True, f"Failed for domain: {d}"
         assert is_example_or_invalid_network_target(d) is True, f"Failed network target: {d}"
 
-    # Non-example domains must return False
+    # Non-example domains (including valid local endpoints like localhost) must return False
+    assert is_example_or_invalid_domain("localhost") is False
+    assert is_example_or_invalid_domain("app.localhost") is False
+    assert is_example_or_invalid_domain("worker.internal") is False
+    assert is_example_or_invalid_domain("gateway.home.arpa") is False
     assert is_example_or_invalid_domain("github.com") is False
     assert is_example_or_invalid_domain("api.cloudflare.com") is False
     assert is_example_or_invalid_domain("openai.com") is False
@@ -1088,3 +1094,202 @@ def test_reference_extractor_documented_examples_and_rfc_exclusions() -> None:
     assert "2001:db8::42" not in filtered_targets
     assert "93.184.216.34" in filtered_targets
     assert "https://api.custom-service.io/v1" in filtered_targets
+
+
+def test_network_references_rejects_unspecified_ip_and_example_domains() -> None:
+    """Ensure 0.0.0.0, ::, and RFC 2606 example domains are never returned as network endpoints."""
+    sample = """
+    HOST = "0.0.0.0"
+    V6_UNSPECIFIED = "::"
+    TEST_ORG = "example.org"
+    TEST_NET = "example.net"
+    TEST_EDU = "example.edu"
+    TEST_COM = "example.com"
+    BARE_SPECIAL_TLD = "home.arpa"
+    BARE_CLUSTER_TLD = "cluster.local"
+    VALID_LOCAL = "argocd.example.internal"
+    VALID_EXTERNAL = "api.github.com"
+    """
+    refs = extract_network_references(sample, "test_config.py", exclude_examples=True)
+    targets = {r.target for r in refs}
+
+    # Invalid entries MUST be rejected
+    assert "0.0.0.0" not in targets
+    assert "::" not in targets
+    assert "example.org" not in targets
+    assert "example.net" not in targets
+    assert "example.edu" not in targets
+    assert "example.com" not in targets
+    assert "home.arpa" not in targets
+    assert "cluster.local" not in targets
+
+    # Legitimate endpoints MUST be retained
+    assert "argocd.example.internal" in targets
+    assert "api.github.com" in targets
+
+
+def test_network_references_splits_comma_separated_urls() -> None:
+    """Ensure comma-separated URL lists are parsed into separate network references."""
+    content = 'SERVERS = "http://node1:11434,http://node2:11434"'
+    refs = extract_network_references(content, "test_urls.py")
+    targets = {r.target for r in refs}
+    assert "http://node1:11434" in targets
+    assert "http://node2:11434" in targets
+    assert "http://node1:11434,http://node2:11434" not in targets
+
+
+def test_network_references_rejects_regex_patterns() -> None:
+    """Ensure regex pattern strings with escaped domain syntax are not treated as URLs."""
+    content = r'SLACK_REGEX = r"https://hooks\.slack\.com/services/[A-Za-z0-9/_-]+"'
+    refs = extract_network_references(content, "test_sanitizer.py")
+    targets = {r.target for r in refs}
+    assert not any("hooks" in t for t in targets)
+
+
+def test_dynamically_differentiate_programming_symbols() -> None:
+    """Ensure metrics, telemetry paths, and AST identifiers are differentiated from domains."""
+    # 1. Statically and dynamically recognized code/metric keys
+    assert is_code_or_config_reference("cli.command.total") is True
+    assert is_code_or_config_reference("agent.tools") is True
+    assert is_code_or_config_reference("agent.tokens.total") is True
+    assert is_code_or_config_reference("agent.turns.total") is True
+    assert is_code_or_config_reference("metric.http.duration_seconds") is True
+    assert is_code_or_config_reference("otel.span.duration") is True
+
+    # 2. Extract from Python content with telemetry calls
+    python_telemetry = """
+    record_metric("cli.command.total", 1.0)
+    logfire.metric_counter("agent.tokens.total").add(10)
+    logfire.metric_counter("agent.turns.total").add(1)
+    span.set_attribute("agent.tools", "search")
+    real_domain = "metrics.production-cloud.io"
+    """
+    refs = extract_network_references(python_telemetry, "src/service.py")
+    targets = {r.target for r in refs}
+    assert "cli.command.total" not in targets
+    assert "agent.tokens.total" not in targets
+    assert "agent.turns.total" not in targets
+    assert "agent.tools" not in targets
+    assert "metrics.production-cloud.io" in targets
+
+
+def test_deduplicate_network_references() -> None:
+    """Ensure duplicate references are merged and their locations consolidated."""
+    ref1 = NetworkReference(
+        target="homelab.local",
+        reference_type="domain",
+        source_file="src/devops_cli/config/defaults.py",
+        line_number=125,
+        security_status="✓ Safe / Low Risk",
+        is_local=True,
+        scope="local",
+    )
+    ref2 = NetworkReference(
+        target="homelab.local",
+        reference_type="domain",
+        source_file="src/devops_cli/config/defaults.py",
+        line_number=324,
+        security_status="✓ Safe / Low Risk",
+        is_local=True,
+        scope="local",
+    )
+    ref3 = NetworkReference(
+        target="api.github.com",
+        reference_type="domain",
+        source_file="src/devops_cli/github/client.py",
+        line_number=45,
+        security_status="✓ Safe",
+        is_local=False,
+        scope="external",
+    )
+    deduped = deduplicate_network_references([ref1, ref2, ref3])
+    assert len(deduped) == 2
+    hl_ref = next(r for r in deduped if r.target == "homelab.local")
+    assert "125" in hl_ref.location
+    assert "324" in hl_ref.location
+
+
+def test_sort_network_references_ordered() -> None:
+    """Ensure audit results are sorted by:
+    Scope (external, then local),
+    Security (descending severity),
+    Type (domain, then url, then ip),
+    Target (ascending),
+    Location (ascending).
+    """
+    ext_flagged = NetworkReference(
+        target="malicious.example-bad.com",
+        reference_type="domain",
+        source_file="src/bad.py",
+        line_number=10,
+        security_status="⚠️ Flagged (Malicious)",
+        is_local=False,
+        scope="external",
+    )
+    ext_safe_domain = NetworkReference(
+        target="api.vendor.com",
+        reference_type="domain",
+        source_file="src/api.py",
+        line_number=20,
+        security_status="✓ Safe",
+        is_local=False,
+        scope="external",
+    )
+    ext_safe_url = NetworkReference(
+        target="https://api.vendor.com/v1",
+        reference_type="url",
+        source_file="src/api.py",
+        line_number=25,
+        security_status="✓ Safe",
+        is_local=False,
+        scope="external",
+    )
+    ext_safe_ip = NetworkReference(
+        target="93.184.216.34",
+        reference_type="ip",
+        source_file="src/dns.py",
+        line_number=5,
+        security_status="✓ Safe",
+        is_local=False,
+        scope="external",
+    )
+    loc_domain = NetworkReference(
+        target="argocd.homelab.local",
+        reference_type="domain",
+        source_file="src/config.py",
+        line_number=15,
+        security_status="✓ Safe / Low Risk",
+        is_local=True,
+        scope="local",
+    )
+    loc_ip = NetworkReference(
+        target="192.168.49.2",
+        reference_type="ip",
+        source_file="src/k8s.py",
+        line_number=30,
+        security_status="✓ Safe / Low Risk",
+        is_local=True,
+        scope="local",
+    )
+
+    unordered = [loc_ip, ext_safe_url, loc_domain, ext_safe_ip, ext_flagged, ext_safe_domain]
+    ordered = sort_network_references(unordered)
+
+    # 1. External before Local
+    assert [r.scope for r in ordered] == [
+        "external",
+        "external",
+        "external",
+        "external",
+        "local",
+        "local",
+    ]
+    # 2. External Flagged before External Safe
+    assert ordered[0] == ext_flagged
+    # 3. External Safe: domain before url before ip
+    assert ordered[1] == ext_safe_domain
+    assert ordered[2] == ext_safe_url
+    assert ordered[3] == ext_safe_ip
+    # 4. Local: domain before ip
+    assert ordered[4] == loc_domain
+    assert ordered[5] == loc_ip

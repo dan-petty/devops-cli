@@ -24,7 +24,7 @@ from devops_cli.config.defaults import (
     DEFAULT_TOOL_READ_MAX_BYTES,
 )
 from devops_cli.core.process import run_subprocess
-from devops_cli.core.repo import is_safe_subpath
+from devops_cli.core.repo import find_repo_root, is_ignored_by_git, is_safe_subpath
 from devops_cli.lang import ERRORS, MESSAGES
 
 logger = logging.getLogger(__name__)
@@ -181,11 +181,12 @@ def _file_contains_bytes(path: Path, query_bytes: bytes, query_len: int) -> bool
     return False
 
 
-def _is_searchable_file(path: Path) -> bool:
+def _is_searchable_file(path: Path, repo_root: Path | None = None) -> bool:
     """Check if file is text/manifest and within safe workspace path."""
     if not path.is_file() or path.suffix.lower() in CONST_BINARY_EXTENSIONS:
         return False
-    if "__pycache__" in path.parts or any(p.startswith(".") for p in path.parts):
+    root = repo_root or find_repo_root(path)
+    if is_ignored_by_git(root, path):
         return False
     return _is_safe_workspace_path(path.resolve())
 
@@ -196,12 +197,15 @@ def search_code(query: str, directory: str = ".") -> list[str]:
     if not _is_safe_workspace_path(root) or not root.exists():
         return []
 
+    repo_root = find_repo_root(root)
     matches: list[str] = []
     query_bytes = query.encode("utf-8")
     query_len = len(query_bytes)
 
     for path in root.rglob("*"):
-        if _is_searchable_file(path) and _file_contains_bytes(path, query_bytes, query_len):
+        if _is_searchable_file(path, repo_root) and _file_contains_bytes(
+            path, query_bytes, query_len
+        ):
             matches.append(str(path.relative_to(root)))
             if len(matches) >= DEFAULT_TOOL_MAX_SEARCH_MATCHES:
                 break

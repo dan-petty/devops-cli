@@ -1988,8 +1988,14 @@ class ReviewPipelineOrchestrator:
         self, file_payloads: list[FileReviewPayload]
     ) -> tuple[list[DependencySpec], list[NetworkReference]]:
         """Collect deduplicated dependencies and network endpoints across all payloads."""
+        from devops_cli.security.reference_extractor import (
+            deduplicate_network_references,
+            is_example_or_invalid_network_target,
+            sort_network_references,
+        )
+
         all_deps: list[DependencySpec] = []
-        all_nets: list[NetworkReference] = []
+        raw_nets: list[NetworkReference] = []
         for payload in file_payloads:
             for d in payload.external_dependencies:
                 if not any(
@@ -1997,8 +2003,10 @@ class ReviewPipelineOrchestrator:
                 ):
                     all_deps.append(d)
             for n in payload.network_references:
-                if not any(x.target == n.target for x in all_nets):
-                    all_nets.append(n)
+                if n.is_example or is_example_or_invalid_network_target(n.target):
+                    continue
+                raw_nets.append(n)
+        all_nets = sort_network_references(deduplicate_network_references(raw_nets))
         return all_deps, all_nets
 
     def _build_consolidated_markdown_report(
@@ -2084,10 +2092,23 @@ class ReviewPipelineOrchestrator:
         lines.append("")
 
         lines.append("## Network References & Endpoints (Shodan InternetDB & Cloudflare Radar)")
-        if all_nets:
+        from devops_cli.security.reference_extractor import (
+            deduplicate_network_references,
+            is_example_or_invalid_network_target,
+            sort_network_references,
+        )
+
+        filtered_md_nets = [
+            n
+            for n in all_nets
+            if not getattr(n, "is_example", False)
+            and not is_example_or_invalid_network_target(getattr(n, "target", ""))
+        ]
+        sorted_md_nets = sort_network_references(deduplicate_network_references(filtered_md_nets))
+        if sorted_md_nets:
             lines.append("| Target | Type | Scope | Security Status | Location |")
             lines.append("|---|---|---|---|---|")
-            for net in all_nets:
+            for net in sorted_md_nets:
                 scope_str = "Local" if net.is_local else "External"
                 loc_str = f"`{net.location}`" if net.location else "—"
                 lines.append(
@@ -2242,6 +2263,20 @@ class ReviewPipelineOrchestrator:
 
     def _render_console_network_table(self, console: Any, all_nets: list[NetworkReference]) -> None:
         """Render network references and endpoints audit table to console."""
+        from devops_cli.security.reference_extractor import (
+            deduplicate_network_references,
+            is_example_or_invalid_network_target,
+            sort_network_references,
+        )
+
+        filtered = [
+            n
+            for n in all_nets
+            if not getattr(n, "is_example", False)
+            and not is_example_or_invalid_network_target(getattr(n, "target", ""))
+        ]
+        sorted_nets = sort_network_references(deduplicate_network_references(filtered))
+
         columns = [
             ("Target", "bold cyan"),
             "Type",
@@ -2250,8 +2285,8 @@ class ReviewPipelineOrchestrator:
             ("Location", "dim"),
         ]
         rows: list[list[str]] = []
-        if all_nets:
-            for n in all_nets:
+        if sorted_nets:
+            for n in sorted_nets:
                 rows.append(_format_network_ref_table_row(n))
         else:
             rows.append(

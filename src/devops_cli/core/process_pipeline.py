@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import time
 from collections.abc import Sequence
@@ -12,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.core.process import _sanitize_command_for_telemetry, build_subprocess_env
 from devops_cli.telemetry import inject_trace_context, record_metric, trace_span
 
 
@@ -56,9 +56,7 @@ class ProcessExecutionPipeline:
         eff_timeout = timeout if timeout is not None else self.default_timeout
         eff_cwd = str(cwd or self.cwd)
 
-        eff_env = dict(os.environ)
-        if env:
-            eff_env.update(env)
+        eff_env = build_subprocess_env(env)
 
         # Inject W3C traceparent into subprocess environment
         trace_headers = inject_trace_context()
@@ -68,7 +66,7 @@ class ProcessExecutionPipeline:
         t_start = time.perf_counter()
         span_attrs = {
             "process.executable.name": bin_name,
-            "process.command": " ".join(cmd_list[:10]),
+            "process.command": _sanitize_command_for_telemetry(cmd_list[:10]),
             "process.working_directory": eff_cwd,
             "process.timeout_seconds": eff_timeout,
         }

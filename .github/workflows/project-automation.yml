@@ -1,0 +1,72 @@
+name: Project Automation
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+      - converted_to_draft
+      - closed
+      - labeled
+      - unlabeled
+  issues:
+    types:
+      - opened
+      - reopened
+      - closed
+      - labeled
+      - unlabeled
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Simulate project synchronization without remote mutations"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: project-automation-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  sync-project:
+    name: Synchronize Project Board
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      repository-projects: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          cache-python: "true"
+          prune-cache: "true"
+          version: "latest"
+          python-version: "3.14"
+
+      - name: Synchronize CLI dependencies
+        run: uv sync --no-dev
+
+      - name: Reconcile Project Custom Fields & Card States
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN || secrets.GH_PROJECT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          DRY_RUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          else
+            DRY_RUN_FLAG="--no-dry-run"
+          fi
+          uv run devops gh project sync --repo "${{ github.repository }}" $DRY_RUN_FLAG --reconcile-fields

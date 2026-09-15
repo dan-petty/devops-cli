@@ -7,7 +7,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
 from devops_cli.config import load_settings
-from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_ARGO_FLEET_CONCURRENCY,
+    DEFAULT_ARGO_FLEET_NAME,
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
+)
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.argo import ArgoFleetAppTarget, ArgoFleetSyncResult
@@ -121,10 +125,10 @@ def sync_single_target(
 def sync_fleet(
     app_name: str,
     clusters: list[str] | None = None,
-    fleet_name: str = "default-fleet",
+    fleet_name: str = DEFAULT_ARGO_FLEET_NAME,
     prune: bool = False,
     force: bool = False,
-    max_concurrency: int = 3,
+    max_concurrency: int = DEFAULT_ARGO_FLEET_CONCURRENCY,
     dry_run: bool = False,
 ) -> ArgoFleetSyncResult:
     """Coordinate bounded concurrent multi-cluster application synchronization."""

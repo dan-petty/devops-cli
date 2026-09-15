@@ -208,6 +208,18 @@ def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
     assert get_active_config_path() == cfg_file.resolve()
 
+    from devops_cli.exceptions.security import SecurityError
+
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", "/etc/passwd")
+    with pytest.raises(SecurityError):
+        get_active_config_path()
+
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", "../../../etc/shadow")
+    with pytest.raises(SecurityError):
+        get_active_config_path()
+
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
+
     loaded = load_settings()
     assert loaded.ai.model == "qwen2.5-coder:14b"
 
@@ -226,6 +238,14 @@ def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyP
     # Dotted set boolean, list, and top-level section guard
     dotted_set(s, "telemetry.enabled", "true")
     assert s.telemetry.enabled is True
+
+    dotted_set(s, "sandbox.exclude_home_dir", "false")
+    assert s.sandbox.exclude_home_dir is False
+    assert dotted_get(s, "sandbox.exclude_home_dir") is False
+
+    dotted_set(s, "sandbox.exclude_home_dir", "true")
+    assert s.sandbox.exclude_home_dir is True
+    assert dotted_get(s, "sandbox.exclude_home_dir") is True
 
     dotted_set(s, "ai.ollama_urls", "http://example.com:11434, http://example.com:11435")
     assert s.ai.ollama_urls == ["http://example.com:11434", "http://example.com:11435"]

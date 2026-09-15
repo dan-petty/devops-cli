@@ -43,7 +43,6 @@ from devops_cli.ai.providers import (
 from devops_cli.ai.providers import (
     BaseLLMProvider,
     CopilotProvider,
-    MockProvider,
     NativeAnthropicProvider,
     NativeDeepSeekProvider,
     NativeGoogleProvider,
@@ -55,6 +54,7 @@ from devops_cli.ai.providers import (
     get_provider,
     infer_provider,
     infer_provider_class,
+    register_provider,
 )
 from devops_cli.ai.providers import (
     OllamaProvider as LegacyOllamaProvider,
@@ -68,6 +68,7 @@ from devops_cli.ai.thinking_stream import (
     strip_think_blocks,
 )
 from devops_cli.config.settings import AIConfig, Settings
+from tests.mock_provider import MockProvider
 
 
 class TestPydanticAIProfiles:
@@ -243,6 +244,7 @@ class TestPydanticAIProviders:
         assert isinstance(copilot, CopilotProvider)
         assert copilot.name == "copilot"
 
+        register_provider("mock", MockProvider)
         mock = get_provider("mock", config)
         assert isinstance(mock, MockProvider)
         assert mock.name == "mock"

@@ -157,8 +157,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 
 | Command Group | Subcommand / Usage | Purpose & Features |
 |---|---|---|
-| **repos** | `devops repos clone-org [OPTIONS] <org>` | Clone all repos from a GitHub org into repos/<org>/. |
-|  | `devops repos clone [OPTIONS] <url>` | Clone an individual repository into repos/_standalone/<name>/. |
+| **repos** | `devops repos clone-org [OPTIONS] <org>` | Clone all repos from a GitHub org into `repos/<org>/.`. |
+|  | `devops repos clone [OPTIONS] <url>` | Clone an individual repository into `repos/_standalone/<name>/.`. |
 |  | `devops repos list [OPTIONS]` | List all cloned repositories. |
 |  | `devops repos update [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
 |  | `devops repos sync [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
@@ -334,7 +334,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops pr close [OPTIONS] <number>` | Close a pull request. |
 |  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
-| **gh** | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
+| **gh** | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching. |
+|  | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 |  | `devops gh labels COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh milestones COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh project COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
@@ -395,6 +396,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops sandbox metrics [OPTIONS] <identifier>` | Capture real-time cgroup v2 metrics and scrape Prometheus application metrics. |
 |  | `devops sandbox traces [OPTIONS] <identifier>` | Visualize distributed trace waterfall and cross-service latency for sandbox workloads. |
 |  | `devops sandbox logs [OPTIONS] <identifier>` | Stream stdout/stderr container logs with automated panic and crash detection. |
+|  | `devops sandbox network-policy [OPTIONS]` | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
 | **dashboard** | `devops dashboard [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **tui** | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | **format** | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |

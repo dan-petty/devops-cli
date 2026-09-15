@@ -104,6 +104,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
 | [`sandbox_deploy`](#sandbox-deploy) | Deploy an isolated workload container sandbox with security containment and port allocation. |
 | [`sandbox_exec`](#sandbox-exec) | Execute a command inside an active sandbox container. |
+| [`sandbox_network_policy`](#sandbox-network-policy) | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
 | [`sandbox_status`](#sandbox-status) | Inspect status of deployed sandbox containers. |
 | [`sandbox_stop`](#sandbox-stop) | Gracefully stop and remove a sandbox container. |
 | [`scan_aibom`](#scan-aibom) | Generate an AI Bill of Materials (AIBOM) cataloging models, datasets, and licenses. |
@@ -449,7 +450,10 @@ Execute command inside an isolated Docker container sandbox.
 | `image` | `string` | No | `python:3.14-slim` | - |
 | `workspace` | `string` | No | `.` | - |
 | `memory` | `string` | No | `2g` | - |
-| `network` | `string` | No | `bridge` | - |
+| `network` | `string` | No | `isolated` | - |
+| `network_mode` | `string` | No | - | - |
+| `public_whitelist` | `array` | No | - | - |
+| `local_whitelist` | `array` | No | - | - |
 | `read_only` | `boolean` | No | `False` | - |
 
 ### `docker_stats`
@@ -986,6 +990,7 @@ Mark a draft pull request as ready for review and optionally begin monitoring.
 |---|---|---|---|---|
 | `pr_number` | `integer` | Yes | - | - |
 | `monitor` | `boolean` | No | `False` | - |
+| `force` | `boolean` | No | `False` | - |
 | `repo` | `string` | No | - | - |
 
 ### `pr_thread_reply`
@@ -1174,7 +1179,10 @@ Deploy an isolated workload container sandbox with security containment and port
 | `workspace` | `string` | No | `.` | - |
 | `memory` | `string` | No | `2g` | - |
 | `cpus` | `number` | No | `2.0` | - |
-| `network` | `string` | No | `bridge` | - |
+| `network` | `string` | No | `isolated` | - |
+| `network_mode` | `string` | No | - | - |
+| `public_whitelist` | `array` | No | - | - |
+| `local_whitelist` | `array` | No | - | - |
 | `read_only` | `boolean` | No | `True` | - |
 | `command` | `array` | No | - | - |
 
@@ -1189,6 +1197,20 @@ Execute a command inside an active sandbox container.
 | `instance_id` | `string` | Yes | - | - |
 | `command` | `array` | Yes | - | - |
 | `workdir` | `string` | No | - | - |
+
+### `sandbox_network_policy`
+
+Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `network_mode` | `string` | No | `isolated` | - |
+| `name` | `string` | No | `app-sandbox` | - |
+| `namespace` | `string` | No | `sandbox` | - |
+| `public_whitelist` | `array` | No | - | - |
+| `local_whitelist` | `array` | No | - | - |
 
 ### `sandbox_status`
 

@@ -5,6 +5,10 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
+from devops_cli.config.defaults import (
+    DEFAULT_RESOURCE_WATCHER_INTERVAL_SECONDS,
+    DEFAULT_RESOURCE_WATCHER_NAME,
+)
 from devops_cli.output import Console, Live, RenderableType
 from devops_cli.telemetry import trace_span
 
@@ -16,9 +20,9 @@ class LiveResourceWatcher:
         self,
         render_fn: Callable[[], RenderableType],
         *,
-        interval_seconds: float = 2.0,
+        interval_seconds: float = DEFAULT_RESOURCE_WATCHER_INTERVAL_SECONDS,
         console: Console | None = None,
-        name: str = "resource_watcher",
+        name: str = DEFAULT_RESOURCE_WATCHER_NAME,
     ) -> None:
         self.render_fn = render_fn
         self.interval_seconds = max(0.1, interval_seconds)

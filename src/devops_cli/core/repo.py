@@ -92,8 +92,11 @@ def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
         if target_path.is_relative_to(repo_root)
         else target_path.name
     )
-    if spec is not None and spec.match_file(rel_str):
-        return True
+    if spec is not None:
+        if spec.match_file(rel_str) or (
+            target_path.is_dir() and spec.match_file(rel_str.rstrip("/") + "/")
+        ):
+            return True
 
     # 2. Fallback check directly with git if inside a repository
     if (repo_root / ".git").exists():
@@ -103,8 +106,9 @@ def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
                 if target_path.is_relative_to(repo_root)
                 else target_path
             )
+            rel_str_check = (str(rel).rstrip("/") + "/") if target_path.is_dir() else str(rel)
             res = run_subprocess(
-                ["git", "-C", str(repo_root), "check-ignore", "-q", "--", str(rel)],
+                ["git", "-C", str(repo_root), "check-ignore", "-q", "--", rel_str_check],
                 capture_output=True,
                 check=False,
                 quiet=True,

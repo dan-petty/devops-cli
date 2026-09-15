@@ -24,7 +24,10 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from devops_cli.config.defaults import DEFAULT_AI_MODEL
+from devops_cli.config.defaults import (
+    DEFAULT_AI_MODEL,
+    DEFAULT_ROUTER_LATENCY_TIER,
+)
 from devops_cli.config.settings import AIConfig
 
 logger = logging.getLogger(__name__)
@@ -97,7 +100,7 @@ class ModelRouteDecision(BaseModel):
     reasoning_effort: str | None = None
     fallback_chain: list[tuple[str, str]] = Field(default_factory=list)
     estimated_cost_usd: float = 0.0
-    estimated_latency_tier: str = "fast-interactive"
+    estimated_latency_tier: str = DEFAULT_ROUTER_LATENCY_TIER
     requires_live_tools: bool = False
     rationale: str = ""
 
@@ -266,7 +269,7 @@ class LLMRouter:
         fallback_chain = self._build_fallback_chain(provider, model, complexity, sensitivity)
 
         cost = self._estimate_cost(provider, model, token_count)
-        latency = _LATENCY_TIER_BY_COMPLEXITY.get(complexity, "fast-interactive")
+        latency = _LATENCY_TIER_BY_COMPLEXITY.get(complexity, DEFAULT_ROUTER_LATENCY_TIER)
         requires_tools = freshness in (
             TaskFreshness.LIVE_MCP_LOOKUP,
             TaskFreshness.EXTERNAL_WEB_SEARCH,

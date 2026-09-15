@@ -332,6 +332,15 @@ def test_docs_cli_dry_run_and_format_helpers(runner: CliRunner, tmp_path: Path) 
     assert _format_type(click.INT) == "integer"
     assert _format_type(click.Choice(["a", "b"])) == "choice (a|b)"
     assert _clean_text("[bold red]Warning[/bold red]") == "Warning"
+    assert (
+        _clean_text("Clone all repos from a GitHub org into repos/<org>/.")
+        == "Clone all repos from a GitHub org into repos/\\<org\\>/."
+    )
+    assert _clean_text("`devops repos clone-org <org>`") == "`devops repos clone-org <org>`"
+    assert (
+        _clean_text("Details: <details><summary>Click</summary>text</details> with <placeholder>")
+        == "Details: <details><summary>Click</summary>text</details> with \\<placeholder\\>"
+    )
 
     # Dry-run execution
     set_dry_run(True)

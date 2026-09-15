@@ -62,6 +62,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_TOP_K,
     DEFAULT_REPOS_BASE_DIR,
     DEFAULT_REVIEWS_DATA_DIR,
+    DEFAULT_SANDBOX_EXCLUDE_HOME,
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_KEY_PREFIX,
     DEFAULT_SSH_ROTATION_DAYS,
@@ -181,6 +182,14 @@ class TelemetryConfig(BaseModel):
     logfire: bool = False
     logfire_token: str | None = None
     logfire_send_to_logfire: bool | str = "if-token-present"
+
+
+class SandboxConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    exclude_home_dir: bool = Field(
+        default=DEFAULT_SANDBOX_EXCLUDE_HOME,
+        description="Exclude user home directory entirely from sandbox access (/home/**/* and ~/**/*)",
+    )
 
 
 class KubernetesConfig(BaseModel):
@@ -412,6 +421,7 @@ class Settings(BaseSettings):
     jaeger: JaegerConfig = JaegerConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
     k8s: KubernetesConfig = KubernetesConfig()
+    sandbox: SandboxConfig = SandboxConfig()
     ai: AIConfig = AIConfig()
     data: DataConfig = DataConfig()
 
@@ -579,8 +589,12 @@ def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
     for d in (start_dir, *start_dir.parents):
         for name in candidate_names:
             p = d / name
-            if p.is_file():
-                return p.resolve()
+            if p.is_file() and not p.is_symlink():
+                from devops_cli.core.paths import is_forbidden_system_path
+
+                resolved = p.resolve()
+                if not is_forbidden_system_path(resolved):
+                    return resolved
         if (d / ".git").exists() or (d / ".devcontainer").exists():
             break
     return None
@@ -590,7 +604,16 @@ def get_active_config_path(base_dir: Path | None = None) -> Path:
     """Return active config file path (DEVOPS_CLI_CONFIG > project config > ~/.config)."""
     env_config = os.environ.get(PROJECT_CONFIG_ENV)
     if env_config:
-        return Path(env_config).resolve()
+        from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+        from devops_cli.exceptions.security import SecurityError
+
+        validate_no_path_traversal(env_config, label="DEVOPS_CLI_CONFIG")
+        resolved = Path(env_config).resolve()
+        if is_forbidden_system_path(resolved):
+            raise SecurityError(
+                f"DEVOPS_CLI_CONFIG cannot target forbidden system path: '{env_config}'."
+            )
+        return resolved
     found = _find_project_config_path(base_dir=base_dir)
     return found if found is not None else CONFIG_PATH
 
@@ -625,10 +648,10 @@ def get_github_token(settings: Settings) -> str | None:
 
 def _github_cli_token() -> str | None:
     """Return token from `gh auth token` when GitHub CLI is authenticated."""
-    from devops_cli.core.process import run_subprocess
+    from devops_cli.github.rate_limiter import run_gh
 
     try:
-        result = run_subprocess(["gh", "auth", "token"], quiet=True, timeout=5.0)
+        result = run_gh(["auth", "token"], quiet=True, timeout=5.0)
     except FileNotFoundError, OSError, subprocess.SubprocessError:
         return None
 

@@ -25,10 +25,12 @@ from pydantic_ai.tools import AgentDepsT, RunContext
 from pydantic_ai.toolsets import AbstractToolset, WrapperToolset
 
 from devops_cli.config.defaults import (
+    DEFAULT_AI_DURABLE_AGENT_NAME,
     DEFAULT_AI_DURABLE_ENGINE,
     DEFAULT_AI_DURABLE_STORE_PATH,
     DEFAULT_AI_DURABLE_TASK_QUEUE,
     DEFAULT_AI_DURABLE_WORKFLOW_PREFIX,
+    DEFAULT_SQLITE_MEMORY_DB_PATH,
 )
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.ai import HarnessValidationError
@@ -112,9 +114,9 @@ class InMemoryStepStore(BaseModel):
 class SqliteStepStore:
     """SQLite-backed persistent step storage implementation."""
 
-    def __init__(self, db_path: str = ":memory:") -> None:
+    def __init__(self, db_path: str = DEFAULT_SQLITE_MEMORY_DB_PATH) -> None:
         self._conn: sqlite3.Connection | None = None
-        if db_path != ":memory:":
+        if db_path != DEFAULT_SQLITE_MEMORY_DB_PATH:
             if ".." in str(db_path):
                 raise HarnessValidationError(
                     f"Directory traversal not permitted in db_path: {db_path}",
@@ -462,7 +464,7 @@ class LocalDurabilityCapability(BaseDurabilityCapability[AgentDepsT]):
 
 @trace_span("pydantic_ai.durable.resolve_capability")
 def resolve_durability_capability(
-    engine: str = "sqlite",
+    engine: str = DEFAULT_AI_DURABLE_ENGINE,
     *,
     name: str | None = None,
     store: StepStore | None = None,
@@ -563,8 +565,8 @@ def resolve_durability_capability(
 def create_durable_pydantic_agent(
     model: Model | KnownModelName | str | None = None,
     *,
-    name: str = "durable_agent",
-    engine: str = "sqlite",
+    name: str = DEFAULT_AI_DURABLE_AGENT_NAME,
+    engine: str = DEFAULT_AI_DURABLE_ENGINE,
     store: StepStore | None = None,
     store_path: str | Path | None = None,
     capabilities: Sequence[AbstractCapability[Any]] | None = None,

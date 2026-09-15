@@ -141,7 +141,10 @@ devops docker sandbox [OPTIONS] <command>
 | `--workspace`, `-w` | `path` | `.` | Workspace directory to mount |
 | `--memory`, `-m` | `string` | `2g` | Memory limit (e.g. 2g, 512m) |
 | `--cpus`, `-c` | `float` | `2.0` | CPU limit |
-| `--network`, `-n` | `string` | `bridge` | Network mode: bridge | none | host |
+| `--network`, `-n` | `string` | `isolated` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--network-mode` | `string` | - | Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
+| `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 | `--read-only` | `boolean` | - | Mount workspace as read-only |
 | `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |

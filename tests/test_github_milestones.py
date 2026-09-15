@@ -221,7 +221,7 @@ def test_cli_labels_sync(tmp_path: Path) -> None:
     with (
         patch("devops_cli.commands.gh._get_github_client", return_value=None),
         patch("devops_cli.commands.gh._get_repo_labels", return_value=[]),
-        patch("devops_cli.commands.gh.run_subprocess") as mock_sub,
+        patch("devops_cli.commands.gh.run_gh") as mock_sub,
     ):
         mock_sub.return_value = MagicMock(returncode=0, stdout="")
         res = runner.invoke(app, ["labels", "sync", "--file", str(labels_file), "--dry-run"])
@@ -332,7 +332,7 @@ def test_cli_milestones_sync(tmp_path: Path) -> None:
     with (
         patch("devops_cli.commands.gh._get_github_client", return_value=None),
         patch("devops_cli.commands.gh._get_repo_milestones", return_value=[]),
-        patch("devops_cli.commands.gh.run_subprocess") as mock_sub,
+        patch("devops_cli.commands.gh.run_gh") as mock_sub,
     ):
         mock_sub.return_value = MagicMock(returncode=0, stdout="")
         res = runner.invoke(app, ["milestones", "sync", "--roadmap", str(roadmap), "--dry-run"])
@@ -351,7 +351,7 @@ def test_close_milestone_gh_cli() -> None:
             "devops_cli.commands.gh._get_repo_milestones",
             return_value=[{"title": "v0.2.11", "number": 42}],
         ),
-        patch("devops_cli.commands.gh.run_subprocess") as mock_sub,
+        patch("devops_cli.commands.gh.run_gh") as mock_sub,
     ):
         mock_sub.return_value = MagicMock(returncode=0)
         ok = _close_milestone_gh_cli("dan-petty/devops-cli", "v0.2.11")
@@ -369,7 +369,7 @@ def test_gh_helper_subprocess_fallbacks() -> None:
 
     from devops_cli.commands.gh import _get_repo_labels, _get_repo_milestones, _get_repo_prs
 
-    with patch("devops_cli.commands.gh.run_subprocess") as mock_sub:
+    with patch("devops_cli.commands.gh.run_gh") as mock_sub:
         # labels
         mock_sub.return_value = MagicMock(returncode=0, stdout=json.dumps([{"name": "test"}]))
         assert len(_get_repo_labels("dan-petty/devops-cli")) == 1

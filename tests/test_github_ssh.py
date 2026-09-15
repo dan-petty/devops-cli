@@ -60,19 +60,17 @@ def test_register_key_on_github_no_auth(monkeypatch: pytest.MonkeyPatch) -> None
 def test_gh_auth_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify _gh_auth_ok evaluates gh auth status return code."""
     mock_run = MagicMock(returncode=0)
-    monkeypatch.setattr("devops_cli.github.ssh.run_subprocess", lambda *args, **kwargs: mock_run)
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_run)
     assert _gh_auth_ok() is True
 
     mock_run_fail = MagicMock(returncode=1)
-    monkeypatch.setattr(
-        "devops_cli.github.ssh.run_subprocess", lambda *args, **kwargs: mock_run_fail
-    )
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_run_fail)
     assert _gh_auth_ok() is False
 
     def mock_raise(*args, **kwargs):
         raise FileNotFoundError("gh not found")
 
-    monkeypatch.setattr("devops_cli.github.ssh.run_subprocess", mock_raise)
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", mock_raise)
     assert _gh_auth_ok() is False
 
 
@@ -88,9 +86,7 @@ def test_gh_list_keys(monkeypatch: pytest.MonkeyPatch) -> None:
             ]
         ),
     )
-    monkeypatch.setattr(
-        "devops_cli.github.ssh.run_subprocess", lambda *args, **kwargs: mock_success
-    )
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_success)
     keys = _gh_list_keys("/user/keys")
     assert keys is not None
     assert "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA1111" in keys
@@ -98,28 +94,24 @@ def test_gh_list_keys(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # Non-zero returncode
     mock_fail = MagicMock(returncode=1, stdout="")
-    monkeypatch.setattr("devops_cli.github.ssh.run_subprocess", lambda *args, **kwargs: mock_fail)
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_fail)
     assert _gh_list_keys("/user/keys") is None
 
     # Invalid JSON
     mock_bad_json = MagicMock(returncode=0, stdout="not-json")
-    monkeypatch.setattr(
-        "devops_cli.github.ssh.run_subprocess", lambda *args, **kwargs: mock_bad_json
-    )
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_bad_json)
     assert _gh_list_keys("/user/keys") is None
 
     # Non-list payload
     mock_dict_json = MagicMock(returncode=0, stdout=json.dumps({"message": "error"}))
-    monkeypatch.setattr(
-        "devops_cli.github.ssh.run_subprocess", lambda *args, **kwargs: mock_dict_json
-    )
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_dict_json)
     assert _gh_list_keys("/user/keys") is None
 
     # Exception raised
     def mock_exc(*args, **kwargs):
         raise OSError("Subprocess failure")
 
-    monkeypatch.setattr("devops_cli.github.ssh.run_subprocess", mock_exc)
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", mock_exc)
     assert _gh_list_keys("/user/keys") is None
 
 
@@ -127,23 +119,23 @@ def test_gh_add_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify _gh_add_key handles success, existing key, missing scope, and failure."""
     # 1. Success
     mock_ok = MagicMock(returncode=0, stdout="{}", stderr="")
-    monkeypatch.setattr("devops_cli.github.ssh.run_subprocess", lambda *args, **kwargs: mock_ok)
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_ok)
     _gh_add_key("/user/keys", "ssh-ed25519 AAAAC3 test@example.com", "Title")
 
     # 2. Already exists
     mock_exists = MagicMock(returncode=1, stdout="", stderr="key already exists")
-    monkeypatch.setattr("devops_cli.github.ssh.run_subprocess", lambda *args, **kwargs: mock_exists)
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_exists)
     _gh_add_key("/user/keys", "ssh-ed25519 AAAAC3 test@example.com", "Title")
 
     # 3. Missing scope
     mock_scope = MagicMock(returncode=1, stdout="", stderr="needs the admin:public_key scope")
-    monkeypatch.setattr("devops_cli.github.ssh.run_subprocess", lambda *args, **kwargs: mock_scope)
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_scope)
     with pytest.raises(SSHRegistrationError, match="GitHub CLI auth is missing required scopes"):
         _gh_add_key("/user/keys", "ssh-ed25519 AAAAC3 test@example.com", "Title")
 
     # 4. Generic error
     mock_err = MagicMock(returncode=1, stdout="", stderr="API rate limit exceeded")
-    monkeypatch.setattr("devops_cli.github.ssh.run_subprocess", lambda *args, **kwargs: mock_err)
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", lambda *args, **kwargs: mock_err)
     with pytest.raises(SSHRegistrationError, match="API rate limit exceeded"):
         _gh_add_key("/user/keys", "ssh-ed25519 AAAAC3 test@example.com", "Title")
 
@@ -151,7 +143,7 @@ def test_gh_add_key(monkeypatch: pytest.MonkeyPatch) -> None:
     def mock_raise(*args, **kwargs):
         raise subprocess.SubprocessError("Subprocess died")
 
-    monkeypatch.setattr("devops_cli.github.ssh.run_subprocess", mock_raise)
+    monkeypatch.setattr("devops_cli.github.ssh.run_gh", mock_raise)
     with pytest.raises(SSHRegistrationError, match="GitHub CLI key registration failed"):
         _gh_add_key("/user/keys", "ssh-ed25519 AAAAC3 test@example.com", "Title")
 

@@ -1,0 +1,14 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: coredns
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    resources:
+      limits:
+        cpu: 200m
+        memory: 384Mi
+      requests:
+        cpu: 100m
+        memory: 70Mi

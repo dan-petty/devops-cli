@@ -809,14 +809,14 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
     repo_root = Path(__file__).resolve().parent.parent
 
-    # 1. Ollama DaemonSet: bounded memory limit (26Gi), requests 8Gi, robust startup and liveness probes
+    # 1. Ollama DaemonSet: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup and liveness probes
     ollama_path = repo_root / "k8s" / "llm" / "ollama-daemonset.yaml"
     assert ollama_path.is_file()
     ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
     daemonset = next(d for d in ollama_docs if d and d.get("kind") == "DaemonSet")
     container = daemonset["spec"]["template"]["spec"]["containers"][0]
     resources = container.get("resources", {})
-    assert resources["limits"]["memory"] == "26Gi"
+    assert "limits" not in resources or "memory" not in resources.get("limits", {})
     assert resources["requests"]["memory"] == "8Gi"
     assert resources["requests"]["cpu"] == "3000m"
 
@@ -845,12 +845,14 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert container["livenessProbe"]["timeoutSeconds"] == 10
     assert container["livenessProbe"]["failureThreshold"] == 6
 
-    # 2. Ollama Helm values: bounded memory limit
+    # 2. Ollama Helm values: unconstrained memory limits, baseline 4Gi requests
     values_ollama = yaml.safe_load(
         (repo_root / "k8s" / "llm" / "values-ollama.yaml").read_text(encoding="utf-8")
     )
     assert values_ollama["resources"]["requests"]["memory"] == "4Gi"
-    assert values_ollama["resources"]["limits"]["memory"] == "26Gi"
+    assert "limits" not in values_ollama["resources"] or "memory" not in values_ollama[
+        "resources"
+    ].get("limits", {})
 
     # 3. Valkey: memory limit >= 2048Mi
     valkey_docs = list(
@@ -883,7 +885,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
         (repo_root / "k8s" / "argocd" / "values.yaml").read_text(encoding="utf-8")
     )
     assert argo_values["controller"]["resources"]["limits"]["memory"] == "2048Mi"
-    assert argo_values["repoServer"]["resources"]["limits"]["memory"] == "2048Mi"
+    assert argo_values["repoServer"]["resources"]["limits"]["memory"] == "4096Mi"
     assert argo_values["server"]["resources"]["limits"]["memory"] == "1024Mi"
     assert argo_values["redis"]["resources"]["limits"]["memory"] == "1024Mi"
 
@@ -913,7 +915,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
         (repo_root / "k8s" / "logging" / "fluent-bit-values.yaml").read_text(encoding="utf-8")
     )
     assert fb_values["resources"]["limits"]["cpu"] == "500m"
-    assert fb_values["resources"]["limits"]["memory"] == "512Mi"
+    assert fb_values["resources"]["limits"]["memory"] == "1024Mi"
 
     # 11. Prometheus stack values: elevated requests and limits to eliminate OOM kills
     prom_values = yaml.safe_load(
@@ -946,6 +948,22 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert gfd_res["requests"]["memory"] == "64Mi"
     assert gfd_res["limits"]["cpu"] == "200m"
     assert gfd_res["limits"]["memory"] == "256Mi"
+
+    # 13. CoreDNS values and deployment patch: elevated memory limits (384Mi) to eliminate OOM kills
+    coredns_values = yaml.safe_load(
+        (repo_root / "k8s" / "coredns" / "values.yaml").read_text(encoding="utf-8")
+    )
+    assert coredns_values["resources"]["limits"]["memory"] == "384Mi"
+    assert coredns_values["resources"]["requests"]["memory"] == "70Mi"
+
+    coredns_patch_docs = list(
+        yaml.safe_load_all(
+            (repo_root / "k8s" / "coredns" / "deployment-patch.yaml").read_text(encoding="utf-8")
+        )
+    )
+    coredns_dep = next(d for d in coredns_patch_docs if d and d.get("kind") == "Deployment")
+    coredns_res = coredns_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert coredns_res["limits"]["memory"] == "384Mi"
 
 
 def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:

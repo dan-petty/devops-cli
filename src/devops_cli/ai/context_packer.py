@@ -15,6 +15,10 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
+from devops_cli.config.defaults import (
+    DEFAULT_CONTEXT_PACKING_MAX_TOKENS,
+    DEFAULT_CONTEXT_PACKING_TOTAL_BUDGET,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +38,7 @@ class PackedContext(BaseModel):
 class PackingConfig(BaseModel):
     """Configuration options for context packing and symbol pruning."""
 
-    max_tokens: int = 1500
+    max_tokens: int = DEFAULT_CONTEXT_PACKING_MAX_TOKENS
     strip_private: bool = True
     strip_docstrings: bool = False
     skeletonize: bool = True
@@ -364,7 +368,7 @@ class ContextPacker:
         self,
         snippets: Sequence[tuple[str, str]],
         referenced_symbols: Collection[str] | None = None,
-        total_budget: int = 3000,
+        total_budget: int = DEFAULT_CONTEXT_PACKING_TOTAL_BUDGET,
         config: PackingConfig | None = None,
     ) -> list[PackedContext]:
         """Pack multiple code snippets, distributing token budget across items."""

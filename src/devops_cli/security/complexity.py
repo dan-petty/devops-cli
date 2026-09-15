@@ -7,7 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from devops_cli.ai.review_schema import Finding
-from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.config.defaults import DEFAULT_MAX_COMPLEXITY, DEFAULT_MAX_NESTING_DEPTH
+from devops_cli.core.repo import find_top_level_repo_root, is_ignored_by_git
 
 
 @dataclass
@@ -201,8 +202,8 @@ def _evaluate_function_findings(
 def run_complexity_scan(
     target_path: Path,
     *,
-    max_complexity: int = 10,
-    max_nesting_depth: int = 5,
+    max_complexity: int = DEFAULT_MAX_COMPLEXITY,
+    max_nesting_depth: int = DEFAULT_MAX_NESTING_DEPTH,
 ) -> list[Finding]:
     """Scan a target path (file or directory) for complexity and nesting violations."""
     findings: list[Finding] = []
@@ -214,11 +215,9 @@ def run_complexity_scan(
     if target.is_file() and target.suffix == ".py":
         files = [target]
     elif target.is_dir():
-        ignored_dirs = {".venv", ".data", ".git", "repos", "scratch"}
+        root = find_top_level_repo_root(target)
         files = [
-            p
-            for p in target.rglob("*.py")
-            if not p.is_symlink() and not any(part in ignored_dirs for part in p.parts)
+            p for p in target.rglob("*.py") if not p.is_symlink() and not is_ignored_by_git(root, p)
         ]
     else:
         return findings

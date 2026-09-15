@@ -456,5 +456,51 @@
     "occurrence_count": 1,
     "last_seen": "2026-09-13T00:00:00",
     "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-NONEXISTENT-FIXER-PAYLOAD",
+    "name": "Non-Existent AI Fixer Module & Unbounded Repair Payload Claim",
+    "category": "general",
+    "description": "Claiming that src/devops_cli/ai/fixer.py exists or that repair_json_string lacks payload size bounds when the function is located in response_repair.py with a 5 MiB cap.",
+    "signature_patterns": [
+      "(?:ai/fixer\\.py|fixer\\.py).*repair_json_string",
+      "repair_json_string.*unbounded\\s+payload"
+    ],
+    "pattern_keywords": [
+      "fixer_py",
+      "repair_json_string_payload"
+    ],
+    "file_patterns": [
+      "*response_repair.py",
+      "*fixer.py"
+    ],
+    "resolution": "src/devops_cli/ai/fixer.py does not exist. The repair_json_string function is located in src/devops_cli/ai/response_repair.py and strictly bounds input via len(text) > max_length (default 5 MiB) raising ValueError.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-14T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-CI-ALLOW-BLOCKED-STATE",
+    "name": "CI Workflow Allow Blocked Merge State False Bypass Claim",
+    "category": "general",
+    "description": "Claiming that the --allow-blocked-state flag in .github/workflows/ci.yml is an insecure merge readiness bypass when it is an essential transient accommodation for in-flight CI runs.",
+    "signature_patterns": [
+      "--allow-blocked-state.*(?:insecure|bypass|merge\\s+blocker)",
+      "check-readiness.*--allow-blocked-state"
+    ],
+    "pattern_keywords": [
+      "allow_blocked_state",
+      "ci_mergeable_blocked"
+    ],
+    "file_patterns": [
+      "*.yml",
+      "*.yaml",
+      "*ci.yml",
+      "*pr.py"
+    ],
+    "resolution": "GitHub Actions automatically marks pull request mergeable_state as 'blocked' while workflow runs are in progress. The --allow-blocked-state flag is an essential transient accommodation preventing circular CI deadlock.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-14T00:00:00",
+    "source": "builtin"
   }
 ]

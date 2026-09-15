@@ -325,3 +325,12 @@ def test_no_circular_imports_in_decoupled_subsystems() -> None:
                 strongconnect(node)
 
         assert not cycles, f"Import cycles detected in {root}: {cycles}"
+
+
+def test_task_md_is_decommissioned() -> None:
+    """Ensure the monolithic docs/agent/task.md index is decommissioned to eliminate merge conflicts."""
+    monolithic_index = Path("docs/agent/task.md")
+    assert not monolithic_index.exists(), (
+        "docs/agent/task.md has been decommissioned in favor of modular per-task files "
+        "in docs/agent/tasks/ and native GitHub Projects v2 boards. Do not re-introduce it."
+    )

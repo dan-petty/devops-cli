@@ -498,3 +498,54 @@ def test_cli_gitops_watch_once_failure_exits_nonzero(tmp_path: Path) -> None:
             ],
         )
         assert result.exit_code != 0
+
+
+def test_inspect_git_manifest_drift_success(tmp_path: Path) -> None:
+    """Test inspect_git_manifest_drift handles created, modified, deleted, and non-manifest files."""
+    from devops_cli.argo.gitops import inspect_git_manifest_drift
+
+    manifest1 = tmp_path / "deploy.yaml"
+    manifest1.write_text("kind: Deployment", encoding="utf-8")
+    manifest2 = tmp_path / "service.yml"
+    manifest2.write_text("kind: Service", encoding="utf-8")
+    manifest3 = tmp_path / "deleted.yaml"
+    ignored_file = tmp_path / "notes.txt"
+    ignored_file.write_text("not a manifest", encoding="utf-8")
+
+    git_status_output = "\n".join(
+        [
+            "??",  # short line (<4 chars)
+            f"?? {manifest1.resolve()}",  # created
+            f" M {manifest2.resolve()}",  # modified
+            f" D {manifest3.resolve()}",  # deleted
+            f" M {ignored_file.resolve()}",  # non-manifest
+        ]
+    )
+
+    with patch(
+        "devops_cli.argo.gitops.run_subprocess",
+        return_value=MagicMock(returncode=0, stdout=git_status_output),
+    ):
+        events = inspect_git_manifest_drift([tmp_path])
+        assert len(events) == 3
+        types = {e.change_type for e in events}
+        assert types == {"created", "modified", "deleted"}
+
+
+def test_inspect_git_manifest_drift_error_handling(tmp_path: Path) -> None:
+    """Test inspect_git_manifest_drift returns empty list on failure or exception."""
+    from devops_cli.argo.gitops import inspect_git_manifest_drift
+
+    # Non-zero returncode
+    with patch(
+        "devops_cli.argo.gitops.run_subprocess",
+        return_value=MagicMock(returncode=1, stdout=""),
+    ):
+        assert inspect_git_manifest_drift([tmp_path]) == []
+
+    # Exception raised
+    with patch(
+        "devops_cli.argo.gitops.run_subprocess",
+        side_effect=RuntimeError("git not installed"),
+    ):
+        assert inspect_git_manifest_drift([tmp_path]) == []
