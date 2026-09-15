@@ -15,6 +15,10 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_AGENTS_MD_FILENAME
+from devops_cli.config.defaults import (
+    DEFAULT_PROJECT_VERSION,
+    DEFAULT_PYTHON_REQUIRES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +37,8 @@ class ProjectMetadata(BaseModel):
 
     name: str
     description: str = ""
-    version: str = "0.1.0"
-    requires_python: str = ">=3.14"
+    version: str = DEFAULT_PROJECT_VERSION
+    requires_python: str = DEFAULT_PYTHON_REQUIRES
     entry_point: str = ""
     dependencies: list[str] = Field(default_factory=list)
     dev_dependencies: list[str] = Field(default_factory=list)
@@ -50,8 +54,8 @@ def parse_project_metadata(repo_path: Path) -> ProjectMetadata:
 
     name = resolved_path.name
     description = f"{name} workspace tooling and development environment."
-    version = "0.1.0"
-    requires_python = ">=3.14"
+    version = DEFAULT_PROJECT_VERSION
+    requires_python = DEFAULT_PYTHON_REQUIRES
     entry_point = ""
     dependencies: list[str] = []
     dev_dependencies: list[str] = []

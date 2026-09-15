@@ -14,6 +14,17 @@ from typing import TYPE_CHECKING, Any, TypedDict
 if TYPE_CHECKING:
     from devops_cli.ai.agents.tools import Tool
 
+from devops_cli.config.defaults import (
+    DEFAULT_DUCKDUCKGO_MAX_RESULTS,
+    DEFAULT_DUCKDUCKGO_TIMEOUT_SECONDS,
+    DEFAULT_EXA_SEARCH_MAX_CHARACTERS,
+    DEFAULT_EXA_SEARCH_NUM_RESULTS,
+    DEFAULT_TAVILY_MAX_RESULTS,
+    DEFAULT_TAVILY_TIMEOUT_SECONDS,
+    DEFAULT_WEB_FETCH_MAX_CONTENT_LENGTH,
+    DEFAULT_WEB_FETCH_MAX_DOWNLOAD_BYTES,
+    DEFAULT_WEB_FETCH_TIMEOUT_SECONDS,
+)
 from devops_cli.core.validation import validate_url_egress
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.http.client import new_http_client
@@ -212,8 +223,8 @@ else:
         def exa_search_tool(
             api_key: str | None = None,
             *,
-            num_results: int = 5,
-            max_characters: int = 1000,
+            num_results: int = DEFAULT_EXA_SEARCH_NUM_RESULTS,
+            max_characters: int = DEFAULT_EXA_SEARCH_MAX_CHARACTERS,
         ) -> Any:
             """Create a Tool that searches Exa neural search API."""
 
@@ -338,8 +349,8 @@ def _validate_response_egress(resp: Any, fallback_url: str) -> None:
 
 def web_fetch_tool(
     *,
-    max_content_length: int | None = 50000,
-    max_download_bytes: int | None = 52428800,
+    max_content_length: int | None = DEFAULT_WEB_FETCH_MAX_CONTENT_LENGTH,
+    max_download_bytes: int | None = DEFAULT_WEB_FETCH_MAX_DOWNLOAD_BYTES,
     allowed_domains: list[str] | None = None,
     blocked_domains: list[str] | None = None,
     headers: dict[str, str] | None = None,
@@ -358,7 +369,7 @@ def web_fetch_tool(
 
         client = new_http_client(headers=headers or {})
         try:
-            resp = client.get(url, follow_redirects=True, timeout=15.0)
+            resp = client.get(url, follow_redirects=True, timeout=DEFAULT_WEB_FETCH_TIMEOUT_SECONDS)
             _validate_response_egress(resp, url)
             resp.raise_for_status()
 
@@ -387,7 +398,7 @@ def web_fetch_tool(
 
 def duckduckgo_search_tool(
     *,
-    max_results: int = 5,
+    max_results: int = DEFAULT_DUCKDUCKGO_MAX_RESULTS,
 ) -> Tool:
     """Create a Tool that searches DuckDuckGo for public web results."""
 
@@ -396,7 +407,7 @@ def duckduckgo_search_tool(
         client = new_http_client()
         url = "https://html.duckduckgo.com/html/"
         try:
-            resp = client.post(url, data={"q": query}, timeout=10.0)
+            resp = client.post(url, data={"q": query}, timeout=DEFAULT_DUCKDUCKGO_TIMEOUT_SECONDS)
             resp.raise_for_status()
             results = re.findall(
                 r'<a\s+class="result__snippet[^"]*"\s+href="([^"]+)"[^>]*>(.*?)</a>',
@@ -436,7 +447,7 @@ def duckduckgo_search_tool(
 def tavily_search_tool(
     api_key: str | None = None,
     *,
-    max_results: int = 5,
+    max_results: int = DEFAULT_TAVILY_MAX_RESULTS,
     include_domains: list[str] | None = None,
     exclude_domains: list[str] | None = None,
 ) -> Tool:
@@ -457,7 +468,7 @@ def tavily_search_tool(
             payload["exclude_domains"] = exclude_domains
 
         try:
-            resp = client.post(tavily_url, json=payload, timeout=15.0)
+            resp = client.post(tavily_url, json=payload, timeout=DEFAULT_TAVILY_TIMEOUT_SECONDS)
             resp.raise_for_status()
             data = resp.json()
             results = data.get("results", [])

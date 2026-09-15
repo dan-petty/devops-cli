@@ -27,8 +27,10 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_BURST_MULTIPLIER,
     DEFAULT_GH_CACHE_TTL_SECONDS,
     DEFAULT_GH_GRAPHQL_COST_FACTOR,
+    DEFAULT_GH_INITIAL_QUOTA,
     DEFAULT_GH_MIN_INTERVAL_SECONDS,
     DEFAULT_GH_SHAPING_K,
+    DEFAULT_GH_WINDOW_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
 
@@ -45,11 +47,11 @@ class _CacheEntry:
 class QuotaState:
     """Tracked rate limit quota metrics for a specific GitHub API resource."""
 
-    limit: int = 5000
-    remaining: int = 5000
+    limit: int = DEFAULT_GH_INITIAL_QUOTA
+    remaining: int = DEFAULT_GH_INITIAL_QUOTA
     used: int = 0
     reset_epoch: float = 0.0
-    window_seconds: float = 0.0
+    window_seconds: float = DEFAULT_GH_WINDOW_SECONDS
     last_updated: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
@@ -67,11 +69,11 @@ class QuotaState:
     def from_dict(cls, data: dict[str, Any]) -> QuotaState:
         """Construct QuotaState from serialized dictionary."""
         return cls(
-            limit=int(data.get("limit", 5000)),
-            remaining=int(data.get("remaining", 5000)),
+            limit=int(data.get("limit", DEFAULT_GH_INITIAL_QUOTA)),
+            remaining=int(data.get("remaining", DEFAULT_GH_INITIAL_QUOTA)),
             used=int(data.get("used", 0)),
             reset_epoch=float(data.get("reset_epoch", 0.0)),
-            window_seconds=float(data.get("window_seconds", 0.0)),
+            window_seconds=float(data.get("window_seconds", DEFAULT_GH_WINDOW_SECONDS)),
             last_updated=float(data.get("last_updated", 0.0)),
         )
 
@@ -126,7 +128,7 @@ class GitHubAdaptiveLimiter:
 
     def __init__(
         self,
-        initial_quota: int = 5000,
+        initial_quota: int = DEFAULT_GH_INITIAL_QUOTA,
         quota: int | None = None,
         window_seconds: float | None = None,
         burst_multiplier: float = DEFAULT_GH_BURST_MULTIPLIER,
@@ -145,9 +147,10 @@ class GitHubAdaptiveLimiter:
         elif window_seconds is not None and window_seconds > 0:
             self.seconds_until_reset = max(1.0, window_seconds)
         else:
-            self.seconds_until_reset = 60.0 if self.quota <= 100 else 3600.0
+            self.seconds_until_reset = DEFAULT_GH_WINDOW_SECONDS
 
-        self.k = k if k is not None else (DEFAULT_GH_SHAPING_K * (self.quota / 5000.0))
+        quota_base = float(DEFAULT_GH_INITIAL_QUOTA)
+        self.k = k if k is not None else (DEFAULT_GH_SHAPING_K * (self.quota / quota_base))
         self.lock = asyncio.Lock()
         self._live_window_updated = False
 
@@ -156,7 +159,7 @@ class GitHubAdaptiveLimiter:
         self.quota = max(1, limit)
         self.remaining = max(0, remaining)
         self.seconds_until_reset = max(1.0, float(epoch_reset - time.time()))
-        self.k = DEFAULT_GH_SHAPING_K * (self.quota / 5000.0)
+        self.k = DEFAULT_GH_SHAPING_K * (self.quota / float(DEFAULT_GH_INITIAL_QUOTA))
         self._live_window_updated = True
 
     @property
@@ -201,7 +204,9 @@ class GitHubAdaptiveLimiter:
         initial_burst_rate = self.burst_multiplier * natural_rate
 
         effective_k = (
-            self.k if self.k is not None else (DEFAULT_GH_SHAPING_K * (total_quota / 5000.0))
+            self.k
+            if self.k is not None
+            else (DEFAULT_GH_SHAPING_K * (total_quota / float(DEFAULT_GH_INITIAL_QUOTA)))
         )
         exponent = -effective_k * ((1.0 / (total_quota - consumed_tokens)) - (1.0 / total_quota))
         if exponent < -700.0:
@@ -290,42 +295,6 @@ def calculate_exponential_backoff(
     return min(max_delay, max(min_interval, 1.0 / rate))
 
 
-def _calculate_budget_delay(
-    remaining: int,
-    limit: int,
-    reset_epoch: float,
-    min_interval: float = 0.0,
-    resource: str = "core",
-    burst_multiplier: float = DEFAULT_GH_BURST_MULTIPLIER,
-    window_seconds: float | None = None,
-) -> float:
-    """Calculate pacing delay based on actual GitHub rate limit response values."""
-    now = time.time()
-    time_left = max(1.0, reset_epoch - now) if reset_epoch > now else 0.0
-
-    if remaining <= 0:
-        return min(60.0, max(5.0, time_left)) if time_left > 0 else 60.0
-
-    clean_limit = max(1, limit)
-    used = max(0, clean_limit - remaining)
-    exponential_delay = calculate_exponential_backoff(
-        used=used,
-        remaining=remaining,
-        limit=clean_limit,
-        time_left=time_left if time_left > 0 else None,
-        min_interval=min_interval,
-        burst_multiplier=burst_multiplier,
-        window_seconds=window_seconds,
-    )
-
-    cost_factor = DEFAULT_GH_GRAPHQL_COST_FACTOR if resource == "graphql" else 1.0
-    if time_left > 0.0:
-        budget_delay = (time_left / max(1, remaining)) * cost_factor
-        return min(60.0, max(min_interval, exponential_delay, budget_delay))
-
-    return min(60.0, max(min_interval, exponential_delay))
-
-
 def _is_graphql_command(clean_args: list[str]) -> bool:
     """Predicate checking if command targets GraphQL."""
     return clean_args[0] == "project" or any("graphql" in arg for arg in clean_args)
@@ -410,10 +379,11 @@ def _extract_graphql_ratelimit_json(output: str, limiter: GitHubRateLimiter) -> 
         rl = data.get("data", {}).get("rateLimit") or data.get("extensions", {}).get("rateLimit")
         if isinstance(rl, dict) and "remaining" in rl:
             reset_ep = _parse_reset_epoch(rl.get("resetAt"))
+            lim_val = int(rl["limit"]) if "limit" in rl else None
             limiter.update_quota(
                 "graphql",
                 remaining=int(rl["remaining"]),
-                limit=int(rl.get("limit", 5000)),
+                limit=lim_val,
                 reset_epoch=reset_ep,
             )
         if _has_graphql_rate_limit_error(data.get("errors"), limiter):
@@ -459,7 +429,7 @@ def _probe_live_graphql_quota() -> tuple[int, int, float] | None:
             data = json.loads(proc.stdout)
             rl = data.get("data", {}).get("rateLimit", {})
             rem = int(rl.get("remaining", 0))
-            lim = int(rl.get("limit", 5000))
+            lim = int(rl.get("limit", 0))
             ep = _parse_reset_epoch(rl.get("resetAt"))
             return rem, lim, ep
     except Exception:
@@ -541,18 +511,41 @@ def _derive_window_seconds(
     window_seconds: float | None = None,
 ) -> float:
     """Derive window duration dynamically from consecutive resets, response, or explicit param."""
-    if reset_epoch > 0.0:
-        time_left = max(1.0, reset_epoch - now)
-        if state.reset_epoch > 0.0 and reset_epoch > state.reset_epoch:
-            return reset_epoch - state.reset_epoch
-        if window_seconds is not None and window_seconds > 0.0:
-            return window_seconds
-        if state.window_seconds <= 0.0:
-            return time_left
-        return state.window_seconds
+    if reset_epoch > 0.0 and state.reset_epoch > 0.0 and reset_epoch > state.reset_epoch:
+        return reset_epoch - state.reset_epoch
     if window_seconds is not None and window_seconds > 0.0:
         return window_seconds
-    return state.window_seconds
+    if state.window_seconds > 0.0:
+        return state.window_seconds
+    if reset_epoch > now:
+        return reset_epoch - now
+    return DEFAULT_GH_WINDOW_SECONDS
+
+
+def _resolve_quota_limit(
+    state: QuotaState, remaining: int, limit: int | None, used: int | None
+) -> int:
+    """Resolve definitive quota limit from explicit value, prior state, or usage sum."""
+    if limit is not None and limit > 0:
+        return limit
+    if state.limit > 0:
+        return state.limit
+    used_tokens = used if used is not None else 0
+    calculated = remaining + used_tokens
+    return max(1, calculated if calculated > 0 else DEFAULT_GH_INITIAL_QUOTA)
+
+
+def _sync_limiter_window(
+    limiter: GitHubAdaptiveLimiter, state: QuotaState, reset_epoch: float
+) -> None:
+    """Synchronize limiter window state or static quota values."""
+    if reset_epoch > 0.0:
+        limiter.update_window_state(
+            remaining=state.remaining, limit=state.limit, epoch_reset=reset_epoch
+        )
+    else:
+        limiter.quota = max(1, state.limit)
+        limiter.remaining = max(0, state.remaining)
 
 
 class GitHubRateLimiter:
@@ -567,7 +560,6 @@ class GitHubRateLimiter:
         self.min_interval = min_interval
         self.persist_path = persist_path
         self.burst_multiplier = burst_multiplier
-        self._last_request_time: float = 0.0
         self._lock = threading.Lock()
         self._cache: dict[str, _CacheEntry] = {}
         disk_quotas = _load_disk_quota(persist_path) if persist_path else {}
@@ -576,38 +568,86 @@ class GitHubRateLimiter:
             "graphql": QuotaState(),
             **disk_quotas,
         }
+        self._limiters: dict[str, GitHubAdaptiveLimiter] = {}
+        for r_name, r_state in self._quotas.items():
+            self._limiters[r_name] = self._create_adaptive_limiter(r_name, r_state)
+
+    def _create_adaptive_limiter(
+        self, resource: str, state: QuotaState | None = None
+    ) -> GitHubAdaptiveLimiter:
+        initial_q = state.limit if state and state.limit > 0 else DEFAULT_GH_INITIAL_QUOTA
+        window = (
+            state.window_seconds
+            if state and state.window_seconds > 0
+            else DEFAULT_GH_WINDOW_SECONDS
+        )
+        reset_ep = state.reset_epoch if state and state.reset_epoch > 0 else None
+
+        limiter = GitHubAdaptiveLimiter(
+            initial_quota=initial_q,
+            window_seconds=window,
+            burst_multiplier=self.burst_multiplier,
+            reset_epoch=reset_ep,
+        )
+        if state and state.last_updated > 0:
+            limiter.remaining = state.remaining
+            if state.reset_epoch > 0:
+                limiter.update_window_state(state.remaining, state.limit, state.reset_epoch)
+        return limiter
+
+    def get_adaptive_limiter(self, resource: str) -> GitHubAdaptiveLimiter:
+        """Retrieve the adaptive rate limiter for a specific resource, ensuring current disk sync."""
+        with self._lock:
+            self._sync_quota_if_stale(resource)
+            if resource not in self._limiters:
+                self._limiters[resource] = self._create_adaptive_limiter(
+                    resource, self._quotas.get(resource)
+                )
+            return self._limiters[resource]
 
     def update_quota(
         self,
         resource: str,
         *,
         remaining: int,
-        limit: int = 5000,
+        limit: int | None = None,
         reset_epoch: float = 0.0,
         used: int | None = None,
         window_seconds: float | None = None,
     ) -> None:
-        """Update tracked quota status for a resource using actual response values."""
+        """Update tracked quota status and dynamic adaptive limiter for a resource."""
         now = time.time()
         with self._lock:
             state = self._quotas.setdefault(resource, QuotaState())
-            state.remaining = remaining
-            state.limit = limit
-            state.used = used if used is not None else max(0, limit - remaining)
+            state.remaining = max(0, remaining)
+            state.limit = _resolve_quota_limit(state, state.remaining, limit, used)
+            state.used = used if used is not None else max(0, state.limit - state.remaining)
             state.window_seconds = _derive_window_seconds(state, reset_epoch, now, window_seconds)
             if reset_epoch > 0.0:
                 state.reset_epoch = reset_epoch
             state.last_updated = now
+
+            limiter = self._limiters.setdefault(
+                resource, self._create_adaptive_limiter(resource, state)
+            )
+            _sync_limiter_window(limiter, state, reset_epoch)
+
             if self.persist_path:
                 _save_disk_quota(self._quotas, self.persist_path)
 
     def decrement_quota_estimate(self, resource: str, cost: int = 1) -> None:
-        """Pessimistically decrement quota estimate when commands lack rate limit headers."""
+        """Pessimistically decrement quota estimate on limiter and persisted state."""
         with self._lock:
             state = self._quotas.setdefault(resource, QuotaState())
             state.remaining = max(0, state.remaining - cost)
             state.used = min(state.limit, state.used + cost)
             state.last_updated = time.time()
+
+            limiter = self._limiters.setdefault(
+                resource, self._create_adaptive_limiter(resource, state)
+            )
+            limiter.remaining = max(0, limiter.remaining - cost)
+
             if self.persist_path:
                 _save_disk_quota(self._quotas, self.persist_path)
 
@@ -620,6 +660,7 @@ class GitHubRateLimiter:
                 remaining=state.remaining,
                 used=state.used,
                 reset_epoch=state.reset_epoch,
+                window_seconds=state.window_seconds,
                 last_updated=state.last_updated,
             )
 
@@ -635,8 +676,28 @@ class GitHubRateLimiter:
         state.used = max(0, lim - rem)
         state.reset_epoch = ep
         state.last_updated = now
+        glim = self._limiters.get("graphql")
+        if glim:
+            glim.update_window_state(remaining=rem, limit=lim, epoch_reset=ep)
         if self.persist_path:
             _save_disk_quota(self._quotas, self.persist_path)
+
+    def _apply_disk_quota_if_newer(
+        self, resource: str, state: QuotaState, disk_quotas: dict[str, QuotaState]
+    ) -> None:
+        """Apply disk quota to internal state and limiter if disk timestamp is newer."""
+        disk_state = disk_quotas.get(resource)
+        if not disk_state or disk_state.last_updated <= state.last_updated:
+            return
+        self._quotas[resource] = disk_state
+        lim = self._limiters.get(resource)
+        if not lim:
+            return
+        if disk_state.reset_epoch > 0.0:
+            lim.update_window_state(disk_state.remaining, disk_state.limit, disk_state.reset_epoch)
+        else:
+            lim.quota = disk_state.limit
+            lim.remaining = disk_state.remaining
 
     def _sync_quota_if_stale(self, resource: str) -> None:
         """Refresh quota from disk or live GraphQL probe if missing or stale."""
@@ -646,55 +707,30 @@ class GitHubRateLimiter:
         state = self._quotas.setdefault(resource, QuotaState())
         if state.last_updated == 0.0 or (now - state.last_updated) > 5.0:
             disk_quotas = _load_disk_quota(self.persist_path)
-            if resource in disk_quotas and disk_quotas[resource].last_updated > state.last_updated:
-                self._quotas[resource] = disk_quotas[resource]
-                state = self._quotas[resource]
+            self._apply_disk_quota_if_newer(resource, state, disk_quotas)
 
-        needs_live_probe = (
-            resource == "graphql" and state.reset_epoch > 0 and now >= state.reset_epoch
-        )
-        if needs_live_probe:
+        if resource == "graphql" and state.reset_epoch > 0 and now >= state.reset_epoch:
             self._probe_and_update_graphql(now)
 
     def calculate_adaptive_delay(self, resource: str = "core") -> float:
         """Calculate progressive request delay based on remaining quota and window budget."""
-        with self._lock:
-            self._sync_quota_if_stale(resource)
-            state = self._quotas.get(resource)
-            if state is None or state.last_updated == 0.0:
-                return self.min_interval
-            now = time.time()
-            if state.reset_epoch > 0 and now >= state.reset_epoch:
-                state.remaining = state.limit
-                state.used = 0
-                if state.window_seconds > 0:
-                    state.reset_epoch = now + state.window_seconds
-            if state.remaining <= 0:
-                if state.reset_epoch > now:
-                    return min(60.0, max(5.0, state.reset_epoch - now))
-                return 5.0
-            return _calculate_budget_delay(
-                remaining=state.remaining,
-                limit=state.limit,
-                reset_epoch=state.reset_epoch,
-                min_interval=self.min_interval,
-                resource=resource,
-                burst_multiplier=self.burst_multiplier,
-                window_seconds=state.window_seconds if state.window_seconds > 0 else None,
-            )
+        limiter = self.get_adaptive_limiter(resource)
+        if limiter.remaining <= 0:
+            if limiter.seconds_until_reset > 0:
+                return min(60.0, max(5.0, limiter.seconds_until_reset))
+            return 60.0
+        rate = limiter.get_allowed_rate()
+        delay = (1.0 / rate) if rate > 0.0 else 60.0
+        return max(self.min_interval, delay)
 
     def acquire(self, resource: str = "core") -> float:
-        """Pace requests to enforce minimum interval and adaptive quota backoff."""
-        effective_interval = self.calculate_adaptive_delay(resource)
-        with self._lock:
-            now = time.perf_counter()
-            elapsed = now - self._last_request_time
-            sleep_duration = 0.0
-            if elapsed < effective_interval:
-                sleep_duration = effective_interval - elapsed
-                time.sleep(sleep_duration)
-            self._last_request_time = time.perf_counter()
-            return sleep_duration
+        """Pace requests to enforce minimum interval and adaptive dynamic throttle."""
+        limiter = self.get_adaptive_limiter(resource)
+        delay = limiter.acquire_sync()
+        if self.min_interval > delay:
+            time.sleep(self.min_interval - delay)
+            return self.min_interval
+        return delay
 
     def is_rate_limit_error(self, message: str) -> bool:
         """Detect whether an error output indicates primary or secondary GitHub rate limits."""
@@ -890,8 +926,10 @@ def _post_process_run(
     _parse_rate_limit_from_output(proc.stdout, resource, limiter)
     stdout_clean = proc.stdout or ""
     if "rateLimit" not in stdout_clean and "x-ratelimit-remaining" not in stdout_clean.lower():
-        cost = 2 if resource == "graphql" else 1
-        limiter.decrement_quota_estimate(resource, cost=cost)
+        cost = int(DEFAULT_GH_GRAPHQL_COST_FACTOR) if resource == "graphql" else 1
+        additional_cost = max(0, cost - 1)
+        if additional_cost > 0:
+            limiter.decrement_quota_estimate(resource, cost=additional_cost)
 
 
 def _handle_rate_limit_retry(

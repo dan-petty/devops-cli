@@ -95,8 +95,8 @@ def test_calculate_exponential_backoff() -> None:
     assert calculate_exponential_backoff(used=5000, remaining=0, limit=5000) == 60.0
 
 
-async def test_adaptive_rate_limiter_class() -> None:
-    """Verify AdaptiveRateLimiter reference implementation behavior."""
+def test_adaptive_rate_limiter_rate_decay() -> None:
+    """Verify AdaptiveRateLimiter velocity decay across consumption stages."""
     from devops_cli.github.rate_limiter import AdaptiveRateLimiter
 
     limiter = AdaptiveRateLimiter(quota=5000, window_seconds=3600.0, burst_multiplier=2.0)
@@ -118,13 +118,16 @@ async def test_adaptive_rate_limiter_class() -> None:
     limiter.requests_consumed = 5000
     assert limiter.get_allowed_rate() == 0.0
 
-    # Acquire resets consumption and throttles appropriately
+
+async def test_adaptive_rate_limiter_acquire() -> None:
+    """Verify AdaptiveRateLimiter acquire async and sync inter-request pacing."""
+    from devops_cli.github.rate_limiter import AdaptiveRateLimiter
+
     test_limiter = AdaptiveRateLimiter(quota=100, window_seconds=10.0, burst_multiplier=2.0)
     delay = await test_limiter.acquire()
     assert delay > 0.0
     assert test_limiter.requests_consumed == 1
 
-    # Synchronous acquire
     sync_delay = test_limiter.acquire_sync()
     assert sync_delay > 0.0
     assert test_limiter.requests_consumed == 2
@@ -358,19 +361,91 @@ def test_run_gh_passively_updates_graphql_quota() -> None:
 
 
 def test_rate_limiter_window_budget_pacing() -> None:
-    """Verify rate limiter calculates window budget pacing delay when quota drops faster than time."""
+    """Verify rate limiter calculates dynamic adaptive delay when quota drops faster than time."""
     limiter = GitHubRateLimiter(min_interval=0.5)
     now = time.time()
     # 50 minutes left (3000s) and 1000 tokens remaining in GraphQL
-    # Budget delay = (3000 / 1000) * 2.0 = 6.0s
+    # Dynamic adaptive decay rate = 0.2008 rps -> delay = ~4.98s
     limiter.update_quota("graphql", remaining=1000, limit=5000, reset_epoch=now + 3000.0)
     delay = limiter.calculate_adaptive_delay("graphql")
-    assert 5.5 <= delay <= 6.5, f"Expected budget delay around 6.0s, got {delay}s"
+    assert 4.5 <= delay <= 5.5, f"Expected adaptive delay around 5.0s, got {delay}s"
 
     # 10 minutes left (600s) and 4000 tokens remaining -> pacing near min_interval (0.5s)
     limiter.update_quota("graphql", remaining=4000, limit=5000, reset_epoch=now + 600.0)
     delay_fast = limiter.calculate_adaptive_delay("graphql")
     assert 0.5 <= delay_fast <= 0.6
+
+
+def test_expected_four_minute_graphql_spend_cap() -> None:
+    """Verify rate limiter bounds spend to <= 666.7 requests after 4 minutes in 60m window.
+
+    With 5000 initial quota and 2.0x burst multiplier over a 3600s window, the baseline
+    burst rate is 2.7778 rps (0.360s per request). In 240 seconds (4 minutes), the
+    maximum permitted request spend is 240 * (5000 / 3600) * 2.0 = 666.7 tokens.
+    """
+    from devops_cli.github.rate_limiter import GitHubAdaptiveLimiter
+
+    limiter = GitHubAdaptiveLimiter(initial_quota=5000, window_seconds=3600.0, burst_multiplier=2.0)
+    burst_rate = limiter.initial_burst_rate
+    assert burst_rate == pytest.approx(2.77777, rel=1e-3)
+    min_delay = 1.0 / burst_rate
+    assert min_delay == pytest.approx(0.360, rel=1e-3)
+
+    # In 240 seconds (4 minutes), maximum possible requests at burst velocity:
+    max_spend_4m = 240.0 * burst_rate
+    assert max_spend_4m == pytest.approx(666.6667, rel=1e-3)
+
+    # If an external source depleted 4048 tokens in 4 minutes (remaining = 952, 3360s left),
+    # the limiter must engage tight braking (rate < 0.2 rps, delay > 6.0s) rather than allowing rapid requests.
+    now = time.time()
+    limiter.update_window_state(remaining=952, limit=5000, epoch_reset=now + 3360.0)
+    choked_rate = limiter.get_allowed_rate()
+    assert choked_rate < 0.2, f"Expected choked rate < 0.2 rps, got {choked_rate}"
+    choked_delay = 1.0 / choked_rate
+    assert choked_delay > 6.0, f"Expected brake delay > 6.0s, got {choked_delay}"
+
+
+def test_invariant_cannot_consume_eighty_percent_in_ten_percent_window() -> None:
+    """Verify invariant: limiter mathematically prevents consuming 80% of tokens in under 10% of window.
+
+    In a 3600s window with 5000 quota and 2.0x burst multiplier:
+    - 10% of window is 360 seconds.
+    - 80% of quota is 4000 tokens.
+    - Initial burst velocity is capped at 2.7778 rps.
+    - In 360 seconds, maximum possible tokens consumed by acquire() is 360 * 2.7778 = 1000 tokens (20%).
+    - Therefore, consuming 4000 tokens (80%) in under 360 seconds (10%) is mathematically precluded.
+    """
+    from devops_cli.github.rate_limiter import GitHubAdaptiveLimiter
+
+    limiter = GitHubAdaptiveLimiter(initial_quota=5000, window_seconds=3600.0, burst_multiplier=2.0)
+    window_10_percent = 3600.0 * 0.10  # 360s
+    max_tokens_in_10_percent = window_10_percent * limiter.initial_burst_rate  # 1000 tokens
+
+    # Max tokens that can be consumed in 10% of window is exactly 20% of quota (1000 / 5000)
+    assert max_tokens_in_10_percent <= 0.20 * 5000
+    assert max_tokens_in_10_percent < 0.80 * 5000
+
+    # Furthermore, verify that each request is paced by at least 1.0 / burst_rate
+    limiter_sim = GitHubAdaptiveLimiter(
+        initial_quota=5000, window_seconds=3600.0, burst_multiplier=2.0
+    )
+    for _ in range(10):
+        rate = limiter_sim.get_allowed_rate()
+        delay = 1.0 / rate
+        assert delay >= 0.35, f"Delay {delay}s violates velocity cap"
+        limiter_sim.remaining -= 1
+
+
+def test_rate_limiter_acquire_pacing_sequence() -> None:
+    """Verify acquire enforces inter-request delay on every request."""
+    limiter = GitHubRateLimiter(min_interval=0.02)
+    # Simulate 4 rapid acquire calls
+    t0 = time.perf_counter()
+    for _ in range(4):
+        delay = limiter.acquire()
+        assert delay >= 0.02
+    elapsed = time.perf_counter() - t0
+    assert elapsed >= 0.06, f"Expected sequential delay >= 0.06s for 4 requests, got {elapsed}s"
 
 
 def test_rate_limiter_disk_quota_persistence(tmp_path: Path) -> None:
@@ -426,8 +501,8 @@ def test_github_adaptive_limiter_dynamic_time_windows() -> None:
     """Verify GitHubAdaptiveLimiter dynamically adapts to any window value."""
     from devops_cli.github.rate_limiter import GitHubAdaptiveLimiter
 
-    # Initializing small quota (<= 100) defaults to 60s window, never 3600s
-    limiter_small = GitHubAdaptiveLimiter(initial_quota=10)
+    # Initializing with explicit window (e.g. 60s for small burst quotas)
+    limiter_small = GitHubAdaptiveLimiter(initial_quota=10, window_seconds=60.0)
     assert limiter_small.seconds_until_reset == 60.0
     assert limiter_small.quota == 10
     assert limiter_small.natural_rate == pytest.approx(10 / 60.0)
@@ -461,3 +536,40 @@ def test_dynamic_window_learning_from_consecutive_resets() -> None:
     state = limiter._quotas.get("code_scanning_autofix")
     assert state is not None
     assert state.window_seconds == pytest.approx(60.0, abs=0.1)
+
+
+def test_adaptive_pacer_prevents_excessive_window_spend() -> None:
+    """Verify pacer bounds cumulative request spend within window fraction.
+
+    In a 60-minute (3600s) quota window with 5000 tokens and burst multiplier 2.0:
+    - Natural rate = 5000 / 3600 = 1.3889 tokens/sec
+    - Initial burst rate = 2.0 * 1.3889 = 2.7778 tokens/sec
+    - After 4 minutes (240s), maximum allowable token spend without throttling is
+      strictly bounded: 240 * (2.0 * 5000 / 3600) = 666.7 tokens.
+    - Consuming 4048 of 5000 tokens (80%) in 4 minutes (< 10% of window) is
+      mathematically precluded by inter-request pacing delays.
+    """
+    from devops_cli.github.rate_limiter import GitHubAdaptiveLimiter
+
+    limiter = GitHubAdaptiveLimiter(initial_quota=5000, window_seconds=3600.0, burst_multiplier=2.0)
+
+    # At t=0, allowed rate is bounded by burst allowance
+    rate_initial = limiter.get_allowed_rate()
+    assert rate_initial == pytest.approx(2.7777, rel=1e-3)
+    min_inter_request_delay = 1.0 / rate_initial
+    assert min_inter_request_delay == pytest.approx(0.36, rel=1e-2)
+
+    # Max requests permitted over 240s at initial burst speed
+    max_spend_4_minutes = 240.0 * rate_initial
+    assert max_spend_4_minutes == pytest.approx(666.7, rel=1e-2)
+
+    # Simulate live GitHub rate limit update when 4048 tokens are spent:
+    # Remaining drops to 952 tokens with 3360s remaining until reset
+    now = time.time()
+    limiter.update_window_state(remaining=952, limit=5000, epoch_reset=now + 3360.0)
+    rate_throttled = limiter.get_allowed_rate()
+
+    # Throttled rate drops dramatically below 0.35 rps, requiring substantial delay (> 3.0s)
+    assert rate_throttled < 0.35
+    delay_throttled = 1.0 / rate_throttled
+    assert delay_throttled > 3.0

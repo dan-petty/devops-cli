@@ -13,13 +13,18 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.agents.capabilities import BaseCapability
 from devops_cli.ai.agents.context import AgentHooks, RunContext
+from devops_cli.config.defaults import (
+    DEFAULT_MEDIA_EXTERNALIZER_ID,
+    DEFAULT_MEDIA_OCTET_STREAM_TYPE,
+    DEFAULT_SQLITE_MEMORY_DB_PATH,
+)
 
 
 class BinaryContent(BaseModel):
     """Raw binary payload (image, audio, document) with MIME type."""
 
     data: bytes
-    media_type: str = "application/octet-stream"
+    media_type: str = DEFAULT_MEDIA_OCTET_STREAM_TYPE
 
     @property
     def sha256_hex(self) -> str:
@@ -88,7 +93,7 @@ class DiskMediaStore:
         if not file_path.is_relative_to(self.root_dir.resolve()) or not file_path.is_file():
             return None
         data = file_path.read_bytes()
-        media_type = parse_qs(parsed.query).get("media_type", ["application/octet-stream"])[0]
+        media_type = parse_qs(parsed.query).get("media_type", [DEFAULT_MEDIA_OCTET_STREAM_TYPE])[0]
         return BinaryContent(data=data, media_type=media_type)
 
     def delete(self, uri: str) -> bool:
@@ -109,7 +114,7 @@ class DiskMediaStore:
 class SqliteMediaStore:
     """SQLite-backed content-addressed media store."""
 
-    def __init__(self, db_path: str = ":memory:") -> None:
+    def __init__(self, db_path: str = DEFAULT_SQLITE_MEMORY_DB_PATH) -> None:
         self.db_path = db_path
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._init_db()
@@ -189,7 +194,7 @@ def restore_media(data: Any, store: MediaStore) -> Any:
 class MediaExternalizer(BaseCapability):
     """Capability that offloads large binary data from agent messages into content-addressed storage."""
 
-    id: str = "media"
+    id: str = DEFAULT_MEDIA_EXTERNALIZER_ID
     store: Any = Field(default_factory=InMemoryMediaStore)
 
     def externalize(self, data: Any) -> Any:

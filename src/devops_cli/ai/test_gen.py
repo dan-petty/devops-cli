@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.config.defaults import DEFAULT_SYNTHESIZED_TEST_STATUS
+
 
 class SynthesizedTestSuite(BaseModel):
     """Synthesized unit test suite for a source module or function."""
@@ -16,7 +18,7 @@ class SynthesizedTestSuite(BaseModel):
     function_names: list[str] = Field(default_factory=list)
     test_code: str
     test_count: int
-    validation_status: str = "SYNTHESIZED"
+    validation_status: str = DEFAULT_SYNTHESIZED_TEST_STATUS
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -94,6 +96,6 @@ import {import_path} as {module_stem}
         function_names=functions_found,
         test_code=full_code,
         test_count=len(test_cases),
-        validation_status="SYNTHESIZED",
+        validation_status=DEFAULT_SYNTHESIZED_TEST_STATUS,
         metadata={"import_path": import_path, "functions_count": len(functions_found)},
     )
