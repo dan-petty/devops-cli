@@ -1,0 +1,9 @@
+# CoreDNS Configuration
+# Elevated resource limits to eliminate OOM terminations during cluster DNS bursts
+resources:
+  limits:
+    cpu: 200m
+    memory: 384Mi
+  requests:
+    cpu: 100m
+    memory: 70Mi
