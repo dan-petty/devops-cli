@@ -40,6 +40,13 @@ The GitHub GraphQL rate limiter previously permitted rapid quota exhaustion (bur
    - Eliminated hardcoded circuit breakers; sync operations are governed continuously by window budget pacing and exponential backoff.
 4. **No-REST Fallback**:
    - Strictly honor GraphQL quotas and backoff in PR threads and monitor without REST fallbacks.
+5. **Dedicated Project Automation Workflow ([`.github/workflows/project-automation.yml`](file:///workspaces/devops-cli/.github/workflows/project-automation.yml))**:
+   - Decoupled GitHub Projects v2 automation and card synchronization from the heavy CI quality gate.
+   - Deliberately excluded `ready_for_review` trigger from [`.github/workflows/ci.yml`](file:///workspaces/devops-cli/.github/workflows/ci.yml) so that converting a draft PR to ready for review does NOT re-trigger redundant test suites, coverage reports, and container builds.
+   - Project lifecycle events (`pull_request`, `issues`) run lightweight synchronization via `devops gh project sync` in under 10 seconds without running CI test or build matrices.
+6. **GraphQL Quota Circuit Breakers & Draft Status Mapping ([`projects.py`](file:///workspaces/devops-cli/src/devops_cli/github/projects.py))**:
+   - `_is_graphql_quota_exhausted()` protects the remaining quota when tokens drop below safety thresholds (<50 / <25), preventing project sync from exhausting depleted quotas.
+   - `infer_item_status()` maps draft PRs to `In Progress` and non-draft PRs to `In Review`.
 
 ---
 

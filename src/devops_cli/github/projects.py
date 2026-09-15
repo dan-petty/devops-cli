@@ -16,6 +16,7 @@ from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.client import parse_paginated_json
 from devops_cli.github.rate_limiter import (
     extract_json_payload,
+    get_github_rate_limiter,
     run_gh,
 )
 
@@ -786,6 +787,9 @@ def sync_repository_issues_to_project(
     added = 0
 
     for iss in issues:
+        if _is_graphql_quota_exhausted():
+            logger.warning("GraphQL quota critically low. Halting issue sync.")
+            break
         url = iss.get("html_url") or iss.get("url")
         if (
             url
@@ -839,14 +843,18 @@ def infer_item_status(
     labels: list[Any],
     is_pr: bool = False,
     has_open_pr: bool = False,
+    is_draft: bool = False,
 ) -> str:
-    """Infer GitHub Projects Status field from state, PR presence, and taxonomy labels."""
+    """Infer GitHub Projects Status field from state, PR presence, draft status, and taxonomy labels."""
     st_upper = state.upper()
     if st_upper in ("CLOSED", "MERGED"):
         return "Done"
 
-    # Open PRs and issues with active open PRs are In Review
-    if is_pr or has_open_pr:
+    # Open PRs and issues with active open PRs
+    if is_pr:
+        return "In Progress" if is_draft else "In Review"
+
+    if has_open_pr:
         return "In Review"
 
     return _match_status_from_labels(labels)
@@ -1008,8 +1016,11 @@ def _reconcile_single_item(
     labels = item.get("labels", [])
 
     is_pr = "/pull/" in url or "pull_request" in item
+    is_draft = bool(item.get("draft", False))
     priority = infer_item_priority(labels)
-    status = infer_item_status(state, labels, is_pr=is_pr, has_open_pr=has_open_pr)
+    status = infer_item_status(
+        state, labels, is_pr=is_pr, has_open_pr=has_open_pr, is_draft=is_draft
+    )
     category, val, eff = infer_item_category_value_effort(title, priority, labels=labels)
 
     fields_to_update = _filter_differing_fields(
@@ -1061,6 +1072,13 @@ def _extract_linked_issue_numbers(prs: list[dict[str, Any]]) -> set[int]:
     return linked_numbers
 
 
+def _is_graphql_quota_exhausted(threshold: int = 25) -> bool:
+    """Check if the tracked GraphQL quota is below safety threshold."""
+    limiter = get_github_rate_limiter()
+    quota = limiter.get_quota("graphql")
+    return bool(quota.last_updated > 0 and quota.remaining < threshold)
+
+
 def _provision_missing_candidates(
     owner: str,
     project_number: int,
@@ -1071,6 +1089,9 @@ def _provision_missing_candidates(
     owner_arg = _resolve_project_owner_arg(owner)
     existing_urls = set(items_data.keys())
     for it in candidates:
+        if _is_graphql_quota_exhausted():
+            logger.warning("GraphQL quota critically low. Halting candidate provisioning.")
+            break
         url = it.get("html_url") or it.get("url")
         if (
             url
@@ -1092,6 +1113,9 @@ def _reconcile_candidate_items(
     """Iterate over candidates and reconcile custom fields where values differ."""
     reconciled_count = 0
     for it in candidates:
+        if not dry_run and _is_graphql_quota_exhausted():
+            logger.warning("GraphQL quota critically low. Halting candidate reconciliation.")
+            break
         url = it.get("html_url") or it.get("url") or ""
         it_num = int(it.get("number", 0))
         has_pr = it_num in open_pr_issue_numbers
@@ -1115,7 +1139,33 @@ def reconcile_project_custom_fields(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Reconcile custom field values (Status, Priority, Category, Value, Effort) on project items."""
+    if not dry_run and _is_graphql_quota_exhausted(threshold=50):
+        logger.warning(
+            "GraphQL quota critically low. Skipping project custom field reconciliation."
+        )
+        return {
+            "project_number": project_number,
+            "owner": owner,
+            "repo": repo,
+            "items_evaluated": 0,
+            "items_reconciled": 0,
+            "dry_run": dry_run,
+        }
+
     items_data = _fetch_project_items_data(owner, project_number)
+    if not items_data and not dry_run:
+        logger.warning(
+            "No project items found or failed to fetch project data. Skipping mutations."
+        )
+        return {
+            "project_number": project_number,
+            "owner": owner,
+            "repo": repo,
+            "items_evaluated": 0,
+            "items_reconciled": 0,
+            "dry_run": dry_run,
+        }
+
     issues = _fetch_repository_issues(repo)
     prs = _fetch_repository_prs(repo)
     candidates = issues + prs
