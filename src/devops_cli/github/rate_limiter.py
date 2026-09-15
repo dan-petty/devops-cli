@@ -510,7 +510,10 @@ class GitHubRateLimiter:
         target = resource or subcommand
         with self._lock:
             now = time.time()
-            delay = self.calculate_delay(target)
+            try:
+                delay = self.calculate_delay(target)
+            except GitHubRateLimitError:
+                delay = self.min_interval
 
             prev_scheduled = self._next_allowed_time.get(target, 0.0)
             scheduled_time = max(now, prev_scheduled) + delay

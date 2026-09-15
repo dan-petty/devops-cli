@@ -469,3 +469,190 @@ def test_run_gh_rate_limit_endpoint_extracts_all_resources() -> None:
         assert limiter.get_quota("core").remaining == 4999
         assert limiter.get_quota("graphql").remaining == 4500
         assert limiter.get_quota("search").remaining == 28
+
+
+def test_quota_state_validate_direct() -> None:
+    """Verify QuotaState.validate() raises ValueError on negative fields."""
+    state = QuotaState()
+    state.__dict__["remaining"] = -1
+    with pytest.raises(ValueError, match="remaining requests must be non-negative"):
+        state.validate()
+
+    state.__dict__["remaining"] = 10
+    state.__dict__["limit"] = -1
+    with pytest.raises(ValueError, match="rate limit must be non-negative"):
+        state.validate()
+
+    state.__dict__["limit"] = 100
+    state.__dict__["used"] = -1
+    with pytest.raises(ValueError, match="used requests must be non-negative"):
+        state.validate()
+
+    state.__dict__["used"] = 0
+    state.__dict__["reset_epoch"] = -1.0
+    with pytest.raises(ValueError, match="reset_epoch must be non-negative"):
+        state.validate()
+
+
+def test_disk_quota_corrupt_or_unwritable(tmp_path: Path) -> None:
+    """Verify disk quota loader handles corrupt JSON and saver handles unwritable directories."""
+    from devops_cli.github.rate_limiter import _load_disk_quota, _save_disk_quota
+
+    corrupt_file = tmp_path / "corrupt.json"
+    corrupt_file.write_text("not json content", encoding="utf-8")
+    assert _load_disk_quota(corrupt_file) == {}
+
+    # Unwritable path handling
+    unwritable = Path("/forbidden_sys_dir_test/quota.json")
+    _save_disk_quota({"core": QuotaState(remaining=10)}, unwritable)
+
+
+def test_extract_json_payload_edge_cases() -> None:
+    """Verify extract_json_payload handles empty, non-JSON, and malformed strings."""
+    from devops_cli.github.rate_limiter import extract_json_payload
+
+    assert extract_json_payload("") is None
+    assert extract_json_payload("Plain text with no brackets") is None
+    assert extract_json_payload("Prefix { not valid json: 123") is None
+    assert extract_json_payload('Preamble banner\n{"valid": 1}') == {"valid": 1}
+
+
+def test_detect_resource_and_reset_epoch() -> None:
+    """Verify _detect_resource and _parse_reset_epoch handle boundary values."""
+    from devops_cli.github.rate_limiter import _detect_resource, _parse_reset_epoch
+
+    assert _detect_resource([]) == "core"
+    assert _detect_resource(["gh"]) == "core"
+    assert _detect_resource(["api", "repos/owner/repo/dependency-graph/sbom"]) == "dependency_sbom"
+
+    assert _parse_reset_epoch(None) == 0.0
+    assert _parse_reset_epoch("") == 0.0
+    assert _parse_reset_epoch("invalid-date-string") == 0.0
+    assert _parse_reset_epoch("2026-09-15T12:00:00Z") > 0.0
+
+
+def test_parse_safe_helpers() -> None:
+    """Verify integer, float parsing and GraphQL extraction safe fallbacks."""
+    from devops_cli.github.rate_limiter import (
+        _extract_graphql_ratelimit_json,
+        _parse_float_safe,
+        _parse_int_safe,
+    )
+
+    assert _parse_int_safe("not-an-int", 42) == 42
+    assert _parse_int_safe(" 10 ", 0) == 10
+    assert _parse_float_safe("not-a-float", 3.14) == 3.14
+    assert _parse_float_safe(" 2.5 ", 0.0) == 2.5
+
+    limiter = GitHubRateLimiter()
+    _extract_graphql_ratelimit_json("not json", limiter)
+    _extract_graphql_ratelimit_json('{"data": "not a dict"}', limiter)
+    _extract_graphql_ratelimit_json('{"data": {"rateLimit": null}}', limiter)
+
+
+def test_rate_limiter_constructor_negative_threshold() -> None:
+    """Verify constructor raises ValueError on negative threshold."""
+    with pytest.raises(ValueError, match="no_delay_percent_used_threshold must be non-negative"):
+        GitHubRateLimiter(no_delay_percent_used_threshold=-1.0)
+
+
+def test_calculate_delay_remaining_none_or_negative() -> None:
+    """Verify calculate_delay raises error when remaining is None or negative."""
+    limiter = GitHubRateLimiter()
+    now = time.time()
+    state_none = QuotaState(limit=100, reset_epoch=now + 10.0)
+    state_none.__dict__["remaining"] = None
+    with patch.object(limiter, "_resolve_quota_state", return_value=state_none):
+        with pytest.raises(GitHubRateLimitError, match="remaining requests is unknown"):
+            limiter.calculate_delay("core")
+
+    state_neg = QuotaState(limit=100, reset_epoch=now + 10.0)
+    state_neg.__dict__["remaining"] = -5
+    with patch.object(limiter, "_resolve_quota_state", return_value=state_neg):
+        with pytest.raises(ValueError, match="remaining requests must be non-negative"):
+            limiter.calculate_delay("core")
+
+
+def test_update_quota_negative_validations() -> None:
+    """Verify update_quota rejects negative parameters."""
+    limiter = GitHubRateLimiter()
+    with pytest.raises(ValueError, match="remaining requests must be non-negative"):
+        limiter.update_quota("core", remaining=-1)
+    with pytest.raises(ValueError, match="rate limit must be non-negative"):
+        limiter.update_quota("core", remaining=10, limit=-1)
+    with pytest.raises(ValueError, match="reset_epoch must be non-negative"):
+        limiter.update_quota("core", remaining=10, reset_epoch=-1.0)
+    with pytest.raises(ValueError, match="used requests must be non-negative"):
+        limiter.update_quota("core", remaining=10, used=-1)
+
+
+def test_validate_gh_cwd(tmp_path: Path) -> None:
+    """Verify _validate_gh_cwd accepts valid directories and rejects non-existent or prohibited system paths."""
+    from devops_cli.github.rate_limiter import _validate_gh_cwd
+
+    assert _validate_gh_cwd(None) is None
+    assert _validate_gh_cwd(tmp_path) == tmp_path.resolve()
+
+    with pytest.raises(ValueError, match="Invalid cwd directory"):
+        _validate_gh_cwd(tmp_path / "nonexistent_dir_12345")
+
+    with pytest.raises(ValueError, match="Prohibited system path for cwd"):
+        _validate_gh_cwd(Path("/etc"))
+
+
+def test_run_gh_paginated_edge_cases(tmp_path: Path) -> None:
+    """Verify pagination handler covers unpaginated fallback, empty list, and non-list responses."""
+    # No endpoint in args
+    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
+        mock_sub.return_value = subprocess.CompletedProcess(
+            args=["gh", "api", "--paginate"], returncode=0, stdout="[]", stderr=""
+        )
+        res = run_gh(["api", "--paginate"])
+        assert res.returncode == 0
+
+    # Empty list terminates loop immediately
+    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
+        mock_sub.return_value = subprocess.CompletedProcess(
+            args=["gh", "api", "repos/owner/repo/pulls", "--paginate"],
+            returncode=0,
+            stdout="[]",
+            stderr="",
+        )
+        res = run_gh(["api", "repos/owner/repo/pulls", "--paginate"])
+        assert res.returncode == 0
+        assert res.stdout == "[]"
+
+    # Non-list response terminates loop and returns proc
+    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
+        mock_sub.return_value = subprocess.CompletedProcess(
+            args=["gh", "api", "repos/owner/repo/pulls", "--paginate"],
+            returncode=0,
+            stdout='{"message": "Not found"}',
+            stderr="",
+        )
+        res = run_gh(["api", "repos/owner/repo/pulls", "--paginate"])
+        assert res.returncode == 0
+        assert res.stdout == '{"message": "Not found"}'
+
+
+def test_run_gh_with_cwd_and_called_process_error(tmp_path: Path) -> None:
+    """Verify run_gh passes cwd and raises CalledProcessError when check=True on failure."""
+    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
+        mock_sub.return_value = subprocess.CompletedProcess(
+            args=["gh", "pr", "list"], returncode=0, stdout="pr list output", stderr=""
+        )
+        res = run_gh(["pr", "list"], cwd=tmp_path)
+        assert res.returncode == 0
+        mock_sub.assert_called_once()
+        assert mock_sub.call_args[1]["cwd"] == tmp_path.resolve()
+
+    # Paginated with check=True and non-zero returncode raises CalledProcessError
+    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
+        mock_sub.return_value = subprocess.CompletedProcess(
+            args=["gh", "api", "repos/owner/repo/pulls", "--paginate"],
+            returncode=1,
+            stdout="",
+            stderr="Failed to paginate",
+        )
+        with pytest.raises(subprocess.CalledProcessError):
+            run_gh(["api", "repos/owner/repo/pulls", "--paginate"], check=True)
