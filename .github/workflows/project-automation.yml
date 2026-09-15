@@ -1,7 +1,7 @@
 name: Project Automation
 
 on:
-  pull_request:
+  pull_request_target:
     types:
       - opened
       - reopened
@@ -26,8 +26,8 @@ on:
         default: false
 
 concurrency:
-  group: project-automation-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
-  cancel-in-progress: true
+  group: project-automation-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
   sync-project:

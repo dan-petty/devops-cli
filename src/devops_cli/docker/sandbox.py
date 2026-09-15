@@ -114,7 +114,7 @@ class WorkloadSandboxConfig(BaseModel):
     memory_limit: str = DEFAULT_SANDBOX_MEMORY
     cpu_limit: float = DEFAULT_SANDBOX_CPUS
     network_config: SandboxNetworkConfig = Field(
-        default_factory=lambda: SandboxNetworkConfig(mode=SandboxNetworkMode.BRIDGE)
+        default_factory=lambda: SandboxNetworkConfig(mode=SandboxNetworkMode.ISOLATED)
     )
     network_mode: str = DEFAULT_SANDBOX_NETWORK
     rootless: bool = True
@@ -151,9 +151,9 @@ class WorkloadSandboxConfig(BaseModel):
                 "none" if cfg.mode == SandboxNetworkMode.ISOLATED else cfg.mode.value
             )
         else:
-            cfg = SandboxNetworkConfig(mode=SandboxNetworkMode.BRIDGE)
+            cfg = SandboxNetworkConfig(mode=SandboxNetworkMode.ISOLATED)
             data["network_config"] = cfg
-            data["network_mode"] = "bridge"
+            data["network_mode"] = "none"
         return data
 
 

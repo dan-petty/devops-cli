@@ -172,10 +172,10 @@ def test_reconcile_project_custom_fields_quota_exhausted() -> None:
         assert res["items_reconciled"] == 0
 
 
-def test_reconcile_project_custom_fields_empty_items_data() -> None:
+def test_reconcile_project_custom_fields_fetch_failure_skips_mutations() -> None:
     with (
         patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
-        patch("devops_cli.github.projects._fetch_project_items_data", return_value={}),
+        patch("devops_cli.github.projects._fetch_project_items_data", return_value=None),
     ):
         res = reconcile_project_custom_fields(
             owner="owner",
@@ -185,3 +185,31 @@ def test_reconcile_project_custom_fields_empty_items_data() -> None:
         )
         assert res["items_evaluated"] == 0
         assert res["items_reconciled"] == 0
+
+
+def test_reconcile_project_custom_fields_empty_project_provisions_candidates() -> None:
+    mock_issues = [
+        {
+            "html_url": "https://github.com/owner/repo/issues/1",
+            "title": "Issue 1",
+            "state": "open",
+            "labels": [],
+        }
+    ]
+    with (
+        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
+        patch("devops_cli.github.projects._fetch_project_items_data", return_value={}),
+        patch("devops_cli.github.projects._fetch_repository_issues", return_value=mock_issues),
+        patch("devops_cli.github.projects._fetch_repository_prs", return_value=[]),
+        patch("devops_cli.github.projects._provision_missing_candidates") as mock_prov,
+        patch("devops_cli.github.projects._reconcile_candidate_items", return_value=1),
+    ):
+        res = reconcile_project_custom_fields(
+            owner="owner",
+            repo="owner/repo",
+            project_number=2,
+            dry_run=False,
+        )
+        assert res["items_evaluated"] == 1
+        assert res["items_reconciled"] == 1
+        mock_prov.assert_called_once()

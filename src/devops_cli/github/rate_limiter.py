@@ -108,13 +108,26 @@ class QuotaState:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> QuotaState:
-        return cls(
-            limit=data.get("limit"),
-            remaining=data.get("remaining"),
-            used=int(data.get("used", 0)),
-            reset_epoch=float(data.get("reset_epoch", 0.0)),
-            last_updated=float(data.get("last_updated", 0.0)),
-        )
+        try:
+            limit_val = data.get("limit")
+            limit = int(limit_val) if limit_val is not None else None
+            rem_val = data.get("remaining")
+            remaining = int(rem_val) if rem_val is not None else None
+            used_val = data.get("used", 0)
+            used = int(used_val) if used_val is not None else 0
+            reset_val = data.get("reset_epoch", 0.0)
+            reset_epoch = float(reset_val) if reset_val is not None else 0.0
+            updated_val = data.get("last_updated", 0.0)
+            last_updated = float(updated_val) if updated_val is not None else 0.0
+            return cls(
+                limit=limit,
+                remaining=remaining,
+                used=used,
+                reset_epoch=reset_epoch,
+                last_updated=last_updated,
+            )
+        except (TypeError, ValueError) as err:
+            raise ValueError(f"Malformed quota state dictionary: {err}") from err
 
 
 def _load_disk_quota(path: Path) -> dict[str, QuotaState]:
@@ -129,12 +142,15 @@ def _load_disk_quota(path: Path) -> dict[str, QuotaState]:
             valid_quotas: dict[str, QuotaState] = {}
             for k, v in raw.items():
                 if isinstance(v, dict):
-                    state = QuotaState.from_dict(v)
-                    # Cached values not updated or past reset must never be relied on
-                    if state.is_valid(now):
-                        valid_quotas[k] = state
+                    try:
+                        state = QuotaState.from_dict(v)
+                        # Cached values not updated or past reset must never be relied on
+                        if state.is_valid(now):
+                            valid_quotas[k] = state
+                    except TypeError, ValueError:
+                        continue
             return valid_quotas
-    except OSError, json.JSONDecodeError, ValueError:
+    except OSError, json.JSONDecodeError, ValueError, TypeError:
         pass
     return {}
 
@@ -147,7 +163,7 @@ def _save_disk_quota(quotas: dict[str, QuotaState], path: Path) -> None:
         tmp = path.with_suffix(f".tmp.{os.getpid()}")
         tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         tmp.replace(path)
-    except OSError:
+    except OSError, TypeError, ValueError:
         pass
 
 
@@ -512,7 +528,7 @@ class GitHubRateLimiter:
             now = time.time()
             try:
                 delay = self.calculate_delay(target)
-            except GitHubRateLimitError:
+            except GitHubRateLimitError, TypeError, ValueError:
                 delay = self.min_interval
 
             prev_scheduled = self._next_allowed_time.get(target, 0.0)
@@ -925,7 +941,10 @@ def _post_process_run(
     _parse_rate_limit_from_output(proc.stdout, resource, limiter)
     stdout_clean = proc.stdout or ""
     if "rateLimit" not in stdout_clean and "x-ratelimit-remaining" not in stdout_clean.lower():
-        limiter.record_utilization(resource, cost=cost)
+        try:
+            limiter.record_utilization(resource, cost=cost)
+        except TypeError, ValueError:
+            pass
 
 
 def run_gh(

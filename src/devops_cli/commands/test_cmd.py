@@ -270,22 +270,13 @@ _ALLOWED_NETWORK_MODES: frozenset[str] = frozenset(
         "none",
     }
 )
-_WHITELIST_TOKEN_PATTERN = re.compile(r"^[a-zA-Z0-9_\-.:*]+$")
 
 
-def _parse_whitelist(raw: str | None, name: str) -> list[str]:
-    """Parse and validate comma-separated whitelist tokens."""
+def _parse_whitelist(raw: str | None) -> list[str]:
+    """Parse comma-separated whitelist tokens without restricting valid URL formats."""
     if not raw:
         return []
-    items: list[str] = []
-    for token in raw.split(","):
-        cleaned = token.strip()
-        if not cleaned:
-            continue
-        if not _WHITELIST_TOKEN_PATTERN.match(cleaned):
-            raise typer.BadParameter(f"Invalid {name} whitelist entry: '{cleaned}'")
-        items.append(cleaned)
-    return items
+    return [cleaned for token in raw.split(",") if (cleaned := token.strip())]
 
 
 def _validate_sandbox_network(
@@ -306,8 +297,8 @@ def _validate_sandbox_network(
         )
     return (
         mode,
-        _parse_whitelist(public_whitelist, "public"),
-        _parse_whitelist(local_whitelist, "local"),
+        _parse_whitelist(public_whitelist),
+        _parse_whitelist(local_whitelist),
     )
 
 
@@ -381,18 +372,21 @@ def test_sandbox(
         local_whitelist=local_whitelist,
     )
 
-    cfg = WorkloadSandboxConfig(
-        workspace_dir=workspace,
-        command=command,
-        image=image,
-        read_only=read_only,
-        memory_limit=memory,
-        cpu_limit=cpus,
-        network_mode=effective_mode,
-        public_whitelist=pub_list,
-        local_whitelist=loc_list,
-        rootless=rootless,
-    )
+    try:
+        cfg = WorkloadSandboxConfig(
+            workspace_dir=workspace,
+            command=command,
+            image=image,
+            read_only=read_only,
+            memory_limit=memory,
+            cpu_limit=cpus,
+            network_mode=effective_mode,
+            public_whitelist=pub_list,
+            local_whitelist=loc_list,
+            rootless=rootless,
+        )
+    except ValueError as err:
+        raise typer.BadParameter(str(err)) from err
     sandbox_runner = WorkloadSandboxRunner(cfg)
 
     if dry_run or is_dry_run():

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,7 +27,7 @@ from devops_cli.github.rate_limiter import (
 
 
 @pytest.fixture(autouse=True)
-def isolate_rate_limiter():
+def isolate_rate_limiter() -> Generator[None]:
     """Ensure global rate limiter singleton is reset before and after each test."""
     reset_github_rate_limiter()
     limiter = get_github_rate_limiter()
@@ -659,3 +660,29 @@ def test_run_gh_with_cwd_and_called_process_error(tmp_path: Path) -> None:
         )
         with pytest.raises(subprocess.CalledProcessError):
             run_gh(["api", "repos/owner/repo/pulls", "--paginate"], check=True)
+
+
+def test_quota_state_malformed_types_discarded(tmp_path: Path) -> None:
+    """Verify QuotaState.from_dict and _load_disk_quota discard malformed/null fields gracefully."""
+    import json
+
+    cache_file = tmp_path / "gh_quota.json"
+    cache_file.write_text(
+        json.dumps(
+            {
+                "core": {
+                    "limit": None,
+                    "remaining": None,
+                    "used": None,
+                    "reset_epoch": None,
+                    "last_updated": None,
+                },
+                "corrupted": {"used": "not_an_int"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    from devops_cli.github.rate_limiter import _load_disk_quota
+
+    loaded = _load_disk_quota(cache_file)
+    assert loaded == {}

@@ -611,8 +611,8 @@ def _extract_urls_from_project_items(items: list[dict[str, Any]]) -> set[str]:
     return urls
 
 
-def _fetch_project_item_urls(owner: str, project_number: int) -> set[str]:
-    """Retrieve URLs of items currently present on the project board."""
+def _fetch_project_item_urls_with_status(owner: str, project_number: int) -> tuple[set[str], bool]:
+    """Retrieve URLs of items currently present on the project board with success flag."""
     endpoints = [
         f"users/{owner}/projectsV2/{project_number}/items",
         f"orgs/{owner}/projectsV2/{project_number}/items",
@@ -630,11 +630,18 @@ def _fetch_project_item_urls(owner: str, project_number: int) -> set[str]:
             check=False,
             quiet=True,
         )
-        if res.returncode == 0 and res.stdout.strip():
-            items = parse_paginated_json(res.stdout)
-            if items:
-                return _extract_urls_from_project_items(items)
-    return set()
+        if res.returncode == 0:
+            if res.stdout.strip():
+                items = parse_paginated_json(res.stdout)
+                return _extract_urls_from_project_items(items), True
+            return set(), True
+    return set(), False
+
+
+def _fetch_project_item_urls(owner: str, project_number: int) -> set[str]:
+    """Retrieve URLs of items currently present on the project board."""
+    urls, _ = _fetch_project_item_urls_with_status(owner, project_number)
+    return urls
 
 
 def _extract_item_url(it: dict[str, Any]) -> str | None:
@@ -682,7 +689,9 @@ def _parse_project_items_json(stdout: str) -> dict[str, dict[str, str | None]]:
     return items_data
 
 
-def _fetch_project_items_data(owner: str, project_number: int) -> dict[str, dict[str, str | None]]:
+def _fetch_project_items_data(
+    owner: str, project_number: int
+) -> dict[str, dict[str, str | None]] | None:
     """Retrieve items and current custom field values from the project board."""
     owner_arg = _resolve_project_owner_arg(owner)
     cmd = [
@@ -713,22 +722,24 @@ def _fetch_project_items_data(owner: str, project_number: int) -> dict[str, dict
         ]
         proc = run_gh(fallback_cmd, check=False, quiet=True, use_cache=True, cache_ttl=60.0)
 
-    if proc.returncode == 0 and proc.stdout:
-        parsed = _parse_project_items_json(proc.stdout)
-        if parsed:
-            return parsed
+    if proc.returncode == 0:
+        if proc.stdout and proc.stdout.strip():
+            return _parse_project_items_json(proc.stdout)
+        return {}
 
-    fallback_urls = _fetch_project_item_urls(owner, project_number)
-    return {
-        u: {
-            "status": None,
-            "priority": None,
-            "category": None,
-            "value": None,
-            "effort": None,
+    fallback_urls, fallback_success = _fetch_project_item_urls_with_status(owner, project_number)
+    if fallback_success:
+        return {
+            u: {
+                "status": None,
+                "priority": None,
+                "category": None,
+                "value": None,
+                "effort": None,
+            }
+            for u in fallback_urls
         }
-        for u in fallback_urls
-    }
+    return None
 
 
 def _fetch_repository_issues(repo: str) -> list[dict[str, Any]]:
@@ -781,7 +792,7 @@ def sync_repository_issues_to_project(
         return 0
 
     owner_arg = _resolve_project_owner_arg(owner)
-    existing_items = _fetch_project_items_data(owner, project_number)
+    existing_items = _fetch_project_items_data(owner, project_number) or {}
     existing_urls = set(existing_items.keys())
     issues = _fetch_repository_issues(repo)
     added = 0
@@ -1155,10 +1166,8 @@ def reconcile_project_custom_fields(
         }
 
     items_data = _fetch_project_items_data(owner, project_number)
-    if not items_data and not dry_run:
-        logger.warning(
-            "No project items found or failed to fetch project data. Skipping mutations."
-        )
+    if items_data is None and not dry_run:
+        logger.warning("Failed to fetch project data. Skipping mutations.")
         return {
             "project_number": project_number,
             "owner": owner,
@@ -1173,12 +1182,13 @@ def reconcile_project_custom_fields(
     candidates = issues + prs
 
     open_pr_issue_numbers = _extract_linked_issue_numbers(prs)
+    active_items = items_data or {}
 
     if not dry_run:
-        _provision_missing_candidates(owner, project_number, candidates, items_data)
+        _provision_missing_candidates(owner, project_number, candidates, active_items)
 
     reconciled_count = _reconcile_candidate_items(
-        owner, project_number, candidates, items_data, open_pr_issue_numbers, dry_run
+        owner, project_number, candidates, active_items, open_pr_issue_numbers, dry_run
     )
 
     return {

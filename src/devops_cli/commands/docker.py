@@ -12,6 +12,7 @@ import typer
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_DOCKER_TIMEOUT_SECONDS,
+    DEFAULT_SANDBOX_NETWORK,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
@@ -386,7 +387,7 @@ def docker_sandbox(
             "-n",
             help="Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge",
         ),
-    ] = "bridge",
+    ] = DEFAULT_SANDBOX_NETWORK,
     network_mode: Annotated[
         str | None,
         typer.Option(

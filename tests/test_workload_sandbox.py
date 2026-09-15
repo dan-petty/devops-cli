@@ -28,7 +28,7 @@ def test_sandbox_config_defaults(tmp_path: Path) -> None:
     assert cfg.image == "python:3.14-slim"
     assert cfg.memory_limit == "2g"
     assert cfg.cpu_limit == 2.0
-    assert cfg.network_mode == "bridge"
+    assert cfg.network_mode == "none"
     assert cfg.rootless is True
     assert cfg.read_only is True
 
@@ -110,6 +110,25 @@ def test_cli_test_sandbox_dry_run(tmp_path: Path) -> None:
     assert res.exit_code == 0
     assert "echo" in res.output
     assert "alpine:latest" in res.output
+
+
+def test_cli_test_sandbox_whitelist_url_with_path() -> None:
+    """Test devops test sandbox accepts valid whitelist URLs with paths."""
+    res = runner.invoke(
+        cli_test_app,
+        [
+            "sandbox",
+            "--dry-run",
+            "--network-mode",
+            "public_whitelist",
+            "--public-whitelist",
+            "https://example.com/path",
+            "echo",
+            "test",
+        ],
+    )
+    assert res.exit_code == 0
+    assert "echo" in res.output
 
 
 def test_cli_docker_sandbox_dry_run(tmp_path: Path) -> None:
