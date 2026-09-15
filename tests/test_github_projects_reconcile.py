@@ -122,9 +122,7 @@ def test_reconcile_project_custom_fields_live() -> None:
 
     with (
         patch("devops_cli.github.projects._get_authenticated_user", return_value="owner"),
-        patch(
-            "devops_cli.github.projects.run_subprocess", side_effect=mock_run_subprocess
-        ) as mock_cmd,
+        patch("devops_cli.github.projects.run_gh", side_effect=mock_run_subprocess) as mock_cmd,
     ):
         res = reconcile_project_custom_fields(
             owner="owner",
