@@ -990,6 +990,7 @@ Mark a draft pull request as ready for review and optionally begin monitoring.
 |---|---|---|---|---|
 | `pr_number` | `integer` | Yes | - | - |
 | `monitor` | `boolean` | No | `False` | - |
+| `force` | `boolean` | No | `False` | - |
 | `repo` | `string` | No | - | - |
 
 ### `pr_thread_reply`

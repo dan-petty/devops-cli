@@ -185,6 +185,7 @@ devops pr ready [OPTIONS] <number>
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--monitor`, `-m` | `boolean` | - | Automatically transition to monitoring checks and reviews after marking ready. |
+| `--force`, `-f` | `boolean` | - | Bypass failing check verification and force ready status |
 
 ---
 
