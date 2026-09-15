@@ -77,7 +77,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
-                "devops_cli.github.rate_limiter.run_gh",
+                "devops_cli.commands.pr.run_subprocess",
                 return_value=MagicMock(returncode=0, stdout="Checks passed", stderr=""),
             ) as mock_run,
         ):

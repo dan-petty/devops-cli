@@ -186,9 +186,12 @@ def test_rate_limiter_mandatory_pause_when_quota_exhausted() -> None:
         assert actual_slept == pytest.approx(20.0, abs=0.5)
 
 
-def test_rate_limiter_acquire_no_pause_when_delay_zero() -> None:
+def test_rate_limiter_acquire_no_pause_when_delay_zero(tmp_path: Path) -> None:
     """Verify acquire does not pause when delay is 0.0."""
-    limiter = GitHubRateLimiter()
+    cache_file = tmp_path / "gh_quota.json"
+    limiter = GitHubRateLimiter(persist_path=cache_file)
+    now = time.time()
+    limiter.update_quota("core", remaining=5000, limit=5000, reset_epoch=now + 3600.0)
     with patch("time.sleep") as mock_sleep:
         delay = limiter.acquire("core")
         assert delay == 0.0

@@ -269,11 +269,10 @@ def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
     if not target or "/" not in target:
         return False
     owner, repo_name = target.split("/", 1)
-    from devops_cli.github.rate_limiter import run_gh
     from devops_cli.security.sanitizer import mask_secrets
 
-    res = run_gh(
-        ["api", f"repos/{owner}/{repo_name}/commits/{sha}/check-runs"],
+    res = run_subprocess(
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{sha}/check-runs"],
         check=False,
         quiet=True,
     )
@@ -354,13 +353,12 @@ def pr_checks(
 ) -> None:
     """Check remote CI quality gate status on a pull request."""
     _require_gh_cli()
-    from devops_cli.github.rate_limiter import run_gh
     from devops_cli.security.sanitizer import mask_secrets
 
-    args = ["pr", "checks", str(number)]
+    cmd = [CONST_GH_CLI, "pr", "checks", str(number)]
     if repo:
-        args.extend(["--repo", repo])
-    res = run_gh(args, check=False)
+        cmd.extend(["--repo", repo])
+    res = run_subprocess(cmd, check=False)
     if res.stdout:
         typer.echo(mask_secrets(res.stdout.rstrip()))
     if res.returncode != 0:
