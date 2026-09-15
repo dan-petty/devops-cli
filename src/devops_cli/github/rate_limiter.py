@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -23,10 +24,11 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
+    DEFAULT_GH_BURST_MULTIPLIER,
     DEFAULT_GH_CACHE_TTL_SECONDS,
-    DEFAULT_GH_EXPONENTIAL_DIVISOR,
     DEFAULT_GH_GRAPHQL_COST_FACTOR,
     DEFAULT_GH_MIN_INTERVAL_SECONDS,
+    DEFAULT_GH_SHAPING_K,
 )
 from devops_cli.core.process import run_subprocess
 
@@ -47,6 +49,7 @@ class QuotaState:
     remaining: int = 5000
     used: int = 0
     reset_epoch: float = 0.0
+    window_seconds: float = 0.0
     last_updated: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
@@ -56,6 +59,7 @@ class QuotaState:
             "remaining": self.remaining,
             "used": self.used,
             "reset_epoch": self.reset_epoch,
+            "window_seconds": self.window_seconds,
             "last_updated": self.last_updated,
         }
 
@@ -67,6 +71,7 @@ class QuotaState:
             remaining=int(data.get("remaining", 5000)),
             used=int(data.get("used", 0)),
             reset_epoch=float(data.get("reset_epoch", 0.0)),
+            window_seconds=float(data.get("window_seconds", 0.0)),
             last_updated=float(data.get("last_updated", 0.0)),
         )
 
@@ -112,50 +117,192 @@ def extract_json_payload(raw_stdout: str) -> Any:
         return {}
 
 
+class GitHubAdaptiveLimiter:
+    """Dynamic rate limiter with exponential decay based on actual time remaining until reset.
+
+    Implements adaptive velocity scaling with dynamic time windows, calculating natural
+    and burst baselines from live GitHub response headers (remaining tokens and seconds_until_reset).
+    """
+
+    def __init__(
+        self,
+        initial_quota: int = 5000,
+        quota: int | None = None,
+        window_seconds: float | None = None,
+        burst_multiplier: float = DEFAULT_GH_BURST_MULTIPLIER,
+        k: float | None = None,
+        reset_epoch: float | None = None,
+    ) -> None:
+        # Fallback values until first live update
+        actual_quota = quota if quota is not None else initial_quota
+        self.quota = max(1, actual_quota)
+        self.remaining = self.quota
+        self.burst_multiplier = max(0.1, burst_multiplier)
+
+        now = time.time()
+        if reset_epoch is not None and reset_epoch > now:
+            self.seconds_until_reset = max(1.0, float(reset_epoch - now))
+        elif window_seconds is not None and window_seconds > 0:
+            self.seconds_until_reset = max(1.0, window_seconds)
+        else:
+            self.seconds_until_reset = 60.0 if self.quota <= 100 else 3600.0
+
+        self.k = k if k is not None else (DEFAULT_GH_SHAPING_K * (self.quota / 5000.0))
+        self.lock = asyncio.Lock()
+        self._live_window_updated = False
+
+    def update_window_state(self, remaining: int, limit: int, epoch_reset: float | int) -> None:
+        """Call this using headers parsed from your HTTP responses or gh api."""
+        self.quota = max(1, limit)
+        self.remaining = max(0, remaining)
+        self.seconds_until_reset = max(1.0, float(epoch_reset - time.time()))
+        self.k = DEFAULT_GH_SHAPING_K * (self.quota / 5000.0)
+        self._live_window_updated = True
+
+    @property
+    def window_seconds(self) -> float:
+        return self.seconds_until_reset
+
+    @window_seconds.setter
+    def window_seconds(self, val: float) -> None:
+        self.seconds_until_reset = max(1.0, val)
+
+    @property
+    def natural_rate(self) -> float:
+        return self.quota / self.seconds_until_reset
+
+    @property
+    def initial_burst_rate(self) -> float:
+        return self.burst_multiplier * self.natural_rate
+
+    @property
+    def requests_consumed(self) -> int:
+        return max(0, self.quota - self.remaining)
+
+    @requests_consumed.setter
+    def requests_consumed(self, val: int) -> None:
+        self.remaining = max(0, self.quota - val)
+
+    def get_allowed_rate(self) -> float:
+        """Calculate context-aware natural and burst baselines based on actual time remaining."""
+        if self.remaining <= 0:
+            return 0.0
+
+        if self._live_window_updated:
+            natural_rate = self.remaining / self.seconds_until_reset
+        else:
+            natural_rate = self.quota / self.seconds_until_reset
+        initial_burst_rate = self.burst_multiplier * natural_rate
+
+        # Express consumption as distance from absolute threshold zero
+        consumed_tokens = self.quota - self.remaining
+        total_quota = self.quota
+
+        if consumed_tokens >= total_quota:
+            return 0.0
+
+        effective_k = (
+            self.k if self.k is not None else (DEFAULT_GH_SHAPING_K * (total_quota / 5000.0))
+        )
+        exponent = -effective_k * ((1.0 / (total_quota - consumed_tokens)) - (1.0 / total_quota))
+        if exponent < -700.0:
+            return 0.0
+        return initial_burst_rate * math.exp(exponent)
+
+    async def acquire(self) -> float:
+        """Blocks until a request is permitted based on the dynamic throttle."""
+        async with self.lock:
+            current_rate = self.get_allowed_rate()
+
+            # Reciprocal conversion into specific inter-request delay
+            delay = 1.0 / current_rate
+            if delay > 10.0:
+                logger.warning("[Adaptive] Brake engaged. Tight throttling. Delaying %.2fs", delay)
+
+            await asyncio.sleep(delay)
+            self.remaining = max(0, self.remaining - 1)
+            return delay
+
+    def acquire_sync(self) -> float:
+        """Blocks synchronously until a request is permitted based on the dynamic throttle."""
+        current_rate = self.get_allowed_rate()
+        delay = 1.0 / current_rate
+        if delay > 10.0:
+            logger.warning("[Adaptive] Brake engaged. Tight throttling. Delaying %.2fs", delay)
+        time.sleep(delay)
+        self.remaining = max(0, self.remaining - 1)
+        return delay
+
+
+AdaptiveRateLimiter = GitHubAdaptiveLimiter
+
+
+def calculate_allowed_rate(
+    used: int,
+    remaining: int,
+    limit: int,
+    time_left: float | None = None,
+    burst_multiplier: float = DEFAULT_GH_BURST_MULTIPLIER,
+    k: float | None = None,
+    window_seconds: float | None = None,
+) -> float:
+    """Calculate allowed requests per second using GitHubAdaptiveLimiter."""
+    effective_window = time_left if (time_left and time_left > 0) else window_seconds
+    limiter = GitHubAdaptiveLimiter(
+        initial_quota=limit,
+        window_seconds=effective_window,
+        burst_multiplier=burst_multiplier,
+        k=k,
+    )
+    limiter.remaining = remaining
+    if time_left is not None and time_left > 0:
+        limiter._live_window_updated = True
+    return limiter.get_allowed_rate()
+
+
 def calculate_exponential_backoff(
     used: int,
     remaining: int,
     limit: int,
-    min_interval: float = DEFAULT_GH_MIN_INTERVAL_SECONDS,
+    time_left: float | None = None,
+    min_interval: float = 0.0,
     max_delay: float = 60.0,
-    divisor: float = DEFAULT_GH_EXPONENTIAL_DIVISOR,
+    burst_multiplier: float = DEFAULT_GH_BURST_MULTIPLIER,
+    k: float | None = None,
+    window_seconds: float | None = None,
 ) -> float:
-    """Calculate exponential backoff delay based on percentage of quota used vs available.
-
-    Smoothly scales request pacing delay exponentially as the percentage of consumed quota
-    rises relative to available quota, eliminating fixed numeric threshold steps.
-
-    Args:
-        used: Amount of quota consumed in current window.
-        remaining: Amount of quota currently remaining (available).
-        limit: Total quota limit for the window.
-        min_interval: Baseline inter-request delay.
-        max_delay: Maximum delay cap in seconds.
-        divisor: Scaling divisor controlling exponential backoff steepness.
-
-    Returns:
-        Calculated delay in seconds between min_interval and max_delay.
-    """
+    """Calculate inter-request delay in seconds from the reciprocal of allowed request rate."""
     clean_limit = max(1, limit)
-    clean_used = max(0, used)
     clean_rem = max(0, remaining)
-    pct_used = min(1.0, clean_used / clean_limit)
-    pct_avail = min(1.0, clean_rem / clean_limit)
-    if pct_avail <= 0.0:
+    clean_used = max(0, used)
+
+    if clean_rem <= 0 or clean_used >= clean_limit:
         return max_delay
-    used_vs_available = pct_used / max(0.001, pct_avail)
-    delay = min_interval * math.pow(2.0, used_vs_available / divisor)
-    return min(max_delay, max(min_interval, delay))
+
+    rate = calculate_allowed_rate(
+        used=clean_used,
+        remaining=clean_rem,
+        limit=clean_limit,
+        time_left=time_left,
+        burst_multiplier=burst_multiplier,
+        k=k,
+        window_seconds=window_seconds,
+    )
+    if rate <= 0.001:
+        return max_delay
+    return min(max_delay, max(min_interval, 1.0 / rate))
 
 
 def _calculate_budget_delay(
     remaining: int,
     limit: int,
     reset_epoch: float,
-    min_interval: float,
+    min_interval: float = 0.0,
     resource: str = "core",
+    burst_multiplier: float = DEFAULT_GH_BURST_MULTIPLIER,
+    window_seconds: float | None = None,
 ) -> float:
-    """Calculate pacing delay based on window time budget and exponential quota backoff."""
+    """Calculate pacing delay based on actual GitHub rate limit response values."""
     now = time.time()
     time_left = max(1.0, reset_epoch - now) if reset_epoch > now else 0.0
 
@@ -168,7 +315,10 @@ def _calculate_budget_delay(
         used=used,
         remaining=remaining,
         limit=clean_limit,
+        time_left=time_left if time_left > 0 else None,
         min_interval=min_interval,
+        burst_multiplier=burst_multiplier,
+        window_seconds=window_seconds,
     )
 
     cost_factor = DEFAULT_GH_GRAPHQL_COST_FACTOR if resource == "graphql" else 1.0
@@ -176,20 +326,57 @@ def _calculate_budget_delay(
         budget_delay = (time_left / max(1, remaining)) * cost_factor
         return min(60.0, max(min_interval, exponential_delay, budget_delay))
 
-    return exponential_delay
+    return min(60.0, max(min_interval, exponential_delay))
+
+
+def _is_graphql_command(clean_args: list[str]) -> bool:
+    """Predicate checking if command targets GraphQL."""
+    return clean_args[0] == "project" or any("graphql" in arg for arg in clean_args)
+
+
+def _is_code_search_command(clean_args: list[str]) -> bool:
+    """Predicate checking if command targets code search."""
+    if len(clean_args) >= 2 and clean_args[0] == "search" and clean_args[1] == "code":
+        return True
+    return any("search/code" in arg for arg in clean_args)
+
+
+def _is_code_scanning_autofix_command(clean_args: list[str]) -> bool:
+    """Predicate checking if command targets code scanning autofix."""
+    return any(
+        ("code-scanning" in arg or "code_scanning" in arg) and "autofix" in arg
+        for arg in clean_args
+    )
+
+
+def _is_general_search_command(clean_args: list[str]) -> bool:
+    """Predicate checking if command targets general search."""
+    return clean_args[0] == "search" or any("search/" in arg for arg in clean_args)
 
 
 def _detect_resource(args: list[str]) -> str:
-    """Determine whether the GitHub command targets GraphQL or Core REST API."""
+    """Determine the GitHub API rate limit resource type for a command.
+
+    Maps CLI subcommands and API endpoints to their rate-limiting resource category:
+    'graphql', 'search', 'code_search', 'code_scanning_autofix', 'dependency_sbom', or 'core'.
+    """
     if not args:
         return "core"
     clean_args = [a.lower() for a in args if a not in (CONST_GH_CLI, "gh")]
     if not clean_args:
         return "core"
-    if clean_args[0] == "project":
+
+    if _is_graphql_command(clean_args):
         return "graphql"
-    if any(arg == "graphql" or "graphql" in arg for arg in clean_args):
-        return "graphql"
+    if _is_code_search_command(clean_args):
+        return "code_search"
+    if _is_code_scanning_autofix_command(clean_args):
+        return "code_scanning_autofix"
+    if _is_general_search_command(clean_args):
+        return "search"
+    if any("dependency-graph/sbom" in arg for arg in clean_args):
+        return "dependency_sbom"
+
     return "core"
 
 
@@ -299,26 +486,45 @@ def _parse_float_safe(value: str, default: float = 0.0) -> float:
         return default
 
 
+def _apply_header_metric(k: str, v: str, metrics: dict[str, Any]) -> None:
+    """Parse and record an individual rate limit header key-value pair."""
+    val = v.strip()
+    if k == "x-ratelimit-remaining":
+        metrics["remaining"] = _parse_int_safe(val)
+        return
+    if k == "x-ratelimit-limit":
+        metrics["limit"] = _parse_int_safe(val, default=0) or 0
+        return
+    if k == "x-ratelimit-reset":
+        metrics["reset_epoch"] = _parse_float_safe(val)
+        return
+    if k == "x-ratelimit-resource" and val:
+        metrics["resource"] = val.lower()
+        return
+    if k == "x-ratelimit-used":
+        metrics["used"] = _parse_int_safe(val)
+        return
+
+
 def _extract_header_ratelimit(output: str, resource: str, limiter: GitHubRateLimiter) -> None:
-    """Extract x-ratelimit headers from response output."""
-    rem: int | None = None
-    lim: int = 5000
-    reset_ep: float = 0.0
+    """Extract x-ratelimit headers from response output using actual GitHub response values."""
+    metrics: dict[str, Any] = {"limit": 0, "reset_epoch": 0.0, "resource": resource}
     for line in output.splitlines():
-        if ":" not in line:
-            continue
-        k, v = line.split(":", 1)
-        k_clean = k.strip().lower()
-        if k_clean == "x-ratelimit-remaining":
-            rem = _parse_int_safe(v)
-        elif k_clean == "x-ratelimit-limit":
-            parsed_lim = _parse_int_safe(v, default=5000)
-            if parsed_lim is not None:
-                lim = parsed_lim
-        elif k_clean == "x-ratelimit-reset":
-            reset_ep = _parse_float_safe(v)
-    if rem is not None:
-        limiter.update_quota(resource, remaining=rem, limit=lim, reset_epoch=reset_ep)
+        if ":" in line:
+            k, v = line.split(":", 1)
+            _apply_header_metric(k.strip().lower(), v, metrics)
+
+    if metrics.get("remaining") is not None:
+        rem_val = metrics["remaining"]
+        used_val = metrics.get("used", 0) or 0
+        lim_val = metrics["limit"] if metrics["limit"] > 0 else (rem_val + used_val)
+        limiter.update_quota(
+            metrics["resource"],
+            remaining=rem_val,
+            limit=max(1, lim_val),
+            reset_epoch=metrics["reset_epoch"],
+            used=metrics.get("used"),
+        )
 
 
 def _parse_rate_limit_from_output(output: str, resource: str, limiter: GitHubRateLimiter) -> None:
@@ -331,6 +537,27 @@ def _parse_rate_limit_from_output(output: str, resource: str, limiter: GitHubRat
         _extract_header_ratelimit(output, resource, limiter)
 
 
+def _derive_window_seconds(
+    state: QuotaState,
+    reset_epoch: float,
+    now: float,
+    window_seconds: float | None = None,
+) -> float:
+    """Derive window duration dynamically from consecutive resets, response, or explicit param."""
+    if reset_epoch > 0.0:
+        time_left = max(1.0, reset_epoch - now)
+        if state.reset_epoch > 0.0 and reset_epoch > state.reset_epoch:
+            return reset_epoch - state.reset_epoch
+        if window_seconds is not None and window_seconds > 0.0:
+            return window_seconds
+        if state.window_seconds <= 0.0:
+            return time_left
+        return state.window_seconds
+    if window_seconds is not None and window_seconds > 0.0:
+        return window_seconds
+    return state.window_seconds
+
+
 class GitHubRateLimiter:
     """Client-side rate limiter, inter-request pacer, backoff calculator, and cache for GitHub operations."""
 
@@ -338,16 +565,19 @@ class GitHubRateLimiter:
         self,
         min_interval: float = DEFAULT_GH_MIN_INTERVAL_SECONDS,
         persist_path: Path | None = None,
+        burst_multiplier: float = DEFAULT_GH_BURST_MULTIPLIER,
     ) -> None:
         self.min_interval = min_interval
         self.persist_path = persist_path
+        self.burst_multiplier = burst_multiplier
         self._last_request_time: float = 0.0
         self._lock = threading.Lock()
         self._cache: dict[str, _CacheEntry] = {}
         disk_quotas = _load_disk_quota(persist_path) if persist_path else {}
         self._quotas: dict[str, QuotaState] = {
-            "core": disk_quotas.get("core", QuotaState()),
-            "graphql": disk_quotas.get("graphql", QuotaState()),
+            "core": QuotaState(),
+            "graphql": QuotaState(),
+            **disk_quotas,
         }
 
     def update_quota(
@@ -357,16 +587,20 @@ class GitHubRateLimiter:
         remaining: int,
         limit: int = 5000,
         reset_epoch: float = 0.0,
+        used: int | None = None,
+        window_seconds: float | None = None,
     ) -> None:
-        """Update tracked quota status for a resource (e.g. 'graphql', 'core')."""
+        """Update tracked quota status for a resource using actual response values."""
+        now = time.time()
         with self._lock:
             state = self._quotas.setdefault(resource, QuotaState())
             state.remaining = remaining
             state.limit = limit
-            state.used = max(0, limit - remaining)
-            if reset_epoch > 0:
+            state.used = used if used is not None else max(0, limit - remaining)
+            state.window_seconds = _derive_window_seconds(state, reset_epoch, now, window_seconds)
+            if reset_epoch > 0.0:
                 state.reset_epoch = reset_epoch
-            state.last_updated = time.time()
+            state.last_updated = now
             if self.persist_path:
                 _save_disk_quota(self._quotas, self.persist_path)
 
@@ -432,8 +666,13 @@ class GitHubRateLimiter:
             state = self._quotas.get(resource)
             if state is None or state.last_updated == 0.0:
                 return self.min_interval
+            now = time.time()
+            if state.reset_epoch > 0 and now >= state.reset_epoch:
+                state.remaining = state.limit
+                state.used = 0
+                if state.window_seconds > 0:
+                    state.reset_epoch = now + state.window_seconds
             if state.remaining <= 0:
-                now = time.time()
                 if state.reset_epoch > now:
                     return min(60.0, max(5.0, state.reset_epoch - now))
                 return 5.0
@@ -443,6 +682,8 @@ class GitHubRateLimiter:
                 reset_epoch=state.reset_epoch,
                 min_interval=self.min_interval,
                 resource=resource,
+                burst_multiplier=self.burst_multiplier,
+                window_seconds=state.window_seconds if state.window_seconds > 0 else None,
             )
 
     def acquire(self, resource: str = "core") -> float:
@@ -534,9 +775,15 @@ def get_github_rate_limiter() -> GitHubRateLimiter:
                 )
             except ValueError:
                 interval = DEFAULT_GH_MIN_INTERVAL_SECONDS
+            raw_burst = os.environ.get("DEVOPS_GH_BURST_MULTIPLIER", "")
+            try:
+                burst = float(raw_burst) if raw_burst.strip() else DEFAULT_GH_BURST_MULTIPLIER
+            except ValueError:
+                burst = DEFAULT_GH_BURST_MULTIPLIER
             _GLOBAL_RATE_LIMITER = GitHubRateLimiter(
                 min_interval=interval,
                 persist_path=resolve_quota_cache_path(),
+                burst_multiplier=burst,
             )
         return _GLOBAL_RATE_LIMITER
 
@@ -702,6 +949,7 @@ def run_gh(
     cache_ttl: float = DEFAULT_GH_CACHE_TTL_SECONDS,
     timeout: float = 30.0,
     max_retries: int = 2,
+    resource: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Execute a GitHub CLI command via centralized rate limiting, pacing, backoff, and caching.
 
@@ -715,26 +963,26 @@ def run_gh(
         return cached
 
     full_cmd = [CONST_GH_CLI, *clean_args]
-    resource = _detect_resource(clean_args)
+    target_resource = resource or _detect_resource(clean_args)
     cache_key = _build_cache_key(clean_args, input)
     last_res: subprocess.CompletedProcess[str] | None = None
     is_check = _is_rate_limit_check(clean_args)
 
     for attempts in range(max_retries + 1):
         if not is_check:
-            limiter.acquire(resource=resource)
+            limiter.acquire(resource=target_resource)
         proc = run_subprocess(
             full_cmd, input=input, cwd=cwd, check=False, quiet=quiet, timeout=timeout
         )
         last_res = proc
-        _post_process_run(proc, resource, limiter, is_rate_limit_check=is_check)
+        _post_process_run(proc, target_resource, limiter, is_rate_limit_check=is_check)
 
         if proc.returncode == 0:
             if _should_cache(clean_args, use_cache) and proc.stdout:
                 limiter.set_cached(cache_key, proc.stdout, ttl=cache_ttl)
             return proc
 
-        if not _handle_rate_limit_retry(proc, attempts, max_retries, resource, limiter):
+        if not _handle_rate_limit_retry(proc, attempts, max_retries, target_resource, limiter):
             break
 
     return _finalize_process_result(last_res, full_cmd, check)

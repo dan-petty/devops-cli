@@ -18,14 +18,15 @@ The GitHub GraphQL rate limiter previously permitted rapid quota exhaustion (bur
 4. Window-blind pacing delays that defaulted to 0.5s when quota was >50%.
 
 ### Key Deliverables:
-1. **Logical Exponential Backoff & Window-Budget Pacing ([`rate_limiter.py`](file:///workspaces/devops-cli/src/devops_cli/github/rate_limiter.py))**:
-   - Eliminated arbitrary fixed numeric thresholds and ratio cutoff steps (`low_threshold`, `critical_threshold`, `is_quota_low`, `is_quota_critical`).
-   - Continuous exponential backoff based on percentage of quota used vs available:
-     $$\rho = \frac{\text{pct\_used}}{\max(0.001, \text{pct\_available})} = \frac{\text{used}}{\max(1, \text{remaining})}$$
-     $$\text{delay} = \min\left(60.0,\; \max\left(\text{min\_interval},\; \text{min\_interval} \times 2^{\frac{\rho}{\text{divisor}}}\right)\right)$$
-   - Smooth scaling across all resource limits (from 10 to 15,000) from 0% used ($0.50\text{s}$) to 95% used ($21.5\text{s}$) to 99% used ($60.0\text{s}$).
-   - Calculate window-budget pacing dynamically: $\text{delay} = \max\left(\text{min\_interval},\; \frac{\text{reset\_epoch} - \text{now}}{\text{remaining}} \times \text{cost\_factor}\right)$.
-   - Pacing exemption for rate limit inspections (`_is_rate_limit_check`), preventing `devops gh rate-limit` hangs.
+1. **Canonical Adaptive Limiter & Dynamic Window Budget Pacing ([`rate_limiter.py`](file:///workspaces/devops-cli/src/devops_cli/github/rate_limiter.py))**:
+   - Consolidated single source of truth in `GitHubAdaptiveLimiter` implementing exponential velocity shaping:
+     $$R(x) = R_0 \cdot \exp\left(-k \cdot \left(\frac{1}{Q - x} - \frac{1}{Q}\right)\right)$$
+     where $R_0 = \text{burst\_multiplier} \times \frac{Q}{\Delta T}$ is the initial burst velocity, and $k = 1500.0$ shapes the decay curve as remaining tokens $Q - x \to 0$.
+   - **Zero Hardcoded Rate-Limit Windows**: Removed all hardcoded window constants (`DEFAULT_GH_WINDOW_SECONDS`). Rate limit windows and remaining seconds derive strictly from live GitHub response headers (`x-ratelimit-reset`, `x-ratelimit-remaining`, `x-ratelimit-limit`) or GraphQL rate limit payloads.
+   - **Dynamic Window Duration Learning**: `_derive_window_seconds()` dynamically learns resource window durations from the difference between consecutive reset epochs ($\Delta T = \text{reset\_epoch}_{new} - \text{reset\_epoch}_{old}$) without fixed mappings.
+   - **Small-Quota Detection**: Non-standard or 60-second quotas (such as `code_scanning_autofix`, `search`, and `code_search` with limits $\le 100$) default initial window duration to 60.0s rather than 3600.0s until live responses arrive.
+   - **Eliminated Fixed Numeric Thresholds**: Removed arbitrary cutoff steps (`low_threshold`, `critical_threshold`). Pacing smoothly glides to 0 rps as tokens deplete.
+   - Pacing exemption for rate limit inspections (`_is_rate_limit_check`), preventing `devops gh rate-limit` deadlocks.
 2. **Cross-Process Quota Persistence ([`.data/cache/gh_quota.json`](file:///workspaces/devops-cli/.data/cache/gh_quota.json))**:
    - Persist rate limit metrics to disk and load on startup across independent CLI processes.
    - Pessimistic decrements for headerless GraphQL commands via `decrement_quota_estimate()`.

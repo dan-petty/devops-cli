@@ -35,35 +35,99 @@ def test_rate_limiter_pacing() -> None:
     assert elapsed >= 0.045, f"Expected pacing delay >= 0.045s, got {elapsed}s"
 
 
+def test_calculate_allowed_rate() -> None:
+    """Verify allowed rate decays smoothly from initial burst rate to 0 as tokens approach 0."""
+    from devops_cli.github.rate_limiter import calculate_allowed_rate
+
+    # 5000 quota with 3600s left: natural rate 1.39 rps, burst rate 2.78 rps
+    r_0 = calculate_allowed_rate(used=0, remaining=5000, limit=5000, time_left=3600.0)
+    assert 2.77 < r_0 < 2.78
+
+    # 50% consumed (2500 rem, 1800s left) -> ~2.06 rps
+    r_50 = calculate_allowed_rate(used=2500, remaining=2500, limit=5000, time_left=1800.0)
+    assert 2.05 < r_50 < 2.07
+
+    # Search: 30 limit, 60s window -> natural rate 0.5 rps, burst rate 1.0 rps
+    r_search = calculate_allowed_rate(used=0, remaining=30, limit=30, time_left=60.0)
+    assert r_search == 1.0
+
+    # Code search: 10 limit, 60s window -> natural rate 0.167 rps, burst rate 0.333 rps
+    r_code_search = calculate_allowed_rate(used=0, remaining=10, limit=10, time_left=60.0)
+    assert 0.33 < r_code_search < 0.34
+
+    # 98% consumed -> rate drops to near zero
+    r_98 = calculate_allowed_rate(used=4900, remaining=100, limit=5000, time_left=3000.0)
+    assert r_98 < 0.001
+
+    # 0 remaining -> exactly 0.0 rps
+    assert calculate_allowed_rate(used=5000, remaining=0, limit=5000, time_left=600.0) == 0.0
+
+
 def test_calculate_exponential_backoff() -> None:
-    """Verify exponential backoff smoothly scales with percentage of quota used vs available."""
+    """Verify inter-request delay is reciprocal of allowed rate and caps at max_delay."""
     from devops_cli.github.rate_limiter import calculate_exponential_backoff
 
-    # 0% used -> min_interval
-    assert calculate_exponential_backoff(used=0, remaining=5000, limit=5000) == 0.5
+    # 0% used (5000 rem, 3600s left) -> reciprocal of 2.778 rps (~0.360s)
+    d_0 = calculate_exponential_backoff(used=0, remaining=5000, limit=5000, time_left=3600.0)
+    assert 0.35 < d_0 < 0.37
 
-    # 50% used (ratio 1.0) -> slight increase (~0.61s)
-    d_50 = calculate_exponential_backoff(used=2500, remaining=2500, limit=5000)
-    assert 0.55 < d_50 < 0.75
+    # When min_interval floor is provided, respected
+    assert (
+        calculate_exponential_backoff(
+            used=0, remaining=5000, limit=5000, time_left=3600.0, min_interval=0.5
+        )
+        == 0.5
+    )
 
-    # 85% used (ratio ~5.67) -> moderate increase (~1.5s to 3.5s)
-    d_85 = calculate_exponential_backoff(used=4250, remaining=750, limit=5000)
-    assert 1.5 < d_85 < 4.0
+    # 50% used (2500 rem, 1800s left) -> reciprocal of ~2.058 rps (~0.486s)
+    d_50 = calculate_exponential_backoff(used=2500, remaining=2500, limit=5000, time_left=1800.0)
+    assert 0.48 < d_50 < 0.50
 
-    # 95% used (ratio 19.0) -> high backoff (~15s to 35s)
-    d_95 = calculate_exponential_backoff(used=4750, remaining=250, limit=5000)
-    assert 15.0 < d_95 < 35.0
+    # Search: 30 rem, 60s left -> reciprocal of 1.0 rps = 1.0s
+    d_search = calculate_exponential_backoff(used=0, remaining=30, limit=30, time_left=60.0)
+    assert d_search == 1.0
 
     # 99% used -> capped at max_delay (60.0s)
-    d_99 = calculate_exponential_backoff(used=4950, remaining=50, limit=5000)
+    d_99 = calculate_exponential_backoff(used=4950, remaining=50, limit=5000, time_left=1000.0)
     assert d_99 == 60.0
 
     # 0 remaining -> max_delay (60.0s)
     assert calculate_exponential_backoff(used=5000, remaining=0, limit=5000) == 60.0
 
-    # Scales proportionally on small limit resources (e.g. search limit 30)
-    d_search_50 = calculate_exponential_backoff(used=15, remaining=15, limit=30)
-    assert 0.55 < d_search_50 < 0.75
+
+async def test_adaptive_rate_limiter_class() -> None:
+    """Verify AdaptiveRateLimiter reference implementation behavior."""
+    from devops_cli.github.rate_limiter import AdaptiveRateLimiter
+
+    limiter = AdaptiveRateLimiter(quota=5000, window_seconds=3600.0, burst_multiplier=2.0)
+    assert limiter.natural_rate == pytest.approx(1.38888, rel=1e-3)
+    assert limiter.initial_burst_rate == pytest.approx(2.7777, rel=1e-3)
+
+    # Initial rate at 0 consumed is 2.78 rps
+    assert limiter.get_allowed_rate() == pytest.approx(2.7777, rel=1e-3)
+
+    # Halfway consumed (2500 tokens) -> ~2.058 rps
+    limiter.requests_consumed = 2500
+    assert limiter.get_allowed_rate() == pytest.approx(2.0579, rel=1e-3)
+
+    # 90% consumed (4500 tokens) -> ~0.187 rps
+    limiter.requests_consumed = 4500
+    assert limiter.get_allowed_rate() == pytest.approx(0.1867, rel=1e-3)
+
+    # Fully consumed -> 0.0 rps
+    limiter.requests_consumed = 5000
+    assert limiter.get_allowed_rate() == 0.0
+
+    # Acquire resets consumption and throttles appropriately
+    test_limiter = AdaptiveRateLimiter(quota=100, window_seconds=10.0, burst_multiplier=2.0)
+    delay = await test_limiter.acquire()
+    assert delay > 0.0
+    assert test_limiter.requests_consumed == 1
+
+    # Synchronous acquire
+    sync_delay = test_limiter.acquire_sync()
+    assert sync_delay > 0.0
+    assert test_limiter.requests_consumed == 2
 
 
 def test_rate_limiter_backoff_calculation() -> None:
@@ -335,3 +399,65 @@ def test_rate_limiter_decrement_quota_estimate(tmp_path: Path) -> None:
     q = limiter.get_quota("graphql")
     assert q.remaining == 95
     assert q.used == 4905
+
+
+def test_code_scanning_autofix_window_and_detection() -> None:
+    """Verify code_scanning_autofix is detected and uses actual 60s window, not 3600s."""
+    from devops_cli.github.rate_limiter import _detect_resource, calculate_allowed_rate
+
+    # Command detection
+    args = ["api", "repos/owner/repo/code-scanning/alerts/42/autofix"]
+    assert _detect_resource(args) == "code_scanning_autofix"
+
+    # Natural rate calculation with 60s window (10 limit, 10 rem)
+    # Must be ~0.167 rps, burst rate ~0.333 rps (not 0.0027 rps from 3600 window)
+    rate_60 = calculate_allowed_rate(used=0, remaining=10, limit=10, time_left=60.0)
+    assert 0.33 < rate_60 < 0.34
+
+    # Pacing in rate limiter does not cap out at 60s delay from 3600s fallback
+    limiter = GitHubRateLimiter(min_interval=0.5)
+    now = time.time()
+    limiter.update_quota("code_scanning_autofix", remaining=10, limit=10, reset_epoch=now + 60.0)
+    delay = limiter.calculate_adaptive_delay("code_scanning_autofix")
+    assert delay <= 6.5, f"Delay {delay}s should be within 60s window budget, not 3600s default"
+
+
+def test_github_adaptive_limiter_dynamic_time_windows() -> None:
+    """Verify GitHubAdaptiveLimiter dynamically adapts to any window value."""
+    from devops_cli.github.rate_limiter import GitHubAdaptiveLimiter
+
+    # Initializing small quota (<= 100) defaults to 60s window, never 3600s
+    limiter_small = GitHubAdaptiveLimiter(initial_quota=10)
+    assert limiter_small.seconds_until_reset == 60.0
+    assert limiter_small.quota == 10
+    assert limiter_small.natural_rate == pytest.approx(10 / 60.0)
+
+    # Initializing arbitrary window (e.g. 120s or 15s)
+    limiter_120 = GitHubAdaptiveLimiter(initial_quota=50, window_seconds=120.0)
+    assert limiter_120.seconds_until_reset == 120.0
+
+    # Live update with actual response epoch_reset
+    now = time.time()
+    limiter_small.update_window_state(remaining=8, limit=10, epoch_reset=now + 45.0)
+    assert limiter_small.remaining == 8
+    assert limiter_small.quota == 10
+    assert limiter_small.seconds_until_reset == pytest.approx(45.0, abs=1.0)
+    # Allowed rate uses 8 / 45s
+    rate = limiter_small.get_allowed_rate()
+    assert rate > 0.0
+
+
+def test_dynamic_window_learning_from_consecutive_resets() -> None:
+    """Verify rate limiter derives actual window duration from consecutive reset epochs."""
+    limiter = GitHubRateLimiter(min_interval=0.5)
+    now = time.time()
+
+    # First reset observed at T + 30s
+    limiter.update_quota("code_scanning_autofix", remaining=9, limit=10, reset_epoch=now + 30.0)
+
+    # Next cycle reset observed at T + 90s (60s window elapsed)
+    limiter.update_quota("code_scanning_autofix", remaining=10, limit=10, reset_epoch=now + 90.0)
+
+    state = limiter._quotas.get("code_scanning_autofix")
+    assert state is not None
+    assert state.window_seconds == pytest.approx(60.0, abs=0.1)

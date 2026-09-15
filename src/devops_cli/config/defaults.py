@@ -366,10 +366,9 @@ DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS: int = 50
 DEFAULT_TELEMETRY_TEST_NAME: str = "devops-cli.manual_test"
 
 # ── GitHub CLI & Rate Limiting Defaults ───────────────────────────────────────
-DEFAULT_GH_MIN_INTERVAL_SECONDS: float = 0.5  # Max 2 requests/sec to prevent secondary rate limits
-DEFAULT_GH_EXPONENTIAL_DIVISOR: float = (
-    3.5  # Divisor for exponential backoff based on ratio of quota used vs available
-)
+DEFAULT_GH_MIN_INTERVAL_SECONDS: float = 0.5  # Fallback minimum inter-request pacing interval
+DEFAULT_GH_BURST_MULTIPLIER: float = 2.0  # Multiplier on natural rate for initial burst allowance
+DEFAULT_GH_SHAPING_K: float = 1500.0  # Shaping constant for exponential decay glide profile
 DEFAULT_GH_CACHE_TTL_SECONDS: float = 15.0
 DEFAULT_GH_GRAPHQL_COST_FACTOR: float = 2.0
 DEFAULT_GH_QUOTA_CACHE_PATH: Path = DEFAULT_CACHE_DATA_DIR / CONST_GH_QUOTA_CACHE_FILENAME
