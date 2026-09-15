@@ -17,16 +17,13 @@ The GitHub GraphQL rate limiter previously permitted rapid quota exhaustion (bur
 3. Lack of rate limit response headers on `gh project item-edit`.
 4. Window-blind pacing delays that defaulted to 0.5s when quota was >50%.
 
-### Key Deliverables:
-1. **Canonical Adaptive Limiter & Dynamic Window Budget Pacing ([`rate_limiter.py`](file:///workspaces/devops-cli/src/devops_cli/github/rate_limiter.py))**:
-   - Consolidated single source of truth in `GitHubAdaptiveLimiter` implementing exponential velocity shaping:
-     $$R(x) = R_0 \cdot \exp\left(-k \cdot \left(\frac{1}{Q - x} - \frac{1}{Q}\right)\right)$$
-     where $R_0 = \text{burst\_multiplier} \times \frac{Q}{\Delta T}$ is the initial burst velocity, and $k = 1500.0$ shapes the decay curve as remaining tokens $Q - x \to 0$.
-   - **Zero Hardcoded Rate-Limit Windows**: Removed all hardcoded window constants (`DEFAULT_GH_WINDOW_SECONDS`). Rate limit windows and remaining seconds derive strictly from live GitHub response headers (`x-ratelimit-reset`, `x-ratelimit-remaining`, `x-ratelimit-limit`) or GraphQL rate limit payloads.
-   - **Dynamic Window Duration Learning**: `_derive_window_seconds()` dynamically learns resource window durations from the difference between consecutive reset epochs ($\Delta T = \text{reset\_epoch}_{new} - \text{reset\_epoch}_{old}$) without fixed mappings.
-   - **Small-Quota Detection**: Non-standard or 60-second quotas (such as `code_scanning_autofix`, `search`, and `code_search` with limits $\le 100$) default initial window duration to 60.0s rather than 3600.0s until live responses arrive.
-   - **Eliminated Fixed Numeric Thresholds**: Removed arbitrary cutoff steps (`low_threshold`, `critical_threshold`). Pacing smoothly glides to 0 rps as tokens deplete.
-   - Pacing exemption for rate limit inspections (`_is_rate_limit_check`), preventing `devops gh rate-limit` deadlocks.
+#### Key Deliverables:
+1. **Canonical Limiter & Dynamic Window Budget Pacing ([`rate_limiter.py`](file:///workspaces/devops-cli/src/devops_cli/github/rate_limiter.py))**:
+   - Clean, robust window-budgeted rate pacing calculation: $\text{delay} = \frac{\Delta T_{\text{reset}}}{\text{remaining}}$.
+   - **No-Delay Threshold (`DEFAULT_GH_NO_DELAY_USED_PERCENT = 25.0`)**: Under 25% quota utilization, requests incur 0.0s delay for maximum velocity during routine workloads.
+   - **Quota Exhaustion Safety**: When remaining requests reach 0, delay scales to the full time until reset, preventing quota overshoot.
+   - **Zero Hardcoded Rate-Limit Windows**: Removed all hardcoded window constants. Windows and remaining durations derive dynamically from live GitHub response headers (`x-ratelimit-reset`, `x-ratelimit-remaining`, `x-ratelimit-limit`) and GraphQL rate limit payloads.
+   - **Preflight & Inspection Exemption**: Rate limit inspections (`_is_rate_limit_check`) are exempt from pacing delays to avoid self-deadlocks.
 2. **Cross-Process Quota Persistence ([`.data/cache/gh_quota.json`](file:///workspaces/devops-cli/.data/cache/gh_quota.json))**:
    - Persist rate limit metrics to disk and load on startup across independent CLI processes.
    - Pessimistic decrements for headerless GraphQL commands via `decrement_quota_estimate()`.
@@ -37,16 +34,14 @@ The GitHub GraphQL rate limiter previously permitted rapid quota exhaustion (bur
    - Extract and normalize fields case-insensitively with `_extract_item_fields()`.
    - Diff intended fields against current values via `_filter_differing_fields()`.
    - Skip field mutations when values already match, reducing steady-state mutations to 0.
-   - Eliminated hardcoded circuit breakers; sync operations are governed continuously by window budget pacing and exponential backoff.
-4. **No-REST Fallback**:
-   - Strictly honor GraphQL quotas and backoff in PR threads and monitor without REST fallbacks.
+4. **Mandatory Pre-Push Quality Gate**:
+   - Configured `.pre-commit-config.yaml` with `default_install_hook_types: [pre-commit, pre-push]`.
+   - Added `devops-ci-pre-push` hook running `uv run devops ci` automatically on `git push`.
+   - Hardened `AGENTS.md` instructions forbidding `git push` without prior local passing CI.
 5. **Dedicated Project Automation Workflow ([`.github/workflows/project-automation.yml`](file:///workspaces/devops-cli/.github/workflows/project-automation.yml))**:
    - Decoupled GitHub Projects v2 automation and card synchronization from the heavy CI quality gate.
-   - Deliberately excluded `ready_for_review` trigger from [`.github/workflows/ci.yml`](file:///workspaces/devops-cli/.github/workflows/ci.yml) so that converting a draft PR to ready for review does NOT re-trigger redundant test suites, coverage reports, and container builds.
-   - Project lifecycle events (`pull_request`, `issues`) run lightweight synchronization via `devops gh project sync` in under 10 seconds without running CI test or build matrices.
-6. **GraphQL Quota Circuit Breakers & Draft Status Mapping ([`projects.py`](file:///workspaces/devops-cli/src/devops_cli/github/projects.py))**:
-   - `_is_graphql_quota_exhausted()` protects the remaining quota when tokens drop below safety thresholds (<50 / <25), preventing project sync from exhausting depleted quotas.
-   - `infer_item_status()` maps draft PRs to `In Progress` and non-draft PRs to `In Review`.
+   - Excluded `ready_for_review` trigger from [`.github/workflows/ci.yml`](file:///workspaces/devops-cli/.github/workflows/ci.yml) to eliminate redundant test matrices.
+   - Project lifecycle events run lightweight synchronization via `devops gh project sync` in seconds.
 
 ---
 
@@ -56,5 +51,8 @@ The GitHub GraphQL rate limiter previously permitted rapid quota exhaustion (bur
 - [x] All 8 architectural invariant tests in `tests/test_architectural_invariants.py` pass.
 - [x] All 53 unit tests in `tests/test_github_rate_limiter.py` and `tests/test_github_projects.py` pass.
 - [x] All 13 unit tests in `tests/test_github_pr_threads.py` pass.
-- [x] `ruff check` and `ruff format --check` report 0 errors.
-- [x] Live rate limit verification confirms pacing active and quota preserved.
+- [x] All 76 tests in `tests/test_pr_cmd.py` pass.
+- [x] Pre-push hook automatically validates `devops ci` prior to `git push`.
+- [x] Full local CI (`uv run devops ci`) passes 10/10 quality gates.
+- [x] All remote GitHub Actions CI checks on PR #212 (`Validation`, `Analyze (python)`, `Analyze (actions)`, `CodeQL`) pass.
+- [x] PR #212 marked ready for review with 0 unresolved threads and 0 merge conflicts.
