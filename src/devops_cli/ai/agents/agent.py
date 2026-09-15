@@ -63,7 +63,11 @@ from devops_cli.ai.agents.tools import (
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.template import TemplateStr
 from devops_cli.ai.toolsets import extract_tools_from_toolset
-from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
+from devops_cli.config.defaults import (
+    DEFAULT_AGENT_MAX_TURNS,
+    DEFAULT_AGENT_NAME,
+    DEFAULT_AGENT_SYSTEM_PROMPT,
+)
 from devops_cli.exceptions import UnexpectedModelBehavior
 from devops_cli.models.ai import ChatMessage
 
@@ -166,7 +170,7 @@ class PydanticAgent[T, DepsT = Any]:
         else:
             agent_spec = spec
 
-        name = overrides.get("name", agent_spec.name or "Assistant")
+        name = overrides.get("name", agent_spec.name or DEFAULT_AGENT_NAME)
         model = overrides.get("model", agent_spec.model)
         if client is not None:
             agent_client = client
@@ -183,7 +187,7 @@ class PydanticAgent[T, DepsT = Any]:
         elif isinstance(inst, str):
             system_prompt = inst
         else:
-            system_prompt = "You are a helpful DevOps assistant."
+            system_prompt = DEFAULT_AGENT_SYSTEM_PROMPT
 
         if "system_prompt" in overrides:
             system_prompt = overrides["system_prompt"]
@@ -202,7 +206,7 @@ class PydanticAgent[T, DepsT = Any]:
         *,
         client: LLMClient | Any = None,
         instructions: str | list[str] | None = None,
-        name: str = "Assistant",
+        name: str = DEFAULT_AGENT_NAME,
         output_type: Any = None,
         output_schema: Any = None,
         tools: list[AgentTool | Callable[..., Any]] | None = None,
@@ -234,7 +238,7 @@ class PydanticAgent[T, DepsT = Any]:
         elif system_prompt is not None:
             raw_system_prompt = system_prompt
         else:
-            raw_system_prompt = "You are a helpful DevOps assistant."
+            raw_system_prompt = DEFAULT_AGENT_SYSTEM_PROMPT
 
         self.system_prompt: SystemPrompt = SystemPrompt(raw_system_prompt, agent=self)
 

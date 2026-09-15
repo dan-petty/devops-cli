@@ -199,7 +199,7 @@ class FileSystem(BaseCapability):
 
         entries: list[str] = []
         for item in sorted(safe_p.iterdir()):
-            if item.name.startswith("."):
+            if item.name.startswith(".") or item.is_symlink():
                 continue
             rel = str(item.relative_to(self.root))
             if self.denied_patterns and self._matches_pattern(rel, self.denied_patterns):
@@ -231,6 +231,14 @@ class FileSystem(BaseCapability):
 
         matches: list[str] = []
         for p in sorted(safe_p.rglob(pattern)):
+            if p.is_symlink():
+                continue
+            try:
+                resolved = p.resolve()
+                if not resolved.is_relative_to(self.root.resolve()):
+                    continue
+            except OSError:
+                continue
             if is_ignored_by_git(self.root, p):
                 continue
             rel = str(p.relative_to(self.root))
@@ -259,7 +267,15 @@ class FileSystem(BaseCapability):
 
         results: list[str] = []
         for p in sorted(safe_p.rglob(include_glob or "*")):
-            if not p.is_file() or is_ignored_by_git(self.root, p):
+            if not p.is_file() or p.is_symlink():
+                continue
+            try:
+                resolved = p.resolve()
+                if not resolved.is_relative_to(self.root.resolve()):
+                    continue
+            except OSError:
+                continue
+            if is_ignored_by_git(self.root, p):
                 continue
             rel = str(p.relative_to(self.root))
             if self.denied_patterns and self._matches_pattern(rel, self.denied_patterns):

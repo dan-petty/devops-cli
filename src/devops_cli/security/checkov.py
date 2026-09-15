@@ -93,7 +93,7 @@ def _run_native_fallback_iac_checks(target_path: Path) -> list[Finding]:
     target_files = [resolved] if resolved.is_file() else list(resolved.rglob("*"))
 
     for f in target_files:
-        if not f.is_file() or f.is_symlink() or is_ignored_by_git(repo_root, f):
+        if not f.is_file() or f.is_symlink() or (repo_root and is_ignored_by_git(repo_root, f)):
             continue
         if not f.resolve().is_relative_to(rel_root):
             continue

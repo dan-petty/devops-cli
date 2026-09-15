@@ -9,6 +9,7 @@ from typing import Annotated, Any
 import typer
 import yaml
 
+from devops_cli.config.defaults import DEFAULT_SANDBOX_NETWORK
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run.models import CommandDryRunResult
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
@@ -110,7 +111,9 @@ def deploy(
     memory: Annotated[str, typer.Option("--memory", "-m", help=HELP.sandbox.memory)] = "2g",
     cpus: Annotated[float, typer.Option("--cpus", "-c", help=HELP.sandbox.cpus)] = 2.0,
     read_only: Annotated[bool, typer.Option("--read-only", help=HELP.sandbox.read_only)] = True,
-    network: Annotated[str, typer.Option("--network", help=HELP.sandbox.network)] = "bridge",
+    network: Annotated[
+        str, typer.Option("--network", help=HELP.sandbox.network)
+    ] = DEFAULT_SANDBOX_NETWORK,
     network_mode: Annotated[
         str | None,
         typer.Option(

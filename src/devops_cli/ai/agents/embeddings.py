@@ -25,6 +25,13 @@ from pydantic_ai.embeddings.openai import OpenAIEmbeddingModel
 from pydantic_ai.usage import RequestUsage
 
 from devops_cli.ai.agents.spend import DEFAULT_MODEL_PRICING, ModelPricing
+from devops_cli.config.defaults import (
+    DEFAULT_EMBEDDING_CURRENCY,
+    DEFAULT_EMBEDDING_INPUT_TYPE,
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_EMBEDDING_MODEL_NAME,
+    DEFAULT_EMBEDDING_PROVIDER_NAME,
+)
 from devops_cli.config.settings import AIConfig
 
 
@@ -32,7 +39,7 @@ class EmbeddingCost(BaseModel):
     """Cost breakdown for an embedding generation request."""
 
     total_price: float = 0.0
-    currency: str = "USD"
+    currency: str = DEFAULT_EMBEDDING_CURRENCY
 
 
 class EngineEmbeddingModel(EmbeddingModel):
@@ -41,8 +48,8 @@ class EngineEmbeddingModel(EmbeddingModel):
     def __init__(
         self,
         engine: Any,
-        model_name: str = "default",
-        provider_name: str = "devops-cli",
+        model_name: str = DEFAULT_EMBEDDING_MODEL_NAME,
+        provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME,
     ) -> None:
         self._engine = engine
         self._model_name = model_name
@@ -102,10 +109,10 @@ class EmbeddingResult(PydanticEmbeddingResult):
         *,
         inputs: Sequence[str] | None = None,
         texts: Sequence[str] | None = None,
-        input_type: Literal["query", "document"] = "query",
+        input_type: Literal["query", "document"] = DEFAULT_EMBEDDING_INPUT_TYPE,
         model_name: str | None = None,
         model: str | None = None,
-        provider_name: str = "devops-cli",
+        provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME,
         timestamp: datetime | None = None,
         usage: RequestUsage | None = None,
         provider_details: dict[str, Any] | None = None,
@@ -176,7 +183,7 @@ class Embedder(PydanticEmbedder):
 
     def __init__(
         self,
-        model: EmbeddingModel | KnownEmbeddingModelName | str = "openai:text-embedding-3-small",
+        model: EmbeddingModel | KnownEmbeddingModelName | str = DEFAULT_EMBEDDING_MODEL,
         *,
         settings: EmbeddingSettings | None = None,
         dimensions: int | None = None,

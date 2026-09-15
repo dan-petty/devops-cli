@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_K8S_NAMESPACE,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.models.argo import RolloutAnalysisResult, RolloutMetricThreshold
@@ -15,7 +18,7 @@ if TYPE_CHECKING:
 
 def promote_rollout(
     name: str,
-    namespace: str = "default",
+    namespace: str = DEFAULT_K8S_NAMESPACE,
     full: bool = False,
     dry_run: bool = False,
 ) -> bool:
@@ -41,7 +44,7 @@ def promote_rollout(
 
 def abort_rollout(
     name: str,
-    namespace: str = "default",
+    namespace: str = DEFAULT_K8S_NAMESPACE,
     dry_run: bool = False,
 ) -> bool:
     """Abort an in-progress Argo Rollout and revert to stable revision."""
@@ -63,7 +66,7 @@ def abort_rollout(
 
 def restart_rollout(
     name: str,
-    namespace: str = "default",
+    namespace: str = DEFAULT_K8S_NAMESPACE,
     dry_run: bool = False,
 ) -> bool:
     """Restart an Argo Rollout across all pods."""
@@ -180,7 +183,7 @@ def _resolve_gate_action(
 
 def evaluate_rollout_gate(
     rollout_name: str,
-    namespace: str = "default",
+    namespace: str = DEFAULT_K8S_NAMESPACE,
     thresholds: list[RolloutMetricThreshold] | None = None,
     auto_abort: bool = True,
     dry_run: bool = False,

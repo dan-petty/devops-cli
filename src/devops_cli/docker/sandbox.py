@@ -17,7 +17,11 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_DOCKER_TIMEOUT_SECONDS,
+    DEFAULT_SANDBOX_CPUS,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
+    DEFAULT_SANDBOX_IMAGE,
+    DEFAULT_SANDBOX_MEMORY,
+    DEFAULT_SANDBOX_NETWORK,
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.docker import DockerSandboxError
@@ -105,14 +109,14 @@ class WorkloadSandboxConfig(BaseModel):
 
     workspace_dir: Path = Field(default_factory=lambda: Path(DEFAULT_CURRENT_PATH).resolve())
     command: list[str]
-    image: str = "python:3.14-slim"
+    image: str = DEFAULT_SANDBOX_IMAGE
     read_only: bool = True
-    memory_limit: str = "2g"
-    cpu_limit: float = 2.0
+    memory_limit: str = DEFAULT_SANDBOX_MEMORY
+    cpu_limit: float = DEFAULT_SANDBOX_CPUS
     network_config: SandboxNetworkConfig = Field(
-        default_factory=lambda: SandboxNetworkConfig(mode=SandboxNetworkMode.BRIDGE)
+        default_factory=lambda: SandboxNetworkConfig(mode=SandboxNetworkMode.ISOLATED)
     )
-    network_mode: str = "bridge"
+    network_mode: str = DEFAULT_SANDBOX_NETWORK
     rootless: bool = True
     timeout: float = 300.0
     env: dict[str, str] = Field(default_factory=dict)
@@ -147,9 +151,9 @@ class WorkloadSandboxConfig(BaseModel):
                 "none" if cfg.mode == SandboxNetworkMode.ISOLATED else cfg.mode.value
             )
         else:
-            cfg = SandboxNetworkConfig(mode=SandboxNetworkMode.BRIDGE)
+            cfg = SandboxNetworkConfig(mode=SandboxNetworkMode.ISOLATED)
             data["network_config"] = cfg
-            data["network_mode"] = "bridge"
+            data["network_mode"] = "none"
         return data
 
 

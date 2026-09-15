@@ -492,3 +492,62 @@ def test_repo_edge_cases(tmp_path: Path) -> None:
     # 5. is_safe_subpath with exception
     with patch.object(Path, "resolve", side_effect=Exception("resolve error")):
         assert is_safe_subpath(root, "any/path") is False
+
+
+def test_repos_reload_workspace_and_resolve(tmp_path: Path) -> None:
+    """Verify _reload_workspace handles success and failure, and _resolve_workspace_file returns expected paths."""
+    from devops_cli.commands.repos import _reload_workspace, _resolve_workspace_file
+
+    ws_file = tmp_path / "test.code-workspace"
+    ws_file.write_text("{}", encoding="utf-8")
+
+    # Success
+    with patch("devops_cli.core.process.run_subprocess") as mock_proc:
+        mock_proc.return_value = MagicMock(returncode=0)
+        _reload_workspace(ws_file)
+
+    # Subprocess failure handles exception safely
+    with patch("devops_cli.core.process.run_subprocess", side_effect=OSError("not found")):
+        _reload_workspace(ws_file)
+
+    # _resolve_workspace_file variations
+    root = tmp_path / "repos"
+    root.mkdir()
+    # Absolute path
+    abs_ws = tmp_path / "custom.code-workspace"
+    assert _resolve_workspace_file(root, abs_ws) == abs_ws
+    # Default constant workspace file
+    from devops_cli.config.constants import CONST_VSCODE_WORKSPACE_FILE
+
+    assert (
+        _resolve_workspace_file(root, Path(CONST_VSCODE_WORKSPACE_FILE))
+        == root.parent / CONST_VSCODE_WORKSPACE_FILE
+    )
+    # Other relative path
+    custom_rel = Path("custom_rel.code-workspace")
+    assert _resolve_workspace_file(root, custom_rel) == custom_rel
+
+
+def test_repos_clone_org_dry_run_and_missing_org() -> None:
+    """Verify clone-org handles --dry-run and missing org configuration."""
+    result = runner.invoke(app, ["--dry-run", "repos", "clone-org", "test-org"])
+    assert result.exit_code == 0
+    assert "Would run delegated command" in result.output
+
+    with patch("devops_cli.commands.repos.load_settings") as mock_load:
+        settings = MagicMock()
+        settings.github.default_org = None
+        mock_load.return_value = settings
+        res = runner.invoke(app, ["repos", "clone-org"])
+        assert res.exit_code == 1
+
+
+def test_repos_sync_and_status_dry_run() -> None:
+    """Verify sync and status commands handle --dry-run."""
+    res_sync = runner.invoke(app, ["--dry-run", "repos", "sync"])
+    assert res_sync.exit_code == 0
+    assert "Would run delegated command" in res_sync.output
+
+    res_status = runner.invoke(app, ["--dry-run", "repos", "status"])
+    assert res_status.exit_code == 0
+    assert "Would run delegated command" in res_status.output

@@ -6,7 +6,11 @@ import logging
 from collections.abc import Sequence
 from pathlib import Path
 
-from devops_cli.config.defaults import DEFAULT_CURRENT_PATH, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_DEPENDENCY_MIN_SEVERITY,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.models.vulnerability import (
     VulnerabilityFixAction,
@@ -87,7 +91,7 @@ class DependencyRemediator:
         vulnerabilities: Sequence[VulnerabilityRecord],
         installed_versions: dict[str, str] | None = None,
         package_filter: str | None = None,
-        min_severity: str = "HIGH",
+        min_severity: str = DEFAULT_DEPENDENCY_MIN_SEVERITY,
     ) -> VulnerabilityRemediationResult:
         """Formulate a structured remediation plan without executing lockfile updates."""
         versions = installed_versions or {}
@@ -188,7 +192,7 @@ class DependencyRemediator:
     def scan_and_plan(
         self,
         package_filter: str | None = None,
-        min_severity: str = "HIGH",
+        min_severity: str = DEFAULT_DEPENDENCY_MIN_SEVERITY,
     ) -> VulnerabilityRemediationResult:
         """Audit target directory using OSV or scanner findings and plan remediations."""
         from devops_cli.security.vulnerability_lookup import OSVClient

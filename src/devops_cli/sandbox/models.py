@@ -22,7 +22,14 @@ from devops_cli.config.constants import (
     CONST_SANDBOX_NETWORK_NAMESPACE,
     CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
 )
-from devops_cli.config.defaults import DEFAULT_CURRENT_PATH, DEFAULT_SANDBOX_NAMESPACE
+from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_SANDBOX_CPUS,
+    DEFAULT_SANDBOX_IMAGE,
+    DEFAULT_SANDBOX_MEMORY,
+    DEFAULT_SANDBOX_NAME,
+    DEFAULT_SANDBOX_NAMESPACE,
+)
 from devops_cli.core.validation import is_loopback_or_private_host
 
 
@@ -291,7 +298,7 @@ class SandboxNetworkConfig(BaseModel):
         return ["--network=bridge"]
 
     def to_k8s_network_policy(
-        self, name: str = "app-sandbox", namespace: str | None = None
+        self, name: str = DEFAULT_SANDBOX_NAME, namespace: str | None = None
     ) -> dict[str, Any]:
         """Synthesize declarative Kubernetes NetworkPolicy manifest matching the network mode."""
         target_ns = namespace or self.sandbox_namespace
@@ -353,14 +360,14 @@ class PortBinding(BaseModel):
 class SandboxDeployConfig(BaseModel):
     """Deployment specification for long-running workload sandboxes."""
 
-    image: str = "python:3.14-slim"
+    image: str = DEFAULT_SANDBOX_IMAGE
     name: str | None = None
     ports: list[int] = Field(default_factory=list)
     command: list[str] = Field(default_factory=lambda: ["sleep", "infinity"])
     workspace_dir: Path = Field(default_factory=lambda: Path(DEFAULT_CURRENT_PATH).resolve())
     read_only: bool = True
-    memory_limit: str = "2g"
-    cpu_limit: float = 2.0
+    memory_limit: str = DEFAULT_SANDBOX_MEMORY
+    cpu_limit: float = DEFAULT_SANDBOX_CPUS
     network_config: SandboxNetworkConfig = Field(default_factory=SandboxNetworkConfig)
     network_mode: str = "none"
     rootless: bool = True

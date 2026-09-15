@@ -44,6 +44,7 @@ _LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
     "print_warning": ("devops_cli.output", "print_warning"),
     "render_dry_run_result": ("devops_cli.output", "render_dry_run_result"),
     "track_progress": ("devops_cli.output", "track_progress"),
+    "mask_secrets": ("devops_cli.security.sanitizer", "mask_secrets"),
 }
 
 _IMPORT_LOCK = threading.Lock()
@@ -190,7 +191,7 @@ def clone_org(
             _get("clone_repo")(_github_https_url(repo.full_name), dest)
             _get("print_success")(f"done {repo.name}")
         except (OSError, subprocess.SubprocessError, Exception) as exc:
-            _get("print_error")(f"fail {repo.name}: {exc}")
+            _get("print_error")(f"fail {repo.name}: {_get('mask_secrets')(str(exc))}")
 
     _sync_and_reload_workspace(root, settings.workspace.file)
 
@@ -211,9 +212,9 @@ def clone(
     if is_dry_run():
         _get("render_dry_run_result")(
             command="devops repos clone",
-            target=url,
+            target=_get("mask_secrets")(url),
             action="clone_single_repository",
-            details={"url": url},
+            details={"url": _get("mask_secrets")(url)},
         )
         return
 
@@ -236,7 +237,8 @@ def clone(
         _get("print_error")(MESSAGES.repos.invalid_url_hyphen, prefix=False)
         raise typer.Exit(1)
 
-    _get("print_info")(MESSAGES.repos.cloning_repo.format(url=url, dest=dest), prefix=False)
+    masked_url = _get("mask_secrets")(url)
+    _get("print_info")(MESSAGES.repos.cloning_repo.format(url=masked_url, dest=dest), prefix=False)
     _get("clone_repo")(url, dest)
     _sync_and_reload_workspace(root, settings.workspace.file)
     _get("print_success")(MESSAGES.repos.done, prefix=False)

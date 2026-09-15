@@ -22,6 +22,11 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage
 
 from devops_cli.ai.text_utils import normalize_unicode_text, unique_lines
+from devops_cli.config.defaults import (
+    DEFAULT_JSON_REPAIR_MAX_LENGTH,
+    DEFAULT_TOOL_EXTRACT_OVERLAP,
+    DEFAULT_TOOL_EXTRACT_PAGE_SIZE,
+)
 
 __all__ = [
     "ExtractedToolCall",
@@ -33,11 +38,11 @@ __all__ = [
     "repair_json_string",
 ]
 
-_TOOL_EXTRACT_PAGE_SIZE = 32 * 1024  # 32 KiB chunk window
-_TOOL_EXTRACT_OVERLAP = 1024  # 1 KiB overlap to prevent boundary cuts
+_TOOL_EXTRACT_PAGE_SIZE = DEFAULT_TOOL_EXTRACT_PAGE_SIZE
+_TOOL_EXTRACT_OVERLAP = DEFAULT_TOOL_EXTRACT_OVERLAP
 
 
-def repair_json_string(text: str, *, max_length: int = 5 * 1024 * 1024) -> Any:
+def repair_json_string(text: str, *, max_length: int = DEFAULT_JSON_REPAIR_MAX_LENGTH) -> Any:
     """Extract and repair valid or partially-malformed JSON from text using json-repair."""
     if not text or not text.strip() or len(text) > max_length:
         return None

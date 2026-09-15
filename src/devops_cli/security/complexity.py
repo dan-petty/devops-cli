@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.config.defaults import DEFAULT_MAX_COMPLEXITY, DEFAULT_MAX_NESTING_DEPTH
 from devops_cli.core.repo import find_top_level_repo_root, is_ignored_by_git
 
 
@@ -201,8 +202,8 @@ def _evaluate_function_findings(
 def run_complexity_scan(
     target_path: Path,
     *,
-    max_complexity: int = 10,
-    max_nesting_depth: int = 5,
+    max_complexity: int = DEFAULT_MAX_COMPLEXITY,
+    max_nesting_depth: int = DEFAULT_MAX_NESTING_DEPTH,
 ) -> list[Finding]:
     """Scan a target path (file or directory) for complexity and nesting violations."""
     findings: list[Finding] = []

@@ -17,6 +17,7 @@ from devops_cli.ai.text_utils import (
     unique_lines as unique_lines,
 )
 from devops_cli.config import (
+    DEFAULT_FINDING_STATUS,
     DEFAULT_REVIEW_LINE_OVERLAP_TOLERANCE,
     DEFAULT_REVIEW_MAX_SUMMARY_PREVIEW_LENGTH,
     DEFAULT_REVIEW_MAX_TITLE_LENGTH,
@@ -336,7 +337,7 @@ class Finding(BaseModel):
     verified: bool = False
 
     mitigated: bool = False
-    status: str = "UNVERIFIED"  # UNVERIFIED | VERIFIED | INVALIDATED | MITIGATED
+    status: str = DEFAULT_FINDING_STATUS  # UNVERIFIED | VERIFIED | INVALIDATED | MITIGATED
     invalidation_reason: str | None = None
     verified_by: str | None = None  # "llm" | "human"
     verified_at: str | None = None
@@ -417,7 +418,7 @@ class Finding(BaseModel):
     @classmethod
     def _normalize_status(cls, v: object) -> str:
         s = str(v).upper().strip()
-        return s if s in VALID_STATUSES else "UNVERIFIED"
+        return s if s in VALID_STATUSES else DEFAULT_FINDING_STATUS
 
     @field_validator("confidence_score", mode="before")
     @classmethod

@@ -68,7 +68,7 @@ def test_list_pr_review_threads_all() -> None:
     mock_res.returncode = 0
     mock_res.stdout = json.dumps(SAMPLE_GRAPHQL_RESPONSE)
 
-    with patch("devops_cli.github.pr_threads.run_subprocess", return_value=mock_res):
+    with patch("devops_cli.github.pr_threads.run_gh", return_value=mock_res):
         threads = list_pr_review_threads(owner="dan-petty", repo="devops-cli", pr_number=83)
         assert len(threads) == 2
         assert threads[0].id == "PRRT_thread_1"
@@ -87,7 +87,7 @@ def test_list_pr_review_threads_unresolved_only() -> None:
     mock_res.returncode = 0
     mock_res.stdout = json.dumps(SAMPLE_GRAPHQL_RESPONSE)
 
-    with patch("devops_cli.github.pr_threads.run_subprocess", return_value=mock_res):
+    with patch("devops_cli.github.pr_threads.run_gh", return_value=mock_res):
         threads = list_pr_review_threads(
             owner="dan-petty",
             repo="devops-cli",
@@ -116,7 +116,7 @@ def test_reply_pr_review_thread_success() -> None:
     mock_res.returncode = 0
     mock_res.stdout = json.dumps(reply_resp)
 
-    with patch("devops_cli.github.pr_threads.run_subprocess", return_value=mock_res):
+    with patch("devops_cli.github.pr_threads.run_gh", return_value=mock_res):
         comment = reply_pr_review_thread(
             thread_id="PRRT_thread_1",
             body="Remediated with bounded timeout in commit abc1234",
@@ -142,7 +142,7 @@ def test_resolve_pr_review_thread_success() -> None:
     mock_res.returncode = 0
     mock_res.stdout = json.dumps(resolve_resp)
 
-    with patch("devops_cli.github.pr_threads.run_subprocess", return_value=mock_res):
+    with patch("devops_cli.github.pr_threads.run_gh", return_value=mock_res):
         result = resolve_pr_review_thread("PRRT_thread_1")
         assert isinstance(result, ThreadResolutionResult)
         assert result.thread_id == "PRRT_thread_1"
@@ -165,7 +165,7 @@ def test_unresolve_pr_review_thread_success() -> None:
     mock_res.returncode = 0
     mock_res.stdout = json.dumps(unresolve_resp)
 
-    with patch("devops_cli.github.pr_threads.run_subprocess", return_value=mock_res):
+    with patch("devops_cli.github.pr_threads.run_gh", return_value=mock_res):
         result = unresolve_pr_review_thread("PRRT_thread_1")
         assert isinstance(result, ThreadResolutionResult)
         assert result.thread_id == "PRRT_thread_1"
@@ -178,7 +178,7 @@ def test_pr_threads_error_handling() -> None:
     mock_res.returncode = 1
     mock_res.stderr = "GraphQL error: Thread not found"
 
-    with patch("devops_cli.github.pr_threads.run_subprocess", return_value=mock_res):
+    with patch("devops_cli.github.pr_threads.run_gh", return_value=mock_res):
         with pytest.raises(GitHubOperationError, match="GraphQL error"):
             resolve_pr_review_thread("INVALID_ID")
 
@@ -229,81 +229,32 @@ def test_list_pr_review_threads_pagination() -> None:
     mock_res_1 = MagicMock(returncode=0, stdout=json.dumps(page_1))
     mock_res_2 = MagicMock(returncode=0, stdout=json.dumps(page_2))
 
-    with patch("devops_cli.github.pr_threads.run_subprocess", side_effect=[mock_res_1, mock_res_2]):
+    with patch("devops_cli.github.pr_threads.run_gh", side_effect=[mock_res_1, mock_res_2]):
         threads = list_pr_review_threads(owner="dan-petty", repo="devops-cli", pr_number=86)
         assert len(threads) == 2
         assert threads[0].id == "PRRT_1"
         assert threads[1].id == "PRRT_2"
 
 
-def test_list_pr_review_threads_graphql_rate_limit_fallback_to_rest() -> None:
-    """Verify list_pr_review_threads falls back to REST when GraphQL hits rate limits."""
+def test_list_pr_review_threads_graphql_rate_limit_honors_quota_no_rest_fallback() -> None:
+    """Verify list_pr_review_threads honors rate limits and never falls back to REST."""
     mock_graphql_err = MagicMock()
     mock_graphql_err.returncode = 1
     mock_graphql_err.stderr = "GraphQL: API rate limit already exceeded for user ID 7726889."
     mock_graphql_err.stdout = ""
 
-    rest_comments = [
-        {
-            "id": 101,
-            "node_id": "PRRC_node_101",
-            "in_reply_to_id": None,
-            "body": "Root comment on security",
-            "user": {"login": "security-reviewer"},
-            "path": "src/devops_cli/security.py",
-            "line": 42,
-            "created_at": "2026-09-09T10:00:00Z",
-        },
-        {
-            "id": 102,
-            "node_id": "PRRC_node_102",
-            "in_reply_to_id": 101,
-            "body": "Addressed with bounded timeout",
-            "user": {"login": "dan-petty"},
-            "path": "src/devops_cli/security.py",
-            "line": 42,
-            "created_at": "2026-09-09T10:05:00Z",
-        },
-        {
-            "id": 201,
-            "node_id": "PRRC_node_201",
-            "in_reply_to_id": None,
-            "body": "Independent comment",
-            "user": {"login": "copilot"},
-            "path": "src/devops_cli/main.py",
-            "line": 15,
-            "created_at": "2026-09-09T10:10:00Z",
-        },
-    ]
-    mock_rest_res = MagicMock()
-    mock_rest_res.returncode = 0
-    mock_rest_res.stdout = json.dumps(rest_comments)
-    mock_rest_res.stderr = ""
-
-    with patch(
-        "devops_cli.github.pr_threads.run_subprocess", side_effect=[mock_graphql_err, mock_rest_res]
-    ):
-        threads = list_pr_review_threads(
-            owner="dan-petty",
-            repo="devops-cli",
-            pr_number=83,
-            unresolved_only=False,
-        )
-        assert len(threads) == 2
-        # Verify thread 1 contains both root comment and reply
-        assert threads[0].id == "PRRC_node_101"
-        assert threads[0].path == "src/devops_cli/security.py"
-        assert threads[0].line == 42
-        assert len(threads[0].comments) == 2
-        assert threads[0].comments[0].id == "101"
-        assert threads[0].comments[0].author == "security-reviewer"
-        assert threads[0].comments[1].id == "102"
-        assert threads[0].comments[1].author == "dan-petty"
-
-        # Verify thread 2
-        assert threads[1].id == "PRRC_node_201"
-        assert threads[1].path == "src/devops_cli/main.py"
-        assert len(threads[1].comments) == 1
+    with patch("devops_cli.github.pr_threads.run_gh", return_value=mock_graphql_err) as mock_gh:
+        with pytest.raises(GitHubOperationError, match="rate limit"):
+            list_pr_review_threads(
+                owner="dan-petty",
+                repo="devops-cli",
+                pr_number=83,
+                unresolved_only=False,
+            )
+        assert mock_gh.call_count == 1
+        call_args = mock_gh.call_args[0][0]
+        assert "graphql" in call_args
+        assert not any("pulls" in arg for arg in call_args)
 
 
 def test_list_pr_review_threads_graphql_generic_error_propagates() -> None:
@@ -313,19 +264,9 @@ def test_list_pr_review_threads_graphql_generic_error_propagates() -> None:
     mock_graphql_err.stderr = "Could not resolve to a Repository with the name 'unknown'."
     mock_graphql_err.stdout = ""
 
-    with patch("devops_cli.github.pr_threads.run_subprocess", return_value=mock_graphql_err):
+    with patch("devops_cli.github.pr_threads.run_gh", return_value=mock_graphql_err):
         with pytest.raises(GitHubOperationError, match="Could not resolve to a Repository"):
             list_pr_review_threads(owner="dan-petty", repo="devops-cli", pr_number=83)
-
-
-def test_fetch_review_threads_rest_empty() -> None:
-    """Verify fetch_review_threads_rest returns empty list when no comments exist."""
-    from devops_cli.github.pr_threads import fetch_review_threads_rest
-
-    mock_rest = MagicMock(returncode=0, stdout="[]", stderr="")
-    with patch("devops_cli.github.pr_threads.run_subprocess", return_value=mock_rest):
-        threads = fetch_review_threads_rest(owner="dan-petty", repo="devops-cli", pr_number=83)
-        assert threads == []
 
 
 def test_resolve_all_pr_review_threads_only_replied() -> None:

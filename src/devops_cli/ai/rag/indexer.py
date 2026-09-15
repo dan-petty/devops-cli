@@ -81,7 +81,13 @@ def _load_gitignore_spec(root: Path) -> Any:
 
 def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bool:
     """Determine if a path is an indexable code/doc file under root."""
-    if not p.is_file():
+    if not p.is_file() or p.is_symlink():
+        return False
+    try:
+        resolved = p.resolve()
+        if not resolved.is_relative_to(root.resolve()):
+            return False
+    except OSError:
         return False
     rel_parts = p.relative_to(root).parts if p.is_relative_to(root) else p.parts
     if any(part.startswith(".") for part in rel_parts[:-1]):

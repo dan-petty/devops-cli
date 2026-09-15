@@ -450,7 +450,7 @@ Execute command inside an isolated Docker container sandbox.
 | `image` | `string` | No | `python:3.14-slim` | - |
 | `workspace` | `string` | No | `.` | - |
 | `memory` | `string` | No | `2g` | - |
-| `network` | `string` | No | `bridge` | - |
+| `network` | `string` | No | `isolated` | - |
 | `network_mode` | `string` | No | - | - |
 | `public_whitelist` | `array` | No | - | - |
 | `local_whitelist` | `array` | No | - | - |
@@ -990,6 +990,7 @@ Mark a draft pull request as ready for review and optionally begin monitoring.
 |---|---|---|---|---|
 | `pr_number` | `integer` | Yes | - | - |
 | `monitor` | `boolean` | No | `False` | - |
+| `force` | `boolean` | No | `False` | - |
 | `repo` | `string` | No | - | - |
 
 ### `pr_thread_reply`
@@ -1178,7 +1179,7 @@ Deploy an isolated workload container sandbox with security containment and port
 | `workspace` | `string` | No | `.` | - |
 | `memory` | `string` | No | `2g` | - |
 | `cpus` | `number` | No | `2.0` | - |
-| `network` | `string` | No | `bridge` | - |
+| `network` | `string` | No | `isolated` | - |
 | `network_mode` | `string` | No | - | - |
 | `public_whitelist` | `array` | No | - | - |
 | `local_whitelist` | `array` | No | - | - |

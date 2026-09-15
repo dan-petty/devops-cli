@@ -1245,7 +1245,7 @@ devops docker sandbox [OPTIONS] <command>
 | `--workspace`, `-w` | `path` | `.` | Workspace directory to mount |
 | `--memory`, `-m` | `string` | `2g` | Memory limit (e.g. 2g, 512m) |
 | `--cpus`, `-c` | `float` | `2.0` | CPU limit |
-| `--network`, `-n` | `string` | `bridge` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--network`, `-n` | `string` | `isolated` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
 | `--network-mode` | `string` | - | Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
 | `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
 | `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
@@ -4325,6 +4325,7 @@ devops pr ready [OPTIONS] <number>
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--monitor`, `-m` | `boolean` | - | Automatically transition to monitoring checks and reviews after marking ready. |
+| `--force`, `-f` | `boolean` | - | Bypass failing check verification and force ready status |
 
 ### `devops pr diff`
 
@@ -5291,6 +5292,7 @@ devops gh pr ready [OPTIONS] <number>
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--monitor`, `-m` | `boolean` | - | Automatically transition to monitoring checks and reviews after marking ready. |
+| `--force`, `-f` | `boolean` | - | Bypass failing check verification and force ready status |
 
 #### `devops gh pr diff`
 
@@ -6017,7 +6019,7 @@ devops test sandbox [OPTIONS] <command>
 | `--workspace`, `-w` | `path` | `.` | Workspace directory to bind mount |
 | `--memory`, `-m` | `string` | `2g` | Memory constraint limit (e.g. 2g, 512m) |
 | `--cpus`, `-c` | `float` | `2.0` | CPU quota limit |
-| `--network`, `-n` | `string` | `bridge` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--network`, `-n` | `string` | `isolated` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
 | `--network-mode` | `string` | - | Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
 | `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
 | `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
@@ -6373,7 +6375,7 @@ devops sandbox deploy [OPTIONS] <command>
 | `--memory`, `-m` | `string` | `2g` | Memory limit for the container (e.g. 512m, 2g). |
 | `--cpus`, `-c` | `float` | `2.0` | CPU quota limit for the container (e.g. 1.0, 2.0). |
 | `--read-only` | `boolean` | `True` | Mount root filesystem as read-only with a tmpfs /tmp. |
-| `--network` | `string` | `bridge` | Docker network mode (bridge | host | none). |
+| `--network` | `string` | `isolated` | Docker network mode (bridge | host | none). |
 | `--network-mode` | `string` | - | Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
 | `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
 | `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |

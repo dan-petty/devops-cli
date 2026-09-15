@@ -9,6 +9,7 @@ from devops_cli.config.commands import (
     build_kubectl_cmd,
     build_stern_cmd,
 )
+from devops_cli.config.defaults import DEFAULT_LOG_TAIL_LINES
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.output import print_info
@@ -19,7 +20,7 @@ def stream_multi_pod_logs(
     pod_query: str,
     namespace: str | None = None,
     container: str | None = None,
-    tail_lines: int = 100,
+    tail_lines: int = DEFAULT_LOG_TAIL_LINES,
     follow: bool = False,
     dry_run: bool = False,
 ) -> int:

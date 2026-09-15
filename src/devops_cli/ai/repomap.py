@@ -8,6 +8,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.config.defaults import (
+    DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES,
+    DEFAULT_REPOMAP_MAX_FILES,
+)
 from devops_cli.core.repo import find_repo_root, find_top_level_repo_root, is_ignored_by_git
 
 
@@ -83,7 +87,7 @@ def _extract_class_methods(class_node: ast.ClassDef) -> list[SymbolNode]:
     ]
 
 
-MAX_REPOMAP_FILE_SIZE_BYTES: int = 5 * 1024 * 1024  # 5 MiB
+MAX_REPOMAP_FILE_SIZE_BYTES: int = DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES
 
 
 def parse_file_symbols(file_path: Path, relative_to: Path) -> FileMapNode | None:
@@ -185,7 +189,7 @@ def _polyglot_to_file_node(source_file: Path, base_root: Path) -> FileMapNode | 
 
 def generate_repo_map(
     root_dir: Path | None = None,
-    max_files: int = 100,
+    max_files: int = DEFAULT_REPOMAP_MAX_FILES,
     include_tests: bool = False,
     multilingual: bool = False,
 ) -> list[FileMapNode]:

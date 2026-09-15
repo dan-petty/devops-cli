@@ -25,6 +25,11 @@ from pydantic_ai.function_signature import (
 )
 from pydantic_ai.tools import Tool
 
+from devops_cli.config.defaults import (
+    DEFAULT_SIGNATURE_BODY,
+    DEFAULT_TOOL_INTERFACE_FORMAT,
+)
+
 __all__ = (
     "FunctionParam",
     "FunctionSignature",
@@ -143,7 +148,7 @@ def get_tool_signatures(tools: Sequence[Any]) -> list[FunctionSignature]:
 def render_signatures(
     signatures: Sequence[FunctionSignature],
     *,
-    body: str = "...",
+    body: str = DEFAULT_SIGNATURE_BODY,
     include_type_defs: bool = True,
 ) -> str:
     """Render Python code blocks for signatures and their referenced TypedDict schemas."""
@@ -173,8 +178,8 @@ def render_signatures(
 def render_tool_interface(
     tools: Sequence[Any],
     *,
-    body: str = "...",
-    format: Literal["python", "markdown"] = "python",
+    body: str = DEFAULT_SIGNATURE_BODY,
+    format: Literal["python", "markdown"] = DEFAULT_TOOL_INTERFACE_FORMAT,
     include_type_defs: bool = True,
 ) -> str:
     """Render a clean Python interface representation of tools for prompts or documentation."""

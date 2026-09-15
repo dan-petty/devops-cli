@@ -141,7 +141,7 @@ def test_verify_project_auth_scopes_insufficient_scope() -> None:
             stdout="",
         )
     )
-    with patch("devops_cli.github.projects.run_subprocess", mock_proc):
+    with patch("devops_cli.github.projects.run_gh", mock_proc):
         with pytest.raises(GitHubOperationError) as exc_info:
             verify_project_auth_scopes()
         assert "lacks 'project' scope" in str(exc_info.value)
@@ -161,7 +161,7 @@ def test_verify_project_auth_scopes_unrelated_error_ignored() -> None:
             stdout="",
         )
     )
-    with patch("devops_cli.github.projects.run_subprocess", mock_proc):
+    with patch("devops_cli.github.projects.run_gh", mock_proc):
         # Should complete without raising GitHubOperationError about scopes
         verify_project_auth_scopes()
 
@@ -390,7 +390,7 @@ def test_find_and_create_remote_project() -> None:
 
     # Subprocess error
     mock_fail = MagicMock(return_value=MagicMock(returncode=1, stdout="", stderr="error"))
-    with patch("devops_cli.github.projects.run_subprocess", mock_fail):
+    with patch("devops_cli.github.projects.run_gh", mock_fail):
         assert find_remote_project("dan-petty", "My Project") is None
         with pytest.raises(GitHubOperationError):
             create_remote_project("dan-petty", "My Project")
@@ -403,7 +403,7 @@ def test_find_and_create_remote_project() -> None:
             stderr="",
         )
     )
-    with patch("devops_cli.github.projects.run_subprocess", mock_success):
+    with patch("devops_cli.github.projects.run_gh", mock_success):
         matched = find_remote_project("dan-petty", "my project")
         assert matched is not None
         assert matched["number"] == 3
@@ -416,7 +416,7 @@ def test_find_and_create_remote_project() -> None:
                 stderr="",
             )
         )
-        with patch("devops_cli.github.projects.run_subprocess", mock_create):
+        with patch("devops_cli.github.projects.run_gh", mock_create):
             created = create_remote_project("dan-petty", "New Board")
             assert created["number"] == 4
 
@@ -451,7 +451,7 @@ def test_provision_remote_project_fields() -> None:
     ]
     with (
         patch("devops_cli.github.projects._get_authenticated_user", return_value="owner"),
-        patch("devops_cli.github.projects.run_subprocess", mock_proc),
+        patch("devops_cli.github.projects.run_gh", mock_proc),
     ):
         provisioned = provision_remote_project_fields(2, "owner", fields)
         assert "Priority" in provisioned
@@ -468,7 +468,7 @@ def test_get_remote_project_views() -> None:
 
     # Failure path
     mock_fail = MagicMock(return_value=MagicMock(returncode=1, stdout="", stderr="graphql err"))
-    with patch("devops_cli.github.projects.run_subprocess", mock_fail):
+    with patch("devops_cli.github.projects.run_gh", mock_fail):
         pid, pnum, views = get_remote_project_views("dan-petty", "devops-cli")
         assert pid is None
         assert pnum is None
@@ -493,7 +493,7 @@ def test_get_remote_project_views() -> None:
         }
     }
     mock_ok = MagicMock(return_value=MagicMock(returncode=0, stdout=json.dumps(payload), stderr=""))
-    with patch("devops_cli.github.projects.run_subprocess", mock_ok):
+    with patch("devops_cli.github.projects.run_gh", mock_ok):
         pid, pnum, views = get_remote_project_views("dan-petty", "devops-cli")
         assert pid == "PVT_99"
         assert pnum == 5
@@ -517,7 +517,7 @@ def test_graphql_query_and_mutation_escaping() -> None:
             returncode=0, stdout=json.dumps({"data": {"repository": {"projectsV2": {"nodes": []}}}})
         )
     )
-    with patch("devops_cli.github.projects.run_subprocess", mock_proc):
+    with patch("devops_cli.github.projects.run_gh", mock_proc):
         # Query with quotes in owner/repo
         get_remote_project_views('owner"with"quotes', 'repo"with"quotes')
         called_cmd = mock_proc.call_args[0][0]
@@ -556,7 +556,7 @@ def test_list_remote_projects() -> None:
             }
         ]
     }
-    with patch("devops_cli.github.projects.run_subprocess") as mock_run:
+    with patch("devops_cli.github.projects.run_gh") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(payload))
         projects = list_remote_projects("test")
         assert len(projects) == 1
@@ -664,7 +664,7 @@ def test_verify_project_auth_scopes_rate_limit() -> None:
     mock_proc = MagicMock(
         return_value=MagicMock(returncode=1, stderr="unknown owner type", stdout="")
     )
-    with patch("devops_cli.github.projects.run_subprocess", mock_proc):
+    with patch("devops_cli.github.projects.run_gh", mock_proc):
         with pytest.raises(GitHubOperationError) as exc_info:
             verify_project_auth_scopes()
         assert "rate limit is currently exhausted" in str(exc_info.value)
@@ -684,7 +684,7 @@ def test_find_remote_project_via_rest() -> None:
             stderr="",
         )
     )
-    with patch("devops_cli.github.projects.run_subprocess", mock_proc):
+    with patch("devops_cli.github.projects.run_gh", mock_proc):
         res = find_remote_project("dan-petty", "DevOps CLI Roadmap")
         assert res is not None
         assert res["number"] == 2
@@ -713,7 +713,7 @@ def test_sync_repository_issues_to_project() -> None:
     )
     with (
         patch("devops_cli.github.projects._resolve_project_owner_arg", return_value="owner"),
-        patch("devops_cli.github.projects.run_subprocess", mock_proc),
+        patch("devops_cli.github.projects.run_gh", mock_proc),
     ):
         added = sync_repository_issues_to_project("owner", "owner/repo", 2, dry_run=False)
         assert added == 1
@@ -785,7 +785,7 @@ def test_sync_single_select_field_options() -> None:
             {"name": "Done", "color": "GREEN"},
         ],
     }
-    with patch("devops_cli.github.projects.run_subprocess") as mock_run:
+    with patch("devops_cli.github.projects.run_gh") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
         assert _sync_single_select_field_options(existing_partial, template_field) is True
         assert mock_run.call_count == 1
@@ -817,7 +817,7 @@ def test_paginated_project_fetch_helpers() -> None:
     paginated_stdout = f"{json.dumps(page1)}\n{json.dumps(page2)}"
 
     with patch(
-        "devops_cli.github.projects.run_subprocess",
+        "devops_cli.github.projects.run_gh",
         return_value=MagicMock(returncode=0, stdout=paginated_stdout, stderr=""),
     ):
         urls = _fetch_project_item_urls("owner", 1)
@@ -836,7 +836,7 @@ def test_paginated_project_fetch_helpers() -> None:
     paginated_issues = f"{json.dumps(issues_page1)}\n{json.dumps(issues_page2)}"
 
     with patch(
-        "devops_cli.github.projects.run_subprocess",
+        "devops_cli.github.projects.run_gh",
         return_value=MagicMock(returncode=0, stdout=paginated_issues, stderr=""),
     ):
         issues = _fetch_repository_issues("owner/repo")
@@ -853,10 +853,151 @@ def test_paginated_project_fetch_helpers() -> None:
     paginated_prs = f"{json.dumps(prs_page1)}\n{json.dumps(prs_page2)}"
 
     with patch(
-        "devops_cli.github.projects.run_subprocess",
+        "devops_cli.github.projects.run_gh",
         return_value=MagicMock(returncode=0, stdout=paginated_prs, stderr=""),
     ):
         prs = _fetch_repository_prs("owner/repo")
         assert len(prs) == 2
         assert prs[0]["number"] == 3
         assert prs[1]["number"] == 4
+
+
+def test_filter_differing_fields() -> None:
+    """_filter_differing_fields excludes fields that already match remote values."""
+    from devops_cli.github.projects import _filter_differing_fields
+
+    targets = [
+        ("Status", "Done"),
+        ("Priority", "P1-High"),
+        ("Category", "Foundation"),
+        ("Value", "High"),
+        ("Effort", "Medium"),
+    ]
+    # If no current_fields provided, all targets returned
+    assert _filter_differing_fields(None, targets) == targets
+
+    # If all match (case-insensitive), returns empty list
+    current_matching = {
+        "status": "Done",
+        "priority": "p1-high",
+        "category": "Foundation",
+        "value": "High",
+        "effort": "Medium",
+    }
+    assert _filter_differing_fields(current_matching, targets) == []
+
+    # If only Status differs, returns only Status
+    current_status_drift = {
+        "status": "In Progress",
+        "priority": "P1-High",
+        "category": "Foundation",
+        "value": "High",
+        "effort": "Medium",
+    }
+    assert _filter_differing_fields(current_status_drift, targets) == [("Status", "Done")]
+
+
+def test_reconcile_single_item_skips_matching_fields() -> None:
+    """_reconcile_single_item makes zero edit calls if fields already match remote state."""
+    from unittest.mock import patch
+
+    from devops_cli.github.projects import _reconcile_single_item
+
+    item = {
+        "html_url": "https://example.com/owner/repo/issues/10",
+        "title": "feat: test feature",
+        "state": "CLOSED",
+        "labels": [{"name": "priority/p1-high"}, {"name": "type/feature"}],
+    }
+    current_matching = {
+        "status": "Done",
+        "priority": "P1-High",
+        "category": "Major Project",
+        "value": "High",
+        "effort": "High",
+    }
+    with patch("devops_cli.github.projects._edit_project_item_field") as mock_edit:
+        reconciled = _reconcile_single_item(
+            "owner", 2, item, dry_run=False, current_fields=current_matching
+        )
+        assert reconciled is False
+        mock_edit.assert_not_called()
+
+
+def test_reconcile_single_item_edits_only_drifted_fields() -> None:
+    """_reconcile_single_item only invokes _edit_project_item_field for drifted fields."""
+    from unittest.mock import patch
+
+    from devops_cli.github.projects import _reconcile_single_item
+
+    item = {
+        "html_url": "https://example.com/owner/repo/issues/10",
+        "title": "feat: test feature",
+        "state": "CLOSED",
+        "labels": [{"name": "priority/p1-high"}, {"name": "type/feature"}],
+    }
+    # Priority is P2-Medium remotely, but label says P1-High
+    current_with_drift = {
+        "status": "Done",
+        "priority": "P2-Medium",
+        "category": "Major Project",
+        "value": "High",
+        "effort": "High",
+    }
+    with patch(
+        "devops_cli.github.projects._edit_project_item_field", return_value=True
+    ) as mock_edit:
+        reconciled = _reconcile_single_item(
+            "owner", 2, item, dry_run=False, current_fields=current_with_drift
+        )
+        assert reconciled is True
+        assert mock_edit.call_count == 1
+        call_args = mock_edit.call_args[0]
+        assert call_args[3] == "Priority"
+        assert call_args[4] == "P1-High"
+        assert current_with_drift["priority"] == "P1-High"
+
+
+def test_extract_item_fields_case_insensitive() -> None:
+    """_extract_item_fields extracts custom fields regardless of casing or dict formatting."""
+    from devops_cli.github.projects import _extract_item_fields
+
+    item = {
+        "Status": "Done",
+        "PRIORITY": "P1-High",
+        "Category": {"name": "Quick Win"},
+        "value": "High",
+        "Effort": "Low",
+        "id": "ITEM_1",
+    }
+    extracted = _extract_item_fields(item)
+    assert extracted["status"] == "Done"
+    assert extracted["priority"] == "P1-High"
+    assert extracted["category"] == "Quick Win"
+    assert extracted["value"] == "High"
+    assert extracted["effort"] == "Low"
+    assert extracted["id"] == "ITEM_1"
+
+
+def test_parse_project_items_json_with_preamble() -> None:
+    """_parse_project_items_json correctly parses JSON with diagnostic preambles."""
+    from devops_cli.github.projects import _parse_project_items_json
+
+    raw_output = """
+Fetching ViewerOwner...
+Fetching ViewerProjectWithItems...
+{
+  "items": [
+    {
+      "id": "ITEM_1",
+      "Status": "In Progress",
+      "Priority": "P1-High",
+      "content": {"url": "https://example.com/owner/repo/issues/10"}
+    }
+  ]
+}
+"""
+    data = _parse_project_items_json(raw_output)
+    assert "https://example.com/owner/repo/issues/10" in data
+    assert data["https://example.com/owner/repo/issues/10"]["status"] == "In Progress"
+    assert data["https://example.com/owner/repo/issues/10"]["priority"] == "P1-High"

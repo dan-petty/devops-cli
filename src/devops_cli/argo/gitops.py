@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Literal
 from devops_cli.config import load_settings
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import get_argocd_token
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
@@ -62,7 +63,30 @@ def should_ignore_dir(path_or_name: str | Path, repo_root: Path | None = None) -
     """Check whether a directory segment should be ignored during traversal."""
     p = Path(path_or_name)
     root = repo_root or find_repo_root(p)
-    return is_ignored_by_git(root, p)
+    return is_ignored_by_git(root, p) if root is not None else False
+
+
+def _record_manifest_entry(
+    fpath: Path,
+    repo_root: Path | None,
+    state: dict[Path, tuple[float, str]],
+) -> None:
+    """Record manifest entry if file is safe, contained, and a valid manifest."""
+    if fpath.is_symlink():
+        return
+    if (repo_root is not None and is_ignored_by_git(repo_root, fpath)) or not is_manifest_file(
+        fpath
+    ):
+        return
+    try:
+        resolved = fpath.resolve()
+        if repo_root and not resolved.is_relative_to(repo_root):
+            return
+        mtime = resolved.stat().st_mtime
+        sha = compute_file_hash(resolved)
+        state[resolved] = (mtime, sha)
+    except OSError:
+        pass
 
 
 def _scan_directory_manifests(root: Path, state: dict[Path, tuple[float, str]]) -> None:
@@ -70,18 +94,10 @@ def _scan_directory_manifests(root: Path, state: dict[Path, tuple[float, str]]) 
     repo_root = find_repo_root(root)
     for dirpath, dirnames, filenames in os.walk(root):
         dp = Path(dirpath)
-        dirnames[:] = [d for d in dirnames if not is_ignored_by_git(repo_root, dp / d)]
+        if repo_root is not None:
+            dirnames[:] = [d for d in dirnames if not is_ignored_by_git(repo_root, dp / d)]
         for fname in filenames:
-            fpath = dp / fname
-            if is_ignored_by_git(repo_root, fpath) or not is_manifest_file(fpath):
-                continue
-            try:
-                resolved = fpath.resolve()
-                mtime = resolved.stat().st_mtime
-                sha = compute_file_hash(resolved)
-                state[resolved] = (mtime, sha)
-            except OSError:
-                continue
+            _record_manifest_entry(dp / fname, repo_root, state)
 
 
 def compute_manifest_state(
@@ -190,8 +206,6 @@ def save_persisted_manifest_state(
 
 def inspect_git_manifest_drift(paths: Sequence[Path | str]) -> list[GitOpsDriftEvent]:
     """Inspect working tree for uncommitted or modified manifests using git status."""
-    from devops_cli.core.process import run_subprocess
-
     resolved_paths = [str(Path(p).resolve()) for p in paths if Path(p).exists()]
     if not resolved_paths:
         return []
