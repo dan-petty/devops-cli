@@ -62,7 +62,7 @@ def should_ignore_dir(path_or_name: str | Path, repo_root: Path | None = None) -
     """Check whether a directory segment should be ignored during traversal."""
     p = Path(path_or_name)
     root = repo_root or find_repo_root(p)
-    return is_ignored_by_git(root, p)
+    return is_ignored_by_git(root, p) if root is not None else False
 
 
 def _record_manifest_entry(
@@ -73,7 +73,9 @@ def _record_manifest_entry(
     """Record manifest entry if file is safe, contained, and a valid manifest."""
     if fpath.is_symlink():
         return
-    if is_ignored_by_git(repo_root, fpath) or not is_manifest_file(fpath):
+    if (repo_root is not None and is_ignored_by_git(repo_root, fpath)) or not is_manifest_file(
+        fpath
+    ):
         return
     try:
         resolved = fpath.resolve()
@@ -91,7 +93,8 @@ def _scan_directory_manifests(root: Path, state: dict[Path, tuple[float, str]]) 
     repo_root = find_repo_root(root)
     for dirpath, dirnames, filenames in os.walk(root):
         dp = Path(dirpath)
-        dirnames[:] = [d for d in dirnames if not is_ignored_by_git(repo_root, dp / d)]
+        if repo_root is not None:
+            dirnames[:] = [d for d in dirnames if not is_ignored_by_git(repo_root, dp / d)]
         for fname in filenames:
             _record_manifest_entry(dp / fname, repo_root, state)
 

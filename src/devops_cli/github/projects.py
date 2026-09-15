@@ -1076,7 +1076,9 @@ def _is_graphql_quota_exhausted(threshold: int = 25) -> bool:
     """Check if the tracked GraphQL quota is below safety threshold."""
     limiter = get_github_rate_limiter()
     quota = limiter.get_quota("graphql")
-    return bool(quota.last_updated > 0 and quota.remaining < threshold)
+    return bool(
+        quota.last_updated > 0 and quota.remaining is not None and quota.remaining < threshold
+    )
 
 
 def _provision_missing_candidates(
