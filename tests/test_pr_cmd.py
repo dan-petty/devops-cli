@@ -1319,3 +1319,35 @@ class TestPrCommands:
             rendered_comment = rows[0][4]
             assert "ghp_supersecrettoken" not in rendered_comment
             assert "<masked-github-token>" in rendered_comment
+
+    def test_pr_checks_fallback_empty_checks(self) -> None:
+        """_render_pr_checks_fallback prints message when check_runs is empty."""
+        from devops_cli.commands.pr import _render_pr_checks_fallback
+
+        mock_pr_details = {"head": {"sha": "sha12345"}}
+        mock_api_empty = json.dumps({"check_runs": []})
+
+        with (
+            patch("devops_cli.commands.pr._fetch_pr_details", return_value=mock_pr_details),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=mock_api_empty, stderr=""),
+            ),
+            patch("devops_cli.commands.pr.print_info") as mock_print_info,
+        ):
+            res = _render_pr_checks_fallback(184)
+            assert res is True
+            mock_print_info.assert_called_once_with("No check runs found for PR #184.")
+
+    def test_pr_diff_failure_exit_code(self, runner: CliRunner) -> None:
+        """devops pr diff exits with returncode when gh pr diff fails."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=2, stdout="", stderr="Error fetching diff"),
+            ),
+        ):
+            res = runner.invoke(app, ["diff", "184"])
+            assert res.exit_code == 2

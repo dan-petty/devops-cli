@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Literal
 from devops_cli.config import load_settings
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import get_argocd_token
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.http.validation import validate_service_url
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
@@ -205,8 +206,6 @@ def save_persisted_manifest_state(
 
 def inspect_git_manifest_drift(paths: Sequence[Path | str]) -> list[GitOpsDriftEvent]:
     """Inspect working tree for uncommitted or modified manifests using git status."""
-    from devops_cli.core.process import run_subprocess
-
     resolved_paths = [str(Path(p).resolve()) for p in paths if Path(p).exists()]
     if not resolved_paths:
         return []
