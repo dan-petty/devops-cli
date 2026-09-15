@@ -24,10 +24,12 @@ During multi-node cluster operations, multiple services experienced OOM terminat
    - Retain guaranteed baseline requests (`cpu: 3000m`, `memory: 8Gi`).
 2. **ArgoCD Repo-Server (`k8s/argocd/values.yaml`)**:
    - Elevate `repoServer` memory limit from 2048Mi to 4096Mi (4Gi) and CPU limit to 4000m.
-3. **Fluent Bit (`k8s/logging/fluent-bit-values.yaml`)**:
+3. **CoreDNS Manifests & Configuration (`k8s/coredns/values.yaml`, `k8s/coredns/deployment-patch.yaml`, `k8s/coredns/helmchartconfig.yaml`)**:
+   - Elevate CoreDNS memory limit from 170Mi to 384Mi to eliminate OOM terminations during cluster DNS bursts.
+4. **Fluent Bit (`k8s/logging/fluent-bit-values.yaml`)**:
    - Elevate `fluent-bit` memory limit from 512Mi to 1024Mi (1Gi).
-4. **Test Suite Verification (`tests/test_k8s.py`)**:
-   - Update test assertions to validate unconstrained Ollama memory limits and elevated thresholds.
+5. **Test Suite Verification (`tests/test_k8s.py`)**:
+   - Strict assertions validating unconstrained Ollama memory limits, exact 4096Mi ArgoCD repoServer limits, 1024Mi Fluent Bit limits, and 384Mi CoreDNS values/patch contracts.
 
 ---
 

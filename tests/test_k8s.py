@@ -885,7 +885,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
         (repo_root / "k8s" / "argocd" / "values.yaml").read_text(encoding="utf-8")
     )
     assert argo_values["controller"]["resources"]["limits"]["memory"] == "2048Mi"
-    assert argo_values["repoServer"]["resources"]["limits"]["memory"] in ("2048Mi", "4096Mi")
+    assert argo_values["repoServer"]["resources"]["limits"]["memory"] == "4096Mi"
     assert argo_values["server"]["resources"]["limits"]["memory"] == "1024Mi"
     assert argo_values["redis"]["resources"]["limits"]["memory"] == "1024Mi"
 
@@ -915,7 +915,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
         (repo_root / "k8s" / "logging" / "fluent-bit-values.yaml").read_text(encoding="utf-8")
     )
     assert fb_values["resources"]["limits"]["cpu"] == "500m"
-    assert fb_values["resources"]["limits"]["memory"] in ("512Mi", "1024Mi")
+    assert fb_values["resources"]["limits"]["memory"] == "1024Mi"
 
     # 11. Prometheus stack values: elevated requests and limits to eliminate OOM kills
     prom_values = yaml.safe_load(
@@ -948,6 +948,22 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert gfd_res["requests"]["memory"] == "64Mi"
     assert gfd_res["limits"]["cpu"] == "200m"
     assert gfd_res["limits"]["memory"] == "256Mi"
+
+    # 13. CoreDNS values and deployment patch: elevated memory limits (384Mi) to eliminate OOM kills
+    coredns_values = yaml.safe_load(
+        (repo_root / "k8s" / "coredns" / "values.yaml").read_text(encoding="utf-8")
+    )
+    assert coredns_values["resources"]["limits"]["memory"] == "384Mi"
+    assert coredns_values["resources"]["requests"]["memory"] == "70Mi"
+
+    coredns_patch_docs = list(
+        yaml.safe_load_all(
+            (repo_root / "k8s" / "coredns" / "deployment-patch.yaml").read_text(encoding="utf-8")
+        )
+    )
+    coredns_dep = next(d for d in coredns_patch_docs if d and d.get("kind") == "Deployment")
+    coredns_res = coredns_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert coredns_res["limits"]["memory"] == "384Mi"
 
 
 def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
