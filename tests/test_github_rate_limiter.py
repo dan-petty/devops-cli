@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -11,8 +12,17 @@ import pytest
 from devops_cli.github.rate_limiter import (
     GitHubRateLimiter,
     get_github_rate_limiter,
+    reset_github_rate_limiter,
     run_gh,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolate_rate_limiter():
+    """Ensure global rate limiter singleton is reset before and after each test."""
+    reset_github_rate_limiter()
+    yield
+    reset_github_rate_limiter()
 
 
 def test_rate_limiter_pacing() -> None:
@@ -180,4 +190,153 @@ def test_rate_limiter_env_interval_override(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("DEVOPS_GH_RATE_INTERVAL", "invalid-float")
     monkeypatch.setattr(rl_mod, "_GLOBAL_RATE_LIMITER", None)
     fallback_limiter = rl_mod.get_github_rate_limiter()
-    assert fallback_limiter.min_interval == rl_mod._DEFAULT_MIN_INTERVAL_SECONDS
+    assert fallback_limiter.min_interval == rl_mod.DEFAULT_GH_MIN_INTERVAL_SECONDS
+
+
+def test_calculate_adaptive_delay_from_ratio() -> None:
+    """Verify adaptive delay progressively backs off as ratio approaches zero."""
+    from devops_cli.github.rate_limiter import _calculate_adaptive_delay_from_ratio
+
+    min_int = 0.5
+    # High quota (>50% remaining)
+    assert _calculate_adaptive_delay_from_ratio(1.0, min_int) == min_int
+    assert _calculate_adaptive_delay_from_ratio(0.75, min_int) == min_int
+    assert _calculate_adaptive_delay_from_ratio(0.51, min_int) == min_int
+
+    # 25% to 50% remaining: 0.5s to 2.0s
+    d_40 = _calculate_adaptive_delay_from_ratio(0.40, min_int)
+    assert 0.5 < d_40 < 2.0
+
+    # 10% to 25% remaining: 2.0s to 5.0s
+    d_20 = _calculate_adaptive_delay_from_ratio(0.20, min_int)
+    assert 2.0 < d_20 < 5.0
+
+    # 2% to 10% remaining: 5.0s to 15.0s
+    d_5 = _calculate_adaptive_delay_from_ratio(0.05, min_int)
+    assert 5.0 < d_5 < 15.0
+
+    # <2% remaining: 15.0s to 30.0s
+    d_1 = _calculate_adaptive_delay_from_ratio(0.01, min_int)
+    assert 15.0 < d_1 <= 30.0
+    assert _calculate_adaptive_delay_from_ratio(0.0, min_int) == 30.0
+
+
+def test_rate_limiter_adaptive_quota_tracking() -> None:
+    """Verify GitHubRateLimiter tracks quota and applies progressive delay."""
+    limiter = GitHubRateLimiter(min_interval=0.5)
+
+    # Initial state (uninitialized) returns min_interval
+    assert limiter.calculate_adaptive_delay("graphql") == 0.5
+
+    # Update with 4000/5000 remaining (80%) -> min_interval
+    limiter.update_quota("graphql", remaining=4000, limit=5000)
+    assert limiter.calculate_adaptive_delay("graphql") == 0.5
+
+    # Update with 600/5000 remaining (12%) -> between 2.0s and 5.0s
+    limiter.update_quota("graphql", remaining=600, limit=5000)
+    delay_12 = limiter.calculate_adaptive_delay("graphql")
+    assert 2.0 < delay_12 < 5.0
+
+    # Update with 50/5000 remaining (1%) -> between 15.0s and 30.0s
+    limiter.update_quota("graphql", remaining=50, limit=5000)
+    delay_1 = limiter.calculate_adaptive_delay("graphql")
+    assert 15.0 < delay_1 < 30.0
+
+    # Update with 0 remaining and reset 25s in future -> wait ~25s
+    now = time.time()
+    limiter.update_quota("graphql", remaining=0, limit=5000, reset_epoch=now + 25.0)
+    delay_0 = limiter.calculate_adaptive_delay("graphql")
+    assert 20.0 <= delay_0 <= 26.0
+
+
+def test_detect_resource_helper() -> None:
+    """Verify _detect_resource accurately identifies graphql vs core endpoints."""
+    from devops_cli.github.rate_limiter import _detect_resource
+
+    assert _detect_resource(["api", "graphql", "-f", "query=..."]) == "graphql"
+    assert _detect_resource(["project", "list", "--owner", "@me"]) == "graphql"
+    assert (
+        _detect_resource(["project", "item-add", "1", "--url", "http://example.com"]) == "graphql"
+    )
+    assert _detect_resource(["api", "user", "-i"]) == "core"
+    assert _detect_resource(["issue", "list"]) == "core"
+    assert _detect_resource(["pr", "checks", "123"]) == "core"
+
+
+def test_run_gh_normalizes_leading_gh_arg() -> None:
+    """Verify run_gh strips leading gh executable if passed redundantly in args."""
+    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
+        mock_sub.return_value = subprocess.CompletedProcess(
+            args=["gh", "api", "user"],
+            returncode=0,
+            stdout='{"login": "testuser"}',
+            stderr="",
+        )
+        res = run_gh(["gh", "api", "user"])
+        assert res.returncode == 0
+        call_args = mock_sub.call_args[0][0]
+        # Must not be ["gh", "gh", "api", "user"]
+        assert call_args == ["gh", "api", "user"]
+
+
+def test_run_gh_passively_updates_graphql_quota() -> None:
+    """Verify run_gh passively extracts rateLimit field and updates limiter quota."""
+    limiter = get_github_rate_limiter()
+
+    with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
+        mock_sub.return_value = subprocess.CompletedProcess(
+            args=["gh", "api", "graphql"],
+            returncode=0,
+            stdout='{"data": {"rateLimit": {"remaining": 3200, "limit": 5000, "resetAt": "2026-09-15T06:00:00Z"}}}',
+            stderr="",
+        )
+        res = run_gh(["api", "graphql", "-f", "query={ viewer { login } }"])
+        assert res.returncode == 0
+        quota = limiter.get_quota("graphql")
+        assert quota.remaining == 3200
+        assert quota.limit == 5000
+        assert quota.reset_epoch > 0
+
+
+def test_rate_limiter_window_budget_pacing() -> None:
+    """Verify rate limiter calculates window budget pacing delay when quota drops faster than time."""
+    limiter = GitHubRateLimiter(min_interval=0.5)
+    now = time.time()
+    # 50 minutes left (3000s) and 1000 tokens remaining in GraphQL
+    # Budget delay = (3000 / 1000) * 2.0 = 6.0s
+    limiter.update_quota("graphql", remaining=1000, limit=5000, reset_epoch=now + 3000.0)
+    delay = limiter.calculate_adaptive_delay("graphql")
+    assert 5.5 <= delay <= 6.5, f"Expected budget delay around 6.0s, got {delay}s"
+
+    # 10 minutes left (600s) and 4000 tokens remaining -> pacing can be min_interval (0.5s)
+    limiter.update_quota("graphql", remaining=4000, limit=5000, reset_epoch=now + 600.0)
+    delay_fast = limiter.calculate_adaptive_delay("graphql")
+    assert delay_fast == 0.5
+
+
+def test_rate_limiter_disk_quota_persistence(tmp_path: Path) -> None:
+    """Verify quota state is safely persisted and restored from disk cache."""
+    cache_file = tmp_path / "gh_quota.json"
+    limiter1 = GitHubRateLimiter(min_interval=0.5, persist_path=cache_file)
+    now = time.time()
+    limiter1.update_quota("graphql", remaining=2200, limit=5000, reset_epoch=now + 1800.0)
+    assert cache_file.is_file()
+
+    # Second limiter loads existing state from disk
+    limiter2 = GitHubRateLimiter(min_interval=0.5, persist_path=cache_file)
+    q = limiter2.get_quota("graphql")
+    assert q.remaining == 2200
+    assert q.limit == 5000
+    assert q.reset_epoch == pytest.approx(now + 1800.0, abs=1.0)
+
+
+def test_rate_limiter_decrement_quota_estimate(tmp_path: Path) -> None:
+    """Verify decrement_quota_estimate tracks usage when rate limit headers are absent."""
+    cache_file = tmp_path / "gh_quota.json"
+    limiter = GitHubRateLimiter(min_interval=0.5, persist_path=cache_file)
+    limiter.update_quota("graphql", remaining=100, limit=5000)
+
+    limiter.decrement_quota_estimate("graphql", cost=5)
+    q = limiter.get_quota("graphql")
+    assert q.remaining == 95
+    assert q.used == 4905

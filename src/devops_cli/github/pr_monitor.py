@@ -444,17 +444,6 @@ def _fetch_rest_check_runs(owner: str, repo: str, head_sha: str) -> list[PRCheck
     )
 
 
-def _fetch_rest_unresolved_comments(owner: str, repo: str, pr_number: int) -> list[ReviewThread]:
-    """Fetch review comments via REST API when GraphQL is rate limited.
-
-    Fails closed by treating all root review comments as unresolved threads since REST
-    does not expose thread resolution status.
-    """
-    from devops_cli.github.pr_threads import fetch_review_threads_rest
-
-    return fetch_review_threads_rest(owner, repo, pr_number, unresolved_only=True)
-
-
 def _fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
     """Query GitHub REST API for pull request core attributes."""
     pr_cmd = [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls/{pr_number}"]
@@ -486,13 +475,8 @@ def _fetch_raw_reviews(owner: str, repo_name: str, pr_number: int) -> list[dict[
 
 
 def _fetch_unresolved_threads(owner: str, repo_name: str, pr_number: int) -> list[ReviewThread]:
-    """Fetch unresolved review threads with fallback to REST comments."""
-    try:
-        return list_pr_review_threads(owner, repo_name, pr_number, unresolved_only=True)
-    except GitHubOperationError as exc:
-        if "rate limit" in str(exc).lower():
-            return _fetch_rest_unresolved_comments(owner, repo_name, pr_number)
-        raise
+    """Fetch unresolved review threads via GitHub GraphQL API, honoring rate limits."""
+    return list_pr_review_threads(owner, repo_name, pr_number, unresolved_only=True)
 
 
 def _resolve_merge_failure_reason(

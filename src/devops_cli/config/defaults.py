@@ -13,6 +13,7 @@ from devops_cli.config.constants import (
     CONST_CONFIG_DIR,
     CONST_DOCS_DIR_PATH,
     CONST_FEEDBACK_DATASET_NAME,
+    CONST_GH_QUOTA_CACHE_FILENAME,
     CONST_HALLUCINATIONS_FILE_NAME,
     CONST_INDEX_CACHE_FILENAME,
     CONST_LLM_CACHE_DIR_NAME,
@@ -192,6 +193,7 @@ DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS: float = 30.0
 
 # ── Docker Defaults ───────────────────────────────────────────────────────────
 DEFAULT_DOCKER_TIMEOUT_SECONDS: float = 300.0
+DEFAULT_COSIGN_TIMEOUT_SECONDS: float = 60.0
 
 # ── Connection & Response Timeout Policies ───────────────────────────────────
 # NOTE (Design Justification): Connection timeouts are intentionally short (1.0s)
@@ -362,3 +364,11 @@ DEFAULT_OTEL_COUNTER_AMOUNT: float = 1.0
 DEFAULT_OTEL_TEST_TIMEOUT: float = 1.0
 DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS: int = 50
 DEFAULT_TELEMETRY_TEST_NAME: str = "devops-cli.manual_test"
+
+# ── GitHub CLI & Rate Limiting Defaults ───────────────────────────────────────
+DEFAULT_GH_MIN_INTERVAL_SECONDS: float = 0.5  # Max 2 requests/sec to prevent secondary rate limits
+DEFAULT_GH_LOW_QUOTA_THRESHOLD: int = 100
+DEFAULT_GH_CRITICAL_QUOTA_THRESHOLD: int = 20
+DEFAULT_GH_CACHE_TTL_SECONDS: float = 15.0
+DEFAULT_GH_GRAPHQL_COST_FACTOR: float = 2.0
+DEFAULT_GH_QUOTA_CACHE_PATH: Path = DEFAULT_CACHE_DATA_DIR / CONST_GH_QUOTA_CACHE_FILENAME

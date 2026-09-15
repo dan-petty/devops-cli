@@ -12,9 +12,9 @@ from typing import Any, cast
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
-from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.client import parse_paginated_json
+from devops_cli.github.rate_limiter import run_gh
 
 logger = logging.getLogger(__name__)
 
@@ -266,8 +266,7 @@ def check_github_rate_limit_error(output: str, operation: str = "github_operatio
     )
     if any(ind in clean for ind in rate_limit_indicators):
         raise GitHubOperationError(
-            "GitHub GraphQL API rate limit is currently exhausted. "
-            "Please wait for quota reset or utilize REST endpoints.",
+            "GitHub GraphQL API rate limit is currently exhausted. Please wait for quota reset.",
             operation=operation,
             details={"output": output.strip()},
         )
@@ -275,7 +274,7 @@ def check_github_rate_limit_error(output: str, operation: str = "github_operatio
 
 def verify_project_auth_scopes() -> None:
     """Verify that the gh CLI has the necessary project/read:project OAuth scopes."""
-    proc = run_subprocess(
+    proc = run_gh(
         [CONST_GH_CLI, "project", "list", "--owner", "@me", "--format", "json"],
         check=False,
     )
@@ -322,7 +321,7 @@ def _find_project_via_rest(owner: str, name_or_short: str) -> dict[str, Any] | N
     """Attempt to locate a remote project via GitHub REST API."""
     for endpoint in (f"users/{owner}/projectsV2", f"orgs/{owner}/projectsV2"):
         cmd = [CONST_GH_CLI, "api", endpoint, "-H", "Accept: application/vnd.github+json"]
-        proc = run_subprocess(cmd, check=False, quiet=True)
+        proc = run_gh(cmd, check=False, quiet=True)
         if proc.returncode != 0 or not proc.stdout.strip():
             continue
         try:
@@ -344,7 +343,7 @@ def _get_authenticated_user() -> str | None:
     global _CURRENT_USER_CACHE
     if _CURRENT_USER_CACHE is not None:
         return _CURRENT_USER_CACHE
-    proc = run_subprocess([CONST_GH_CLI, "api", "user", "--jq", ".login"], check=False, quiet=True)
+    proc = run_gh([CONST_GH_CLI, "api", "user", "--jq", ".login"], check=False, quiet=True)
     if proc.returncode == 0 and proc.stdout.strip():
         _CURRENT_USER_CACHE = proc.stdout.strip().lower()
         return _CURRENT_USER_CACHE
@@ -366,7 +365,7 @@ def _run_project_cli(
     cmd: list[str], owner_arg: str, check: bool = False, quiet: bool = True
 ) -> subprocess.CompletedProcess[str]:
     """Execute a gh project CLI command with automated @me fallback on unknown owner type."""
-    proc = run_subprocess(cmd, check=check, quiet=quiet)
+    proc = run_gh(cmd, check=check, quiet=quiet)
     if proc.returncode == 0 or owner_arg == "@me":
         return proc
     err_output = f"{proc.stderr or ''} {proc.stdout or ''}".lower()
@@ -375,7 +374,7 @@ def _run_project_cli(
         owner_idx = fallback_cmd.index("--owner") + 1
         if owner_idx < len(fallback_cmd):
             fallback_cmd[owner_idx] = "@me"
-            return run_subprocess(fallback_cmd, check=check, quiet=quiet)
+            return run_gh(fallback_cmd, check=check, quiet=quiet)
     return proc
 
 
@@ -518,7 +517,7 @@ mutation UpdateField($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionI
             "options": _format_remote_options(existing_opts, missing_opts),
         },
     }
-    proc = run_subprocess(
+    proc = run_gh(
         [CONST_GH_CLI, "api", "graphql", "--input", "-"],
         input=json.dumps(payload),
         check=False,
@@ -629,7 +628,7 @@ def _fetch_project_item_urls(owner: str, project_number: int) -> set[str]:
         f"orgs/{owner}/projectsV2/{project_number}/items",
     ]
     for endpoint in endpoints:
-        res = run_subprocess(
+        res = run_gh(
             [
                 CONST_GH_CLI,
                 "api",
@@ -648,9 +647,96 @@ def _fetch_project_item_urls(owner: str, project_number: int) -> set[str]:
     return set()
 
 
+def _extract_item_url(it: dict[str, Any]) -> str | None:
+    """Extract canonical URL from a project item representation."""
+    content = it.get("content") or {}
+    return content.get("url") or content.get("html_url") or it.get("url") or it.get("html_url")
+
+
+def _extract_item_fields(it: dict[str, Any]) -> dict[str, str | None]:
+    """Extract custom field mapping from project item."""
+    return {
+        "status": it.get("status"),
+        "priority": it.get("priority"),
+        "category": it.get("category"),
+        "value": it.get("value"),
+        "effort": it.get("effort"),
+        "id": it.get("id"),
+    }
+
+
+def _parse_project_items_json(stdout: str) -> dict[str, dict[str, str | None]]:
+    """Parse output of gh project item-list or REST items into mapping of URL -> {field: value}."""
+    if not stdout or not stdout.strip():
+        return {}
+    try:
+        payload = json.loads(stdout)
+        raw_items = payload.get("items", []) if isinstance(payload, dict) else payload
+        if not isinstance(raw_items, list):
+            return {}
+        items_data: dict[str, dict[str, str | None]] = {}
+        for it in raw_items:
+            if isinstance(it, dict):
+                url = _extract_item_url(it)
+                if url:
+                    items_data[url] = _extract_item_fields(it)
+        return items_data
+    except Exception:
+        return {}
+
+
+def _fetch_project_items_data(owner: str, project_number: int) -> dict[str, dict[str, str | None]]:
+    """Retrieve items and current custom field values from the project board."""
+    owner_arg = _resolve_project_owner_arg(owner)
+    cmd = [
+        CONST_GH_CLI,
+        "project",
+        "item-list",
+        str(project_number),
+        "--owner",
+        owner_arg,
+        "--format",
+        "json",
+        "--limit",
+        "1000",
+    ]
+    proc = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=60.0)
+    if proc.returncode != 0 and owner_arg != "@me":
+        fallback_cmd = [
+            CONST_GH_CLI,
+            "project",
+            "item-list",
+            str(project_number),
+            "--owner",
+            "@me",
+            "--format",
+            "json",
+            "--limit",
+            "1000",
+        ]
+        proc = run_gh(fallback_cmd, check=False, quiet=True, use_cache=True, cache_ttl=60.0)
+
+    if proc.returncode == 0 and proc.stdout:
+        parsed = _parse_project_items_json(proc.stdout)
+        if parsed:
+            return parsed
+
+    fallback_urls = _fetch_project_item_urls(owner, project_number)
+    return {
+        u: {
+            "status": None,
+            "priority": None,
+            "category": None,
+            "value": None,
+            "effort": None,
+        }
+        for u in fallback_urls
+    }
+
+
 def _fetch_repository_issues(repo: str) -> list[dict[str, Any]]:
     """Retrieve candidate issues from the repository via GitHub API."""
-    res = run_subprocess(
+    res = run_gh(
         [
             CONST_GH_CLI,
             "api",
@@ -698,7 +784,8 @@ def sync_repository_issues_to_project(
         return 0
 
     owner_arg = _resolve_project_owner_arg(owner)
-    existing_urls = _fetch_project_item_urls(owner, project_number)
+    existing_items = _fetch_project_items_data(owner, project_number)
+    existing_urls = set(existing_items.keys())
     issues = _fetch_repository_issues(repo)
     added = 0
 
@@ -835,7 +922,7 @@ def infer_item_category_value_effort(
 
 def _fetch_repository_prs(repo: str) -> list[dict[str, Any]]:
     """Retrieve candidate PRs from the repository via GitHub API."""
-    res = run_subprocess(
+    res = run_gh(
         [
             CONST_GH_CLI,
             "api",
@@ -871,7 +958,7 @@ def _edit_project_item_field(
         "--value",
         field_val,
     ]
-    proc = run_subprocess(edit_cmd, check=False, quiet=True)
+    proc = run_gh(edit_cmd, check=False, quiet=True)
     if proc.returncode != 0 and owner_arg != "@me":
         err_output = f"{proc.stderr or ''} {proc.stdout or ''}".lower()
         if "unknown owner type" in err_output:
@@ -889,8 +976,23 @@ def _edit_project_item_field(
                 "--value",
                 field_val,
             ]
-            proc = run_subprocess(fallback_cmd, check=False, quiet=True)
+            proc = run_gh(fallback_cmd, check=False, quiet=True)
     return proc.returncode == 0
+
+
+def _filter_differing_fields(
+    current_fields: dict[str, str | None] | None,
+    target_fields: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    """Return only target fields whose values differ from current remote values."""
+    if not current_fields:
+        return target_fields
+    differing: list[tuple[str, str]] = []
+    for fname, fval in target_fields:
+        curr = current_fields.get(fname.lower())
+        if curr is None or curr.strip().lower() != fval.strip().lower():
+            differing.append((fname, fval))
+    return differing
 
 
 def _reconcile_single_item(
@@ -899,8 +1001,9 @@ def _reconcile_single_item(
     item: dict[str, Any],
     dry_run: bool,
     has_open_pr: bool = False,
+    current_fields: dict[str, str | None] | None = None,
 ) -> bool:
-    """Infer and apply all custom fields to a single candidate project item."""
+    """Infer and apply custom fields to a project item only if values differ from remote state."""
     url = item.get("html_url") or item.get("url") or ""
     if not url:
         return False
@@ -913,19 +1016,30 @@ def _reconcile_single_item(
     status = infer_item_status(state, labels, is_pr=is_pr, has_open_pr=has_open_pr)
     category, val, eff = infer_item_category_value_effort(title, priority, labels=labels)
 
+    fields_to_update = _filter_differing_fields(
+        current_fields=current_fields,
+        target_fields=[
+            ("Status", status),
+            ("Priority", priority),
+            ("Category", category),
+            ("Value", val),
+            ("Effort", eff),
+        ],
+    )
+
+    if not fields_to_update:
+        return False
+
     if dry_run:
         return True
 
-    fields = [
-        ("Status", status),
-        ("Priority", priority),
-        ("Category", category),
-        ("Value", val),
-        ("Effort", eff),
-    ]
-    for fname, fval in fields:
-        _edit_project_item_field(owner, project_number, url, fname, fval)
-    return True
+    updated_any = False
+    for fname, fval in fields_to_update:
+        if _edit_project_item_field(owner, project_number, url, fname, fval):
+            updated_any = True
+            if current_fields is not None:
+                current_fields[fname.lower()] = fval
+    return updated_any
 
 
 def _extract_linked_issue_numbers(prs: list[dict[str, Any]]) -> set[int]:
@@ -951,6 +1065,53 @@ def _extract_linked_issue_numbers(prs: list[dict[str, Any]]) -> set[int]:
     return linked_numbers
 
 
+def _provision_missing_candidates(
+    owner: str,
+    project_number: int,
+    candidates: list[dict[str, Any]],
+    items_data: dict[str, dict[str, str | None]],
+) -> None:
+    """Add any missing candidate issues/PRs to the remote project board."""
+    owner_arg = _resolve_project_owner_arg(owner)
+    existing_urls = set(items_data.keys())
+    for it in candidates:
+        url = it.get("html_url") or it.get("url")
+        if (
+            url
+            and url not in existing_urls
+            and _add_project_item_with_fallback(owner_arg, project_number, url)
+        ):
+            existing_urls.add(url)
+            items_data[url] = {}
+
+
+def _reconcile_candidate_items(
+    owner: str,
+    project_number: int,
+    candidates: list[dict[str, Any]],
+    items_data: dict[str, dict[str, str | None]],
+    open_pr_issue_numbers: set[int],
+    dry_run: bool,
+) -> int:
+    """Iterate over candidates and reconcile custom fields where values differ."""
+    reconciled_count = 0
+    for it in candidates:
+        url = it.get("html_url") or it.get("url") or ""
+        it_num = int(it.get("number", 0))
+        has_pr = it_num in open_pr_issue_numbers
+        current = items_data.get(url)
+        if _reconcile_single_item(
+            owner,
+            project_number,
+            it,
+            dry_run,
+            has_open_pr=has_pr,
+            current_fields=current,
+        ):
+            reconciled_count += 1
+    return reconciled_count
+
+
 def reconcile_project_custom_fields(
     owner: str,
     repo: str,
@@ -958,7 +1119,7 @@ def reconcile_project_custom_fields(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Reconcile custom field values (Status, Priority, Category, Value, Effort) on project items."""
-    existing_urls = _fetch_project_item_urls(owner, project_number)
+    items_data = _fetch_project_items_data(owner, project_number)
     issues = _fetch_repository_issues(repo)
     prs = _fetch_repository_prs(repo)
     candidates = issues + prs
@@ -966,22 +1127,11 @@ def reconcile_project_custom_fields(
     open_pr_issue_numbers = _extract_linked_issue_numbers(prs)
 
     if not dry_run:
-        owner_arg = _resolve_project_owner_arg(owner)
-        for it in candidates:
-            url = it.get("html_url") or it.get("url")
-            if (
-                url
-                and url not in existing_urls
-                and _add_project_item_with_fallback(owner_arg, project_number, url)
-            ):
-                existing_urls.add(url)
+        _provision_missing_candidates(owner, project_number, candidates, items_data)
 
-    reconciled_count = 0
-    for it in candidates:
-        it_num = int(it.get("number", 0))
-        has_pr = it_num in open_pr_issue_numbers
-        if _reconcile_single_item(owner, project_number, it, dry_run, has_open_pr=has_pr):
-            reconciled_count += 1
+    reconciled_count = _reconcile_candidate_items(
+        owner, project_number, candidates, items_data, open_pr_issue_numbers, dry_run
+    )
 
     return {
         "project_number": project_number,
@@ -1062,7 +1212,7 @@ def get_remote_project_views(
         f"projectsV2(first: 5) {{ nodes {{ id number title views(first: 20) {{ nodes {{ id name layout }} }} }} }} }} }}"
     )
     cmd = [CONST_GH_CLI, "api", "graphql", "-f", f"query={query}"]
-    proc = run_subprocess(cmd, check=False, quiet=True)
+    proc = run_gh(cmd, check=False, quiet=True)
     if proc.returncode != 0 or not proc.stdout:
         return None, None, []
     try:
@@ -1084,7 +1234,7 @@ def _create_project_view(project_id: str, name: str, layout: str) -> bool:
         f"mutation {{ createProjectV2View(input: {{ projectId: {json.dumps(project_id)}, "
         f"name: {json.dumps(name)}, layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}"
     )
-    proc = run_subprocess(
+    proc = run_gh(
         [CONST_GH_CLI, "api", "graphql", "-f", f"query={mutation}"],
         check=False,
         quiet=True,
@@ -1099,7 +1249,7 @@ def _rename_default_view(view_id: str, name: str, layout: str) -> bool:
         f"mutation {{ updateProjectV2View(input: {{ viewId: {json.dumps(view_id)}, "
         f"name: {json.dumps(name)}, layout: {layout_enum} }}) {{ projectV2View {{ id name }} }} }}"
     )
-    proc = run_subprocess(
+    proc = run_gh(
         [CONST_GH_CLI, "api", "graphql", "-f", f"query={mutation}"],
         check=False,
         quiet=True,
@@ -1150,7 +1300,7 @@ def _list_projects_via_rest(owner: str) -> list[dict[str, Any]]:
     """List projects using GitHub REST API."""
     for endpoint in (f"users/{owner}/projectsV2", f"orgs/{owner}/projectsV2"):
         cmd = [CONST_GH_CLI, "api", endpoint, "-H", "Accept: application/vnd.github+json"]
-        proc = run_subprocess(cmd, check=False, quiet=True)
+        proc = run_gh(cmd, check=False, quiet=True)
         if proc.returncode != 0 or not proc.stdout.strip():
             continue
         try:

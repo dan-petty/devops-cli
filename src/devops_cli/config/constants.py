@@ -139,6 +139,15 @@ CONST_GITHUB_SSH_URL_PREFIX = "ssh://git@github.com/"
 CONST_GITHUB_HTTP_PREFIX = "http://github.com/"
 CONST_GITHUB_HTTPS_PREFIX = "https://github.com/"
 CONST_GITHUB_REPO_SUFFIX = ".git"
+CONST_GITHUB_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
+    "rate limit exceeded",
+    "rate limit already exceeded",
+    "secondary rate limit",
+    "abuse-rate-limit",
+    "too many requests",
+    "http 429",
+    "wait a few minutes before you try again",
+)
 
 CONST_URL_OLLAMA_LOCALHOST = "http://localhost:11434"
 CONST_URL_ANTHROPIC_API_BASE = "https://api.anthropic.com"
@@ -248,6 +257,7 @@ CONST_RECOMMENDATION_BLOCK = "BLOCK"
 
 # ── GitHub CLI & Pull Requests ────────────────────────────────────────────────
 CONST_GH_CLI = "gh"
+CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
 CONST_BRANCH_PREFIXES: tuple[str, ...] = (
     "feat/",
     "fix/",
@@ -287,6 +297,8 @@ CONST_ERROR_CODE_SANDBOX = "SANDBOX_ERROR"
 CONST_ERROR_CODE_SANDBOX_VALIDATION = "SANDBOX_VALIDATION_ERROR"
 CONST_ERROR_CODE_SANDBOX_PORT_ALLOCATION = "SANDBOX_PORT_ALLOCATION_ERROR"
 CONST_ERROR_CODE_SANDBOX_NOT_FOUND = "SANDBOX_NOT_FOUND_ERROR"
+CONST_ERROR_CODE_COSIGN = "COSIGN_ERROR"
+CONST_ERROR_CODE_COSIGN_VERIFY = "COSIGN_VERIFICATION_FAILED"
 
 
 CONST_EXIT_SUCCESS: int = 0
