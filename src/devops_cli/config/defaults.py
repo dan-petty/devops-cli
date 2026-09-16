@@ -555,3 +555,13 @@ DEFAULT_REVIEW_POOL_RATE: float = 10.0
 DEFAULT_REVIEW_POOL_CAPACITY: float = 10.0
 DEFAULT_REVIEW_POOL_MAX_CONCURRENCY: int = 4
 DEFAULT_HALLUCINATION_SIMILARITY_THRESHOLD: float = 0.5
+
+# ── Kubernetes Falco Security Stream Defaults ─────────────────────────────────
+DEFAULT_FALCO_NAMESPACE: str = "falco"
+DEFAULT_FALCO_LABEL_SELECTOR: str = "app.kubernetes.io/name=falco"
+DEFAULT_SECURITY_STREAM_DURATION_SECONDS: int = 30
+DEFAULT_SECURITY_STREAM_TAIL_LINES: int = 100
+
+# ── Threat Intelligence Distributed Caching Defaults ─────────────────────────
+DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS: int = 86400  # 24 hours
+DEFAULT_THREAT_INTEL_BATCH_SIZE: int = 25

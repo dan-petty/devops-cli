@@ -76,6 +76,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_logs_query`](#k8s-logs-query) | Execute LogQL query across Kubernetes and cluster log streams (e.g. {app="web"} |= "error"). |
 | [`k8s_logs_tail`](#k8s-logs-tail) | Tail recent log lines matching LogQL stream selector (e.g. {app="web"}). |
 | [`k8s_pods`](#k8s-pods) | List Kubernetes pod status for the specified namespace. |
+| [`k8s_security_stream`](#k8s-security-stream) | Stream runtime security anomaly events and syscall alerts from Kubernetes Falco eBPF probes. |
 | [`k8s_status`](#k8s-status) | Display pod status across infrastructure namespaces. |
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | Uninstall Kubernetes infrastructure or LLM stack and delete namespaces. |
 | [`k8s_validate`](#k8s-validate) | Validate Kubernetes manifest syntax and schemas against OpenAPI specifications. |
@@ -902,6 +903,19 @@ List Kubernetes pod status for the specified namespace.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `namespace` | `string` | No | `default` | - |
+
+### `k8s_security_stream`
+
+Stream runtime security anomaly events and syscall alerts from Kubernetes Falco eBPF probes.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `namespace` | `string` | No | `falco` | - |
+| `severity` | `string` | No | - | - |
+| `tail_lines` | `integer` | No | `100` | - |
+| `simulate` | `boolean` | No | `False` | - |
 
 ### `k8s_status`
 

@@ -12,6 +12,11 @@ from typing import Literal
 from fastmcp import FastMCP
 
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.constants import (
+    CONST_FALCO_SEVERITY_LEVELS,
+    CONST_MAX_SECURITY_STREAM_TAIL_LINES,
+    CONST_MIN_SECURITY_STREAM_TAIL_LINES,
+)
 from devops_cli.config.defaults import (
     DEFAULT_AI_FALLBACK_MODEL,
     DEFAULT_AI_FALLBACK_PROVIDER,
@@ -1828,6 +1833,53 @@ def k8s_diff_helm(
         ],
         timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
     )
+
+
+@mcp.tool()
+def k8s_security_stream(
+    namespace: str = "falco",
+    severity: str | None = None,
+    tail_lines: int = 100,
+    simulate: bool = False,
+) -> str:
+    """Stream runtime security anomaly events and syscall alerts from Kubernetes Falco eBPF probes."""
+    _validate_mcp_arg("namespace", namespace)
+    if (
+        tail_lines < CONST_MIN_SECURITY_STREAM_TAIL_LINES
+        or tail_lines > CONST_MAX_SECURITY_STREAM_TAIL_LINES
+    ):
+        raise ValidationError(
+            f"tail_lines must be between {CONST_MIN_SECURITY_STREAM_TAIL_LINES} and "
+            f"{CONST_MAX_SECURITY_STREAM_TAIL_LINES} (got {tail_lines})",
+            field="tail_lines",
+        )
+    if severity is not None:
+        _validate_mcp_arg("severity", severity)
+        cleaned_sev = severity.strip().upper()
+        if cleaned_sev not in CONST_FALCO_SEVERITY_LEVELS:
+            valid = ", ".join(sorted(CONST_FALCO_SEVERITY_LEVELS.keys()))
+            raise ValidationError(
+                f"Invalid severity '{severity}'. Must be one of: {valid}",
+                field="severity",
+            )
+
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "k8s",
+        "security-stream",
+        "--namespace",
+        namespace,
+        "--tail",
+        str(tail_lines),
+        "--json",
+    ]
+    if severity:
+        cmd.extend(["--severity", severity])
+    if simulate:
+        cmd.append("--simulate")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
 @mcp.tool()

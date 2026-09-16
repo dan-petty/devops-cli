@@ -542,3 +542,24 @@ CONST_SANDBOX_NETWORK_MODE_ALIASES: Final[dict[str, str]] = {
     "local": CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
     "bridge": CONST_SANDBOX_NETWORK_BRIDGE,
 }
+
+# Falco runtime security severity hierarchy
+CONST_FALCO_SEVERITY_LEVELS: Final[dict[str, int]] = {
+    "DEBUG": 0,
+    "INFO": 1,
+    "INFORMATIONAL": 1,
+    "NOTICE": 2,
+    "WARNING": 3,
+    "ERROR": 4,
+    "CRITICAL": 5,
+    "ALERT": 6,
+    "EMERGENCY": 7,
+}
+
+CONST_MIN_SECURITY_STREAM_DURATION: Final[int] = 1
+CONST_MAX_SECURITY_STREAM_DURATION: Final[int] = 3600
+CONST_MIN_SECURITY_STREAM_TAIL_LINES: Final[int] = 1
+CONST_MAX_SECURITY_STREAM_TAIL_LINES: Final[int] = 10000
+
+# Threat intelligence distributed caching
+CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"

@@ -213,6 +213,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops k8s diff-helm [OPTIONS] <release_name> <chart_path>` | Preview Kubernetes manifest diffs before executing a Helm upgrade. |
 |  | `devops k8s chaos [OPTIONS] <experiment>` | Run resilience and chaos experiments against Kubernetes workloads. |
 |  | `devops k8s pods [OPTIONS]` | List running pods with health status, restart counts, and age. |
+|  | `devops k8s security-stream [OPTIONS]` | Stream runtime security anomaly events from Kubernetes Falco eBPF probes. |
 | **kustomize** | `devops kustomize build [OPTIONS] <path>` | Build kustomize overlays (delegates to kustomize build). |
 |  | `devops kustomize diff <path>` | Show a diff of pending changes (delegates to kubectl diff -k). |
 |  | `devops kustomize apply [OPTIONS] <path>` | Apply a kustomization (delegates to kubectl apply -k). |
