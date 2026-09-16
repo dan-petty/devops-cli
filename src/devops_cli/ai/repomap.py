@@ -201,7 +201,7 @@ def _polyglot_to_file_node(source_file: Path, base_root: Path) -> FileMapNode | 
         return None
 
     try:
-        st = source_file.stat()
+        st = resolved_file.stat()
         if st.st_size > MAX_REPOMAP_FILE_SIZE_BYTES:
             logger.warning(
                 "Skipping polyglot file '%s': size (%d bytes) exceeds maximum limit (%d bytes)",
@@ -217,7 +217,7 @@ def _polyglot_to_file_node(source_file: Path, base_root: Path) -> FileMapNode | 
     from devops_cli.ai.ast.engine import TreeSitterEngine
 
     engine = TreeSitterEngine()
-    poly_map = engine.parse_file(source_file)
+    poly_map = engine.parse_file(resolved_file)
     if not poly_map or not poly_map.symbols:
         return None
 

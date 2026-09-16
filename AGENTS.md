@@ -38,6 +38,9 @@ This document provides foundational context, architectural principles, and opera
   - Bounded string truncation on error details: Always enforce bounded length caps ($\le 256$ chars) on external or caller-provided inputs propagated into exception `details` dictionaries or structured error logs to prevent log bloat and injection (CWE-209 / CWE-400).
   - Mitigate Server-Side Request Forgery (SSRF) and network egress risks by validating destination endpoints.
   - Enforce subprocess safety with explicit command argument lists, bounded timeouts, and error handling.
+  - **Defensive Filesystem, Symlink & Resource Containment**:
+    - Always enforce pre-flight file size caps (e.g. `MAX_REPOMAP_FILE_SIZE_BYTES` $\le 5$MB) before ingesting, parsing, or packing files into memory (via Python AST, Tree-Sitter, or text loaders) to prevent out-of-memory crashes and denial-of-service from minified bundles, database dumps, or large binaries.
+    - Always defensively resolve filesystem symlinks (`path.resolve()`) and verify that target paths remain strictly confined within the intended root workspace (`resolved_path.is_relative_to(base_root)`), catching `(OSError, RuntimeError)` to prevent circular symlink loops (`ELOOP`) and directory traversal escapes.
 - **Never Lower Security Standards or Quality Thresholds**: Never lower, relax, disable, bypass, or weaken security standards, quality thresholds (such as minimum 90% code coverage, strict static type checks, or lint rules), or compliance validations unless explicitly instructed by the user.
 - **Continuous Standards Compliance & Solution Refinement**: Ensure every proposed solution, design, code change, or architecture meets all project standards and conventions, iteratively refining until every standard is met or exceeded.
 - **Strict Pre-Push Quality Gate Mandate (Zero Pushes Without Passing `devops ci`)**:

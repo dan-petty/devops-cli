@@ -1,8 +1,8 @@
 # Task 119: Polyglot Tree-Sitter File Size Boundary Guard & Resource Containment
 
 **Issue**: [#119](https://github.com/dan-petty/devops-cli/issues/119)
-**PR**: Pending
-**Status**: In Progress
+**PR**: [#225](https://github.com/dan-petty/devops-cli/pull/225)
+**Status**: In Review
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/ai`
