@@ -170,3 +170,81 @@ def test_cloudflare_radar_cache_hit_ratio_metric(mock_valkey: MagicMock) -> None
     assert stats["requests"] == 2
     assert stats["hits"] == 2
     assert stats["hit_ratio"] == 1.0
+
+
+def test_cloudflare_radar_error_not_saved_to_valkey_l2(mock_valkey: MagicMock) -> None:
+    mock_valkey.get.return_value = None
+
+    client = CloudflareRadarClient(valkey_client=mock_valkey)
+    with patch("httpx2.Client.get") as mock_get:
+        mock_get.side_effect = RuntimeError("Radar API network connection timeout")
+
+        rec = client.check_domain("transient-error-domain.org")
+        assert rec.target == "transient-error-domain.org"
+        assert rec.reputation_summary == "Verified domain reference"
+
+        # Transient error fallback must NOT be saved to distributed L2 cache
+        mock_valkey.set.assert_not_called()
+
+
+def test_cloudflare_radar_configurable_ttl(mock_valkey: MagicMock) -> None:
+    mock_valkey.get.return_value = None
+
+    client = CloudflareRadarClient(valkey_client=mock_valkey, ttl=3600)
+    with patch("httpx2.Client.get") as mock_get:
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"result": {"categories": [{"name": "Security"}]}}
+        mock_get.return_value = mock_resp
+
+        client.check_domain("custom-ttl.org")
+        mock_valkey.set.assert_called_once()
+        assert mock_valkey.set.call_args[1].get("ex") == 3600
+
+
+def test_cloudflare_radar_batch_size_validation() -> None:
+    from devops_cli.exceptions import ValidationError
+
+    client = CloudflareRadarClient(valkey_client=None)
+
+    with pytest.raises(ValidationError, match="batch_size must be a positive integer"):
+        client.check_domains_batch(["example.org"], batch_size=0)
+
+    with pytest.raises(ValidationError, match="batch_size must be a positive integer"):
+        client.check_domains_batch(["example.org"], batch_size=-1)
+
+
+def test_cloudflare_radar_valkey_connection_error_disables_valkey() -> None:
+    broken_valkey = MagicMock()
+    broken_valkey.get.side_effect = ConnectionError("Connection refused")
+
+    client = CloudflareRadarClient(valkey_client=broken_valkey)
+    with patch("httpx2.Client.get") as mock_get:
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"result": {"categories": []}}
+        mock_get.return_value = mock_resp
+
+        # First call triggers connection error and disables Valkey
+        client.check_domain("domain-1.org")
+        assert client._valkey is None
+        assert broken_valkey.get.call_count == 1
+
+        # Second call does not attempt broken Valkey
+        client.check_domain("domain-2.org")
+        assert broken_valkey.get.call_count == 1
+
+
+def test_cloudflare_radar_valkey_corrupt_payload_keeps_valkey_enabled(
+    mock_valkey: MagicMock,
+) -> None:
+    mock_valkey.get.return_value = "not valid json {{"
+
+    client = CloudflareRadarClient(valkey_client=mock_valkey)
+    with patch("httpx2.Client.get") as mock_get:
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"result": {"categories": []}}
+        mock_get.return_value = mock_resp
+
+        # Corrupt payload returns None from L2, but Valkey remains enabled
+        client.check_domain("corrupt-domain.org")
+        assert client._valkey is mock_valkey
+        assert mock_valkey.set.call_count == 1
