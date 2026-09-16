@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
+import random
 import threading
+import time
 from collections import OrderedDict
 from collections.abc import Sequence
 from concurrent.futures import as_completed
@@ -28,12 +31,19 @@ if TYPE_CHECKING:
 from devops_cli.config.constants import (
     CONST_ERROR_CODE_LLM_INFERENCE,
     CONST_EXIT_FAILURE,
+    CONST_VALKEY_EMBEDDING_PREFIX,
 )
 from devops_cli.config.defaults import (
     DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
+    DEFAULT_RAG_EMBEDDING_BACKOFF_BASE_SECONDS,
+    DEFAULT_RAG_EMBEDDING_BATCH_SIZE,
     DEFAULT_RAG_EMBEDDING_CACHE_SIZE,
+    DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS,
+    DEFAULT_RAG_EMBEDDING_MAX_BACKOFF_SECONDS,
+    DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE,
     DEFAULT_RAG_EMBEDDING_MODEL,
     DEFAULT_RAG_EMBEDDING_TIMEOUT,
+    DEFAULT_VALKEY_EMBEDDING_TTL_SECONDS,
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -46,6 +56,20 @@ from devops_cli.telemetry import (
 )
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_VALKEY: object = object()
+
+
+def _calculate_backoff_delay(
+    attempt: int,
+    base: float = DEFAULT_RAG_EMBEDDING_BACKOFF_BASE_SECONDS,
+    max_delay: float = DEFAULT_RAG_EMBEDDING_MAX_BACKOFF_SECONDS,
+) -> float:
+    """Compute exponential backoff delay with bounded jitter."""
+    exp_delay = min(max_delay, base * (2**attempt))
+    jitter = random.uniform(0.0, 0.1 * exp_delay)
+    return float(round(exp_delay + jitter, 4))
+
 
 # Shared in-memory cache for resolved (provider, model) -> dimension
 _MODEL_DIMENSION_CACHE: dict[tuple[str, str], int] = {}
@@ -161,6 +185,8 @@ class EmbeddingsEngine:
         api_key: str | None = None,
         timeout: float | None = None,
         cache_size: int = DEFAULT_RAG_EMBEDDING_CACHE_SIZE,
+        valkey_client: Any = _DEFAULT_VALKEY,
+        batch_size: int = DEFAULT_RAG_EMBEDDING_BATCH_SIZE,
     ) -> None:
         if ai_config is None:
             try:
@@ -186,6 +212,106 @@ class EmbeddingsEngine:
         self.model = task_model or DEFAULT_RAG_EMBEDDING_MODEL
         self._dimension: int | None = None
         self._cache = _EmbeddingLRUCache(maxsize=cache_size)
+        self._valkey = self._init_valkey(valkey_client)
+        self._current_batch_size = max(DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE, batch_size)
+        self._batch_lock = threading.Lock()
+
+    def _init_valkey(self, valkey_client: Any) -> Any:
+        """Initialize or assign Valkey client with error boundary."""
+        if valkey_client is not _DEFAULT_VALKEY:
+            return valkey_client
+        try:
+            from devops_cli.config.settings import get_valkey_password, load_settings
+            from devops_cli.valkey.client import ValkeyClient
+
+            settings = load_settings()
+            cfg = settings.valkey
+            pwd = get_valkey_password(settings)
+            return ValkeyClient(
+                host=cfg.host,
+                port=cfg.port,
+                password=pwd,
+                db=cfg.db,
+                timeout=cfg.timeout,
+            )
+        except Exception:
+            return None
+
+    def _halve_batch_size(self) -> int:
+        """Dynamically halve the batch size down to minimum threshold on failure or latency degradation."""
+        with self._batch_lock:
+            self._current_batch_size = max(
+                DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE,
+                self._current_batch_size // 2,
+            )
+            return self._current_batch_size
+
+    def _record_batch_latency(self, elapsed: float) -> None:
+        """Inspect batch latency and adapt batch size if exceeding performance threshold."""
+        if elapsed > DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS:
+            self._halve_batch_size()
+
+    def _valkey_key(self, text: str, model: str) -> str:
+        """Generate namespaced deterministic Valkey cache key."""
+        h = hashlib.sha256(f"{model}\x00{text}".encode()).hexdigest()
+        return f"{CONST_VALKEY_EMBEDDING_PREFIX}:{h}"
+
+    def _get_valkey_embedding(self, text: str, model: str) -> list[float] | None:
+        """Fetch cached embedding vector from Valkey L2 cache."""
+        if self._valkey is None:
+            return None
+        try:
+            key = self._valkey_key(text, model)
+            raw = self._valkey.get(key)
+            if raw and isinstance(raw, (str, bytes)):
+                data = json.loads(raw)
+                if isinstance(data, list) and data:
+                    return [float(x) for x in data]
+        except Exception as exc:
+            logger.debug("Valkey embedding read failed: %s", exc)
+            self._valkey = None
+        return None
+
+    def _set_valkey_embedding(self, text: str, model: str, vector: list[float]) -> None:
+        """Store embedding vector into Valkey L2 cache with configured TTL."""
+        if self._valkey is None:
+            return
+        try:
+            key = self._valkey_key(text, model)
+            payload = json.dumps(vector)
+            self._valkey.set(key, payload, ex=DEFAULT_VALKEY_EMBEDDING_TTL_SECONDS)
+        except Exception as exc:
+            logger.debug("Valkey embedding write failed: %s", exc)
+            self._valkey = None
+
+    def _partition_with_valkey_l2(
+        self, texts: list[str]
+    ) -> tuple[dict[int, list[float]], list[int], list[str]]:
+        """Partition texts through L1 in-memory cache and L2 Valkey chunk cache."""
+        cached, l1_miss_indices, l1_miss_texts = self._partition_cache(texts)
+        if not l1_miss_texts or self._valkey is None:
+            return cached, l1_miss_indices, l1_miss_texts
+
+        final_miss_indices: list[int] = []
+        final_miss_texts: list[str] = []
+        valkey_hits = 0
+
+        for idx, text in zip(l1_miss_indices, l1_miss_texts, strict=True):
+            v_hit = self._get_valkey_embedding(text, self.model)
+            if v_hit is not None:
+                cached[idx] = v_hit
+                self._cache.put(text, self.model, v_hit)
+                valkey_hits += 1
+            else:
+                final_miss_indices.append(idx)
+                final_miss_texts.append(text)
+
+        if valkey_hits > 0:
+            from devops_cli.telemetry import record_metric
+
+            record_metric("devops_cli_embedding_valkey_hits_total", valkey_hits, unit="1")
+
+        return cached, final_miss_indices, final_miss_texts
 
     @property
     def dimension(self) -> int:
@@ -327,7 +453,7 @@ class EmbeddingsEngine:
         ):
             from devops_cli.telemetry import record_metric
 
-            cached, miss_indices, miss_texts = self._partition_cache(texts)
+            cached, miss_indices, miss_texts = self._partition_with_valkey_l2(texts)
             record_metric("devops_cli_embedding_cache_hits_total", len(cached), unit="1")
             record_metric("devops_cli_embedding_cache_misses_total", len(miss_texts), unit="1")
             record_metric("devops_cli_embedding_cache_size", self._cache.size, unit="1")
@@ -344,6 +470,7 @@ class EmbeddingsEngine:
                     miss_indices, miss_texts, fresh, strict=True
                 ):
                     self._cache.put(original_text, self.model, vector)
+                    self._set_valkey_embedding(original_text, self.model, vector)
                     cached[miss_idx] = vector
 
             return [cached[i] for i in range(len(texts))]
@@ -398,14 +525,70 @@ class EmbeddingsEngine:
                 "rag.model": str(self.model),
             },
         ):
+            start_t = time.monotonic()
             client_timeout = httpx2.Timeout(self.timeout, connect=min(self.timeout, 2.0))
             with httpx2.Client(timeout=client_timeout) as client:
-                return self._try_batch_embed_endpoint(client, base_url, batch_texts)
+                res = self._try_batch_embed_endpoint(client, base_url, batch_texts)
+            elapsed = time.monotonic() - start_t
+            if res is not None:
+                self._record_batch_latency(elapsed)
+            return res
+
+    def _try_single_candidate(
+        self, base_url: str, batch_texts: list[str], attempt: int
+    ) -> list[list[float]] | None:
+        """Attempt single node query with timeout backoff and dynamic batch halving."""
+        try:
+            embs = self._query_ollama_node_batch(base_url.rstrip("/"), batch_texts)
+            if embs and embs[0]:
+                self._record_dimension(len(embs[0]))
+                return embs
+        except (httpx2.TimeoutException, TimeoutError) as exc:
+            self._halve_batch_size()
+            delay = _calculate_backoff_delay(attempt)
+            logger.debug("Ollama timeout on %s, backoff %.2fs: %s", base_url, delay, exc)
+            time.sleep(delay)
+        except Exception as exc:
+            logger.debug("Ollama error on %s: %s", base_url, exc)
+        return None
+
+    def _try_query_candidate_nodes(
+        self, urls: list[str], batch_texts: list[str]
+    ) -> list[list[float]] | None:
+        """Iterate candidate nodes with backoff to execute batch."""
+        for attempt, base_url in enumerate(urls):
+            embs = self._try_single_candidate(base_url, batch_texts, attempt)
+            if embs is not None:
+                return embs
+        return None
+
+    def _embed_batch_with_subdivision(
+        self, urls: list[str], batch_texts: list[str]
+    ) -> list[list[float]]:
+        """Embed batch with recursive halving down to single-chunk fallback."""
+        if not batch_texts:
+            return []
+        embs = self._try_query_candidate_nodes(urls, batch_texts)
+        if embs is not None:
+            return embs
+
+        # If batch size > 1, subdivide into two halves and retry
+        if len(batch_texts) > 1:
+            mid = len(batch_texts) // 2
+            left = self._embed_batch_with_subdivision(urls, batch_texts[:mid])
+            right = self._embed_batch_with_subdivision(urls, batch_texts[mid:])
+            return left + right
+
+        # Single chunk failed across all candidate nodes: deterministic fallback
+        return self._deterministic_fallback(batch_texts)
 
     def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
-        """Compute Ollama embeddings with multi-node round-robin distribution and batching."""
+        """Compute Ollama embeddings with dynamic batch sizing and multi-node distribution."""
         urls = self._get_ollama_urls()
-        chunk_batch_size = 8
+        chunk_batch_size = max(
+            DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE,
+            self._current_batch_size,
+        )
         max_parallel = max(1, min(16, getattr(self.ai_config, "ollama_max_parallel", 2)))
 
         batches = [
@@ -417,31 +600,13 @@ class EmbeddingsEngine:
             batch_tuple: tuple[int, list[str]],
         ) -> tuple[int, list[list[float]]]:
             batch_idx, batch_texts = batch_tuple
-            last_err: Exception | None = None
-
-            # Distribute starting node across candidates via round-robin offset
             n_urls = len(urls)
-            start_offset = batch_idx % n_urls
-            candidate_urls = [urls[(start_offset + j) % n_urls] for j in range(n_urls)]
-
-            for base_url in candidate_urls:
-                try:
-                    embs = self._query_ollama_node_batch(base_url.rstrip("/"), batch_texts)
-                except Exception as exc:
-                    last_err = exc
-                    continue
-                if not (embs and embs[0]):
-                    continue
-                self._record_dimension(len(embs[0]))
-                return (batch_idx, embs)
-
-            if last_err:
-                logger.debug(
-                    "Ollama embedding batch %d failed across nodes: %s",
-                    batch_idx,
-                    last_err,
-                )
-            return (batch_idx, self._deterministic_fallback(batch_texts))
+            start_offset = batch_idx % n_urls if n_urls > 0 else 0
+            candidate_urls = (
+                [urls[(start_offset + j) % n_urls] for j in range(n_urls)] if n_urls > 0 else []
+            )
+            embs = self._embed_batch_with_subdivision(candidate_urls, batch_texts)
+            return (batch_idx, embs)
 
         total_workers = min(len(batches), max(1, len(urls) * max_parallel))
         results: list[tuple[int, list[list[float]]]] = []
@@ -456,8 +621,7 @@ class EmbeddingsEngine:
                 results.append(_embed_single_batch(b))
 
         results.sort(key=lambda x: x[0])
-        all_embeddings: list[list[float]] = [emb for _, batch_res in results for emb in batch_res]
-        return all_embeddings
+        return [emb for _, batch_res in results for emb in batch_res]
 
     def _embed_openai(self, texts: list[str]) -> list[list[float]]:
         """Query OpenAI-compatible /v1/embeddings API."""

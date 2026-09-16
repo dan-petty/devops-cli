@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.19] - 2026-09-16
 
 ### Added
+- **Adaptive Embedding Batch Sizing Circuit Breaker & Valkey L2 Chunk Caching (`devops_cli.ai.rag.embeddings`)**:
+  - Implemented dynamic batch sizing starting at 32 with automatic halving (32 -> 16 -> 8 -> 4 -> 2 -> 1) on latency degradation (> 2.0s) or timeouts.
+  - Added recursive sub-batch subdivision and single-chunk request fallback when multi-chunk batches fail across candidate nodes.
+  - Implemented exponential backoff with bounded jitter on transient network timeouts.
+  - Integrated pre-flight Valkey SHA-256 chunk cache checks before remote embedding dispatch, with automatic write-through caching and 7-day TTL.
 - **Automated Draft Release PR Description Generator (`devops release pr`)**:
   - Automatically queries and lists target milestone issues and deliverables under `### Target Milestone Deliverables`.
   - Dynamically synthesizes 10-gate CI quality checklists, CodeQL, and PR readiness controls adapted for draft vs. ready pull requests.
