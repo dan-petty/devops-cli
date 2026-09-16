@@ -1,8 +1,8 @@
 # Task 112: Sigstore Cosign Container Provenance & Image Signing
 
 **Issue**: [#112](https://github.com/dan-petty/devops-cli/issues/112)
-**PR**: None
-**Status**: In Progress
+**PR**: [#213](https://github.com/dan-petty/devops-cli/pull/213)
+**Status**: In Review
 **Milestone**: `v0.2.18`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/security`, `scope/cli`
