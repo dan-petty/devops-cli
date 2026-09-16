@@ -8,13 +8,18 @@ while preserving strict interface fidelity and type annotations.
 from __future__ import annotations
 
 import ast
+import bisect
 import logging
 from collections.abc import Collection, Sequence
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
+from devops_cli.ai.context_budget import (
+    _get_tiktoken_encoding,
+    count_tokens,
+    truncate_to_token_limit,
+)
 from devops_cli.config.defaults import (
     DEFAULT_CONTEXT_PACKING_MAX_TOKENS,
     DEFAULT_CONTEXT_PACKING_TOTAL_BUDGET,
@@ -260,49 +265,109 @@ def _strip_docstrings_from_node(node: ast.AST) -> None:
                     child.body = child.body[1:] if len(child.body) > 1 else [_make_ellipsis_expr()]
 
 
-def _calc_statement_tokens(stmt: ast.stmt) -> int:
-    """Calculate token estimate for a single AST statement node."""
-    try:
-        return count_tokens(ast.unparse(ast.Module(body=[stmt], type_ignores=[])))
-    except Exception:
-        return 0
+def _estimate_stmt_tokens(stmt: ast.stmt) -> int:
+    """Estimate token weight of an AST statement node with memoization."""
+    cached: int | None = getattr(stmt, "_est_tokens", None)
+    if cached is not None:
+        return cached
+
+    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        arg_len = sum(len(arg.arg) + 8 for arg in stmt.args.args)
+        ret_len = 10 if stmt.returns else 0
+        char_est = 10 + len(stmt.name) + arg_len + ret_len + 10
+    elif isinstance(stmt, ast.ClassDef):
+        char_est = 15 + len(stmt.name)
+    elif isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+        char_est = 30
+    elif isinstance(stmt, (ast.Import, ast.ImportFrom)):
+        char_est = 25
+    else:
+        char_est = 20
+
+    est = max(3, char_est // 4)
+    stmt._est_tokens = est  # type: ignore[attr-defined]
+    return est
+
+
+def _find_truncation_index(body: list[ast.stmt], max_tokens: int) -> tuple[int, str]:
+    """Find maximum statement prefix index and unparsed text fitting within max_tokens."""
+    if not body or max_tokens <= 0:
+        return 0, ""
+
+    weights = [_estimate_stmt_tokens(s) for s in body]
+    prefix_sums = [0]
+    for weight in weights:
+        prefix_sums.append(prefix_sums[-1] + weight)
+
+    est_k = min(len(body), max(0, bisect.bisect_right(prefix_sums, max_tokens) - 1))
+    cand_est = ast.unparse(ast.Module(body=body[:est_k], type_ignores=[])) if est_k > 0 else ""
+    tok_est = count_tokens(cand_est)
+
+    if tok_est <= max_tokens:
+        best_k = est_k
+        best_unparsed = cand_est
+        low = est_k + 1
+        high = len(body)
+    else:
+        best_k = 0
+        best_unparsed = ""
+        low = 0
+        high = est_k - 1
+
+    while low <= high:
+        mid = (low + high) // 2
+        cand = ast.unparse(ast.Module(body=body[:mid], type_ignores=[])) if mid > 0 else ""
+        if count_tokens(cand) <= max_tokens:
+            best_k = mid
+            best_unparsed = cand
+            low = mid + 1
+        else:
+            high = mid - 1
+
+    return best_k, best_unparsed
 
 
 def _prune_tree_to_budget(tree: ast.Module, max_tokens: int, pruned: list[str]) -> tuple[str, bool]:
     """Prune AST body nodes from the end until unparsed code fits within max_tokens."""
-    unparsed = ast.unparse(tree)
-    if count_tokens(unparsed) <= max_tokens:
-        return unparsed, False
+    if not tree.body:
+        return "", False
 
-    # Step 1: Strip docstrings first to preserve interface structure
-    _strip_docstrings_from_node(tree)
-    unparsed = ast.unparse(tree)
-    if count_tokens(unparsed) <= max_tokens:
-        return unparsed, True
+    if max_tokens <= 0:
+        for removed in tree.body:
+            rem_name = getattr(removed, "name", type(removed).__name__)
+            pruned.append(rem_name)
+        tree.body = []
+        return "# [Code truncated due to token budget]", True
 
-    # Step 2: Pre-compute statement token costs linearly to avoid O(N^2) unparsing
-    stmt_costs = [_calc_statement_tokens(stmt) for stmt in tree.body]
-    current_tokens = count_tokens(unparsed)
+    # Fast estimation check: if upper bound fits within max_tokens, verify with single unparse
+    weights = [_estimate_stmt_tokens(stmt) for stmt in tree.body]
+    total_est = sum(weights)
+    docstrings_stripped = False
 
-    while tree.body and current_tokens > max_tokens:
-        removed = tree.body.pop()
+    if total_est <= max_tokens:
+        unparsed = ast.unparse(tree)
+        if count_tokens(unparsed) <= max_tokens:
+            return unparsed, False
+        _strip_docstrings_from_node(tree)
+        docstrings_stripped = True
+        unparsed = ast.unparse(tree)
+        if count_tokens(unparsed) <= max_tokens:
+            return unparsed, True
+
+    orig_count = len(tree.body)
+    # Binary-search truncation index discovery
+    best_k, best_unparsed = _find_truncation_index(tree.body, max_tokens)
+
+    for removed in tree.body[best_k:]:
         rem_name = getattr(removed, "name", type(removed).__name__)
         pruned.append(rem_name)
-        current_tokens -= stmt_costs.pop() if stmt_costs else 0
 
-    unparsed = ast.unparse(tree) if tree.body else ""
+    tree.body = tree.body[:best_k]
 
-    # Step 3: Bounded safety boundary check for inter-statement whitespace differences
-    while tree.body and count_tokens(unparsed) > max_tokens:
-        removed = tree.body.pop()
-        rem_name = getattr(removed, "name", type(removed).__name__)
-        pruned.append(rem_name)
-        unparsed = ast.unparse(tree) if tree.body else ""
+    if not best_unparsed:
+        best_unparsed = "# [Code truncated due to token budget]"
 
-    if not unparsed:
-        unparsed = "# [Code truncated due to token budget]"
-
-    return unparsed, True
+    return best_unparsed, (best_k < orig_count or docstrings_stripped)
 
 
 def _finalize_packed_ast(
@@ -332,6 +397,7 @@ class ContextPacker:
 
     def __init__(self, default_config: PackingConfig | None = None) -> None:
         self.config = default_config or PackingConfig()
+        _get_tiktoken_encoding()  # Pre-warm BPE tokenizer encoding
 
     def pack_code(
         self,
