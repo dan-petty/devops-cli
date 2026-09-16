@@ -269,7 +269,16 @@ def test_release_prepare_pr_draft_default(sample_project_dir: Path) -> None:
 
 
 def test_release_pr_command(sample_project_dir: Path) -> None:
-    with patch("devops_cli.commands.release.run_subprocess") as mock_sub:
+    with (
+        patch("devops_cli.commands.release.run_subprocess") as mock_sub,
+        patch("devops_cli.commands.release.run_gh") as mock_gh,
+    ):
+        mock_gh.return_value = subprocess.CompletedProcess(
+            args=["gh", "issue", "list"],
+            returncode=0,
+            stdout='[{"number": 99, "title": "feat(core): core feature"}]',
+            stderr="",
+        )
         mock_sub.return_value = subprocess.CompletedProcess(
             args=["gh", "pr", "create"],
             returncode=0,
@@ -283,6 +292,10 @@ def test_release_pr_command(sample_project_dir: Path) -> None:
         assert result.exit_code == 0
         assert "Created Release Pull Request" in result.output
         assert "pull/42" in result.output
+        assert mock_gh.called
+        create_args = mock_sub.call_args[0][0]
+        body_idx = create_args.index("--body") + 1
+        assert "- #99" in create_args[body_idx]
 
 
 def test_format_release_title() -> None:
@@ -433,7 +446,13 @@ def test_release_pr_labels_and_draft(sample_project_dir: Path) -> None:
             )
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    with patch("devops_cli.commands.release.run_subprocess", side_effect=mock_subproc):
+    with (
+        patch("devops_cli.commands.release.run_subprocess", side_effect=mock_subproc),
+        patch(
+            "devops_cli.commands.release.run_gh",
+            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="[]", stderr=""),
+        ),
+    ):
         res_bad_lbl = runner.invoke(
             app,
             [
@@ -477,12 +496,17 @@ def test_release_pr_labels_and_draft(sample_project_dir: Path) -> None:
 
 def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> None:
     """Verify release pr branch failure, breaking flag, and gh create failure."""
+    mock_gh_empty = subprocess.CompletedProcess(args=[], returncode=0, stdout="[]", stderr="")
+
     # 1. Branch checkout failure
-    with patch(
-        "devops_cli.commands.release.run_subprocess",
-        return_value=subprocess.CompletedProcess(
-            args=[], returncode=1, stdout="", stderr="git checkout error"
+    with (
+        patch(
+            "devops_cli.commands.release.run_subprocess",
+            return_value=subprocess.CompletedProcess(
+                args=[], returncode=1, stdout="", stderr="git checkout error"
+            ),
         ),
+        patch("devops_cli.commands.release.run_gh", return_value=mock_gh_empty),
     ):
         res_br_fail = runner.invoke(
             app, ["pr", "--version", "0.1.8", "--root", str(sample_project_dir)]
@@ -497,7 +521,10 @@ def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> Non
             )
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    with patch("devops_cli.commands.release.run_subprocess", side_effect=mock_breaking_subproc):
+    with (
+        patch("devops_cli.commands.release.run_subprocess", side_effect=mock_breaking_subproc),
+        patch("devops_cli.commands.release.run_gh", return_value=mock_gh_empty),
+    ):
         res_breaking = runner.invoke(
             app,
             [
@@ -520,7 +547,10 @@ def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> Non
             )
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    with patch("devops_cli.commands.release.run_subprocess", side_effect=mock_gh_fail_subproc):
+    with (
+        patch("devops_cli.commands.release.run_subprocess", side_effect=mock_gh_fail_subproc),
+        patch("devops_cli.commands.release.run_gh", return_value=mock_gh_empty),
+    ):
         res_gh_fail = runner.invoke(
             app, ["pr", "--version", "0.1.8", "--root", str(sample_project_dir)]
         )
@@ -736,3 +766,103 @@ def test_release_changelog_command(sample_project_dir: Path) -> None:
         changelog_content = (sample_project_dir / "CHANGELOG.md").read_text(encoding="utf-8")
         assert "## [0.1.8]" in changelog_content
         assert "add oidc provider" in changelog_content
+
+
+def test_build_release_pr_body_draft_mode(sample_project_dir: Path) -> None:
+    """Verify _build_release_pr_body in draft mode formats milestone items, notes, and draft checklist."""
+    import json
+
+    from devops_cli.commands.release import _build_release_pr_body
+
+    mock_issues = [
+        {"number": 117, "title": "feat(ai): adaptive embedding batch sizing", "state": "OPEN"},
+        {"number": 118, "title": "perf(ai): high-performance AST context packer", "state": "OPEN"},
+    ]
+    mock_gh_res = subprocess.CompletedProcess(
+        args=["gh"], returncode=0, stdout=json.dumps(mock_issues), stderr=""
+    )
+
+    with patch("devops_cli.commands.release.run_gh", return_value=mock_gh_res):
+        body = _build_release_pr_body(
+            repo_root=sample_project_dir,
+            target_ver="0.2.19",
+            base="main",
+            branch_name="release/v0.2.19",
+            draft=True,
+            pr_title="feat(release): v0.2.19",
+        )
+        assert "## feat(release): v0.2.19" in body
+        assert "Release `v0.2.19` tracking PR under GitHub pull request merge controls." in body
+        assert "### Target Milestone Deliverables" in body
+        assert "- #117" in body
+        assert "- #118" in body
+        assert "- **#117**" not in body
+        assert "### Quality Gate Checklist" in body
+        assert "- [ ] 10-Gate CI Quality Gate passing (`devops ci`)" in body
+        assert "- [ ] Documentation and Command Matrix in `README.md` synchronized" in body
+        assert (
+            "- [ ] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`"
+            in body
+        )
+        assert "- [ ] CodeQL & Static Analysis passing" in body
+        assert "- [ ] Milestone deliverables reviewed and merged into `release/v0.2.19`" in body
+
+
+def test_build_release_pr_body_ready_mode(sample_project_dir: Path) -> None:
+    """Verify _build_release_pr_body in ready mode formats included deliverables and completed checklist."""
+    from devops_cli.commands.release import _build_release_pr_body
+
+    with patch(
+        "devops_cli.commands.release.run_gh",
+        return_value=subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr=""),
+    ):
+        mock_log = subprocess.CompletedProcess(
+            args=["git", "log"],
+            returncode=0,
+            stdout="* feat(security): cosign container signing (#213)\n",
+            stderr="",
+        )
+        with patch("devops_cli.commands.release.run_subprocess", return_value=mock_log):
+            body = _build_release_pr_body(
+                repo_root=sample_project_dir,
+                target_ver="0.2.19",
+                base="main",
+                branch_name="release/v0.2.19",
+                draft=False,
+                pr_title="feat(release): v0.2.19",
+            )
+            assert "### Included Deliverables" in body
+            assert "feat(security): cosign container signing (#213)" in body
+            assert "- [x] 10-Gate CI Quality Gate passing (`devops ci`)" in body
+            assert "- [x] CodeQL & Static Analysis passing" in body
+            assert "- [x] Milestone deliverables reviewed and merged into `release/v0.2.19`" in body
+
+
+def test_resolve_clean_release_notes_stale_duplicate_fallback(sample_project_dir: Path) -> None:
+    """Verify _resolve_clean_release_notes discards notes duplicated from the previous release."""
+    from devops_cli.commands.release import _resolve_clean_release_notes
+
+    changelog_path = sample_project_dir / "CHANGELOG.md"
+    duplicate_content = (
+        "## [0.2.19] - 2026-09-16\n\n"
+        "### Added\n- Duplicate item from previous release.\n\n"
+        "## [0.2.18] - 2026-09-16\n\n"
+        "### Added\n- Duplicate item from previous release.\n\n"
+    )
+    changelog_path.write_text(duplicate_content, encoding="utf-8")
+
+    mock_git_log = subprocess.CompletedProcess(
+        args=["git", "log"],
+        returncode=0,
+        stdout="* feat(auth): add new oauth provider for 0.2.19\n",
+        stderr="",
+    )
+    with patch("devops_cli.commands.release.run_subprocess", return_value=mock_git_log):
+        notes = _resolve_clean_release_notes(
+            repo_root=sample_project_dir,
+            target_ver="0.2.19",
+            base="main",
+            branch_name="release/v0.2.19",
+        )
+        assert "Duplicate item from previous release" not in notes
+        assert "add new oauth provider for 0.2.19" in notes

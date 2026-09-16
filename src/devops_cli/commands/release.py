@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import re
 import sys
 from datetime import UTC, datetime
@@ -33,6 +34,7 @@ from devops_cli.lang import HELP, MESSAGES
 _LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
     "DocGenerator": ("devops_cli.docs.generator", "DocGenerator"),
     "run_subprocess": ("devops_cli.core.process", "run_subprocess"),
+    "run_gh": ("devops_cli.github.rate_limiter", "run_gh"),
     "print_error": ("devops_cli.output", "print_error"),
     "print_info": ("devops_cli.output", "print_info"),
     "print_success": ("devops_cli.output", "print_success"),
@@ -663,6 +665,163 @@ def _commit_and_push_release_branch(
             )
 
 
+def _query_gh_milestone_issues(repo_root: Path, milestone_tag: str) -> list[str]:
+    """Query GitHub milestone issues via rate-managed run_gh."""
+    try:
+        run_gh_fn = _get("run_gh")
+        proc = run_gh_fn(
+            [
+                "issue",
+                "list",
+                "--milestone",
+                milestone_tag,
+                "--json",
+                "number,title,labels,state",
+                "--limit",
+                "50",
+            ],
+            cwd=repo_root,
+            quiet=True,
+            use_cache=False,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            raw_issues = json.loads(proc.stdout)
+            return [f"- #{iss['number']}" for iss in raw_issues if iss.get("number")]
+    except Exception:
+        pass
+    return []
+
+
+def _query_branch_commit_deliverables(repo_root: Path, base: str, branch_name: str) -> list[str]:
+    """Extract branch commit messages as fallback release deliverables."""
+    try:
+        log_proc = _get("run_subprocess")(
+            ["git", "log", f"{base}..{branch_name}", "--pretty=format:* %s (%h)"],
+            cwd=repo_root,
+            quiet=True,
+        )
+        if log_proc.returncode == 0 and log_proc.stdout:
+            return [f"- {line}" for line in _extract_raw_commit_lines(log_proc.stdout)]
+    except Exception:
+        pass
+    return []
+
+
+def _fetch_milestone_deliverables(
+    repo_root: Path,
+    target_ver: str,
+    base: str = CONST_GIT_MAIN_BRANCH,
+    branch_name: str | None = None,
+) -> list[str]:
+    """Fetch milestone issues and branch commits for release PR deliverable tracking."""
+    milestone_tag = f"v{target_ver.lstrip('v')}"
+    deliverables = _query_gh_milestone_issues(repo_root, milestone_tag)
+    if not deliverables and branch_name:
+        return _query_branch_commit_deliverables(repo_root, base, branch_name)
+    return deliverables
+
+
+def _is_stale_duplicate_changelog(repo_root: Path, cleaned_ver: str, notes: str) -> bool:
+    """Check if extracted changelog notes are duplicated from the immediately preceding release."""
+    changelog_file = _resolve_safe_project_path(repo_root, CONST_CHANGELOG_FILENAME)
+    if not changelog_file.exists():
+        return False
+    content = changelog_file.read_text(encoding="utf-8")
+    all_vers = re.findall(r"^##\s+\[(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)\]", content, re.MULTILINE)
+    matched_vers = [v[0] if isinstance(v, tuple) else v for v in all_vers]
+    if cleaned_ver not in matched_vers:
+        return False
+    idx = matched_vers.index(cleaned_ver)
+    if idx + 1 >= len(matched_vers):
+        return False
+    prev_notes = _extract_changelog_notes(repo_root, matched_vers[idx + 1])
+    return bool(prev_notes and prev_notes.strip() == notes.strip())
+
+
+def _extract_branch_release_notes(
+    repo_root: Path, base: str, branch_name: str, cleaned_ver: str
+) -> str | None:
+    """Extract and categorize release notes from branch commits relative to base."""
+    try:
+        log_proc = _get("run_subprocess")(
+            ["git", "log", f"{base}..{branch_name}", "--pretty=format:%B"],
+            cwd=repo_root,
+            quiet=True,
+        )
+        if log_proc.returncode == 0 and log_proc.stdout and log_proc.stdout.strip():
+            items = _extract_raw_commit_lines(log_proc.stdout)
+            if items:
+                return _format_categorized_notes(items, cleaned_ver)
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_clean_release_notes(
+    repo_root: Path,
+    target_ver: str,
+    base: str = CONST_GIT_MAIN_BRANCH,
+    branch_name: str | None = None,
+) -> str:
+    """Resolve clean, non-duplicate release notes for release PR description."""
+    cleaned_ver = target_ver.lstrip("v")
+    notes = _extract_changelog_notes(repo_root, cleaned_ver)
+    if notes and not _is_stale_duplicate_changelog(repo_root, cleaned_ver, notes):
+        return notes.strip()
+
+    if branch_name:
+        branch_notes = _extract_branch_release_notes(repo_root, base, branch_name, cleaned_ver)
+        if branch_notes:
+            return branch_notes
+
+    return f"### Added\n- Initial release branch preparation and quality certification for v{cleaned_ver}."
+
+
+def _build_quality_checklist(branch_name: str, draft: bool) -> str:
+    """Build standardized 10-gate quality checklist for release PR."""
+    pr_checked = " " if draft else "x"
+    return (
+        "### Quality Gate Checklist\n"
+        f"- [{pr_checked}] 10-Gate CI Quality Gate passing (`devops ci`)\n"
+        f"- [{pr_checked}] Documentation and Command Matrix in `README.md` synchronized\n"
+        f"- [{pr_checked}] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`\n"
+        f"- [{pr_checked}] CodeQL & Static Analysis passing\n"
+        f"- [{pr_checked}] Pre-commit & CI validation passing\n"
+        f"- [{pr_checked}] Milestone deliverables reviewed and merged into `{branch_name}`\n"
+        f"- [{pr_checked}] Final release readiness verified before converting from draft"
+    )
+
+
+def _build_release_pr_body(
+    repo_root: Path,
+    target_ver: str,
+    base: str,
+    branch_name: str,
+    draft: bool,
+    pr_title: str,
+) -> str:
+    """Build authoritative markdown description for release pull request."""
+    cleaned_ver = target_ver.lstrip("v")
+    deliverables = _fetch_milestone_deliverables(repo_root, cleaned_ver, base, branch_name)
+    notes = _resolve_clean_release_notes(repo_root, cleaned_ver, base, branch_name)
+    checklist = _build_quality_checklist(branch_name, draft)
+
+    sections = [
+        f"## {pr_title}",
+        f"### Summary\nRelease `v{cleaned_ver}` tracking PR under GitHub pull request merge controls.",
+    ]
+
+    if deliverables:
+        heading = "### Target Milestone Deliverables" if draft else "### Included Deliverables"
+        sections.append(f"{heading}\n" + "\n".join(deliverables))
+
+    if notes:
+        sections.append(f"### Release Notes\n{notes}")
+
+    sections.append(checklist)
+    return "\n\n".join(sections).strip() + "\n"
+
+
 def _build_release_pr_command(
     pr_title: str,
     pr_body: str,
@@ -799,18 +958,14 @@ def release_pr(
     _get("print_info")(
         MESSAGES.release.creating_release_pr.format(version=target_ver), prefix=False
     )
-    notes = _extract_changelog_notes(repo_root, target_ver) or f"Release v{target_ver}"
     pr_title = release_title
-    pr_body = (
-        f"## {pr_title}\n\n"
-        "### Summary\n"
-        f"Release `v{target_ver}` preparation, changelog synchronization, and quality validation "
-        "under GitHub pull request merge controls.\n\n"
-        f"### Release Notes\n{notes}\n\n"
-        "### Quality Gate Checklist\n"
-        "- [x] 7-Gate CI Quality Gate passing (`devops ci run`)\n"
-        "- [x] Documentation and Command Matrix in `README.md` synchronized\n"
-        "- [x] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`\n"
+    pr_body = _build_release_pr_body(
+        repo_root=repo_root,
+        target_ver=target_ver,
+        base=base,
+        branch_name=branch_name,
+        draft=draft,
+        pr_title=pr_title,
     )
 
     pr_cmd = _build_release_pr_command(

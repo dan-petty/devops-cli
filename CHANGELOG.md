@@ -8,74 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.19] - 2026-09-16
 
 ### Added
-- feat(sandbox): multi-tier networking options and decommission task.md (#207) (#208)
-- feat(sandbox): multi-tier networking options and decommission task.md index (#207)
-- feat(security): sigstore cosign container provenance and image signing (#112) (#213)
-- feat(security): sigstore cosign container provenance and image signing (#112)
-- feat(security): falco ebpf runtime security and anomaly streamer (#113) (#214)
-- feat(security): falco ebpf runtime security and anomaly streamer (#113)
-- feat(security): distributed threat intelligence valkey l2 cache and radar batching (#122) (#215)
-- feat(security): distributed threat intelligence valkey l2 cache and radar batching (#122)
+- **Automated Draft Release PR Description Generator (`devops release pr`)**:
+  - Automatically queries and lists target milestone issues and deliverables under `### Target Milestone Deliverables`.
+  - Dynamically synthesizes 10-gate CI quality checklists, CodeQL, and PR readiness controls adapted for draft vs. ready pull requests.
+  - Resolves clean, non-duplicate release notes from git commits and changelog sources, preventing previous release note duplication.
+- **Git Squash Merge Commit Body Parsing & Categorization (`devops release changelog`)**:
+  - Parses squash commit bodies (`%B`) to extract PR commit items into Keep-a-Changelog sections (`### Added`, `### Fixed & Hardened`, `### Changed & Improved`).
 
 ### Fixed & Hardened
-- fix(security): harden secret sanitizer boundaries and safe path exclusions (#116) (#203)
-- fix(security): harden secret sanitizer boundaries and safe path exclusions (#116)
-- fix(security): harden secret boundaries, remove extension lookahead, and update task status (#116)
-- fix(security): remediate devsecops findings and add native rate management (#204)
-- fix(security): remediate devsecops findings and add native rate management
-- fix(security): permit token masking in filesystem path arguments
-- fix(security): remediate review findings, exclude home in sandbox, and relocate MockProvider (#205) (#206)
-- fix(security): remediate review findings, exclude home in sandbox, and relocate MockProvider (#205)
-- fix(rag): support both gitignore and gitwildmatch pathspec factories
-- fix(security): replace concrete RFC 1918 and internal homelab endpoints with standard documentation values
-- fix(sandbox): harden network containment, secret output masking, and rate limiter caching
-- fix(sandbox): remediate egress containment, dns resolution, and output masking findings (#207)
-- fix(security): stream sandbox container output directly to sys streams avoiding logger sink cleartext alerts (#207)
-- fix(docs): escape placeholder angle brackets and prune completed roadmap matrix items
-- fix(security): stream sandbox output via centralized output writers to resolve codeql cleartext alerts
-- fix(k8s): uncap ollama memory limits and elevate daemonset/deployment thresholds (#209) (#210)
-- fix(k8s): uncap ollama memory limits and elevate daemonset/deployment thresholds (#209)
-- fix(k8s): add CoreDNS resource configs and tighten test assertions (#209)
-- fix(github): enforce gh request throttling, disk quota persistence, and diff-only project sync (#211) (#212)
-- fix(github): enforce window-budgeted rate pacing, disk quota persistence, and diff-only project sync (#211)
-- fix(github): enforce low-quota circuit breakers, preamble-tolerant JSON parsing, and casing-safe project diffing (#211)
-- fix(github): replace quota thresholds with logical exponential backoff (#211)
-- fix(github): derive rate limit pacing from actual response values without hardcoded windows (#211)
-- fix(ci): stop running all of the ci tasks every time a pr is marked ready for review.
-- fix(ci): decouple project automation into dedicated workflow and add quota safety guards (#211)
-- fix(github): align rate limiter baseline velocity and add quota test coverage (#211)
-- fix(github): enforce strict non-negative rate quotas, 25% threshold, and remediate review findings (#211)
-- fix(typecheck): resolve Path None guard and optional quota remaining in mypy (#211)
-- fix(ci): enforce mandatory pre-push devops ci gate, handle unauthenticated acquire, and expand test coverage (#211)
-- fix(pr): align checks fallback to run_subprocess and isolate rate limiter sleep test (#211)
-- fix(ci): complete pre-push gate, argo drift tests, and coverage expansion (#211)
-- fix(pr): guard pr ready against failing checks and fix project automation uv sync (#211)
-- fix(github): address pr 212 review comments on workflows, sandbox, defaults, and rate limiter (#211)
-- fix(security): derive artifact version from package metadata and validate whitelist tokens (#211)
-- fix(ci): prune all merged PR devcontainer images from ghcr and guard in-flight builds
-- fix(security): resolve review comments for cosign container provenance (#112)
-- fix(security): resolve review comments for falco ebpf runtime security (#113)
-- fix(security): resolve review comments for threat intel valkey l2 cache and batching (#122)
+- **Documentation Compactor Idempotency (`devops docs compact`)**:
+  - Enhanced version range regex to parse all matching version patterns from roadmap headers and recognize canonical summary blocks, guaranteeing idempotent compaction.
+- **Pre-Release Non-Empty Changelog Verification (`devops release check`)**:
+  - Enforced strict validation ensuring changelog notes are populated prior to release certification.
 
 ### Changed & Improved
-- docs(task): update task-204 status to in review and link PR #204
-- docs(task): update task-205 status to in review and link PR #206
-- test(sandbox): provide explicit tmp_path workspace_dir in test_docker_sandbox_wait_timeout
-- docs(agent): transition task 207 to in-review with PR #208
-- test(projects): update test fixtures to eliminate task.md references
-- docs(agents): mandate working pull requests from oldest to newest (FIFO)
-- docs(roadmap): add v0.2.23 reactive workstation command center and interactive TUI
-- docs(agents): mandate root-cause remediation, roadmap synthesis, and interaction improvement
-- docs(agent): record PR #212 in task 211 tracking
-- test(github): patch run_gh instead of run_subprocess in reconcile tests (#211)
-- refactor(ai): eliminate inline function parameter defaults in favor of defaults submodule
-- docs: refresh CLI and MCP references for updated commands and errors (#211)
-- docs(agent): update task-211 documentation with linear window pacing and pre-push quality gate (#211)
-- docs(pr): update cli and mcp reference for pr ready --force
-- docs(agent): link PR 213 in task 112 tracking doc
-- ci: re-trigger validation after resolving all review threads
-- chore: retrigger validation after resolving all review threads
-- perf(github): adjust rate limit no-delay used threshold to 30%
+- **AI/LLM Prompt Deduplication & Token Utilization Optimization**:
+  - Authoritatively centralized anti-hallucination invariants into `src/devops_cli/ai/tasks/review.md`.
+  - Removed duplicate multi-paragraph blocks across all 6 personas (`architect`, `auditor`, `challenger`, `devsecops`, `pm`, `qa`) and review task prompts.
+  - Slashed prompt footprint by 32% (~1,500 tokens saved per review turn).
+- **Release v0.2.19 Branch Initialization**:
+  - Created `release/v0.2.19` tracking branch, bumped version to `0.2.19`, and synchronized documentation across the repository.
+
 
 ## [0.2.18] - 2026-09-16
 
