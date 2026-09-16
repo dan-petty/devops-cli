@@ -269,7 +269,16 @@ def test_release_prepare_pr_draft_default(sample_project_dir: Path) -> None:
 
 
 def test_release_pr_command(sample_project_dir: Path) -> None:
-    with patch("devops_cli.commands.release.run_subprocess") as mock_sub:
+    with (
+        patch("devops_cli.commands.release.run_subprocess") as mock_sub,
+        patch("devops_cli.commands.release.run_gh") as mock_gh,
+    ):
+        mock_gh.return_value = subprocess.CompletedProcess(
+            args=["gh", "issue", "list"],
+            returncode=0,
+            stdout='[{"number": 99, "title": "feat(core): core feature"}]',
+            stderr="",
+        )
         mock_sub.return_value = subprocess.CompletedProcess(
             args=["gh", "pr", "create"],
             returncode=0,
@@ -283,6 +292,10 @@ def test_release_pr_command(sample_project_dir: Path) -> None:
         assert result.exit_code == 0
         assert "Created Release Pull Request" in result.output
         assert "pull/42" in result.output
+        assert mock_gh.called
+        create_args = mock_sub.call_args[0][0]
+        body_idx = create_args.index("--body") + 1
+        assert "- #99" in create_args[body_idx]
 
 
 def test_format_release_title() -> None:
@@ -433,7 +446,13 @@ def test_release_pr_labels_and_draft(sample_project_dir: Path) -> None:
             )
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    with patch("devops_cli.commands.release.run_subprocess", side_effect=mock_subproc):
+    with (
+        patch("devops_cli.commands.release.run_subprocess", side_effect=mock_subproc),
+        patch(
+            "devops_cli.commands.release.run_gh",
+            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="[]", stderr=""),
+        ),
+    ):
         res_bad_lbl = runner.invoke(
             app,
             [
@@ -477,12 +496,17 @@ def test_release_pr_labels_and_draft(sample_project_dir: Path) -> None:
 
 def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> None:
     """Verify release pr branch failure, breaking flag, and gh create failure."""
+    mock_gh_empty = subprocess.CompletedProcess(args=[], returncode=0, stdout="[]", stderr="")
+
     # 1. Branch checkout failure
-    with patch(
-        "devops_cli.commands.release.run_subprocess",
-        return_value=subprocess.CompletedProcess(
-            args=[], returncode=1, stdout="", stderr="git checkout error"
+    with (
+        patch(
+            "devops_cli.commands.release.run_subprocess",
+            return_value=subprocess.CompletedProcess(
+                args=[], returncode=1, stdout="", stderr="git checkout error"
+            ),
         ),
+        patch("devops_cli.commands.release.run_gh", return_value=mock_gh_empty),
     ):
         res_br_fail = runner.invoke(
             app, ["pr", "--version", "0.1.8", "--root", str(sample_project_dir)]
@@ -497,7 +521,10 @@ def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> Non
             )
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    with patch("devops_cli.commands.release.run_subprocess", side_effect=mock_breaking_subproc):
+    with (
+        patch("devops_cli.commands.release.run_subprocess", side_effect=mock_breaking_subproc),
+        patch("devops_cli.commands.release.run_gh", return_value=mock_gh_empty),
+    ):
         res_breaking = runner.invoke(
             app,
             [
@@ -520,7 +547,10 @@ def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> Non
             )
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    with patch("devops_cli.commands.release.run_subprocess", side_effect=mock_gh_fail_subproc):
+    with (
+        patch("devops_cli.commands.release.run_subprocess", side_effect=mock_gh_fail_subproc),
+        patch("devops_cli.commands.release.run_gh", return_value=mock_gh_empty),
+    ):
         res_gh_fail = runner.invoke(
             app, ["pr", "--version", "0.1.8", "--root", str(sample_project_dir)]
         )
@@ -768,7 +798,12 @@ def test_build_release_pr_body_draft_mode(sample_project_dir: Path) -> None:
         assert "- #118" in body
         assert "- **#117**" not in body
         assert "### Quality Gate Checklist" in body
-        assert "- [x] 10-Gate CI Quality Gate passing (`devops ci`)" in body
+        assert "- [ ] 10-Gate CI Quality Gate passing (`devops ci`)" in body
+        assert "- [ ] Documentation and Command Matrix in `README.md` synchronized" in body
+        assert (
+            "- [ ] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`"
+            in body
+        )
         assert "- [ ] CodeQL & Static Analysis passing" in body
         assert "- [ ] Milestone deliverables reviewed and merged into `release/v0.2.19`" in body
 
@@ -798,6 +833,7 @@ def test_build_release_pr_body_ready_mode(sample_project_dir: Path) -> None:
             )
             assert "### Included Deliverables" in body
             assert "feat(security): cosign container signing (#213)" in body
+            assert "- [x] 10-Gate CI Quality Gate passing (`devops ci`)" in body
             assert "- [x] CodeQL & Static Analysis passing" in body
             assert "- [x] Milestone deliverables reviewed and merged into `release/v0.2.19`" in body
 

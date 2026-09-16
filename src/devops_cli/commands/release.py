@@ -682,7 +682,7 @@ def _query_gh_milestone_issues(repo_root: Path, milestone_tag: str) -> list[str]
             ],
             cwd=repo_root,
             quiet=True,
-            use_cache=True,
+            use_cache=False,
         )
         if proc.returncode == 0 and proc.stdout:
             raw_issues = json.loads(proc.stdout)
@@ -782,9 +782,9 @@ def _build_quality_checklist(branch_name: str, draft: bool) -> str:
     pr_checked = " " if draft else "x"
     return (
         "### Quality Gate Checklist\n"
-        "- [x] 10-Gate CI Quality Gate passing (`devops ci`)\n"
-        "- [x] Documentation and Command Matrix in `README.md` synchronized\n"
-        "- [x] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`\n"
+        f"- [{pr_checked}] 10-Gate CI Quality Gate passing (`devops ci`)\n"
+        f"- [{pr_checked}] Documentation and Command Matrix in `README.md` synchronized\n"
+        f"- [{pr_checked}] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`\n"
         f"- [{pr_checked}] CodeQL & Static Analysis passing\n"
         f"- [{pr_checked}] Pre-commit & CI validation passing\n"
         f"- [{pr_checked}] Milestone deliverables reviewed and merged into `{branch_name}`\n"
