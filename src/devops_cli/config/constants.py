@@ -18,8 +18,28 @@ CONST_VSCODE_WORKSPACE_FILE = Path(".code-workspace")
 CONST_VSCODE_CLI = "code"
 CONST_AGENTS_MD_FILENAME = "AGENTS.md"
 CONST_PYPROJECT_FILENAME = "pyproject.toml"
+CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
 CONST_README_FILENAME = "README.md"
 CONST_INIT_PY_PATH = Path("src/devops_cli/__init__.py")
+CONST_CONVENTIONAL_COMMIT_CATEGORIES: Final[dict[str, str]] = {
+    "feat": "Added",
+    "fix": "Fixed & Hardened",
+    "sec": "Fixed & Hardened",
+    "security": "Fixed & Hardened",
+    "perf": "Changed & Improved",
+    "refactor": "Changed & Improved",
+    "docs": "Changed & Improved",
+    "chore": "Changed & Improved",
+    "ci": "Changed & Improved",
+    "test": "Changed & Improved",
+    "style": "Changed & Improved",
+}
+CONST_CONVENTIONAL_COMMIT_CATEGORY_ORDER: Final[tuple[str, ...]] = (
+    "Added",
+    "Fixed & Hardened",
+    "Changed & Improved",
+    "Other Changes",
+)
 CONST_CURRENT_DIR = Path(".")
 CONST_ROOT_DIR = Path("/")
 CONST_SRC_DIR_NAME = "src"

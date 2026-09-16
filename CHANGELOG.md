@@ -5,7 +5,110 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.18] - 2026-09-14
+## [0.2.19] - 2026-09-16
+
+### Added
+- feat(sandbox): multi-tier networking options and decommission task.md (#207) (#208)
+- feat(sandbox): multi-tier networking options and decommission task.md index (#207)
+- feat(security): sigstore cosign container provenance and image signing (#112) (#213)
+- feat(security): sigstore cosign container provenance and image signing (#112)
+- feat(security): falco ebpf runtime security and anomaly streamer (#113) (#214)
+- feat(security): falco ebpf runtime security and anomaly streamer (#113)
+- feat(security): distributed threat intelligence valkey l2 cache and radar batching (#122) (#215)
+- feat(security): distributed threat intelligence valkey l2 cache and radar batching (#122)
+
+### Fixed & Hardened
+- fix(security): harden secret sanitizer boundaries and safe path exclusions (#116) (#203)
+- fix(security): harden secret sanitizer boundaries and safe path exclusions (#116)
+- fix(security): harden secret boundaries, remove extension lookahead, and update task status (#116)
+- fix(security): remediate devsecops findings and add native rate management (#204)
+- fix(security): remediate devsecops findings and add native rate management
+- fix(security): permit token masking in filesystem path arguments
+- fix(security): remediate review findings, exclude home in sandbox, and relocate MockProvider (#205) (#206)
+- fix(security): remediate review findings, exclude home in sandbox, and relocate MockProvider (#205)
+- fix(rag): support both gitignore and gitwildmatch pathspec factories
+- fix(security): replace concrete RFC 1918 and internal homelab endpoints with standard documentation values
+- fix(sandbox): harden network containment, secret output masking, and rate limiter caching
+- fix(sandbox): remediate egress containment, dns resolution, and output masking findings (#207)
+- fix(security): stream sandbox container output directly to sys streams avoiding logger sink cleartext alerts (#207)
+- fix(docs): escape placeholder angle brackets and prune completed roadmap matrix items
+- fix(security): stream sandbox output via centralized output writers to resolve codeql cleartext alerts
+- fix(k8s): uncap ollama memory limits and elevate daemonset/deployment thresholds (#209) (#210)
+- fix(k8s): uncap ollama memory limits and elevate daemonset/deployment thresholds (#209)
+- fix(k8s): add CoreDNS resource configs and tighten test assertions (#209)
+- fix(github): enforce gh request throttling, disk quota persistence, and diff-only project sync (#211) (#212)
+- fix(github): enforce window-budgeted rate pacing, disk quota persistence, and diff-only project sync (#211)
+- fix(github): enforce low-quota circuit breakers, preamble-tolerant JSON parsing, and casing-safe project diffing (#211)
+- fix(github): replace quota thresholds with logical exponential backoff (#211)
+- fix(github): derive rate limit pacing from actual response values without hardcoded windows (#211)
+- fix(ci): stop running all of the ci tasks every time a pr is marked ready for review.
+- fix(ci): decouple project automation into dedicated workflow and add quota safety guards (#211)
+- fix(github): align rate limiter baseline velocity and add quota test coverage (#211)
+- fix(github): enforce strict non-negative rate quotas, 25% threshold, and remediate review findings (#211)
+- fix(typecheck): resolve Path None guard and optional quota remaining in mypy (#211)
+- fix(ci): enforce mandatory pre-push devops ci gate, handle unauthenticated acquire, and expand test coverage (#211)
+- fix(pr): align checks fallback to run_subprocess and isolate rate limiter sleep test (#211)
+- fix(ci): complete pre-push gate, argo drift tests, and coverage expansion (#211)
+- fix(pr): guard pr ready against failing checks and fix project automation uv sync (#211)
+- fix(github): address pr 212 review comments on workflows, sandbox, defaults, and rate limiter (#211)
+- fix(security): derive artifact version from package metadata and validate whitelist tokens (#211)
+- fix(ci): prune all merged PR devcontainer images from ghcr and guard in-flight builds
+- fix(security): resolve review comments for cosign container provenance (#112)
+- fix(security): resolve review comments for falco ebpf runtime security (#113)
+- fix(security): resolve review comments for threat intel valkey l2 cache and batching (#122)
+
+### Changed & Improved
+- docs(task): update task-204 status to in review and link PR #204
+- docs(task): update task-205 status to in review and link PR #206
+- test(sandbox): provide explicit tmp_path workspace_dir in test_docker_sandbox_wait_timeout
+- docs(agent): transition task 207 to in-review with PR #208
+- test(projects): update test fixtures to eliminate task.md references
+- docs(agents): mandate working pull requests from oldest to newest (FIFO)
+- docs(roadmap): add v0.2.23 reactive workstation command center and interactive TUI
+- docs(agents): mandate root-cause remediation, roadmap synthesis, and interaction improvement
+- docs(agent): record PR #212 in task 211 tracking
+- test(github): patch run_gh instead of run_subprocess in reconcile tests (#211)
+- refactor(ai): eliminate inline function parameter defaults in favor of defaults submodule
+- docs: refresh CLI and MCP references for updated commands and errors (#211)
+- docs(agent): update task-211 documentation with linear window pacing and pre-push quality gate (#211)
+- docs(pr): update cli and mcp reference for pr ready --force
+- docs(agent): link PR 213 in task 112 tracking doc
+- ci: re-trigger validation after resolving all review threads
+- chore: retrigger validation after resolving all review threads
+- perf(github): adjust rate limit no-delay used threshold to 30%
+
+## [0.2.18] - 2026-09-16
+
+### Added
+- **Sigstore Cosign Container Provenance & Automated Keyless Signing (`devops docker sign`, `devops docker verify`)**:
+  - Cryptographic container image signing and signature verification using Sigstore Cosign with Keyring-backed ephemeral OIDC tokens.
+  - Automated pre-push artifact verification, GHCR registry cleanup, and zero-trust container supply chain security.
+- **Kubernetes Falco eBPF Runtime Security Streaming & Anomaly Detection (`devops k8s security-stream`)**:
+  - Real-time kernel eBPF runtime security event streaming, priority filtering, and automated anomaly classification via Falco sidecar.
+  - Granular severity thresholding, JSON event ingestion, and terminal alerting for unexpected process execution, filesystem writes, and privilege escalations.
+- **Distributed Threat Intelligence Valkey L2 Cache & Cloudflare Radar Batching (`devops security intel package`, `devops security intel network`)**:
+  - Distributed threat intelligence evaluation pipeline with Valkey L2 caching, Cloudflare Radar batching, and OSV package vulnerability analysis.
+  - Configurable TTL caching, offline-first fallback, and automated domain/package reputation scoring.
+- **Multi-Tier Docker Sandbox Networking Options (`devops sandbox deploy --network-mode`)**:
+  - Configurable sandbox network isolation modes: `isolated` (zero egress), `egress-only` (restricted outbound), and `host`.
+  - Network policy verification, automated port mapping validation, and container egress containment.
+- **Native GitHub API Rate Limiting & Token-Bucket Pacing (`devops gh api`, `devops gh rate-limit`)**:
+  - Native client-side token-bucket rate limiter (`run_gh`, `GitHubRateLimiter`) with adaptive request throttling, low-quota circuit breakers, and read caching.
+  - Automatic quota reset monitoring and elimination of bare unmanaged `gh` CLI invocations.
+
+### Fixed & Hardened
+- **Zero Information Leakage & Secret Sanitizer Hardening**:
+  - Word-boundary regex enforcement for sensitive keys and tokens, eliminating partial-word false positives.
+  - Comprehensive path exclusions preventing credential leakage in log streams and exception representations.
+  - Concrete RFC 1918 and internal homelab hostnames replaced with RFC 5737 documentation placeholders across code, tests, and documentation.
+- **Kubernetes Ollama Memory Uncapping & DaemonSet Limit Elevation**:
+  - Uncapped Ollama container memory limits in Kubernetes manifests to prevent OOM kills on high-parameter models.
+  - Elevated CoreDNS and daemonset resource allocations for high-throughput cluster environments.
+- **Mandatory Draft PR Policy & Pre-Push Quality Gate Enforcement**:
+  - Defaulted release pull requests to draft mode (`devops release pr --draft`) to guarantee review controls.
+  - Enforced mandatory pre-push local `devops ci` gate via pre-commit hooks, guaranteeing 100% test passing and >= 90% code coverage.
+- **DevSecOps Review Feedback Remediation**:
+  - Remediated review findings across sandbox container streaming, path traversal mitigations, and mock provider locations.
 
 ## [0.2.17] - 2026-09-14
 

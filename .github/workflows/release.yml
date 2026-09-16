@@ -84,8 +84,8 @@ jobs:
         id: notes
         run: |
           if ! uv run devops release notes --raw -v "${{ steps.ver.outputs.version }}" > release_notes.txt || [ ! -s release_notes.txt ]; then
-            echo "Release notes extraction failed or empty; falling back to commit log"
-            git log -n 20 --pretty=format:"* %s (%h)" > release_notes.txt
+            echo "Release notes extraction failed or empty; falling back to changelog compiler"
+            uv run devops release changelog --raw -v "${{ steps.ver.outputs.version }}" > release_notes.txt
           fi
           echo "notes_file=release_notes.txt" >> "$GITHUB_OUTPUT"
 
@@ -115,6 +115,7 @@ jobs:
             dist/SHA256SUMS.txt
           draft: false
           prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

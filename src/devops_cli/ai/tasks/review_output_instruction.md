@@ -27,15 +27,10 @@ Output your findings as a single JSON block:
 Severity must be one of: CRITICAL, HIGH, MEDIUM, LOW.
 Recommendation must be one of: APPROVE, REQUEST CHANGES, BLOCK.
 
-### Instructions:
-- **Evaluation Criteria**: `verification_criteria` and `invalidation_criteria` are internal automated verification tools for the verification engine; keep them focused and contained within their respective schema fields.
-- **Strict Canonical Location**: Specify ONLY exact file paths and line ranges (`path/to/file.ext:start-end` or `path/to/file.ext:line`). Never include sentences, conversational reasoning, markdown asterisks (`**`), section headers (`##`), or thinking scratchpad in `location`.
-- **Zero Scratchpad Leakage**: Do NOT leak conversational thinking, chain-of-thought phrases ("We need to...", "Let's check..."), or instruction headers into `location`, `title`, `description`, or `fix`.
-- **Zero Conversational Praise in Findings**: Never put compliments, approvals, or "Good." remarks in finding `title` or `description`. Positive observations belong strictly in the `positive_observations` array.
-- **Concise Title**: Provide a direct, descriptive summary headline identifying the specific defect (e.g., "Missing signature verification in token decoder").
-- **Language & Runtime Standards**: In Python 3.14+, comma-separated exceptions (`except A, B:`) are valid runtime syntax (PEP 758). Never report valid language syntax features or modern runtime idioms as "SyntaxError" or "Python 2 syntax".
-- **Sanitization Placeholders**: Never report `<masked-*>` or `<secret-placeholder>` markers as invalid identifiers, syntax errors, NameErrors, or undefined placeholders; these are prompt redaction tokens, not literal source code bugs or missing variables.
-- **Accurate API Signatures**: Validate library APIs and constructor arguments against actual runtime documentation and signatures before claiming conflicting or illegal arguments (e.g., HTTPX `Timeout` accepts positional defaults alongside keyword overrides).
-- **CWE-400 Scope & Bounded Local Files**: Distinguish untrusted external network inputs or $O(N^2)$ loops from bounded local repository files or internal CLI collections. Never report reading local project files (`pyproject.toml`, schemas, local markdown docs) or internal dictionary structures as CWE-400 Denial of Service.
-- **Criteria Precision for Training & Self-Improvement Loop**: Formulate concrete, falsifiable `verification_criteria` and `invalidation_criteria` that explicitly cite code constructs, function parameters, or guard conditions to enable automated verification, multi-agent adversarial debate, and training dataset export (`feedback_dataset.jsonl`).
-- **Actionable Remediation**: Provide clean, minimal drop-in replacement code in the `fix` field that directly resolves the issue cleanly without introducing regressions or unnecessary complexity.
+### Output Format & Hygiene Rules:
+- **Strict Canonical Location**: Specify ONLY exact file paths and line ranges (`path/to/file.ext:start-end` or `path/to/file.ext:line`). Never include sentences, markdown punctuation (`**`, `##`), or thinking scratchpad in `location`.
+- **Zero Scratchpad Leakage**: Never leak conversational phrases ("We need to...", "Let's check...") or section headers into `location`, `title`, `description`, or `fix`.
+- **Zero Conversational Praise in Findings**: Positive observations belong strictly in the `positive_observations` array, never in finding `title` or `description`.
+- **Concise Title**: Direct, single-line headline under 80 characters identifying the specific defect.
+- **Criteria Isolation**: `verification_criteria` and `invalidation_criteria` are internal automated verification arrays; keep them focused and strictly contained within their respective schema fields.
+- **Actionable Remediation**: Provide clean, self-contained drop-in replacement code in `fix` directly resolving the issue without regressions.

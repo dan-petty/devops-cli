@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.release import (
     _extract_changelog_notes,
+    _extract_git_commit_notes,
     _get_init_version,
     _get_latest_changelog_version,
     _get_pyproject_version,
@@ -18,6 +19,7 @@ from devops_cli.commands.release import (
     _update_changelog_header,
     _update_init_version,
     _update_pyproject_version,
+    _verify_release_versions,
     app,
 )
 
@@ -652,3 +654,85 @@ def test_release_notes_fallback_to_git_log(sample_project_dir: Path) -> None:
         assert "Changes in v0.1.9" in result.output
         assert "commit log item 1" in result.output
         assert "commit log item 2" in result.output
+
+
+def test_release_check_fails_on_empty_changelog(sample_project_dir: Path) -> None:
+    """Verify release check fails when CHANGELOG.md section has no content."""
+    changelog_file = sample_project_dir / "CHANGELOG.md"
+    changelog_file.write_text(
+        "# Changelog\n\n## [0.1.7] - 2026-08-13\n\n## [0.1.6] - 2026-08-12\n\n### Added\n- Initial.\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(Exception):
+        _verify_release_versions(sample_project_dir)
+
+    result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--skip-ci"])
+    assert result.exit_code != 0
+    assert "entry for v0.1.7 is empty" in result.output
+
+
+def test_release_notes_squash_commit_parsing(sample_project_dir: Path) -> None:
+    """Verify squash commits with embedded bullets are extracted and categorized."""
+    squash_body = (
+        "feat(release): v0.1.9 (#100)\n\n"
+        "* feat(security): cosign image signing (#101)\n"
+        "* fix(k8s): elevate memory thresholds (#102)\n"
+        "* docs: update user guide (#103)\n"
+    )
+    mock_git_log = subprocess.CompletedProcess(
+        args=["git", "log"],
+        returncode=0,
+        stdout=squash_body,
+        stderr="",
+    )
+
+    with patch("devops_cli.commands.release.run_subprocess", return_value=mock_git_log):
+        notes = _extract_git_commit_notes(sample_project_dir, "0.1.9")
+        assert notes is not None
+        assert "### Added" in notes
+        assert "cosign image signing" in notes
+        assert "### Fixed & Hardened" in notes
+        assert "elevate memory thresholds" in notes
+        assert "### Changed & Improved" in notes
+        assert "update user guide" in notes
+
+
+def test_release_changelog_command(sample_project_dir: Path) -> None:
+    """Verify devops release changelog command outputs and updates properly."""
+    mock_git_log = subprocess.CompletedProcess(
+        args=["git", "log"],
+        returncode=0,
+        stdout="* feat(auth): add oidc provider\n* fix(cli): handle timeout error\n",
+        stderr="",
+    )
+
+    with patch("devops_cli.commands.release.run_subprocess", return_value=mock_git_log):
+        # 1. Test raw output
+        result = runner.invoke(
+            app, ["changelog", "--version", "0.1.8", "--raw", "--root", str(sample_project_dir)]
+        )
+        assert result.exit_code == 0
+        assert "add oidc provider" in result.output
+        assert "handle timeout error" in result.output
+
+        # 2. Test dry-run
+        from devops_cli.dry_run import set_dry_run
+
+        set_dry_run(True)
+        try:
+            dry_res = runner.invoke(
+                app, ["changelog", "--version", "0.1.8", "--root", str(sample_project_dir)]
+            )
+            assert dry_res.exit_code == 0
+            assert "compile_release_changelog" in dry_res.output
+        finally:
+            set_dry_run(False)
+
+        # 3. Test --update
+        update_res = runner.invoke(
+            app, ["changelog", "--version", "0.1.8", "--update", "--root", str(sample_project_dir)]
+        )
+        assert update_res.exit_code == 0
+        changelog_content = (sample_project_dir / "CHANGELOG.md").read_text(encoding="utf-8")
+        assert "## [0.1.8]" in changelog_content
+        assert "add oidc provider" in changelog_content

@@ -720,6 +720,10 @@ class ReleaseCommandHelp:
     skip_ci: str = "Skip running the 7-gate CI test suite."
     allow_dirty: str = "Allow uncommitted changes in git repository."
     tag_message: str = "Custom tag annotation message."
+    changelog: str = "Compile and generate changelog entries from commits or PRs."
+    changelog_update: str = "Update CHANGELOG.md in-place with generated release notes."
+    changelog_from_tag: str = "Starting git tag or ref for changelog compilation."
+    changelog_to_tag: str = "Ending git tag or ref for changelog compilation."
 
 
 @dataclass(frozen=True)
