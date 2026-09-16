@@ -556,5 +556,10 @@ CONST_FALCO_SEVERITY_LEVELS: Final[dict[str, int]] = {
     "EMERGENCY": 7,
 }
 
+CONST_MIN_SECURITY_STREAM_DURATION: Final[int] = 1
+CONST_MAX_SECURITY_STREAM_DURATION: Final[int] = 3600
+CONST_MIN_SECURITY_STREAM_TAIL_LINES: Final[int] = 1
+CONST_MAX_SECURITY_STREAM_TAIL_LINES: Final[int] = 10000
+
 # Threat intelligence distributed caching
 CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"

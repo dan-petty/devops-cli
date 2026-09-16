@@ -4,7 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from devops_cli.config.constants import (
+    CONST_FALCO_SEVERITY_LEVELS,
+    CONST_MAX_SECURITY_STREAM_DURATION,
+    CONST_MAX_SECURITY_STREAM_TAIL_LINES,
+    CONST_MIN_SECURITY_STREAM_DURATION,
+    CONST_MIN_SECURITY_STREAM_TAIL_LINES,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_SECURITY_STREAM_DURATION_SECONDS,
+    DEFAULT_SECURITY_STREAM_TAIL_LINES,
+)
 
 
 class PodInfo(BaseModel):
@@ -203,10 +215,34 @@ class SecurityStreamRequest(BaseModel):
         default="app.kubernetes.io/name=falco", description="Kubernetes pod label selector"
     )
     severity: str | None = Field(default=None, description="Minimum severity filter")
-    duration_seconds: int = Field(default=30, description="Streaming observation window in seconds")
+    duration_seconds: int = Field(
+        default=DEFAULT_SECURITY_STREAM_DURATION_SECONDS,
+        ge=CONST_MIN_SECURITY_STREAM_DURATION,
+        le=CONST_MAX_SECURITY_STREAM_DURATION,
+        description="Streaming observation window in seconds",
+    )
     follow: bool = False
-    tail_lines: int = Field(default=100, description="Log lines to read per pod")
+    tail_lines: int = Field(
+        default=DEFAULT_SECURITY_STREAM_TAIL_LINES,
+        ge=CONST_MIN_SECURITY_STREAM_TAIL_LINES,
+        le=CONST_MAX_SECURITY_STREAM_TAIL_LINES,
+        description="Log lines to read per pod",
+    )
     simulate: bool = Field(default=False, description="Generate simulated security anomalies")
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def validate_severity(cls, v: str | None) -> str | None:
+        """Validate and canonicalize user-supplied severity filter."""
+        if v is None:
+            return None
+        cleaned = v.strip()
+        if not cleaned:
+            return None
+        if cleaned.upper() not in CONST_FALCO_SEVERITY_LEVELS:
+            valid_levels = ", ".join(sorted(CONST_FALCO_SEVERITY_LEVELS.keys()))
+            raise ValueError(f"Invalid severity '{v}'. Must be one of: {valid_levels}")
+        return cleaned.upper()
 
 
 class SecurityStreamResult(BaseModel):

@@ -5,17 +5,20 @@ from __future__ import annotations
 import json
 import logging
 import re
+import subprocess
 import time
 from typing import Any
 
 from devops_cli.config.constants import CONST_FALCO_SEVERITY_LEVELS
 from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions.k8s import KubernetesLoggingError
 from devops_cli.models.k8s import (
     FalcoAlert,
     SecurityStreamRequest,
     SecurityStreamResult,
 )
 from devops_cli.output import (
+    escape_text,
     print_info,
     print_panel,
 )
@@ -161,17 +164,21 @@ def _build_kubectl_command(request: SecurityStreamRequest) -> list[str]:
 
 
 def _tally_severity_counts(alerts: list[FalcoAlert]) -> tuple[int, int, int]:
-    """Calculate critical, warning, and notice alert frequency buckets."""
+    """Calculate critical, warning, and notice alert frequency buckets derived from canonical severity ranks."""
     crit_count = 0
     warn_count = 0
     note_count = 0
+    crit_threshold = CONST_FALCO_SEVERITY_LEVELS["CRITICAL"]
+    warn_threshold = CONST_FALCO_SEVERITY_LEVELS["WARNING"]
     for a in alerts:
-        prio = a.priority.upper()
-        if prio in ("CRITICAL", "EMERGENCY", "ALERT"):
-            crit_count += 1
-        elif prio in ("WARNING", "ERROR"):
+        rank = CONST_FALCO_SEVERITY_LEVELS.get(a.priority.upper().strip())
+        if rank is None:
             warn_count += 1
-        elif prio in ("NOTICE", "INFO", "INFORMATIONAL"):
+        elif rank >= crit_threshold:
+            crit_count += 1
+        elif rank >= warn_threshold:
+            warn_count += 1
+        else:
             note_count += 1
     return crit_count, warn_count, note_count
 
@@ -184,6 +191,32 @@ def _process_stream_output(stdout: str, min_severity: str | None) -> list[FalcoA
         if parsed and matches_severity_filter(parsed.priority, min_severity):
             matched.append(parsed)
     return matched
+
+
+def _build_stream_result(
+    alerts: list[FalcoAlert],
+    start_time: float,
+    span: Any,
+    namespace: str,
+) -> SecurityStreamResult:
+    """Construct SecurityStreamResult and record telemetry metrics."""
+    crit, warn, note = _tally_severity_counts(alerts)
+    elapsed = time.monotonic() - start_time
+    span.set_attribute("alerts.count", len(alerts))
+    span.set_attribute("alerts.critical", crit)
+    record_metric(
+        "devops_cli_k8s_security_alerts_total",
+        float(len(alerts)),
+        attributes={"namespace": namespace, "critical": str(crit > 0)},
+    )
+    return SecurityStreamResult(
+        alerts=alerts,
+        total_alerts=len(alerts),
+        critical_count=crit,
+        warning_count=warn,
+        notice_count=note,
+        duration_seconds=round(elapsed, 3),
+    )
 
 
 def stream_security_events(
@@ -207,60 +240,52 @@ def stream_security_events(
             filtered = [
                 a for a in simulated if matches_severity_filter(a.priority, request.severity)
             ]
-            elapsed = time.monotonic() - start_time
-            crit, warn, note = _tally_severity_counts(filtered)
-            span.set_attribute("alerts.count", len(filtered))
-            span.set_attribute("alerts.critical", crit)
-            return SecurityStreamResult(
-                alerts=filtered,
-                total_alerts=len(filtered),
-                critical_count=crit,
-                warning_count=warn,
-                notice_count=note,
-                duration_seconds=round(elapsed, 3),
-            )
+            return _build_stream_result(filtered, start_time, span, request.namespace)
 
         cmd = _build_kubectl_command(request)
-        proc = run_subprocess(cmd, timeout=float(request.duration_seconds + 5))
+        timeout_sec = (
+            float(request.duration_seconds)
+            if request.follow
+            else float(request.duration_seconds + 5)
+        )
+        try:
+            proc = run_subprocess(cmd, timeout=timeout_sec)
+        except subprocess.TimeoutExpired as exc:
+            raw_out = exc.stdout or ""
+            stdout_str = (
+                raw_out.decode("utf-8", errors="replace")
+                if isinstance(raw_out, bytes)
+                else str(raw_out)
+            )
+            alerts = _process_stream_output(stdout_str, request.severity)
+            span.set_attribute("stream.timed_out_gracefully", True)
+            return _build_stream_result(alerts, start_time, span, request.namespace)
 
         if proc.returncode != 0:
-            logger.debug("kubectl logs failed: %s", proc.stderr[:256])
-            elapsed = time.monotonic() - start_time
-            return SecurityStreamResult(
-                alerts=[],
-                total_alerts=0,
-                duration_seconds=round(elapsed, 3),
+            stderr_msg = proc.stderr.strip()[:256]
+            logger.debug("kubectl logs failed: %s", stderr_msg)
+            raise KubernetesLoggingError(
+                f"Failed to stream security events from Falco: {stderr_msg or 'kubectl logs returned non-zero exit code'}",
+                query=f"kubectl logs -n {request.namespace} -l {request.label_selector}",
+                details={
+                    "namespace": request.namespace,
+                    "label_selector": request.label_selector,
+                    "exit_code": proc.returncode,
+                },
             )
 
         alerts = _process_stream_output(proc.stdout, request.severity)
-        crit, warn, note = _tally_severity_counts(alerts)
-        elapsed = time.monotonic() - start_time
-
-        span.set_attribute("alerts.count", len(alerts))
-        span.set_attribute("alerts.critical", crit)
-        record_metric(
-            "devops_cli_k8s_security_alerts_total",
-            float(len(alerts)),
-            attributes={"namespace": request.namespace, "critical": str(crit > 0)},
-        )
-
-        return SecurityStreamResult(
-            alerts=alerts,
-            total_alerts=len(alerts),
-            critical_count=crit,
-            warning_count=warn,
-            notice_count=note,
-            duration_seconds=round(elapsed, 3),
-        )
+        return _build_stream_result(alerts, start_time, span, request.namespace)
 
 
 def _get_severity_color(priority: str) -> str:
-    """Return styling color markup based on alert priority."""
-    prio = priority.upper()
-    if prio in ("CRITICAL", "EMERGENCY", "ALERT"):
-        return "bold red"
-    if prio in ("WARNING", "ERROR"):
-        return "bold yellow"
+    """Return styling color markup based on canonical alert priority rank."""
+    rank = CONST_FALCO_SEVERITY_LEVELS.get(priority.upper().strip())
+    if rank is not None:
+        if rank >= CONST_FALCO_SEVERITY_LEVELS["CRITICAL"]:
+            return "bold red"
+        if rank >= CONST_FALCO_SEVERITY_LEVELS["WARNING"]:
+            return "bold yellow"
     return "bold blue"
 
 
@@ -272,14 +297,19 @@ def render_security_alerts(result: SecurityStreamResult) -> None:
 
     for alert in result.alerts:
         color = _get_severity_color(alert.priority)
-        time_str = f"[{alert.time}] " if alert.time else ""
-        header = f"{time_str}[{color}]{alert.priority.upper()}[/{color}] — {alert.rule}"
-        body_lines = [alert.output]
+        time_str = f"[{escape_text(alert.time)}] " if alert.time else ""
+        esc_prio = escape_text(alert.priority.upper())
+        esc_rule = escape_text(alert.rule)
+        header = f"{time_str}[{color}]{esc_prio}[/{color}] — {esc_rule}"
+        body_lines = [escape_text(alert.output)]
         if alert.output_fields:
-            fields_str = " | ".join(f"{k}={v}" for k, v in alert.output_fields.items())
+            fields_str = " | ".join(
+                f"{escape_text(str(k))}={escape_text(str(v))}"
+                for k, v in alert.output_fields.items()
+            )
             body_lines.append(f"[dim]{fields_str}[/dim]")
         if alert.tags:
-            tags_str = " ".join(f"#{t}" for t in alert.tags)
+            tags_str = " ".join(f"#{escape_text(str(t))}" for t in alert.tags)
             body_lines.append(f"[cyan]{tags_str}[/cyan]")
 
         print_panel("\n".join(body_lines), title=header)

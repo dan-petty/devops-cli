@@ -154,6 +154,8 @@ def test_stream_security_events_live_kubectl(mock_run: MagicMock) -> None:
 
 @patch("devops_cli.k8s.security_stream.run_subprocess")
 def test_stream_security_events_kubectl_failure(mock_run: MagicMock) -> None:
+    from devops_cli.exceptions.k8s import KubernetesLoggingError
+
     mock_run.return_value = MagicMock(
         returncode=1,
         stdout="",
@@ -161,8 +163,25 @@ def test_stream_security_events_kubectl_failure(mock_run: MagicMock) -> None:
     )
 
     req = SecurityStreamRequest(namespace="falco")
+    with pytest.raises(KubernetesLoggingError, match="Failed to stream security events from Falco"):
+        stream_security_events(req, dry_run=False)
+
+
+@patch("devops_cli.k8s.security_stream.run_subprocess")
+def test_stream_security_events_timeout_graceful(mock_run: MagicMock) -> None:
+    import subprocess
+
+    mock_run.side_effect = subprocess.TimeoutExpired(
+        cmd=["kubectl", "logs"],
+        timeout=10,
+        output="04:00:00: Warning Suspicious syscall\n",
+    )
+
+    req = SecurityStreamRequest(namespace="falco", follow=True, duration_seconds=10)
     result = stream_security_events(req, dry_run=False)
-    assert result.total_alerts == 0
+    assert isinstance(result, SecurityStreamResult)
+    assert result.total_alerts == 1
+    assert result.warning_count == 1
 
 
 def test_security_stream_cli_dry_run(cli_runner: CliRunner) -> None:
@@ -239,3 +258,98 @@ def test_fastmcp_k8s_security_stream(mock_run: MagicMock) -> None:
     assert "--simulate" in cmd
     assert "--severity" in cmd
     assert "Critical" in cmd
+
+
+def test_fastmcp_k8s_security_stream_validation() -> None:
+    from devops_cli.ai.mcp.server import k8s_security_stream
+    from devops_cli.exceptions import ValidationError
+
+    with pytest.raises(ValidationError, match="tail_lines must be between"):
+        k8s_security_stream(tail_lines=0)
+
+    with pytest.raises(ValidationError, match="Invalid severity"):
+        k8s_security_stream(severity="NonExistent")
+
+
+def test_security_stream_request_validation() -> None:
+    from pydantic import ValidationError
+
+    # Invalid severity
+    with pytest.raises(ValidationError, match="Invalid severity"):
+        SecurityStreamRequest(severity="Warnng")
+
+    # Valid severity canonicalized to upper
+    req = SecurityStreamRequest(severity="warning")
+    assert req.severity == "WARNING"
+
+    # Out of bounds duration
+    with pytest.raises(ValidationError):
+        SecurityStreamRequest(duration_seconds=0)
+
+    with pytest.raises(ValidationError):
+        SecurityStreamRequest(duration_seconds=5000)
+
+    # Out of bounds tail lines
+    with pytest.raises(ValidationError):
+        SecurityStreamRequest(tail_lines=0)
+
+    with pytest.raises(ValidationError):
+        SecurityStreamRequest(tail_lines=20000)
+
+
+def test_security_stream_cli_invalid_severity(cli_runner: CliRunner) -> None:
+    result = cli_runner.invoke(app, ["security-stream", "--severity", "Warnng"])
+    assert result.exit_code != 0
+    assert "Invalid severity" in result.output or "Error:" in result.output
+
+
+@patch("devops_cli.k8s.security_stream.stream_security_events")
+def test_security_stream_cli_failure_exit(mock_stream: MagicMock, cli_runner: CliRunner) -> None:
+    from devops_cli.exceptions.k8s import KubernetesLoggingError
+
+    mock_stream.side_effect = KubernetesLoggingError("Failed to stream security events from Falco")
+    result = cli_runner.invoke(app, ["security-stream"])
+    assert result.exit_code == 1
+    assert "Failed to stream security events from Falco" in result.output
+
+
+def test_render_security_alerts_escapes_markup() -> None:
+    from devops_cli.k8s.security_stream import render_security_alerts
+
+    alert = FalcoAlert(
+        time="2026-09-16T04:00:00Z",
+        rule="Rule with [markup]",
+        priority="Critical",
+        output="Alert containing [bold red]unescaped tags[/bold red]",
+        output_fields={"test[key]": "value[with]brackets"},
+        tags=["tag[one]"],
+    )
+    result = SecurityStreamResult(alerts=[alert], total_alerts=1)
+    with patch("devops_cli.k8s.security_stream.print_panel") as mock_panel:
+        render_security_alerts(result)
+        mock_panel.assert_called_once()
+        body = mock_panel.call_args[0][0]
+        title = mock_panel.call_args[1]["title"]
+        # Opening bracket is escaped as \[
+        assert "\\[bold red]" in body
+        assert "\\[markup]" in title
+
+
+def test_tally_severity_counts_canonical_ranks() -> None:
+    from devops_cli.k8s.security_stream import _tally_severity_counts
+
+    alerts = [
+        FalcoAlert(rule="r1", priority="Emergency", output="o1"),
+        FalcoAlert(rule="r2", priority="Alert", output="o2"),
+        FalcoAlert(rule="r3", priority="Critical", output="o3"),
+        FalcoAlert(rule="r4", priority="Error", output="o4"),
+        FalcoAlert(rule="r5", priority="Warning", output="o5"),
+        FalcoAlert(rule="r6", priority="Notice", output="o6"),
+        FalcoAlert(rule="r7", priority="Informational", output="o7"),
+        FalcoAlert(rule="r8", priority="Info", output="o8"),
+        FalcoAlert(rule="r9", priority="Debug", output="o9"),
+    ]
+    crit, warn, note = _tally_severity_counts(alerts)
+    assert crit == 3  # Emergency, Alert, Critical
+    assert warn == 2  # Error, Warning
+    assert note == 4  # Notice, Informational, Info, Debug

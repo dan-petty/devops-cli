@@ -7,6 +7,13 @@ from typing import Annotated, Any
 
 import typer
 
+from devops_cli.config.constants import (
+    CONST_FALCO_SEVERITY_LEVELS,
+    CONST_MAX_SECURITY_STREAM_DURATION,
+    CONST_MAX_SECURITY_STREAM_TAIL_LINES,
+    CONST_MIN_SECURITY_STREAM_DURATION,
+    CONST_MIN_SECURITY_STREAM_TAIL_LINES,
+)
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_FALCO_LABEL_SELECTOR,
@@ -21,6 +28,7 @@ from devops_cli.output import (
     TablePayload,
     format_json,
     format_k8s_pods_table,
+    print_error,
     write_stdout,
 )
 
@@ -259,6 +267,17 @@ def _handle_security_stream_export(result: Any, output: Path | None, json_output
         write_stdout(format_json(dumped) + "\n")
 
 
+def _validate_severity_callback(value: str | None) -> str | None:
+    """Validate severity option against CONST_FALCO_SEVERITY_LEVELS."""
+    if value is None:
+        return None
+    cleaned = value.strip().upper()
+    if cleaned not in CONST_FALCO_SEVERITY_LEVELS:
+        valid = ", ".join(sorted(CONST_FALCO_SEVERITY_LEVELS.keys()))
+        raise typer.BadParameter(f"Invalid severity '{value}'. Must be one of: {valid}")
+    return cleaned
+
+
 def security_stream_cmd(
     namespace: Annotated[
         str,
@@ -270,15 +289,32 @@ def security_stream_cmd(
     ] = DEFAULT_FALCO_LABEL_SELECTOR,
     severity: Annotated[
         str | None,
-        typer.Option("--severity", "-s", help=HELP.k8s.security_severity),
+        typer.Option(
+            "--severity",
+            "-s",
+            help=HELP.k8s.security_severity,
+            callback=_validate_severity_callback,
+        ),
     ] = None,
     duration: Annotated[
         int,
-        typer.Option("--duration", "-d", help=HELP.k8s.security_duration),
+        typer.Option(
+            "--duration",
+            "-d",
+            min=CONST_MIN_SECURITY_STREAM_DURATION,
+            max=CONST_MAX_SECURITY_STREAM_DURATION,
+            help=HELP.k8s.security_duration,
+        ),
     ] = DEFAULT_SECURITY_STREAM_DURATION_SECONDS,
     tail: Annotated[
         int,
-        typer.Option("--tail", "-t", help=HELP.k8s.tail_lines),
+        typer.Option(
+            "--tail",
+            "-t",
+            min=CONST_MIN_SECURITY_STREAM_TAIL_LINES,
+            max=CONST_MAX_SECURITY_STREAM_TAIL_LINES,
+            help=HELP.k8s.tail_lines,
+        ),
     ] = DEFAULT_SECURITY_STREAM_TAIL_LINES,
     follow: Annotated[
         bool,
@@ -302,6 +338,7 @@ def security_stream_cmd(
     ] = None,
 ) -> None:
     """Stream runtime security anomaly events from Kubernetes Falco eBPF probes."""
+    from devops_cli.exceptions.k8s import KubernetesLoggingError
     from devops_cli.k8s.security_stream import render_security_alerts, stream_security_events
     from devops_cli.models.k8s import SecurityStreamRequest
 
@@ -328,7 +365,11 @@ def security_stream_cmd(
         follow=follow,
         simulate=simulate,
     )
-    result = stream_security_events(req, dry_run=False)
+    try:
+        result = stream_security_events(req, dry_run=False)
+    except KubernetesLoggingError as err:
+        print_error(str(err))
+        raise typer.Exit(1)
 
     _handle_security_stream_export(result, output, json_output)
 
