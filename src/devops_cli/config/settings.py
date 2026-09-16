@@ -66,6 +66,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_KEY_PREFIX,
     DEFAULT_SSH_ROTATION_DAYS,
+    DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS,
     DEFAULT_TLS_DATA_DIR,
     DEFAULT_WORKSPACE_FILE,
 )
@@ -151,6 +152,7 @@ class ValkeyConfig(BaseModel):
     password: str | None = None
     db: int = 0
     timeout: float = 2.0
+    threat_intel_ttl: int = DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS
 
     @model_validator(mode="before")
     @classmethod
