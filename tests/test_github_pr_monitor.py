@@ -559,23 +559,32 @@ class TestMonitorPR:
             assert "recommended changes" in status.message
 
     def test_monitor_pr_succeeds_when_copilot_changes_resolved(self) -> None:
-        clean_resolved_status = PRMonitorStatus(
-            number=168,
-            title="fix: all threads resolved",
-            checks=[PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")],
-            copilot_status=CopilotReviewStatus(
-                is_active=False,
-                state="completed",
-                message="Copilot review session completed (all recommended changes resolved)",
+        reviews_data = [
+            {
+                "user": {"login": "copilot-pull-request-reviewer[bot]"},
+                "state": "COMMENTED",
+                "body": "### 🟡 Changes recommended\n\nUnresolved concerns remain.",
+                "submitted_at": "2026-09-12T14:00:00Z",
+            }
+        ]
+        pr_details = {
+            "title": "fix: resolved copilot changes",
+            "head": {"sha": "headsha123456"},
+            "draft": False,
+            "mergeable": True,
+            "mergeable_state": "clean",
+        }
+        checks = [PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")]
+
+        with (
+            patch("devops_cli.github.pr_monitor._fetch_pr_details", return_value=pr_details),
+            patch("devops_cli.github.pr_monitor._fetch_rest_check_runs", return_value=checks),
+            patch("devops_cli.github.pr_monitor._fetch_raw_reviews", return_value=reviews_data),
+            patch("devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=[]),
+            patch(
+                "devops_cli.github.pr_monitor._query_timeline_copilot_state",
+                return_value=(False, "reviewed"),
             ),
-            unresolved_threads=[],
-            mergeable=True,
-            mergeable_state="clean",
-            review_decision=None,
-        )
-        with patch(
-            "devops_cli.github.pr_monitor.get_pr_monitoring_status",
-            return_value=clean_resolved_status,
         ):
             result = monitor_pr(
                 "dan-petty",
@@ -589,6 +598,62 @@ class TestMonitorPR:
             assert result.success is True
             assert result.exit_code == 0
             assert "READY FOR MERGING" in result.message
+            assert result.status is not None
+            assert result.status.copilot_status.state == "completed"
+
+    def test_monitor_pr_fails_when_copilot_changes_unresolved(self) -> None:
+        reviews_data = [
+            {
+                "user": {"login": "copilot-pull-request-reviewer[bot]"},
+                "state": "COMMENTED",
+                "body": "### 🟡 Changes recommended\n\nUnresolved concerns remain.",
+                "submitted_at": "2026-09-12T14:00:00Z",
+            }
+        ]
+        pr_details = {
+            "title": "fix: unresolved copilot changes",
+            "head": {"sha": "headsha123456"},
+            "draft": False,
+            "mergeable": True,
+            "mergeable_state": "clean",
+        }
+        checks = [PRCheckRun(name="Validation", status="COMPLETED", conclusion="SUCCESS")]
+        unresolved = [
+            ReviewThread(
+                id="PRRT_123",
+                is_resolved=False,
+                path="src/main.py",
+                line=10,
+                comments=[ReviewComment(id="PRRC_1", body="Fix this", author="copilot")],
+            )
+        ]
+
+        with (
+            patch("devops_cli.github.pr_monitor._fetch_pr_details", return_value=pr_details),
+            patch("devops_cli.github.pr_monitor._fetch_rest_check_runs", return_value=checks),
+            patch("devops_cli.github.pr_monitor._fetch_raw_reviews", return_value=reviews_data),
+            patch(
+                "devops_cli.github.pr_monitor._fetch_unresolved_threads", return_value=unresolved
+            ),
+            patch(
+                "devops_cli.github.pr_monitor._query_timeline_copilot_state",
+                return_value=(False, "reviewed"),
+            ),
+        ):
+            result = monitor_pr(
+                "dan-petty",
+                "devops-cli",
+                168,
+                timeout=10,
+                interval=1,
+                settle_timeout=0,
+                require_reviews=False,
+            )
+            assert result.success is False
+            assert result.exit_code == 2
+            assert "Copilot review requested changes" in result.message
+            assert result.status is not None
+            assert result.status.copilot_status.state == "changes_requested"
 
     def test_detect_copilot_status_excludes_no_changes_recommended(self) -> None:
         reviews_data = [
