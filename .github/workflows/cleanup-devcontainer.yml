@@ -4,10 +4,13 @@ on:
   pull_request:
     types:
       - closed
+  schedule:
+    # Daily maintenance sweep at 04:00 UTC to clean any orphaned or stale PR tags
+    - cron: "0 4 * * *"
   workflow_dispatch:
     inputs:
       pr_number:
-        description: "PR number to delete devcontainer image for (e.g. 38)"
+        description: "Specific PR number to delete devcontainer image for (e.g. 38)"
         required: false
         type: string
       tag:
@@ -22,7 +25,7 @@ on:
         default: false
 
 concurrency:
-  group: cleanup-devcontainer-${{ github.event.pull_request.number || github.run_id }}
+  group: cleanup-devcontainer-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -33,33 +36,55 @@ jobs:
     permissions:
       packages: write
       contents: read
+      pull-requests: read
 
     steps:
-      - name: Resolve Target Cleanup Tag
+      - name: Resolve Target Cleanup and Exclusion Tags
         id: target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            TAG="pr-${{ github.event.pull_request.number }}"
-            echo "Triggered by PR #${{ github.event.pull_request.number }} closure (merged: ${{ github.event.pull_request.merged }})"
-          elif [ -n "${{ github.event.inputs.pr_number }}" ]; then
+          if [ -n "${{ github.event.inputs.pr_number }}" ]; then
             TAG="pr-${{ github.event.inputs.pr_number }}"
-            echo "Triggered manually for PR #${{ github.event.inputs.pr_number }}"
-          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "Triggered manually for specific PR #${{ github.event.inputs.pr_number }}"
+          elif [ -n "${{ github.event.inputs.tag }}" ] && [ "${{ github.event.inputs.tag }}" != "pr-*" ]; then
             TAG="${{ github.event.inputs.tag }}"
-            echo "Triggered manually for tag: ${TAG}"
+            echo "Triggered manually for specific tag: ${TAG}"
           else
             TAG="pr-*"
-            echo "Defaulting to all PR tags: ${TAG}"
+            echo "Targeting all PR images matching: ${TAG}"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "Selected target tag pattern: ${TAG}"
+
+          # Dynamically determine open pull requests to protect their tags
+          BASE_EXCLUDE="latest,v*,main"
+          OPEN_PR_TAGS=""
+          if OPEN_PRS=$(gh pr list --repo "${{ github.repository }}" --state open --json number --jq '.[].number | "pr-\(.)"' 2>/dev/null); then
+            OPEN_PR_TAGS=$(echo "$OPEN_PRS" | tr '\n' ',' | sed 's/,$//')
+          fi
+
+          if [ -n "$OPEN_PR_TAGS" ]; then
+            EXCLUDE_TAGS="${BASE_EXCLUDE},${OPEN_PR_TAGS}"
+          else
+            EXCLUDE_TAGS="${BASE_EXCLUDE}"
+          fi
+
+          # If triggered by PR closure, guarantee closing PR is removed from exclusion
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CLOSING_PR="pr-${{ github.event.pull_request.number }}"
+            EXCLUDE_TAGS=$(echo "$EXCLUDE_TAGS" | tr ',' '\n' | grep -v "^${CLOSING_PR}$" | tr '\n' ',' | sed 's/,$//')
+          fi
+
+          echo "exclude_tags=${EXCLUDE_TAGS}" >> "$GITHUB_OUTPUT"
+          echo "Target delete pattern: ${TAG}"
+          echo "Protected tags: ${EXCLUDE_TAGS}"
 
       - name: Delete PR DevContainer from GHCR
         uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1
         with:
           packages: devops-cli/devcontainer
           delete-tags: ${{ steps.target.outputs.tag }}
-          exclude-tags: "latest,v*,main"
+          exclude-tags: ${{ steps.target.outputs.exclude_tags }}
           delete-untagged: true
           delete-ghost-images: true
           delete-orphaned-images: true
