@@ -746,17 +746,32 @@ def test_calculate_parallel_review_workers() -> None:
 
 def test_execute_review_segments_parallel_and_error_handling() -> None:
     """Verify _execute_review_segments runs in parallel and isolates segment failures."""
+    import threading
+    import time
+
     clients = MagicMock()
     clients.analysis._config.ollama_max_parallel = 2
     clients.analysis._config.ollama_urls = ["http://example.com:11434"]
     persona = PERSONAS[Persona.DEVSECOPS]
 
     pages = ["diff 1", "diff 2", "diff 3"]
+    active_workers = 0
+    max_active = 0
+    lock = threading.Lock()
 
     def _mock_attempt(clients, sys_prompt, user_prompt, label, suffix):
-        if "segment 2/3" in label:
-            raise RuntimeError("LLM failure on segment 2")
-        return f"Review for {label}"
+        nonlocal active_workers, max_active
+        with lock:
+            active_workers += 1
+            max_active = max(max_active, active_workers)
+        time.sleep(0.04)
+        try:
+            if "segment 2/3" in label:
+                raise RuntimeError("LLM failure on segment 2")
+            return f"Review for {label}"
+        finally:
+            with lock:
+                active_workers -= 1
 
     with (
         patch("devops_cli.ai.review.runner.is_dry_run", return_value=False),
@@ -777,10 +792,11 @@ def test_execute_review_segments_parallel_and_error_handling() -> None:
         )
         assert (
             len(results),
+            max_active >= 2,
             "Review for segment 1/3" in results[0],
             results[1],
             "Review for segment 3/3" in results[2],
-        ) == (3, True, "", True)
+        ) == (3, True, True, "", True)
 
 
 def test_execute_findings_validation_parallel_and_error_handling() -> None:
@@ -811,7 +827,7 @@ def test_execute_findings_validation_parallel_and_error_handling() -> None:
             clients=clients,
             analysis_suffix="",
         )
-        assert (len(validated), validated[0], validated[1]) == (2, res1, res2)
+        assert (len(validated), validated[0], validated[1]) == (2, res1, None)
 
 
 def test_run_persona_loop_parallel_and_error_handling() -> None:

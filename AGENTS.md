@@ -43,7 +43,7 @@ This document provides foundational context, architectural principles, and opera
   - Enforce subprocess safety with explicit command argument lists, bounded timeouts, and error handling.
   - **Defensive Subprocess Management & POSIX Process Group Isolation**:
     - When invoking external commands, background workers, or container runtimes via `subprocess.Popen`, never terminate processes using simple `proc.kill()`, which leaves spawned subshells or grandchild processes running as zombie leaks adopted by PID 1.
-    - Always isolate execution into a dedicated POSIX process group (`preexec_fn=os.setsid` on POSIX systems) and terminate the entire process hierarchy (`os.killpg(os.getpgid(proc.pid), signal.SIGTERM/SIGKILL)`).
+    - Always isolate execution into a dedicated POSIX process group (`start_new_session=True` on `subprocess.Popen`) and terminate the entire process hierarchy (`os.killpg(os.getpgid(proc.pid), signal.SIGTERM/SIGKILL)`). Avoid `preexec_fn=os.setsid` in multithreaded runtimes to prevent fork-deadlocks.
   - **Defensive Filesystem, Symlink & Resource Containment**:
     - Always enforce pre-flight file size caps (e.g. `MAX_REPOMAP_FILE_SIZE_BYTES` $\le 5$MB) before ingesting, parsing, or packing files into memory (via Python AST, Tree-Sitter, or text loaders) to prevent out-of-memory crashes and denial-of-service from minified bundles, database dumps, or large binaries.
     - Always defensively resolve filesystem symlinks (`path.resolve()`) and verify that target paths remain strictly confined within the intended root workspace (`resolved_path.is_relative_to(base_root)`), catching `(OSError, RuntimeError)` to prevent circular symlink loops (`ELOOP`) and directory traversal escapes.

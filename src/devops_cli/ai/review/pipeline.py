@@ -547,7 +547,6 @@ def _execute_pre_analysis_batch(
 ) -> list[FileAnalysisMeta]:
     """Execute parallel pre-analysis across batch of repository paths using ReviewWorkerPool."""
     from devops_cli.ai.review.pool import ReviewWorkerPool
-    from devops_cli.config.defaults import DEFAULT_PRE_ANALYSIS_WORKERS
 
     def _analyze_path(item: tuple[Path, str]) -> FileAnalysisMeta | None:
         path_obj, rel_path = item
@@ -564,7 +563,7 @@ def _execute_pre_analysis_batch(
         except Exception:
             return None
 
-    effective_workers = max(DEFAULT_PRE_ANALYSIS_WORKERS, batch_capacity)
+    effective_workers = max(1, batch_capacity)
     workers = min(len(paths_to_analyze), effective_workers, 32)
     pool = ReviewWorkerPool.create(concurrency=workers)
     raw_results = pool.run_sync_all(_analyze_path, paths_to_analyze, return_exceptions=True)
@@ -1738,10 +1737,34 @@ class ReviewPipelineOrchestrator:
                 from devops_cli.ai.review.pool import ReviewWorkerPool
 
                 pool = ReviewWorkerPool.create(concurrency=n_workers)
-                pool.run_sync_all(_review_task, items, return_exceptions=True)
+                review_results = pool.run_sync_all(_review_task, items, return_exceptions=True)
+                for (idx, payload), res in zip(items, review_results):
+                    if isinstance(res, Exception):
+                        err_desc = _format_error_detail("ReviewWorker", res)
+                        logger.error(
+                            "Unexpected worker exception reviewing %s: %s",
+                            payload.file_path,
+                            err_desc,
+                        )
+                        payload.findings = []
+                        payload.ai_scratchpad["stage"] = "failed"
+                        payload.ai_scratchpad["error"] = err_desc
+                        self.errored_files[payload.file_path] = err_desc
             else:
-                for item in items:
-                    _review_task(item)
+                for idx, payload in items:
+                    try:
+                        _review_task((idx, payload))
+                    except Exception as exc:
+                        err_desc = _format_error_detail("ReviewWorker", exc)
+                        logger.error(
+                            "Unexpected worker exception reviewing %s: %s",
+                            payload.file_path,
+                            err_desc,
+                        )
+                        payload.findings = []
+                        payload.ai_scratchpad["stage"] = "failed"
+                        payload.ai_scratchpad["error"] = err_desc
+                        self.errored_files[payload.file_path] = err_desc
 
     # ── Cross-Referencing Verification & Reasoning ──────────────────────────
     def _safe_verify_file_payload(
@@ -1937,10 +1960,34 @@ class ReviewPipelineOrchestrator:
                 from devops_cli.ai.review.pool import ReviewWorkerPool
 
                 pool = ReviewWorkerPool.create(concurrency=n_workers)
-                pool.run_sync_all(_verify_task, payloads_with_findings, return_exceptions=True)
+                verify_results = pool.run_sync_all(
+                    _verify_task, payloads_with_findings, return_exceptions=True
+                )
+                for (idx, payload), res in zip(payloads_with_findings, verify_results):
+                    if isinstance(res, Exception):
+                        err_desc = _format_error_detail("VerificationWorker", res)
+                        logger.error(
+                            "Unexpected worker exception verifying %s: %s",
+                            payload.file_path,
+                            err_desc,
+                        )
+                        payload.ai_scratchpad["stage"] = "failed"
+                        payload.ai_scratchpad["error"] = err_desc
+                        self.errored_files[payload.file_path] = err_desc
             else:
-                for item in payloads_with_findings:
-                    _verify_task(item)
+                for idx, payload in payloads_with_findings:
+                    try:
+                        _verify_task((idx, payload))
+                    except Exception as exc:
+                        err_desc = _format_error_detail("VerificationWorker", exc)
+                        logger.error(
+                            "Unexpected worker exception verifying %s: %s",
+                            payload.file_path,
+                            err_desc,
+                        )
+                        payload.ai_scratchpad["stage"] = "failed"
+                        payload.ai_scratchpad["error"] = err_desc
+                        self.errored_files[payload.file_path] = err_desc
 
             from devops_cli.ai.review.stages.adversarial_debate import (
                 run_adversarial_debate_stage,

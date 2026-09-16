@@ -713,6 +713,16 @@ def _execute_review_segment_attempt(
     return result_text
 
 
+def _format_error_detail(exc: Exception, max_len: int = 256) -> str:
+    """Format, sanitize, and bound exception detail string for logging."""
+    from devops_cli.security.sanitizer import mask_secrets
+
+    msg = mask_secrets(f"{type(exc).__name__}: {exc}").strip()
+    if len(msg) > max_len:
+        return msg[: max_len - 3] + "..."
+    return msg
+
+
 def _execute_review_segments(
     pages: list[str],
     title: str,
@@ -769,7 +779,7 @@ def _execute_review_segments(
             if isinstance(res, tuple) and len(res) == 2:
                 indexed_results.append((res[0], str(res[1])))
             elif isinstance(res, Exception):
-                logger.error("Segment %d review error: %s", idx, res)
+                logger.error("Segment %d review error: %s", idx, _format_error_detail(res))
                 indexed_results.append((idx, ""))
             else:
                 indexed_results.append((idx, str(res or "")))
@@ -873,26 +883,39 @@ def _execute_findings_validation(
             )
 
         val_results = pool.run_sync_all(_val_task, val_items, return_exceptions=True)
-        for res_entry in val_results:
+        for (idx_val, _), res_entry in zip(val_items, val_results):
             if isinstance(res_entry, tuple) and len(res_entry) == 2:
-                idx_val, val_obj = res_entry
+                _, val_obj = res_entry
                 validated_results[idx_val - 1] = val_obj
             elif isinstance(res_entry, Exception):
-                logger.error("Findings validation error: %s", res_entry)
+                logger.error(
+                    "Findings validation error for segment %d: %s",
+                    idx_val,
+                    _format_error_detail(res_entry),
+                )
+                validated_results[idx_val - 1] = None
     else:
         for i, (page, parsed) in enumerate(zip(pages, segment_results), 1):
-            _, single_res = _validate_single_segment_findings(
-                i,
-                page,
-                parsed,
-                total,
-                pages,
-                clients,
-                file_analysis_metas,
-                repo_target,
-                analysis_suffix,
-            )
-            validated_results[i - 1] = single_res
+            try:
+                _, single_res = _validate_single_segment_findings(
+                    i,
+                    page,
+                    parsed,
+                    total,
+                    pages,
+                    clients,
+                    file_analysis_metas,
+                    repo_target,
+                    analysis_suffix,
+                )
+                validated_results[i - 1] = single_res
+            except Exception as exc:
+                logger.error(
+                    "Findings validation error for segment %d: %s",
+                    i,
+                    _format_error_detail(exc),
+                )
+                validated_results[i - 1] = None
 
     print_info(f"[dim]  total {format_duration(time.monotonic() - t3)}[/dim]", prefix=False)
     return validated_results
@@ -1111,7 +1134,7 @@ def _run_persona_loop(
                     pd, review_text = item
                     _record_result(pd, review_text)
                 elif isinstance(item, Exception):
-                    logger.error("Persona review execution error: %s", item)
+                    logger.error("Persona review execution error: %s", _format_error_detail(item))
         else:
             for pd in personas:
                 pd, review_text = _execute_persona(pd)

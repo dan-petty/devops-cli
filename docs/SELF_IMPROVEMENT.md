@@ -48,7 +48,7 @@ flowchart TD
 
 ### Deterministic Mechanical Oracles & Closed-Loop Feedback Inversion
 
-As documented in the Systemic Retrospective Analysis ([`docs/RETROSPECTIVE.md`](../repos/dan-petty/vibes/docs/RETROSPECTIVE.md)), self-improvement mechanisms cannot rely on stochastic language generation alone. They require deterministic mechanical oracles coupled with a closed-loop feedback inversion dynamic:
+As documented in systemic engineering retrospectives and agent post-mortems, self-improvement mechanisms cannot rely on stochastic language generation alone. They require deterministic mechanical oracles coupled with a closed-loop feedback inversion dynamic:
 
 1. **Phase 1: Reactive Remediation**: When invariant violations, test failures, or verified review findings exist, the agent focuses 100% of priority on minimal, surgical defect resolution.
 2. **Phase 2: Proactive Quality Elevation**: As soon as quality gates pass and repository health reaches 100.0/100, the feedback loop dynamically inverts:
