@@ -223,6 +223,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops docker stats [OPTIONS]` | Display live container CPU, memory, and network I/O statistics. |
 |  | `devops docker analyze-layers [OPTIONS] <image>` | Analyze container image layer efficiency and wasted space using Dive. |
 |  | `devops docker sandbox [OPTIONS] <command>` | Execute workload inside an isolated, disposable Docker container sandbox. |
+|  | `devops docker sign [OPTIONS] <image>` | Sign a container image using Sigstore Cosign (keyless or keyed). |
+|  | `devops docker verify [OPTIONS] <image>` | Verify container image signature or attestation using Sigstore Cosign. |
 | **grafana** | `devops grafana search [OPTIONS]` | Search Grafana dashboards and folders by query string. |
 |  | `devops grafana datasources` | List configured datasources. |
 |  | `devops grafana alerts` | List alert rules (Grafana 9+ unified alerting). |

@@ -1253,6 +1253,57 @@ devops docker sandbox [OPTIONS] <command>
 | `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops docker sign`
+
+**Sign a container image using Sigstore Cosign (keyless or keyed).**
+
+```bash
+devops docker sign [OPTIONS] <image>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<image>` | `string` | Yes | Target container image reference (name:tag or digest) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--key`, `-k` | `string` | - | Path to private key or keyring:\<name\> |
+| `--keyless`, `--keyed` | `boolean` | `True` | Sign keylessly using OIDC/Fulcio |
+| `--oidc-token` | `string` | - | OIDC identity token or keyring:\<name\> for keyless signing |
+| `--annotation`, `-a` | `string` | - | Custom supply chain key=value annotations |
+| `--upload`, `--no-upload` | `boolean` | `True` | Upload signature to remote registry |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops docker verify`
+
+**Verify container image signature or attestation using Sigstore Cosign.**
+
+```bash
+devops docker verify [OPTIONS] <image>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<image>` | `string` | Yes | Target container image reference to verify |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--key`, `-k` | `string` | - | Path to public key or keyring:\<name\> |
+| `--certificate-identity` | `string` | - | Expected signer certificate identity (SAN/email/URI) |
+| `--certificate-oidc-issuer` | `string` | - | Expected OIDC certificate issuer URL |
+| `--attestation` | `boolean` | - | Verify in-toto attestation predicate instead of signature |
+| `--type` | `string` | - | Attestation predicate type (e.g. slsaprovenance, spdx, custom) |
+| `--insecure-ignore-tlog` | `boolean` | - | Ignore Rekor transparency log verification |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## devops grafana

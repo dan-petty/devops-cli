@@ -33,6 +33,8 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `CONSTELLATION_RESUME_ERROR` | `1` | Ai | Raised when resuming suspended constellation tasks fails. |
 | `CONTENT_FILTER_TRIGGERED` | `19` | Ai | Raised when a model response is filtered or refused by upstream content safety filters. |
 | `CONTEXT_BUDGET_EXCEEDED` | `11` | Ai | Raised when prompt token payload exceeds model context window limits. |
+| `COSIGN_ERROR` | `1` | Docker | Raised when Sigstore Cosign image signing fails. |
+| `COSIGN_VERIFICATION_FAILED` | `1` | Docker | Raised when Sigstore Cosign signature or attestation verification fails. |
 | `DEPENDENCY_MISSING` | `1` | Tools | Raised when a required external binary/dependency is missing from the system PATH. |
 | `DOC_COMPACTION_ERROR` | `1` | Docs | Exception raised when documentation compaction fails. |
 | `DOCKER_ERROR` | `1` | Docker | Base exception for Docker operations. |

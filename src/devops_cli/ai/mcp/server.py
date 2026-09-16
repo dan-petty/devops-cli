@@ -464,6 +464,79 @@ def docker_stats() -> str:
 
 
 @mcp.tool()
+def docker_sign(
+    image: str,
+    key: str | None = None,
+    keyless: bool = True,
+    oidc_token: str | None = None,
+    annotations: list[str] | None = None,
+    upload: bool = True,
+    dry_run: bool = False,
+) -> str:
+    """Sign a container image using Sigstore Cosign (keyless or keyed)."""
+    _validate_mcp_arg("image", image)
+    if key:
+        _validate_mcp_arg("key", key)
+    if oidc_token:
+        _validate_mcp_arg("oidc_token", oidc_token)
+    cmd = ["uv", "run", "devops", "docker", "sign", image]
+    if key:
+        cmd.extend(["--key", key])
+    if not keyless:
+        cmd.append("--keyed")
+    if oidc_token:
+        cmd.extend(["--oidc-token", oidc_token])
+    if annotations:
+        for ann in annotations:
+            _validate_mcp_arg("annotation", ann)
+            cmd.extend(["--annotation", ann])
+    if not upload:
+        cmd.append("--no-upload")
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def docker_verify(
+    image: str,
+    key: str | None = None,
+    certificate_identity: str | None = None,
+    certificate_oidc_issuer: str | None = None,
+    attestation: bool = False,
+    predicate_type: str | None = None,
+    insecure_ignore_tlog: bool = False,
+    dry_run: bool = False,
+) -> str:
+    """Verify container image signature or attestation using Sigstore Cosign."""
+    _validate_mcp_arg("image", image)
+    if key:
+        _validate_mcp_arg("key", key)
+    if certificate_identity:
+        _validate_mcp_arg("certificate_identity", certificate_identity)
+    if certificate_oidc_issuer:
+        _validate_mcp_arg("certificate_oidc_issuer", certificate_oidc_issuer)
+    if predicate_type:
+        _validate_mcp_arg("predicate_type", predicate_type)
+    cmd = ["uv", "run", "devops", "docker", "verify", image]
+    if key:
+        cmd.extend(["--key", key])
+    if certificate_identity:
+        cmd.extend(["--certificate-identity", certificate_identity])
+    if certificate_oidc_issuer:
+        cmd.extend(["--certificate-oidc-issuer", certificate_oidc_issuer])
+    if attestation:
+        cmd.append("--attestation")
+    if predicate_type:
+        cmd.extend(["--type", predicate_type])
+    if insecure_ignore_tlog:
+        cmd.append("--insecure-ignore-tlog")
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def workspace_list() -> str:
     """Show the active VS Code workspace file and configured repository directories."""
     return _run_mcp_cmd(

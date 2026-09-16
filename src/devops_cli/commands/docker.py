@@ -465,3 +465,159 @@ def docker_sandbox(
     if res.exit_code != 0:
         raise typer.Exit(res.exit_code)
     print_success(f"✓ Sandbox workload completed in {format_duration(res.duration_seconds)}")
+
+
+# =============================================================================
+# Sigstore Cosign Commands (Signing & Verification)
+# =============================================================================
+
+
+@app.command("sign")
+def docker_sign(
+    image: Annotated[
+        str, typer.Argument(help="Target container image reference (name:tag or digest)")
+    ],
+    key: Annotated[
+        str | None,
+        typer.Option("--key", "-k", help="Path to private key or keyring:<name>"),
+    ] = None,
+    keyless: Annotated[
+        bool,
+        typer.Option("--keyless/--keyed", help="Sign keylessly using OIDC/Fulcio"),
+    ] = True,
+    oidc_token: Annotated[
+        str | None,
+        typer.Option(
+            "--oidc-token", help="OIDC identity token or keyring:<name> for keyless signing"
+        ),
+    ] = None,
+    annotation: Annotated[
+        list[str] | None,
+        typer.Option("--annotation", "-a", help="Custom supply chain key=value annotations"),
+    ] = None,
+    upload: Annotated[
+        bool,
+        typer.Option("--upload/--no-upload", help="Upload signature to remote registry"),
+    ] = True,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Sign a container image using Sigstore Cosign (keyless or keyed)."""
+    from devops_cli.docker.cosign import CosignRunner
+    from devops_cli.exceptions.docker import CosignError
+    from devops_cli.exceptions.tools import DependencyError
+    from devops_cli.models.docker import DockerSignRequest
+
+    runner = CosignRunner()
+    req = DockerSignRequest(
+        image=image,
+        key=key,
+        keyless=keyless,
+        oidc_token=oidc_token,
+        annotations=annotation or [],
+        upload=upload,
+        dry_run=dry_run or is_dry_run(),
+    )
+
+    if req.dry_run:
+        render_dry_run_result(
+            command=f"devops docker sign {image}",
+            action="docker_cosign_sign",
+            details={
+                "image": image,
+                "keyless": keyless,
+                "key": key or "none",
+                "annotations": annotation or [],
+                "upload": upload,
+            },
+        )
+        return
+
+    try:
+        res = runner.sign_image(req)
+        print_success(f"✓ Image '{image}' signed successfully. (signature: {res.signature_ref})")
+    except (DependencyError, CosignError) as exc:
+        print_error(str(exc))
+        raise typer.Exit(1)
+
+
+@app.command("verify")
+def docker_verify(
+    image: Annotated[str, typer.Argument(help="Target container image reference to verify")],
+    key: Annotated[
+        str | None,
+        typer.Option("--key", "-k", help="Path to public key or keyring:<name>"),
+    ] = None,
+    certificate_identity: Annotated[
+        str | None,
+        typer.Option(
+            "--certificate-identity", help="Expected signer certificate identity (SAN/email/URI)"
+        ),
+    ] = None,
+    certificate_oidc_issuer: Annotated[
+        str | None,
+        typer.Option("--certificate-oidc-issuer", help="Expected OIDC certificate issuer URL"),
+    ] = None,
+    attestation: Annotated[
+        bool,
+        typer.Option(
+            "--attestation", help="Verify in-toto attestation predicate instead of signature"
+        ),
+    ] = False,
+    predicate_type: Annotated[
+        str | None,
+        typer.Option(
+            "--type", help="Attestation predicate type (e.g. slsaprovenance, spdx, custom)"
+        ),
+    ] = None,
+    insecure_ignore_tlog: Annotated[
+        bool,
+        typer.Option("--insecure-ignore-tlog", help="Ignore Rekor transparency log verification"),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Verify container image signature or attestation using Sigstore Cosign."""
+    from devops_cli.docker.cosign import CosignRunner
+    from devops_cli.exceptions.docker import CosignVerificationError
+    from devops_cli.exceptions.tools import DependencyError
+    from devops_cli.models.docker import DockerVerifyRequest
+
+    runner = CosignRunner()
+    req = DockerVerifyRequest(
+        image=image,
+        key=key,
+        cert_identity=certificate_identity,
+        cert_issuer=certificate_oidc_issuer,
+        attestation=attestation,
+        predicate_type=predicate_type,
+        insecure_ignore_tlog=insecure_ignore_tlog,
+        dry_run=dry_run or is_dry_run(),
+    )
+
+    if req.dry_run:
+        render_dry_run_result(
+            command=f"devops docker verify {image}",
+            action="docker_cosign_verify",
+            details={
+                "image": image,
+                "key": key or "none",
+                "cert_identity": certificate_identity or "none",
+                "cert_issuer": certificate_oidc_issuer or "none",
+                "attestation": attestation,
+            },
+        )
+        return
+
+    try:
+        res = runner.verify_image(req)
+        print_success(
+            f"✓ Image '{image}' signature verified successfully ({len(res.signatures)} signatures)."
+        )
+    except (DependencyError, CosignVerificationError) as exc:
+        print_error(str(exc))
+        raise typer.Exit(1)
