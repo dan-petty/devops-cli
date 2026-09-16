@@ -401,3 +401,53 @@ def test_deploy_and_teardown_stack_use_effective_context(
             "--kube-context" in c and "arn:aws:eks:us-east-1:123456789012:cluster/prod" in c
             for c in calls
         )
+
+
+def test_sync_configured_k8s_context_masks_secrets() -> None:
+    from unittest.mock import patch
+
+    from devops_cli.commands.k8s.cluster_context import _sync_configured_k8s_context
+
+    secret_token = "ghp_secrettoken1234567890abcdefghijklmn"
+    with (
+        patch(
+            "devops_cli.config.settings.save_settings",
+            side_effect=OSError(f"Disk error with {secret_token}"),
+        ),
+        patch("devops_cli.commands.k8s.cluster_context.print_warning") as mock_warn,
+    ):
+        _sync_configured_k8s_context("new-cluster")
+        assert mock_warn.called
+        warn_msg = mock_warn.call_args[0][0]
+        assert secret_token not in warn_msg
+        assert "<masked-github-token>" in warn_msg
+
+
+def test_switch_context_honors_minikube_autostart_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import patch
+
+    monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+    with (
+        patch("devops_cli.commands.k8s.cluster_runtime._validate_kubeconfig_context_name"),
+        patch("devops_cli.commands.k8s.cluster_runtime._run_cmd"),
+        patch("devops_cli.commands.k8s.cluster_runtime._start_minikube") as mock_start,
+        patch("devops_cli.commands.k8s.cluster_context._sync_configured_k8s_context"),
+    ):
+        res = runner.invoke(app, ["switch-context", "minikube"])
+        assert res.exit_code == 0
+        mock_start.assert_not_called()
+
+
+def test_k8s_run_cmd_kubeconfig_security(monkeypatch: pytest.MonkeyPatch) -> None:
+    from devops_cli.commands.k8s.cluster_runtime import _run_cmd
+    from devops_cli.exceptions.security import SecurityError
+
+    monkeypatch.setenv("KUBECONFIG", "../../../etc/kubeconfig")
+    with pytest.raises(SecurityError):
+        _run_cmd(["kubectl", "version"])
+
+    monkeypatch.setenv("KUBECONFIG", "/etc/kubernetes/admin.conf")
+    with pytest.raises(SecurityError):
+        _run_cmd(["kubectl", "version"])

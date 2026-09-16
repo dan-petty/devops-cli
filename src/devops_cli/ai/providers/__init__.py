@@ -15,7 +15,6 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider as NativeOpenRou
 from devops_cli.ai.providers.anthropic import AnthropicProvider
 from devops_cli.ai.providers.base import BaseLLMProvider
 from devops_cli.ai.providers.copilot import CopilotProvider
-from devops_cli.ai.providers.mock import MockProvider
 from devops_cli.ai.providers.ollama import OllamaProvider
 from devops_cli.ai.providers.openai import OpenAIProvider
 from devops_cli.config.settings import AIConfig
@@ -26,8 +25,12 @@ _PROVIDERS: dict[str, type[BaseLLMProvider]] = {
     "claude": AnthropicProvider,
     "anthropic": AnthropicProvider,
     "copilot": CopilotProvider,
-    "mock": MockProvider,
 }
+
+
+def register_provider(name: str, provider_cls: type[BaseLLMProvider]) -> None:
+    """Register a custom or mock LLM provider class under the given canonical name."""
+    _PROVIDERS[name.lower().strip()] = provider_cls
 
 
 def get_provider(name: str, config: AIConfig) -> BaseLLMProvider:
@@ -89,7 +92,6 @@ __all__ = [
     "AnthropicProvider",
     "BaseLLMProvider",
     "CopilotProvider",
-    "MockProvider",
     "NativeAnthropicProvider",
     "NativeDeepSeekProvider",
     "NativeGoogleProvider",
@@ -103,4 +105,5 @@ __all__ = [
     "get_provider",
     "infer_provider",
     "infer_provider_class",
+    "register_provider",
 ]

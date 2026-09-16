@@ -92,6 +92,9 @@ FEATURE_PR_INLINE_COMMENTS = "features.pr_inline_comments"
 FEATURE_CUSTOM_PERSONAS = "features.custom_personas"
 FEATURE_HEADLESS_AUTH = "features.headless_auth"
 
+# Sandbox Configuration
+SANDBOX_EXCLUDE_HOME_DIR = "sandbox.exclude_home_dir"
+
 CONFIG_OPTIONS: tuple[str, ...] = (
     GITHUB_TOKEN,
     GITHUB_DEFAULT_ORG,
@@ -162,6 +165,7 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     DATA_FEEDBACK_DATASET_PATH,
     TELEMETRY_LOGFIRE,
     TELEMETRY_LOGFIRE_TOKEN,
+    SANDBOX_EXCLUDE_HOME_DIR,
 )
 
 SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(

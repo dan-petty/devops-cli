@@ -21,6 +21,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
 )
+from devops_cli.core.repo import is_ignored_by_git
 from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
@@ -34,25 +35,6 @@ def is_text_file(p: Path) -> bool:
             return b"\x00" not in chunk
     except OSError:
         return False
-
-
-_EXCLUDED_PARTS = {
-    ".git",
-    ".venv",
-    "__pycache__",
-    ".data",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".ruff_cache",
-    ".uv",
-    "node_modules",
-    "dist",
-    "build",
-    ".coverage",
-    ".tox",
-    ".next",
-    ".turbo",
-}
 
 
 def detect_project_name(file_path: Path, root_dir: Path) -> str:
@@ -87,21 +69,36 @@ def _load_gitignore_spec(root: Path) -> Any:
             for line in gitignore_file.read_text(encoding="utf-8", errors="replace").splitlines()
             if line.strip() and not line.strip().startswith("#")
         ]
-        return pathspec.PathSpec.from_lines("gitwildmatch", patterns) if patterns else None
+        if not patterns:
+            return None
+        try:
+            return pathspec.PathSpec.from_lines("gitignore", patterns)
+        except Exception:
+            return pathspec.PathSpec.from_lines("gitwildmatch", patterns)
     except Exception:
         return None
 
 
 def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bool:
     """Determine if a path is an indexable code/doc file under root."""
-    if not p.is_file():
+    if not p.is_file() or p.is_symlink():
         return False
-    rel_parts = p.relative_to(root).parts
-    if any(part in _EXCLUDED_PARTS or part.startswith(".") for part in rel_parts[:-1]):
+    try:
+        resolved = p.resolve()
+        if not resolved.is_relative_to(root.resolve()):
+            return False
+    except OSError:
+        return False
+    rel_parts = p.relative_to(root).parts if p.is_relative_to(root) else p.parts
+    if any(part.startswith(".") for part in rel_parts[:-1]):
         return False
     if p.name.startswith(".") and not p.name.endswith((".yaml", ".yml", ".json", ".toml")):
         return False
-    if gitignore_spec is not None and gitignore_spec.match_file(str(p.relative_to(root))):
+    if gitignore_spec is not None:
+        rel = str(p.relative_to(root)) if p.is_relative_to(root) else p.name
+        if gitignore_spec.match_file(rel):
+            return False
+    if is_ignored_by_git(root, p):
         return False
     try:
         if p.stat().st_size > 2 * 1024 * 1024:
@@ -383,29 +380,22 @@ class WorkspaceIndexer:
             logger.debug("Failed to write index cache: %s", exc)
 
     def collect_files(self, root_dir: Path) -> list[Path]:
-        """Collect all indexable files under root_dir, respecting .gitignore and exclusion rules."""
+        """Collect all indexable files under root_dir, respecting .gitignore rules."""
         import os
 
         root = root_dir.resolve()
         if root.is_file():
-            return [root]
+            return [root] if _is_indexable_file(root, root.parent) else []
 
         gitignore_spec = _load_gitignore_spec(root)
         indexable_files: list[Path] = []
-
-        def _is_dir_excluded(d: str, rel_dir: str) -> bool:
-            if d in _EXCLUDED_PARTS or d.startswith("."):
-                return True
-            if gitignore_spec is None:
-                return False
-            path_suffix = os.path.join(rel_dir, d, "") if rel_dir != "." else f"{d}/"
-            return bool(gitignore_spec.match_file(path_suffix))
-
         for dirpath, dirnames, filenames in os.walk(root):
-            rel_dir = os.path.relpath(dirpath, root)
-            dirnames[:] = [d for d in dirnames if not _is_dir_excluded(d, rel_dir)]
+            dp = Path(dirpath)
+            dirnames[:] = [
+                d for d in dirnames if not d.startswith(".") and not is_ignored_by_git(root, dp / d)
+            ]
             for fname in filenames:
-                p = Path(dirpath) / fname
+                p = dp / fname
                 if _is_indexable_file(p, root, gitignore_spec=gitignore_spec):
                     indexable_files.append(p)
 

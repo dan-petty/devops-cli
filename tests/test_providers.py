@@ -9,17 +9,19 @@ import pytest
 from devops_cli.ai.providers import (
     AnthropicProvider,
     CopilotProvider,
-    MockProvider,
     OllamaProvider,
     OpenAIProvider,
     get_provider,
+    register_provider,
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
+from tests.mock_provider import MockProvider
 
 
 def test_provider_factory() -> None:
     config = AIConfig()
+    register_provider("mock", MockProvider)
     ollama = get_provider("ollama", config)
     assert isinstance(ollama, OllamaProvider)
     assert ollama.name == "ollama"

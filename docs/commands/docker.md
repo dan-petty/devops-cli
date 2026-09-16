@@ -141,9 +141,67 @@ devops docker sandbox [OPTIONS] <command>
 | `--workspace`, `-w` | `path` | `.` | Workspace directory to mount |
 | `--memory`, `-m` | `string` | `2g` | Memory limit (e.g. 2g, 512m) |
 | `--cpus`, `-c` | `float` | `2.0` | CPU limit |
-| `--network`, `-n` | `string` | `bridge` | Network mode: bridge | none | host |
+| `--network`, `-n` | `string` | `isolated` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--network-mode` | `string` | - | Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
+| `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 | `--read-only` | `boolean` | - | Mount workspace as read-only |
 | `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops docker sign`
+
+**Sign a container image using Sigstore Cosign (keyless or keyed).**
+
+```bash
+devops docker sign [OPTIONS] <image>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<image>` | `string` | Yes | Target container image reference (name:tag or digest) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--key`, `-k` | `string` | - | Path to private key or keyring:\<name\> |
+| `--keyless`, `--keyed` | `boolean` | `True` | Sign keylessly using OIDC/Fulcio |
+| `--oidc-token` | `string` | - | OIDC identity token or keyring:\<name\> for keyless signing |
+| `--annotation`, `-a` | `string` | - | Custom supply chain key=value annotations |
+| `--upload`, `--no-upload` | `boolean` | `True` | Upload signature to remote registry |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops docker verify`
+
+**Verify container image signature or attestation using Sigstore Cosign.**
+
+```bash
+devops docker verify [OPTIONS] <image>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<image>` | `string` | Yes | Target container image reference to verify |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--key`, `-k` | `string` | - | Path to public key or keyring:\<name\> |
+| `--certificate-identity` | `string` | - | Expected signer certificate identity (SAN/email/URI) |
+| `--certificate-oidc-issuer` | `string` | - | Expected OIDC certificate issuer URL |
+| `--attestation` | `boolean` | - | Verify in-toto attestation predicate instead of signature |
+| `--type` | `string` | - | Attestation predicate type (e.g. slsaprovenance, spdx, custom) |
+| `--insecure-ignore-tlog` | `boolean` | - | Ignore Rekor transparency log verification |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

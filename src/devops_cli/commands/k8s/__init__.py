@@ -40,6 +40,7 @@ from devops_cli.commands.k8s.diagnostics import (
     chaos_cmd,
     diff_helm_cmd,
     pods_cmd,
+    security_stream_cmd,
     stream_logs_cmd,
 )
 from devops_cli.commands.k8s.networking import (
@@ -115,6 +116,7 @@ app.command(name="stream-logs")(stream_logs_cmd)
 app.command(name="diff-helm")(diff_helm_cmd)
 app.command(name="chaos")(chaos_cmd)
 app.command(name="pods")(pods_cmd)
+app.command(name="security-stream")(security_stream_cmd)
 
 __all__ = [
     "app",
@@ -137,6 +139,7 @@ __all__ = [
     "pods_cmd",
     "rbac_audit",
     "run_subprocess",
+    "security_stream_cmd",
     "shutil",
     "status",
     "stream_logs_cmd",

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.docker import app as docker_app
@@ -13,6 +14,7 @@ from devops_cli.docker.sandbox import (
     WorkloadSandboxConfig,
     WorkloadSandboxRunner,
 )
+from devops_cli.exceptions.docker import DockerSandboxError
 
 runner = CliRunner()
 
@@ -26,7 +28,7 @@ def test_sandbox_config_defaults(tmp_path: Path) -> None:
     assert cfg.image == "python:3.14-slim"
     assert cfg.memory_limit == "2g"
     assert cfg.cpu_limit == 2.0
-    assert cfg.network_mode == "bridge"
+    assert cfg.network_mode == "none"
     assert cfg.rootless is True
     assert cfg.read_only is True
 
@@ -110,6 +112,25 @@ def test_cli_test_sandbox_dry_run(tmp_path: Path) -> None:
     assert "alpine:latest" in res.output
 
 
+def test_cli_test_sandbox_whitelist_url_with_path() -> None:
+    """Test devops test sandbox accepts valid whitelist URLs with paths."""
+    res = runner.invoke(
+        cli_test_app,
+        [
+            "sandbox",
+            "--dry-run",
+            "--network-mode",
+            "public_whitelist",
+            "--public-whitelist",
+            "https://example.com/path",
+            "echo",
+            "test",
+        ],
+    )
+    assert res.exit_code == 0
+    assert "echo" in res.output
+
+
 def test_cli_docker_sandbox_dry_run(tmp_path: Path) -> None:
     """Test devops docker sandbox CLI subcommand with dry-run."""
     res = runner.invoke(
@@ -145,3 +166,27 @@ def test_sandbox_runner_subprocess_env_propagation(tmp_path: Path) -> None:
         assert "--security-opt=no-new-privileges" in cmd_args
         assert "--pids-limit=256" in cmd_args
         assert mock_subproc.call_args.kwargs.get("timeout") == int(cfg.timeout)
+
+
+def test_workload_sandbox_runner_exclude_home_dir(tmp_path: Path) -> None:
+    """Verify WorkloadSandboxRunner enforces exclude_home_dir preference."""
+    cfg_home = WorkloadSandboxConfig(workspace_dir=Path.home(), command=["echo", "hi"])
+    runner_default = WorkloadSandboxRunner(cfg_home)
+    assert runner_default.exclude_home_dir is True
+    with pytest.raises(DockerSandboxError, match="home directory"):
+        runner_default.run()
+
+    cfg_subhome = WorkloadSandboxConfig(
+        workspace_dir=Path.home() / "some_nested_dir",
+        command=["echo", "hi"],
+    )
+    runner_sub = WorkloadSandboxRunner(cfg_subhome)
+    with pytest.raises(DockerSandboxError, match="home directory"):
+        runner_sub.run()
+
+    # When exclude_home_dir is explicitly disabled:
+    runner_allow = WorkloadSandboxRunner(cfg_home, exclude_home_dir=False)
+    assert runner_allow.exclude_home_dir is False
+    # Home root is still forbidden
+    with pytest.raises(DockerSandboxError, match="home directory"):
+        runner_allow.run()

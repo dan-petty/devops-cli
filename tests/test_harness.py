@@ -523,6 +523,9 @@ def test_sqlite_plan_store_path_security() -> None:
     with pytest.raises(SecurityError):
         SqlitePlanStore(db_path="../../../escaped_plans.db")
 
+    with pytest.raises(SecurityError):
+        SqlitePlanStore(db_path="/opt/unauthorized_plans.db")
+
 
 def test_planning_capability_tools() -> None:
     from devops_cli.ai.harness import Planning

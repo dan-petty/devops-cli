@@ -49,7 +49,7 @@ Clone, synchronize, and manage organization repositories.
 
 ### `devops repos clone-org`
 
-**Clone all repos from a GitHub org into repos/<org>/.**
+**Clone all repos from a GitHub org into `repos/<org>/.`.**
 
 ```bash
 devops repos clone-org [OPTIONS] <org>
@@ -71,7 +71,7 @@ devops repos clone-org [OPTIONS] <org>
 
 ### `devops repos clone`
 
-**Clone an individual repository into repos/_standalone/<name>/.**
+**Clone an individual repository into `repos/_standalone/<name>/.`.**
 
 ```bash
 devops repos clone [OPTIONS] <url>
@@ -347,7 +347,7 @@ devops devcontainer init [OPTIONS] <repo_path>
 | `--python` | `string` | `3.14` | Python version for base template. |
 | `--image`, `-i` | `string` | - | Base container image (defaults to published devops-cli image). |
 | `--published`, `-p` | `boolean` | `True` | Use published GHCR image (defaults to True). |
-| `--home-volume` | `string` | - | Custom volume name for /home/vscode (defaults to <project_name>-home). |
+| `--home-volume` | `string` | - | Custom volume name for /home/vscode (defaults to `<project_name>-home`). |
 | `--force`, `-f` | `boolean` | - | Overwrite existing devcontainer.json and configurations. |
 
 ### `devops devcontainer update`
@@ -1053,6 +1053,29 @@ devops k8s pods [OPTIONS]
 | `--interval`, `-i` | `float` | `3.0` | Auto-refresh polling interval in seconds. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops k8s security-stream`
+
+**Stream runtime security anomaly events from Kubernetes Falco eBPF probes.**
+
+```bash
+devops k8s security-stream [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `falco` | Kubernetes namespace. |
+| `--label`, `-l` | `string` | `app.kubernetes.io/name=falco` | Kubernetes label selector filter (e.g. app=frontend). |
+| `--severity`, `-s` | `string` | - | Minimum severity filter threshold (Notice, Warning, Error, Critical). |
+| `--duration`, `-d` | `integer` | `30` | Observation streaming window duration in seconds. |
+| `--tail`, `-t` | `integer` | `100` | Number of historical log lines to stream. |
+| `--follow`, `-f`, `--no-follow` | `boolean` | - | Continuously stream live log output. |
+| `--simulate` | `boolean` | - | Generate simulated kernel eBPF security anomalies for testing. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--output`, `-o` | `path` | - | Export discovered alerts to JSON file |
+
 ---
 
 ## devops kustomize
@@ -1245,9 +1268,63 @@ devops docker sandbox [OPTIONS] <command>
 | `--workspace`, `-w` | `path` | `.` | Workspace directory to mount |
 | `--memory`, `-m` | `string` | `2g` | Memory limit (e.g. 2g, 512m) |
 | `--cpus`, `-c` | `float` | `2.0` | CPU limit |
-| `--network`, `-n` | `string` | `bridge` | Network mode: bridge | none | host |
+| `--network`, `-n` | `string` | `isolated` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--network-mode` | `string` | - | Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
+| `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 | `--read-only` | `boolean` | - | Mount workspace as read-only |
 | `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops docker sign`
+
+**Sign a container image using Sigstore Cosign (keyless or keyed).**
+
+```bash
+devops docker sign [OPTIONS] <image>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<image>` | `string` | Yes | Target container image reference (name:tag or digest) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--key`, `-k` | `string` | - | Path to private key or keyring:\<name\> |
+| `--keyless`, `--keyed` | `boolean` | `True` | Sign keylessly using OIDC/Fulcio |
+| `--oidc-token` | `string` | - | OIDC identity token or keyring:\<name\> for keyless signing |
+| `--annotation`, `-a` | `string` | - | Custom supply chain key=value annotations |
+| `--upload`, `--no-upload` | `boolean` | `True` | Upload signature to remote registry |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops docker verify`
+
+**Verify container image signature or attestation using Sigstore Cosign.**
+
+```bash
+devops docker verify [OPTIONS] <image>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<image>` | `string` | Yes | Target container image reference to verify |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--key`, `-k` | `string` | - | Path to public key or keyring:\<name\> |
+| `--certificate-identity` | `string` | - | Expected signer certificate identity (SAN/email/URI) |
+| `--certificate-oidc-issuer` | `string` | - | Expected OIDC certificate issuer URL |
+| `--attestation` | `boolean` | - | Verify in-toto attestation predicate instead of signature |
+| `--type` | `string` | - | Attestation predicate type (e.g. slsaprovenance, spdx, custom) |
+| `--insecure-ignore-tlog` | `boolean` | - | Ignore Rekor transparency log verification |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -4074,6 +4151,7 @@ devops release prepare [OPTIONS] <version>
 | `--create-pr`, `-p` | `boolean` | - | Create release branch, commit changes, and open a GitHub Release PR. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
 | `--breaking`, `-b` | `boolean` | - | Flag release as containing breaking changes (!). |
+| `--draft`, `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
 
 ### `devops release pr`
@@ -4090,7 +4168,7 @@ devops release pr [OPTIONS]
 |---|---|---|---|
 | `--version`, `-v` | `string` | - | Target version string. |
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--draft` | `boolean` | - | Create pull request or entity as draft. |
+| `--draft`, `--no-draft` | `boolean` | `True` | Create pull request or entity as draft. |
 | `--labels`, `-l` | `string` | `release` | Comma-separated labels to attach. |
 | `--push`, `--no-push` | `boolean` | `True` | Push commits or tags to git remote. |
 | `--type`, `-t` | `string` | `feat` | Conventional commit prefix (feat or fix). |
@@ -4321,6 +4399,7 @@ devops pr ready [OPTIONS] <number>
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--monitor`, `-m` | `boolean` | - | Automatically transition to monitoring checks and reviews after marking ready. |
+| `--force`, `-f` | `boolean` | - | Bypass failing check verification and force ready status |
 
 ### `devops pr diff`
 
@@ -4487,6 +4566,31 @@ devops pr threads resolve-all [OPTIONS] <number>
 
 GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
 
+### `devops gh api`
+
+**Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching.**
+
+```bash
+devops gh api [OPTIONS] <endpoint>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<endpoint>` | `string` | Yes | GitHub API endpoint (e.g. repos/:owner/:repo/issues) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--method`, `-X` | `string` | - | HTTP method (GET, POST, PUT, DELETE, PATCH) |
+| `--paginate` | `boolean` | - | Paginate across all result pages |
+| `--jq`, `-q` | `string` | - | Filter JSON output using a jq expression |
+| `--template`, `-t` | `string` | - | Format JSON output using a Go template |
+| `--cache` | `boolean` | - | Cache response in-memory for subsequent reads |
+| `--cache-ttl` | `float` | `15.0` | Cache TTL in seconds (default 15.0) |
+
 ### `devops gh rate-limit`
 
 **Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns.**
@@ -4650,7 +4754,7 @@ devops gh project status [OPTIONS]
 
 #### `devops gh project sync`
 
-**Sync task items from tasks directory or task.md into GitHub Projects status.**
+**Sync task items from docs/agent/tasks directory into GitHub Projects status.**
 
 ```bash
 devops gh project sync [OPTIONS]
@@ -4660,7 +4764,7 @@ devops gh project sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--task-file`, `-f` | `path` | `docs/agent/tasks` | Path to docs/agent/tasks directory or task.md |
+| `--task-file`, `-f` | `path` | `docs/agent/tasks` | Path to docs/agent/tasks directory |
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run`, `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
@@ -5262,6 +5366,7 @@ devops gh pr ready [OPTIONS] <number>
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--monitor`, `-m` | `boolean` | - | Automatically transition to monitoring checks and reviews after marking ready. |
+| `--force`, `-f` | `boolean` | - | Bypass failing check verification and force ready status |
 
 #### `devops gh pr diff`
 
@@ -5988,7 +6093,10 @@ devops test sandbox [OPTIONS] <command>
 | `--workspace`, `-w` | `path` | `.` | Workspace directory to bind mount |
 | `--memory`, `-m` | `string` | `2g` | Memory constraint limit (e.g. 2g, 512m) |
 | `--cpus`, `-c` | `float` | `2.0` | CPU quota limit |
-| `--network`, `-n` | `string` | `bridge` | Network mode: bridge | none | host |
+| `--network`, `-n` | `string` | `isolated` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--network-mode` | `string` | - | Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
+| `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 | `--read-only` | `boolean` | - | Mount workspace as read-only |
 | `--rootless`, `--root` | `boolean` | `True` | Run container with host user UID/GID |
 | `--dry-run` | `boolean` | - | Simulate test execution. |
@@ -6341,7 +6449,10 @@ devops sandbox deploy [OPTIONS] <command>
 | `--memory`, `-m` | `string` | `2g` | Memory limit for the container (e.g. 512m, 2g). |
 | `--cpus`, `-c` | `float` | `2.0` | CPU quota limit for the container (e.g. 1.0, 2.0). |
 | `--read-only` | `boolean` | `True` | Mount root filesystem as read-only with a tmpfs /tmp. |
-| `--network` | `string` | `bridge` | Docker network mode (bridge | host | none). |
+| `--network` | `string` | `isolated` | Docker network mode (bridge | host | none). |
+| `--network-mode` | `string` | - | Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
+| `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 | `--env`, `-e` | `string` | - | Environment variable in KEY=VALUE format. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -6513,6 +6624,24 @@ devops sandbox logs [OPTIONS] <identifier>
 | `--incident-dir` | `path` | - | Directory path to persist structured panic incident records. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops sandbox network-policy`
+
+**Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation.**
+
+```bash
+devops sandbox network-policy [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--network-mode`, `-m` | `string` | `isolated` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--name`, `-n` | `string` | `app-sandbox` | Name prefix for the NetworkPolicy resource |
+| `--namespace` | `string` | `sandbox` | Target Kubernetes namespace |
+| `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
+| `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 
 ---
 

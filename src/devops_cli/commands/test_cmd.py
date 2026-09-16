@@ -11,12 +11,23 @@ import typer
 
 from devops_cli.config.commands import BIN_K6, build_k6_cmd
 from devops_cli.config.constants import CONST_CURRENT_DIR
+from devops_cli.config.defaults import DEFAULT_SANDBOX_NETWORK
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import ERRORS, HELP, MESSAGES
-from devops_cli.output import format_duration, print_error, print_info, print_muted, print_success
+from devops_cli.output import (
+    format_duration,
+    print_error,
+    print_info,
+    print_muted,
+    print_success,
+    print_warning,
+    write_stderr,
+    write_stdout,
+)
+from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.memory_profiler import (
     MemoryProfileReport,
     MemoryProfilerError,
@@ -249,6 +260,56 @@ def load_test_cmd(
             raise typer.Exit(res.returncode)
 
 
+_ALLOWED_NETWORK_MODES: frozenset[str] = frozenset(
+    {
+        "isolated",
+        "sandbox_namespace",
+        "public_whitelist",
+        "local_whitelist",
+        "bridge",
+        "none",
+    }
+)
+
+
+def _parse_whitelist(raw: str | None, name: str = "public") -> list[str]:
+    """Parse comma-separated whitelist tokens without restricting valid URL formats."""
+    if not raw:
+        return []
+    items: list[str] = []
+    for token in raw.split(","):
+        cleaned = token.strip()
+        if not cleaned:
+            continue
+        if " " in cleaned:
+            raise typer.BadParameter(f"Invalid {name} whitelist entry: '{cleaned}'")
+        items.append(cleaned)
+    return items
+
+
+def _validate_sandbox_network(
+    network_mode: str | None,
+    network: str,
+    public_whitelist: str | None,
+    local_whitelist: str | None,
+) -> tuple[str, list[str], list[str]]:
+    """Validate network mode and whitelist tokens, warning on bridge mode."""
+    mode = (network_mode or network).strip().lower()
+    if mode not in _ALLOWED_NETWORK_MODES:
+        allowed = ", ".join(sorted(_ALLOWED_NETWORK_MODES))
+        raise typer.BadParameter(f"Invalid network mode '{mode}'. Allowed: {allowed}")
+    if mode == "bridge":
+        print_warning(
+            "Security warning: 'bridge' network mode exposes sandbox container to host network. "
+            "Prefer 'isolated' mode."
+        )
+    return (
+        mode,
+        _parse_whitelist(public_whitelist, "public"),
+        _parse_whitelist(local_whitelist, "local"),
+    )
+
+
 @app.command("sandbox")
 def test_sandbox(
     command: Annotated[
@@ -273,8 +334,29 @@ def test_sandbox(
     ] = 2.0,
     network: Annotated[
         str,
-        typer.Option("--network", "-n", help="Network mode: bridge | none | host"),
-    ] = "bridge",
+        typer.Option(
+            "--network",
+            "-n",
+            help="Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge",
+        ),
+    ] = DEFAULT_SANDBOX_NETWORK,
+    network_mode: Annotated[
+        str | None,
+        typer.Option(
+            "--network-mode",
+            help="Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge",
+        ),
+    ] = None,
+    public_whitelist: Annotated[
+        str | None,
+        typer.Option(
+            "--public-whitelist", help="Comma-separated public domains/IPs allowed for egress"
+        ),
+    ] = None,
+    local_whitelist: Annotated[
+        str | None,
+        typer.Option("--local-whitelist", help="Comma-separated local URLs/IPs allowed for egress"),
+    ] = None,
     read_only: Annotated[
         bool,
         typer.Option("--read-only", help="Mount workspace as read-only"),
@@ -291,16 +373,28 @@ def test_sandbox(
     """Execute test command inside an isolated, disposable Docker container sandbox."""
     from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
 
-    cfg = WorkloadSandboxConfig(
-        workspace_dir=workspace,
-        command=command,
-        image=image,
-        read_only=read_only,
-        memory_limit=memory,
-        cpu_limit=cpus,
-        network_mode=network,
-        rootless=rootless,
+    effective_mode, pub_list, loc_list = _validate_sandbox_network(
+        network_mode=network_mode,
+        network=network,
+        public_whitelist=public_whitelist,
+        local_whitelist=local_whitelist,
     )
+
+    try:
+        cfg = WorkloadSandboxConfig(
+            workspace_dir=workspace,
+            command=command,
+            image=image,
+            read_only=read_only,
+            memory_limit=memory,
+            cpu_limit=cpus,
+            network_mode=effective_mode,
+            public_whitelist=pub_list,
+            local_whitelist=loc_list,
+            rootless=rootless,
+        )
+    except ValueError as err:
+        raise typer.BadParameter(str(err)) from err
     sandbox_runner = WorkloadSandboxRunner(cfg)
 
     if dry_run or is_dry_run():
@@ -311,12 +405,12 @@ def test_sandbox(
         )
         return
 
-    print_info(f"Running command in sandbox ({image}, network={network})...")
+    print_info(f"Running command in sandbox ({mask_secrets(image)}, network={cfg.network_mode})...")
     res = sandbox_runner.run()
     if res.stdout:
-        print(res.stdout, end="")
+        write_stdout(mask_secrets(res.stdout))
     if res.stderr:
-        print_error(res.stderr, prefix=False)
+        write_stderr(mask_secrets(res.stderr))
 
     if res.exit_code != 0:
         raise typer.Exit(res.exit_code)

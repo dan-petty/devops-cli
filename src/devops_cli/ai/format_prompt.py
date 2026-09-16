@@ -12,6 +12,22 @@ from typing import Any, Literal
 
 from pydantic_ai.format_prompt import format_as_xml
 
+from devops_cli.config.defaults import (
+    DEFAULT_XML_CONTEXT_ROOT_TAG,
+    DEFAULT_XML_EXAMPLE_ITEM_TAG,
+    DEFAULT_XML_EXAMPLES_ROOT_TAG,
+    DEFAULT_XML_FINDING_ITEM_TAG,
+    DEFAULT_XML_FINDINGS_ROOT_TAG,
+    DEFAULT_XML_INDENT,
+    DEFAULT_XML_ITEM_TAG,
+    DEFAULT_XML_METADATA_ROOT_TAG,
+    DEFAULT_XML_NONE_STR,
+    DEFAULT_XML_PLAN_REMINDER_ITEM_TAG,
+    DEFAULT_XML_PLAN_REMINDER_ROOT_TAG,
+    DEFAULT_XML_RAG_ITEM_TAG,
+    DEFAULT_XML_RAG_ROOT_TAG,
+)
+
 __all__ = (
     "format_as_xml",
     "format_context_as_xml",
@@ -27,9 +43,9 @@ __all__ = (
 def format_prompt_data(
     data: Any,
     root_tag: str | None = None,
-    item_tag: str = "item",
-    none_str: str = "null",
-    indent: str | None = "  ",
+    item_tag: str = DEFAULT_XML_ITEM_TAG,
+    none_str: str = DEFAULT_XML_NONE_STR,
+    indent: str | None = DEFAULT_XML_INDENT,
     include_field_info: Literal["once"] | bool = False,
 ) -> str:
     """Format an arbitrary Python object as XML for prompt inclusion."""
@@ -45,10 +61,10 @@ def format_prompt_data(
 
 def format_context_as_xml(
     context: Any,
-    root_tag: str = "context",
-    item_tag: str = "item",
-    none_str: str = "null",
-    indent: str | None = "  ",
+    root_tag: str = DEFAULT_XML_CONTEXT_ROOT_TAG,
+    item_tag: str = DEFAULT_XML_ITEM_TAG,
+    none_str: str = DEFAULT_XML_NONE_STR,
+    indent: str | None = DEFAULT_XML_INDENT,
     include_field_info: Literal["once"] | bool = False,
 ) -> str:
     """Format structured context data into an XML block."""
@@ -64,10 +80,10 @@ def format_context_as_xml(
 
 def format_examples_as_xml(
     examples: Iterable[Any],
-    root_tag: str = "examples",
-    item_tag: str = "example",
+    root_tag: str = DEFAULT_XML_EXAMPLES_ROOT_TAG,
+    item_tag: str = DEFAULT_XML_EXAMPLE_ITEM_TAG,
     include_field_info: Literal["once"] | bool = "once",
-    indent: str | None = "  ",
+    indent: str | None = DEFAULT_XML_INDENT,
 ) -> str:
     """Format few-shot examples or benchmark cases into XML with field descriptions."""
     items = list(examples)
@@ -82,9 +98,9 @@ def format_examples_as_xml(
 
 def format_rag_context_as_xml(
     chunks: Iterable[Any],
-    root_tag: str = "rag_context",
-    item_tag: str = "chunk",
-    indent: str | None = "  ",
+    root_tag: str = DEFAULT_XML_RAG_ROOT_TAG,
+    item_tag: str = DEFAULT_XML_RAG_ITEM_TAG,
+    indent: str | None = DEFAULT_XML_INDENT,
 ) -> str:
     """Format retrieved RAG context chunks or documentation excerpts into XML."""
     chunk_list = list(chunks)
@@ -98,10 +114,10 @@ def format_rag_context_as_xml(
 
 def format_findings_as_xml(
     findings: Iterable[Any],
-    root_tag: str = "findings",
-    item_tag: str = "finding",
+    root_tag: str = DEFAULT_XML_FINDINGS_ROOT_TAG,
+    item_tag: str = DEFAULT_XML_FINDING_ITEM_TAG,
     include_field_info: Literal["once"] | bool = False,
-    indent: str | None = "  ",
+    indent: str | None = DEFAULT_XML_INDENT,
 ) -> str:
     """Format review findings into structured XML for LLM verification and deduplication."""
     finding_list = list(findings)
@@ -116,9 +132,9 @@ def format_findings_as_xml(
 
 def format_plan_reminder_as_xml(
     items: Iterable[Any],
-    root_tag: str = "plan_reminder",
-    item_tag: str = "task",
-    indent: str | None = "  ",
+    root_tag: str = DEFAULT_XML_PLAN_REMINDER_ROOT_TAG,
+    item_tag: str = DEFAULT_XML_PLAN_REMINDER_ITEM_TAG,
+    indent: str | None = DEFAULT_XML_INDENT,
 ) -> str:
     """Format plan task items into a structured XML reminder block."""
     task_list = list(items)
@@ -132,8 +148,8 @@ def format_plan_reminder_as_xml(
 
 def format_metadata_as_xml(
     metadata: Mapping[str, Any],
-    root_tag: str = "metadata",
-    indent: str | None = "  ",
+    root_tag: str = DEFAULT_XML_METADATA_ROOT_TAG,
+    indent: str | None = DEFAULT_XML_INDENT,
 ) -> str:
     """Format execution or session metadata into XML."""
     return format_as_xml(

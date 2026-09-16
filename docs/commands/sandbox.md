@@ -29,7 +29,10 @@ devops sandbox deploy [OPTIONS] <command>
 | `--memory`, `-m` | `string` | `2g` | Memory limit for the container (e.g. 512m, 2g). |
 | `--cpus`, `-c` | `float` | `2.0` | CPU quota limit for the container (e.g. 1.0, 2.0). |
 | `--read-only` | `boolean` | `True` | Mount root filesystem as read-only with a tmpfs /tmp. |
-| `--network` | `string` | `bridge` | Docker network mode (bridge | host | none). |
+| `--network` | `string` | `isolated` | Docker network mode (bridge | host | none). |
+| `--network-mode` | `string` | - | Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
+| `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 | `--env`, `-e` | `string` | - | Environment variable in KEY=VALUE format. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -215,5 +218,25 @@ devops sandbox logs [OPTIONS] <identifier>
 | `--incident-dir` | `path` | - | Directory path to persist structured panic incident records. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops sandbox network-policy`
+
+**Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation.**
+
+```bash
+devops sandbox network-policy [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--network-mode`, `-m` | `string` | `isolated` | Network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
+| `--name`, `-n` | `string` | `app-sandbox` | Name prefix for the NetworkPolicy resource |
+| `--namespace` | `string` | `sandbox` | Target Kubernetes namespace |
+| `--public-whitelist` | `string` | - | Comma-separated public domains/IPs allowed for egress |
+| `--local-whitelist` | `string` | - | Comma-separated local URLs/IPs allowed for egress |
 
 ---

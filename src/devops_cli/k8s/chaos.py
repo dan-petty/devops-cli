@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devops_cli.config.commands import build_kubectl_cmd
+from devops_cli.config.defaults import DEFAULT_CHAOS_DURATION_SECONDS, DEFAULT_K8S_NAMESPACE
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_k8s_identifier
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
@@ -30,8 +31,8 @@ class ChaosExperimentResult(BaseModel):
 def execute_chaos_experiment(
     experiment_name: str,
     target_deployment: str,
-    namespace: str = "default",
-    duration_seconds: int = 30,
+    namespace: str = DEFAULT_K8S_NAMESPACE,
+    duration_seconds: int = DEFAULT_CHAOS_DURATION_SECONDS,
     dry_run: bool = False,
 ) -> ChaosExperimentResult:
     """Execute a controlled resilience and chaos experiment against a target deployment."""

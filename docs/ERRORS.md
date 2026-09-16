@@ -33,6 +33,8 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `CONSTELLATION_RESUME_ERROR` | `1` | Ai | Raised when resuming suspended constellation tasks fails. |
 | `CONTENT_FILTER_TRIGGERED` | `19` | Ai | Raised when a model response is filtered or refused by upstream content safety filters. |
 | `CONTEXT_BUDGET_EXCEEDED` | `11` | Ai | Raised when prompt token payload exceeds model context window limits. |
+| `COSIGN_ERROR` | `1` | Docker | Raised when Sigstore Cosign image signing fails. |
+| `COSIGN_VERIFICATION_FAILED` | `1` | Docker | Raised when Sigstore Cosign signature or attestation verification fails. |
 | `DEPENDENCY_MISSING` | `1` | Tools | Raised when a required external binary/dependency is missing from the system PATH. |
 | `DOC_COMPACTION_ERROR` | `1` | Docs | Exception raised when documentation compaction fails. |
 | `DOCKER_ERROR` | `1` | Docker | Base exception for Docker operations. |
@@ -40,6 +42,7 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `DOCS_INGESTION_ERROR` | `1` | Ai | Base exception for documentation ingestion errors. |
 | `LLM_INFERENCE_ERROR` | `1` | Devops_cli.ai.rag.embeddings | Raised when embeddings generation fails across all endpoints. |
 | `GITHUB_OPERATION_FAILED` | `1` | Git | Exception raised for GitHub API or CLI automation failures. |
+| `GITHUB_RATE_LIMIT_UNKNOWN` | `1` | Git | Exception raised when GitHub rate limit quota state is broken or unknown and cannot be resolved. |
 | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
 | `GITOPS_SYNC_ERROR` | `1` | K8s | Raised when GitOps synchronization trigger or reconciliation fails. |
 | `VALIDATION_ERROR` | `1` | Devops_cli.http.client | Raised when an invalid timeout parameter type is provided. |

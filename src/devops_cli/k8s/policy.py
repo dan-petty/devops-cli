@@ -12,6 +12,7 @@ from devops_cli.config.commands import (
     build_kyverno_validate_cmd,
     build_opa_eval_cmd,
 )
+from devops_cli.config.defaults import DEFAULT_K8S_POLICY_ENGINE
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.telemetry.tracer import trace_span
@@ -106,7 +107,7 @@ def _parse_opa_output(stdout: str) -> list[PolicyRuleResult]:
 def validate_k8s_policy(
     manifest_path: Path,
     policy_path: Path | None = None,
-    engine: str = "kyverno",
+    engine: str = DEFAULT_K8S_POLICY_ENGINE,
     dry_run: bool = False,
 ) -> PolicyValidationReport:
     """Validate Kubernetes manifests against Kyverno or OPA admission policies."""

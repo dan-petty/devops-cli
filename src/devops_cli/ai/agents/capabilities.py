@@ -30,6 +30,26 @@ from devops_cli.ai.tools import (
 from devops_cli.ai.tools import (
     ToolDenied as ToolDenied,
 )
+from devops_cli.config.defaults import (
+    DEFAULT_AGENT_STREAM_EVENT_KIND,
+    DEFAULT_INCLUDE_RETURN_SCHEMAS_ID,
+    DEFAULT_PLAN_REMINDER_CADENCE,
+    DEFAULT_PLAN_REMINDER_ID,
+    DEFAULT_PREFIX_TOOLS_ID,
+    DEFAULT_PREPARE_TOOLS_ID,
+    DEFAULT_PROCESS_EVENT_STREAM_ID,
+    DEFAULT_PROCESS_HISTORY_ID,
+    DEFAULT_RAISE_CONTENT_FILTER_ID,
+    DEFAULT_REASONING_FORMAT,
+    DEFAULT_REINJECT_SYSTEM_PROMPT_ID,
+    DEFAULT_RESOLVE_MODEL_ID,
+    DEFAULT_SELECT_MODEL_ID,
+    DEFAULT_SET_TOOL_METADATA_ID,
+    DEFAULT_THINKING_EFFORT,
+    DEFAULT_THREAD_EXECUTOR_ID,
+    DEFAULT_THREAD_EXECUTOR_MAX_WORKERS,
+    DEFAULT_THREAD_EXECUTOR_PREFIX,
+)
 
 
 @dataclass
@@ -429,20 +449,20 @@ class Thinking(BaseCapability):
     """Capability configuring unified thinking and reasoning effort across LLM providers."""
 
     id: str = "thinking"
-    effort: str | bool = "medium"
+    effort: str | bool = DEFAULT_THINKING_EFFORT
     budget_tokens: int | None = None
     include_thoughts: bool = True
     include_encrypted_content: bool = False
-    reasoning_format: str = "parsed"
+    reasoning_format: str = DEFAULT_REASONING_FORMAT
 
     def __init__(
         self,
-        effort: str | bool = "medium",
+        effort: str | bool = DEFAULT_THINKING_EFFORT,
         *,
         budget_tokens: int | None = None,
         include_thoughts: bool = True,
         include_encrypted_content: bool = False,
-        reasoning_format: str = "parsed",
+        reasoning_format: str = DEFAULT_REASONING_FORMAT,
     ) -> None:
         super().__init__(
             effort=effort,
@@ -538,9 +558,9 @@ class Capability(BaseCapability):
 class SystemReminders(BaseCapability):
     """Capability that combats instruction fade by re-injecting targeted behavioral guidance on a cadence."""
 
-    id: str = "system_reminders"
+    id: str = DEFAULT_PLAN_REMINDER_ID
     reminders: list[str] = Field(default_factory=list)
-    cadence: int = 3
+    cadence: int = DEFAULT_PLAN_REMINDER_CADENCE
     condition: Any = None
     _turn_counter: int = 0
 
@@ -548,9 +568,9 @@ class SystemReminders(BaseCapability):
         self,
         reminders: list[str] | None = None,
         *,
-        cadence: int = 3,
+        cadence: int = DEFAULT_PLAN_REMINDER_CADENCE,
         condition: Callable[[RunContext[Any], int], bool] | None = None,
-        id: str = "system_reminders",
+        id: str = DEFAULT_PLAN_REMINDER_ID,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -606,18 +626,18 @@ class Instrumentation(BaseCapability):
 class UseThreadExecutor(BaseCapability):
     """Capability that executes synchronous tool calls in a dedicated, bounded ThreadPoolExecutor."""
 
-    id: str = "use_thread_executor"
+    id: str = DEFAULT_THREAD_EXECUTOR_ID
     executor: Any = None
-    max_workers: int = 16
-    thread_name_prefix: str = "agent-worker"
+    max_workers: int = DEFAULT_THREAD_EXECUTOR_MAX_WORKERS
+    thread_name_prefix: str = DEFAULT_THREAD_EXECUTOR_PREFIX
 
     def __init__(
         self,
         executor: Any = None,
         *,
-        max_workers: int = 16,
-        thread_name_prefix: str = "agent-worker",
-        id: str = "use_thread_executor",
+        max_workers: int = DEFAULT_THREAD_EXECUTOR_MAX_WORKERS,
+        thread_name_prefix: str = DEFAULT_THREAD_EXECUTOR_PREFIX,
+        id: str = DEFAULT_THREAD_EXECUTOR_ID,
         **kwargs: Any,
     ) -> None:
         if executor is None:
@@ -658,14 +678,14 @@ class ModelSelectionContext[DepsT](BaseModel):
 class SelectModel(BaseCapability):
     """Capability that dynamically selects the LLM model at runtime for each step."""
 
-    id: str = "select_model"
+    id: str = DEFAULT_SELECT_MODEL_ID
     selector: Any = None
 
     def __init__(
         self,
         selector: Callable[..., str] | None = None,
         *,
-        id: str = "select_model",
+        id: str = DEFAULT_SELECT_MODEL_ID,
         **kwargs: Any,
     ) -> None:
         super().__init__(id=id, selector=selector or kwargs.get("selector"), **kwargs)
@@ -701,14 +721,14 @@ class ModelResolutionContext[DepsT](BaseModel):
 class ResolveModelId(BaseCapability):
     """Capability that intercepts and resolves custom or tenant-specific model identifiers."""
 
-    id: str = "resolve_model_id"
+    id: str = DEFAULT_RESOLVE_MODEL_ID
     resolver: Any = None
 
     def __init__(
         self,
         resolver: Callable[..., Any] | None = None,
         *,
-        id: str = "resolve_model_id",
+        id: str = DEFAULT_RESOLVE_MODEL_ID,
         **kwargs: Any,
     ) -> None:
         super().__init__(id=id, resolver=resolver or kwargs.get("resolver"), **kwargs)
@@ -738,14 +758,14 @@ class ResolveModelId(BaseCapability):
 class PrepareTools(BaseCapability):
     """Capability that dynamically prepares, filters, or modifies available tool definitions."""
 
-    id: str = "prepare_tools"
+    id: str = DEFAULT_PREPARE_TOOLS_ID
     prepare_fn: Any = None
 
     def __init__(
         self,
         prepare_fn: Callable[..., Any] | None = None,
         *,
-        id: str = "prepare_tools",
+        id: str = DEFAULT_PREPARE_TOOLS_ID,
         **kwargs: Any,
     ) -> None:
         super().__init__(id=id, prepare_fn=prepare_fn or kwargs.get("prepare_fn"), **kwargs)
@@ -765,7 +785,7 @@ class PrepareTools(BaseCapability):
 class PrefixTools(BaseCapability):
     """Capability that prefixes all tools from a capability with a namespace prefix to prevent collisions."""
 
-    id: str = "prefix_tools"
+    id: str = DEFAULT_PREFIX_TOOLS_ID
     capability: Any = None
     prefix: str = ""
 
@@ -774,7 +794,7 @@ class PrefixTools(BaseCapability):
         capability: BaseCapability | None = None,
         prefix: str = "",
         *,
-        id: str = "prefix_tools",
+        id: str = DEFAULT_PREFIX_TOOLS_ID,
         **kwargs: Any,
     ) -> None:
         cap = capability or kwargs.get("capability")
@@ -830,14 +850,14 @@ class PrefixTools(BaseCapability):
 class IncludeToolReturnSchemas(BaseCapability):
     """Capability that includes return value JSON schemas in tool definitions sent to the model."""
 
-    id: str = "include_tool_return_schemas"
+    id: str = DEFAULT_INCLUDE_RETURN_SCHEMAS_ID
     include_return_schema: bool = True
 
     def __init__(
         self,
         include_return_schema: bool = True,
         *,
-        id: str = "include_tool_return_schemas",
+        id: str = DEFAULT_INCLUDE_RETURN_SCHEMAS_ID,
         **kwargs: Any,
     ) -> None:
         super().__init__(id=id, include_return_schema=include_return_schema, **kwargs)
@@ -857,7 +877,7 @@ class IncludeToolReturnSchemas(BaseCapability):
 class SetToolMetadata(BaseCapability):
     """Capability that merges custom key-value metadata pairs onto tool definitions."""
 
-    id: str = "set_tool_metadata"
+    id: str = DEFAULT_SET_TOOL_METADATA_ID
     capability: Any = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -866,7 +886,7 @@ class SetToolMetadata(BaseCapability):
         metadata: dict[str, Any] | None = None,
         capability: BaseCapability | None = None,
         *,
-        id: str = "set_tool_metadata",
+        id: str = DEFAULT_SET_TOOL_METADATA_ID,
         **kwargs: Any,
     ) -> None:
         cap = capability or kwargs.get("capability")
@@ -928,12 +948,12 @@ class SetToolMetadata(BaseCapability):
 class RaiseContentFilterError(BaseCapability):
     """Capability that enforces raising a ContentFilterError whenever a model response is filtered."""
 
-    id: str = "raise_content_filter_error"
+    id: str = DEFAULT_RAISE_CONTENT_FILTER_ID
 
     def __init__(
         self,
         *,
-        id: str = "raise_content_filter_error",
+        id: str = DEFAULT_RAISE_CONTENT_FILTER_ID,
         **kwargs: Any,
     ) -> None:
         super().__init__(id=id, **kwargs)
@@ -953,14 +973,14 @@ class RaiseContentFilterError(BaseCapability):
 class ReinjectSystemPrompt(BaseCapability):
     """Capability that ensures an agent's configured system prompt is present in message history."""
 
-    id: str = "reinject_system_prompt"
+    id: str = DEFAULT_REINJECT_SYSTEM_PROMPT_ID
     replace_existing: bool = False
 
     def __init__(
         self,
         replace_existing: bool = False,
         *,
-        id: str = "reinject_system_prompt",
+        id: str = DEFAULT_REINJECT_SYSTEM_PROMPT_ID,
         **kwargs: Any,
     ) -> None:
         super().__init__(id=id, replace_existing=replace_existing, **kwargs)
@@ -1003,14 +1023,14 @@ class ReinjectSystemPrompt(BaseCapability):
 class ProcessHistory(BaseCapability):
     """Capability that intercepts and transforms message history before model execution."""
 
-    id: str = "process_history"
+    id: str = DEFAULT_PROCESS_HISTORY_ID
     processor: Any = None
 
     def __init__(
         self,
         processor: Callable[..., Any] | None = None,
         *,
-        id: str = "process_history",
+        id: str = DEFAULT_PROCESS_HISTORY_ID,
         **kwargs: Any,
     ) -> None:
         super().__init__(id=id, processor=processor or kwargs.get("processor"), **kwargs)
@@ -1037,7 +1057,7 @@ class ProcessHistory(BaseCapability):
 class AgentStreamEvent(BaseModel):
     """An event emitted during streaming model execution or tool invocation."""
 
-    event_kind: str = "token"
+    event_kind: str = DEFAULT_AGENT_STREAM_EVENT_KIND
     content: Any = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -1045,14 +1065,14 @@ class AgentStreamEvent(BaseModel):
 class ProcessEventStream(BaseCapability):
     """Capability that intercepts, observes, or transforms the event stream during agent execution."""
 
-    id: str = "process_event_stream"
+    id: str = DEFAULT_PROCESS_EVENT_STREAM_ID
     handler: Any = None
 
     def __init__(
         self,
         handler: Callable[..., Any] | None = None,
         *,
-        id: str = "process_event_stream",
+        id: str = DEFAULT_PROCESS_EVENT_STREAM_ID,
         **kwargs: Any,
     ) -> None:
         super().__init__(id=id, handler=handler or kwargs.get("handler"), **kwargs)

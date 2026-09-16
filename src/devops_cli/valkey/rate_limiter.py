@@ -5,6 +5,13 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
+from devops_cli.config.defaults import (
+    DEFAULT_VALKEY_BURST_CAPACITY,
+    DEFAULT_VALKEY_KEY_SUFFIX,
+    DEFAULT_VALKEY_RATE_KEY_PREFIX,
+    DEFAULT_VALKEY_RATE_PER_MINUTE,
+    DEFAULT_VALKEY_TOKEN_COST,
+)
 from devops_cli.exceptions.valkey import ValkeyConnectionError, ValkeyTimeoutError
 
 if TYPE_CHECKING:
@@ -52,9 +59,9 @@ class ValkeyTokenBucketRateLimiter:
     def __init__(
         self,
         client: ValkeyClient,
-        key_prefix: str = "rate:limiter",
-        rate_per_minute: int = 60,
-        burst_capacity: int = 60,
+        key_prefix: str = DEFAULT_VALKEY_RATE_KEY_PREFIX,
+        rate_per_minute: int = DEFAULT_VALKEY_RATE_PER_MINUTE,
+        burst_capacity: int = DEFAULT_VALKEY_BURST_CAPACITY,
         rate_limit_per_second: float | None = None,
     ) -> None:
         self.client = client
@@ -67,8 +74,8 @@ class ValkeyTokenBucketRateLimiter:
 
     def acquire(
         self,
-        key_suffix: str = "default",
-        cost: int = 1,
+        key_suffix: str = DEFAULT_VALKEY_KEY_SUFFIX,
+        cost: int = DEFAULT_VALKEY_TOKEN_COST,
         tokens: int | None = None,
     ) -> bool:
         """Attempt to acquire tokens from bucket and return True if successful."""
@@ -77,7 +84,7 @@ class ValkeyTokenBucketRateLimiter:
         return allowed
 
     def acquire_detailed(
-        self, key_suffix: str = "default", cost: int = 1
+        self, key_suffix: str = DEFAULT_VALKEY_KEY_SUFFIX, cost: int = DEFAULT_VALKEY_TOKEN_COST
     ) -> tuple[bool, int, float]:
         """Attempt to acquire tokens from bucket with detailed status.
 

@@ -197,6 +197,19 @@ class SqlitePlanStore(PlanStore):
                 raise SecurityError(
                     f"SqlitePlanStore db_path cannot reside in forbidden system directory: '{raw_path}'."
                 )
+            import tempfile
+
+            allowed_bases = [
+                Path.cwd().resolve(),
+                Path.home().resolve(),
+                Path(tempfile.gettempdir()).resolve(),
+            ]
+            if not any(
+                resolved_path == b or resolved_path.is_relative_to(b) for b in allowed_bases
+            ):
+                raise SecurityError(
+                    f"SqlitePlanStore db_path '{raw_path}' must reside within authorized project, home, or temp directory."
+                )
         self.db_path = raw_path
         self.session = session
         self._init_db()

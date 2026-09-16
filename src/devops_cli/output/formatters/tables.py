@@ -172,29 +172,51 @@ def format_dependencies_table(deps: list[Any]) -> TablePayload:
 
 def format_network_references_table(refs: list[Any]) -> TablePayload:
     """Build a structured TablePayload of audited network and egress references."""
+    from devops_cli.security.reference_extractor import (
+        deduplicate_network_references,
+        is_example_or_invalid_network_target,
+        sort_network_references,
+    )
+
+    clean_refs: list[Any] = []
+    for r in refs:
+        if getattr(r, "is_example", False):
+            continue
+        tgt = str(getattr(r, "target", ""))
+        if is_example_or_invalid_network_target(tgt):
+            continue
+        clean_refs.append(r)
+
+    processed_refs = sort_network_references(deduplicate_network_references(clean_refs))
 
     columns: list[TableColumn | str | tuple[str, str | int]] = [
-        TableColumn(header="Status"),
         TableColumn(header="Target / Reference", style="bold cyan"),
         TableColumn(header="Type"),
         TableColumn(header="Scope"),
+        TableColumn(header="Status"),
         TableColumn(header="Location", style="dim"),
     ]
     rows: list[list[str]] = []
-    for network_reference in refs:
+    for network_reference in processed_refs:
         is_local = getattr(network_reference, "is_local", False)
         scope_str = "[dim]Local[/dim]" if is_local else "[bold cyan]External[/bold cyan]"
         status_val = getattr(network_reference, "security_status", "Safe")
-        color = "red" if "⚠️" in status_val or "RISK" in str(status_val).upper() else "green"
+        color = (
+            "red"
+            if "⚠️" in str(status_val)
+            or "RISK" in str(status_val).upper()
+            or "MALICIOUS" in str(status_val).upper()
+            else "green"
+        )
         target = getattr(network_reference, "target", str(network_reference))
         ref_type = getattr(network_reference, "reference_type", "domain")
         loc_str = getattr(network_reference, "location", "-")
         rows.append(
             [
-                f"[{color}]{escape_text(str(status_val))}[/{color}]",
                 escape_text(str(target)),
                 escape_text(str(ref_type)),
                 scope_str,
+                f"[{color}]{escape_text(str(status_val))}[/{color}]",
                 escape_text(str(loc_str)),
             ]
         )

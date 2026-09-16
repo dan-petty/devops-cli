@@ -91,3 +91,25 @@ class GitHubOperationError(DevOpsCLIError, RuntimeError):
         if details:
             err_details.update(details)
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=err_details)
+
+
+class GitHubRateLimitError(GitHubOperationError, ValueError):
+    """Exception raised when GitHub rate limit quota state is broken or unknown and cannot be resolved."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        subcommand: str = "core",
+        operation: str = "rate_limit_resolve",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"subcommand": subcommand[:256]}
+        if details:
+            err_details.update({k: str(v)[:256] for k, v in details.items()})
+        super().__init__(
+            message,
+            operation=operation,
+            error_code="GITHUB_RATE_LIMIT_UNKNOWN",
+            details=err_details,
+        )

@@ -35,7 +35,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`config_output`](#config-output) | Output environment variables available for configuration (text or json). |
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
 | [`docker_sandbox`](#docker-sandbox) | Execute command inside an isolated Docker container sandbox. |
+| [`docker_sign`](#docker-sign) | Sign a container image using Sigstore Cosign (keyless or keyed). |
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
+| [`docker_verify`](#docker-verify) | Verify container image signature or attestation using Sigstore Cosign. |
 | [`docs_compact`](#docs-compact) | Compact historical release series documentation (v0.2.x -> v0.3.x). |
 | [`gh_issue_create`](#gh-issue-create) | Create a new GitHub issue linking milestone and taxonomy labels. |
 | [`gh_issue_edit`](#gh-issue-edit) | Edit an existing GitHub issue title, body, or state. |
@@ -74,6 +76,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_logs_query`](#k8s-logs-query) | Execute LogQL query across Kubernetes and cluster log streams (e.g. {app="web"} |= "error"). |
 | [`k8s_logs_tail`](#k8s-logs-tail) | Tail recent log lines matching LogQL stream selector (e.g. {app="web"}). |
 | [`k8s_pods`](#k8s-pods) | List Kubernetes pod status for the specified namespace. |
+| [`k8s_security_stream`](#k8s-security-stream) | Stream runtime security anomaly events and syscall alerts from Kubernetes Falco eBPF probes. |
 | [`k8s_status`](#k8s-status) | Display pod status across infrastructure namespaces. |
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | Uninstall Kubernetes infrastructure or LLM stack and delete namespaces. |
 | [`k8s_validate`](#k8s-validate) | Validate Kubernetes manifest syntax and schemas against OpenAPI specifications. |
@@ -104,6 +107,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_stats`](#review-stats) | View accuracy metrics and false-positive rates per reviewer persona. |
 | [`sandbox_deploy`](#sandbox-deploy) | Deploy an isolated workload container sandbox with security containment and port allocation. |
 | [`sandbox_exec`](#sandbox-exec) | Execute a command inside an active sandbox container. |
+| [`sandbox_network_policy`](#sandbox-network-policy) | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
 | [`sandbox_status`](#sandbox-status) | Inspect status of deployed sandbox containers. |
 | [`sandbox_stop`](#sandbox-stop) | Gracefully stop and remove a sandbox container. |
 | [`scan_aibom`](#scan-aibom) | Generate an AI Bill of Materials (AIBOM) cataloging models, datasets, and licenses. |
@@ -449,14 +453,50 @@ Execute command inside an isolated Docker container sandbox.
 | `image` | `string` | No | `python:3.14-slim` | - |
 | `workspace` | `string` | No | `.` | - |
 | `memory` | `string` | No | `2g` | - |
-| `network` | `string` | No | `bridge` | - |
+| `network` | `string` | No | `isolated` | - |
+| `network_mode` | `string` | No | - | - |
+| `public_whitelist` | `array` | No | - | - |
+| `local_whitelist` | `array` | No | - | - |
 | `read_only` | `boolean` | No | `False` | - |
+
+### `docker_sign`
+
+Sign a container image using Sigstore Cosign (keyless or keyed).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | `string` | Yes | - | - |
+| `key` | `string` | No | - | - |
+| `keyless` | `boolean` | No | `True` | - |
+| `oidc_token` | `string` | No | - | - |
+| `annotations` | `array` | No | - | - |
+| `upload` | `boolean` | No | `True` | - |
+| `dry_run` | `boolean` | No | `False` | - |
 
 ### `docker_stats`
 
 List local Docker images and display container information.
 
 *No parameters required.*
+
+### `docker_verify`
+
+Verify container image signature or attestation using Sigstore Cosign.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | `string` | Yes | - | - |
+| `key` | `string` | No | - | - |
+| `certificate_identity` | `string` | No | - | - |
+| `certificate_oidc_issuer` | `string` | No | - | - |
+| `attestation` | `boolean` | No | `False` | - |
+| `predicate_type` | `string` | No | - | - |
+| `insecure_ignore_tlog` | `boolean` | No | `False` | - |
+| `dry_run` | `boolean` | No | `False` | - |
 
 ### `docs_compact`
 
@@ -864,6 +904,19 @@ List Kubernetes pod status for the specified namespace.
 |---|---|---|---|---|
 | `namespace` | `string` | No | `default` | - |
 
+### `k8s_security_stream`
+
+Stream runtime security anomaly events and syscall alerts from Kubernetes Falco eBPF probes.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `namespace` | `string` | No | `falco` | - |
+| `severity` | `string` | No | - | - |
+| `tail_lines` | `integer` | No | `100` | - |
+| `simulate` | `boolean` | No | `False` | - |
+
 ### `k8s_status`
 
 Display pod status across infrastructure namespaces.
@@ -986,6 +1039,7 @@ Mark a draft pull request as ready for review and optionally begin monitoring.
 |---|---|---|---|---|
 | `pr_number` | `integer` | Yes | - | - |
 | `monitor` | `boolean` | No | `False` | - |
+| `force` | `boolean` | No | `False` | - |
 | `repo` | `string` | No | - | - |
 
 ### `pr_thread_reply`
@@ -1174,7 +1228,10 @@ Deploy an isolated workload container sandbox with security containment and port
 | `workspace` | `string` | No | `.` | - |
 | `memory` | `string` | No | `2g` | - |
 | `cpus` | `number` | No | `2.0` | - |
-| `network` | `string` | No | `bridge` | - |
+| `network` | `string` | No | `isolated` | - |
+| `network_mode` | `string` | No | - | - |
+| `public_whitelist` | `array` | No | - | - |
+| `local_whitelist` | `array` | No | - | - |
 | `read_only` | `boolean` | No | `True` | - |
 | `command` | `array` | No | - | - |
 
@@ -1189,6 +1246,20 @@ Execute a command inside an active sandbox container.
 | `instance_id` | `string` | Yes | - | - |
 | `command` | `array` | Yes | - | - |
 | `workdir` | `string` | No | - | - |
+
+### `sandbox_network_policy`
+
+Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `network_mode` | `string` | No | `isolated` | - |
+| `name` | `string` | No | `app-sandbox` | - |
+| `namespace` | `string` | No | `sandbox` | - |
+| `public_whitelist` | `array` | No | - | - |
+| `local_whitelist` | `array` | No | - | - |
 
 ### `sandbox_status`
 

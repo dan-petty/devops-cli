@@ -4,6 +4,33 @@ GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
 
 ## Commands
 
+## `devops gh api`
+
+**Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching.**
+
+```bash
+devops gh api [OPTIONS] <endpoint>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<endpoint>` | `string` | Yes | GitHub API endpoint (e.g. repos/:owner/:repo/issues) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--method`, `-X` | `string` | - | HTTP method (GET, POST, PUT, DELETE, PATCH) |
+| `--paginate` | `boolean` | - | Paginate across all result pages |
+| `--jq`, `-q` | `string` | - | Filter JSON output using a jq expression |
+| `--template`, `-t` | `string` | - | Format JSON output using a Go template |
+| `--cache` | `boolean` | - | Cache response in-memory for subsequent reads |
+| `--cache-ttl` | `float` | `15.0` | Cache TTL in seconds (default 15.0) |
+
+---
+
 ## `devops gh rate-limit`
 
 **Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns.**
@@ -173,7 +200,7 @@ devops gh project status [OPTIONS]
 
 ### `devops gh project sync`
 
-**Sync task items from tasks directory or task.md into GitHub Projects status.**
+**Sync task items from docs/agent/tasks directory into GitHub Projects status.**
 
 ```bash
 devops gh project sync [OPTIONS]
@@ -183,7 +210,7 @@ devops gh project sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--task-file`, `-f` | `path` | `docs/agent/tasks` | Path to docs/agent/tasks directory or task.md |
+| `--task-file`, `-f` | `path` | `docs/agent/tasks` | Path to docs/agent/tasks directory |
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run`, `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
@@ -799,6 +826,7 @@ devops gh pr ready [OPTIONS] <number>
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--monitor`, `-m` | `boolean` | - | Automatically transition to monitoring checks and reviews after marking ready. |
+| `--force`, `-f` | `boolean` | - | Bypass failing check verification and force ready status |
 
 ### `devops gh pr diff`
 

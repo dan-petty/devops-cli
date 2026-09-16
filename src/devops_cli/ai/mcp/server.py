@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Literal
@@ -11,6 +12,11 @@ from typing import Literal
 from fastmcp import FastMCP
 
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.constants import (
+    CONST_FALCO_SEVERITY_LEVELS,
+    CONST_MAX_SECURITY_STREAM_TAIL_LINES,
+    CONST_MIN_SECURITY_STREAM_TAIL_LINES,
+)
 from devops_cli.config.defaults import (
     DEFAULT_AI_FALLBACK_MODEL,
     DEFAULT_AI_FALLBACK_PROVIDER,
@@ -37,12 +43,13 @@ mcp = FastMCP(
 def _run_mcp_cmd(
     cmd: list[str],
     timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    env: dict[str, str] | None = None,
 ) -> str:
     """Run a subprocess command for an MCP tool and return combined output or error status."""
     from devops_cli.security.sanitizer import mask_secrets
 
     try:
-        res = run_subprocess(cmd, capture_output=True, text=True, timeout=timeout)
+        res = run_subprocess(cmd, capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         safe_cmd = mask_secrets(" ".join(cmd))
         return f"Command timed out after {timeout} seconds: {safe_cmd}"
@@ -63,6 +70,19 @@ def _validate_mcp_arg(name: str, value: str) -> None:
             ERRORS.mcp.hyphen_prefixed_argument.format(name=name),
             field=name,
         )
+
+
+def _validate_mcp_whitelist(name: str, items: list[str] | None) -> None:
+    """Reject whitelist items that start with a hyphen or contain forbidden characters."""
+    if not items:
+        return
+    for item in items:
+        _validate_mcp_arg(name, item)
+        if not re.match(r"^[a-zA-Z0-9_\-.:*]+$", item):
+            raise ValidationError(
+                f"Invalid characters in {name} whitelist item: '{item}'",
+                field=name,
+            )
 
 
 def _validate_mcp_int_bound(
@@ -447,6 +467,83 @@ def docker_stats() -> str:
         ["uv", "run", "devops", "docker", "images"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
+
+
+@mcp.tool()
+def docker_sign(
+    image: str,
+    key: str | None = None,
+    keyless: bool = True,
+    oidc_token: str | None = None,
+    annotations: list[str] | None = None,
+    upload: bool = True,
+    dry_run: bool = False,
+) -> str:
+    """Sign a container image using Sigstore Cosign (keyless or keyed)."""
+    _validate_mcp_arg("image", image)
+    if key:
+        _validate_mcp_arg("key", key)
+    if oidc_token:
+        _validate_mcp_arg("oidc_token", oidc_token)
+    cmd = ["uv", "run", "devops", "docker", "sign", image]
+    if key:
+        cmd.extend(["--key", key])
+    if not keyless:
+        cmd.append("--keyed")
+    extra_env: dict[str, str] | None = None
+    if oidc_token:
+        if oidc_token.startswith("keyring:"):
+            cmd.extend(["--oidc-token", oidc_token])
+        else:
+            extra_env = {"COSIGN_IDENTITY_TOKEN": oidc_token}
+    if annotations:
+        for ann in annotations:
+            _validate_mcp_arg("annotation", ann)
+            cmd.extend(["--annotation", ann])
+    if not upload:
+        cmd.append("--no-upload")
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS, env=extra_env)
+
+
+@mcp.tool()
+def docker_verify(
+    image: str,
+    key: str | None = None,
+    certificate_identity: str | None = None,
+    certificate_oidc_issuer: str | None = None,
+    attestation: bool = False,
+    predicate_type: str | None = None,
+    insecure_ignore_tlog: bool = False,
+    dry_run: bool = False,
+) -> str:
+    """Verify container image signature or attestation using Sigstore Cosign."""
+    _validate_mcp_arg("image", image)
+    if key:
+        _validate_mcp_arg("key", key)
+    if certificate_identity:
+        _validate_mcp_arg("certificate_identity", certificate_identity)
+    if certificate_oidc_issuer:
+        _validate_mcp_arg("certificate_oidc_issuer", certificate_oidc_issuer)
+    if predicate_type:
+        _validate_mcp_arg("predicate_type", predicate_type)
+    cmd = ["uv", "run", "devops", "docker", "verify", image]
+    if key:
+        cmd.extend(["--key", key])
+    if certificate_identity:
+        cmd.extend(["--certificate-identity", certificate_identity])
+    if certificate_oidc_issuer:
+        cmd.extend(["--certificate-oidc-issuer", certificate_oidc_issuer])
+    if attestation:
+        cmd.append("--attestation")
+    if predicate_type:
+        cmd.extend(["--type", predicate_type])
+    if insecure_ignore_tlog:
+        cmd.append("--insecure-ignore-tlog")
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
@@ -1097,10 +1194,20 @@ def docker_sandbox(
     image: str = "python:3.14-slim",
     workspace: str = ".",
     memory: str = "2g",
-    network: str = "bridge",
+    network: str = "isolated",
+    network_mode: str | None = None,
+    public_whitelist: list[str] | None = None,
+    local_whitelist: list[str] | None = None,
     read_only: bool = False,
 ) -> str:
     """Execute command inside an isolated Docker container sandbox."""
+    _validate_mcp_arg("image", image)
+    _validate_mcp_arg("workspace", workspace)
+    _validate_mcp_arg("network", network)
+    if network_mode:
+        _validate_mcp_arg("network_mode", network_mode)
+    _validate_mcp_whitelist("public_whitelist", public_whitelist)
+    _validate_mcp_whitelist("local_whitelist", local_whitelist)
     cmd = [
         "uv",
         "run",
@@ -1116,6 +1223,12 @@ def docker_sandbox(
         "--network",
         network,
     ]
+    if network_mode:
+        cmd.extend(["--network-mode", network_mode])
+    if public_whitelist:
+        cmd.extend(["--public-whitelist", ",".join(public_whitelist)])
+    if local_whitelist:
+        cmd.extend(["--local-whitelist", ",".join(local_whitelist)])
     if read_only:
         cmd.append("--read-only")
     cmd.extend(command)
@@ -1130,11 +1243,23 @@ def sandbox_deploy(
     workspace: str = ".",
     memory: str = "2g",
     cpus: float = 2.0,
-    network: str = "bridge",
+    network: str = "isolated",
+    network_mode: str | None = None,
+    public_whitelist: list[str] | None = None,
+    local_whitelist: list[str] | None = None,
     read_only: bool = True,
     command: list[str] | None = None,
 ) -> str:
     """Deploy an isolated workload container sandbox with security containment and port allocation."""
+    _validate_mcp_arg("image", image)
+    _validate_mcp_arg("workspace", workspace)
+    _validate_mcp_arg("network", network)
+    if network_mode:
+        _validate_mcp_arg("network_mode", network_mode)
+    if name:
+        _validate_mcp_arg("name", name)
+    _validate_mcp_whitelist("public_whitelist", public_whitelist)
+    _validate_mcp_whitelist("local_whitelist", local_whitelist)
     cmd = [
         "uv",
         "run",
@@ -1152,6 +1277,12 @@ def sandbox_deploy(
         "--network",
         network,
     ]
+    if network_mode:
+        cmd.extend(["--network-mode", network_mode])
+    if public_whitelist:
+        cmd.extend(["--public-whitelist", ",".join(public_whitelist)])
+    if local_whitelist:
+        cmd.extend(["--local-whitelist", ",".join(local_whitelist)])
     if name:
         cmd.extend(["--name", name])
     if not read_only:
@@ -1165,6 +1296,40 @@ def sandbox_deploy(
     if command:
         cmd.append("--")
         cmd.extend(command)
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def sandbox_network_policy(
+    network_mode: str = "isolated",
+    name: str = "app-sandbox",
+    namespace: str = "sandbox",
+    public_whitelist: list[str] | None = None,
+    local_whitelist: list[str] | None = None,
+) -> str:
+    """Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation."""
+    _validate_mcp_arg("network_mode", network_mode)
+    _validate_mcp_arg("name", name)
+    _validate_mcp_arg("namespace", namespace)
+    _validate_mcp_whitelist("public_whitelist", public_whitelist)
+    _validate_mcp_whitelist("local_whitelist", local_whitelist)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "sandbox",
+        "network-policy",
+        "--network-mode",
+        network_mode,
+        "--name",
+        name,
+        "--namespace",
+        namespace,
+    ]
+    if public_whitelist:
+        cmd.extend(["--public-whitelist", ",".join(public_whitelist)])
+    if local_whitelist:
+        cmd.extend(["--local-whitelist", ",".join(local_whitelist)])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
@@ -1671,6 +1836,53 @@ def k8s_diff_helm(
 
 
 @mcp.tool()
+def k8s_security_stream(
+    namespace: str = "falco",
+    severity: str | None = None,
+    tail_lines: int = 100,
+    simulate: bool = False,
+) -> str:
+    """Stream runtime security anomaly events and syscall alerts from Kubernetes Falco eBPF probes."""
+    _validate_mcp_arg("namespace", namespace)
+    if (
+        tail_lines < CONST_MIN_SECURITY_STREAM_TAIL_LINES
+        or tail_lines > CONST_MAX_SECURITY_STREAM_TAIL_LINES
+    ):
+        raise ValidationError(
+            f"tail_lines must be between {CONST_MIN_SECURITY_STREAM_TAIL_LINES} and "
+            f"{CONST_MAX_SECURITY_STREAM_TAIL_LINES} (got {tail_lines})",
+            field="tail_lines",
+        )
+    if severity is not None:
+        _validate_mcp_arg("severity", severity)
+        cleaned_sev = severity.strip().upper()
+        if cleaned_sev not in CONST_FALCO_SEVERITY_LEVELS:
+            valid = ", ".join(sorted(CONST_FALCO_SEVERITY_LEVELS.keys()))
+            raise ValidationError(
+                f"Invalid severity '{severity}'. Must be one of: {valid}",
+                field="severity",
+            )
+
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "k8s",
+        "security-stream",
+        "--namespace",
+        namespace,
+        "--tail",
+        str(tail_lines),
+        "--json",
+    ]
+    if severity:
+        cmd.extend(["--severity", severity])
+    if simulate:
+        cmd.append("--simulate")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def vault_set(path: str, key_values: list[str]) -> str:
     """Store secret key-value pairs in HashiCorp Vault KV-v2 engine."""
     _validate_mcp_arg("path", path)
@@ -1864,6 +2076,7 @@ def pr_monitor(
 def pr_ready(
     pr_number: int,
     monitor: bool = False,
+    force: bool = False,
     repo: str | None = None,
 ) -> str:
     """Mark a draft pull request as ready for review and optionally begin monitoring."""
@@ -1871,6 +2084,8 @@ def pr_ready(
     cmd = ["uv", "run", "devops", "pr", "ready", str(pr_number)]
     if monitor:
         cmd.append("--monitor")
+    if force:
+        cmd.append("--force")
     if repo:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])

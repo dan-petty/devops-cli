@@ -7,29 +7,22 @@ from pathlib import Path
 
 from devops_cli.ai.ast.engine import EXT_TO_LANG, TreeSitterEngine
 from devops_cli.ai.ast.models import CodeGraph, CodeGraphEdge, PolyglotFileMap, PolyglotSymbol
-from devops_cli.core.repo import find_top_level_repo_root
-
-EXCLUDE_DIRS = {
-    ".venv",
-    ".git",
-    "node_modules",
-    "__pycache__",
-    ".pytest_cache",
-    "build",
-    "dist",
-    ".data",
-}
+from devops_cli.core.repo import find_top_level_repo_root, is_ignored_by_git
 
 
-def _is_excluded(path: Path) -> bool:
-    return any(part in path.parts for part in EXCLUDE_DIRS) or path.is_symlink()
+def _is_excluded(path: Path, repo_root: Path | None = None) -> bool:
+    if path.is_symlink():
+        return True
+    root = repo_root or find_top_level_repo_root(path)
+    return is_ignored_by_git(root, path)
 
 
 def _collect_target_files(root_dir: Path, max_files: int) -> list[Path]:
     files: list[Path] = []
+    repo_root = find_top_level_repo_root(root_dir)
     for ext in sorted(EXT_TO_LANG.keys()):
         for candidate in root_dir.rglob(f"*{ext}"):
-            if not _is_excluded(candidate):
+            if not _is_excluded(candidate, repo_root):
                 files.append(candidate)
             if len(files) >= max_files:
                 return files

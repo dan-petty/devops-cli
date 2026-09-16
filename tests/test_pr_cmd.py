@@ -602,6 +602,49 @@ class TestPrCommands:
             assert result.exit_code == 1
             assert "still in draft state" in result.output
 
+    def test_pr_ready_blocks_on_failing_checks(self, runner: CliRunner) -> None:
+        """devops pr ready blocks conversion when check runs are failing."""
+        mock_preflight = json.dumps({"number": 179, "draft": True, "head": {"sha": "sha123"}})
+        mock_check_runs = json.dumps(
+            {"check_runs": [{"name": "CI Quality Gate", "conclusion": "failure"}]}
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                side_effect=[
+                    MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
+                    MagicMock(returncode=0, stdout=mock_check_runs, stderr=""),
+                ],
+            ),
+        ):
+            result = runner.invoke(app, ["ready", "179"])
+            assert result.exit_code == 1
+            assert "Cannot mark PR #179 as ready for review: 1 check(s) failed" in result.output
+            assert "CI Quality Gate (failure)" in result.output
+            assert "Pass --force to override" in result.output
+
+    def test_pr_ready_force_overrides_failing_checks(self, runner: CliRunner) -> None:
+        """devops pr ready --force bypasses failing checks verification."""
+        mock_preflight = json.dumps({"number": 179, "draft": True, "head": {"sha": "sha123"}})
+        mock_post_verify = json.dumps({"number": 179, "draft": False})
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                side_effect=[
+                    MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
+                    MagicMock(returncode=0, stdout="", stderr=""),
+                    MagicMock(returncode=0, stdout=mock_post_verify, stderr=""),
+                ],
+            ),
+        ):
+            result = runner.invoke(app, ["ready", "179", "--force"])
+            assert result.exit_code == 0
+            assert "ready for review" in result.output.lower()
+
     def test_pr_diff_success(self, runner: CliRunner) -> None:
         """devops pr diff outputs unified diff."""
         mock_diff = "diff --git a/file.py b/file.py\n+new line"
@@ -1293,3 +1336,61 @@ class TestPrCommands:
             result = runner.invoke(app, ["check-readiness", "999"])
             assert result.exit_code == 1
             assert "Unable to retrieve details" in result.output
+
+    def test_render_threads_table_masks_secrets(self) -> None:
+        """_render_threads_table masks secret tokens in comment bodies."""
+        from devops_cli.commands.pr import _render_threads_table
+
+        mock_thread = MagicMock(
+            id="THREAD_SEC_1",
+            is_resolved=False,
+            path="src/config.py",
+            line=42,
+            comments=[
+                MagicMock(
+                    author="bot",
+                    body="Leak token: ghp_supersecrettoken1234567890abcdefghijklmn here",
+                )
+            ],
+        )
+        with patch("devops_cli.commands.pr.print_table") as mock_print_table:
+            _render_threads_table([mock_thread])
+            mock_print_table.assert_called_once()
+            rows = mock_print_table.call_args.kwargs.get("rows") or mock_print_table.call_args[
+                1
+            ].get("rows", mock_print_table.call_args[0][2])
+            rendered_comment = rows[0][4]
+            assert "ghp_supersecrettoken" not in rendered_comment
+            assert "<masked-github-token>" in rendered_comment
+
+    def test_pr_checks_fallback_empty_checks(self) -> None:
+        """_render_pr_checks_fallback prints message when check_runs is empty."""
+        from devops_cli.commands.pr import _render_pr_checks_fallback
+
+        mock_pr_details = {"head": {"sha": "sha12345"}}
+        mock_api_empty = json.dumps({"check_runs": []})
+
+        with (
+            patch("devops_cli.commands.pr._fetch_pr_details", return_value=mock_pr_details),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=mock_api_empty, stderr=""),
+            ),
+            patch("devops_cli.commands.pr.print_info") as mock_print_info,
+        ):
+            res = _render_pr_checks_fallback(184)
+            assert res is True
+            mock_print_info.assert_called_once_with("No check runs found for PR #184.")
+
+    def test_pr_diff_failure_exit_code(self, runner: CliRunner) -> None:
+        """devops pr diff exits with returncode when gh pr diff fails."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=2, stdout="", stderr="Error fetching diff"),
+            ),
+        ):
+            res = runner.invoke(app, ["diff", "184"])
+            assert res.exit_code == 2

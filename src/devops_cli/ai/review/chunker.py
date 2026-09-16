@@ -8,7 +8,6 @@ from pathlib import Path
 from devops_cli.ai.review.sanitization import _unique_preserve_order
 from devops_cli.config.constants import (
     CONST_BINARY_EXTENSIONS,
-    CONST_GITIGNORE_DIRS,
     CONST_MAX_FILE_SIZE_BYTES,
     CONST_REVIEW_GENERATED_FILES,
 )
@@ -18,6 +17,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_OVERLAP_FACTOR,
     DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
 )
+from devops_cli.core.repo import is_ignored_by_git
 from devops_cli.exceptions import SecurityError
 
 _CODE_LINE_SKIP_PREFIXES = ("diff --git", "index ", "--- ", "+++ ", "@@ ", "### File: ", "```")
@@ -290,8 +290,8 @@ def diff_pages(
 def _is_reviewable_candidate_file(
     candidate: Path,
     root: Path,
-    ignore_set: set[str],
     max_file_size: int,
+    excluded_dirs: set[str] | None = None,
 ) -> bool:
     """Check if candidate file meets review criteria (non-symlink, within root, text, non-ignored)."""
     if candidate.is_symlink() or not candidate.is_file():
@@ -299,9 +299,11 @@ def _is_reviewable_candidate_file(
     try:
         if not candidate.resolve().is_relative_to(root):
             return False
-    except Exception:
+    except OSError, RuntimeError:
         return False
-    if any(part in ignore_set for part in candidate.parts):
+    if excluded_dirs and any(part in excluded_dirs for part in candidate.parts):
+        return False
+    if is_ignored_by_git(root, candidate):
         return False
     if candidate.suffix.lower() in CONST_BINARY_EXTENSIONS:
         return False
@@ -331,11 +333,10 @@ def find_repo_files(
             return []
         return [target]
 
-    ignore_set = excluded_dirs or set(CONST_GITIGNORE_DIRS)
     return [
         p
         for p in sorted(target.rglob(pattern))
-        if _is_reviewable_candidate_file(p, root, ignore_set, max_file_size)
+        if _is_reviewable_candidate_file(p, root, max_file_size, excluded_dirs=excluded_dirs)
     ]
 
 

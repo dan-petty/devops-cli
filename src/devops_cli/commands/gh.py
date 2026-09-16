@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import urllib.parse
 from pathlib import Path
@@ -10,11 +11,9 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.commands.pr import app as pr_app
-from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.env import ENV_GITHUB_TOKEN
 from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
-from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.github.branch_protection import (
     audit_branch_protection,
@@ -55,6 +54,7 @@ from devops_cli.github.projects import (
     sync_remote_project,
     sync_remote_project_views,
 )
+from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.secrets import (
     list_repository_secrets,
     sync_repository_secrets,
@@ -111,7 +111,7 @@ def _resolve_github_token() -> str | None:
         env_val = os.environ.get(env_var)
         if env_val:
             return env_val
-    res = run_subprocess([CONST_GH_CLI, "auth", "token"], check=False, quiet=True)
+    res = run_gh(["auth", "token"], check=False, quiet=True)
     if res.returncode == 0 and res.stdout.strip():
         return res.stdout.strip()
     return None
@@ -131,10 +131,10 @@ def _get_github_client() -> GitHubClient | None:
 def _get_repo_labels(repo: str | None = None) -> list[dict[str, Any]]:
     """Retrieve repository labels via gh CLI or GitHubClient."""
     target_repo = _resolve_repo(repo)
-    cmd = [CONST_GH_CLI, "label", "list", "--json", "name,color,description"]
+    cmd = ["label", "list", "--json", "name,color,description"]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False, quiet=True)
+    res = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=30.0)
     if res.returncode == 0 and res.stdout.strip():
         try:
             return json.loads(res.stdout)  # type: ignore[no-any-return]
@@ -161,12 +161,11 @@ def _get_repo_milestones(repo: str | None = None, state: str = "all") -> list[di
             pass
 
     cmd = [
-        CONST_GH_CLI,
         "api",
         "--paginate",
         f"repos/{target_repo}/milestones?state={state}&per_page=100",
     ]
-    res = run_subprocess(cmd, check=False, quiet=True)
+    res = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=30.0)
     if res.returncode == 0 and res.stdout.strip():
         raw = parse_paginated_json(res.stdout)
         return [
@@ -187,7 +186,6 @@ def _get_repo_milestones(repo: str | None = None, state: str = "all") -> list[di
 def _get_repo_prs(repo: str | None = None, limit: int = 30) -> list[dict[str, Any]]:
     """Retrieve open pull requests for taxonomy auditing."""
     cmd = [
-        CONST_GH_CLI,
         "pr",
         "list",
         "--state",
@@ -199,7 +197,7 @@ def _get_repo_prs(repo: str | None = None, limit: int = 30) -> list[dict[str, An
     ]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False, quiet=True)
+    res = run_gh(cmd, check=False, quiet=True, use_cache=True, cache_ttl=15.0)
     if res.returncode == 0 and res.stdout.strip():
         try:
             return json.loads(res.stdout)  # type: ignore[no-any-return]
@@ -380,7 +378,6 @@ def _close_milestone_gh_cli(target_repo: str, name: str) -> bool:
     if matched and "number" in matched:
         num = matched["number"]
         cmd = [
-            CONST_GH_CLI,
             "api",
             "-X",
             "PATCH",
@@ -388,7 +385,7 @@ def _close_milestone_gh_cli(target_repo: str, name: str) -> bool:
             "-f",
             "state=closed",
         ]
-        proc = run_subprocess(cmd, check=False)
+        proc = run_gh(cmd, check=False)
         return proc.returncode == 0
     return False
 
@@ -446,7 +443,7 @@ def sync_project(
         typer.Option(
             "--task-file",
             "-f",
-            help="Path to docs/agent/tasks directory or task.md",
+            help="Path to docs/agent/tasks directory",
         ),
     ] = Path("docs/agent/tasks"),
     template_file: Annotated[
@@ -1000,7 +997,6 @@ def edit_issue_cmd(
         payload["state"] = state
 
     cmd = [
-        CONST_GH_CLI,
         "api",
         "--method",
         "PATCH",
@@ -1008,7 +1004,7 @@ def edit_issue_cmd(
         "--input",
         "-",
     ]
-    res = run_subprocess(cmd, input=json.dumps(payload), check=False)
+    res = run_gh(cmd, input=json.dumps(payload), check=False)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -1019,13 +1015,80 @@ def edit_issue_cmd(
 
 
 # =============================================================================
+# Command: devops gh api
+# =============================================================================
+
+
+@app.command(
+    "api",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    help=HELP.gh.api,
+)
+def api_cmd(
+    ctx: typer.Context,
+    endpoint: Annotated[
+        str, typer.Argument(help="GitHub API endpoint (e.g. repos/:owner/:repo/issues)")
+    ],
+    method: Annotated[
+        str | None,
+        typer.Option("--method", "-X", help="HTTP method (GET, POST, PUT, DELETE, PATCH)"),
+    ] = None,
+    paginate: Annotated[
+        bool,
+        typer.Option("--paginate", help="Paginate across all result pages"),
+    ] = False,
+    jq: Annotated[
+        str | None,
+        typer.Option("--jq", "-q", help="Filter JSON output using a jq expression"),
+    ] = None,
+    template: Annotated[
+        str | None,
+        typer.Option("--template", "-t", help="Format JSON output using a Go template"),
+    ] = None,
+    cache: Annotated[
+        bool,
+        typer.Option("--cache", help="Cache response in-memory for subsequent reads"),
+    ] = False,
+    cache_ttl: Annotated[
+        float,
+        typer.Option("--cache-ttl", help="Cache TTL in seconds (default 15.0)"),
+    ] = 15.0,
+) -> None:
+    """Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching."""
+    args = ["api", endpoint]
+    if method:
+        args.extend(["-X", method.upper()])
+    if paginate:
+        args.append("--paginate")
+    if jq:
+        args.extend(["-q", jq])
+    if template:
+        args.extend(["-t", template])
+    if ctx.args:
+        args.extend(ctx.args)
+
+    res = run_gh(args, use_cache=cache, cache_ttl=cache_ttl)
+    if res.returncode != 0:
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_err = mask_secrets(res.stderr.strip()[:256])
+        print_error(f"GitHub API request failed: {clean_err}", safe=True)
+        raise typer.Exit(res.returncode)
+
+    if res.stdout:
+        from devops_cli.output import write_stream
+        from devops_cli.security.sanitizer import mask_secrets
+
+        write_stream(mask_secrets(res.stdout))
+
+
+# =============================================================================
 # Command: devops gh rate-limit
 # =============================================================================
 
 
 def _format_reset_time(epoch_seconds: int) -> str:
     """Format an epoch timestamp into a human-readable UTC string and countdown."""
-    import datetime
     import time
 
     now = time.time()
@@ -1037,6 +1100,95 @@ def _format_reset_time(epoch_seconds: int) -> str:
     return f"{dt_str} (in {mins}m {secs}s)"
 
 
+def _extract_rest_rate_limit_headers() -> dict[str, int]:
+    """Fetch live HTTP response headers from GitHub REST API to get accurate core rate limits."""
+    res = run_gh(["api", "user", "-i"], check=False, quiet=True, use_cache=False)
+    if res.returncode != 0 or not res.stdout:
+        return {}
+    headers: dict[str, int] = {}
+    for line in res.stdout.splitlines():
+        if ":" not in line:
+            continue
+        key, val = line.split(":", 1)
+        k_lower = key.strip().lower()
+        if k_lower in (
+            "x-ratelimit-limit",
+            "x-ratelimit-remaining",
+            "x-ratelimit-used",
+            "x-ratelimit-reset",
+        ):
+            try:
+                headers[k_lower] = int(val.strip())
+            except ValueError:
+                pass
+    return headers
+
+
+def _extract_graphql_rate_limit() -> dict[str, Any]:
+    """Fetch live rate limit status from GitHub GraphQL API query { rateLimit { ... } }."""
+    query = "query { rateLimit { limit remaining used resetAt } }"
+    res = run_gh(
+        ["api", "graphql", "-f", f"query={query}"],
+        check=False,
+        quiet=True,
+        use_cache=False,
+    )
+    if res.returncode != 0 or not res.stdout:
+        return {}
+    try:
+        payload = json.loads(res.stdout)
+        rl_data = payload.get("data", {}).get("rateLimit", {})
+        if not isinstance(rl_data, dict):
+            return {}
+        reset_at = rl_data.get("resetAt")
+        epoch = 0
+        if reset_at:
+            try:
+                dt = datetime.datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
+                epoch = int(dt.timestamp())
+            except Exception:
+                pass
+        return {
+            "limit": rl_data.get("limit", 5000),
+            "remaining": rl_data.get("remaining", 5000),
+            "used": rl_data.get("used", 0),
+            "reset": epoch,
+        }
+    except Exception:
+        return {}
+
+
+def _enrich_rate_limit_resources(resources: dict[str, Any]) -> dict[str, Any]:
+    """Augment deprecated GitHub /rate_limit endpoint dictionary with live REST and GraphQL quotas."""
+    rest_headers = _extract_rest_rate_limit_headers()
+    if rest_headers:
+        limit = rest_headers.get("x-ratelimit-limit", 5000)
+        remaining = rest_headers.get("x-ratelimit-remaining", limit)
+        used = rest_headers.get("x-ratelimit-used", max(0, limit - remaining))
+        reset_epoch = rest_headers.get("x-ratelimit-reset", 0)
+        resources["core"] = {
+            "limit": limit,
+            "used": used,
+            "remaining": remaining,
+            "reset": reset_epoch,
+        }
+
+    gql_limits = _extract_graphql_rate_limit()
+    if gql_limits:
+        resources["graphql"] = gql_limits
+
+    for _res_name, info in resources.items():
+        if not isinstance(info, dict):
+            continue
+        lim_val = int(info.get("limit", 0))
+        rem_val = int(info.get("remaining", 0))
+        used_val = int(info.get("used", 0))
+        if used_val == 0 and lim_val > rem_val:
+            info["used"] = lim_val - rem_val
+
+    return resources
+
+
 @app.command("rate-limit", help=HELP.gh.rate_limit)
 @app.command("rate_limit", hidden=True)
 def rate_limit_cmd(
@@ -1046,7 +1198,7 @@ def rate_limit_cmd(
     ] = "table",
 ) -> None:
     """Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."""
-    res = run_subprocess([CONST_GH_CLI, "api", "rate_limit"], check=False, quiet=True)
+    res = run_gh(["api", "rate_limit"], check=False, quiet=True, use_cache=False)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -1063,13 +1215,17 @@ def rate_limit_cmd(
         print_error(f"Unsupported format '{output_format}'. Supported formats: table, json.")
         raise typer.Exit(1)
 
+    resources = data.get("resources", {})
+    if isinstance(resources, dict):
+        resources = _enrich_rate_limit_resources(resources)
+        data["resources"] = resources
+
     if output_format == "json":
         from devops_cli.output import write_stream
 
         write_stream(json.dumps(data, indent=2) + "\n")
         return
 
-    resources = data.get("resources", {})
     rows: list[list[str]] = []
     for res_name, info in sorted(resources.items()):
         if not isinstance(info, dict):
@@ -1121,7 +1277,6 @@ def runs_list_cmd(
 
     target_repo = repo or _resolve_repo()
     cmd = [
-        CONST_GH_CLI,
         "run",
         "list",
         "--limit",
@@ -1134,7 +1289,7 @@ def runs_list_cmd(
     if repo:
         cmd.extend(["--repo", target_repo])
 
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False, use_cache=True, cache_ttl=10.0)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -1180,7 +1335,7 @@ def runs_view_cmd(
 ) -> None:
     """View details or failure logs of a specific workflow run."""
     target_repo = repo or _resolve_repo()
-    cmd = [CONST_GH_CLI, "run", "view", str(run_id)]
+    cmd = ["run", "view", str(run_id)]
     if log_failed:
         cmd.append("--log-failed")
     elif full_log:
@@ -1190,7 +1345,7 @@ def runs_view_cmd(
     if repo:
         cmd.extend(["--repo", target_repo])
 
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 

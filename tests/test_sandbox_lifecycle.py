@@ -64,6 +64,50 @@ def test_sandbox_models_serialization() -> None:
     assert restored.port_bindings[0].container_port == 8080
 
 
+def test_sandbox_models_secret_masking() -> None:
+    """Verify SandboxExecResult, SandboxLogLine, and PanicIncident mask secret tokens."""
+    from devops_cli.sandbox.models import (
+        PanicIncident,
+        PanicType,
+        SandboxExecResult,
+        SandboxLogLine,
+    )
+
+    raw_secret = "ghp_secrettoken1234567890abcdefghijklmn"
+    exec_result = SandboxExecResult(
+        instance_id="sb-1",
+        command=["echo", "secret"],
+        exit_code=0,
+        stdout=f"Output with {raw_secret}",
+        stderr=f"Error with {raw_secret}",
+    )
+    assert raw_secret not in exec_result.stdout
+    assert "<masked-github-token>" in exec_result.stdout
+    assert raw_secret not in exec_result.stderr
+    assert "<masked-github-token>" in exec_result.stderr
+
+    log_line = SandboxLogLine(
+        content=f"Log containing {raw_secret}",
+    )
+    assert raw_secret not in log_line.content
+    assert "<masked-github-token>" in log_line.content
+
+    panic = PanicIncident(
+        incident_id="pi-1",
+        instance_id="sb-1",
+        container_id="c-1",
+        panic_type=PanicType.PYTHON_TRACEBACK,
+        message=f"Panic with {raw_secret}",
+        stacktrace=[f"File {raw_secret}.py"],
+        archived_path=f"/tmp/{raw_secret}.log",
+        archive_error=f"Failed with {raw_secret}",
+    )
+    assert raw_secret not in panic.message
+    assert raw_secret not in panic.stacktrace[0]
+    assert raw_secret not in (panic.archived_path or "")
+    assert raw_secret not in (panic.archive_error or "")
+
+
 def test_port_availability_check() -> None:
     """Test is_port_available helper on free and bound ports."""
     # Binding to a port to simulate in-use port
@@ -568,10 +612,34 @@ def test_exception_truncation() -> None:
 
 
 def test_sandbox_workspace_validation_user_home(tmp_path: Path) -> None:
-    """Workspace validation blocks mounting user home directory."""
-    engine = WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json"))
+    """Workspace validation blocks mounting user home directory and subpaths by default."""
+    engine_default = WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json"))
+    assert engine_default.exclude_home_dir is True
+
     with pytest.raises(SandboxValidationError, match="home directory"):
-        engine.validate_workspace_dir(Path.home())
+        engine_default.validate_workspace_dir(Path.home())
+
+    with pytest.raises(SandboxValidationError, match="home directory"):
+        engine_default.validate_workspace_dir(Path.home() / "subproject")
+
+    with pytest.raises(SandboxValidationError, match="home directory"):
+        engine_default.validate_workspace_dir(Path("/home/test/workspace"))
+
+    # When exclude_home_dir is explicitly disabled:
+    engine_allow = WorkloadSandboxEngine(
+        registry=SandboxRegistry(tmp_path / "reg.json"),
+        exclude_home_dir=False,
+    )
+    assert engine_allow.exclude_home_dir is False
+
+    # Home root is still forbidden even when exclude_home_dir is False
+    with pytest.raises(SandboxValidationError, match="home directory"):
+        engine_allow.validate_workspace_dir(Path.home())
+
+    # Valid non-forbidden workspace succeeds
+    valid_dir = tmp_path / "valid_workspace"
+    valid_dir.mkdir()
+    assert engine_allow.validate_workspace_dir(valid_dir) == valid_dir.resolve()
 
 
 def test_ports_boundary_check() -> None:

@@ -152,3 +152,63 @@ The self-improvement loop is monitored via OpenTelemetry distributed tracing and
 | `devops_cli_review_feedback_exports_total` | Counter | Feedback records exported to `feedback_dataset.jsonl`. |
 
 Tracing spans decorated with `@trace_span("review.<phase>")` capture execution latency, prompt token counts, and completion budgets across the entire pipeline.
+
+---
+
+## 5. Historical Remediation Case Studies
+
+### Session `20260913-231617` (DevSecOps & Robustness Remediation)
+
+The DevSecOps and robustness review session `20260913-231617` produced 13 findings. 11 findings were confirmed and remediated with test-first fixes; 2 findings were classified as false-positive hallucinations and disarmed:
+
+1. **Path Containment & Traversal Hardening**:
+   - `SqlitePlanStore`: Constrained database paths to project roots, temp paths, or user home; blocked arbitrary system paths.
+   - `DEVOPS_CLI_CONFIG`: Validated path traversal and forbidden system paths when loading config from environment.
+   - `run_subprocess` / `run_subprocess_async`: Enforced path containment and system path rejection on caller-supplied `cwd`.
+   - `devcontainer` mounts: Enforced path traversal checks on volume mount targets.
+2. **SSRF & Network Egress Hardening**:
+   - `waterfall.py` (Jaeger): Blocked private RFC 1918 IP addresses (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) while preserving local loopback (`127.0.0.1`, `localhost`).
+3. **Secret Masking & Output Sanitization**:
+   - `SandboxLogLine`, `SandboxExecResult`, and `PanicIncident`: Applied `mask_secrets` via Pydantic validators.
+   - `pr.py` (`_render_threads_table`): Sanitized first comment bodies with `mask_secrets` in terminal output.
+   - `_sync_configured_k8s_context`: Masked and truncated exception details in warning output.
+   - `_start_minikube_cluster`: Sanitized status messages with `mask_secrets`.
+4. **K8s Autostart Hygiene**:
+   - `switch_context`: Respected `should_autostart_minikube()` configuration flag.
+   - `KUBECONFIG`: Validated against path traversal and forbidden system paths prior to CLI invocation.
+5. **Anti-Hallucination Catalog Updates**:
+   - Disarmed `HALLUCINATION-NONEXISTENT-FIXER-PAYLOAD` (non-existent `src/devops_cli/ai/fixer.py` and claims of unbounded payload in `repair_json_string`).
+   - Disarmed `HALLUCINATION-CI-ALLOW-BLOCKED-STATE` (false claims of insecure bypass for transient in-flight CI mergeable states).
+6. **Native DevOps CLI GitHub Rate Management**:
+   - Replaced bare `gh` invocations with native `devops gh` and centralized `run_gh()` runner featuring token-bucket pacing, quota safety thresholds, exponential backoff with jitter on secondary rate limits, and TTL read caching.
+
+### Session `20260915-124521` (GitHub Rate Limiting, Container Sandbox Isolation & Path Traversal Remediation)
+
+The DevSecOps and Architecture review session `20260915-124521` produced 22 findings across GitHub rate limiting, container sandboxes, and file traversal operations. All actionable findings were verified and remediated:
+
+1. **GitHub Rate Limiting Quota Integrity & Mandatory Pacing**:
+   - Enforced non-negativity ($\ge 0$) on all quota state values (`remaining`, `limit`, `used`, `reset_epoch`), raising descriptive validation errors on invalid metrics.
+   - Paced requests dynamically according to $\text{delay} = \frac{\text{time until reset}}{\text{remaining requests}}$, eliminating hardcoded windows.
+   - Introduced configurable no-delay threshold `DEFAULT_GH_NO_DELAY_USED_PERCENT = 25.0`, bypassing delay when token utilization is below 25%.
+   - Resolved re-entrant lock deadlocks by transitioning `GitHubRateLimiter` internal locks to `threading.RLock()`.
+   - Prevented memory read-caching on commands containing sensitive tokens or credentials (`_should_cache`).
+   - Validated `cwd` against directory existence and forbidden system paths (`/etc`, `/root`, etc.).
+
+2. **Container Sandbox Isolation & Secure Network Defaults**:
+   - Switched default network mode from insecure `bridge` to `isolated` across `devops test sandbox`, `devops docker sandbox`, and FastMCP tools (`docker_sandbox`, `sandbox_deploy`, `sandbox_network_policy`).
+   - Added explicit security warnings in documentation (`CLI_REFERENCE.md`, `docker.md`, `test.md`) and runtime CLI printouts whenever `bridge` mode is selected.
+   - Validated network modes and whitelist tokens against flag injection and forbidden characters.
+
+3. **Symlink Traversal & Path Containment Hardening (CWE-22 / CWE-59)**:
+   - `argo/gitops.py` (`_scan_directory_manifests`): Explicitly skipped symlinks (`is_symlink()`) and enforced repository root containment (`resolved.is_relative_to(repo_root)`).
+   - `security/gitleaks.py` (`_resolve_scan_files`): Enforced `_is_safe_file` validation across candidate lists, individual files, and directory trees, skipping symlinks and out-of-bounds files.
+   - `ai/harness/filesystem.py` (`_list_directory`): Added symlink skipping guard.
+   - `ai/rag/indexer.py` (`_is_indexable_file`): Skipped symlinks and verified root containment.
+   - `config/settings.py` (`_find_project_config_path`): Disallowed symlinks and forbidden system paths.
+
+4. **Secret Sanitization & Output Masking**:
+   - Applied `mask_secrets` to image names, stdout, and stderr in `devops test sandbox`.
+   - Sanitized clone URLs and exception details in `devops repos clone` and `clone-org`.
+   - Masked Minikube cluster startup status output in `devops k8s switch-context`.
+   - Routed PR check fallbacks through `run_gh()` with secret masking.
+   - Masked Vault configuration error details in `devops vault`.

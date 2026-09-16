@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Final
 
 # ── Application & Configuration ───────────────────────────────────────────────
 CONST_APP_NAME = "devops-cli"
@@ -97,16 +98,6 @@ CONST_OPENTOFU_BINARIES: tuple[str, ...] = ("tofu", "terraform")
 
 # ── Git & Workspace ───────────────────────────────────────────────────────────
 CONST_GIT_DIR_NAME = ".git"
-CONST_GITIGNORE_DIRS = (
-    ".venv",
-    "__pycache__",
-    ".git",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".uv",
-    ".data",
-)
 CONST_BINARY_EXTENSIONS: frozenset[str] = frozenset(
     {
         ".pyc",
@@ -148,6 +139,15 @@ CONST_GITHUB_SSH_URL_PREFIX = "ssh://git@github.com/"
 CONST_GITHUB_HTTP_PREFIX = "http://github.com/"
 CONST_GITHUB_HTTPS_PREFIX = "https://github.com/"
 CONST_GITHUB_REPO_SUFFIX = ".git"
+CONST_GITHUB_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
+    "rate limit exceeded",
+    "rate limit already exceeded",
+    "secondary rate limit",
+    "abuse-rate-limit",
+    "too many requests",
+    "http 429",
+    "wait a few minutes before you try again",
+)
 
 CONST_URL_OLLAMA_LOCALHOST = "http://localhost:11434"
 CONST_URL_ANTHROPIC_API_BASE = "https://api.anthropic.com"
@@ -214,12 +214,59 @@ CONST_GIT_MAIN_BRANCH = "main"
 CONST_DEFAULT_LINE_NUMBER = 1
 CONST_MARKDOWN_HEADING_LEVEL = 3
 
+CONST_STANDARD_HTML_TAGS: Final[frozenset[str]] = frozenset(
+    {
+        "a",
+        "b",
+        "blockquote",
+        "br",
+        "code",
+        "details",
+        "div",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "hr",
+        "i",
+        "img",
+        "kbd",
+        "li",
+        "ol",
+        "p",
+        "pre",
+        "span",
+        "sub",
+        "summary",
+        "sup",
+        "table",
+        "tbody",
+        "td",
+        "th",
+        "thead",
+        "tr",
+        "ul",
+    }
+)
+
 CONST_RECOMMENDATION_APPROVE = "APPROVE"
 CONST_RECOMMENDATION_REQUEST_CHANGES = "REQUEST CHANGES"
 CONST_RECOMMENDATION_BLOCK = "BLOCK"
 
 # ── GitHub CLI & Pull Requests ────────────────────────────────────────────────
 CONST_GH_CLI = "gh"
+CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
+CONST_GH_FAILING_CHECK_CONCLUSIONS: Final[frozenset[str]] = frozenset(
+    {
+        "failure",
+        "timed_out",
+        "cancelled",
+        "action_required",
+        "startup_failure",
+    }
+)
 CONST_BRANCH_PREFIXES: tuple[str, ...] = (
     "feat/",
     "fix/",
@@ -259,6 +306,8 @@ CONST_ERROR_CODE_SANDBOX = "SANDBOX_ERROR"
 CONST_ERROR_CODE_SANDBOX_VALIDATION = "SANDBOX_VALIDATION_ERROR"
 CONST_ERROR_CODE_SANDBOX_PORT_ALLOCATION = "SANDBOX_PORT_ALLOCATION_ERROR"
 CONST_ERROR_CODE_SANDBOX_NOT_FOUND = "SANDBOX_NOT_FOUND_ERROR"
+CONST_ERROR_CODE_COSIGN = "COSIGN_ERROR"
+CONST_ERROR_CODE_COSIGN_VERIFY = "COSIGN_VERIFICATION_FAILED"
 
 
 CONST_EXIT_SUCCESS: int = 0
@@ -275,3 +324,242 @@ CONST_OTEL_SCOPE_NAME = "devops-cli.telemetry"
 CONST_OTEL_SPAN_KIND_INTERNAL = "internal"
 CONST_OTEL_METRIC_UNIT_ONE = "1"
 CONST_OTEL_SERVICE_NAME = "devops-cli"
+
+# ── Network Reference & Egress Security Invariants ────────────────────────────
+# RFC 2606 Reserved Top-Level Domains for testing & documentation
+CONST_RFC2606_RESERVED_TLDS: frozenset[str] = frozenset(
+    {
+        "test",
+        "example",
+        "invalid",
+    }
+)
+
+# RFC 2606 and RFC 6761 Reserved Second-Level Domains
+CONST_RFC2606_RESERVED_DOMAINS: frozenset[str] = frozenset(
+    {
+        "example.com",
+        "example.org",
+        "example.net",
+        "example.edu",
+    }
+)
+
+# Special-use and private infrastructure TLDs / suffixes (RFC 6762, RFC 8375, Kubernetes)
+CONST_SPECIAL_USE_TLDS: frozenset[str] = frozenset(
+    {
+        "local",
+        "internal",
+        "lan",
+        "corp",
+        "home.arpa",
+        "onion",
+        "arpa",
+        "cluster.local",
+        "localdomain",
+        "svc",
+    }
+)
+
+# Authoritative public registries and documentation schemas excluded from external egress audits
+CONST_EXCLUDED_PUBLIC_REGISTRIES: frozenset[str] = frozenset(
+    {
+        "schema.org",
+        "w3.org",
+        "json-schema.org",
+        "opencontainers.org",
+        "github.com",
+        "gitlab.com",
+        "bitbucket.org",
+        "pypi.org",
+        "pypi.python.org",
+        "pythonhosted.org",
+        "files.pythonhosted.org",
+        "npmjs.com",
+        "npmjs.org",
+        "registry.npmjs.org",
+        "yarnpkg.com",
+        "registry.yarnpkg.com",
+        "crates.io",
+        "static.crates.io",
+        "golang.org",
+        "pkg.go.dev",
+        "proxy.golang.org",
+        "sum.golang.org",
+        "rubygems.org",
+        "maven.org",
+        "apache.org",
+        "gradle.org",
+        "packagist.org",
+        "nuget.org",
+        "google.com",
+        "osv.dev",
+        "nist.gov",
+        "shodan.io",
+        "cloudflare.com",
+    }
+)
+
+
+# Standard object-oriented receivers in Python
+CONST_STANDARD_RECEIVER_IDENTIFIERS: frozenset[str] = frozenset({"self", "cls"})
+
+# Common code receiver, module, or telemetry metric prefixes
+CONST_CODE_CONFIG_PREFIXES: tuple[str, ...] = (
+    "self.",
+    "cls.",
+    "cli.",
+    "agent.",
+    "process.",
+    "ci.step.",
+    "ci.",
+    "telemetry.",
+    "logger.",
+    "log.",
+    "mcp.",
+    "metric.",
+    "otel.",
+)
+
+# Common property and telemetry metric leaf attributes
+CONST_COMMON_PROPERTY_SUFFIXES: frozenset[str] = frozenset(
+    {
+        "name",
+        "email",
+        "actor",
+        "pid",
+        "group",
+        "security",
+        "docs",
+        "ping",
+        "call",
+        "run",
+        "post",
+        "collection",
+        "sdk",
+        "executable",
+        "runtime",
+        "total",
+        "tools",
+        "count",
+        "size",
+        "duration",
+        "seconds",
+        "ms",
+        "bytes",
+        "status",
+        "state",
+        "type",
+        "id",
+        "rate",
+        "ratio",
+        "max",
+        "min",
+        "avg",
+        "sum",
+        "mean",
+        "input",
+        "output",
+        "calls",
+        "errors",
+        "exceptions",
+        "failures",
+        "successes",
+        "latency",
+        "value",
+        "result",
+        "payload",
+        "level",
+        "severity",
+        "limit",
+        "threshold",
+    }
+)
+
+# Common telemetry, metric, and logging invocation function names
+CONST_TELEMETRY_CALL_NAMES: frozenset[str] = frozenset(
+    {
+        "record_metric",
+        "metric_counter",
+        "set_attribute",
+        "add_attribute",
+        "counter",
+        "gauge",
+        "histogram",
+        "meter",
+        "logfire",
+        "otel",
+        "telemetry",
+        "statsd",
+        "prometheus",
+    }
+)
+
+# Sensitive host configuration and credential directories forbidden from container sandbox mounts
+CONST_SANDBOX_SENSITIVE_SUBPATHS: Final[frozenset[str]] = frozenset(
+    {
+        ".ssh",
+        ".aws",
+        ".kube",
+        ".git",
+    }
+)
+
+# Multi-tier sandbox networking mode constants
+CONST_SANDBOX_NETWORK_ISOLATED: Final[str] = "isolated"
+CONST_SANDBOX_NETWORK_NAMESPACE: Final[str] = "sandbox_namespace"
+CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST: Final[str] = "public_whitelist"
+CONST_SANDBOX_NETWORK_LOCAL_WHITELIST: Final[str] = "local_whitelist"
+CONST_SANDBOX_NETWORK_BRIDGE: Final[str] = "bridge"
+
+CONST_SANDBOX_DEFAULT_NAMESPACE: Final[str] = "sandbox"
+CONST_SANDBOX_DOCKER_INTERNAL_NET: Final[str] = "devops-sandbox-net"
+
+CONST_SANDBOX_NETWORK_MODES: Final[frozenset[str]] = frozenset(
+    {
+        CONST_SANDBOX_NETWORK_ISOLATED,
+        CONST_SANDBOX_NETWORK_NAMESPACE,
+        CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
+        CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
+        CONST_SANDBOX_NETWORK_BRIDGE,
+    }
+)
+
+CONST_SANDBOX_NETWORK_MODE_ALIASES: Final[dict[str, str]] = {
+    "isolated": CONST_SANDBOX_NETWORK_ISOLATED,
+    "none": CONST_SANDBOX_NETWORK_ISOLATED,
+    "isolated_pod": CONST_SANDBOX_NETWORK_ISOLATED,
+    "isolated-pod": CONST_SANDBOX_NETWORK_ISOLATED,
+    "sandbox_namespace": CONST_SANDBOX_NETWORK_NAMESPACE,
+    "sandbox-namespace": CONST_SANDBOX_NETWORK_NAMESPACE,
+    "namespace": CONST_SANDBOX_NETWORK_NAMESPACE,
+    "internal": CONST_SANDBOX_NETWORK_NAMESPACE,
+    "public_whitelist": CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
+    "public-whitelist": CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
+    "public": CONST_SANDBOX_NETWORK_PUBLIC_WHITELIST,
+    "local_whitelist": CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
+    "local-whitelist": CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
+    "local": CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
+    "bridge": CONST_SANDBOX_NETWORK_BRIDGE,
+}
+
+# Falco runtime security severity hierarchy
+CONST_FALCO_SEVERITY_LEVELS: Final[dict[str, int]] = {
+    "DEBUG": 0,
+    "INFO": 1,
+    "INFORMATIONAL": 1,
+    "NOTICE": 2,
+    "WARNING": 3,
+    "ERROR": 4,
+    "CRITICAL": 5,
+    "ALERT": 6,
+    "EMERGENCY": 7,
+}
+
+CONST_MIN_SECURITY_STREAM_DURATION: Final[int] = 1
+CONST_MAX_SECURITY_STREAM_DURATION: Final[int] = 3600
+CONST_MIN_SECURITY_STREAM_TAIL_LINES: Final[int] = 1
+CONST_MAX_SECURITY_STREAM_TAIL_LINES: Final[int] = 10000
+
+# Threat intelligence distributed caching
+CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"

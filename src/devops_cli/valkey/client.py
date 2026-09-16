@@ -6,6 +6,13 @@ import ipaddress
 import socket
 from typing import Any
 
+from devops_cli.config.defaults import (
+    DEFAULT_VALKEY_HOST,
+    DEFAULT_VALKEY_PATTERN,
+    DEFAULT_VALKEY_PORT,
+    DEFAULT_VALKEY_SCAN_COUNT,
+    DEFAULT_VALKEY_TIMEOUT_SECONDS,
+)
 from devops_cli.core.validation import is_non_public_ip
 from devops_cli.exceptions.valkey import (
     ValkeyAuthenticationError,
@@ -29,7 +36,9 @@ def parse_info_response(info_text: str) -> dict[str, str]:
     return result
 
 
-def parse_valkey_endpoint(endpoint: str, default_port: int = 6379) -> tuple[str, int]:
+def parse_valkey_endpoint(
+    endpoint: str, default_port: int = DEFAULT_VALKEY_PORT
+) -> tuple[str, int]:
     """Parse a hostname, hostname:port, or Valkey/Redis URI into host and port."""
     clean = endpoint.strip()
     clean = clean.removeprefix("valkey://").removeprefix("redis://").removeprefix("tcp://")
@@ -50,11 +59,11 @@ class ValkeyClient:
 
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 6379,
+        host: str = DEFAULT_VALKEY_HOST,
+        port: int = DEFAULT_VALKEY_PORT,
         password: str | None = None,
         db: int = 0,
-        timeout: float = 2.0,
+        timeout: float = DEFAULT_VALKEY_TIMEOUT_SECONDS,
         allow_private_network: bool = True,
     ) -> None:
         self.host, self.port = parse_valkey_endpoint(host, default_port=port)
@@ -205,9 +214,10 @@ class ValkeyClient:
         value: Any,
         ttl: int | None = None,
         ex_seconds: int | None = None,
+        ex: int | None = None,
     ) -> bool:
         """Set key to hold string value with optional expiration seconds."""
-        effective_ttl = ex_seconds if ex_seconds is not None else ttl
+        effective_ttl = ex if ex is not None else (ex_seconds if ex_seconds is not None else ttl)
         args: list[Any] = ["SET", key, str(value)]
         if effective_ttl is not None and effective_ttl > 0:
             args.extend(["EX", effective_ttl])
@@ -221,7 +231,7 @@ class ValkeyClient:
         res = self.execute("DEL", *keys)
         return int(res) if isinstance(res, (int, float)) else 0
 
-    def keys(self, pattern: str = "*") -> list[str]:
+    def keys(self, pattern: str = DEFAULT_VALKEY_PATTERN) -> list[str]:
         """Find all keys matching the given pattern."""
         res = self.execute("KEYS", pattern)
         if isinstance(res, list):
@@ -247,7 +257,9 @@ class ValkeyClient:
             return next_cursor, keys
         return 0, []
 
-    def scan_iter(self, match: str | None = None, count: int = 100) -> list[str]:
+    def scan_iter(
+        self, match: str | None = None, count: int = DEFAULT_VALKEY_SCAN_COUNT
+    ) -> list[str]:
         """Iterate over all matching keys incrementally without blocking server."""
         cursor = 0
         matched_keys: list[str] = []

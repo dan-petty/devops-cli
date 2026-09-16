@@ -12,7 +12,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Final
 
-from devops_cli.config.defaults import DEFAULT_DOCKER_TIMEOUT_SECONDS
+from devops_cli.config.constants import (
+    CONST_SANDBOX_DOCKER_INTERNAL_NET,
+    CONST_SANDBOX_SENSITIVE_SUBPATHS,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_DOCKER_TIMEOUT_SECONDS,
+    DEFAULT_SANDBOX_EXCLUDE_HOME,
+)
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.sandbox import (
     SandboxError,
@@ -31,6 +38,7 @@ from devops_cli.sandbox.models import (
     SandboxLogLine,
     SandboxLogsReport,
     SandboxMetricsSnapshot,
+    SandboxNetworkMode,
     SandboxProbeReport,
     SandboxStatus,
 )
@@ -54,7 +62,21 @@ _FORBIDDEN_ROOTS: Final[set[str]] = {
     "/dev",
     "/var",
 }
-_SENSITIVE_SUBPATHS: Final[set[str]] = {".ssh", ".aws", ".kube", ".git"}
+
+
+def is_home_or_subpath(target_path: Path) -> bool:
+    """Determine whether target path is or resides within user home directory (/home/**/*, ~/**/*)."""
+    try:
+        resolved = target_path.resolve()
+        home = Path.home().resolve()
+        if resolved == home or resolved.is_relative_to(home):
+            return True
+        home_root = Path("/home")
+        if home_root.exists() and (resolved == home_root or resolved.is_relative_to(home_root)):
+            return True
+    except RuntimeError, OSError, ValueError:
+        pass
+    return False
 
 
 def _get_docker_client() -> Any:
@@ -71,13 +93,92 @@ def _resolve_user_string(rootless: bool) -> str | None:
     return None
 
 
+def _is_internal_network_sdk(client: Any, net_name: str) -> bool:
+    """Check if existing Docker network via SDK is an internal bridge."""
+    try:
+        net = client.networks.get(net_name)
+        attrs = getattr(net, "attrs", {}) or {}
+        if attrs.get("Internal") is True:
+            return True
+        try:
+            net.remove()
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return False
+
+
+def _create_internal_network_sdk(client: Any, net_name: str) -> bool:
+    """Create Docker internal bridge network via SDK."""
+    try:
+        client.networks.create(net_name, driver="bridge", internal=True, check_duplicate=True)
+        return True
+    except Exception as exc:
+        logger.debug("Docker SDK network creation fallback: %s", exc)
+        return False
+
+
+def _ensure_internal_network(client: Any | None = None) -> None:
+    """Lazily ensure Docker internal bridge network exists for intra-namespace communication."""
+    if client is not None:
+        if _is_internal_network_sdk(client, CONST_SANDBOX_DOCKER_INTERNAL_NET):
+            return
+        if _create_internal_network_sdk(client, CONST_SANDBOX_DOCKER_INTERNAL_NET):
+            return
+
+    try:
+        inspect_res = run_subprocess(
+            [
+                "docker",
+                "network",
+                "inspect",
+                CONST_SANDBOX_DOCKER_INTERNAL_NET,
+                "--format",
+                "{{.Internal}}",
+            ],
+            check=False,
+            timeout=10,
+        )
+        if inspect_res.returncode == 0:
+            if inspect_res.stdout.strip().lower() == "true":
+                return
+            run_subprocess(
+                ["docker", "network", "rm", CONST_SANDBOX_DOCKER_INTERNAL_NET],
+                check=False,
+                timeout=10,
+            )
+
+        run_subprocess(
+            ["docker", "network", "create", "--internal", CONST_SANDBOX_DOCKER_INTERNAL_NET],
+            check=False,
+            timeout=10,
+        )
+    except Exception as sub_exc:
+        logger.debug("Subprocess internal network create check: %s", sub_exc)
+
+
 class WorkloadSandboxEngine:
     """Orchestrator for managing isolated background Docker container sandboxes."""
 
     _prior_samples: dict[str, tuple[float, CgroupV2Metrics]] = {}
 
-    def __init__(self, registry: SandboxRegistry | None = None) -> None:
+    def __init__(
+        self,
+        registry: SandboxRegistry | None = None,
+        *,
+        exclude_home_dir: bool | None = None,
+    ) -> None:
         self.registry = registry or SandboxRegistry()
+        if exclude_home_dir is not None:
+            self.exclude_home_dir = exclude_home_dir
+        else:
+            try:
+                from devops_cli.config import load_settings
+
+                self.exclude_home_dir = load_settings().sandbox.exclude_home_dir
+            except Exception:
+                self.exclude_home_dir = DEFAULT_SANDBOX_EXCLUDE_HOME
 
     def validate_workspace_dir(self, workspace_dir: Path) -> Path:
         """Enforce strict security boundaries preventing host system root or secret mounts."""
@@ -96,17 +197,23 @@ class WorkloadSandboxEngine:
                 path=resolved_str,
             )
 
-        try:
-            if resolved == Path.home().resolve():
-                raise SandboxValidationError(
-                    f"Mounting user home directory into sandbox is forbidden: {resolved}",
-                    path=resolved_str,
-                )
-        except RuntimeError:
-            pass
+        if self.exclude_home_dir and is_home_or_subpath(resolved):
+            raise SandboxValidationError(
+                f"Sandbox access to user home directory is excluded: {resolved}",
+                path=resolved_str,
+            )
+        if not self.exclude_home_dir:
+            try:
+                if resolved == Path.home().resolve():
+                    raise SandboxValidationError(
+                        f"Mounting user home directory into sandbox is forbidden: {resolved}",
+                        path=resolved_str,
+                    )
+            except RuntimeError:
+                pass
 
-        if resolved.name in _SENSITIVE_SUBPATHS or any(
-            part in _SENSITIVE_SUBPATHS for part in resolved.parts
+        if resolved.name in CONST_SANDBOX_SENSITIVE_SUBPATHS or any(
+            part in CONST_SANDBOX_SENSITIVE_SUBPATHS for part in resolved.parts
         ):
             raise SandboxValidationError(
                 f"Mounting sensitive credential or repository metadata directory into sandbox is forbidden: {resolved}",
@@ -142,7 +249,7 @@ class WorkloadSandboxEngine:
         }
         nano_cpus = int(config.cpu_limit * 1e9) if config.cpu_limit else None
 
-        return {
+        kwargs: dict[str, Any] = {
             "image": config.image,
             "command": config.command,
             "working_dir": "/workspace",
@@ -151,7 +258,6 @@ class WorkloadSandboxEngine:
             "user": _resolve_user_string(config.rootless),
             "mem_limit": config.memory_limit,
             "nano_cpus": nano_cpus,
-            "network_mode": config.network_mode,
             "environment": config.env,
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges:true"],
@@ -160,6 +266,29 @@ class WorkloadSandboxEngine:
             "tmpfs": {"/tmp": "size=64m,noexec"},  # nosec B108
             "detach": True,
         }
+        if config.network_config.mode == SandboxNetworkMode.ISOLATED:
+            kwargs["network_mode"] = "none"
+        elif config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+            kwargs["network_mode"] = CONST_SANDBOX_DOCKER_INTERNAL_NET
+        elif config.network_config.mode in (
+            SandboxNetworkMode.PUBLIC_WHITELIST,
+            SandboxNetworkMode.LOCAL_WHITELIST,
+        ):
+            if not config.network_config.egress_proxy:
+                raise SandboxValidationError(
+                    f"Docker engine cannot enforce egress whitelist boundaries for mode '{config.network_config.mode.value}' without an egress proxy. Use isolated or sandbox_namespace mode, or deploy to Kubernetes where NetworkPolicy enforces egress boundaries."
+                )
+            kwargs["network_mode"] = CONST_SANDBOX_DOCKER_INTERNAL_NET
+            proxy_url = config.network_config.egress_proxy or ""
+            kwargs["environment"] = {
+                "HTTP_PROXY": proxy_url,
+                "HTTPS_PROXY": proxy_url,
+                "ALL_PROXY": proxy_url,
+                **config.env,
+            }
+        else:
+            kwargs["network_mode"] = "bridge"
+        return kwargs
 
     def deploy(
         self,
@@ -220,10 +349,14 @@ class WorkloadSandboxEngine:
         port_bindings: list[PortBinding],
     ) -> str:
         """Create and start container via Docker SDK or fallback subprocess."""
+        if config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+            _ensure_internal_network()
         create_kwargs = self._build_create_kwargs(config, ws_resolved, port_bindings)
         container = None
         try:
             client = _get_docker_client()
+            if config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+                _ensure_internal_network(client)
             container = client.containers.create(**create_kwargs)
             container.start()
             return str(container.id)
@@ -245,6 +378,8 @@ class WorkloadSandboxEngine:
         port_bindings: list[PortBinding],
     ) -> str:
         """Spawn container using `docker run -d` via subprocess."""
+        if config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+            _ensure_internal_network()
         mount_mode = "ro" if config.read_only else "rw"
         cmd = [
             "docker",
@@ -260,8 +395,8 @@ class WorkloadSandboxEngine:
             "-m",
             config.memory_limit,
             f"--cpus={config.cpu_limit}",
-            f"--network={config.network_mode}",
         ]
+        cmd.extend(config.network_config.to_docker_args())
         if config.read_only:
             cmd.extend(["--read-only", "--tmpfs=/tmp:size=64m,noexec"])
         for b in port_bindings:

@@ -10,6 +10,15 @@ import pytest
 
 
 @pytest.fixture(autouse=True, scope="session")
+def register_test_mock_provider():
+    """Register test MockProvider for unit testing."""
+    from devops_cli.ai.providers import register_provider
+    from tests.mock_provider import MockProvider
+
+    register_provider("mock", MockProvider)
+
+
+@pytest.fixture(autouse=True, scope="session")
 def prevent_external_network_calls():
     """Guarantee that tests never hit external APIs or endpoints."""
     import ipaddress

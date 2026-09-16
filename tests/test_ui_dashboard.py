@@ -256,12 +256,12 @@ async def test_textual_dashboard_app_lifecycle() -> None:
 
         # Open help screen via '?'
         await pilot.press("question_mark")
-        await pilot.pause()
+        await pilot.pause(0.05)
         assert isinstance(app.screen, HelpScreen)
 
         # Dismiss help screen via 'escape'
         await pilot.press("escape")
-        await pilot.pause()
+        await pilot.pause(0.05)
         assert not isinstance(app.screen, HelpScreen)
 
 

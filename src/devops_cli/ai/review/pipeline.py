@@ -515,6 +515,30 @@ def _format_extraction_summary(
     )
 
 
+def _fetch_domains_threat_intel(
+    radar_client: CloudflareRadarClient,
+    domain_targets: list[str],
+) -> dict[str, NetworkReputationRecord]:
+    """Fetch threat intelligence for domain targets with resilient fallback."""
+    if not domain_targets:
+        return {}
+    try:
+        return radar_client.check_domains_batch(domain_targets)
+    except Exception:
+        return {d: NetworkReputationRecord(target=d, ip="") for d in domain_targets}
+
+
+def _fetch_ip_threat_intel(
+    shodan_client: ShodanInternetDBClient,
+    ip: str,
+) -> tuple[str, NetworkReputationRecord]:
+    """Fetch threat intelligence for a single IP address with fallback."""
+    try:
+        return ip, shodan_client.check_ip(ip)
+    except Exception:
+        return ip, NetworkReputationRecord(target=ip, ip=ip)
+
+
 def _execute_pre_analysis_batch(
     paths_to_analyze: list[tuple[Path, str]],
     repo: Path,
@@ -1044,27 +1068,6 @@ class ReviewPipelineOrchestrator:
         shodan_client = ShodanInternetDBClient()
         radar_client = CloudflareRadarClient()
 
-        def _fetch_dep(
-            d_key: tuple[str, str, str],
-        ) -> tuple[tuple[str, str, str], list[VulnerabilityRecord]]:
-            name, ver, eco = d_key
-            try:
-                vulns = osv_client.query_package(name, ver, eco)
-                return d_key, vulns
-            except Exception:
-                return d_key, []
-
-        def _fetch_net(n_key: tuple[str, str]) -> tuple[str, NetworkReputationRecord]:
-            target, rtype = n_key
-            try:
-                if rtype == "ip":
-                    rep = shodan_client.check_ip(target)
-                else:
-                    rep = radar_client.check_domain(target)
-                return target, rep
-            except Exception:
-                return target, NetworkReputationRecord(target=target, ip="")
-
         print_info(
             "  • Querying vulnerability databases & threat intelligence "
             "(OSV, Shodan, Cloudflare)...",
@@ -1081,8 +1084,20 @@ class ReviewPipelineOrchestrator:
                 batch_results = osv_client.query_batch(list(unique_deps))
                 dep_cache.update(batch_results)
             if unique_nets:
-                with ThreadPoolExecutor(max_workers=8) as executor:
-                    net_cache.update(dict(executor.map(_fetch_net, list(unique_nets))))
+                domain_targets = [target for target, rtype in unique_nets if rtype != "ip"]
+                ip_targets = [target for target, rtype in unique_nets if rtype == "ip"]
+                if domain_targets:
+                    net_cache.update(_fetch_domains_threat_intel(radar_client, domain_targets))
+                if ip_targets:
+                    with ThreadPoolExecutor(max_workers=8) as executor:
+                        net_cache.update(
+                            dict(
+                                executor.map(
+                                    lambda ip: _fetch_ip_threat_intel(shodan_client, ip),
+                                    ip_targets,
+                                )
+                            )
+                        )
         print_info(
             "    [dim]✓ Completed vulnerability and threat reputation lookups[/dim]", prefix=False
         )
@@ -1988,8 +2003,14 @@ class ReviewPipelineOrchestrator:
         self, file_payloads: list[FileReviewPayload]
     ) -> tuple[list[DependencySpec], list[NetworkReference]]:
         """Collect deduplicated dependencies and network endpoints across all payloads."""
+        from devops_cli.security.reference_extractor import (
+            deduplicate_network_references,
+            is_example_or_invalid_network_target,
+            sort_network_references,
+        )
+
         all_deps: list[DependencySpec] = []
-        all_nets: list[NetworkReference] = []
+        raw_nets: list[NetworkReference] = []
         for payload in file_payloads:
             for d in payload.external_dependencies:
                 if not any(
@@ -1997,8 +2018,10 @@ class ReviewPipelineOrchestrator:
                 ):
                     all_deps.append(d)
             for n in payload.network_references:
-                if not any(x.target == n.target for x in all_nets):
-                    all_nets.append(n)
+                if n.is_example or is_example_or_invalid_network_target(n.target):
+                    continue
+                raw_nets.append(n)
+        all_nets = sort_network_references(deduplicate_network_references(raw_nets))
         return all_deps, all_nets
 
     def _build_consolidated_markdown_report(
@@ -2084,10 +2107,23 @@ class ReviewPipelineOrchestrator:
         lines.append("")
 
         lines.append("## Network References & Endpoints (Shodan InternetDB & Cloudflare Radar)")
-        if all_nets:
+        from devops_cli.security.reference_extractor import (
+            deduplicate_network_references,
+            is_example_or_invalid_network_target,
+            sort_network_references,
+        )
+
+        filtered_md_nets = [
+            n
+            for n in all_nets
+            if not getattr(n, "is_example", False)
+            and not is_example_or_invalid_network_target(getattr(n, "target", ""))
+        ]
+        sorted_md_nets = sort_network_references(deduplicate_network_references(filtered_md_nets))
+        if sorted_md_nets:
             lines.append("| Target | Type | Scope | Security Status | Location |")
             lines.append("|---|---|---|---|---|")
-            for net in all_nets:
+            for net in sorted_md_nets:
                 scope_str = "Local" if net.is_local else "External"
                 loc_str = f"`{net.location}`" if net.location else "—"
                 lines.append(
@@ -2242,6 +2278,20 @@ class ReviewPipelineOrchestrator:
 
     def _render_console_network_table(self, console: Any, all_nets: list[NetworkReference]) -> None:
         """Render network references and endpoints audit table to console."""
+        from devops_cli.security.reference_extractor import (
+            deduplicate_network_references,
+            is_example_or_invalid_network_target,
+            sort_network_references,
+        )
+
+        filtered = [
+            n
+            for n in all_nets
+            if not getattr(n, "is_example", False)
+            and not is_example_or_invalid_network_target(getattr(n, "target", ""))
+        ]
+        sorted_nets = sort_network_references(deduplicate_network_references(filtered))
+
         columns = [
             ("Target", "bold cyan"),
             "Type",
@@ -2250,8 +2300,8 @@ class ReviewPipelineOrchestrator:
             ("Location", "dim"),
         ]
         rows: list[list[str]] = []
-        if all_nets:
-            for n in all_nets:
+        if sorted_nets:
+            for n in sorted_nets:
                 rows.append(_format_network_ref_table_row(n))
         else:
             rows.append(

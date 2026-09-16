@@ -60,6 +60,8 @@ def test_fastmcp_tools_registration() -> None:
         # Docker & Isolation
         "docker_stats",
         "docker_sandbox",
+        "docker_sign",
+        "docker_verify",
         # CI, Release & Quality
         "ci_run",
         "release_status",
@@ -486,4 +488,123 @@ def test_fastmcp_pr_check_readiness_tool() -> None:
                 "owner/repo",
             ],
             timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )
+
+
+def test_fastmcp_pr_ready_tool() -> None:
+    """Verify pr_ready FastMCP execution contract."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import pr_ready
+    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
+        mock_cmd.return_value = "PR #212 is ready for review"
+
+        res = pr_ready(
+            pr_number=212,
+            monitor=False,
+            force=True,
+            repo="owner/repo",
+        )
+        assert "is ready for review" in res
+        mock_cmd.assert_called_with(
+            [
+                "uv",
+                "run",
+                "devops",
+                "pr",
+                "ready",
+                "212",
+                "--force",
+                "--repo",
+                "owner/repo",
+            ],
+            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        )
+
+
+def test_fastmcp_docker_sign_tool() -> None:
+    """Verify docker_sign FastMCP execution contract."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import docker_sign
+    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_TIMEOUT_SECONDS
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
+        mock_cmd.return_value = "Image signed successfully"
+
+        res = docker_sign(
+            image="example.com/app:1.0.0",
+            key="/path/to/key.key",
+            keyless=False,
+            oidc_token="token123",
+            annotations=["env=prod"],
+            upload=False,
+            dry_run=True,
+        )
+        assert "Image signed successfully" in res
+        mock_cmd.assert_called_with(
+            [
+                "uv",
+                "run",
+                "devops",
+                "docker",
+                "sign",
+                "example.com/app:1.0.0",
+                "--key",
+                "/path/to/key.key",
+                "--keyed",
+                "--annotation",
+                "env=prod",
+                "--no-upload",
+                "--dry-run",
+            ],
+            timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+            env={"COSIGN_IDENTITY_TOKEN": "token123"},
+        )
+
+
+def test_fastmcp_docker_verify_tool() -> None:
+    """Verify docker_verify FastMCP execution contract."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import docker_verify
+    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_TIMEOUT_SECONDS
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
+        mock_cmd.return_value = "Image verified successfully"
+
+        res = docker_verify(
+            image="example.com/app:1.0.0",
+            key="/path/to/key.pub",
+            certificate_identity="https://example.com/build.yml",
+            certificate_oidc_issuer="https://example.com/oidc",
+            attestation=True,
+            predicate_type="slsaprovenance",
+            insecure_ignore_tlog=True,
+            dry_run=True,
+        )
+        assert "Image verified successfully" in res
+        mock_cmd.assert_called_with(
+            [
+                "uv",
+                "run",
+                "devops",
+                "docker",
+                "verify",
+                "example.com/app:1.0.0",
+                "--key",
+                "/path/to/key.pub",
+                "--certificate-identity",
+                "https://example.com/build.yml",
+                "--certificate-oidc-issuer",
+                "https://example.com/oidc",
+                "--attestation",
+                "--type",
+                "slsaprovenance",
+                "--insecure-ignore-tlog",
+                "--dry-run",
+            ],
+            timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
         )

@@ -36,6 +36,8 @@ from devops_cli.exceptions.ai import (
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.docker import (
+    CosignError,
+    CosignVerificationError,
     DockerError,
     DockerSandboxError,
 )
@@ -43,6 +45,7 @@ from devops_cli.exceptions.docs import DocCompactionError
 from devops_cli.exceptions.git import (
     BranchAlreadyExistsError,
     GitHubOperationError,
+    GitHubRateLimitError,
     GitOperationError,
     InvalidBranchNameError,
 )
@@ -110,12 +113,15 @@ __all__ = [
     "ConstellationResumeError",
     "ContentFilterError",
     "ContextBudgetExceededError",
+    "CosignError",
+    "CosignVerificationError",
     "DevOpsCLIError",
     "DockerError",
     "DockerSandboxError",
     "DocCompactionError",
     "DocsIngestionError",
     "GitHubOperationError",
+    "GitHubRateLimitError",
     "GitOperationError",
     "GitOpsSyncError",
     "HarnessExecutionError",

@@ -15,6 +15,10 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_AGENTS_MD_FILENAME
+from devops_cli.config.defaults import (
+    DEFAULT_PROJECT_VERSION,
+    DEFAULT_PYTHON_REQUIRES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +37,8 @@ class ProjectMetadata(BaseModel):
 
     name: str
     description: str = ""
-    version: str = "0.1.0"
-    requires_python: str = ">=3.14"
+    version: str = DEFAULT_PROJECT_VERSION
+    requires_python: str = DEFAULT_PYTHON_REQUIRES
     entry_point: str = ""
     dependencies: list[str] = Field(default_factory=list)
     dev_dependencies: list[str] = Field(default_factory=list)
@@ -50,8 +54,8 @@ def parse_project_metadata(repo_path: Path) -> ProjectMetadata:
 
     name = resolved_path.name
     description = f"{name} workspace tooling and development environment."
-    version = "0.1.0"
-    requires_python = ">=3.14"
+    version = DEFAULT_PROJECT_VERSION
+    requires_python = DEFAULT_PYTHON_REQUIRES
     entry_point = ""
     dependencies: list[str] = []
     dev_dependencies: list[str] = []
@@ -231,6 +235,10 @@ codebase or reviewing target repositories.
     endpoints.
   - Enforce subprocess safety with explicit command argument lists, bounded timeouts, and error
     handling.
+- **Strict Prohibition of Brittle Pattern Subsets & Mandatory Constants/Defaults Placement**:
+  - Matching against a list of strings or regular expressions is **ONLY acceptable if it covers 100% of possible scenarios** (i.e. mathematically bounded, closed, exhaustive domains defined by official RFCs or deterministic language grammars).
+  - Matching against a **limited or arbitrary subset of a larger or unknown list of possible values is strictly prohibited**. Never guess or match against ad-hoc prefixes, suffixes, or partial word lists (e.g. arbitrary identifier prefixes, property suffixes, or selective web TLDs). Instead, use mature, robust engineering solutions such as programming language symbol parsers (e.g. Python AST visitors, tokenizer pipelines), official registries (e.g. Mozilla Public Suffix List via `tldextract`), or system domain lookup tooling.
+  - Any string list, tuple, or frozen set that exists for matching, classification, or filtering purposes **MUST be declared in the `constants` or `defaults` submodule** (`src/devops_cli/config/constants.py` or `src/devops_cli/config/defaults.py`) rather than scattered ad-hoc across functional modules, so that it can easily be audited and reviewed for brittleness.
 - **Standard Parsers & Dynamic Introspection**: Always use established language-agnostic code
   quality standards, standard library parsers (`ast`, `tokenize`, `json`, `tomllib`, `yaml`,
   `urllib.parse`, `ipaddress`, `mimetypes`, `functools.lru_cache`), and official specifications
@@ -272,6 +280,14 @@ codebase or reviewing target repositories.
   replacing features, schemas, configurations, or interfaces, implement clean, complete solutions
   and ruthlessly remove obsolete code, variables, aliases, fallback shims, and legacy workarounds.
   Never leave remnants or vestigial fallback paths.
+- **Mandatory Root-Cause Remediation & Instruction Hardening (Fix Underlying Cause / Prevent Recurrence)**:
+  - Whenever encountering any problem, bug, defect, failure, runtime exception, or unexpected error, AI agents and automated workflows **MUST ALWAYS INVESTIGATE AND FIX THE CAUSE OF THE UNDERLYING ISSUE** directly at its source. Applying superficial workarounds, bypassing assertions, suppressing warnings, or masking symptoms without remediating the root cause is strictly prohibited.
+  - If the underlying issue cannot be fixed immediately (such as an external dependency bug, upstream platform constraint, environment limitation, or fundamental architectural blocker), the agent **MUST PROMPTLY UPDATE AGENT INSTRUCTIONS (`AGENTS.md`)** with defensive guardrails, pre-flight checks, avoidance patterns, or operational guidelines to prevent the issue from re-occurring in future sessions.
+- **Continuous Roadmap Synthesis & Field Observations (Add Suggestions to Roadmap)**:
+  - AI agents must continuously capture high-value observations, technical debt discoveries, architectural insights, and enhancement suggestions that arise organically during engineering sessions.
+  - Any good suggestions, architectural observations, or optimization ideas that emerge while working **MUST BE PROACTIVELY ADDED TO THE ROADMAP (`docs/ROADMAP.md`)** under the appropriate upcoming milestone or future vision series, keeping the roadmap living, accurate, and aligned with real-world field observations.
+- **Continuous Interaction & Collaborative Value Improvement (Proactive Improvement Suggestions)**:
+  - In every interaction with the user, peer agents, or development workflows, AI agents must actively look for and suggest concrete, actionable ways to improve developer ergonomics, workflow speed, system resilience, documentation clarity, test coverage, and tooling efficiency whenever relevant.
 
 
 
@@ -292,6 +308,7 @@ codebase or reviewing target repositories.
   - Maintain atomic, cohesive commits with clean commit messages.
   - **No Internal References or Numeric IDs**: Commit messages and PR titles must describe technical changes using descriptive engineering terminology, never internal session timestamps, review numbers, subagent IDs, or prompt phase numbers.
 - **Pull Request Governance & Two-Stage Review Lifecycle**:
+  - **Sequential Pull Request Processing (Oldest to Newest / FIFO)**: When multiple open pull requests exist, AI agents MUST process, remediate, and shepherd pull requests in strict chronological order from oldest to newest (FIFO queue: lowest PR number / earliest creation date first). Remediating review comments, fixing CI checks, resolving merge conflicts, and verifying merge readiness on older PRs strictly takes precedence over newer PRs to eliminate cascading merge conflicts and PR starvation.
   - AI agents prepare clean commits, open/update PRs, monitor remote CI checks (`devops pr monitor`), and leave merge approval to maintainers.
   - **Stage 1: Draft Pull Requests for In-Progress Work**:
     - Whenever opening any pull request that is not yet fully implemented, tested, and ready for review, AI agents MUST create the pull request as a draft (`gh pr create --draft` or passing `draft: true` via API). A draft pull request signals active work in progress, prevents premature review cycles, avoids false merge-readiness assumptions, while satisfying the requirement that every remote topic branch have an open pull request.

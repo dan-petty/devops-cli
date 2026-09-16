@@ -267,6 +267,10 @@ class K8sCommandHelp:
     chaos_experiment: str = "Resilience experiment name (e.g., pod-kill, latency-inject)."
     chaos_deployment: str = "Target deployment to disrupt."
     chaos_duration: str = "Reconciliation monitoring window in seconds."
+    security_stream: str = "Stream runtime security anomaly events from Falco eBPF probes."
+    security_severity: str = "Minimum severity filter threshold (Notice, Warning, Error, Critical)."
+    security_duration: str = "Observation streaming window duration in seconds."
+    security_simulate: str = "Generate simulated kernel eBPF security anomalies for testing."
 
 
 @dataclass(frozen=True)
@@ -459,7 +463,7 @@ class DevcontainerCommandHelp:
     python_version: str = "Python version for base template."
     image: str = "Base container image (defaults to published devops-cli image)."
     published: str = "Use published GHCR image (defaults to True)."
-    volume_name: str = "Custom volume name for /home/vscode (defaults to <project_name>-home)."
+    volume_name: str = "Custom volume name for /home/vscode (defaults to `<project_name>-home`)."
     overwrite: str = "Overwrite existing devcontainer.json and configurations."
     workspace_dir: str = "Path to workspace directory containing .devcontainer."
     config_file: str = "Direct path to devcontainer.json."
@@ -625,6 +629,7 @@ class PRCommandHelp:
 @dataclass(frozen=True)
 class GHCommandHelp:
     app: str = "GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation."
+    api: str = "Execute a GitHub API request with token-bucket pacing, rate-limit backoff, and optional caching."
     rate_limit: str = (
         "Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."
     )
@@ -647,7 +652,7 @@ class GHCommandHelp:
     project_list: str = "List available GitHub Projects v2 boards for user or organization."
     project_status: str = "Inspect project template structure and configured views."
     project_sync: str = (
-        "Sync task items from tasks directory or task.md into GitHub Projects status."
+        "Sync task items from docs/agent/tasks directory into GitHub Projects status."
     )
     project_reconcile: str = (
         "Reconcile custom fields (Status, Priority, Category, Value, Effort) on project items."

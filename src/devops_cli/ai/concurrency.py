@@ -21,6 +21,11 @@ from pydantic_ai.concurrency import (
 from pydantic_ai.exceptions import ConcurrencyLimitExceeded
 from pydantic_ai.models.concurrency import ConcurrencyLimitedModel, limit_model_concurrency
 
+from devops_cli.config.defaults import (
+    DEFAULT_AI_CONCURRENCY_MAX_RUNNING,
+    DEFAULT_AI_CONCURRENCY_SOURCE,
+)
+
 # ── Shared Limiter Registry ───────────────────────────────────────────────────
 
 _SHARED_LIMITERS: dict[str, ConcurrencyLimiter] = {}
@@ -29,7 +34,7 @@ _REGISTRY_LOCK = threading.Lock()
 
 def get_shared_concurrency_limiter(
     name: str,
-    max_running: int = 2,
+    max_running: int = DEFAULT_AI_CONCURRENCY_MAX_RUNNING,
     max_queued: int | None = None,
 ) -> ConcurrencyLimiter:
     """Retrieve or register a shared named ConcurrencyLimiter instance.
@@ -49,7 +54,7 @@ def get_shared_concurrency_limiter(
 
 def get_model_concurrency_limiter(
     model_name: str,
-    default_max: int = 2,
+    default_max: int = DEFAULT_AI_CONCURRENCY_MAX_RUNNING,
     max_queued: int | None = None,
 ) -> ConcurrencyLimiter:
     """Retrieve or register a shared model-level concurrency limiter."""
@@ -63,7 +68,7 @@ def get_model_concurrency_limiter(
 
 def track_concurrency_slot(
     limiter: AbstractConcurrencyLimiter | None,
-    source: str = "unnamed",
+    source: str = DEFAULT_AI_CONCURRENCY_SOURCE,
 ) -> AbstractAsyncContextManager[None]:
     """Context manager acquiring and releasing a concurrency slot for an operation."""
     return get_concurrency_context(limiter, source=source)

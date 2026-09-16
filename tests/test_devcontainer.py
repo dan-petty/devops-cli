@@ -793,6 +793,9 @@ class TestDevcontainerCli:
         # Invalid spec
         assert _parse_mount_spec(123, tmp_path) is None  # type: ignore[arg-type]
         assert _parse_mount_spec({}, tmp_path) is None
+        assert _parse_mount_spec("source=evil,target=../../../etc/shadow", tmp_path) is None
+        assert _parse_mount_spec("source=evil,target=/etc/shadow", tmp_path) is None
+        assert _parse_mount_spec({"source": "evil", "target": "/proc/sys"}, tmp_path) is None
 
         # Create devcontainer.json with mounts
         dc_dir = tmp_path / ".devcontainer"
@@ -1049,3 +1052,12 @@ class TestDevcontainerCli:
             assert ok is False
             assert "Warning: Failed to start Minikube cluster" in msg
             mock_start_fail.assert_called_once_with(dry_run=False)
+
+        with patch(
+            "devops_cli.commands.k8s.cluster_runtime._start_minikube",
+            return_value=(False, "Failed secret ghp_secrettoken1234567890abcdefghijklmn"),
+        ):
+            ok, msg = _start_minikube_cluster(dry_run=False)
+            assert ok is False
+            assert "ghp_secrettoken" not in msg
+            assert "<masked-github-token>" in msg

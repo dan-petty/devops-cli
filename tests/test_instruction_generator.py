@@ -118,6 +118,7 @@ def test_generate_agents_md_contains_required_sections() -> None:
     assert "GitHub Projects, Issues & Views Governance" in content
     assert "API Rate Limit Honor, Resilient Backoff & Quota Budgeting" in content
     assert "gh api rate_limit" in content
+    assert "Sequential Pull Request Processing (Oldest to Newest / FIFO)" in content
     assert "Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee" in content
     assert "Clean Solutions Over Legacy Remnants (Zero Zombie Code)" in content
     assert "GraphQL queries to targeted REST endpoints" in content
@@ -309,3 +310,21 @@ def test_generate_agents_md_enforces_pr_monitor_and_concise_commits() -> None:
         "Wait at least a full minute (60 seconds) between request cycles when monitoring pull request status"
         in content
     )
+
+
+def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
+    """Verify generated AGENTS.md mandates root cause remediation, roadmap additions, and interaction improvements."""
+    meta = ProjectMetadata(
+        name="sample-project",
+        description="Sample project testing core engineering tenets",
+        version="0.2.0",
+        requires_python=">=3.14",
+    )
+    content = generate_agents_md(meta)
+    assert "Mandatory Root-Cause Remediation & Instruction Hardening" in content
+    assert "INVESTIGATE AND FIX THE CAUSE OF THE UNDERLYING ISSUE" in content
+    assert "UPDATE AGENT INSTRUCTIONS (`AGENTS.md`)" in content
+    assert "Continuous Roadmap Synthesis & Field Observations" in content
+    assert "PROACTIVELY ADDED TO THE ROADMAP (`docs/ROADMAP.md`)" in content
+    assert "Continuous Interaction & Collaborative Value Improvement" in content
+    assert "suggest concrete, actionable ways to improve" in content
