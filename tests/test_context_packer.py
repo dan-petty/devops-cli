@@ -15,6 +15,7 @@ from devops_cli.ai.context_packer import (
     PackedContext,
     PackingConfig,
     _estimate_stmt_tokens,
+    _find_truncation_index,
     _prune_tree_to_budget,
 )
 from devops_cli.main import app
@@ -347,6 +348,17 @@ def test_find_truncation_index_short_statements_expands_to_full_body() -> None:
     assert trunc is False
     assert len(pruned) == 0
     assert "x_49" in unparsed
+
+    best_k, cand = _find_truncation_index(tree.body, budget)
+    assert best_k == len(tree.body)
+
+    # When budget is strictly constrained, truncation occurs and pruned symbols are recorded
+    pruned_partial: list[str] = []
+    tree_partial = ast.parse("\n".join(code_lines))
+    unparsed_part, trunc_part = _prune_tree_to_budget(tree_partial, 50, pruned_partial)
+    assert trunc_part is True
+    assert len(pruned_partial) > 0
+    assert count_tokens(unparsed_part) <= 50
 
 
 def test_estimate_stmt_tokens_memoization() -> None:

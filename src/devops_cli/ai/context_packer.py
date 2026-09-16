@@ -342,16 +342,19 @@ def _prune_tree_to_budget(tree: ast.Module, max_tokens: int, pruned: list[str]) 
     # Fast estimation check: if upper bound fits within max_tokens, verify with single unparse
     weights = [_estimate_stmt_tokens(stmt) for stmt in tree.body]
     total_est = sum(weights)
+    docstrings_stripped = False
 
     if total_est <= max_tokens:
         unparsed = ast.unparse(tree)
         if count_tokens(unparsed) <= max_tokens:
             return unparsed, False
         _strip_docstrings_from_node(tree)
+        docstrings_stripped = True
         unparsed = ast.unparse(tree)
         if count_tokens(unparsed) <= max_tokens:
             return unparsed, True
 
+    orig_count = len(tree.body)
     # Binary-search truncation index discovery
     best_k, best_unparsed = _find_truncation_index(tree.body, max_tokens)
 
@@ -364,7 +367,7 @@ def _prune_tree_to_budget(tree: ast.Module, max_tokens: int, pruned: list[str]) 
     if not best_unparsed:
         best_unparsed = "# [Code truncated due to token budget]"
 
-    return best_unparsed, True
+    return best_unparsed, (best_k < orig_count or docstrings_stripped)
 
 
 def _finalize_packed_ast(
