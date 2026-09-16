@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Parses squash commit bodies (`%B`) to extract PR commit items into Keep-a-Changelog sections (`### Added`, `### Fixed & Hardened`, `### Changed & Improved`).
 
 ### Fixed & Hardened
+- **GitHub Copilot Review Completion on Resolved Threads (`devops pr monitor`, `devops pr wait`)**:
+  - Automatically transitions `copilot_status` to `completed` when all recommended changes in review threads have been addressed and 0 unresolved threads remain.
+  - Prevents premature failure exit code 2 when all CI checks are green and all discussion threads have been resolved.
+  - Excludes bot reviews from human review approval decision evaluations in `_resolve_review_decision`.
 - **Main Branch AI Review & Base Resolution (`devops ai review branch`)**:
   - Dynamically resolves comparison bases when reviewing `main` branch or when passing `main` as an argument from another branch (e.g. `release/v0.2.19`).
   - Supports diffing uncommitted working tree modifications against `HEAD`, and cleanly falls back to latest release tags or parent commits (`main~1`) when working tree is clean.

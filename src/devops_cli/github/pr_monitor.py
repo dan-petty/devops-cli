@@ -112,20 +112,24 @@ class PRMonitorStatus(BaseModel):
         return len(self.checks) > 0 and all(c.is_success for c in self.checks)
 
     @property
+    def is_review_ready(self) -> bool:
+        """Evaluate if reviews and thread resolutions satisfy readiness."""
+        threads_ok = len(self.unresolved_threads) == 0
+        approval_ok = (self.review_decision == "APPROVED") if self.require_reviews else True
+        copilot_ok = (
+            not self.copilot_status.is_active
+            and self.copilot_status.state != "changes_requested"
+            and not self.has_changes_requested
+        )
+        return threads_ok and approval_ok and copilot_ok
+
+    @property
     def is_ready_for_merge(self) -> bool:
         """Evaluate if PR is completely verified and ready for merge."""
         draft_ok = not self.is_draft
         checks_ok = self.all_checks_completed and self.all_checks_passed
-        threads_ok = len(self.unresolved_threads) == 0
-        review_approval_ok = (self.review_decision == "APPROVED") if self.require_reviews else True
-        review_ok = (
-            not self.copilot_status.is_active
-            and self.copilot_status.state != "changes_requested"
-            and not self.has_changes_requested
-            and review_approval_ok
-        )
         merge_ok = self.mergeable is True and (self.mergeable_state or "").lower() == "clean"
-        return draft_ok and checks_ok and threads_ok and review_ok and merge_ok
+        return draft_ok and checks_ok and self.is_review_ready and merge_ok
 
 
 class PRMonitorResult(BaseModel):
@@ -325,6 +329,7 @@ def _detect_copilot_status(
     repo_name: str,
     pr_number: int,
     reviews: list[dict[str, Any]],
+    unresolved_threads: list[ReviewThread] | None = None,
 ) -> CopilotReviewStatus:
     """Inspect timeline events and review states to detect Copilot review activity."""
     latest_review, has_changes, latest_state, last_time = _extract_latest_copilot_review(reviews)
@@ -339,6 +344,14 @@ def _detect_copilot_status(
             active_event=active_event,
         )
     if has_changes:
+        if unresolved_threads is not None and not unresolved_threads:
+            return CopilotReviewStatus(
+                is_active=False,
+                state="completed",
+                message="Copilot review session completed (all recommended changes resolved)",
+                last_review_at=last_time,
+                active_event=active_event,
+            )
         msg = (
             "Copilot requested changes on the pull request"
             if latest_state == "CHANGES_REQUESTED"
@@ -531,15 +544,13 @@ def _build_failure_reasons(
     return reasons
 
 
-def _resolve_review_decision(
-    raw_reviews: list[dict[str, Any]], head_sha: str | None = None
-) -> str | None:
-    """Derive aggregate review decision from latest state per reviewer targeting head_sha."""
-    if not raw_reviews:
-        return None
+def _extract_latest_reviews_by_user(
+    raw_reviews: list[dict[str, Any]],
+) -> dict[str, tuple[str, str]]:
+    """Map each reviewer to their latest review state and target commit ID."""
     latest_by_user: dict[str, tuple[str, str]] = {}
     for r in raw_reviews:
-        if not isinstance(r, dict):
+        if not isinstance(r, dict) or _is_copilot_review_dict(r):
             continue
         user = str(
             r.get("user", {}).get("login", "") or r.get("author", {}).get("login", "")
@@ -548,20 +559,27 @@ def _resolve_review_decision(
         commit_id = str(r.get("commit_id") or r.get("commitId") or "")
         if user and state:
             latest_by_user[user] = (state, commit_id)
+    return latest_by_user
 
-    # Any active changes requested blocks approval
-    for state, _ in latest_by_user.values():
-        if state == "CHANGES_REQUESTED":
-            return "CHANGES_REQUESTED"
 
-    # Require at least one APPROVED review targeting current head_sha (if provided)
+def _resolve_review_decision(
+    raw_reviews: list[dict[str, Any]], head_sha: str | None = None
+) -> str | None:
+    """Derive aggregate review decision from latest state per reviewer targeting head_sha."""
+    if not raw_reviews:
+        return None
+    latest_by_user = _extract_latest_reviews_by_user(raw_reviews)
+    if not latest_by_user:
+        return None
+
+    if any(state == "CHANGES_REQUESTED" for state, _ in latest_by_user.values()):
+        return "CHANGES_REQUESTED"
+
     has_approval = any(
         state == "APPROVED" and (not head_sha or commit_id == head_sha)
         for state, commit_id in latest_by_user.values()
     )
-    if has_approval:
-        return "APPROVED"
-    return "REVIEW_REQUIRED"
+    return "APPROVED" if has_approval else "REVIEW_REQUIRED"
 
 
 def _has_active_changes_requested(raw_reviews: list[dict[str, Any]]) -> bool:
@@ -582,8 +600,10 @@ def get_pr_monitoring_status(
 
     checks = _fetch_rest_check_runs(owner, repo_name, head_sha)
     raw_reviews = _fetch_raw_reviews(owner, repo_name, pr_number)
-    copilot_status = _detect_copilot_status(owner, repo_name, pr_number, raw_reviews)
     unresolved_threads = _fetch_unresolved_threads(owner, repo_name, pr_number)
+    copilot_status = _detect_copilot_status(
+        owner, repo_name, pr_number, raw_reviews, unresolved_threads=unresolved_threads
+    )
 
     review_decision = _resolve_review_decision(raw_reviews, head_sha=head_sha)
     has_changes_requested = (
