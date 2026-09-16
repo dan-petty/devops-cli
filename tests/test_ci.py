@@ -4,14 +4,23 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.ci import CheckResult, app
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def isolate_ci_workspace_root(tmp_path: Path) -> Generator[None]:
+    """Isolate CI command tests to tmp_path so live .coverage files are never unlinked."""
+    with patch("devops_cli.commands.ci._ROOT", tmp_path):
+        yield
 
 
 def test_ci_audit_command(monkeypatch) -> None:
@@ -381,7 +390,13 @@ def test_ci_clean_coverage_and_extended_options(tmp_path: Path) -> None:
     from devops_cli.commands.ci import _clean_coverage_artifacts
 
     # 1. _clean_coverage_artifacts
-    _clean_coverage_artifacts()
+    fake_data = tmp_path / ".data"
+    fake_data.mkdir(parents=True, exist_ok=True)
+    fake_cov = fake_data / ".coverage.sample"
+    fake_cov.write_text("sample", encoding="utf-8")
+    with patch("devops_cli.commands.ci._ROOT", tmp_path):
+        _clean_coverage_artifacts()
+        assert not fake_cov.exists()
 
     # 2. coverage --html
     called = []
