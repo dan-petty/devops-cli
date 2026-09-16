@@ -686,11 +686,7 @@ def _query_gh_milestone_issues(repo_root: Path, milestone_tag: str) -> list[str]
         )
         if proc.returncode == 0 and proc.stdout:
             raw_issues = json.loads(proc.stdout)
-            return [
-                f"- **#{iss['number']}**: {iss['title'].strip()}"
-                for iss in raw_issues
-                if iss.get("number") and iss.get("title", "").strip()
-            ]
+            return [f"- #{iss['number']}" for iss in raw_issues if iss.get("number")]
     except Exception:
         pass
     return []

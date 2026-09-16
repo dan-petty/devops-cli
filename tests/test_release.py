@@ -764,8 +764,9 @@ def test_build_release_pr_body_draft_mode(sample_project_dir: Path) -> None:
         assert "## feat(release): v0.2.19" in body
         assert "Release `v0.2.19` tracking PR under GitHub pull request merge controls." in body
         assert "### Target Milestone Deliverables" in body
-        assert "- **#117**: feat(ai): adaptive embedding batch sizing" in body
-        assert "- **#118**: perf(ai): high-performance AST context packer" in body
+        assert "- #117" in body
+        assert "- #118" in body
+        assert "- **#117**" not in body
         assert "### Quality Gate Checklist" in body
         assert "- [x] 10-Gate CI Quality Gate passing (`devops ci`)" in body
         assert "- [ ] CodeQL & Static Analysis passing" in body
