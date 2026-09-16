@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Parses squash commit bodies (`%B`) to extract PR commit items into Keep-a-Changelog sections (`### Added`, `### Fixed & Hardened`, `### Changed & Improved`).
 
 ### Fixed & Hardened
+- **Main Branch AI Review & Base Resolution (`devops ai review branch`)**:
+  - Dynamically resolves comparison bases when reviewing `main` branch or when passing `main` as an argument from another branch (e.g. `release/v0.2.19`).
+  - Supports diffing uncommitted working tree modifications against `HEAD`, and cleanly falls back to latest release tags or parent commits (`main~1`) when working tree is clean.
+  - Automatically switches comparison targets when positional branch argument matches default base on an active topic/release branch.
 - **Documentation Compactor Idempotency (`devops docs compact`)**:
   - Enhanced version range regex to parse all matching version patterns from roadmap headers and recognize canonical summary blocks, guaranteeing idempotent compaction.
 - **Pre-Release Non-Empty Changelog Verification (`devops release check`)**:
