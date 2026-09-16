@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,8 @@ from devops_cli.config.defaults import (
     DEFAULT_REPOMAP_MAX_FILES,
 )
 from devops_cli.core.repo import find_repo_root, find_top_level_repo_root, is_ignored_by_git
+
+logger = logging.getLogger(__name__)
 
 
 class SymbolNode(BaseModel):
@@ -93,7 +96,14 @@ MAX_REPOMAP_FILE_SIZE_BYTES: int = DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES
 def parse_file_symbols(file_path: Path, relative_to: Path) -> FileMapNode | None:
     """Parse a Python source file using AST and extract class and function symbols."""
     try:
-        if file_path.stat().st_size > MAX_REPOMAP_FILE_SIZE_BYTES:
+        st = file_path.stat()
+        if st.st_size > MAX_REPOMAP_FILE_SIZE_BYTES:
+            logger.warning(
+                "Skipping python file '%s': size (%d bytes) exceeds maximum limit (%d bytes)",
+                file_path,
+                st.st_size,
+                MAX_REPOMAP_FILE_SIZE_BYTES,
+            )
             return None
         content = file_path.read_text(encoding="utf-8", errors="replace")
     except Exception:
@@ -136,7 +146,10 @@ def parse_file_symbols(file_path: Path, relative_to: Path) -> FileMapNode | None
 def _is_file_excluded(
     source_file: Path, include_tests: bool, repo_root: Path | None = None
 ) -> bool:
-    if source_file.is_symlink():
+    try:
+        if source_file.is_symlink():
+            return True
+    except OSError, RuntimeError:
         return True
     root = repo_root or find_repo_root(source_file)
     if is_ignored_by_git(root, source_file):
@@ -162,6 +175,45 @@ def _discover_repo_files(
 
 
 def _polyglot_to_file_node(source_file: Path, base_root: Path) -> FileMapNode | None:
+    """Parse a polyglot source file using Tree-Sitter with size and containment validation."""
+    try:
+        resolved_file = source_file.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        logger.warning(
+            "Skipping file '%s': symlink resolution failed or circular link: %s",
+            source_file,
+            exc,
+        )
+        return None
+
+    try:
+        resolved_base = base_root.resolve()
+        if not resolved_file.is_relative_to(resolved_base):
+            logger.warning(
+                "Skipping file '%s': resolved path '%s' escapes base directory '%s'",
+                source_file,
+                resolved_file,
+                resolved_base,
+            )
+            return None
+    except (ValueError, OSError) as exc:
+        logger.warning("Skipping file '%s': containment validation failed: %s", source_file, exc)
+        return None
+
+    try:
+        st = source_file.stat()
+        if st.st_size > MAX_REPOMAP_FILE_SIZE_BYTES:
+            logger.warning(
+                "Skipping polyglot file '%s': size (%d bytes) exceeds maximum limit (%d bytes)",
+                source_file,
+                st.st_size,
+                MAX_REPOMAP_FILE_SIZE_BYTES,
+            )
+            return None
+    except OSError as exc:
+        logger.warning("Skipping file '%s': stat failed: %s", source_file, exc)
+        return None
+
     from devops_cli.ai.ast.engine import TreeSitterEngine
 
     engine = TreeSitterEngine()
