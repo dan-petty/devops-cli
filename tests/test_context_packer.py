@@ -292,7 +292,7 @@ def test_prune_tree_binary_search_under_10ms() -> None:
     assert count_tokens(unparsed) <= 200
     assert len(pruned) > 300
     assert truncated is True
-    assert duration < 0.015, f"Execution exceeded benchmark threshold: {duration * 1000:.2f}ms"
+    assert duration < 0.010, f"Execution exceeded benchmark threshold: {duration * 1000:.2f}ms"
     # Output must be syntactically valid Python without syntax errors
     parsed = ast.parse(unparsed)
     assert parsed is not None
@@ -318,6 +318,35 @@ def test_prune_tree_exact_boundary_integrity() -> None:
     assert packed_full.truncated is False
     assert "def a" in packed_full.content
     assert "def b" in packed_full.content
+
+    # Empty AST module body produces empty content without truncation
+    empty_tree = ast.Module(body=[], type_ignores=[])
+    pruned_empty: list[str] = []
+    res_empty, trunc_empty = _prune_tree_to_budget(empty_tree, 100, pruned_empty)
+    assert res_empty == ""
+    assert trunc_empty is False
+    assert pruned_empty == []
+
+    # Non-empty tree with max_tokens <= 0 omits every statement and records pruned symbols
+    zero_budget_tree = ast.parse("def a(): pass\ndef b(): pass")
+    pruned_zero: list[str] = []
+    res_zero, trunc_zero = _prune_tree_to_budget(zero_budget_tree, 0, pruned_zero)
+    assert res_zero == "# [Code truncated due to token budget]"
+    assert trunc_zero is True
+    assert pruned_zero == ["a", "b"]
+    assert zero_budget_tree.body == []
+
+
+def test_find_truncation_index_short_statements_expands_to_full_body() -> None:
+    """Verify that truncation index search explores full body for short statements."""
+    code_lines = [f"x_{i} = {i}" for i in range(50)]
+    tree = ast.parse("\n".join(code_lines))
+    budget = count_tokens("\n".join(code_lines)) + 10
+    pruned: list[str] = []
+    unparsed, trunc = _prune_tree_to_budget(tree, budget, pruned)
+    assert trunc is False
+    assert len(pruned) == 0
+    assert "x_49" in unparsed
 
 
 def test_estimate_stmt_tokens_memoization() -> None:

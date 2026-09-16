@@ -15,7 +15,11 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
+from devops_cli.ai.context_budget import (
+    _get_tiktoken_encoding,
+    count_tokens,
+    truncate_to_token_limit,
+)
 from devops_cli.config.defaults import (
     DEFAULT_CONTEXT_PACKING_MAX_TOKENS,
     DEFAULT_CONTEXT_PACKING_TOTAL_BUDGET,
@@ -303,7 +307,7 @@ def _find_truncation_index(body: list[ast.stmt], max_tokens: int) -> tuple[int, 
         best_k = est_k
         best_unparsed = cand_est
         low = est_k + 1
-        high = min(len(body), max(est_k * 2, est_k + 15))
+        high = len(body)
     else:
         best_k = 0
         best_unparsed = ""
@@ -325,7 +329,14 @@ def _find_truncation_index(body: list[ast.stmt], max_tokens: int) -> tuple[int, 
 
 def _prune_tree_to_budget(tree: ast.Module, max_tokens: int, pruned: list[str]) -> tuple[str, bool]:
     """Prune AST body nodes from the end until unparsed code fits within max_tokens."""
-    if not tree.body or max_tokens <= 0:
+    if not tree.body:
+        return "", False
+
+    if max_tokens <= 0:
+        for removed in tree.body:
+            rem_name = getattr(removed, "name", type(removed).__name__)
+            pruned.append(rem_name)
+        tree.body = []
         return "# [Code truncated due to token budget]", True
 
     # Fast estimation check: if upper bound fits within max_tokens, verify with single unparse
@@ -383,7 +394,7 @@ class ContextPacker:
 
     def __init__(self, default_config: PackingConfig | None = None) -> None:
         self.config = default_config or PackingConfig()
-        count_tokens("")  # Pre-warm BPE tokenizer encoding
+        _get_tiktoken_encoding()  # Pre-warm BPE tokenizer encoding
 
     def pack_code(
         self,
