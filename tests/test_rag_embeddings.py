@@ -529,3 +529,59 @@ def test_valkey_offline_graceful_fallback(monkeypatch: pytest.MonkeyPatch) -> No
     embs = engine.embed_texts(["test text without valkey"])
     assert len(embs) == 1
     assert len(embs[0]) == 768
+
+
+def test_valkey_l2_cache_query_vs_document_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify query vectors and document vectors have distinct Valkey L2 cache keys."""
+    mock_valkey = _MockValkey()
+    ai_cfg = AIConfig(provider="custom", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=mock_valkey)
+
+    doc_key = engine._valkey_key("sample text", engine.model, is_query=False)
+    query_key = engine._valkey_key("sample text", engine.model, is_query=True)
+
+    assert doc_key != query_key
+    assert ":d:" not in doc_key  # hex hash formatted
+    # Embed document
+    doc_vec = [0.1] * 64
+    monkeypatch.setattr(engine, "_dispatch_embed", lambda texts: [doc_vec for _ in texts])
+    engine.embed_texts(["sample text"], is_query=False)
+    assert doc_key in mock_valkey.store
+    assert query_key not in mock_valkey.store
+
+    # Embed query
+    query_vec = [0.2] * 64
+    monkeypatch.setattr(engine, "_dispatch_embed", lambda texts: [query_vec for _ in texts])
+    engine.embed_texts(["sample text"], is_query=True)
+    assert query_key in mock_valkey.store
+
+
+def test_valkey_l2_does_not_cache_deterministic_fallback() -> None:
+    """Verify deterministic fallback vectors are NOT cached to Valkey L2 to prevent cache poisoning."""
+    mock_valkey = _MockValkey()
+    ai_cfg = AIConfig(provider="offline_provider", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=mock_valkey)
+
+    # Calling embed_texts with no provider endpoints triggers deterministic fallback
+    results = engine.embed_texts(["fallback chunk test"])
+    assert len(results) == 1
+    # Valkey store should be completely empty
+    assert len(mock_valkey.store) == 0
+    assert len(mock_valkey.set_calls) == 0
+
+
+def test_init_valkey_fast_probe_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _init_valkey returns None without blocking when Valkey ping fails."""
+    from devops_cli.ai.rag.embeddings import _DEFAULT_VALKEY
+
+    class _OfflineValkeyClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.timeout = kwargs.get("timeout", 0.1)
+
+        def ping(self) -> bool:
+            return False
+
+    monkeypatch.setattr("devops_cli.valkey.client.ValkeyClient", _OfflineValkeyClient)
+    ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
+    assert engine._valkey is None

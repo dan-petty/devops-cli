@@ -324,7 +324,11 @@ def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
     assert "Mandatory Root-Cause Remediation & Instruction Hardening" in content
     assert "INVESTIGATE AND FIX THE CAUSE OF THE UNDERLYING ISSUE" in content
     assert "UPDATE AGENT INSTRUCTIONS (`AGENTS.md`)" in content
-    assert "Continuous Roadmap Synthesis & Field Observations" in content
+    assert (
+        "Continuous Roadmap Synthesis, Field Observations & Innovative Self-Improvement" in content
+    )
     assert "PROACTIVELY ADDED TO THE ROADMAP (`docs/ROADMAP.md`)" in content
+    assert "Automatic Roadmap Ingestion for Issues, Struggles, Challenges & Insights" in content
+    assert "Automatic Roadmap Ingestion for Features, Suggestions & Integrations" in content
     assert "Continuous Interaction & Collaborative Value Improvement" in content
     assert "suggest concrete, actionable ways to improve" in content

@@ -90,13 +90,14 @@ class _EmbeddingLRUCache:
         self.hits: int = 0
         self.misses: int = 0
 
-    def _key(self, text: str, model: str) -> str:
-        """Compute deterministic SHA-256 cache key for (text, model) pair."""
-        return hashlib.sha256(f"{model}\x00{text}".encode()).hexdigest()
+    def _key(self, text: str, model: str, *, is_query: bool = False) -> str:
+        """Compute deterministic SHA-256 cache key for (text, model, is_query) tuple."""
+        tag = "q" if is_query else "d"
+        return hashlib.sha256(f"{model}\x00{tag}\x00{text}".encode()).hexdigest()
 
-    def get(self, text: str, model: str) -> list[float] | None:
+    def get(self, text: str, model: str, *, is_query: bool = False) -> list[float] | None:
         """Return cached embedding vector or None on miss."""
-        key = self._key(text, model)
+        key = self._key(text, model, is_query=is_query)
         with self._lock:
             if key in self._store:
                 self._store.move_to_end(key)
@@ -105,9 +106,9 @@ class _EmbeddingLRUCache:
             self.misses += 1
             return None
 
-    def put(self, text: str, model: str, vector: list[float]) -> None:
+    def put(self, text: str, model: str, vector: list[float], *, is_query: bool = False) -> None:
         """Insert or update a cache entry, evicting the LRU entry when at capacity."""
-        key = self._key(text, model)
+        key = self._key(text, model, is_query=is_query)
         with self._lock:
             if key in self._store:
                 self._store[key] = vector
@@ -130,6 +131,22 @@ class _EmbeddingLRUCache:
             self._store.clear()
             self.hits = 0
             self.misses = 0
+
+
+class EmbeddingVector(list[float]):
+    """Vector of float values with provenance tracking for cache safety."""
+
+    def __init__(self, items: Sequence[float] = (), *, is_fallback: bool = False) -> None:
+        super().__init__(items)
+        self.is_fallback = is_fallback
+
+
+class EmbeddingList(list[list[float]]):
+    """List of embedding vectors with provenance tracking for cache safety."""
+
+    def __init__(self, items: Sequence[list[float]] = (), *, is_fallback: bool = False) -> None:
+        super().__init__(items)
+        self.is_fallback = is_fallback
 
 
 class EmbeddingsError(DevOpsCLIError, RuntimeError):
@@ -217,7 +234,7 @@ class EmbeddingsEngine:
         self._batch_lock = threading.Lock()
 
     def _init_valkey(self, valkey_client: Any) -> Any:
-        """Initialize or assign Valkey client with error boundary."""
+        """Initialize or assign Valkey client with fast connectivity probe."""
         if valkey_client is not _DEFAULT_VALKEY:
             return valkey_client
         try:
@@ -227,13 +244,19 @@ class EmbeddingsEngine:
             settings = load_settings()
             cfg = settings.valkey
             pwd = get_valkey_password(settings)
-            return ValkeyClient(
+            client: Any = ValkeyClient(
                 host=cfg.host,
                 port=cfg.port,
                 password=pwd,
                 db=cfg.db,
-                timeout=cfg.timeout,
+                timeout=min(float(cfg.timeout), 0.1),
             )
+            if not client.ping():
+                return None
+            client.timeout = float(cfg.timeout)
+            if getattr(client, "_sock", None) is not None:
+                client._sock.settimeout(client.timeout)
+            return client
         except Exception:
             return None
 
@@ -251,17 +274,20 @@ class EmbeddingsEngine:
         if elapsed > DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS:
             self._halve_batch_size()
 
-    def _valkey_key(self, text: str, model: str) -> str:
-        """Generate namespaced deterministic Valkey cache key."""
-        h = hashlib.sha256(f"{model}\x00{text}".encode()).hexdigest()
+    def _valkey_key(self, text: str, model: str, *, is_query: bool = False) -> str:
+        """Generate namespaced deterministic Valkey cache key with query/doc isolation."""
+        tag = "q" if is_query else "d"
+        h = hashlib.sha256(f"{model}\x00{tag}\x00{text}".encode()).hexdigest()
         return f"{CONST_VALKEY_EMBEDDING_PREFIX}:{h}"
 
-    def _get_valkey_embedding(self, text: str, model: str) -> list[float] | None:
+    def _get_valkey_embedding(
+        self, text: str, model: str, *, is_query: bool = False
+    ) -> list[float] | None:
         """Fetch cached embedding vector from Valkey L2 cache."""
         if self._valkey is None:
             return None
         try:
-            key = self._valkey_key(text, model)
+            key = self._valkey_key(text, model, is_query=is_query)
             raw = self._valkey.get(key)
             if raw and isinstance(raw, (str, bytes)):
                 data = json.loads(raw)
@@ -272,12 +298,14 @@ class EmbeddingsEngine:
             self._valkey = None
         return None
 
-    def _set_valkey_embedding(self, text: str, model: str, vector: list[float]) -> None:
+    def _set_valkey_embedding(
+        self, text: str, model: str, vector: list[float], *, is_query: bool = False
+    ) -> None:
         """Store embedding vector into Valkey L2 cache with configured TTL."""
         if self._valkey is None:
             return
         try:
-            key = self._valkey_key(text, model)
+            key = self._valkey_key(text, model, is_query=is_query)
             payload = json.dumps(vector)
             self._valkey.set(key, payload, ex=DEFAULT_VALKEY_EMBEDDING_TTL_SECONDS)
         except Exception as exc:
@@ -285,10 +313,10 @@ class EmbeddingsEngine:
             self._valkey = None
 
     def _partition_with_valkey_l2(
-        self, texts: list[str]
+        self, texts: list[str], *, is_query: bool = False
     ) -> tuple[dict[int, list[float]], list[int], list[str]]:
         """Partition texts through L1 in-memory cache and L2 Valkey chunk cache."""
-        cached, l1_miss_indices, l1_miss_texts = self._partition_cache(texts)
+        cached, l1_miss_indices, l1_miss_texts = self._partition_cache(texts, is_query=is_query)
         if not l1_miss_texts or self._valkey is None:
             return cached, l1_miss_indices, l1_miss_texts
 
@@ -297,10 +325,10 @@ class EmbeddingsEngine:
         valkey_hits = 0
 
         for idx, text in zip(l1_miss_indices, l1_miss_texts, strict=True):
-            v_hit = self._get_valkey_embedding(text, self.model)
+            v_hit = self._get_valkey_embedding(text, self.model, is_query=is_query)
             if v_hit is not None:
                 cached[idx] = v_hit
-                self._cache.put(text, self.model, v_hit)
+                self._cache.put(text, self.model, v_hit, is_query=is_query)
                 valkey_hits += 1
             else:
                 final_miss_indices.append(idx)
@@ -412,13 +440,13 @@ class EmbeddingsEngine:
         return None
 
     def _partition_cache(
-        self, texts: list[str]
+        self, texts: list[str], *, is_query: bool = False
     ) -> tuple[dict[int, list[float]], list[int], list[str]]:
         cached: dict[int, list[float]] = {}
         miss_indices: list[int] = []
         miss_texts: list[str] = []
         for idx, text in enumerate(texts):
-            hit = self._cache.get(text, self.model)
+            hit = self._cache.get(text, self.model, is_query=is_query)
             if hit is not None:
                 cached[idx] = hit
             else:
@@ -426,7 +454,7 @@ class EmbeddingsEngine:
                 miss_texts.append(text)
         return cached, miss_indices, miss_texts
 
-    def _dispatch_embed(self, prefixed_miss: list[str]) -> list[list[float]]:
+    def _dispatch_embed(self, prefixed_miss: list[str]) -> list[list[float]] | EmbeddingList:
         provider = self.ai_config.provider.lower()
         api_base = self.ai_config.api_base_url or ""
         if provider in ("openai", "copilot"):
@@ -453,7 +481,9 @@ class EmbeddingsEngine:
         ):
             from devops_cli.telemetry import record_metric
 
-            cached, miss_indices, miss_texts = self._partition_with_valkey_l2(texts)
+            cached, miss_indices, miss_texts = self._partition_with_valkey_l2(
+                texts, is_query=is_query
+            )
             record_metric("devops_cli_embedding_cache_hits_total", len(cached), unit="1")
             record_metric("devops_cli_embedding_cache_misses_total", len(miss_texts), unit="1")
             record_metric("devops_cli_embedding_cache_size", self._cache.size, unit="1")
@@ -466,18 +496,33 @@ class EmbeddingsEngine:
                         f"Embedding provider returned {len(fresh)} vectors for {len(miss_texts)} texts",
                         details={"expected": len(miss_texts), "received": len(fresh)},
                     )
-                for miss_idx, original_text, vector in zip(
-                    miss_indices, miss_texts, fresh, strict=True
-                ):
-                    self._cache.put(original_text, self.model, vector)
-                    self._set_valkey_embedding(original_text, self.model, vector)
-                    cached[miss_idx] = vector
+                self._populate_fresh_embeddings(
+                    cached, miss_indices, miss_texts, fresh, is_query=is_query
+                )
 
             return [cached[i] for i in range(len(texts))]
 
+    def _populate_fresh_embeddings(
+        self,
+        cached: dict[int, list[float]],
+        miss_indices: list[int],
+        miss_texts: list[str],
+        fresh: Sequence[list[float]],
+        *,
+        is_query: bool = False,
+    ) -> None:
+        """Store fresh embeddings into in-memory L1 and Valkey L2 (skipping fallbacks)."""
+        batch_fallback = getattr(fresh, "is_fallback", False)
+        for miss_idx, original_text, vector in zip(miss_indices, miss_texts, fresh, strict=True):
+            self._cache.put(original_text, self.model, vector, is_query=is_query)
+            is_vector_fallback = getattr(vector, "is_fallback", False) or batch_fallback
+            if not is_vector_fallback:
+                self._set_valkey_embedding(original_text, self.model, vector, is_query=is_query)
+            cached[miss_idx] = vector
+
     def embed_query(self, text: str) -> list[float]:
         """Generate vector embedding for a single search query with LRU cache acceleration."""
-        hit = self._cache.get(text, self.model)
+        hit = self._cache.get(text, self.model, is_query=True)
         if hit is not None:
             return hit
         results = self.embed_texts([text], is_query=True)
@@ -564,7 +609,7 @@ class EmbeddingsEngine:
 
     def _embed_batch_with_subdivision(
         self, urls: list[str], batch_texts: list[str]
-    ) -> list[list[float]]:
+    ) -> list[list[float]] | EmbeddingList:
         """Embed batch with recursive halving down to single-chunk fallback."""
         if not batch_texts:
             return []
@@ -577,12 +622,15 @@ class EmbeddingsEngine:
             mid = len(batch_texts) // 2
             left = self._embed_batch_with_subdivision(urls, batch_texts[:mid])
             right = self._embed_batch_with_subdivision(urls, batch_texts[mid:])
-            return left + right
+            is_fallback = getattr(left, "is_fallback", False) or getattr(
+                right, "is_fallback", False
+            )
+            return EmbeddingList(left + right, is_fallback=is_fallback)
 
         # Single chunk failed across all candidate nodes: deterministic fallback
         return self._deterministic_fallback(batch_texts)
 
-    def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
+    def _embed_ollama(self, texts: list[str]) -> list[list[float]] | EmbeddingList:
         """Compute Ollama embeddings with dynamic batch sizing and multi-node distribution."""
         urls = self._get_ollama_urls()
         chunk_batch_size = max(
@@ -621,9 +669,15 @@ class EmbeddingsEngine:
                 results.append(_embed_single_batch(b))
 
         results.sort(key=lambda x: x[0])
-        return [emb for _, batch_res in results for emb in batch_res]
+        all_embs: list[list[float]] = []
+        any_fallback = False
+        for _, batch_res in results:
+            if getattr(batch_res, "is_fallback", False):
+                any_fallback = True
+            all_embs.extend(batch_res)
+        return EmbeddingList(all_embs, is_fallback=any_fallback)
 
-    def _embed_openai(self, texts: list[str]) -> list[list[float]]:
+    def _embed_openai(self, texts: list[str]) -> list[list[float]] | EmbeddingList:
         """Query OpenAI-compatible /v1/embeddings API."""
         base_url = (self.ai_config.api_base_url or "https://api.openai.com/v1").rstrip("/")
         validate_service_url(base_url, "OpenAI", allow=self.ai_config.allow_private_network)
@@ -662,7 +716,7 @@ class EmbeddingsEngine:
 
     def _deterministic_fallback(
         self, texts: list[str], dimensions: int | None = None
-    ) -> list[list[float]]:
+    ) -> EmbeddingList:
         """Generate deterministic normalized hash-based embeddings when no model is reachable."""
         dim = dimensions or self.dimension
         embeddings: list[list[float]] = []
@@ -678,8 +732,8 @@ class EmbeddingsEngine:
             norm = sum(v * v for v in vec) ** 0.5
             if norm > 0:
                 vec = [round(v / norm, 6) for v in vec]
-            embeddings.append(vec)
-        return embeddings
+            embeddings.append(EmbeddingVector(vec, is_fallback=True))
+        return EmbeddingList(embeddings, is_fallback=True)
 
     def to_embedder(self) -> Embedder:
         """Create a standard Pydantic AI Embedder backed by this engine."""
