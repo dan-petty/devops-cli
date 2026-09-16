@@ -9,7 +9,11 @@ import typer
 
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
+    DEFAULT_FALCO_LABEL_SELECTOR,
+    DEFAULT_FALCO_NAMESPACE,
     DEFAULT_K8S_NAMESPACE,
+    DEFAULT_SECURITY_STREAM_DURATION_SECONDS,
+    DEFAULT_SECURITY_STREAM_TAIL_LINES,
 )
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP
@@ -244,3 +248,89 @@ def chaos_cmd(
 
     if not result.recovered_successfully:
         raise typer.Exit(1)
+
+
+def _handle_security_stream_export(result: Any, output: Path | None, json_output: bool) -> None:
+    """Handle export and JSON output of security stream result."""
+    dumped = result.model_dump()
+    if output:
+        output.write_text(format_json(dumped), encoding="utf-8")
+    if json_output:
+        write_stdout(format_json(dumped) + "\n")
+
+
+def security_stream_cmd(
+    namespace: Annotated[
+        str,
+        typer.Option("--namespace", "-n", help=HELP.options.namespace),
+    ] = DEFAULT_FALCO_NAMESPACE,
+    label: Annotated[
+        str,
+        typer.Option("--label", "-l", help=HELP.k8s.label_selector),
+    ] = DEFAULT_FALCO_LABEL_SELECTOR,
+    severity: Annotated[
+        str | None,
+        typer.Option("--severity", "-s", help=HELP.k8s.security_severity),
+    ] = None,
+    duration: Annotated[
+        int,
+        typer.Option("--duration", "-d", help=HELP.k8s.security_duration),
+    ] = DEFAULT_SECURITY_STREAM_DURATION_SECONDS,
+    tail: Annotated[
+        int,
+        typer.Option("--tail", "-t", help=HELP.k8s.tail_lines),
+    ] = DEFAULT_SECURITY_STREAM_TAIL_LINES,
+    follow: Annotated[
+        bool,
+        typer.Option("--follow/--no-follow", "-f", help=HELP.k8s.follow_logs),
+    ] = False,
+    simulate: Annotated[
+        bool,
+        typer.Option("--simulate", help=HELP.k8s.security_simulate),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Export discovered alerts to JSON file"),
+    ] = None,
+) -> None:
+    """Stream runtime security anomaly events from Kubernetes Falco eBPF probes."""
+    from devops_cli.k8s.security_stream import render_security_alerts, stream_security_events
+    from devops_cli.models.k8s import SecurityStreamRequest
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops k8s security-stream",
+            action="stream_security_events",
+            details={
+                "namespace": namespace,
+                "label": label,
+                "severity": severity,
+                "duration": duration,
+                "simulate": simulate,
+            },
+        )
+        return
+
+    req = SecurityStreamRequest(
+        namespace=namespace,
+        label_selector=label,
+        severity=severity,
+        duration_seconds=duration,
+        tail_lines=tail,
+        follow=follow,
+        simulate=simulate,
+    )
+    result = stream_security_events(req, dry_run=False)
+
+    _handle_security_stream_export(result, output, json_output)
+
+    if not json_output and not output:
+        render_security_alerts(result)

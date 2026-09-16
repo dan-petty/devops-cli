@@ -1753,6 +1753,35 @@ def k8s_diff_helm(
 
 
 @mcp.tool()
+def k8s_security_stream(
+    namespace: str = "falco",
+    severity: str | None = None,
+    tail_lines: int = 100,
+    simulate: bool = False,
+) -> str:
+    """Stream runtime security anomaly events and syscall alerts from Kubernetes Falco eBPF probes."""
+    _validate_mcp_arg("namespace", namespace)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "k8s",
+        "security-stream",
+        "--namespace",
+        namespace,
+        "--tail",
+        str(tail_lines),
+        "--json",
+    ]
+    if severity:
+        _validate_mcp_arg("severity", severity)
+        cmd.extend(["--severity", severity])
+    if simulate:
+        cmd.append("--simulate")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def vault_set(path: str, key_values: list[str]) -> str:
     """Store secret key-value pairs in HashiCorp Vault KV-v2 engine."""
     _validate_mcp_arg("path", path)

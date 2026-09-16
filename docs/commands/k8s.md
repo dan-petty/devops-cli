@@ -527,3 +527,28 @@ devops k8s pods [OPTIONS]
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
+
+## `devops k8s security-stream`
+
+**Stream runtime security anomaly events from Kubernetes Falco eBPF probes.**
+
+```bash
+devops k8s security-stream [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `falco` | Kubernetes namespace. |
+| `--label`, `-l` | `string` | `app.kubernetes.io/name=falco` | Kubernetes label selector filter (e.g. app=frontend). |
+| `--severity`, `-s` | `string` | - | Minimum severity filter threshold (Notice, Warning, Error, Critical). |
+| `--duration`, `-d` | `integer` | `30` | Observation streaming window duration in seconds. |
+| `--tail`, `-t` | `integer` | `100` | Number of historical log lines to stream. |
+| `--follow`, `-f`, `--no-follow` | `boolean` | - | Continuously stream live log output. |
+| `--simulate` | `boolean` | - | Generate simulated kernel eBPF security anomalies for testing. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--output`, `-o` | `path` | - | Export discovered alerts to JSON file |
+
+---

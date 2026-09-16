@@ -267,6 +267,10 @@ class K8sCommandHelp:
     chaos_experiment: str = "Resilience experiment name (e.g., pod-kill, latency-inject)."
     chaos_deployment: str = "Target deployment to disrupt."
     chaos_duration: str = "Reconciliation monitoring window in seconds."
+    security_stream: str = "Stream runtime security anomaly events from Falco eBPF probes."
+    security_severity: str = "Minimum severity filter threshold (Notice, Warning, Error, Critical)."
+    security_duration: str = "Observation streaming window duration in seconds."
+    security_simulate: str = "Generate simulated kernel eBPF security anomalies for testing."
 
 
 @dataclass(frozen=True)

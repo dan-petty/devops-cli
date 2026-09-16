@@ -177,3 +177,46 @@ class K8sJaegerInfoResult(BaseModel):
     )
     status: str = Field(default="Running", description="Collector deployment status")
     available: bool = Field(default=False, description="Whether Jaeger endpoints are accessible")
+
+
+class FalcoAlert(BaseModel):
+    """Structured Falco eBPF runtime security syscall alert event."""
+
+    time: str = Field(default="", description="Alert timestamp ISO 8601")
+    rule: str = Field(default="", description="Falco security rule name triggered")
+    priority: str = Field(
+        default="Warning", description="Severity priority (Critical, Error, Warning, Notice, Info)"
+    )
+    source: str = Field(default="syscall", description="Event source probe (syscall, k8s_audit)")
+    output: str = Field(default="", description="Formatted alert description string")
+    output_fields: dict[str, Any] = Field(
+        default_factory=dict, description="Extracted event metadata fields"
+    )
+    tags: list[str] = Field(default_factory=list, description="Rule taxonomy and MITRE ATT&CK tags")
+
+
+class SecurityStreamRequest(BaseModel):
+    """Request parameters for streaming Kubernetes Falco runtime security events."""
+
+    namespace: str = Field(default="falco", description="Namespace containing Falco DaemonSet")
+    label_selector: str = Field(
+        default="app.kubernetes.io/name=falco", description="Kubernetes pod label selector"
+    )
+    severity: str | None = Field(default=None, description="Minimum severity filter")
+    duration_seconds: int = Field(default=30, description="Streaming observation window in seconds")
+    follow: bool = False
+    tail_lines: int = Field(default=100, description="Log lines to read per pod")
+    simulate: bool = Field(default=False, description="Generate simulated security anomalies")
+
+
+class SecurityStreamResult(BaseModel):
+    """Result payload from Kubernetes runtime security event stream."""
+
+    alerts: list[FalcoAlert] = Field(
+        default_factory=list, description="Discovered security alert events"
+    )
+    total_alerts: int = Field(default=0, description="Total number of alert events matched")
+    critical_count: int = Field(default=0, description="Count of Critical/Emergency alerts")
+    warning_count: int = Field(default=0, description="Count of Warning/Error alerts")
+    notice_count: int = Field(default=0, description="Count of Notice/Informational alerts")
+    duration_seconds: float = Field(default=0.0, description="Elapsed streaming duration")
