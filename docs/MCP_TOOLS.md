@@ -35,7 +35,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`config_output`](#config-output) | Output environment variables available for configuration (text or json). |
 | [`config_show`](#config-show) | Display configuration settings with masked secret tokens. |
 | [`docker_sandbox`](#docker-sandbox) | Execute command inside an isolated Docker container sandbox. |
+| [`docker_sign`](#docker-sign) | Sign a container image using Sigstore Cosign (keyless or keyed). |
 | [`docker_stats`](#docker-stats) | List local Docker images and display container information. |
+| [`docker_verify`](#docker-verify) | Verify container image signature or attestation using Sigstore Cosign. |
 | [`docs_compact`](#docs-compact) | Compact historical release series documentation (v0.2.x -> v0.3.x). |
 | [`gh_issue_create`](#gh-issue-create) | Create a new GitHub issue linking milestone and taxonomy labels. |
 | [`gh_issue_edit`](#gh-issue-edit) | Edit an existing GitHub issue title, body, or state. |
@@ -456,11 +458,44 @@ Execute command inside an isolated Docker container sandbox.
 | `local_whitelist` | `array` | No | - | - |
 | `read_only` | `boolean` | No | `False` | - |
 
+### `docker_sign`
+
+Sign a container image using Sigstore Cosign (keyless or keyed).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | `string` | Yes | - | - |
+| `key` | `string` | No | - | - |
+| `keyless` | `boolean` | No | `True` | - |
+| `oidc_token` | `string` | No | - | - |
+| `annotations` | `array` | No | - | - |
+| `upload` | `boolean` | No | `True` | - |
+| `dry_run` | `boolean` | No | `False` | - |
+
 ### `docker_stats`
 
 List local Docker images and display container information.
 
 *No parameters required.*
+
+### `docker_verify`
+
+Verify container image signature or attestation using Sigstore Cosign.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | `string` | Yes | - | - |
+| `key` | `string` | No | - | - |
+| `certificate_identity` | `string` | No | - | - |
+| `certificate_oidc_issuer` | `string` | No | - | - |
+| `attestation` | `boolean` | No | `False` | - |
+| `predicate_type` | `string` | No | - | - |
+| `insecure_ignore_tlog` | `boolean` | No | `False` | - |
+| `dry_run` | `boolean` | No | `False` | - |
 
 ### `docs_compact`
 

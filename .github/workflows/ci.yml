@@ -103,8 +103,26 @@ jobs:
         run: |
           echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/devcontainer" >> "$GITHUB_OUTPUT"
 
-      - name: Build & Publish PR DevContainer Image
+      - name: Check PR Open Status Prior to Publishing Image
         if: github.event_name == 'pull_request'
+        id: pr_status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state --jq .state)
+          if [ -z "$PR_STATE" ]; then
+            echo "Error: Unable to verify state for PR #${PR_NUMBER}; failing closed to protect registry." >&2
+            exit 1
+          fi
+          echo "state=${PR_STATE}" >> "$GITHUB_OUTPUT"
+          if [ "$PR_STATE" != "OPEN" ]; then
+            echo "PR #${PR_NUMBER} is currently ${PR_STATE}; skipping devcontainer image build and publish."
+          fi
+
+      - name: Build & Publish PR DevContainer Image
+        if: github.event_name == 'pull_request' && steps.pr_status.outputs.state == 'OPEN'
         uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3
         with:
           imageName: ${{ steps.image_repo.outputs.name }}

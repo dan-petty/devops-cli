@@ -104,3 +104,81 @@ class DockerLayerAnalysisResult(BaseModel):
     raw_metrics: dict[str, Any] = Field(
         default_factory=dict, description="Raw analyzer metrics payload"
     )
+
+
+class DockerSignRequest(BaseModel):
+    """Request parameters for Sigstore Cosign container image signing."""
+
+    image: str = Field(..., description="Target container image reference (name:tag or digest)")
+    key: str | None = Field(default=None, description="Path to private key or keyring:<name>")
+    keyless: bool = Field(default=True, description="Sign keylessly using OIDC/Fulcio")
+    oidc_token: str | None = Field(
+        default=None, description="OIDC identity token or keyring:<name> for keyless signing"
+    )
+    annotations: list[str] = Field(
+        default_factory=list, description="Custom supply chain key=value annotations"
+    )
+    upload: bool = Field(default=True, description="Upload signature to remote registry")
+    dry_run: bool = Field(default=False, description="Simulate signing without modifying registry")
+
+
+class DockerSignResult(BaseModel):
+    """Result of Sigstore Cosign container image signing."""
+
+    image: str = Field(..., description="Signed container image reference")
+    digest: str | None = Field(default=None, description="Resolved image digest if available")
+    signature_ref: str | None = Field(
+        default=None, description="Pushed signature OCI tag or digest"
+    )
+    keyless: bool = Field(default=True, description="Whether keyless signing was utilized")
+    annotations: list[str] = Field(
+        default_factory=list, description="Applied supply-chain annotations"
+    )
+    success: bool = Field(default=True, description="Whether signing completed successfully")
+    duration_seconds: float = Field(
+        default=0.0, description="Duration of signing operation in seconds"
+    )
+    details: str | None = Field(default=None, description="Diagnostic output from cosign CLI")
+
+
+class DockerVerifyRequest(BaseModel):
+    """Request parameters for Sigstore Cosign container image signature verification."""
+
+    image: str = Field(..., description="Target container image reference to verify")
+    key: str | None = Field(default=None, description="Path to public key or keyring:<name>")
+    cert_identity: str | None = Field(
+        default=None, description="Expected signer certificate identity (SAN/email/URI)"
+    )
+    cert_issuer: str | None = Field(
+        default=None, description="Expected OIDC certificate issuer URL"
+    )
+    attestation: bool = Field(
+        default=False, description="Verify in-toto attestation predicate instead of signature"
+    )
+    predicate_type: str | None = Field(
+        default=None, description="Attestation predicate type (e.g. slsaprovenance, spdx, custom)"
+    )
+    insecure_ignore_tlog: bool = Field(
+        default=False,
+        description="Ignore Rekor transparency log verification (for offline/airgapped)",
+    )
+    dry_run: bool = Field(default=False, description="Simulate verification without network calls")
+
+
+class DockerVerifyResult(BaseModel):
+    """Result of Sigstore Cosign container image signature verification."""
+
+    image: str = Field(..., description="Verified container image reference")
+    verified: bool = Field(
+        default=True, description="Whether signature or attestation verified successfully"
+    )
+    signatures: list[dict[str, Any]] = Field(
+        default_factory=list, description="Extracted signatures and verified payload records"
+    )
+    claims: list[dict[str, Any]] = Field(
+        default_factory=list, description="Parsed claims and certificate identities"
+    )
+    duration_seconds: float = Field(
+        default=0.0, description="Duration of verification operation in seconds"
+    )
+    details: str | None = Field(default=None, description="Diagnostic output from cosign CLI")

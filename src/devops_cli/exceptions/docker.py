@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from devops_cli.config.constants import (
+    CONST_ERROR_CODE_COSIGN,
+    CONST_ERROR_CODE_COSIGN_VERIFY,
     CONST_ERROR_CODE_DOCKER_SANDBOX,
     CONST_EXIT_FAILURE,
 )
@@ -53,7 +55,51 @@ class DockerSandboxError(DockerError, ValueError):
         )
 
 
+class CosignError(DockerError):
+    """Raised when Sigstore Cosign image signing fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        image: str | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_COSIGN,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            image=image,
+            exit_code=exit_code,
+            error_code=error_code,
+            details=details,
+        )
+
+
+class CosignVerificationError(DockerError):
+    """Raised when Sigstore Cosign signature or attestation verification fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        image: str | None = None,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = CONST_ERROR_CODE_COSIGN_VERIFY,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            image=image,
+            exit_code=exit_code,
+            error_code=error_code,
+            details=details,
+        )
+
+
 __all__ = [
+    "CosignError",
+    "CosignVerificationError",
     "DockerError",
     "DockerSandboxError",
 ]

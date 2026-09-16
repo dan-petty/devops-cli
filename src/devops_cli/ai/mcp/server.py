@@ -38,12 +38,13 @@ mcp = FastMCP(
 def _run_mcp_cmd(
     cmd: list[str],
     timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    env: dict[str, str] | None = None,
 ) -> str:
     """Run a subprocess command for an MCP tool and return combined output or error status."""
     from devops_cli.security.sanitizer import mask_secrets
 
     try:
-        res = run_subprocess(cmd, capture_output=True, text=True, timeout=timeout)
+        res = run_subprocess(cmd, capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         safe_cmd = mask_secrets(" ".join(cmd))
         return f"Command timed out after {timeout} seconds: {safe_cmd}"
@@ -461,6 +462,83 @@ def docker_stats() -> str:
         ["uv", "run", "devops", "docker", "images"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
+
+
+@mcp.tool()
+def docker_sign(
+    image: str,
+    key: str | None = None,
+    keyless: bool = True,
+    oidc_token: str | None = None,
+    annotations: list[str] | None = None,
+    upload: bool = True,
+    dry_run: bool = False,
+) -> str:
+    """Sign a container image using Sigstore Cosign (keyless or keyed)."""
+    _validate_mcp_arg("image", image)
+    if key:
+        _validate_mcp_arg("key", key)
+    if oidc_token:
+        _validate_mcp_arg("oidc_token", oidc_token)
+    cmd = ["uv", "run", "devops", "docker", "sign", image]
+    if key:
+        cmd.extend(["--key", key])
+    if not keyless:
+        cmd.append("--keyed")
+    extra_env: dict[str, str] | None = None
+    if oidc_token:
+        if oidc_token.startswith("keyring:"):
+            cmd.extend(["--oidc-token", oidc_token])
+        else:
+            extra_env = {"COSIGN_IDENTITY_TOKEN": oidc_token}
+    if annotations:
+        for ann in annotations:
+            _validate_mcp_arg("annotation", ann)
+            cmd.extend(["--annotation", ann])
+    if not upload:
+        cmd.append("--no-upload")
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS, env=extra_env)
+
+
+@mcp.tool()
+def docker_verify(
+    image: str,
+    key: str | None = None,
+    certificate_identity: str | None = None,
+    certificate_oidc_issuer: str | None = None,
+    attestation: bool = False,
+    predicate_type: str | None = None,
+    insecure_ignore_tlog: bool = False,
+    dry_run: bool = False,
+) -> str:
+    """Verify container image signature or attestation using Sigstore Cosign."""
+    _validate_mcp_arg("image", image)
+    if key:
+        _validate_mcp_arg("key", key)
+    if certificate_identity:
+        _validate_mcp_arg("certificate_identity", certificate_identity)
+    if certificate_oidc_issuer:
+        _validate_mcp_arg("certificate_oidc_issuer", certificate_oidc_issuer)
+    if predicate_type:
+        _validate_mcp_arg("predicate_type", predicate_type)
+    cmd = ["uv", "run", "devops", "docker", "verify", image]
+    if key:
+        cmd.extend(["--key", key])
+    if certificate_identity:
+        cmd.extend(["--certificate-identity", certificate_identity])
+    if certificate_oidc_issuer:
+        cmd.extend(["--certificate-oidc-issuer", certificate_oidc_issuer])
+    if attestation:
+        cmd.append("--attestation")
+    if predicate_type:
+        cmd.extend(["--type", predicate_type])
+    if insecure_ignore_tlog:
+        cmd.append("--insecure-ignore-tlog")
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
