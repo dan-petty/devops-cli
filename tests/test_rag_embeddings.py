@@ -369,3 +369,219 @@ def test_ollama_batch_fast_failover(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(results[0]) == 384
     assert results[0] == [0.2] * 384
     assert calls == ["http://example.com:11434", "http://example.com:11435"]
+
+
+# =============================================================================
+# Tests: Adaptive Batch Sizing, Circuit Breaker, Backoff & Valkey L2 (Issue #117)
+# =============================================================================
+
+
+def test_calculate_backoff_delay_bounded() -> None:
+    """Verify exponential backoff delay scales exponentially and respects max cap."""
+    from devops_cli.ai.rag.embeddings import _calculate_backoff_delay
+
+    d0 = _calculate_backoff_delay(0, base=0.5, max_delay=2.0)
+    assert 0.5 <= d0 <= 0.6  # 0.5 + up to 10% jitter
+
+    d1 = _calculate_backoff_delay(1, base=0.5, max_delay=2.0)
+    assert 1.0 <= d1 <= 1.15  # 1.0 + up to 10% jitter
+
+    d2 = _calculate_backoff_delay(2, base=0.5, max_delay=2.0)
+    assert 2.0 <= d2 <= 2.25  # capped at 2.0 + jitter
+
+
+def test_adaptive_batch_sizing_halves_on_timeout() -> None:
+    """Verify batch size dynamically halves from 32 down to 16, 8, 4 on timeouts."""
+    ai_cfg = AIConfig(provider="ollama", ollama_urls=["http://example.com:11434"])
+    engine = EmbeddingsEngine(ai_cfg, batch_size=32)
+    assert engine._current_batch_size == 32
+
+    assert engine._halve_batch_size() == 16
+    assert engine._current_batch_size == 16
+
+    assert engine._halve_batch_size() == 8
+    assert engine._halve_batch_size() == 4
+    assert engine._halve_batch_size() == 2
+    assert engine._halve_batch_size() == 1
+    # Cannot drop below minimum of 1
+    assert engine._halve_batch_size() == 1
+
+
+def test_adaptive_batch_sizing_halves_on_latency_degradation() -> None:
+    """Verify batch size halves when observed latency exceeds latency ceiling."""
+    ai_cfg = AIConfig(provider="ollama", ollama_urls=["http://example.com:11434"])
+    engine = EmbeddingsEngine(ai_cfg, batch_size=32)
+
+    # Within threshold (<= 2.0s): batch size stays unchanged
+    engine._record_batch_latency(1.2)
+    assert engine._current_batch_size == 32
+
+    # Exceeding threshold (> 2.0s): triggers halving
+    engine._record_batch_latency(2.8)
+    assert engine._current_batch_size == 16
+
+
+def test_sub_batch_splitting_and_single_chunk_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify failing large batches automatically subdivide into smaller slices."""
+    ai_cfg = AIConfig(
+        provider="ollama",
+        ollama_urls=["http://example.com:11434"],
+        allow_private_network=True,
+    )
+    engine = EmbeddingsEngine(ai_cfg, batch_size=4)
+
+    # Monkeypatch node batch query: fails for batches of size >= 4, succeeds for batches < 4
+    def fake_query_batch(base_url: str, batch_texts: list[str]) -> list[list[float]] | None:
+        if len(batch_texts) >= 4:
+            raise httpx2.ReadTimeout("Timeout on large batch of 4")
+        return [[0.5] * 256 for _ in batch_texts]
+
+    monkeypatch.setattr(engine, "_query_ollama_node_batch", fake_query_batch)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+
+    texts = ["chunk_1", "chunk_2", "chunk_3", "chunk_4"]
+    embs = engine._embed_ollama(texts)
+
+    assert len(embs) == 4
+    for vec in embs:
+        assert len(vec) == 256
+        assert vec == [0.5] * 256
+
+
+class _MockValkey:
+    """In-memory mock for ValkeyClient."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+        self.set_calls: list[tuple[str, str, int | None]] = []
+
+    def get(self, key: str) -> str | None:
+        return self.store.get(key)
+
+    def set(self, key: str, value: str, ex: int | None = None) -> None:
+        self.store[key] = value
+        self.set_calls.append((key, value, ex))
+
+
+def test_valkey_l2_chunk_cache_hit_avoids_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify pre-flight Valkey L2 check returns cached vector and avoids remote dispatch."""
+    mock_valkey = _MockValkey()
+    ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=mock_valkey)
+
+    cached_vec = [0.42] * 128
+    import json
+
+    # Pre-populate Valkey L2 cache
+    key = engine._valkey_key("pre-cached chunk", engine.model)
+    mock_valkey.store[key] = json.dumps(cached_vec)
+
+    dispatch_called = False
+
+    def fake_dispatch(texts: list[str]) -> list[list[float]]:
+        nonlocal dispatch_called
+        dispatch_called = True
+        return [[0.99] * 128 for _ in texts]
+
+    monkeypatch.setattr(engine, "_dispatch_embed", fake_dispatch)
+
+    results = engine.embed_texts(["pre-cached chunk"])
+    assert len(results) == 1
+    assert results[0] == cached_vec
+    assert not dispatch_called
+
+
+def test_valkey_l2_chunk_cache_stores_fresh_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify fresh embeddings computed by provider are written to Valkey L2 with TTL."""
+    mock_valkey = _MockValkey()
+    ai_cfg = AIConfig(provider="custom", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=mock_valkey)
+
+    fresh_vec = [0.77] * 64
+    monkeypatch.setattr(engine, "_dispatch_embed", lambda texts: [fresh_vec for _ in texts])
+
+    results = engine.embed_texts(["newly generated chunk"])
+    assert len(results) == 1
+    assert results[0] == fresh_vec
+
+    # Verify write into Valkey
+    key = engine._valkey_key("newly generated chunk", engine.model)
+    assert key in mock_valkey.store
+    import json
+
+    assert json.loads(mock_valkey.store[key]) == fresh_vec
+    assert any(c[0] == key and c[2] == 604800 for c in mock_valkey.set_calls)
+
+
+def test_valkey_offline_graceful_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify engine functions normally when Valkey raises connection errors."""
+
+    class _FailingValkey:
+        def get(self, key: str) -> None:
+            raise RuntimeError("Valkey socket connection refused")
+
+        def set(self, key: str, value: str, ex: int | None = None) -> None:
+            raise RuntimeError("Valkey socket connection refused")
+
+    ai_cfg = AIConfig(provider="custom", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=_FailingValkey())
+
+    embs = engine.embed_texts(["test text without valkey"])
+    assert len(embs) == 1
+    assert len(embs[0]) == 768
+
+
+def test_valkey_l2_cache_query_vs_document_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify query vectors and document vectors have distinct Valkey L2 cache keys."""
+    mock_valkey = _MockValkey()
+    ai_cfg = AIConfig(provider="custom", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=mock_valkey)
+
+    doc_key = engine._valkey_key("sample text", engine.model, is_query=False)
+    query_key = engine._valkey_key("sample text", engine.model, is_query=True)
+
+    assert doc_key != query_key
+    assert ":d:" not in doc_key  # hex hash formatted
+    # Embed document
+    doc_vec = [0.1] * 64
+    monkeypatch.setattr(engine, "_dispatch_embed", lambda texts: [doc_vec for _ in texts])
+    engine.embed_texts(["sample text"], is_query=False)
+    assert doc_key in mock_valkey.store
+    assert query_key not in mock_valkey.store
+
+    # Embed query
+    query_vec = [0.2] * 64
+    monkeypatch.setattr(engine, "_dispatch_embed", lambda texts: [query_vec for _ in texts])
+    engine.embed_texts(["sample text"], is_query=True)
+    assert query_key in mock_valkey.store
+
+
+def test_valkey_l2_does_not_cache_deterministic_fallback() -> None:
+    """Verify deterministic fallback vectors are NOT cached to Valkey L2 to prevent cache poisoning."""
+    mock_valkey = _MockValkey()
+    ai_cfg = AIConfig(provider="offline_provider", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=mock_valkey)
+
+    # Calling embed_texts with no provider endpoints triggers deterministic fallback
+    results = engine.embed_texts(["fallback chunk test"])
+    assert len(results) == 1
+    # Valkey store should be completely empty
+    assert len(mock_valkey.store) == 0
+    assert len(mock_valkey.set_calls) == 0
+
+
+def test_init_valkey_fast_probe_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _init_valkey returns None without blocking when Valkey ping fails."""
+    from devops_cli.ai.rag.embeddings import _DEFAULT_VALKEY
+
+    class _OfflineValkeyClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.timeout = kwargs.get("timeout", 0.1)
+
+        def ping(self) -> bool:
+            return False
+
+    monkeypatch.setattr("devops_cli.valkey.client.ValkeyClient", _OfflineValkeyClient)
+    ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
+    assert engine._valkey is None

@@ -583,3 +583,6 @@ CONST_MAX_SECURITY_STREAM_TAIL_LINES: Final[int] = 10000
 
 # Threat intelligence distributed caching
 CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"
+
+# RAG embedding distributed caching
+CONST_VALKEY_EMBEDDING_PREFIX: Final[str] = "valkey:rag:embedding"
