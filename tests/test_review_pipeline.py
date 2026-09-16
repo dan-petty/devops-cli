@@ -1099,25 +1099,25 @@ def test_orchestrator_worker_clamping_to_total_files(tmp_path: Path) -> None:
     fmeta = FileAnalysisMeta(path="src/one.py", key_symbols=["alpha"])
     payloads = orchestrator.init_per_file_payloads(["src/one.py"], {"src/one.py": fmeta})
 
-    with patch("devops_cli.ai.review.pool.ReviewWorkerPool") as mock_pool_cls:
+    with patch("devops_cli.ai.review.pool.ReviewWorkerPool.create") as mock_create:
         mock_pool = MagicMock()
-        mock_pool_cls.return_value = mock_pool
+        mock_create.return_value = mock_pool
         orchestrator.execute_multi_persona_review(
             payloads, diff_text_by_file={"src/one.py": "code"}, personas=["devsecops"]
         )
-        assert not mock_pool_cls.called
+        assert not mock_create.called
 
     fmeta2 = FileAnalysisMeta(path="src/two.py", key_symbols=["beta"])
     payloads2 = orchestrator.init_per_file_payloads(
         ["src/one.py", "src/two.py"], {"src/one.py": fmeta, "src/two.py": fmeta2}
     )
-    with patch("devops_cli.ai.review.pool.ReviewWorkerPool") as mock_pool_cls:
+    with patch("devops_cli.ai.review.pool.ReviewWorkerPool.create") as mock_create:
         mock_pool = MagicMock()
-        mock_pool_cls.return_value = mock_pool
+        mock_create.return_value = mock_pool
         orchestrator.execute_multi_persona_review(
             payloads2,
             diff_text_by_file={"src/one.py": "c1", "src/two.py": "c2"},
             personas=["devsecops"],
         )
-        assert mock_pool_cls.called
-        assert mock_pool_cls.call_args.kwargs.get("max_concurrency") == 2
+        assert mock_create.called
+        assert mock_create.call_args.kwargs.get("concurrency") == 2

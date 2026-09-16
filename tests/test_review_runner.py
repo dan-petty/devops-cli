@@ -15,8 +15,11 @@ from devops_cli.ai.review.runner import (
     _build_path_prompt,
     _build_recompose_prompt,
     _build_segment_review_prompt,
+    _calculate_parallel_review_workers,
     _collect_file_blocks,
     _collect_files,
+    _execute_findings_validation,
+    _execute_review_segments,
     _get_reviews_base_dir,
     _git_repo_root,
     _is_allowed_review_boundary,
@@ -712,3 +715,135 @@ def test_prepare_branch_content_on_main_and_base_switching() -> None:
         assert "main" in title
         assert "HEAD" in title
         assert target == "main"
+
+
+def test_calculate_parallel_review_workers() -> None:
+    """Verify worker capacity calculation honoring concurrency, configs, and upper bounds."""
+    from devops_cli.config.defaults import (
+        DEFAULT_REVIEW_CONCURRENCY,
+        DEFAULT_REVIEW_MAX_CONCURRENCY,
+    )
+
+    clients = MagicMock()
+    clients.analysis._config.ollama_max_parallel = 2
+    clients.analysis._config.ollama_urls = ["http://example.com:11434"]
+
+    # 1. Explicit concurrency override
+    workers_explicit = _calculate_parallel_review_workers(clients, num_tasks=10, concurrency=6)
+    workers_clamped = _calculate_parallel_review_workers(clients, num_tasks=2, concurrency=6)
+    workers_min = _calculate_parallel_review_workers(clients, num_tasks=5, concurrency=-1)
+    assert (workers_explicit, workers_clamped, workers_min) == (6, 2, 1)
+
+    # 2. Default calculation based on ollama_urls
+    workers_default = _calculate_parallel_review_workers(clients, num_tasks=10)
+    assert workers_default == DEFAULT_REVIEW_CONCURRENCY
+
+    # 3. High capacity capped by DEFAULT_REVIEW_MAX_CONCURRENCY
+    clients.analysis._config.ollama_urls = [f"http://example.com:{11434 + i}" for i in range(10)]
+    workers_max = _calculate_parallel_review_workers(clients, num_tasks=20)
+    assert workers_max == DEFAULT_REVIEW_MAX_CONCURRENCY
+
+
+def test_execute_review_segments_parallel_and_error_handling() -> None:
+    """Verify _execute_review_segments runs in parallel and isolates segment failures."""
+    clients = MagicMock()
+    clients.analysis._config.ollama_max_parallel = 2
+    clients.analysis._config.ollama_urls = ["http://example.com:11434"]
+    persona = PERSONAS[Persona.DEVSECOPS]
+
+    pages = ["diff 1", "diff 2", "diff 3"]
+
+    def _mock_attempt(clients, sys_prompt, user_prompt, label, suffix):
+        if "segment 2/3" in label:
+            raise RuntimeError("LLM failure on segment 2")
+        return f"Review for {label}"
+
+    with (
+        patch("devops_cli.ai.review.runner.is_dry_run", return_value=False),
+        patch(
+            "devops_cli.ai.review.runner._execute_review_segment_attempt",
+            side_effect=_mock_attempt,
+        ),
+    ):
+        results = _execute_review_segments(
+            pages=pages,
+            title="Parallel Segments Test",
+            metadata={},
+            build_prompt=_build_path_prompt,
+            persona=persona,
+            clients=clients,
+            analysis_suffix="",
+            analysis_system="System Prompt",
+        )
+        assert (
+            len(results),
+            "Review for segment 1/3" in results[0],
+            results[1],
+            "Review for segment 3/3" in results[2],
+        ) == (3, True, "", True)
+
+
+def test_execute_findings_validation_parallel_and_error_handling() -> None:
+    """Verify _execute_findings_validation runs in parallel and isolates validation errors."""
+    clients = MagicMock()
+    clients.analysis._config.ollama_max_parallel = 2
+    clients.analysis._config.ollama_urls = ["http://example.com:11434"]
+
+    pages = ["diff --git a/one.py b/one.py", "diff --git a/two.py b/two.py"]
+    res1 = ReviewResult(persona=Persona.DEVSECOPS, recommendation="APPROVE", findings=[])
+    res2 = ReviewResult(persona=Persona.DEVSECOPS, recommendation="REQUEST CHANGES", findings=[])
+
+    def _mock_val(index, page, parsed, total, all_pages, cl, metas, repo, suffix):
+        if index == 2:
+            raise RuntimeError("Validation crash")
+        return (index, parsed)
+
+    with (
+        patch("devops_cli.ai.review.runner.is_dry_run", return_value=False),
+        patch(
+            "devops_cli.ai.review.runner._validate_single_segment_findings",
+            side_effect=_mock_val,
+        ),
+    ):
+        validated = _execute_findings_validation(
+            pages=pages,
+            segment_results=[res1, res2],
+            clients=clients,
+            analysis_suffix="",
+        )
+        assert (len(validated), validated[0], validated[1]) == (2, res1, res2)
+
+
+def test_run_persona_loop_parallel_and_error_handling() -> None:
+    """Verify _run_persona_loop executes personas in parallel and isolates errors."""
+    clients = MagicMock()
+    clients.analysis._config.ollama_max_parallel = 2
+    clients.analysis._config.ollama_urls = ["http://example.com:11434"]
+    pages = ["diff content"]
+
+    def _mock_run(pages, title, pd, cl, agents, build_p, prebuilt_metadata=None, session_dir=None):
+        if pd.name == "qa":
+            raise RuntimeError("QA Persona crashed")
+        return f"Completed review for {pd.title}"
+
+    with (
+        patch("devops_cli.ai.review.runner.is_dry_run", return_value=False),
+        patch("devops_cli.ai.review.runner._review_session_dir", return_value=None),
+        patch("devops_cli.ai.review.runner._load_shared_metadata_for_pages", return_value={}),
+        patch("devops_cli.ai.review.runner._run_review", side_effect=_mock_run),
+        patch("devops_cli.ai.review.runner._print_review"),
+    ):
+        completed = _run_persona_loop(
+            pages=pages,
+            title="Persona Loop Test",
+            build_prompt=_build_path_prompt,
+            clients=clients,
+            agents_md="",
+            all_personas=True,
+            persona=None,
+        )
+        completed_names = [pd.name for pd, _ in completed]
+        assert ("qa" not in completed_names, "devsecops" in completed_names) == (
+            True,
+            True,
+        )

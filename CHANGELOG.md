@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Git Squash Merge Commit Body Parsing & Categorization (`devops release changelog`)**:
   - Parses squash commit bodies (`%B`) to extract PR commit items into Keep-a-Changelog sections (`### Added`, `### Fixed & Hardened`, `### Changed & Improved`).
 
+### Performance & Optimization
+- **Parallel Async Branch and PR Review Worker Pool with Semaphore Concurrency (`devops_cli.ai.review`)**:
+  - Implemented `ReviewWorkerPool.create()` with bounded semaphore concurrency ($1 \le C \le 8$), token-bucket rate limiting (`DEFAULT_REVIEW_RATE_LIMIT = 10.0`), and per-task timeout management.
+  - Upgraded pre-analysis refresh, multi-persona segment review, findings validation, and persona loops in both `ReviewPipelineOrchestrator` and `runner.py` to use managed asynchronous worker pools.
+  - Replaced legacy unbound `ThreadPoolExecutor` and sequential single-worker fallbacks with concurrent execution, accelerating multi-file and multi-persona review cycles while preventing VRAM spikes, Ollama out-of-memory errors, and rate-limit throttling.
+  - Hardened error isolation with `return_exceptions=True` across parallel review stages, guaranteeing that an isolated LLM inference error or malformed payload does not fail remaining segment reviews.
+
 ### Fixed & Hardened
 - **GitHub Copilot Review Completion on Resolved Threads (`devops pr monitor`, `devops pr wait`)**:
   - Automatically transitions `copilot_status` to `completed` when all recommended changes in review threads have been addressed and 0 unresolved threads remain.

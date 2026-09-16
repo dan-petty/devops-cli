@@ -170,6 +170,54 @@ async def test_worker_pool_return_exceptions() -> None:
     assert results[2] == 20
 
 
+def test_review_worker_pool_create_defaults() -> None:
+    """Verify ReviewWorkerPool.create sets default concurrency and rate limits."""
+    from devops_cli.config.defaults import (
+        DEFAULT_REVIEW_CONCURRENCY,
+        DEFAULT_REVIEW_RATE_CAPACITY,
+        DEFAULT_REVIEW_RATE_LIMIT,
+    )
+
+    pool = ReviewWorkerPool.create()
+    assert (pool.max_concurrency, pool.timeout_per_task) == (DEFAULT_REVIEW_CONCURRENCY, None)
+    assert pool.rate_limiter is not None
+    assert (pool.rate_limiter.rate, pool.rate_limiter.capacity) == (
+        DEFAULT_REVIEW_RATE_LIMIT,
+        DEFAULT_REVIEW_RATE_CAPACITY,
+    )
+
+
+def test_review_worker_pool_create_custom_and_clamping() -> None:
+    """Verify ReviewWorkerPool.create respects overrides and bounds concurrency [1, 8]."""
+    from devops_cli.config.defaults import DEFAULT_REVIEW_MAX_CONCURRENCY
+
+    pool_high = ReviewWorkerPool.create(
+        concurrency=100, rate_limit=5.0, burst_capacity=2.0, timeout_per_task=30.0
+    )
+    assert (pool_high.max_concurrency, pool_high.timeout_per_task) == (
+        DEFAULT_REVIEW_MAX_CONCURRENCY,
+        30.0,
+    )
+    assert pool_high.rate_limiter is not None
+    assert (pool_high.rate_limiter.rate, pool_high.rate_limiter.capacity) == (5.0, 2.0)
+
+    pool_low = ReviewWorkerPool.create(concurrency=-5)
+    assert pool_low.max_concurrency == 1
+
+
+def test_review_worker_pool_run_sync_all_return_exceptions() -> None:
+    """Verify run_sync_all with return_exceptions captures exceptions without failing."""
+    pool = ReviewWorkerPool.create(concurrency=2)
+
+    def _failing_task(x: int) -> int:
+        if x == 2:
+            raise ValueError("Task error")
+        return x * 10
+
+    results = pool.run_sync_all(_failing_task, [1, 2, 3], return_exceptions=True)
+    assert (results[0], isinstance(results[1], ValueError), results[2]) == (10, True, 30)
+
+
 # ── Streaming Diff Chunker Tests ─────────────────────────────────────────────
 
 

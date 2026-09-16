@@ -46,6 +46,17 @@ flowchart TD
    - **Prompt Evolution**: Persona prompts, review instructions (`src/devops_cli/ai/tasks/review.md`), and system guidelines (`AGENTS.md`) are refined to eliminate blind spots and reinforce verified heuristics.
    - **Continuous Regression Guarding**: Remediated defects are converted into enduring invariant checks (`tests/test_architectural_invariants.py`) and domain test suites.
 
+### Deterministic Mechanical Oracles & Closed-Loop Feedback Inversion
+
+As documented in the Systemic Retrospective Analysis ([`docs/RETROSPECTIVE.md`](../repos/dan-petty/vibes/docs/RETROSPECTIVE.md)), self-improvement mechanisms cannot rely on stochastic language generation alone. They require deterministic mechanical oracles coupled with a closed-loop feedback inversion dynamic:
+
+1. **Phase 1: Reactive Remediation**: When invariant violations, test failures, or verified review findings exist, the agent focuses 100% of priority on minimal, surgical defect resolution.
+2. **Phase 2: Proactive Quality Elevation**: As soon as quality gates pass and repository health reaches 100.0/100, the feedback loop dynamically inverts:
+   - **Proactive Headroom Optimization**: Decomposing functions approaching the complexity ceiling ($7 \le M \le 10$) down to safe headroom ($M \le 6$, depth $\le 3$).
+   - **Public Contract Completeness**: Elevating docstring coverage and parameter type hints across all public interfaces to 100%.
+   - **Structural Assertion Consolidation**: Converting linear test assertion sequences into structural tuple comparisons (`assert (a, b) == (x, y)`) to prevent false-positive complexity alarms while preserving Pytest element-level diff diagnostics.
+3. **Phase 3: Continuous Self-Hardening**: Every debugging struggle, unexpected failure, or cognitive barrier is immediately codified into [`AGENTS.md`](../AGENTS.md) and ingested into [`docs/ROADMAP.md`](./ROADMAP.md) as permanent systemic guardrails.
+
 ---
 
 ## 2. Review Protocol & Persona Guidelines

@@ -12,6 +12,9 @@ This document provides foundational context, architectural principles, and opera
 - **Poetic Conciseness, Expressive Integration & Zero Boilerplate**:
   - The codebase must read as an expressive, poetically concise integration of tools, libraries, docs, AI, and automation rather than a sprawl of procedural loops or boilerplate.
   - **Strict Complexity & Nesting Caps**: Strictly enforce cyclomatic complexity $\le 10$ and maximum nesting depth $\le 5$ (< 6 indentation levels) project-wide across all functions, closures, and blocks. Continuous compliance is validated by `devops scan complexity` and automated architectural invariant gates ([`tests/test_architectural_invariants.py`](tests/test_architectural_invariants.py)).
+  - **Structural Tuple Equality Consolidation in Test Suites (Mitigating Assertion Sprawl)**:
+    - Under Python AST semantics, every `assert expr` statement compiles to `if not (expr): raise AssertionError`, adding $+1$ to McCabe cyclomatic complexity $M$.
+    - When asserting multiple object attributes or properties in test suites, developers and AI agents **MUST CONSOLIDATE LINEAR ASSERTIONS INTO STRUCTURAL TUPLE EQUALITY CHECKS** (`assert (actual_a, actual_b, actual_c) == (expected_a, expected_b, expected_c)`) or collection predicates (`assert all(...)`). This prevents purely linear test code from breaching the $M \le 10$ complexity cap while fully preserving Pytest element-level diff diagnostics.
   - Decompose multi-step tasks, deep branching, and nested iterations into dedicated single-responsibility helper functions, pure predicate helpers, and functional pipelines.
   - Replace procedural dispatchers and `if/elif` ladders with dictionary mappings, registry lookups, or table-driven dispatch.
   - Maximize standard library leverage (`functools`, `itertools`, `pathlib`, `collections`, `ipaddress`, `urllib.parse`), Pydantic v2 models, and functional pipelines.
@@ -38,6 +41,9 @@ This document provides foundational context, architectural principles, and opera
   - Bounded string truncation on error details: Always enforce bounded length caps ($\le 256$ chars) on external or caller-provided inputs propagated into exception `details` dictionaries or structured error logs to prevent log bloat and injection (CWE-209 / CWE-400).
   - Mitigate Server-Side Request Forgery (SSRF) and network egress risks by validating destination endpoints.
   - Enforce subprocess safety with explicit command argument lists, bounded timeouts, and error handling.
+  - **Defensive Subprocess Management & POSIX Process Group Isolation**:
+    - When invoking external commands, background workers, or container runtimes via `subprocess.Popen`, never terminate processes using simple `proc.kill()`, which leaves spawned subshells or grandchild processes running as zombie leaks adopted by PID 1.
+    - Always isolate execution into a dedicated POSIX process group (`preexec_fn=os.setsid` on POSIX systems) and terminate the entire process hierarchy (`os.killpg(os.getpgid(proc.pid), signal.SIGTERM/SIGKILL)`).
   - **Defensive Filesystem, Symlink & Resource Containment**:
     - Always enforce pre-flight file size caps (e.g. `MAX_REPOMAP_FILE_SIZE_BYTES` $\le 5$MB) before ingesting, parsing, or packing files into memory (via Python AST, Tree-Sitter, or text loaders) to prevent out-of-memory crashes and denial-of-service from minified bundles, database dumps, or large binaries.
     - Always defensively resolve filesystem symlinks (`path.resolve()`) and verify that target paths remain strictly confined within the intended root workspace (`resolved_path.is_relative_to(base_root)`), catching `(OSError, RuntimeError)` to prevent circular symlink loops (`ELOOP`) and directory traversal escapes.
@@ -54,6 +60,12 @@ This document provides foundational context, architectural principles, and opera
   - **Strict Prohibition of Bare `gh` CLI Invocations**: AI agents and automated workflows MUST NEVER invoke bare `gh` commands directly (e.g. `gh pr`, `gh issue`, `gh api`). All GitHub operations must be routed through native rate-managed commands (`devops gh`, `devops pr`) or FastMCP tools, utilizing `GitHubRateLimiter` (`run_gh`) for client-side token-bucket pacing, quota safety thresholds, and read caching.
   - **Bounded Exponential Backoff with Jitter**: Never enter tight, busy-waiting retry loops or unthrottled burst calls against rate-limited endpoints. If an HTTP 429 (`Too Many Requests`) or rate-limit HTTP 403 error is encountered, honor the reset window or apply exponential backoff with random jitter before retrying.
   - **Client-Side Caching & Workload Deduplication**: Cache idempotent queries, remote metadata, and review findings locally (in `.data/` or Valkey L2 cache) to minimize external round-trips and prevent quota exhaustion.
+- **Negative Tool Schema Invariants & Prescriptive Error Feedback**:
+  - FastMCP tools and agent tool schemas MUST enforce strict parameter boundaries by forbidding undefined or hallucinated parameters (`extra="forbid"` in Pydantic v2 or `additionalProperties: false` in JSON Schema).
+  - When schema validation fails, validation handlers must synthesize structured, prescriptive error prompts detailing allowable arguments to enable deterministic zero-shot model self-correction.
+- **Closed-Loop Feedback Inversion & Proactive Headroom Elevation**:
+  - Engineering workflows must not treat $M = 10$ and depth $= 5$ as target plateaus.
+  - Once high-priority defects or blockers are cleared, agents must proactively optimize headroom to safe thresholds ($M \le 6$, depth $\le 3$) and ensure 100% complete public docstrings and type annotations, preventing minor future edits from triggering brittle threshold failures.
 - **Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee**:
   - `devops-cli` is active **alpha software** prior to release `1.0.0`.
   - **Zero Backwards Compatibility Guarantee**: Until at least release `1.0.0`, there is **no intention of maintaining backwards compatibility**. Breaking changes, interface evolutions, parameter alterations, and schema redesigns may occur across any release cycle without legacy shims.
