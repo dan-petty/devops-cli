@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatically switches comparison targets when positional branch argument matches default base on an active topic/release branch.
 - **Documentation Compactor Idempotency (`devops docs compact`)**:
   - Enhanced version range regex to parse all matching version patterns from roadmap headers and recognize canonical summary blocks, guaranteeing idempotent compaction.
+- **Polyglot Tree-Sitter File Size Boundary Guard & Resource Containment (`devops_cli.ai.repomap`)**:
+  - Enforced pre-flight `MAX_REPOMAP_FILE_SIZE_BYTES` checks in `_polyglot_to_file_node` for all multilingual source trees (TypeScript, Go, Rust, Java, HCL), excluding files exceeding 5MB to prevent memory spikes and OOM crashes.
+  - Hardened symlink resolution with `strict=True` to trap and exclude circular symlink loops (`ELOOP`) and symlinks escaping repository workspace boundaries.
+  - Added structured warning logging on oversized file exclusions and symlink containment violations.
 - **Pre-Release Non-Empty Changelog Verification (`devops release check`)**:
   - Enforced strict validation ensuring changelog notes are populated prior to release certification.
 

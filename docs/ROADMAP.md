@@ -36,7 +36,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Distributed Observability & Telemetry**: Prometheus client metrics, Jaeger distributed tracing waterfalls, Loki LogQL live log streaming, and OpenTelemetry traceparent propagation.
 - [x] **Next-Gen PydanticAI Agent Architecture**: PydanticAI native subsystems, multi-turn reasoning buffers, prompt mutation testing, and human-in-the-loop feedback dataset export.
 - [x] **Valkey Distributed Caching & Rate Limiting**: Pure-Python RESP3 wire protocol client, token-bucket rate limiter, and vector cache slashing LLM latency.
-- [x] **Code Intelligence, Tree-Sitter & Ingestion Engine**: Polyglot CST parser, library contract introspector, API drift auditor, and AST context packing.
+- [x] **Code Intelligence, Tree-Sitter & Ingestion Engine**: Polyglot CST parser, library contract introspector, API drift auditor, AST context packing, and file-size/symlink resource containment boundaries.
 - [x] **Workload Sandboxing & Dynamic Runtime Security**: Rootless container sandbox, endpoint health probing, dynamic fuzzing, and base security scanner consolidation.
 
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
