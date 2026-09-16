@@ -736,3 +736,96 @@ def test_release_changelog_command(sample_project_dir: Path) -> None:
         changelog_content = (sample_project_dir / "CHANGELOG.md").read_text(encoding="utf-8")
         assert "## [0.1.8]" in changelog_content
         assert "add oidc provider" in changelog_content
+
+
+def test_build_release_pr_body_draft_mode(sample_project_dir: Path) -> None:
+    """Verify _build_release_pr_body in draft mode formats milestone items, notes, and draft checklist."""
+    import json
+
+    from devops_cli.commands.release import _build_release_pr_body
+
+    mock_issues = [
+        {"number": 117, "title": "feat(ai): adaptive embedding batch sizing", "state": "OPEN"},
+        {"number": 118, "title": "perf(ai): high-performance AST context packer", "state": "OPEN"},
+    ]
+    mock_gh_res = subprocess.CompletedProcess(
+        args=["gh"], returncode=0, stdout=json.dumps(mock_issues), stderr=""
+    )
+
+    with patch("devops_cli.commands.release.run_gh", return_value=mock_gh_res):
+        body = _build_release_pr_body(
+            repo_root=sample_project_dir,
+            target_ver="0.2.19",
+            base="main",
+            branch_name="release/v0.2.19",
+            draft=True,
+            pr_title="feat(release): v0.2.19",
+        )
+        assert "## feat(release): v0.2.19" in body
+        assert "Release `v0.2.19` tracking PR under GitHub pull request merge controls." in body
+        assert "### Target Milestone Deliverables" in body
+        assert "- **#117**: feat(ai): adaptive embedding batch sizing" in body
+        assert "- **#118**: perf(ai): high-performance AST context packer" in body
+        assert "### Quality Gate Checklist" in body
+        assert "- [x] 10-Gate CI Quality Gate passing (`devops ci`)" in body
+        assert "- [ ] CodeQL & Static Analysis passing" in body
+        assert "- [ ] Milestone deliverables reviewed and merged into `release/v0.2.19`" in body
+
+
+def test_build_release_pr_body_ready_mode(sample_project_dir: Path) -> None:
+    """Verify _build_release_pr_body in ready mode formats included deliverables and completed checklist."""
+    from devops_cli.commands.release import _build_release_pr_body
+
+    with patch(
+        "devops_cli.commands.release.run_gh",
+        return_value=subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr=""),
+    ):
+        mock_log = subprocess.CompletedProcess(
+            args=["git", "log"],
+            returncode=0,
+            stdout="* feat(security): cosign container signing (#213)\n",
+            stderr="",
+        )
+        with patch("devops_cli.commands.release.run_subprocess", return_value=mock_log):
+            body = _build_release_pr_body(
+                repo_root=sample_project_dir,
+                target_ver="0.2.19",
+                base="main",
+                branch_name="release/v0.2.19",
+                draft=False,
+                pr_title="feat(release): v0.2.19",
+            )
+            assert "### Included Deliverables" in body
+            assert "feat(security): cosign container signing (#213)" in body
+            assert "- [x] CodeQL & Static Analysis passing" in body
+            assert "- [x] Milestone deliverables reviewed and merged into `release/v0.2.19`" in body
+
+
+def test_resolve_clean_release_notes_stale_duplicate_fallback(sample_project_dir: Path) -> None:
+    """Verify _resolve_clean_release_notes discards notes duplicated from the previous release."""
+    from devops_cli.commands.release import _resolve_clean_release_notes
+
+    changelog_path = sample_project_dir / "CHANGELOG.md"
+    duplicate_content = (
+        "## [0.2.19] - 2026-09-16\n\n"
+        "### Added\n- Duplicate item from previous release.\n\n"
+        "## [0.2.18] - 2026-09-16\n\n"
+        "### Added\n- Duplicate item from previous release.\n\n"
+    )
+    changelog_path.write_text(duplicate_content, encoding="utf-8")
+
+    mock_git_log = subprocess.CompletedProcess(
+        args=["git", "log"],
+        returncode=0,
+        stdout="* feat(auth): add new oauth provider for 0.2.19\n",
+        stderr="",
+    )
+    with patch("devops_cli.commands.release.run_subprocess", return_value=mock_git_log):
+        notes = _resolve_clean_release_notes(
+            repo_root=sample_project_dir,
+            target_ver="0.2.19",
+            base="main",
+            branch_name="release/v0.2.19",
+        )
+        assert "Duplicate item from previous release" not in notes
+        assert "add new oauth provider for 0.2.19" in notes
