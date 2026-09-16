@@ -341,12 +341,12 @@ def test_review_runner_extended_branches(tmp_path: Path) -> None:
 
 def test_review_runner_dry_run_and_summary_metas(tmp_path: Path) -> None:
     """Verify dry-run mock constructors, summary generation with file metadata, and error branches."""
-    from devops_cli.ai.analyze.outlines import FileAnalysisMeta
     from devops_cli.ai.review.runner import (
         _build_dry_run_persona_result,
         _build_dry_run_segment_result,
         _write_summary,
     )
+    from devops_cli.models.ai import FileAnalysisMeta
 
     # 1. Dry run constructors
     seg_res = _build_dry_run_segment_result("app.py", "app.py analysis")
@@ -541,3 +541,169 @@ def test_make_review_clients() -> None:
     clients = _make_review_clients(st)
     assert clients.analysis is not None
     assert clients.compose is not None
+
+
+def test_get_current_git_branch() -> None:
+    """Verify active branch name detection and detached HEAD handling."""
+    from devops_cli.ai.review.runner import _get_current_git_branch
+
+    # Attached branch
+    cp_branch = subprocess.CompletedProcess(
+        args=["git"], returncode=0, stdout="release/v0.2.19\n", stderr=""
+    )
+    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_branch):
+        assert _get_current_git_branch(Path(".")) == "release/v0.2.19"
+
+    # Detached HEAD
+    cp_head = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="HEAD\n", stderr="")
+    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_head):
+        assert _get_current_git_branch(Path(".")) == ""
+
+    # Failure
+    cp_fail = subprocess.CompletedProcess(args=["git"], returncode=1, stdout="", stderr="fatal")
+    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_fail):
+        assert _get_current_git_branch(Path(".")) == ""
+
+
+def test_has_uncommitted_working_tree_changes() -> None:
+    """Verify detection of staged and unstaged working tree changes."""
+    from devops_cli.ai.review.runner import _has_uncommitted_working_tree_changes
+
+    cp_dirty = subprocess.CompletedProcess(
+        args=["git"], returncode=0, stdout="diff --git a/f b/f\n", stderr=""
+    )
+    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_dirty):
+        assert _has_uncommitted_working_tree_changes(Path(".")) is True
+
+    cp_clean = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="", stderr="")
+    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_clean):
+        assert _has_uncommitted_working_tree_changes(Path(".")) is False
+
+
+def test_resolve_main_branch_fallback_base() -> None:
+    """Verify base resolution on main using git tags and parent commits."""
+    from devops_cli.ai.review.runner import _resolve_main_branch_fallback_base
+
+    # Tag exists with non-empty diff
+    cp_diff = subprocess.CompletedProcess(
+        args=["git"], returncode=0, stdout="diff content\n", stderr=""
+    )
+    with (
+        patch("devops_cli.git.operations.get_latest_git_tag", return_value="v0.2.18"),
+        patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_diff),
+    ):
+        assert _resolve_main_branch_fallback_base(Path("."), "main") == "v0.2.18"
+
+    # Tag exists but diff is empty -> fallback to parent commit main~1
+    cp_empty = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="", stderr="")
+    cp_parent_ok = subprocess.CompletedProcess(
+        args=["git"], returncode=0, stdout="commit-hash\n", stderr=""
+    )
+
+    def _mock_subp(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "diff" in cmd:
+            return cp_empty
+        if len(cmd) > 4 and "main~1" in cmd[4]:
+            return cp_parent_ok
+        return cp_empty
+
+    with (
+        patch("devops_cli.git.operations.get_latest_git_tag", return_value="v0.2.18"),
+        patch("devops_cli.ai.review.runner._run_subprocess", side_effect=_mock_subp),
+    ):
+        assert _resolve_main_branch_fallback_base(Path("."), "main") == "main~1"
+
+
+def test_resolve_branch_targets() -> None:
+    """Verify resolution of branch target and effective base across branch permutations."""
+    from devops_cli.ai.review.runner import _resolve_branch_targets
+
+    # 1. On release branch, passing 'main' (which equals base 'main') -> diff current branch against main
+    with (
+        patch(
+            "devops_cli.ai.review.runner._get_current_git_branch", return_value="release/v0.2.19"
+        ),
+        patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
+    ):
+        branch, base, is_wt = _resolve_branch_targets(Path("."), "main", "main")
+        assert branch == "release/v0.2.19"
+        assert base == "main"
+        assert is_wt is False
+
+    # 2. On main branch with uncommitted changes -> diff main against HEAD
+    with (
+        patch("devops_cli.ai.review.runner._get_current_git_branch", return_value="main"),
+        patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
+        patch(
+            "devops_cli.ai.review.runner._has_uncommitted_working_tree_changes", return_value=True
+        ),
+    ):
+        branch, base, is_wt = _resolve_branch_targets(Path("."), None, "main")
+        assert branch == "main"
+        assert base == "HEAD"
+        assert is_wt is True
+
+    # 3. On main branch with clean tree -> diff main against fallback base
+    with (
+        patch("devops_cli.ai.review.runner._get_current_git_branch", return_value="main"),
+        patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
+        patch(
+            "devops_cli.ai.review.runner._has_uncommitted_working_tree_changes", return_value=False
+        ),
+        patch(
+            "devops_cli.ai.review.runner._resolve_main_branch_fallback_base", return_value="v0.2.18"
+        ),
+    ):
+        branch, base, is_wt = _resolve_branch_targets(Path("."), "main", "main")
+        assert branch == "main"
+        assert base == "v0.2.18"
+        assert is_wt is False
+
+    # 4. Standard feature branch -> normal diff
+    with (
+        patch("devops_cli.ai.review.runner._get_current_git_branch", return_value="feat/test"),
+        patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
+    ):
+        branch, base, is_wt = _resolve_branch_targets(Path("."), "feat/test", "main")
+        assert branch == "feat/test"
+        assert base == "main"
+        assert is_wt is False
+
+
+def test_prepare_branch_content_on_main_and_base_switching() -> None:
+    """Verify _prepare_branch_content properly prepares pages on main and base-passed branches."""
+    from devops_cli.ai.review.runner import _prepare_branch_content
+
+    mock_diff = subprocess.CompletedProcess(
+        args=["git"],
+        returncode=0,
+        stdout="diff --git a/app.py b/app.py\n+print('hello')\n",
+        stderr="",
+    )
+
+    # Calling with 'main' from release/v0.2.19
+    with (
+        patch(
+            "devops_cli.ai.review.runner._get_current_git_branch", return_value="release/v0.2.19"
+        ),
+        patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
+        patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_diff),
+    ):
+        pages, title, agents = _prepare_branch_content("main", "main", Path("."))
+        assert len(pages) >= 1
+        assert "release/v0.2.19" in title
+        assert "main" in title
+
+    # Calling on main with uncommitted changes
+    with (
+        patch("devops_cli.ai.review.runner._get_current_git_branch", return_value="main"),
+        patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
+        patch(
+            "devops_cli.ai.review.runner._has_uncommitted_working_tree_changes", return_value=True
+        ),
+        patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_diff),
+    ):
+        pages, title, agents = _prepare_branch_content(None, "main", Path("."))
+        assert len(pages) >= 1
+        assert "main" in title
+        assert "HEAD" in title

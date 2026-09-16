@@ -1317,6 +1317,36 @@ def _is_allowed_review_boundary(target: Path, settings: Settings) -> bool:
     return any(is_safe_subpath(root, target_resolved) for root in allowed_roots)
 
 
+def _detect_remote_default_branch(repo_path: Path) -> str:
+    """Detect origin default branch from symbolic-ref or HEAD."""
+    res_sym = _run_subprocess(
+        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    if res_sym.returncode == 0 and res_sym.stdout:
+        if target_str := res_sym.stdout.strip().removeprefix("origin/"):
+            return target_str
+
+    head_proc = _run_subprocess(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    if (
+        head_proc.returncode == 0
+        and (head_name := str(head_proc.stdout).strip())
+        and head_name != "HEAD"
+    ):
+        return head_name
+
+    return ""
+
+
 def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BRANCH) -> str:
     """Return preferred_base if it exists, otherwise detect master/main/origin default."""
     res = _run_subprocess(
@@ -1349,31 +1379,8 @@ def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BR
         if alt in local_branches:
             return alt
 
-    res_sym = _run_subprocess(
-        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-        capture_output=True,
-        text=True,
-        cwd=repo_path,
-        check=False,
-    )
-    if res_sym.returncode == 0 and res_sym.stdout:
-        target_str: str = res_sym.stdout.strip().removeprefix("origin/")
-        if target_str:
-            return target_str
-
-    head_proc = _run_subprocess(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        capture_output=True,
-        text=True,
-        cwd=repo_path,
-        check=False,
-    )
-    if (
-        head_proc.returncode == 0
-        and (head_name := str(head_proc.stdout).strip())
-        and head_name != "HEAD"
-    ):
-        return head_name
+    if remote_branch := _detect_remote_default_branch(repo_path):
+        return remote_branch
 
     return str(preferred_base)
 
@@ -1428,6 +1435,88 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
     return pages, title, agents_md
 
 
+def _get_current_git_branch(repo_path: Path) -> str:
+    """Return active git branch name if HEAD is attached, otherwise empty string."""
+    proc = _run_subprocess(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    if proc.returncode == 0 and (name := proc.stdout.strip()) and name != "HEAD":
+        return name
+    return ""
+
+
+def _has_uncommitted_working_tree_changes(repo_path: Path) -> bool:
+    """Return True if working tree has staged or unstaged modifications."""
+    proc = _run_subprocess(
+        ["git", "diff", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    return proc.returncode == 0 and bool(proc.stdout.strip())
+
+
+def _resolve_main_branch_fallback_base(repo_path: Path, branch_name: str) -> str:
+    """Find appropriate comparison base when reviewing main/primary branch."""
+    from devops_cli.git.operations import get_latest_git_tag
+
+    tag = get_latest_git_tag(repo_path)
+    if tag:
+        tag_diff = _run_subprocess(
+            ["git", "diff", f"{tag}...{branch_name}"],
+            capture_output=True,
+            text=True,
+            cwd=repo_path,
+            check=False,
+        )
+        if tag_diff.returncode == 0 and tag_diff.stdout.strip():
+            return tag
+
+    parent_proc = _run_subprocess(
+        ["git", "rev-parse", "--verify", "--quiet", f"{branch_name}~1"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    if parent_proc.returncode == 0:
+        return f"{branch_name}~1"
+
+    return "HEAD"
+
+
+def _resolve_branch_targets(
+    repo_path: Path, branch_name: str | None, base: str
+) -> tuple[str, str, bool]:
+    """Resolve target branch and comparison base, handling main branch review edge cases."""
+    current_branch = _get_current_git_branch(repo_path)
+    target_branch = branch_name or current_branch
+    if not target_branch:
+        return "", "", False
+
+    effective_base = _detect_base_branch(repo_path, base)
+
+    # When target branch equals effective base (e.g. both are 'main')
+    if target_branch == effective_base:
+        if current_branch and current_branch != target_branch:
+            # User passed base branch while on another branch (e.g. 'devops review branch main' from release/v0.2.19)
+            return current_branch, effective_base, False
+
+        # User is reviewing main branch directly
+        if _has_uncommitted_working_tree_changes(repo_path):
+            return target_branch, "HEAD", True
+
+        fallback_base = _resolve_main_branch_fallback_base(repo_path, target_branch)
+        return target_branch, fallback_base, False
+
+    return target_branch, effective_base, False
+
+
 def _prepare_branch_content(
     branch_name: str | None, base: str, repo_path: Path
 ) -> tuple[list[str], str, str]:
@@ -1444,41 +1533,39 @@ def _prepare_branch_content(
         print_error(err_msg, prefix=False)
         raise typer.Exit(1)
 
-    effective_base = _detect_base_branch(repo_path, base)
-
-    if branch_name is None:
-        proc = _run_subprocess(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=repo_path,
-        )
-        if (
-            proc.returncode != 0
-            or not (branch_name := proc.stdout.strip())
-            or branch_name == "HEAD"
-        ):
-            print_error(MESSAGES.review.detect_branch_failed, prefix=False)
-            raise typer.Exit(1)
+    target_branch, effective_base, is_working_tree = _resolve_branch_targets(
+        repo_path, branch_name, base
+    )
+    if not target_branch:
+        print_error(MESSAGES.review.detect_branch_failed, prefix=False)
+        raise typer.Exit(1)
 
     diffing_msg = MESSAGES.review.diffing_branches.format(
-        branch=f"[cyan]{branch_name}[/cyan]", base=f"[cyan]{effective_base}[/cyan]"
+        branch=f"[cyan]{target_branch}[/cyan]", base=f"[cyan]{effective_base}[/cyan]"
     )
     print_info(diffing_msg, prefix=False)
 
-    diff_proc = _run_subprocess(
-        ["git", "diff", f"{effective_base}...{branch_name}"],
-        capture_output=True,
-        text=True,
-        cwd=repo_path,
-    )
-    if diff_proc.returncode != 0:
+    if is_working_tree:
         diff_proc = _run_subprocess(
-            ["git", "diff", effective_base, branch_name],
+            ["git", "diff", "HEAD"],
             capture_output=True,
             text=True,
             cwd=repo_path,
         )
+    else:
+        diff_proc = _run_subprocess(
+            ["git", "diff", f"{effective_base}...{target_branch}"],
+            capture_output=True,
+            text=True,
+            cwd=repo_path,
+        )
+        if diff_proc.returncode != 0:
+            diff_proc = _run_subprocess(
+                ["git", "diff", effective_base, target_branch],
+                capture_output=True,
+                text=True,
+                cwd=repo_path,
+            )
     if diff_proc.returncode != 0:
         diff_err = MESSAGES.review.git_diff_failed.format(error=diff_proc.stderr.strip())
         print_error(diff_err, prefix=False)
@@ -1487,7 +1574,7 @@ def _prepare_branch_content(
         print_warning(MESSAGES.review.no_diff_found, prefix=False)
         raise typer.Exit(0)
 
-    title = f"Branch `{branch_name}` vs `{effective_base}`"
+    title = f"Branch `{target_branch}` vs `{effective_base}`"
     agents_md = _load_agents_md(repo_path)
     pages = [redact_text(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
     return pages, title, agents_md
