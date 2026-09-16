@@ -1,8 +1,8 @@
 # Task 216: Treat Copilot Review as Completed When Zero Unresolved Threads Remain
 
 **Issue**: [#216](https://github.com/dan-petty/devops-cli/issues/216)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#222](https://github.com/dan-petty/devops-cli/pull/222)
+**Status**: In Review
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/github`
