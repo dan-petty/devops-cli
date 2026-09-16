@@ -555,14 +555,13 @@ def test_fastmcp_docker_sign_tool() -> None:
                 "--key",
                 "/path/to/key.key",
                 "--keyed",
-                "--oidc-token",
-                "token123",
                 "--annotation",
                 "env=prod",
                 "--no-upload",
                 "--dry-run",
             ],
             timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+            env={"COSIGN_IDENTITY_TOKEN": "token123"},
         )
 
 

@@ -43,12 +43,25 @@ jobs:
         id: target
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_PR_NUMBER: ${{ github.event.inputs.pr_number }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+          CLOSING_PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
-          if [ -n "${{ github.event.inputs.pr_number }}" ]; then
-            TAG="pr-${{ github.event.inputs.pr_number }}"
-            echo "Triggered manually for specific PR #${{ github.event.inputs.pr_number }}"
-          elif [ -n "${{ github.event.inputs.tag }}" ] && [ "${{ github.event.inputs.tag }}" != "pr-*" ]; then
-            TAG="${{ github.event.inputs.tag }}"
+          if [ -n "$INPUT_PR_NUMBER" ]; then
+            if ! [[ "$INPUT_PR_NUMBER" =~ ^[0-9]+$ ]]; then
+              echo "Error: Invalid PR number format '$INPUT_PR_NUMBER'; must be numeric." >&2
+              exit 1
+            fi
+            TAG="pr-${INPUT_PR_NUMBER}"
+            echo "Triggered manually for specific PR #${INPUT_PR_NUMBER}"
+          elif [ -n "$INPUT_TAG" ] && [ "$INPUT_TAG" != "pr-*" ]; then
+            if ! [[ "$INPUT_TAG" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+              echo "Error: Invalid tag format '$INPUT_TAG'; must be alphanumeric with allowed dots/dashes/underscores." >&2
+              exit 1
+            fi
+            TAG="$INPUT_TAG"
             echo "Triggered manually for specific tag: ${TAG}"
           else
             TAG="pr-*"
@@ -58,9 +71,14 @@ jobs:
 
           # Dynamically determine open pull requests to protect their tags
           BASE_EXCLUDE="latest,v*,main"
-          OPEN_PR_TAGS=""
-          if OPEN_PRS=$(gh pr list --repo "${{ github.repository }}" --state open --json number --jq '.[].number | "pr-\(.)"' 2>/dev/null); then
+          if OPEN_PRS=$(gh pr list --repo "$REPO" --state open --limit 200 --json number --jq '.[].number | "pr-\(.)"'); then
             OPEN_PR_TAGS=$(echo "$OPEN_PRS" | tr '\n' ',' | sed 's/,$//')
+          else
+            if [ "$EVENT_NAME" = "schedule" ] || [ "$TAG" = "pr-*" ]; then
+              echo "Error: Failed to query open PRs from GitHub API on batch/scheduled cleanup; failing closed to protect active PR images." >&2
+              exit 1
+            fi
+            OPEN_PR_TAGS=""
           fi
 
           if [ -n "$OPEN_PR_TAGS" ]; then
@@ -70,8 +88,8 @@ jobs:
           fi
 
           # If triggered by PR closure, guarantee closing PR is removed from exclusion
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            CLOSING_PR="pr-${{ github.event.pull_request.number }}"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            CLOSING_PR="pr-${CLOSING_PR_NUMBER}"
             EXCLUDE_TAGS=$(echo "$EXCLUDE_TAGS" | tr ',' '\n' | grep -v "^${CLOSING_PR}$" | tr '\n' ',' | sed 's/,$//')
           fi
 

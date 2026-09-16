@@ -505,3 +505,83 @@ def test_cosign_exception_details() -> None:
     assert verr.details is not None
     assert verr.details["image"] == "example.com/app:1.0.0"
     assert verr.details["key"] == "cosign.pub"
+
+
+def test_cosign_runner_sign_keyring_missing_oidc_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Validate sign_image fails closed with CosignError when keyring OIDC token is missing."""
+    runner = CosignRunner()
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/cosign")
+    monkeypatch.setattr("devops_cli.docker.cosign.get_keyring_secret", lambda key: None)
+
+    req = DockerSignRequest(image="example.com/app:1.0.0", oidc_token="keyring:missing_token")
+    with pytest.raises(CosignError) as exc_info:
+        runner.sign_image(req)
+    assert "not found in OS keyring" in str(exc_info.value)
+
+
+def test_cosign_runner_sign_dry_run_with_key_reports_keyed() -> None:
+    """Validate dry-run accurately reports keyless=False when a signing key is supplied."""
+    runner = CosignRunner()
+    req = DockerSignRequest(image="example.com/app:1.0.0", key="cosign.key", dry_run=True)
+    res = runner.sign_image(req)
+    assert res.keyless is False
+    assert res.success is True
+
+
+def test_cosign_runner_sign_timeout_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Validate sign_image wraps subprocess.TimeoutExpired as CosignError."""
+    runner = CosignRunner(timeout=2.0)
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/cosign")
+
+    with patch(
+        "devops_cli.docker.cosign.run_subprocess",
+        side_effect=subprocess.TimeoutExpired(cmd=["cosign", "sign"], timeout=2.0),
+    ):
+        req = DockerSignRequest(image="example.com/app:1.0.0")
+        with pytest.raises(CosignError) as exc_info:
+            runner.sign_image(req)
+        assert "timed out after 2.0s" in str(exc_info.value)
+
+
+def test_cosign_runner_verify_timeout_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Validate verify_image wraps subprocess.TimeoutExpired as CosignVerificationError."""
+    runner = CosignRunner(timeout=3.0)
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/cosign")
+
+    with patch(
+        "devops_cli.docker.cosign.run_subprocess",
+        side_effect=subprocess.TimeoutExpired(cmd=["cosign", "verify"], timeout=3.0),
+    ):
+        req = DockerVerifyRequest(image="example.com/app:1.0.0")
+        with pytest.raises(CosignVerificationError) as exc_info:
+            runner.verify_image(req)
+        assert "timed out after 3.0s" in str(exc_info.value)
+
+
+def test_cosign_exceptions_and_models_reexported() -> None:
+    """Validate Cosign exceptions and models are exposed through package roots."""
+    import devops_cli.exceptions as exceptions_mod
+    import devops_cli.models as models_mod
+
+    assert hasattr(exceptions_mod, "CosignError")
+    assert hasattr(exceptions_mod, "CosignVerificationError")
+    assert hasattr(models_mod, "DockerSignRequest")
+    assert hasattr(models_mod, "DockerSignResult")
+    assert hasattr(models_mod, "DockerVerifyRequest")
+    assert hasattr(models_mod, "DockerVerifyResult")
+
+
+def test_fastmcp_docker_sign_env_handoff() -> None:
+    """Validate docker_sign FastMCP tool passes raw OIDC tokens via env, never in argv."""
+    from devops_cli.ai.mcp.server import docker_sign
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_run:
+        mock_run.return_value = "Signed successfully"
+        res = docker_sign("example.com/app:1.0.0", oidc_token="mock-secret-jwt")
+        assert res == "Signed successfully"
+        mock_run.assert_called_once()
+        cmd_called, kwargs_called = mock_run.call_args[0], mock_run.call_args[1]
+        argv = cmd_called[0] if cmd_called else []
+        assert "--oidc-token" not in argv
+        assert "mock-secret-jwt" not in argv
+        assert kwargs_called.get("env") == {"COSIGN_IDENTITY_TOKEN": "mock-secret-jwt"}

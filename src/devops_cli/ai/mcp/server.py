@@ -38,12 +38,13 @@ mcp = FastMCP(
 def _run_mcp_cmd(
     cmd: list[str],
     timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    env: dict[str, str] | None = None,
 ) -> str:
     """Run a subprocess command for an MCP tool and return combined output or error status."""
     from devops_cli.security.sanitizer import mask_secrets
 
     try:
-        res = run_subprocess(cmd, capture_output=True, text=True, timeout=timeout)
+        res = run_subprocess(cmd, capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         safe_cmd = mask_secrets(" ".join(cmd))
         return f"Command timed out after {timeout} seconds: {safe_cmd}"
@@ -484,8 +485,12 @@ def docker_sign(
         cmd.extend(["--key", key])
     if not keyless:
         cmd.append("--keyed")
+    extra_env: dict[str, str] | None = None
     if oidc_token:
-        cmd.extend(["--oidc-token", oidc_token])
+        if oidc_token.startswith("keyring:"):
+            cmd.extend(["--oidc-token", oidc_token])
+        else:
+            extra_env = {"COSIGN_IDENTITY_TOKEN": oidc_token}
     if annotations:
         for ann in annotations:
             _validate_mcp_arg("annotation", ann)
@@ -494,7 +499,7 @@ def docker_sign(
         cmd.append("--no-upload")
     if dry_run:
         cmd.append("--dry-run")
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS, env=extra_env)
 
 
 @mcp.tool()

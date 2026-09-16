@@ -108,11 +108,17 @@ jobs:
         id: pr_status
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
-          PR_STATE=$(gh pr view ${{ github.event.pull_request.number }} --repo "${{ github.repository }}" --json state --jq .state 2>/dev/null || echo "OPEN")
+          PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state --jq .state)
+          if [ -z "$PR_STATE" ]; then
+            echo "Error: Unable to verify state for PR #${PR_NUMBER}; failing closed to protect registry." >&2
+            exit 1
+          fi
           echo "state=${PR_STATE}" >> "$GITHUB_OUTPUT"
           if [ "$PR_STATE" != "OPEN" ]; then
-            echo "PR #${{ github.event.pull_request.number }} is currently ${PR_STATE}; skipping devcontainer image build and publish."
+            echo "PR #${PR_NUMBER} is currently ${PR_STATE}; skipping devcontainer image build and publish."
           fi
 
       - name: Build & Publish PR DevContainer Image

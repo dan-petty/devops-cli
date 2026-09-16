@@ -10,13 +10,14 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Generator, Mapping
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
 from devops_cli.config.commands import BIN_COSIGN, build_cosign_sign_cmd, build_cosign_verify_cmd
 from devops_cli.config.defaults import DEFAULT_COSIGN_TIMEOUT_SECONDS
 from devops_cli.config.settings import get_keyring_secret
+from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.docker import CosignError, CosignVerificationError
 from devops_cli.exceptions.tools import DependencyError
 from devops_cli.models.docker import (
@@ -55,17 +56,21 @@ def _resolve_signing_key(key_ref: str | None) -> Generator[str | None]:
             Path(temp_path).unlink(missing_ok=True)
 
 
-def _resolve_oidc_env(oidc_token: str | None, base_env: Mapping[str, str]) -> dict[str, str]:
+def _resolve_oidc_env(oidc_token: str | None) -> dict[str, str]:
     """Resolve OIDC identity token, populating COSIGN_IDENTITY_TOKEN in environment."""
-    env = dict(base_env)
+    env: dict[str, str] = {}
     if not oidc_token:
         return env
 
     if oidc_token.startswith("keyring:"):
         token_name = oidc_token.removeprefix("keyring:")
         token_val = get_keyring_secret(token_name)
-        if token_val:
-            env["COSIGN_IDENTITY_TOKEN"] = token_val
+        if not token_val:
+            raise CosignError(
+                f"OIDC token reference '{oidc_token}' not found in OS keyring.",
+                details={"token_name": token_name},
+            )
+        env["COSIGN_IDENTITY_TOKEN"] = token_val
     else:
         env["COSIGN_IDENTITY_TOKEN"] = oidc_token
     return env
@@ -108,12 +113,13 @@ class CosignRunner:
 
     def sign_image(self, req: DockerSignRequest) -> DockerSignResult:
         """Sign container image using Cosign keyless or keyed signing."""
+        effective_keyless = req.keyless and not req.key
         if req.dry_run:
             return DockerSignResult(
                 image=req.image,
                 digest="sha256:dry-run",
                 signature_ref=f"{req.image}.sig",
-                keyless=req.keyless,
+                keyless=effective_keyless,
                 annotations=req.annotations,
                 success=True,
                 duration_seconds=0.0,
@@ -127,19 +133,26 @@ class CosignRunner:
             cmd = build_cosign_sign_cmd(
                 req.image,
                 key=key_path,
-                keyless=req.keyless,
+                keyless=effective_keyless,
                 upload=req.upload,
                 annotations=req.annotations,
             )
-            env = _resolve_oidc_env(req.oidc_token, os.environ)
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=False,
-                env=env,
-                timeout=self.timeout,
-            )
+            env = _resolve_oidc_env(req.oidc_token)
+            try:
+                proc = run_subprocess(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    env=env,
+                    timeout=self.timeout,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise CosignError(
+                    f"Cosign signing timed out after {self.timeout:.1f}s for image {req.image}",
+                    image=req.image,
+                    details={"timeout_seconds": self.timeout},
+                ) from exc
 
         elapsed = time.perf_counter() - t0
         if proc.returncode != 0:
@@ -157,7 +170,7 @@ class CosignRunner:
         return DockerSignResult(
             image=req.image,
             signature_ref=sig_ref,
-            keyless=req.keyless,
+            keyless=effective_keyless,
             annotations=req.annotations,
             success=True,
             duration_seconds=elapsed,
@@ -189,13 +202,20 @@ class CosignRunner:
                 predicate_type=req.predicate_type,
                 insecure_ignore_tlog=req.insecure_ignore_tlog,
             )
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=self.timeout,
-            )
+            try:
+                proc = run_subprocess(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=self.timeout,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise CosignVerificationError(
+                    f"Cosign verification timed out after {self.timeout:.1f}s for image {req.image}",
+                    image=req.image,
+                    details={"timeout_seconds": self.timeout},
+                ) from exc
 
         elapsed = time.perf_counter() - t0
         if proc.returncode != 0:
