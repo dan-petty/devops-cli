@@ -1519,8 +1519,8 @@ def _resolve_branch_targets(
 
 def _prepare_branch_content(
     branch_name: str | None, base: str, repo_path: Path
-) -> tuple[list[str], str, str]:
-    """Prepare paginated diff pages, title, and agents_md for branch review target."""
+) -> tuple[list[str], str, str, str]:
+    """Prepare paginated diff pages, title, agents_md, and resolved target_branch."""
     import typer
 
     from devops_cli.ai.review.chunker import diff_pages
@@ -1577,7 +1577,7 @@ def _prepare_branch_content(
     title = f"Branch `{target_branch}` vs `{effective_base}`"
     agents_md = _load_agents_md(repo_path)
     pages = [redact_text(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
-    return pages, title, agents_md
+    return pages, title, agents_md, target_branch
 
 
 def _prepare_pr_content(

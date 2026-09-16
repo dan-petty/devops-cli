@@ -58,7 +58,7 @@ def test_review_branch_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     with (
         patch(
             "devops_cli.commands.review._prepare_branch_content",
-            return_value=(["diff content"], "Branch Review", "AGENTS.md"),
+            return_value=(["diff content"], "Branch Review", "AGENTS.md", "feat/my-feature"),
         ),
         patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_wf),
         patch("devops_cli.commands.review.load_settings"),
@@ -411,7 +411,7 @@ def test_format_clean_text_field_and_finding_unwrapping() -> None:
         "fix": ["Replace pickle with json", "Add schema validation"],
         "references": "['https://cwe.mitre.org/995', 'https://owasp.org']",
     }
-    f = Finding(**finding_dict)  # type: ignore[arg-type]
+    f = Finding(**finding_dict)
     assert f.title == "Insecure Deserialization"
     assert f.description == "Avoid pickle.loads\nUse json.loads instead"
     assert f.fix == "Replace pickle with json\nAdd schema validation"
@@ -442,7 +442,7 @@ def test_finding_location_and_title_sanitizes_criteria_leakage() -> None:
         "location": "src/devops_cli/commands/install_tools.py: line where _current_version defined. Provide fix: change to except. Provide verification criteria: Running CLI should not crash. Invalidation criteria: CLI runs cleanly.",
         "description": "Defect details",
     }
-    f = Finding(**raw_finding)  # type: ignore[arg-type]
+    f = Finding(**raw_finding)
     assert f.location == "src/devops_cli/commands/install_tools.py:1"
     assert "Provide verification criteria" not in f.title
     assert "Invalidation criteria" not in f.location

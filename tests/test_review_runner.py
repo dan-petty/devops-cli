@@ -213,9 +213,12 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
     )
 
     with patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_cp):
-        b_pages, b_title, b_agents = _prepare_branch_content("feat/test", "main", Path("."))
+        b_pages, b_title, b_agents, b_target = _prepare_branch_content(
+            "feat/test", "main", Path(".")
+        )
         assert len(b_pages) >= 1
         assert "feat/test" in b_title
+        assert b_target == "feat/test"
 
     with patch("devops_cli.github.client.GitHubClient") as mock_gh_cls:
         mock_gh = mock_gh_cls.return_value
@@ -689,10 +692,11 @@ def test_prepare_branch_content_on_main_and_base_switching() -> None:
         patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
         patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_diff),
     ):
-        pages, title, agents = _prepare_branch_content("main", "main", Path("."))
+        pages, title, agents, target = _prepare_branch_content("main", "main", Path("."))
         assert len(pages) >= 1
         assert "release/v0.2.19" in title
         assert "main" in title
+        assert target == "release/v0.2.19"
 
     # Calling on main with uncommitted changes
     with (
@@ -703,7 +707,8 @@ def test_prepare_branch_content_on_main_and_base_switching() -> None:
         ),
         patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_diff),
     ):
-        pages, title, agents = _prepare_branch_content(None, "main", Path("."))
+        pages, title, agents, target = _prepare_branch_content(None, "main", Path("."))
         assert len(pages) >= 1
         assert "main" in title
         assert "HEAD" in title
+        assert target == "main"

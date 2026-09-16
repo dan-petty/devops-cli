@@ -457,7 +457,7 @@ def branch(
         cache_enabled=False if (no_cache or force) else None,
         append_cache=append_cache,
     )
-    pages, title, agents_md = _prepare_branch_content(branch_name, base, repo_path)
+    pages, title, agents_md, target_ref = _prepare_branch_content(branch_name, base, repo_path)
     _execute_review_workflow(
         pages,
         title,
@@ -468,7 +468,7 @@ def branch(
         summary,
         clients,
         target_type="branch",
-        target_ref=str(branch_name or "active"),
+        target_ref=target_ref,
         target_dir=repo_path,
         stage_flags=stage_flags,
         concurrency=concurrency,
