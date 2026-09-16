@@ -515,6 +515,30 @@ def _format_extraction_summary(
     )
 
 
+def _fetch_domains_threat_intel(
+    radar_client: CloudflareRadarClient,
+    domain_targets: list[str],
+) -> dict[str, NetworkReputationRecord]:
+    """Fetch threat intelligence for domain targets with resilient fallback."""
+    if not domain_targets:
+        return {}
+    try:
+        return radar_client.check_domains_batch(domain_targets)
+    except Exception:
+        return {d: NetworkReputationRecord(target=d, ip="") for d in domain_targets}
+
+
+def _fetch_ip_threat_intel(
+    shodan_client: ShodanInternetDBClient,
+    ip: str,
+) -> tuple[str, NetworkReputationRecord]:
+    """Fetch threat intelligence for a single IP address with fallback."""
+    try:
+        return ip, shodan_client.check_ip(ip)
+    except Exception:
+        return ip, NetworkReputationRecord(target=ip, ip=ip)
+
+
 def _execute_pre_analysis_batch(
     paths_to_analyze: list[tuple[Path, str]],
     repo: Path,
@@ -1044,27 +1068,6 @@ class ReviewPipelineOrchestrator:
         shodan_client = ShodanInternetDBClient()
         radar_client = CloudflareRadarClient()
 
-        def _fetch_dep(
-            d_key: tuple[str, str, str],
-        ) -> tuple[tuple[str, str, str], list[VulnerabilityRecord]]:
-            name, ver, eco = d_key
-            try:
-                vulns = osv_client.query_package(name, ver, eco)
-                return d_key, vulns
-            except Exception:
-                return d_key, []
-
-        def _fetch_net(n_key: tuple[str, str]) -> tuple[str, NetworkReputationRecord]:
-            target, rtype = n_key
-            try:
-                if rtype == "ip":
-                    rep = shodan_client.check_ip(target)
-                else:
-                    rep = radar_client.check_domain(target)
-                return target, rep
-            except Exception:
-                return target, NetworkReputationRecord(target=target, ip="")
-
         print_info(
             "  • Querying vulnerability databases & threat intelligence "
             "(OSV, Shodan, Cloudflare)...",
@@ -1081,8 +1084,20 @@ class ReviewPipelineOrchestrator:
                 batch_results = osv_client.query_batch(list(unique_deps))
                 dep_cache.update(batch_results)
             if unique_nets:
-                with ThreadPoolExecutor(max_workers=8) as executor:
-                    net_cache.update(dict(executor.map(_fetch_net, list(unique_nets))))
+                domain_targets = [target for target, rtype in unique_nets if rtype != "ip"]
+                ip_targets = [target for target, rtype in unique_nets if rtype == "ip"]
+                if domain_targets:
+                    net_cache.update(_fetch_domains_threat_intel(radar_client, domain_targets))
+                if ip_targets:
+                    with ThreadPoolExecutor(max_workers=8) as executor:
+                        net_cache.update(
+                            dict(
+                                executor.map(
+                                    lambda ip: _fetch_ip_threat_intel(shodan_client, ip),
+                                    ip_targets,
+                                )
+                            )
+                        )
         print_info(
             "    [dim]✓ Completed vulnerability and threat reputation lookups[/dim]", prefix=False
         )

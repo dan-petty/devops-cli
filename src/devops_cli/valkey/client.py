@@ -214,9 +214,10 @@ class ValkeyClient:
         value: Any,
         ttl: int | None = None,
         ex_seconds: int | None = None,
+        ex: int | None = None,
     ) -> bool:
         """Set key to hold string value with optional expiration seconds."""
-        effective_ttl = ex_seconds if ex_seconds is not None else ttl
+        effective_ttl = ex if ex is not None else (ex_seconds if ex_seconds is not None else ttl)
         args: list[Any] = ["SET", key, str(value)]
         if effective_ttl is not None and effective_ttl > 0:
             args.extend(["EX", effective_ttl])
