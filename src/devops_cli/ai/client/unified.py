@@ -27,6 +27,7 @@ from devops_cli.ai.client.network import (
 )
 from devops_cli.ai.client.ollama import OllamaProviderMixin
 from devops_cli.ai.client.openai import OpenAICompatProviderMixin
+from devops_cli.ai.client.structured import StructuredOutputMixin
 from devops_cli.ai.thinking_stream import strip_think_blocks
 from devops_cli.config.constants import (
     CONST_URL_ANTHROPIC_API_BASE,
@@ -46,7 +47,12 @@ from devops_cli.telemetry import record_metric, trace_span
 logger = logging.getLogger(__name__)
 
 
-class LLMClient(OllamaProviderMixin, ClaudeProviderMixin, OpenAICompatProviderMixin):
+class LLMClient(
+    OllamaProviderMixin,
+    ClaudeProviderMixin,
+    OpenAICompatProviderMixin,
+    StructuredOutputMixin,
+):
     """Unified client for interacting with AI models across different providers."""
 
     _ALLOW_PRIVATE_NETWORK_ENV = ALLOW_PRIVATE_NETWORK_ENV
