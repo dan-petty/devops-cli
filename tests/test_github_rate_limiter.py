@@ -769,3 +769,49 @@ def test_quota_from_dict_rejects_missing_or_null_used() -> None:
         QuotaState.from_dict(
             {"limit": 5000, "remaining": 5000, "used": None, "reset_epoch": 1000.0}
         )
+
+
+def test_disk_quota_lock_exception_propagation_and_cleanup(tmp_path: Path) -> None:
+    """Verify _disk_quota_lock unlocks and propagates inner exceptions without throw error."""
+    from devops_cli.github.rate_limiter import _DISK_LOCK_STATE, _disk_quota_lock
+
+    lock_target = tmp_path / "quota.json"
+    lock_file = lock_target.with_suffix(".lock")
+
+    with pytest.raises(ZeroDivisionError, match="division by zero"):
+        with _disk_quota_lock(lock_target):
+            assert _DISK_LOCK_STATE.depth.get(lock_file) == 1
+            _ = 1 / 0
+
+    assert _DISK_LOCK_STATE.depth.get(lock_file) == 0
+
+
+def test_disk_quota_lock_oserror_fallback_and_propagation(tmp_path: Path) -> None:
+    """Verify _disk_quota_lock yields and propagates exceptions when advisory locking fails."""
+    from devops_cli.github.rate_limiter import _disk_quota_lock
+
+    lock_target = tmp_path / "quota.json"
+
+    with patch("fcntl.flock", side_effect=OSError("Flock failed")):
+        with pytest.raises(KeyError):
+            with _disk_quota_lock(lock_target):
+                raise KeyError("expected_key_error")
+
+
+def test_rate_limiter_acquire_fallback_on_unresolvable_quota(tmp_path: Path) -> None:
+    """Verify acquire falls back to min_interval when quota state cannot be resolved."""
+    cache_file = tmp_path / "gh_quota.json"
+    limiter = GitHubRateLimiter(persist_path=cache_file, min_interval=0.05)
+
+    with (
+        patch.object(
+            limiter,
+            "_resolve_quota_state",
+            side_effect=GitHubRateLimitError("offline"),
+        ),
+        patch("time.sleep") as mock_sleep,
+    ):
+        delay = limiter.acquire("core")
+        assert delay == pytest.approx(0.05, abs=0.01)
+        mock_sleep.assert_called_once()
+        assert mock_sleep.call_args[0][0] == pytest.approx(0.05, abs=0.01)

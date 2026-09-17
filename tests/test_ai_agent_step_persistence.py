@@ -38,23 +38,22 @@ def test_in_memory_step_store_lifecycle() -> None:
 
 def test_sqlite_step_store_lifecycle() -> None:
     """Verify SqliteStepStore database operations, queries, and forking."""
-    store = SqliteStepStore(db_path=":memory:")
+    with SqliteStepStore(db_path=":memory:") as store:
+        s1 = StepRecord(run_id="run_sql", kind="model_request", payload={"prompt": "show config"})
+        s2 = StepRecord(run_id="run_sql", kind="tool_call", payload={"tool": "config_show"})
+        store.save_step(s1)
+        store.save_step(s2)
 
-    s1 = StepRecord(run_id="run_sql", kind="model_request", payload={"prompt": "show config"})
-    s2 = StepRecord(run_id="run_sql", kind="tool_call", payload={"tool": "config_show"})
-    store.save_step(s1)
-    store.save_step(s2)
+        steps = store.get_steps("run_sql")
+        assert len(steps) == 2
+        assert steps[0].payload == {"prompt": "show config"}
+        assert steps[1].step_number == 2
 
-    steps = store.get_steps("run_sql")
-    assert len(steps) == 2
-    assert steps[0].payload == {"prompt": "show config"}
-    assert steps[1].step_number == 2
-
-    # Fork
-    forked = store.fork_run(source_run_id="run_sql", new_run_id="run_sql_fork", up_to_step=1)
-    assert len(forked) == 1
-    assert forked[0].run_id == "run_sql_fork"
-    assert forked[0].payload == {"prompt": "show config"}
+        # Fork
+        forked = store.fork_run(source_run_id="run_sql", new_run_id="run_sql_fork", up_to_step=1)
+        assert len(forked) == 1
+        assert forked[0].run_id == "run_sql_fork"
+        assert forked[0].payload == {"prompt": "show config"}
 
 
 def test_step_persistence_capability() -> None:

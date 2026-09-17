@@ -163,19 +163,37 @@ def _disk_quota_lock(path: Path) -> Generator[None]:
             _DISK_LOCK_STATE.depth[lock_file] -= 1
         return
 
+    fd: Any = None
+    locked = False
     try:
         lock_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(lock_file, "a+", encoding="utf-8") as fd:
-            fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
-            _DISK_LOCK_STATE.depth[lock_file] = 1
-            try:
-                yield
-            finally:
-                _DISK_LOCK_STATE.depth[lock_file] = 0
-                fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
-    except (OSError, RuntimeError, AttributeError) as err:
+        fd = open(lock_file, "a+", encoding="utf-8")
+        fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+        locked = True
+        _DISK_LOCK_STATE.depth[lock_file] = 1
+    except (OSError, AttributeError) as err:
         logger.warning("Advisory file locking unavailable on %s: %s", lock_file, err)
+        if fd is not None:
+            try:
+                fd.close()
+            except OSError:
+                pass
+            fd = None
+
+    try:
         yield
+    finally:
+        if locked and fd is not None:
+            _DISK_LOCK_STATE.depth[lock_file] = 0
+            try:
+                fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+        if fd is not None:
+            try:
+                fd.close()
+            except OSError:
+                pass
 
 
 def _load_disk_quota(path: Path) -> dict[str, QuotaState]:
@@ -673,11 +691,27 @@ class GitHubRateLimiter:
         """
         target = resource or subcommand
         with self._lock:
-            if self.persist_path:
-                with _disk_quota_lock(self.persist_path):
+            try:
+                if self.persist_path:
+                    with _disk_quota_lock(self.persist_path):
+                        sleep_duration = self._acquire_locked(target)
+                else:
                     sleep_duration = self._acquire_locked(target)
-            else:
-                sleep_duration = self._acquire_locked(target)
+            except (GitHubRateLimitError, TypeError, ValueError) as err:
+                logger.warning(
+                    "[RateLimit] Could not resolve rate limit quota for '%s': %s; falling back to min_interval (%.2fs)",
+                    target,
+                    err,
+                    self.min_interval,
+                )
+                now = time.time()
+                prev_scheduled = max(
+                    self._next_allowed_time.get(target, 0.0), self._last_request_epoch
+                )
+                scheduled_time = max(now, prev_scheduled) + self.min_interval
+                self._next_allowed_time[target] = scheduled_time
+                self._last_request_epoch = scheduled_time
+                sleep_duration = max(0.0, scheduled_time - now)
 
         if sleep_duration > 0.0:
             logger.info(
