@@ -1,8 +1,8 @@
 # Task 231: Real-time CI Streaming, Re-entrant Rate Limiter Locking, and Dynamic Repos Clone Destination
 
 **Issue**: [#231](https://github.com/dan-petty/devops-cli/issues/231)
-**PR**: TBD
-**Status**: Ready
+**PR**: [#232](https://github.com/dan-petty/devops-cli/pull/232)
+**Status**: In Review
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/cli`, `scope/github`
