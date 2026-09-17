@@ -12,6 +12,10 @@ from typing import Any, cast
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.defaults import (
+    DEFAULT_GH_GRAPHQL_SAFETY_THRESHOLD,
+    DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC,
+)
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.client import parse_paginated_json
 from devops_cli.github.rate_limiter import (
@@ -727,18 +731,14 @@ def _fetch_project_items_data(
             return _parse_project_items_json(proc.stdout)
         return {}
 
-    fallback_urls, fallback_success = _fetch_project_item_urls_with_status(owner, project_number)
-    if fallback_success:
-        return {
-            u: {
-                "status": None,
-                "priority": None,
-                "category": None,
-                "value": None,
-                "effort": None,
-            }
-            for u in fallback_urls
-        }
+    err_output = f"{proc.stderr or ''} {proc.stdout or ''}".strip()
+    check_github_rate_limit_error(err_output, operation="fetch_project_items")
+    logger.warning(
+        "Failed to retrieve project item custom fields for project #%d (exit %d): %s",
+        project_number,
+        proc.returncode,
+        err_output[:256],
+    )
     return None
 
 
@@ -788,7 +788,7 @@ def sync_repository_issues_to_project(
     dry_run: bool = False,
 ) -> int:
     """Synchronize open and active repository issues to the project board."""
-    if dry_run:
+    if dry_run or _is_graphql_quota_exhausted():
         return 0
 
     owner_arg = _resolve_project_owner_arg(owner)
@@ -1000,8 +1000,8 @@ def _filter_differing_fields(
     target_fields: list[tuple[str, str]],
 ) -> list[tuple[str, str]]:
     """Return only target fields whose values differ from current remote values."""
-    if not current_fields:
-        return target_fields
+    if current_fields is None:
+        return list(target_fields)
     differing: list[tuple[str, str]] = []
     for fname, fval in target_fields:
         curr = current_fields.get(fname.lower())
@@ -1053,6 +1053,9 @@ def _reconcile_single_item(
 
     updated_any = False
     for fname, fval in fields_to_update:
+        if not dry_run and _is_graphql_quota_exhausted():
+            logger.warning("GraphQL quota critically low. Halting field update.")
+            break
         if _edit_project_item_field(owner, project_number, url, fname, fval):
             updated_any = True
             if current_fields is not None:
@@ -1083,13 +1086,15 @@ def _extract_linked_issue_numbers(prs: list[dict[str, Any]]) -> set[int]:
     return linked_numbers
 
 
-def _is_graphql_quota_exhausted(threshold: int = 25) -> bool:
-    """Check if the tracked GraphQL quota is below safety threshold."""
+def _is_graphql_quota_exhausted(
+    threshold: int = DEFAULT_GH_GRAPHQL_SAFETY_THRESHOLD,
+) -> bool:
+    """Check if the tracked GraphQL quota is below safety threshold or unknown."""
     limiter = get_github_rate_limiter()
     quota = limiter.get_quota("graphql")
-    return bool(
-        quota.last_updated > 0 and quota.remaining is not None and quota.remaining < threshold
-    )
+    if quota.remaining is None or not quota.is_valid():
+        return True
+    return quota.remaining < threshold
 
 
 def _provision_missing_candidates(
@@ -1103,7 +1108,9 @@ def _provision_missing_candidates(
     existing_urls = set(items_data.keys())
     for it in candidates:
         if _is_graphql_quota_exhausted():
-            logger.warning("GraphQL quota critically low. Halting candidate provisioning.")
+            logger.warning(
+                "GraphQL quota critically low or unknown. Halting candidate provisioning."
+            )
             break
         url = it.get("html_url") or it.get("url")
         if (
@@ -1122,12 +1129,21 @@ def _reconcile_candidate_items(
     items_data: dict[str, dict[str, str | None]],
     open_pr_issue_numbers: set[int],
     dry_run: bool,
+    max_mutations: int = DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC,
 ) -> int:
     """Iterate over candidates and reconcile custom fields where values differ."""
     reconciled_count = 0
     for it in candidates:
         if not dry_run and _is_graphql_quota_exhausted():
-            logger.warning("GraphQL quota critically low. Halting candidate reconciliation.")
+            logger.warning(
+                "GraphQL quota critically low or unknown. Halting candidate reconciliation."
+            )
+            break
+        if not dry_run and reconciled_count >= max_mutations:
+            logger.info(
+                "Reached maximum mutations per sync budget (%d). Pausing reconciliation.",
+                max_mutations,
+            )
             break
         url = it.get("html_url") or it.get("url") or ""
         it_num = int(it.get("number", 0))
@@ -1152,9 +1168,9 @@ def reconcile_project_custom_fields(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Reconcile custom field values (Status, Priority, Category, Value, Effort) on project items."""
-    if not dry_run and _is_graphql_quota_exhausted(threshold=50):
+    if _is_graphql_quota_exhausted():
         logger.warning(
-            "GraphQL quota critically low. Skipping project custom field reconciliation."
+            "GraphQL quota critically low or unknown. Skipping project custom field reconciliation."
         )
         return {
             "project_number": project_number,

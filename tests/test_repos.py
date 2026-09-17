@@ -177,10 +177,42 @@ def test_repos_clone_passes_github_urls_to_clone_repo(tmp_path: Path) -> None:
     assert result.exit_code == 0
     mock_clone_repo.assert_called_once_with(
         "github.com/example/repo.git",
-        tmp_path / "repos" / "_standalone" / "repo",
+        tmp_path / "repos" / "example" / "repo",
     )
     mock_sync.assert_called_once_with(settings.repos.base_dir.resolve(), settings.workspace.file)
     mock_reload.assert_called_once_with(settings.workspace.file)
+
+
+def test_repos_clone_standalone_and_full_url(tmp_path: Path) -> None:
+    with (
+        patch("devops_cli.commands.repos.load_settings") as mock_load,
+        patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
+        patch("devops_cli.commands.repos.sync_from_repos"),
+        patch("devops_cli.commands.repos._reload_workspace"),
+    ):
+        settings = MagicMock()
+        settings.repos.base_dir = tmp_path / "repos"
+        settings.workspace.file = tmp_path / ".code-workspace"
+        mock_load.return_value = settings
+
+        # Full GitHub HTTPS URL
+        res_full = runner.invoke(
+            app,
+            ["repos", "clone", "https://github.com/google-antigravity/antigravity-sdk-python.git"],
+        )
+        assert res_full.exit_code == 0
+        mock_clone_repo.assert_called_with(
+            "https://github.com/google-antigravity/antigravity-sdk-python.git",
+            tmp_path / "repos" / "google-antigravity" / "antigravity-sdk-python",
+        )
+
+        # Standalone URL without org
+        res_standalone = runner.invoke(app, ["repos", "clone", "simple-repo.git"])
+        assert res_standalone.exit_code == 0
+        mock_clone_repo.assert_called_with(
+            "simple-repo.git",
+            tmp_path / "repos" / "_standalone" / "simple-repo",
+        )
 
 
 def test_repos_update_syncs_workspace(tmp_path: Path) -> None:
@@ -335,7 +367,7 @@ def test_repos_clone_invalid_arguments(tmp_path: Path) -> None:
         assert res_hyphen.exit_code == 1
 
         # Existing dir
-        existing_dir = tmp_path / "repos" / "_standalone" / "existing-repo"
+        existing_dir = tmp_path / "repos" / "org" / "existing-repo"
         existing_dir.mkdir(parents=True)
         res_exists = runner.invoke(repos_app, ["clone", "https://github.com/org/existing-repo.git"])
         assert res_exists.exit_code == 1

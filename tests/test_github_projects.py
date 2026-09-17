@@ -713,6 +713,7 @@ def test_sync_repository_issues_to_project() -> None:
     )
     with (
         patch("devops_cli.github.projects._resolve_project_owner_arg", return_value="owner"),
+        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
         patch("devops_cli.github.projects.run_gh", mock_proc),
     ):
         added = sync_repository_issues_to_project("owner", "owner/repo", 2, dry_run=False)
@@ -944,9 +945,12 @@ def test_reconcile_single_item_edits_only_drifted_fields() -> None:
         "value": "High",
         "effort": "High",
     }
-    with patch(
-        "devops_cli.github.projects._edit_project_item_field", return_value=True
-    ) as mock_edit:
+    with (
+        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
+        patch(
+            "devops_cli.github.projects._edit_project_item_field", return_value=True
+        ) as mock_edit,
+    ):
         reconciled = _reconcile_single_item(
             "owner", 2, item, dry_run=False, current_fields=current_with_drift
         )

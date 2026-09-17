@@ -158,7 +158,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 | Command Group | Subcommand / Usage | Purpose & Features |
 |---|---|---|
 | **repos** | `devops repos clone-org [OPTIONS] <org>` | Clone all repos from a GitHub org into `repos/<org>/.`. |
-|  | `devops repos clone [OPTIONS] <url>` | Clone an individual repository into `repos/_standalone/<name>/.`. |
+|  | `devops repos clone [OPTIONS] <url>` | Clone an individual repository into `repos/<org>/<name>/.` (or `repos/_standalone/<name>/.`). |
 |  | `devops repos list [OPTIONS]` | List all cloned repositories. |
 |  | `devops repos update [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
 |  | `devops repos sync [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
