@@ -281,3 +281,50 @@ def test_sync_project_items_skips_when_quota_unknown() -> None:
             dry_run=False,
         )
         assert added == 0
+
+
+def test_reconcile_project_custom_fields_dry_run_filters_offboard_candidates() -> None:
+    """Assert that off-board items are excluded in dry_run=True and evaluated in dry_run=False."""
+    active_items = {
+        "https://example.com/owner/repo/issues/1": {"id": "item_1", "status": "Ready"},
+    }
+    mock_issues = [
+        {
+            "html_url": "https://example.com/owner/repo/issues/1",
+            "title": "On Board Issue",
+            "state": "open",
+            "labels": [],
+        },
+        {
+            "html_url": "https://example.com/owner/repo/issues/2",
+            "title": "Off Board Issue",
+            "state": "open",
+            "labels": [],
+        },
+    ]
+
+    with (
+        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
+        patch("devops_cli.github.projects._fetch_project_items_data", return_value=active_items),
+        patch("devops_cli.github.projects._fetch_repository_issues", return_value=mock_issues),
+        patch("devops_cli.github.projects._fetch_repository_prs", return_value=[]),
+        patch("devops_cli.github.projects._provision_missing_candidates") as mock_prov,
+        patch("devops_cli.github.projects._reconcile_candidate_items", return_value=1),
+    ):
+        res_dry = reconcile_project_custom_fields(
+            owner="owner",
+            repo="owner/repo",
+            project_number=2,
+            dry_run=True,
+        )
+        assert (res_dry["dry_run"], res_dry["items_evaluated"]) == (True, 1)
+        mock_prov.assert_not_called()
+
+        res_live = reconcile_project_custom_fields(
+            owner="owner",
+            repo="owner/repo",
+            project_number=2,
+            dry_run=False,
+        )
+        assert (res_live["dry_run"], res_live["items_evaluated"]) == (False, 2)
+        mock_prov.assert_called_once()

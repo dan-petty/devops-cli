@@ -659,20 +659,31 @@ def monitor_pr_command(
 # =============================================================================
 
 
-def _fallback_patch_pr(
-    number: int,
-    base: str | None = None,
-    title: str | None = None,
-    body: str | None = None,
-    repo: str | None = None,
-) -> bool:
-    """Fallback to REST API PATCH when gh pr edit fails (e.g. rate limit)."""
-    from devops_cli.core.repo import get_repo_origin_name
+def _resolve_milestone_number(owner: str, repo_name: str, milestone: str) -> int | None:
+    """Resolve milestone title or numeric string to milestone integer number."""
+    if milestone.isdigit():
+        return int(milestone)
+    from devops_cli.github.client import parse_paginated_json
+    from devops_cli.github.rate_limiter import run_gh
 
-    target = repo or get_repo_origin_name()
-    if not target or "/" not in target:
-        return False
-    owner, repo_name = target.split("/", 1)
+    endpoint = f"repos/{owner}/{repo_name}/milestones?state=all&per_page=100"
+    res = run_gh(["api", endpoint], check=False, quiet=True, use_cache=True, cache_ttl=60.0)
+    if res.returncode == 0 and res.stdout.strip():
+        for m in parse_paginated_json(res.stdout):
+            if m.get("title") == milestone and "number" in m:
+                return int(m["number"])
+    return None
+
+
+def _patch_pr_fields(
+    owner: str,
+    repo_name: str,
+    number: int,
+    title: str | None,
+    body: str | None,
+    base: str | None,
+) -> bool:
+    """Patch PR metadata fields via REST pulls API."""
     patch_cmd = [
         CONST_GH_CLI,
         "api",
@@ -686,8 +697,55 @@ def _fallback_patch_pr(
         patch_cmd.extend(["-f", f"body={body}"])
     if base is not None:
         patch_cmd.extend(["-f", f"base={base}"])
-    res = run_subprocess(patch_cmd, check=False)
-    return res.returncode == 0
+    return run_subprocess(patch_cmd, check=False).returncode == 0
+
+
+def _patch_pr_milestone(
+    owner: str,
+    repo_name: str,
+    number: int,
+    milestone: str,
+) -> bool:
+    """Patch PR milestone association via REST issues API."""
+    milestone_num = _resolve_milestone_number(owner, repo_name, milestone)
+    if milestone_num is None:
+        return False
+    milestone_cmd = [
+        CONST_GH_CLI,
+        "api",
+        "--method",
+        "PATCH",
+        f"repos/{owner}/{repo_name}/issues/{number}",
+        "-F",
+        f"milestone={milestone_num}",
+    ]
+    return run_subprocess(milestone_cmd, check=False).returncode == 0
+
+
+def _fallback_patch_pr(
+    number: int,
+    base: str | None = None,
+    title: str | None = None,
+    body: str | None = None,
+    repo: str | None = None,
+    milestone: str | None = None,
+) -> bool:
+    """Fallback to REST API PATCH when gh pr edit fails (e.g. rate limit)."""
+    from devops_cli.core.repo import get_repo_origin_name
+
+    target = repo or get_repo_origin_name()
+    if not target or "/" not in target:
+        return False
+    owner, repo_name = target.split("/", 1)
+
+    fields_specified = any([title is not None, body is not None, base is not None])
+    fields_ok = (
+        _patch_pr_fields(owner, repo_name, number, title, body, base) if fields_specified else True
+    )
+    milestone_ok = (
+        _patch_pr_milestone(owner, repo_name, number, milestone) if milestone is not None else True
+    )
+    return fields_ok and milestone_ok
 
 
 @app.command("edit")
@@ -705,15 +763,19 @@ def edit_pr(
         str | None,
         typer.Option("--body", "-b", help=HELP.pr.edit_body),
     ] = None,
+    milestone: Annotated[
+        str | None,
+        typer.Option("--milestone", "-m", help=HELP.pr.edit_milestone),
+    ] = None,
     repo: Annotated[
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
 ) -> None:
-    """Edit pull request base branch, title, or body."""
+    """Edit pull request base branch, title, body, or milestone."""
     _require_gh_cli()
-    if not any([title, body, base]):
-        print_warning("No changes specified. Use --title, --body, or --base.")
+    if not any([title, body, base, milestone]):
+        print_warning("No changes specified. Use --title, --body, --base, or --milestone.")
         return
 
     cmd = [CONST_GH_CLI, "pr", "edit", str(number)]
@@ -723,12 +785,14 @@ def edit_pr(
         cmd.extend(["--title", title])
     if body:
         cmd.extend(["--body", body])
+    if milestone:
+        cmd.extend(["--milestone", milestone])
     if repo:
         cmd.extend(["--repo", repo])
 
     res = run_subprocess(cmd, check=False)
     if res.returncode != 0:
-        if _fallback_patch_pr(number, base, title, body, repo):
+        if _fallback_patch_pr(number, base, title, body, repo, milestone):
             print_success(f"Successfully updated PR #{number}")
             return
         raise typer.Exit(res.returncode)

@@ -9,10 +9,12 @@ No initial quotas, no hardcoded default windows, default request rate, or bursti
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import logging
 import os
 import random
+import shutil
 import subprocess
 import threading
 import time
@@ -22,6 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 from devops_cli.config.constants import (
     CONST_CACHE_DIR_NAME,
@@ -886,22 +889,64 @@ class GitHubRateLimiter:
         """Retrieve unexpired cached stdout string for an idempotent query."""
         with self._lock:
             entry = self._cache.get(key)
-            if entry is None:
-                return None
-            if time.time() > entry.expires_at:
+            now = time.time()
+            if entry is not None and now <= entry.expires_at:
+                return entry.data
+            if entry is not None:
                 del self._cache[key]
-                return None
-            return entry.data
+            if self.persist_path:
+                cache_dir = self.persist_path.parent / "responses"
+                disk_entry = _load_disk_cache(cache_dir, key)
+                if disk_entry is not None:
+                    self._cache[key] = disk_entry
+                    return disk_entry.data
+            return None
 
     def set_cached(self, key: str, data: str, ttl: float = DEFAULT_GH_CACHE_TTL_SECONDS) -> None:
-        """Store stdout payload into the ephemeral in-memory cache."""
+        """Store stdout payload into ephemeral and persistent disk cache."""
         with self._lock:
-            self._cache[key] = _CacheEntry(data=data, expires_at=time.time() + ttl)
+            entry = _CacheEntry(data=data, expires_at=time.time() + ttl)
+            self._cache[key] = entry
+            if self.persist_path:
+                cache_dir = self.persist_path.parent / "responses"
+                _save_disk_cache(cache_dir, key, entry)
 
     def clear_cache(self) -> None:
-        """Clear all in-memory cached responses."""
+        """Clear all in-memory and persistent cached responses."""
         with self._lock:
             self._cache.clear()
+            if self.persist_path:
+                cache_dir = self.persist_path.parent / "responses"
+                shutil.rmtree(cache_dir, ignore_errors=True)
+
+
+def _load_disk_cache(cache_dir: Path, key: str) -> _CacheEntry | None:
+    """Load unexpired cache entry from disk."""
+    key_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    entry_file = cache_dir / f"{key_hash}.json"
+    if not entry_file.exists():
+        return None
+    try:
+        data = json.loads(entry_file.read_text(encoding="utf-8"))
+        expires_at = float(data.get("expires_at", 0.0))
+        if time.time() > expires_at:
+            entry_file.unlink(missing_ok=True)
+            return None
+        return _CacheEntry(data=str(data.get("data", "")), expires_at=expires_at)
+    except (OSError, ValueError, TypeError) as _err:
+        return None
+
+
+def _save_disk_cache(cache_dir: Path, key: str, entry: _CacheEntry) -> None:
+    """Persist cache entry to disk."""
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        key_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        entry_file = cache_dir / f"{key_hash}.json"
+        payload = json.dumps({"expires_at": entry.expires_at, "data": entry.data})
+        entry_file.write_text(payload, encoding="utf-8")
+    except OSError:
+        pass
 
 
 _GLOBAL_RATE_LIMITER: GitHubRateLimiter | None = None
@@ -1053,23 +1098,21 @@ def _extract_rate_limit_endpoint_response(output: str, limiter: GitHubRateLimite
 
 def _extract_page_per_page(url_or_endpoint: str) -> int:
     """Extract per_page from query string or default to 100."""
-    if "per_page=" in url_or_endpoint:
-        try:
-            part = url_or_endpoint.split("per_page=", 1)[1].split("&", 1)[0]
-            return int(part)
-        except ValueError, IndexError:
-            pass
+    parts = urlsplit(url_or_endpoint)
+    query = parse_qs(parts.query)
+    per_page_vals = query.get("per_page")
+    if per_page_vals and per_page_vals[0].isdigit():
+        return int(per_page_vals[0])
     return 100
 
 
 def _build_paginated_url(endpoint: str, page: int) -> str:
     """Append or update page query parameter in endpoint URL."""
-    if "page=" in endpoint:
-        import re
-
-        return re.sub(r"([?&])page=\d+", rf"\g<1>page={page}", endpoint)
-    sep = "&" if "?" in endpoint else "?"
-    return f"{endpoint}{sep}page={page}"
+    parts = urlsplit(endpoint)
+    query = parse_qs(parts.query, keep_blank_values=True)
+    query["page"] = [str(page)]
+    new_query = urlencode(query, doseq=True)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
 
 
 def _find_api_endpoint_idx(args: list[str]) -> int:

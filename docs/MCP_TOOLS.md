@@ -84,7 +84,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_checks`](#pr-checks) | Inspect detailed status of GitHub Actions CI checks for a pull request. |
 | [`pr_close`](#pr-close) | Close a pull request with optional comment and remote branch deletion. |
 | [`pr_diff`](#pr-diff) | View the unified git diff for a pull request. |
-| [`pr_edit`](#pr-edit) | Edit an existing pull request title, body, or base branch. |
+| [`pr_edit`](#pr-edit) | Edit an existing pull request title, body, base branch, or milestone. |
 | [`pr_list`](#pr-list) | List GitHub pull requests with review approval state and CI check summaries. |
 | [`pr_monitor`](#pr-monitor) | Monitor PR CI checks, Copilot reviews, and review threads until ready for merge. |
 | [`pr_ready`](#pr-ready) | Mark a draft pull request as ready for review and optionally begin monitoring. |
@@ -993,7 +993,7 @@ View the unified git diff for a pull request.
 
 ### `pr_edit`
 
-Edit an existing pull request title, body, or base branch.
+Edit an existing pull request title, body, base branch, or milestone.
 
 **Parameters:**
 
@@ -1003,6 +1003,7 @@ Edit an existing pull request title, body, or base branch.
 | `title` | `string` | No | - | - |
 | `body` | `string` | No | - | - |
 | `base` | `string` | No | - | - |
+| `milestone` | `string` | No | - | - |
 | `repo` | `string` | No | - | - |
 
 ### `pr_list`
