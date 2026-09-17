@@ -42,3 +42,17 @@ This task addresses three architectural improvements and reliability fixes acros
 - `tests/test_repos.py`: Unit tests for org-based and standalone repository cloning.
 - `tests/test_github_rate_limiter.py`: Comprehensive test suite for rate limiting, locking, and cross-process synchronization.
 - `tests/test_process.py`: Subprocess test isolation avoiding live git hook invocation.
+
+---
+
+## 3. CI Remediation & Merge Readiness
+
+- Converted PR #232 to draft immediately upon detecting CI validation failure.
+- Diagnosed root cause: `_disk_quota_lock` wrapped `yield` in an `except` handler that re-yielded on inner exceptions (`RuntimeError: generator didn't stop after throw()`), coupled with unhandled `GitHubRateLimitError` in unauthenticated CI.
+- Resolved lock generator to enforce single-yield semantics outside lock acquisition handler and added fallback pacing to `min_interval`.
+- Added `__enter__` and `__exit__` to `SqliteStepStore` to eliminate `ResourceWarning`s.
+- Validated all 10 local quality gates via `uv run devops ci` (100% pass, 0 warnings).
+- Pushed commit `109f2b9` through pre-push quality gate.
+- Monitored remote CI: all 5 checks (`CodeQL`, `github-advanced-security`, `Analyze (python)`, `Analyze (actions)`, `Validation`) completed with 100% success.
+- Promoted PR #232 to ready for review (`devops pr ready 232`).
+- Verified merge readiness: 0 conflicts, 0 unresolved threads.
