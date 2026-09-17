@@ -8,6 +8,7 @@ import sys
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, cast
+from urllib.parse import urlsplit
 
 import typer
 
@@ -201,6 +202,37 @@ def clone_org(
 # =============================================================================
 
 
+def _parse_clone_destination(url: str) -> tuple[str, str]:
+    """Extract organization/group and repository name from a Git clone URL.
+
+    Returns (org_name, repo_name). Falls back to ("_standalone", repo_name)
+    when no organization or owner can be determined from the URL.
+    """
+    clean = url.strip()
+    if ":" in clean and "://" not in clean:
+        _, _, path = clean.rpartition(":")
+    elif "://" in clean:
+        parsed = urlsplit(clean)
+        path = parsed.path
+        if parsed.scheme == "file":
+            parts = [p for p in path.strip("/").split("/") if p]
+            repo = parts[-1].removesuffix(CONST_GITHUB_REPO_SUFFIX) if parts else "repo"
+            return "_standalone", Path(repo).name
+    else:
+        path = clean
+
+    parts = [p for p in path.strip("/").split("/") if p]
+    if not parts:
+        return "_standalone", "repo"
+
+    repo_name = Path(parts[-1].removesuffix(CONST_GITHUB_REPO_SUFFIX)).name
+    if len(parts) >= 2 and ("." in parts[0] or ":" in parts[0]):
+        parts = parts[1:]
+
+    org_name = Path(parts[-2]).name if len(parts) >= 2 else "_standalone"
+    return org_name, repo_name
+
+
 @app.command()
 def clone(
     url: Annotated[str, typer.Argument(help=HELP.repos.repo_url)],
@@ -208,7 +240,11 @@ def clone(
         Path | None, typer.Option("--base-dir", "-d", help=HELP.options.base_dir)
     ] = None,
 ) -> None:
-    """Clone an individual repository into `repos/_standalone/<name>/.`."""
+    """Clone an individual repository into `repos/<org>/<name>/.` (or `repos/_standalone/<name>/.`)."""
+    if url.startswith("-"):
+        _get("print_error")(MESSAGES.repos.invalid_url_hyphen, prefix=False)
+        raise typer.Exit(1)
+
     if is_dry_run():
         _get("render_dry_run_result")(
             command="devops repos clone",
@@ -220,21 +256,21 @@ def clone(
 
     settings = _get("load_settings")()
     root = (base_dir or settings.repos.base_dir).resolve()
-    dest_dir = root / "_standalone"
+    org_name, raw_name = _parse_clone_destination(url)
+    dest_dir = root / org_name
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    raw_name = Path(url.rstrip("/").split("/")[-1].removesuffix(CONST_GITHUB_REPO_SUFFIX)).name
     dest = (dest_dir / raw_name).resolve()
-    if not dest.is_relative_to(dest_dir.resolve()):
+    if (
+        not dest.is_relative_to(root.resolve())
+        or org_name in (".", "..")
+        or raw_name in (".", "..")
+    ):
         _get("print_error")(MESSAGES.repos.invalid_dest_path, prefix=False)
         raise typer.Exit(1)
 
     if dest.exists():
         _get("print_warning")(MESSAGES.repos.already_exists.format(dest=dest), prefix=False)
-        raise typer.Exit(1)
-
-    if url.startswith("-"):
-        _get("print_error")(MESSAGES.repos.invalid_url_hyphen, prefix=False)
         raise typer.Exit(1)
 
     masked_url = _get("mask_secrets")(url)
