@@ -77,7 +77,7 @@ plugins = ['pydantic.mypy']
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-n auto --maxprocesses=4"
+addopts = "-n auto --maxprocesses=16"
 
 
 [tool.coverage.run]
