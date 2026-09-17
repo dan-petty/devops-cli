@@ -62,18 +62,18 @@ def test_calculate_request_delay_zero_rate_when_exhausted() -> None:
 
 def test_calculate_request_delay_variations() -> None:
     """Verify calculate_request_delay across multiple valid quota states."""
-    # 1000 tokens remaining, 3000s left -> 3.0s delay (without threshold)
-    assert calculate_request_delay(time_until_reset=3000.0, remaining=1000) == 3.0
+    delays = (
+        calculate_request_delay(time_until_reset=3000.0, remaining=1000),
+        round(calculate_request_delay(time_until_reset=3600.0, remaining=5000), 2),
+        round(calculate_request_delay(time_until_reset=2400.0, remaining=2000), 2),
+        calculate_request_delay(time_until_reset=0.0, remaining=10),
+        calculate_request_delay(time_until_reset=0.0, remaining=0),
+    )
+    assert delays == (3.0, 0.72, 1.2, 0.0, 0.0)
 
-    # 5000 tokens remaining, 3600s left -> 0.72s delay (without threshold)
-    assert calculate_request_delay(time_until_reset=3600.0, remaining=5000) == pytest.approx(0.72)
-
-    # Reset already reached (time_left == 0) -> 0.0s delay
-    assert calculate_request_delay(time_until_reset=0.0, remaining=10) == 0.0
     # Negative time_until_reset must raise ValueError
     with pytest.raises(ValueError, match="time_until_reset must be non-negative"):
         calculate_request_delay(time_until_reset=-10.0, remaining=10)
-    assert calculate_request_delay(time_until_reset=0.0, remaining=0) == 0.0
 
 
 def test_quota_state_rejects_negative_values() -> None:
@@ -101,28 +101,33 @@ def test_quota_state_rejects_negative_values() -> None:
         state.record_utilization(cost=-1)
 
 
-def test_calculate_request_delay_percent_used_threshold() -> None:
-    """Verify that requests under the no-delay percent used threshold have delay == 0.0."""
-    # 500 out of 5000 tokens used (10% used) with 25% threshold -> 0.0s delay
-    delay = calculate_request_delay(
-        time_until_reset=3600.0, remaining=4500, limit=5000, no_delay_percent_used_threshold=25.0
-    )
-    assert delay == 0.0
-
-    # 1500 out of 5000 tokens used (30% used) with 25% threshold -> pacing delay applied
-    delay = calculate_request_delay(
-        time_until_reset=3500.0, remaining=3500, limit=5000, no_delay_percent_used_threshold=25.0
-    )
-    assert delay == 1.0  # 3500s / 3500 tokens = 1.0s
-
-    # Negative threshold raises ValueError
-    with pytest.raises(ValueError, match="no_delay_percent_used_threshold must be non-negative"):
-        calculate_request_delay(
-            time_until_reset=100.0, remaining=50, limit=100, no_delay_percent_used_threshold=-1.0
-        )
-    # Negative limit raises ValueError
+def test_calculate_request_delay_negative_limit() -> None:
+    """Verify calculate_request_delay raises ValueError on negative limit."""
     with pytest.raises(ValueError, match="rate limit must be non-negative"):
         calculate_request_delay(time_until_reset=100.0, remaining=50, limit=-10)
+
+
+def test_calculate_request_delay_zero_bypass_forbidden() -> None:
+    """Verify pacing delay is strictly applied even when 0 tokens have been used (no 0.0s bypass)."""
+    # 5000 remaining of 5000 limit with 3600s left -> 3600 / 5000 = 0.72s delay
+    delay = calculate_request_delay(time_until_reset=3600.0, remaining=5000, limit=5000)
+    assert round(delay, 2) == 0.72
+
+
+def test_graphql_mandatory_pacing_default_no_bypass() -> None:
+    """Verify GitHubRateLimiter applies mandatory pacing without 0.0s threshold bypass."""
+    limiter = GitHubRateLimiter()
+    now = time.time()
+
+    # 5000 requests in 60 minutes -> 0.72s
+    limiter._quotas["graphql"] = QuotaState(remaining=5000, limit=5000, reset_epoch=now + 3600.0)
+    delay_5000 = limiter.calculate_delay("graphql")
+
+    # 2000 requests in 40 minutes -> 1.20s
+    limiter._quotas["graphql"] = QuotaState(remaining=2000, limit=5000, reset_epoch=now + 2400.0)
+    delay_2000 = limiter.calculate_delay("graphql")
+
+    assert (round(delay_5000, 2), round(delay_2000, 2)) == (0.72, 1.2)
 
 
 def test_calculate_delay_rejects_negative_time_left() -> None:
@@ -187,16 +192,18 @@ def test_rate_limiter_mandatory_pause_when_quota_exhausted() -> None:
         assert actual_slept == pytest.approx(20.0, abs=0.5)
 
 
-def test_rate_limiter_acquire_no_pause_when_delay_zero(tmp_path: Path) -> None:
-    """Verify acquire does not pause when delay is 0.0."""
+def test_rate_limiter_acquire_mandatory_pacing(tmp_path: Path) -> None:
+    """Verify acquire always applies calculated pacing delay with zero threshold bypass."""
     cache_file = tmp_path / "gh_quota.json"
     limiter = GitHubRateLimiter(persist_path=cache_file)
     now = time.time()
-    limiter.update_quota("core", remaining=5000, limit=5000, reset_epoch=now + 3600.0)
+    limiter.update_quota("core", remaining=3600, limit=5000, reset_epoch=now + 3600.0)
     with patch("time.sleep") as mock_sleep:
         delay = limiter.acquire("core")
-        assert delay == 0.0
-        mock_sleep.assert_not_called()
+        assert delay == pytest.approx(1.0, abs=0.1)
+        mock_sleep.assert_called_once()
+        actual_slept = mock_sleep.call_args[0][0]
+        assert actual_slept == pytest.approx(1.0, abs=0.1)
 
 
 def test_rate_limiter_decrement_quota_estimate(tmp_path: Path) -> None:
@@ -554,12 +561,6 @@ def test_parse_safe_helpers() -> None:
     _extract_graphql_ratelimit_json('{"data": {"rateLimit": null}}', limiter)
 
 
-def test_rate_limiter_constructor_negative_threshold() -> None:
-    """Verify constructor raises ValueError on negative threshold."""
-    with pytest.raises(ValueError, match="no_delay_percent_used_threshold must be non-negative"):
-        GitHubRateLimiter(no_delay_percent_used_threshold=-1.0)
-
-
 def test_calculate_delay_remaining_none_or_negative() -> None:
     """Verify calculate_delay raises error when remaining is None or negative."""
     limiter = GitHubRateLimiter()
@@ -686,3 +687,85 @@ def test_quota_state_malformed_types_discarded(tmp_path: Path) -> None:
 
     loaded = _load_disk_quota(cache_file)
     assert loaded == {}
+
+
+def test_global_request_tracking_across_limiter_instances(tmp_path: Path) -> None:
+    """Verify global requests and quota state synchronize across independent limiter instances."""
+    cache_file = tmp_path / "gh_quota.json"
+    limiter_a = GitHubRateLimiter(persist_path=cache_file)
+    limiter_b = GitHubRateLimiter(persist_path=cache_file)
+    now = time.time()
+    limiter_a.update_quota("core", remaining=100, limit=100, reset_epoch=now + 100.0)
+
+    with patch("time.sleep"):
+        limiter_a.acquire("core")
+        limiter_b.acquire("core")
+
+    assert (
+        limiter_a.get_global_request_count(),
+        limiter_b.get_global_request_count(),
+        limiter_a.get_quota("core").remaining,
+        limiter_b.get_quota("core").remaining,
+    ) == (2, 2, 98, 98)
+
+
+def test_get_quota_live_disk_sync(tmp_path: Path) -> None:
+    """Verify get_quota reloads fresh state from disk when updated externally."""
+    cache_file = tmp_path / "gh_quota.json"
+    limiter_a = GitHubRateLimiter(persist_path=cache_file)
+    limiter_b = GitHubRateLimiter(persist_path=cache_file)
+    now = time.time()
+
+    limiter_a.update_quota("graphql", remaining=500, limit=5000, reset_epoch=now + 3600.0)
+    quota_b = limiter_b.get_quota("graphql")
+    assert (quota_b.remaining, quota_b.limit) == (500, 5000)
+
+    # External update from instance A
+    limiter_a.update_quota("graphql", remaining=400, limit=5000, reset_epoch=now + 3600.0)
+    quota_b_fresh = limiter_b.get_quota("graphql")
+    assert quota_b_fresh.remaining == 400
+
+
+def test_merge_single_quota_preserves_freshest_consumption() -> None:
+    """Verify _merge_single_quota never overwrites lower remaining with stale higher count."""
+    from devops_cli.github.rate_limiter import _merge_single_quota
+
+    disk_state = QuotaState(limit=5000, remaining=3000, used=2000, reset_epoch=1000.0)
+    mem_state = QuotaState(limit=5000, remaining=4000, used=1000, reset_epoch=1000.0)
+
+    merged = _merge_single_quota(disk_state, mem_state)
+    assert (merged.remaining, merged.used) == (3000, 2000)
+
+
+def test_update_quota_preserves_utilization_on_unknown_used(tmp_path: Path) -> None:
+    """Verify update_quota never resets or overwrites tracked used when used is None."""
+    limiter = GitHubRateLimiter(persist_path=tmp_path / "gh_quota.json")
+    now = time.time()
+
+    limiter.update_quota("graphql", remaining=5000, limit=5000, used=150, reset_epoch=now + 3600.0)
+    assert limiter.get_quota("graphql").used == 150
+
+    # Live response without used header must preserve existing utilization, not reset to 0
+    limiter.update_quota("graphql", remaining=4900, limit=5000, used=None, reset_epoch=now + 3600.0)
+    assert (limiter.get_quota("graphql").used, limiter.get_quota("graphql").remaining) == (
+        150,
+        4900,
+    )
+
+
+def test_get_quota_unknown_subcommand_does_not_mutate_quotas() -> None:
+    """Verify get_quota on untracked subcommand returns blank state without mutating internal quotas."""
+    limiter = GitHubRateLimiter()
+    quota = limiter.get_quota("nonexistent_subcmd")
+    assert (quota.remaining, quota.used, quota.is_valid()) == (None, 0, False)
+    assert "nonexistent_subcmd" not in limiter.get_all_quotas()
+
+
+def test_quota_from_dict_rejects_missing_or_null_used() -> None:
+    """Verify QuotaState.from_dict rejects data lacking a valid used count instead of resetting to 0."""
+    with pytest.raises(ValueError, match="Missing or unknown 'used' field"):
+        QuotaState.from_dict({"limit": 5000, "remaining": 5000, "reset_epoch": 1000.0})
+    with pytest.raises(ValueError, match="Missing or unknown 'used' field"):
+        QuotaState.from_dict(
+            {"limit": 5000, "remaining": 5000, "used": None, "reset_epoch": 1000.0}
+        )

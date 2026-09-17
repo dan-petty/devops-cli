@@ -144,6 +144,20 @@ def _clean_coverage_artifacts() -> None:
             pass
 
 
+def _format_process_output(raw: str | bytes | None) -> str:
+    """Safely decode raw subprocess output to string."""
+    if not raw:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    return raw.decode("utf-8", errors="replace")
+
+
+def _format_check_badge(passed: bool) -> str:
+    """Format rich terminal badge for check status."""
+    return "[green]✓ pass[/green]" if passed else "[bold red]✗ fail[/bold red]"
+
+
 async def _execute_check_async(
     name: str,
     display_title: str,
@@ -171,19 +185,18 @@ async def _execute_check_async(
         _get("record_metric")(
             "ci.step_pass", 1.0 if passed else 0.0, attributes={"step": metric_step}
         )
-        stdout_val = getattr(proc, "stdout", "") or ""
-        stderr_val = getattr(proc, "stderr", "") or ""
+        from devops_cli.output import format_duration
+
+        badge = _format_check_badge(passed)
+        _get("print_muted")(f"  {badge} [{name}] {display_title} ({format_duration(dur)})")
+        sys.stdout.flush()
         return CheckResult(
             name=name,
             display_title=display_title,
             passed=passed,
             duration_seconds=dur,
-            stdout=stdout_val
-            if isinstance(stdout_val, str)
-            else stdout_val.decode("utf-8", errors="replace"),
-            stderr=stderr_val
-            if isinstance(stderr_val, str)
-            else stderr_val.decode("utf-8", errors="replace"),
+            stdout=_format_process_output(getattr(proc, "stdout", "")),
+            stderr=_format_process_output(getattr(proc, "stderr", "")),
         )
 
 
@@ -210,6 +223,13 @@ async def _run_all_checks_async(
         passed=py_ok,
         duration_seconds=py_dur,
     )
+    from devops_cli.output import format_duration
+
+    py_badge = "[green]✓ pass[/green]" if py_ok else "[bold red]✗ fail[/bold red]"
+    _get("print_muted")(
+        f"  {py_badge} [python_version] {py_result.display_title} ({format_duration(py_dur)})"
+    )
+    sys.stdout.flush()
     if not py_ok:
         return [py_result]
 
@@ -247,6 +267,9 @@ async def _run_all_checks_async(
                 "ci.step.docs_fix",
                 "docs_fix",
             )
+
+    _get("print_muted")(f"  ⏳ [test] {MESSAGES.ci.pytest_coverage} running in background...")
+    sys.stdout.flush()
 
     with _get("trace_span")(
         "ci.run_pipeline",
@@ -410,6 +433,8 @@ def all_checks(
 
     effective_fix = fix and not check
     start_time = time.perf_counter()
+    _get("print_info")("Executing CI quality gates concurrently...")
+    sys.stdout.flush()
     results = asyncio.run(
         _run_all_checks_async(
             lint_fix=effective_fix, format_fix=effective_fix, docs_fix=effective_fix

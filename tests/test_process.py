@@ -56,7 +56,7 @@ def test_run_subprocess_check_and_timeout(monkeypatch) -> None:
     # 3. Dry run execution
     set_dry_run(True)
     try:
-        proc_dry = run_subprocess(["git", "commit", "-m", "test"])
+        proc_dry = run_subprocess(["echo", "dry_run_test"])
         assert proc_dry is not None
     finally:
         set_dry_run(False)

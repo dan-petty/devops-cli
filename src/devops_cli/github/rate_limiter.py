@@ -8,6 +8,7 @@ No initial quotas, no hardcoded default windows, default request rate, or bursti
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
@@ -15,6 +16,8 @@ import random
 import subprocess
 import threading
 import time
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -29,7 +32,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_GH_CACHE_TTL_SECONDS,
-    DEFAULT_GH_NO_DELAY_USED_PERCENT,
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubRateLimitError
@@ -52,6 +54,7 @@ class QuotaState:
     reset_epoch: float = 0.0
     last_updated: float = 0.0
     used: int = 0
+    last_request_epoch: float = 0.0
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name == "remaining" and value is not None and value < 0:
@@ -60,8 +63,8 @@ class QuotaState:
             raise ValueError(f"rate limit must be non-negative, got {value}")
         if name == "used" and value is not None and value < 0:
             raise ValueError(f"used requests must be non-negative, got {value}")
-        if name == "reset_epoch" and value is not None and value < 0.0:
-            raise ValueError(f"reset_epoch must be non-negative, got {value}")
+        if name in ("reset_epoch", "last_request_epoch") and value is not None and value < 0.0:
+            raise ValueError(f"{name} must be non-negative, got {value}")
         super().__setattr__(name, value)
 
     def __post_init__(self) -> None:
@@ -77,6 +80,10 @@ class QuotaState:
             raise ValueError(f"used requests must be non-negative, got {self.used}")
         if self.reset_epoch < 0.0:
             raise ValueError(f"reset_epoch must be non-negative, got {self.reset_epoch}")
+        if self.last_request_epoch < 0.0:
+            raise ValueError(
+                f"last_request_epoch must be non-negative, got {self.last_request_epoch}"
+            )
 
     def is_valid(self, now: float | None = None) -> bool:
         """Return True if cached quota is active and has not expired past reset epoch.
@@ -94,7 +101,9 @@ class QuotaState:
         if self.remaining is not None:
             self.remaining = max(0, self.remaining - cost)
         self.used += cost
-        self.last_updated = time.time()
+        now = time.time()
+        self.last_updated = now
+        self.last_request_epoch = now
         self.validate()
 
     def to_dict(self) -> dict[str, Any]:
@@ -104,6 +113,7 @@ class QuotaState:
             "used": self.used,
             "reset_epoch": self.reset_epoch,
             "last_updated": self.last_updated,
+            "last_request_epoch": self.last_request_epoch,
         }
 
     @classmethod
@@ -113,21 +123,59 @@ class QuotaState:
             limit = int(limit_val) if limit_val is not None else None
             rem_val = data.get("remaining")
             remaining = int(rem_val) if rem_val is not None else None
-            used_val = data.get("used", 0)
-            used = int(used_val) if used_val is not None else 0
+            if "used" not in data or data["used"] is None:
+                raise ValueError("Missing or unknown 'used' field in quota state")
+            used = int(data["used"])
             reset_val = data.get("reset_epoch", 0.0)
             reset_epoch = float(reset_val) if reset_val is not None else 0.0
             updated_val = data.get("last_updated", 0.0)
             last_updated = float(updated_val) if updated_val is not None else 0.0
+            last_req_val = data.get("last_request_epoch", 0.0)
+            last_req = float(last_req_val) if last_req_val is not None else 0.0
             return cls(
                 limit=limit,
                 remaining=remaining,
                 used=used,
                 reset_epoch=reset_epoch,
                 last_updated=last_updated,
+                last_request_epoch=last_req,
             )
         except (TypeError, ValueError) as err:
             raise ValueError(f"Malformed quota state dictionary: {err}") from err
+
+
+_DISK_LOCK_STATE = threading.local()
+
+
+@contextmanager
+def _disk_quota_lock(path: Path) -> Generator[None]:
+    """Acquire an exclusive re-entrant cross-process advisory lock on the quota cache file."""
+    lock_file = path.with_suffix(".lock")
+    if not hasattr(_DISK_LOCK_STATE, "depth"):
+        _DISK_LOCK_STATE.depth = {}
+
+    current_depth = _DISK_LOCK_STATE.depth.get(lock_file, 0)
+    if current_depth > 0:
+        _DISK_LOCK_STATE.depth[lock_file] = current_depth + 1
+        try:
+            yield
+        finally:
+            _DISK_LOCK_STATE.depth[lock_file] -= 1
+        return
+
+    try:
+        lock_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_file, "a+", encoding="utf-8") as fd:
+            fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+            _DISK_LOCK_STATE.depth[lock_file] = 1
+            try:
+                yield
+            finally:
+                _DISK_LOCK_STATE.depth[lock_file] = 0
+                fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+    except (OSError, RuntimeError, AttributeError) as err:
+        logger.warning("Advisory file locking unavailable on %s: %s", lock_file, err)
+        yield
 
 
 def _load_disk_quota(path: Path) -> dict[str, QuotaState]:
@@ -137,34 +185,98 @@ def _load_disk_quota(path: Path) -> dict[str, QuotaState]:
     try:
         content = path.read_text(encoding="utf-8")
         raw = json.loads(content)
-        now = time.time()
+    except (OSError, json.JSONDecodeError) as err:
+        logger.warning("Failed to read GitHub rate limit quota from %s: %s", path, err)
+        return {}
+
+    now = time.time()
+    if not isinstance(raw, dict):
+        logger.warning("Malformed quota cache at %s: expected JSON object", path)
+        return {}
+
+    valid_quotas: dict[str, QuotaState] = {}
+    for k, v in raw.items():
+        if k == "_global" or not isinstance(v, dict):
+            continue
+        try:
+            state = QuotaState.from_dict(v)
+            if state.is_valid(now):
+                valid_quotas[k] = state
+        except (TypeError, ValueError) as err:
+            logger.warning("Discarding malformed quota entry for '%s' in %s: %s", k, path, err)
+            continue
+    return valid_quotas
+
+
+def _load_disk_global_meta(path: Path) -> tuple[int, float]:
+    """Load global request count and last request timestamp from disk."""
+    if not path.is_file():
+        return 0, 0.0
+    try:
+        content = path.read_text(encoding="utf-8")
+        raw = json.loads(content)
         if isinstance(raw, dict):
-            valid_quotas: dict[str, QuotaState] = {}
-            for k, v in raw.items():
-                if isinstance(v, dict):
-                    try:
-                        state = QuotaState.from_dict(v)
-                        # Cached values not updated or past reset must never be relied on
-                        if state.is_valid(now):
-                            valid_quotas[k] = state
-                    except TypeError, ValueError:
-                        continue
-            return valid_quotas
-    except OSError, json.JSONDecodeError, ValueError, TypeError:
-        pass
-    return {}
+            g = raw.get("_global", {})
+            if isinstance(g, dict):
+                total = int(g.get("total_requests", 0))
+                last_epoch = float(g.get("last_request_epoch", 0.0))
+                return max(0, total), max(0.0, last_epoch)
+    except (OSError, json.JSONDecodeError, ValueError, TypeError) as err:
+        logger.warning("Failed to load global rate limit metadata from %s: %s", path, err)
+    return 0, 0.0
 
 
-def _save_disk_quota(quotas: dict[str, QuotaState], path: Path) -> None:
-    """Persist rate limit quota state to disk atomically."""
+def _save_disk_quota(
+    quotas: dict[str, QuotaState],
+    path: Path,
+    total_requests: int = 0,
+    last_request_epoch: float = 0.0,
+) -> None:
+    """Persist rate limit quota state and global request metrics to disk atomically."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {k: v.to_dict() for k, v in quotas.items()}
+        payload: dict[str, Any] = {
+            "_global": {
+                "total_requests": max(0, total_requests),
+                "last_request_epoch": max(0.0, last_request_epoch),
+            }
+        }
+        for k, v in quotas.items():
+            if k != "_global":
+                payload[k] = v.to_dict()
         tmp = path.with_suffix(f".tmp.{os.getpid()}")
         tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         tmp.replace(path)
-    except OSError, TypeError, ValueError:
-        pass
+    except OSError as err:
+        logger.warning("Failed to persist GitHub rate limit quota to disk at %s: %s", path, err)
+
+
+def _merge_single_quota(disk_state: QuotaState, mem_state: QuotaState) -> QuotaState:
+    """Merge disk quota state with in-memory quota state preserving freshest consumption."""
+    if disk_state.reset_epoch == mem_state.reset_epoch:
+        rem: int | None
+        if disk_state.remaining is None:
+            rem = mem_state.remaining
+        elif mem_state.remaining is None:
+            rem = disk_state.remaining
+        else:
+            rem = min(disk_state.remaining, mem_state.remaining)
+
+        used = max(disk_state.used, mem_state.used)
+        limit = disk_state.limit or mem_state.limit
+        last_updated = max(disk_state.last_updated, mem_state.last_updated)
+        last_request = max(disk_state.last_request_epoch, mem_state.last_request_epoch)
+        return QuotaState(
+            limit=limit,
+            remaining=rem,
+            used=used,
+            reset_epoch=disk_state.reset_epoch,
+            last_updated=last_updated,
+            last_request_epoch=last_request,
+        )
+    if disk_state.reset_epoch > mem_state.reset_epoch:
+        return disk_state
+    return mem_state
 
 
 def extract_json_payload(raw_stdout: str) -> Any:
@@ -186,21 +298,19 @@ def extract_json_payload(raw_stdout: str) -> Any:
     candidate = trimmed[start_pos:]
     try:
         return json.loads(candidate)
-    except json.JSONDecodeError:
-        pass
-    return None
+    except json.JSONDecodeError as err:
+        logger.debug("Failed to extract JSON payload from candidate substring: %s", err)
+        return None
 
 
 def calculate_request_delay(
     time_until_reset: float,
     remaining: int,
     limit: int | None = None,
-    no_delay_percent_used_threshold: float | None = None,
 ) -> float:
     """Calculate request delay = time until reset / remaining requests.
 
-    Raises ValueError if time_until_reset, remaining, limit, or threshold is negative.
-    When under the no-delay percent used threshold, returns 0.0 (no delay applied).
+    Raises ValueError if time_until_reset, remaining, or limit is negative.
     When quota is exhausted (remaining == 0), delay is the full time until reset,
     forcing the rate to zero until requests become available under the reset.
     """
@@ -210,21 +320,6 @@ def calculate_request_delay(
         raise ValueError(f"remaining requests must be non-negative, got {remaining}")
     if limit is not None and limit < 0:
         raise ValueError(f"rate limit must be non-negative, got {limit}")
-    if no_delay_percent_used_threshold is not None and no_delay_percent_used_threshold < 0.0:
-        raise ValueError(
-            f"no_delay_percent_used_threshold must be non-negative, got {no_delay_percent_used_threshold}"
-        )
-
-    if limit is not None and limit > 0 and no_delay_percent_used_threshold is not None:
-        used = max(0, limit - remaining)
-        percent_used = (used / limit) * 100.0
-        norm_threshold = (
-            no_delay_percent_used_threshold
-            if no_delay_percent_used_threshold > 1.0
-            else no_delay_percent_used_threshold * 100.0
-        )
-        if percent_used < norm_threshold:
-            return 0.0
 
     if remaining == 0:
         return time_until_reset
@@ -397,40 +492,90 @@ class GitHubRateLimiter:
         persist_path: Path | None = None,
         min_interval: float = 0.0,
         fallback_delay: float = 1.0,
-        no_delay_percent_used_threshold: float = DEFAULT_GH_NO_DELAY_USED_PERCENT,
     ) -> None:
-        if no_delay_percent_used_threshold < 0.0:
-            raise ValueError(
-                f"no_delay_percent_used_threshold must be non-negative, got {no_delay_percent_used_threshold}"
-            )
         self.persist_path = persist_path
         self.min_interval = min_interval
         self.fallback_delay = fallback_delay
-        self.no_delay_percent_used_threshold = no_delay_percent_used_threshold
         self._lock = threading.RLock()
         self._cache: dict[str, _CacheEntry] = {}
         self._next_allowed_time: dict[str, float] = {}
         self._is_refreshing: bool = False
-        disk_quotas = _load_disk_quota(persist_path) if persist_path else {}
-        self._quotas: dict[str, QuotaState] = {**disk_quotas}
+        self._total_requests: int = 0
+        self._last_request_epoch: float = 0.0
+        self._quotas: dict[str, QuotaState] = {}
+        if persist_path:
+            self._sync_from_disk_locked()
+
+    def _sync_from_disk_locked(self) -> None:
+        """Synchronize in-memory quotas and global request counts with disk."""
+        if not self.persist_path:
+            return
+        disk_quotas = _load_disk_quota(self.persist_path)
+        disk_reqs, disk_last_req = _load_disk_global_meta(self.persist_path)
+        self._total_requests = max(self._total_requests, disk_reqs)
+        self._last_request_epoch = max(self._last_request_epoch, disk_last_req)
+        for subcmd, d_state in disk_quotas.items():
+            if subcmd in self._quotas:
+                self._quotas[subcmd] = _merge_single_quota(d_state, self._quotas[subcmd])
+            else:
+                self._quotas[subcmd] = d_state
+
+    def _persist_to_disk_locked(self) -> None:
+        """Persist state to disk under lock."""
+        if self.persist_path:
+            _save_disk_quota(
+                self._quotas,
+                self.persist_path,
+                total_requests=self._total_requests,
+                last_request_epoch=self._last_request_epoch,
+            )
+
+    def get_global_request_count(self) -> int:
+        """Return total tracked global requests across all processes."""
+        with self._lock:
+            if self.persist_path:
+                with _disk_quota_lock(self.persist_path):
+                    self._sync_from_disk_locked()
+            return self._total_requests
+
+    def get_last_request_epoch(self) -> float:
+        """Return timestamp of the most recent global request."""
+        with self._lock:
+            if self.persist_path:
+                with _disk_quota_lock(self.persist_path):
+                    self._sync_from_disk_locked()
+            return self._last_request_epoch
+
+    def get_all_quotas(self) -> dict[str, QuotaState]:
+        """Return all tracked quotas synced from disk."""
+        with self._lock:
+            if self.persist_path:
+                with _disk_quota_lock(self.persist_path):
+                    self._sync_from_disk_locked()
+            return {
+                k: QuotaState(
+                    limit=v.limit,
+                    remaining=v.remaining,
+                    used=v.used,
+                    reset_epoch=v.reset_epoch,
+                    last_updated=v.last_updated,
+                    last_request_epoch=v.last_request_epoch,
+                )
+                for k, v in self._quotas.items()
+            }
 
     def _resolve_quota_state(self, subcommand: str) -> QuotaState:
         """Retrieve or refresh quota state for subcommand under lock.
 
         Raises GitHubRateLimitError if state is broken or unknown and cannot be refreshed.
         """
+        if self.persist_path:
+            self._sync_from_disk_locked()
+
         now = time.time()
         state = self._quotas.get(subcommand)
         if state and state.is_valid(now):
             return state
-
-        if self.persist_path:
-            disk_quotas = _load_disk_quota(self.persist_path)
-            if disk_quotas:
-                self._quotas.update(disk_quotas)
-                state = self._quotas.get(subcommand)
-                if state and state.is_valid(now):
-                    return state
 
         if not self._is_refreshing:
             self._is_refreshing = True
@@ -492,7 +637,12 @@ class GitHubRateLimiter:
         or raises GitHubRateLimitError so the underlying cause can be identified.
         """
         with self._lock:
-            state = self._resolve_quota_state(subcommand)
+            if self.persist_path:
+                with _disk_quota_lock(self.persist_path):
+                    state = self._resolve_quota_state(subcommand)
+            else:
+                state = self._resolve_quota_state(subcommand)
+
             now = time.time()
             time_left = state.reset_epoch - now
             if time_left < 0.0:
@@ -513,35 +663,21 @@ class GitHubRateLimiter:
                 time_until_reset=time_left,
                 remaining=state.remaining,
                 limit=state.limit,
-                no_delay_percent_used_threshold=self.no_delay_percent_used_threshold,
             )
             return max(self.min_interval, delay)
 
     def acquire(self, subcommand: str = "core", resource: str | None = None) -> float:
         """Institute mandatory pause of the request delay calculated for that subcommand.
 
-        Serializes concurrent requests using _next_allowed_time scheduling to eliminate
-        the race condition where concurrent subcommands execute simultaneously with no delay.
+        Synchronizes global tracking across processes and serializes requests.
         """
         target = resource or subcommand
         with self._lock:
-            now = time.time()
-            try:
-                delay = self.calculate_delay(target)
-            except GitHubRateLimitError, TypeError, ValueError:
-                delay = self.min_interval
-
-            prev_scheduled = self._next_allowed_time.get(target, 0.0)
-            scheduled_time = max(now, prev_scheduled) + delay
-            self._next_allowed_time[target] = scheduled_time
-
-            state = self._quotas.get(target)
-            if state and state.is_valid(now):
-                state.record_utilization(cost=1)
-                if self.persist_path:
-                    _save_disk_quota(self._quotas, self.persist_path)
-
-            sleep_duration = max(0.0, scheduled_time - now)
+            if self.persist_path:
+                with _disk_quota_lock(self.persist_path):
+                    sleep_duration = self._acquire_locked(target)
+            else:
+                sleep_duration = self._acquire_locked(target)
 
         if sleep_duration > 0.0:
             logger.info(
@@ -552,6 +688,43 @@ class GitHubRateLimiter:
             time.sleep(sleep_duration)
 
         return sleep_duration
+
+    def _acquire_locked(self, target: str) -> float:
+        """Internal lock-guarded execution of rate limit acquisition."""
+        now = time.time()
+        state = self._resolve_quota_state(target)
+        time_left = state.reset_epoch - now
+        if time_left < 0.0:
+            raise GitHubRateLimitError(
+                f"time until reset must be non-negative, got {time_left:.2f}s for '{target}'",
+                subcommand=target,
+                details={"subcommand": target[:256], "time_left": f"{time_left:.2f}"},
+            )
+        if state.remaining is None:
+            raise GitHubRateLimitError(
+                f"remaining requests is unknown for subcommand '{target}'",
+                subcommand=target,
+            )
+        if state.remaining < 0:
+            raise ValueError(f"remaining requests must be non-negative, got {state.remaining}")
+
+        delay = calculate_request_delay(
+            time_until_reset=time_left,
+            remaining=state.remaining,
+            limit=state.limit,
+        )
+        delay = max(self.min_interval, delay)
+
+        prev_scheduled = max(self._next_allowed_time.get(target, 0.0), self._last_request_epoch)
+        scheduled_time = max(now, prev_scheduled) + delay
+        self._next_allowed_time[target] = scheduled_time
+        self._last_request_epoch = scheduled_time
+
+        state.record_utilization(cost=1)
+        self._total_requests += 1
+        self._persist_to_disk_locked()
+
+        return max(0.0, scheduled_time - now)
 
     def update_quota(
         self,
@@ -575,47 +748,81 @@ class GitHubRateLimiter:
 
         now = time.time()
         with self._lock:
-            state = self._quotas.setdefault(subcommand, QuotaState())
-            state.remaining = remaining
-            state.reset_epoch = reset_epoch
-            if limit is not None:
-                state.limit = limit
-            if used is not None:
-                state.used = used
-            elif limit is not None:
-                state.used = max(0, limit - state.remaining)
-            state.last_updated = now
-            state.validate()
             if self.persist_path:
-                _save_disk_quota(self._quotas, self.persist_path)
+                with _disk_quota_lock(self.persist_path):
+                    self._sync_from_disk_locked()
+                    self._apply_quota_update(subcommand, remaining, reset_epoch, limit, used, now)
+                    self._persist_to_disk_locked()
+            else:
+                self._apply_quota_update(subcommand, remaining, reset_epoch, limit, used, now)
+
+    def _apply_quota_update(
+        self,
+        subcommand: str,
+        remaining: int,
+        reset_epoch: float,
+        limit: int | None,
+        used: int | None,
+        now: float,
+    ) -> None:
+        """Apply in-memory updates to quota state without resetting utilization on unknown values."""
+        state = self._quotas.get(subcommand)
+        if state is None:
+            self._quotas[subcommand] = QuotaState(
+                limit=limit,
+                remaining=remaining,
+                used=used if used is not None else 0,
+                reset_epoch=reset_epoch,
+                last_updated=now,
+            )
+            return
+
+        state.remaining = remaining
+        state.reset_epoch = reset_epoch
+        if limit is not None:
+            state.limit = limit
+        if used is not None:
+            state.used = used
+        state.last_updated = now
+        state.validate()
 
     def record_utilization(self, subcommand: str, cost: int = 1) -> None:
-        """Increment used count and decrement remaining quota based on request utilization.
-
-        Cached values that are not updated on every request should never be used or relied on,
-        so every request decrements remaining and increments used to maintain fresh utilization tracking.
-        """
+        """Increment used count and decrement remaining quota based on request utilization."""
         with self._lock:
-            state = self._quotas.get(subcommand)
-            if state and state.is_valid():
-                state.record_utilization(cost=cost)
-                if self.persist_path:
-                    _save_disk_quota(self._quotas, self.persist_path)
+            if self.persist_path:
+                with _disk_quota_lock(self.persist_path):
+                    self._sync_from_disk_locked()
+                    self._record_utilization_locked(subcommand, cost)
+                    self._persist_to_disk_locked()
+            else:
+                self._record_utilization_locked(subcommand, cost)
+
+    def _record_utilization_locked(self, subcommand: str, cost: int) -> None:
+        state = self._quotas.get(subcommand)
+        if state and state.is_valid():
+            state.record_utilization(cost=cost)
+            self._total_requests += cost
 
     def decrement_quota_estimate(self, subcommand: str, cost: int = 1) -> None:
         """Pessimistically decrement quota estimate when a command lacks rate limit headers."""
         self.record_utilization(subcommand, cost=cost)
 
     def get_quota(self, subcommand: str) -> QuotaState:
-        """Retrieve a copy of current quota state for a subcommand."""
+        """Retrieve a copy of current quota state for a subcommand synced with disk."""
         with self._lock:
-            state = self._quotas.setdefault(subcommand, QuotaState())
+            if self.persist_path:
+                with _disk_quota_lock(self.persist_path):
+                    self._sync_from_disk_locked()
+            state = self._quotas.get(subcommand)
+            if state is None:
+                return QuotaState()
             return QuotaState(
                 limit=state.limit,
                 remaining=state.remaining,
                 used=state.used,
                 reset_epoch=state.reset_epoch,
                 last_updated=state.last_updated,
+                last_request_epoch=state.last_request_epoch,
             )
 
     def is_rate_limit_error(self, message: str) -> bool:
@@ -933,18 +1140,12 @@ def _post_process_run(
     is_rate_limit_check: bool = False,
     cost: int = 1,
 ) -> None:
-    """Extract rate limit metrics or record quota utilization."""
+    """Extract rate limit metrics from response headers or payload."""
     if is_rate_limit_check and proc.stdout:
         _extract_rate_limit_endpoint_response(proc.stdout, limiter)
         return
 
     _parse_rate_limit_from_output(proc.stdout, resource, limiter)
-    stdout_clean = proc.stdout or ""
-    if "rateLimit" not in stdout_clean and "x-ratelimit-remaining" not in stdout_clean.lower():
-        try:
-            limiter.record_utilization(resource, cost=cost)
-        except TypeError, ValueError:
-            pass
 
 
 def run_gh(
