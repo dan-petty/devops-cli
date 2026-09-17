@@ -713,16 +713,6 @@ def _execute_review_segment_attempt(
     return result_text
 
 
-def _format_error_detail(exc: Exception, max_len: int = 256) -> str:
-    """Format, sanitize, and bound exception detail string for logging."""
-    from devops_cli.security.sanitizer import mask_secrets
-
-    msg = mask_secrets(f"{type(exc).__name__}: {exc}").strip()
-    if len(msg) > max_len:
-        return msg[: max_len - 3] + "..."
-    return msg
-
-
 def _execute_review_segments(
     pages: list[str],
     title: str,
@@ -779,7 +769,7 @@ def _execute_review_segments(
             if isinstance(res, tuple) and len(res) == 2:
                 indexed_results.append((res[0], str(res[1])))
             elif isinstance(res, Exception):
-                logger.error("Segment %d review error: %s", idx, _format_error_detail(res))
+                logger.error("Segment %d review error (%s)", idx, type(res).__name__)
                 indexed_results.append((idx, ""))
             else:
                 indexed_results.append((idx, str(res or "")))
@@ -889,9 +879,9 @@ def _execute_findings_validation(
                 validated_results[idx_val - 1] = val_obj
             elif isinstance(res_entry, Exception):
                 logger.error(
-                    "Findings validation error for segment %d: %s",
+                    "Findings validation error for segment %d (%s)",
                     idx_val,
-                    _format_error_detail(res_entry),
+                    type(res_entry).__name__,
                 )
                 validated_results[idx_val - 1] = None
     else:
@@ -911,9 +901,9 @@ def _execute_findings_validation(
                 validated_results[i - 1] = single_res
             except Exception as exc:
                 logger.error(
-                    "Findings validation error for segment %d: %s",
+                    "Findings validation error for segment %d (%s)",
                     i,
-                    _format_error_detail(exc),
+                    type(exc).__name__,
                 )
                 validated_results[i - 1] = None
 
@@ -1134,7 +1124,7 @@ def _run_persona_loop(
                     pd, review_text = item
                     _record_result(pd, review_text)
                 elif isinstance(item, Exception):
-                    logger.error("Persona review execution error: %s", _format_error_detail(item))
+                    logger.error("Persona review execution error (%s)", type(item).__name__)
         else:
             for pd in personas:
                 pd, review_text = _execute_persona(pd)

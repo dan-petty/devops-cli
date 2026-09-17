@@ -1742,9 +1742,9 @@ class ReviewPipelineOrchestrator:
                     if isinstance(res, Exception):
                         err_desc = _format_error_detail("ReviewWorker", res)
                         logger.error(
-                            "Unexpected worker exception reviewing %s: %s",
+                            "Unexpected worker exception reviewing %s (%s)",
                             payload.file_path,
-                            err_desc,
+                            type(res).__name__,
                         )
                         payload.findings = []
                         payload.ai_scratchpad["stage"] = "failed"
@@ -1757,9 +1757,9 @@ class ReviewPipelineOrchestrator:
                     except Exception as exc:
                         err_desc = _format_error_detail("ReviewWorker", exc)
                         logger.error(
-                            "Unexpected worker exception reviewing %s: %s",
+                            "Unexpected worker exception reviewing %s (%s)",
                             payload.file_path,
-                            err_desc,
+                            type(exc).__name__,
                         )
                         payload.findings = []
                         payload.ai_scratchpad["stage"] = "failed"
@@ -1967,9 +1967,9 @@ class ReviewPipelineOrchestrator:
                     if isinstance(res, Exception):
                         err_desc = _format_error_detail("VerificationWorker", res)
                         logger.error(
-                            "Unexpected worker exception verifying %s: %s",
+                            "Unexpected worker exception verifying %s (%s)",
                             payload.file_path,
-                            err_desc,
+                            type(res).__name__,
                         )
                         payload.ai_scratchpad["stage"] = "failed"
                         payload.ai_scratchpad["error"] = err_desc
@@ -1981,9 +1981,9 @@ class ReviewPipelineOrchestrator:
                     except Exception as exc:
                         err_desc = _format_error_detail("VerificationWorker", exc)
                         logger.error(
-                            "Unexpected worker exception verifying %s: %s",
+                            "Unexpected worker exception verifying %s (%s)",
                             payload.file_path,
-                            err_desc,
+                            type(exc).__name__,
                         )
                         payload.ai_scratchpad["stage"] = "failed"
                         payload.ai_scratchpad["error"] = err_desc
