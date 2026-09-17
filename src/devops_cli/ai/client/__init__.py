@@ -23,6 +23,7 @@ from devops_cli.ai.client.streaming import (
     _extract_ollama_stream_tuple,
     _extract_openai_stream_chunk,
 )
+from devops_cli.ai.client.structured import StructuredOutputMixin
 from devops_cli.ai.client.unified import (
     LLMClient,
     model_request,
@@ -35,6 +36,7 @@ __all__ = [
     "LLMClient",
     "LLMResponse",
     "MAX_STREAM_BYTES",
+    "StructuredOutputMixin",
     "_consume_streaming_lines",
     "_extract_claude_stream_chunk",
     "_extract_ollama_stream_chunk",
