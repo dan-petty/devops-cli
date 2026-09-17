@@ -659,6 +659,69 @@ def monitor_pr_command(
 # =============================================================================
 
 
+def _resolve_milestone_number(owner: str, repo_name: str, milestone: str) -> int | None:
+    """Resolve milestone title or numeric string to milestone integer number."""
+    if milestone.isdigit():
+        return int(milestone)
+    from devops_cli.github.client import parse_paginated_json
+    from devops_cli.github.rate_limiter import run_gh
+
+    endpoint = f"repos/{owner}/{repo_name}/milestones?state=all&per_page=100"
+    res = run_gh(["api", endpoint], check=False, quiet=True, use_cache=True, cache_ttl=60.0)
+    if res.returncode == 0 and res.stdout.strip():
+        for m in parse_paginated_json(res.stdout):
+            if m.get("title") == milestone and "number" in m:
+                return int(m["number"])
+    return None
+
+
+def _patch_pr_fields(
+    owner: str,
+    repo_name: str,
+    number: int,
+    title: str | None,
+    body: str | None,
+    base: str | None,
+) -> bool:
+    """Patch PR metadata fields via REST pulls API."""
+    patch_cmd = [
+        CONST_GH_CLI,
+        "api",
+        "--method",
+        "PATCH",
+        f"repos/{owner}/{repo_name}/pulls/{number}",
+    ]
+    if title is not None:
+        patch_cmd.extend(["-f", f"title={title}"])
+    if body is not None:
+        patch_cmd.extend(["-f", f"body={body}"])
+    if base is not None:
+        patch_cmd.extend(["-f", f"base={base}"])
+    return run_subprocess(patch_cmd, check=False).returncode == 0
+
+
+def _patch_pr_milestone(
+    owner: str,
+    repo_name: str,
+    number: int,
+    milestone: str,
+) -> bool:
+    """Patch PR milestone association via REST issues API."""
+    milestone_num = _resolve_milestone_number(owner, repo_name, milestone)
+    if milestone_num is None:
+        return False
+    milestone_cmd = [
+        CONST_GH_CLI,
+        "api",
+        "--method",
+        "PATCH",
+        f"repos/{owner}/{repo_name}/issues/{number}",
+        "-F",
+        f"milestone={milestone_num}",
+    ]
+    return run_subprocess(milestone_cmd, check=False).returncode == 0
+
+
 def _fallback_patch_pr(
     number: int,
     base: str | None = None,
@@ -674,33 +737,15 @@ def _fallback_patch_pr(
     if not target or "/" not in target:
         return False
     owner, repo_name = target.split("/", 1)
-    patch_cmd = [
-        CONST_GH_CLI,
-        "api",
-        "--method",
-        "PATCH",
-        f"repos/{owner}/{repo_name}/pulls/{number}",
-    ]
-    if title is not None:
-        patch_cmd.extend(["-f", f"title={title}"])
-    if body is not None:
-        patch_cmd.extend(["-f", f"body={body}"])
-    if base is not None:
-        patch_cmd.extend(["-f", f"base={base}"])
-    res = run_subprocess(patch_cmd, check=False)
-    if milestone is not None:
-        milestone_cmd = [
-            CONST_GH_CLI,
-            "api",
-            "--method",
-            "PATCH",
-            f"repos/{owner}/{repo_name}/issues/{number}",
-            "-f",
-            f"milestone={milestone}",
-        ]
-        res_m = run_subprocess(milestone_cmd, check=False)
-        return res.returncode == 0 or res_m.returncode == 0
-    return res.returncode == 0
+
+    fields_specified = any([title is not None, body is not None, base is not None])
+    fields_ok = (
+        _patch_pr_fields(owner, repo_name, number, title, body, base) if fields_specified else True
+    )
+    milestone_ok = (
+        _patch_pr_milestone(owner, repo_name, number, milestone) if milestone is not None else True
+    )
+    return fields_ok and milestone_ok
 
 
 @app.command("edit")

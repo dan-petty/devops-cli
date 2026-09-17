@@ -122,6 +122,48 @@ class TestPrCommands:
                 "v0.2.19" in args,
             ) == (0, True, True, True)
 
+    def test_fallback_patch_pr_milestone_title(self) -> None:
+        from devops_cli.commands.pr import _fallback_patch_pr
+
+        milestones_json = '[{"title": "v0.2.19", "number": 19}]'
+        with (
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch(
+                "devops_cli.github.rate_limiter.run_gh",
+                return_value=MagicMock(returncode=0, stdout=milestones_json),
+            ),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=""),
+            ) as mock_run,
+        ):
+            success = _fallback_patch_pr(217, milestone="v0.2.19")
+            args = mock_run.call_args[0][0]
+            assert (
+                success,
+                "issues/217" in " ".join(args),
+                "-F" in args,
+                "milestone=19" in args,
+            ) == (True, True, True, True)
+
+    def test_fallback_patch_pr_milestone_digits_and_fields(self) -> None:
+        from devops_cli.commands.pr import _fallback_patch_pr
+
+        with (
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout=""),
+            ) as mock_run,
+        ):
+            success = _fallback_patch_pr(217, title="New Title", milestone="19")
+            call_cmds = [" ".join(c[0][0]) for c in mock_run.call_args_list]
+            assert (
+                success,
+                any("pulls/217" in c and "title=New Title" in c for c in call_cmds),
+                any("issues/217" in c and "-F milestone=19" in c for c in call_cmds),
+            ) == (True, True, True)
+
     def test_create_pr(self, runner: CliRunner) -> None:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),

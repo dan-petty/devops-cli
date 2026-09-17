@@ -48,6 +48,9 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **Distributed Multi-Cluster Telemetry & OTel Egress Mesh**: Global trace and metric federation across hybrid workstation topologies with automated anomaly alerting.
 - [ ] **Distributed Cache & Shared Semantic Embeddings Sync (`devops ai cache sync`)**: S3 / OCI-backed shared LLM response and vector embedding cache for remote engineering teams.
 - [ ] **JIT Python 3.14 Tail-Call & Bytecode Optimization Benchmarking**: Comprehensive runtime benchmarks utilizing Python 3.14+ specialization and JIT compiler tiers.
+- [ ] **Universal `--json` CLI Output Flag Alias Pipeline (`devops * --json`)**: First-class `--json` alias for `--format json` across all inspection and diagnostic subcommands.
+- [ ] **Mutation-Driven GitHub Cache Invalidation Hooks**: Automatic invalidation of cached GitHub REST and GraphQL responses on edit, patch, and reconcile operations.
+
 
 ---
 
@@ -69,5 +72,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |
 |  | Distributed Multi-Cluster Telemetry & OTel Egress Mesh | OTel Collector / Prometheus | High | High | v0.3.0 | 💡 Future Vision |
 |  | Distributed Cache & Shared Semantic Embeddings Sync | S3 / OCI / SQLite | High | Medium | v0.3.0 | 💡 Future Vision |
+|  | Universal `--json` CLI Output Flag Alias Pipeline | Typer / Rich | Medium | Low | v0.3.0 | 💡 Future Vision |
+|  | Mutation-Driven GitHub Cache Invalidation Hooks | Disk Cache / SQLite | High | Low | v0.3.0 | 💡 Future Vision |
 | **De-prioritized** | Bare-Metal OS Installers | Shell scripts | Low | High | — | ❌ Rejected (DevContainer native) |
 |  | Heavyweight Monolithic Orchestrators | Full LangChain | Low | High | — | ❌ Rejected (FastMCP + PydanticAI) |

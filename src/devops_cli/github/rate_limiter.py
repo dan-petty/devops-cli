@@ -933,7 +933,7 @@ def _load_disk_cache(cache_dir: Path, key: str) -> _CacheEntry | None:
             entry_file.unlink(missing_ok=True)
             return None
         return _CacheEntry(data=str(data.get("data", "")), expires_at=expires_at)
-    except OSError, ValueError, TypeError:
+    except (OSError, ValueError, TypeError) as _err:
         return None
 
 

@@ -36,7 +36,8 @@ This task addresses performance, reliability, and governance defects across `--d
 
 - `src/devops_cli/github/rate_limiter.py`: Robust query parsing with `urllib.parse` in `_build_paginated_url` and `_extract_page_per_page`, and persistent disk caching in `_load_disk_cache` / `_save_disk_cache`.
 - `src/devops_cli/github/projects.py`: Cached repository issue/PR retrieval, open PR filtering for linked issue resolution, and board item containment in dry run.
-- `src/devops_cli/commands/pr.py`: Milestone editing option on `devops pr edit`.
+- `src/devops_cli/commands/pr.py`: Milestone editing option on `devops pr edit`, milestone title resolution, and isolated field/milestone fallback REST patchers.
 - `src/devops_cli/ai/mcp/server.py`: Milestone parameter on `pr_edit` FastMCP tool.
 - `tests/test_github_rate_limiter.py`: Unit tests verifying pagination URL replacement with `per_page` parameters and multi-page responses without infinite loops.
-- `tests/test_pr_cmd.py`: Unit test verifying `devops pr edit --milestone`.
+- `tests/test_github_projects_reconcile.py`: Unit test verifying off-board candidate exclusion in `dry_run=True` and inclusion in `dry_run=False`.
+- `tests/test_pr_cmd.py`: Unit tests verifying `devops pr edit --milestone` and `_fallback_patch_pr` milestone resolution.
