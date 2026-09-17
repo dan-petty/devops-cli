@@ -1,7 +1,8 @@
 # Task 123: LLM Structured Output Retry and JSON Schema Repair Engine
 
 **Issue**: [#123](https://github.com/dan-petty/devops-cli/issues/123)
-**Status**: Done
+**PR**: [#230](https://github.com/dan-petty/devops-cli/pull/230)
+**Status**: In Review
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p2-medium`
 **Scope**: `scope/ai`

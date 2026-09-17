@@ -26,6 +26,7 @@ from devops_cli.config.defaults import (
     DEFAULT_STRUCTURED_RETRY_BACKOFF_SECONDS,
 )
 from devops_cli.config.settings import AIConfig
+from devops_cli.exceptions.ai import StructuredOutputSchemaError
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import record_metric, trace_span
 
@@ -137,7 +138,7 @@ def _prepare_structured_messages(
         return list(prompt)
     if user is not None:
         return [ChatMessage(role="user", content=user)]
-    raise ValueError("Either prompt or user text must be provided.")
+    raise StructuredOutputSchemaError("Either prompt or user text must be provided.")
 
 
 class StructuredOutputMixin:
@@ -198,7 +199,7 @@ class StructuredOutputMixin:
             1.0,
             attributes={"model": model_name},
         )
-        time.sleep(backoff_seconds * attempt)
+        time.sleep(backoff_seconds * (2 ** (attempt - 1)))
         messages.append(ChatMessage(role="assistant", content=raw_text))
         messages.append(_build_reflection_message(err_msg))
 
@@ -217,7 +218,7 @@ class StructuredOutputMixin:
     ) -> T:
         """Send chat request and guarantee validated structured Pydantic output with repair and retry."""
         if schema is None:
-            raise ValueError("A schema model class must be provided.")
+            raise StructuredOutputSchemaError("A schema model class must be provided.")
 
         messages = _prepare_structured_messages(prompt, user)
         model_name = str(getattr(self._config, "model", "default"))
