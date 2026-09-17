@@ -2200,9 +2200,10 @@ def pr_edit(
     title: str | None = None,
     body: str | None = None,
     base: str | None = None,
+    milestone: str | None = None,
     repo: str | None = None,
 ) -> str:
-    """Edit an existing pull request title, body, or base branch."""
+    """Edit an existing pull request title, body, base branch, or milestone."""
     _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
     cmd = ["uv", "run", "devops", "pr", "edit", str(pr_number)]
     if title:
@@ -2214,6 +2215,9 @@ def pr_edit(
     if base:
         _validate_mcp_arg("base", base)
         cmd.extend(["--base", base])
+    if milestone:
+        _validate_mcp_arg("milestone", milestone)
+        cmd.extend(["--milestone", milestone])
     if repo:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])

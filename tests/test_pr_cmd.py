@@ -105,6 +105,23 @@ class TestPrCommands:
             assert "--base" in args
             assert "release/v0.1.12" in args
 
+    def test_edit_pr_milestone(self, runner: CliRunner) -> None:
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch(
+                "devops_cli.commands.pr.run_subprocess",
+                return_value=MagicMock(returncode=0, stdout="", stderr=""),
+            ) as mock_run,
+        ):
+            result = runner.invoke(app, ["edit", "217", "--milestone", "v0.2.19"])
+            args = mock_run.call_args[0][0]
+            assert (
+                result.exit_code,
+                "Successfully updated PR #217" in result.output,
+                "--milestone" in args,
+                "v0.2.19" in args,
+            ) == (0, True, True, True)
+
     def test_create_pr(self, runner: CliRunner) -> None:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),

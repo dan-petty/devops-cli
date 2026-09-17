@@ -11,6 +11,7 @@ import subprocess
 import time
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -815,3 +816,84 @@ def test_rate_limiter_acquire_fallback_on_unresolvable_quota(tmp_path: Path) -> 
         assert delay == pytest.approx(0.05, abs=0.01)
         mock_sleep.assert_called_once()
         assert mock_sleep.call_args[0][0] == pytest.approx(0.05, abs=0.01)
+
+
+def test_build_paginated_url_and_extraction() -> None:
+    """Verify _build_paginated_url and _extract_page_per_page handle query params cleanly."""
+    from urllib.parse import parse_qs, urlsplit
+
+    from devops_cli.github.rate_limiter import (
+        _build_paginated_url,
+        _extract_page_per_page,
+    )
+
+    url_with_per_page = "repos/owner/repo/issues?state=all&per_page=100"
+    url_p2 = _build_paginated_url(url_with_per_page, 2)
+    qs_p2 = parse_qs(urlsplit(url_p2).query)
+
+    url_plain = "repos/owner/repo/issues"
+    url_plain_p3 = _build_paginated_url(url_plain, 3)
+    qs_plain = parse_qs(urlsplit(url_plain_p3).query)
+
+    url_existing_page = "repos/owner/repo/pulls?page=1&per_page=50"
+    url_existing_p4 = _build_paginated_url(url_existing_page, 4)
+    qs_existing = parse_qs(urlsplit(url_existing_p4).query)
+
+    assert (
+        _extract_page_per_page(url_with_per_page),
+        _extract_page_per_page(url_plain),
+        _extract_page_per_page("repos/owner/repo?per_page=25"),
+        qs_p2.get("page"),
+        qs_p2.get("state"),
+        qs_p2.get("per_page"),
+        qs_plain.get("page"),
+        qs_existing.get("page"),
+        qs_existing.get("per_page"),
+    ) == (
+        100,
+        100,
+        25,
+        ["2"],
+        ["all"],
+        ["100"],
+        ["3"],
+        ["4"],
+        ["50"],
+    )
+
+
+def test_run_gh_paginated_multipage_success(tmp_path: Path) -> None:
+    """Verify _run_gh_paginated iterates across multiple pages and terminates correctly."""
+    page_calls: list[list[str]] = []
+
+    def mock_subprocess_runner(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        page_calls.append(cmd)
+        from urllib.parse import parse_qs, urlsplit
+
+        target_arg = next((arg for arg in cmd if "repos/owner/repo/issues" in arg), "")
+        page_val = parse_qs(urlsplit(target_arg).query).get("page")
+        if page_val == ["2"]:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout='[{"id": 3}]', stderr=""
+            )
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout='[{"id": 1}, {"id": 2}]', stderr=""
+        )
+
+    with (
+        patch(
+            "devops_cli.github.rate_limiter._extract_page_per_page",
+            return_value=2,
+        ),
+        patch(
+            "devops_cli.github.rate_limiter.run_subprocess",
+            side_effect=mock_subprocess_runner,
+        ),
+        patch.object(get_github_rate_limiter(), "acquire", return_value=0.0),
+    ):
+        res = run_gh(["api", "--paginate", "repos/owner/repo/issues?per_page=2"])
+        assert (res.returncode, res.stdout, len(page_calls)) == (
+            0,
+            '[{"id": 1}, {"id": 2}, {"id": 3}]',
+            2,
+        )

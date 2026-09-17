@@ -665,6 +665,7 @@ def _fallback_patch_pr(
     title: str | None = None,
     body: str | None = None,
     repo: str | None = None,
+    milestone: str | None = None,
 ) -> bool:
     """Fallback to REST API PATCH when gh pr edit fails (e.g. rate limit)."""
     from devops_cli.core.repo import get_repo_origin_name
@@ -687,6 +688,18 @@ def _fallback_patch_pr(
     if base is not None:
         patch_cmd.extend(["-f", f"base={base}"])
     res = run_subprocess(patch_cmd, check=False)
+    if milestone is not None:
+        milestone_cmd = [
+            CONST_GH_CLI,
+            "api",
+            "--method",
+            "PATCH",
+            f"repos/{owner}/{repo_name}/issues/{number}",
+            "-f",
+            f"milestone={milestone}",
+        ]
+        res_m = run_subprocess(milestone_cmd, check=False)
+        return res.returncode == 0 or res_m.returncode == 0
     return res.returncode == 0
 
 
@@ -705,15 +718,19 @@ def edit_pr(
         str | None,
         typer.Option("--body", "-b", help=HELP.pr.edit_body),
     ] = None,
+    milestone: Annotated[
+        str | None,
+        typer.Option("--milestone", "-m", help=HELP.pr.edit_milestone),
+    ] = None,
     repo: Annotated[
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
 ) -> None:
-    """Edit pull request base branch, title, or body."""
+    """Edit pull request base branch, title, body, or milestone."""
     _require_gh_cli()
-    if not any([title, body, base]):
-        print_warning("No changes specified. Use --title, --body, or --base.")
+    if not any([title, body, base, milestone]):
+        print_warning("No changes specified. Use --title, --body, --base, or --milestone.")
         return
 
     cmd = [CONST_GH_CLI, "pr", "edit", str(number)]
@@ -723,12 +740,14 @@ def edit_pr(
         cmd.extend(["--title", title])
     if body:
         cmd.extend(["--body", body])
+    if milestone:
+        cmd.extend(["--milestone", milestone])
     if repo:
         cmd.extend(["--repo", repo])
 
     res = run_subprocess(cmd, check=False)
     if res.returncode != 0:
-        if _fallback_patch_pr(number, base, title, body, repo):
+        if _fallback_patch_pr(number, base, title, body, repo, milestone):
             print_success(f"Successfully updated PR #{number}")
             return
         raise typer.Exit(res.returncode)

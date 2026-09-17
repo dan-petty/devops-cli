@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.defaults import (
+    DEFAULT_GH_CACHE_TTL_SECONDS,
     DEFAULT_GH_GRAPHQL_SAFETY_THRESHOLD,
     DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC,
 )
@@ -755,6 +756,8 @@ def _fetch_repository_issues(repo: str) -> list[dict[str, Any]]:
         ],
         check=False,
         quiet=True,
+        use_cache=True,
+        cache_ttl=DEFAULT_GH_CACHE_TTL_SECONDS,
     )
     if res.returncode != 0 or not res.stdout:
         return []
@@ -935,19 +938,21 @@ def infer_item_category_value_effort(
     return PRIORITY_CATEGORY_MAPPING.get(priority, ("Fill-In", "Medium", "Medium"))
 
 
-def _fetch_repository_prs(repo: str) -> list[dict[str, Any]]:
+def _fetch_repository_prs(repo: str, state: str = "open") -> list[dict[str, Any]]:
     """Retrieve candidate PRs from the repository via GitHub API."""
     res = run_gh(
         [
             CONST_GH_CLI,
             "api",
             "--paginate",
-            f"repos/{repo}/pulls?state=all&per_page=100",
+            f"repos/{repo}/pulls?state={state}&per_page=100",
             "-H",
             "Accept: application/vnd.github+json",
         ],
         check=False,
         quiet=True,
+        use_cache=True,
+        cache_ttl=DEFAULT_GH_CACHE_TTL_SECONDS,
     )
     if res.returncode != 0 or not res.stdout:
         return []
@@ -1122,6 +1127,22 @@ def _provision_missing_candidates(
             items_data[url] = {}
 
 
+def _can_continue_reconciliation(reconciled_count: int, max_mutations: int, dry_run: bool) -> bool:
+    """Predicate determining if candidate reconciliation may continue."""
+    if dry_run:
+        return True
+    if _is_graphql_quota_exhausted():
+        logger.warning("GraphQL quota critically low or unknown. Halting candidate reconciliation.")
+        return False
+    if reconciled_count >= max_mutations:
+        logger.info(
+            "Reached maximum mutations per sync budget (%d). Pausing reconciliation.",
+            max_mutations,
+        )
+        return False
+    return True
+
+
 def _reconcile_candidate_items(
     owner: str,
     project_number: int,
@@ -1134,27 +1155,19 @@ def _reconcile_candidate_items(
     """Iterate over candidates and reconcile custom fields where values differ."""
     reconciled_count = 0
     for it in candidates:
-        if not dry_run and _is_graphql_quota_exhausted():
-            logger.warning(
-                "GraphQL quota critically low or unknown. Halting candidate reconciliation."
-            )
-            break
-        if not dry_run and reconciled_count >= max_mutations:
-            logger.info(
-                "Reached maximum mutations per sync budget (%d). Pausing reconciliation.",
-                max_mutations,
-            )
+        if not _can_continue_reconciliation(reconciled_count, max_mutations, dry_run):
             break
         url = it.get("html_url") or it.get("url") or ""
+        if dry_run and url not in items_data:
+            continue
         it_num = int(it.get("number", 0))
-        has_pr = it_num in open_pr_issue_numbers
         current = items_data.get(url)
         if _reconcile_single_item(
             owner,
             project_number,
             it,
             dry_run,
-            has_open_pr=has_pr,
+            has_open_pr=(it_num in open_pr_issue_numbers),
             current_fields=current,
         ):
             reconciled_count += 1
@@ -1194,7 +1207,7 @@ def reconcile_project_custom_fields(
         }
 
     issues = _fetch_repository_issues(repo)
-    prs = _fetch_repository_prs(repo)
+    prs = _fetch_repository_prs(repo, state="open")
     candidates = issues + prs
 
     open_pr_issue_numbers = _extract_linked_issue_numbers(prs)
@@ -1203,15 +1216,21 @@ def reconcile_project_custom_fields(
     if not dry_run:
         _provision_missing_candidates(owner, project_number, candidates, active_items)
 
+    eval_candidates = (
+        [it for it in candidates if (it.get("html_url") or it.get("url") or "") in active_items]
+        if dry_run
+        else candidates
+    )
+
     reconciled_count = _reconcile_candidate_items(
-        owner, project_number, candidates, active_items, open_pr_issue_numbers, dry_run
+        owner, project_number, eval_candidates, active_items, open_pr_issue_numbers, dry_run
     )
 
     return {
         "project_number": project_number,
         "owner": owner,
         "repo": repo,
-        "items_evaluated": len(candidates),
+        "items_evaluated": len(eval_candidates),
         "items_reconciled": reconciled_count,
         "dry_run": dry_run,
     }

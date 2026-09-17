@@ -587,6 +587,7 @@ class PRCommandHelp:
     edit_base: str = "Change the base branch for this pull request."
     edit_title: str = "Set the new title."
     edit_body: str = "Set the new body."
+    edit_milestone: str = "Set the milestone for this pull request."
     threads_app: str = "Manage and programmatically resolve PR review discussion threads."
     threads_list: str = "List PR review discussion threads, file locations, and comments."
     threads_reply: str = "Post an in-thread reply to a PR review discussion thread."
