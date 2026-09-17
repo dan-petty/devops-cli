@@ -1099,25 +1099,87 @@ def test_orchestrator_worker_clamping_to_total_files(tmp_path: Path) -> None:
     fmeta = FileAnalysisMeta(path="src/one.py", key_symbols=["alpha"])
     payloads = orchestrator.init_per_file_payloads(["src/one.py"], {"src/one.py": fmeta})
 
-    with patch("devops_cli.ai.review.pool.ReviewWorkerPool") as mock_pool_cls:
+    with patch("devops_cli.ai.review.pool.ReviewWorkerPool.create") as mock_create:
         mock_pool = MagicMock()
-        mock_pool_cls.return_value = mock_pool
+        mock_create.return_value = mock_pool
         orchestrator.execute_multi_persona_review(
             payloads, diff_text_by_file={"src/one.py": "code"}, personas=["devsecops"]
         )
-        assert not mock_pool_cls.called
+        assert not mock_create.called
 
     fmeta2 = FileAnalysisMeta(path="src/two.py", key_symbols=["beta"])
     payloads2 = orchestrator.init_per_file_payloads(
         ["src/one.py", "src/two.py"], {"src/one.py": fmeta, "src/two.py": fmeta2}
     )
-    with patch("devops_cli.ai.review.pool.ReviewWorkerPool") as mock_pool_cls:
+    with patch("devops_cli.ai.review.pool.ReviewWorkerPool.create") as mock_create:
         mock_pool = MagicMock()
-        mock_pool_cls.return_value = mock_pool
+        mock_create.return_value = mock_pool
         orchestrator.execute_multi_persona_review(
             payloads2,
             diff_text_by_file={"src/one.py": "c1", "src/two.py": "c2"},
             personas=["devsecops"],
         )
-        assert mock_pool_cls.called
-        assert mock_pool_cls.call_args.kwargs.get("max_concurrency") == 2
+        assert mock_create.called
+        assert mock_create.call_args.kwargs.get("concurrency") == 2
+
+
+def test_orchestrator_worker_exception_isolation(tmp_path: Path) -> None:
+    """Verify worker pool isolates exceptions and marks payloads failed with errored_files entry."""
+    mock_llm = _create_mock_review_llm()
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="err-test-session",
+        llm_client=mock_llm,
+        target_dir=tmp_path,
+        concurrency=2,
+        parallel=True,
+    )
+    fmeta1 = FileAnalysisMeta(path="src/one.py", key_symbols=["alpha"])
+    fmeta2 = FileAnalysisMeta(path="src/two.py", key_symbols=["beta"])
+    payloads = orchestrator.init_per_file_payloads(
+        ["src/one.py", "src/two.py"], {"src/one.py": fmeta1, "src/two.py": fmeta2}
+    )
+
+    def _mock_safe_review(
+        idx: int, total: int, payload: FileReviewPayload, *args: object, **kwargs: object
+    ) -> None:
+        if payload.file_path == "src/two.py":
+            raise RuntimeError("Fatal worker error")
+        payload.ai_scratchpad["stage"] = "reviewed"
+
+    with patch.object(orchestrator, "_safe_review_file_payload", side_effect=_mock_safe_review):
+        orchestrator.execute_multi_persona_review(
+            payloads,
+            diff_text_by_file={"src/one.py": "c1", "src/two.py": "c2"},
+            personas=["devsecops"],
+        )
+        assert (
+            payloads[0].ai_scratchpad["stage"],
+            payloads[1].ai_scratchpad["stage"],
+            "src/two.py" in orchestrator.errored_files,
+        ) == ("reviewed", "failed", True)
+
+    payloads[0].findings = [
+        SavedFinding(
+            id="f1",
+            file="src/one.py",
+            line=1,
+            severity="HIGH",
+            category="security",
+            description="test",
+            persona="devsecops",
+        )
+    ]
+
+    def _mock_safe_verify(
+        idx: int, total: int, payload: FileReviewPayload, *args: object, **kwargs: object
+    ) -> None:
+        if payload.file_path == "src/one.py":
+            raise RuntimeError("Fatal verification error")
+        payload.ai_scratchpad["stage"] = "verified"
+
+    with patch.object(orchestrator, "_safe_verify_file_payload", side_effect=_mock_safe_verify):
+        orchestrator.execute_finding_verification(payloads)
+        assert (
+            payloads[0].ai_scratchpad["stage"],
+            "src/one.py" in orchestrator.errored_files,
+        ) == ("failed", True)

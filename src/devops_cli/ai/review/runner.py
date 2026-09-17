@@ -6,7 +6,6 @@ import json
 import logging
 import time
 from collections.abc import Callable
-from concurrent.futures import as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -70,7 +69,6 @@ from devops_cli.security.sanitizer import (
     redact_text,
     sanitize_prompt_boundary_tags,
 )
-from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -754,11 +752,28 @@ def _execute_review_segments(
         return (i, result_text)
 
     if total > 1 and not is_dry_run():
+        from devops_cli.ai.review.pool import ReviewWorkerPool
+
         workers = _calculate_parallel_review_workers(clients, total)
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [executor.submit(_review_segment, i, page) for i, page in enumerate(pages, 1)]
-            indexed_results = [f.result() for f in futures]
-            responses = [res for _, res in sorted(indexed_results, key=lambda x: x[0])]
+        pool = ReviewWorkerPool.create(concurrency=workers)
+
+        def _worker_task(item: tuple[int, str]) -> tuple[int, str]:
+            i, page = item
+            return _review_segment(i, page)
+
+        raw_results = pool.run_sync_all(
+            _worker_task, list(enumerate(pages, 1)), return_exceptions=True
+        )
+        indexed_results: list[tuple[int, str]] = []
+        for idx, res in enumerate(raw_results, 1):
+            if isinstance(res, tuple) and len(res) == 2:
+                indexed_results.append((res[0], str(res[1])))
+            elif isinstance(res, Exception):
+                logger.error("Segment %d review error (%s)", idx, type(res).__name__)
+                indexed_results.append((idx, ""))
+            else:
+                indexed_results.append((idx, str(res or "")))
+        responses = [res for _, res in sorted(indexed_results, key=lambda x: x[0])]
     else:
         responses = [_review_segment(i, page)[1] for i, page in enumerate(pages, 1)]
 
@@ -834,31 +849,18 @@ def _execute_findings_validation(
     file_analysis_metas = _load_file_analysis_metas(None, repo_root=repo_target)
 
     validated_results = list(segment_results)
-    if total > 1:
+    if total > 1 and not is_dry_run():
+        from devops_cli.ai.review.pool import ReviewWorkerPool
+
         workers = _calculate_parallel_review_workers(clients, total)
         val_items = list(enumerate(zip(pages, segment_results), 1))
-        with ThreadPoolExecutor(max_workers=workers) as val_executor:
-            val_futures = [
-                val_executor.submit(
-                    _validate_single_segment_findings,
-                    i,
-                    page,
-                    parsed,
-                    total,
-                    pages,
-                    clients,
-                    file_analysis_metas,
-                    repo_target,
-                    analysis_suffix,
-                )
-                for i, (page, parsed) in val_items
-            ]
-            for val_fut in val_futures:
-                idx_val, val_res = val_fut.result()
-                validated_results[idx_val - 1] = val_res
-    else:
-        for i, (page, parsed) in enumerate(zip(pages, segment_results), 1):
-            _, val_res = _validate_single_segment_findings(
+        pool = ReviewWorkerPool.create(concurrency=workers)
+
+        def _val_task(
+            item: tuple[int, tuple[str, ReviewResult | None]],
+        ) -> tuple[int, ReviewResult | None]:
+            i, (page, parsed) = item
+            return _validate_single_segment_findings(
                 i,
                 page,
                 parsed,
@@ -869,7 +871,41 @@ def _execute_findings_validation(
                 repo_target,
                 analysis_suffix,
             )
-            validated_results[i - 1] = val_res
+
+        val_results = pool.run_sync_all(_val_task, val_items, return_exceptions=True)
+        for (idx_val, _), res_entry in zip(val_items, val_results):
+            if isinstance(res_entry, tuple) and len(res_entry) == 2:
+                _, val_obj = res_entry
+                validated_results[idx_val - 1] = val_obj
+            elif isinstance(res_entry, Exception):
+                logger.error(
+                    "Findings validation error for segment %d (%s)",
+                    idx_val,
+                    type(res_entry).__name__,
+                )
+                validated_results[idx_val - 1] = None
+    else:
+        for i, (page, parsed) in enumerate(zip(pages, segment_results), 1):
+            try:
+                _, single_res = _validate_single_segment_findings(
+                    i,
+                    page,
+                    parsed,
+                    total,
+                    pages,
+                    clients,
+                    file_analysis_metas,
+                    repo_target,
+                    analysis_suffix,
+                )
+                validated_results[i - 1] = single_res
+            except Exception as exc:
+                logger.error(
+                    "Findings validation error for segment %d (%s)",
+                    i,
+                    type(exc).__name__,
+                )
+                validated_results[i - 1] = None
 
     print_info(f"[dim]  total {format_duration(time.monotonic() - t3)}[/dim]", prefix=False)
     return validated_results
@@ -1005,13 +1041,23 @@ def _load_shared_metadata_for_pages(pages: list[str]) -> dict[str, FileAnalysisM
     return _load_file_analysis_metas(all_files, repo_root=repo_target)
 
 
-def _calculate_parallel_review_workers(clients: ReviewClients, num_personas: int) -> int:
-    """Calculate thread pool worker count for multi-persona execution."""
+def _calculate_parallel_review_workers(
+    clients: ReviewClients, num_tasks: int, concurrency: int | None = None
+) -> int:
+    """Calculate worker pool capacity for parallel review execution."""
+    from devops_cli.config.defaults import (
+        DEFAULT_REVIEW_CONCURRENCY,
+        DEFAULT_REVIEW_MAX_CONCURRENCY,
+    )
+
+    if concurrency is not None:
+        return min(num_tasks, max(1, concurrency))
     config = getattr(clients.analysis, "_config", None)
     ollama_urls = _resolve_ollama_urls(config)
     raw_par = getattr(config, "ollama_max_parallel", None)
     max_par = int(raw_par) if isinstance(raw_par, int) else 2
-    return min(num_personas, max(len(ollama_urls) * max_par, 1))
+    capacity = max(DEFAULT_REVIEW_CONCURRENCY, len(ollama_urls) * max_par)
+    return min(num_tasks, capacity, DEFAULT_REVIEW_MAX_CONCURRENCY)
 
 
 def _run_persona_loop(
@@ -1068,12 +1114,17 @@ def _run_persona_loop(
                 _write_summary(title, session_dir, pages, completed, shared_meta)
 
         if len(personas) > 1 and not is_dry_run():
+            from devops_cli.ai.review.pool import ReviewWorkerPool
+
             workers = _calculate_parallel_review_workers(clients, len(personas))
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                future_map = {executor.submit(_execute_persona, pd): pd for pd in personas}
-                for future in as_completed(future_map):
-                    pd, review_text = future.result()
+            pool = ReviewWorkerPool.create(concurrency=workers)
+            persona_results = pool.run_sync_all(_execute_persona, personas, return_exceptions=True)
+            for item in persona_results:
+                if isinstance(item, tuple) and len(item) == 2:
+                    pd, review_text = item
                     _record_result(pd, review_text)
+                elif isinstance(item, Exception):
+                    logger.error("Persona review execution error (%s)", type(item).__name__)
         else:
             for pd in personas:
                 pd, review_text = _execute_persona(pd)
