@@ -342,6 +342,7 @@ def _find_project_via_rest(owner: str, name_or_short: str) -> dict[str, Any] | N
 
 
 _CURRENT_USER_CACHE: str | None = None
+_PROJECT_OWNER_ARG_CACHE: dict[str, str] = {}
 
 
 def _get_authenticated_user() -> str | None:
@@ -361,6 +362,8 @@ def _resolve_project_owner_arg(owner: str) -> str:
     clean_owner = owner.strip()
     if clean_owner == "@me":
         return "@me"
+    if clean_owner in _PROJECT_OWNER_ARG_CACHE:
+        return _PROJECT_OWNER_ARG_CACHE[clean_owner]
     current_user = _get_authenticated_user()
     if current_user and clean_owner.lower() == current_user:
         return "@me"
@@ -380,7 +383,10 @@ def _run_project_cli(
         owner_idx = fallback_cmd.index("--owner") + 1
         if owner_idx < len(fallback_cmd):
             fallback_cmd[owner_idx] = "@me"
-            return run_gh(fallback_cmd, check=check, quiet=quiet)
+            fallback_proc = run_gh(fallback_cmd, check=check, quiet=quiet)
+            if fallback_proc.returncode == 0:
+                _PROJECT_OWNER_ARG_CACHE[owner_arg] = "@me"
+            return fallback_proc
     return proc
 
 
@@ -743,14 +749,14 @@ def _fetch_project_items_data(
     return None
 
 
-def _fetch_repository_issues(repo: str) -> list[dict[str, Any]]:
+def _fetch_repository_issues(repo: str, state: str = "open") -> list[dict[str, Any]]:
     """Retrieve candidate issues from the repository via GitHub API."""
     res = run_gh(
         [
             CONST_GH_CLI,
             "api",
             "--paginate",
-            f"repos/{repo}/issues?state=all&per_page=100",
+            f"repos/{repo}/issues?state={state}&per_page=100",
             "-H",
             "Accept: application/vnd.github+json",
         ],
@@ -789,6 +795,7 @@ def sync_repository_issues_to_project(
     repo: str,
     project_number: int,
     dry_run: bool = False,
+    state: str = "open",
 ) -> int:
     """Synchronize open and active repository issues to the project board."""
     if dry_run or _is_graphql_quota_exhausted():
@@ -797,7 +804,7 @@ def sync_repository_issues_to_project(
     owner_arg = _resolve_project_owner_arg(owner)
     existing_items = _fetch_project_items_data(owner, project_number) or {}
     existing_urls = set(existing_items.keys())
-    issues = _fetch_repository_issues(repo)
+    issues = _fetch_repository_issues(repo, state=state)
     added = 0
 
     for iss in issues:
@@ -978,25 +985,7 @@ def _edit_project_item_field(
         "--value",
         field_val,
     ]
-    proc = run_gh(edit_cmd, check=False, quiet=True)
-    if proc.returncode != 0 and owner_arg != "@me":
-        err_output = f"{proc.stderr or ''} {proc.stdout or ''}".lower()
-        if "unknown owner type" in err_output:
-            fallback_cmd = [
-                CONST_GH_CLI,
-                "project",
-                "item-edit",
-                str(project_number),
-                "--owner",
-                "@me",
-                "--url",
-                url,
-                "--field",
-                field_name,
-                "--value",
-                field_val,
-            ]
-            proc = run_gh(fallback_cmd, check=False, quiet=True)
+    proc = _run_project_cli(edit_cmd, owner_arg=owner_arg, check=False, quiet=True)
     return proc.returncode == 0
 
 
@@ -1056,9 +1045,20 @@ def _reconcile_single_item(
     if dry_run:
         return True
 
+    return _apply_field_updates(owner, project_number, url, fields_to_update, current_fields)
+
+
+def _apply_field_updates(
+    owner: str,
+    project_number: int,
+    url: str,
+    fields_to_update: list[tuple[str, str]],
+    current_fields: dict[str, str | None] | None,
+) -> bool:
+    """Apply field updates via gh project CLI, breaking early if quota exhausted."""
     updated_any = False
     for fname, fval in fields_to_update:
-        if not dry_run and _is_graphql_quota_exhausted():
+        if _is_graphql_quota_exhausted():
             logger.warning("GraphQL quota critically low. Halting field update.")
             break
         if _edit_project_item_field(owner, project_number, url, fname, fval):
@@ -1107,14 +1107,16 @@ def _provision_missing_candidates(
     project_number: int,
     candidates: list[dict[str, Any]],
     items_data: dict[str, dict[str, str | None]],
+    max_mutations: int = DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC,
 ) -> None:
     """Add any missing candidate issues/PRs to the remote project board."""
     owner_arg = _resolve_project_owner_arg(owner)
     existing_urls = set(items_data.keys())
+    provisioned = 0
     for it in candidates:
-        if _is_graphql_quota_exhausted():
+        if provisioned >= max_mutations or _is_graphql_quota_exhausted():
             logger.warning(
-                "GraphQL quota critically low or unknown. Halting candidate provisioning."
+                "GraphQL quota critically low or reached mutation budget. Halting candidate provisioning."
             )
             break
         url = it.get("html_url") or it.get("url")
@@ -1125,6 +1127,7 @@ def _provision_missing_candidates(
         ):
             existing_urls.add(url)
             items_data[url] = {}
+            provisioned += 1
 
 
 def _can_continue_reconciliation(reconciled_count: int, max_mutations: int, dry_run: bool) -> bool:
@@ -1179,6 +1182,7 @@ def reconcile_project_custom_fields(
     repo: str,
     project_number: int,
     dry_run: bool = False,
+    state: str = "open",
 ) -> dict[str, Any]:
     """Reconcile custom field values (Status, Priority, Category, Value, Effort) on project items."""
     if _is_graphql_quota_exhausted():
@@ -1206,8 +1210,8 @@ def reconcile_project_custom_fields(
             "dry_run": dry_run,
         }
 
-    issues = _fetch_repository_issues(repo)
-    prs = _fetch_repository_prs(repo, state="open")
+    issues = _fetch_repository_issues(repo, state=state)
+    prs = _fetch_repository_prs(repo, state=state)
     candidates = issues + prs
 
     open_pr_issue_numbers = _extract_linked_issue_numbers(prs)

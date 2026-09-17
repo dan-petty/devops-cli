@@ -206,7 +206,7 @@ def test_build_protection_payload() -> None:
     assert payload["required_pull_request_reviews"]["required_approving_review_count"] == 1
 
 
-@patch("devops_cli.github.branch_protection.run_subprocess")
+@patch("devops_cli.github.branch_protection.run_gh")
 def test_get_remote_branch_protection_success(mock_sub: MagicMock) -> None:
     mock_sub.return_value = MagicMock(returncode=0, stdout='{"enforce_admins": {"enabled": true}}')
     data = get_remote_branch_protection("dan-petty/devops-cli", "main")
@@ -214,7 +214,7 @@ def test_get_remote_branch_protection_success(mock_sub: MagicMock) -> None:
     assert data["enforce_admins"]["enabled"] is True
 
 
-@patch("devops_cli.github.branch_protection.run_subprocess")
+@patch("devops_cli.github.branch_protection.run_gh")
 def test_get_remote_branch_protection_not_found(mock_sub: MagicMock) -> None:
     mock_sub.return_value = MagicMock(returncode=1, stdout="", stderr="Not Found")
     data = get_remote_branch_protection("dan-petty/devops-cli", "main")

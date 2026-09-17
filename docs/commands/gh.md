@@ -767,7 +767,7 @@ devops gh pr monitor [OPTIONS] <number>
 
 ### `devops gh pr edit`
 
-**Edit pull request base branch, title, body, or milestone.**
+**Edit pull request base branch, title, or body.**
 
 ```bash
 devops gh pr edit [OPTIONS] <number>
@@ -786,7 +786,6 @@ devops gh pr edit [OPTIONS] <number>
 | `--base`, `-B` | `string` | - | Change the base branch for this pull request. |
 | `--title`, `-t` | `string` | - | Set the new title. |
 | `--body`, `-b` | `string` | - | Set the new body. |
-| `--milestone`, `-m` | `string` | - | Set the milestone for this pull request. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 
 ### `devops gh pr create`

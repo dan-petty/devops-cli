@@ -59,7 +59,7 @@ def test_get_pages_status_success() -> None:
         "cname": None,
         "custom_404": False,
     }
-    with patch("devops_cli.github.pages.run_subprocess") as mock_proc:
+    with patch("devops_cli.github.pages.run_gh") as mock_proc:
         mock_proc.return_value = MagicMock(returncode=0, stdout=json.dumps(payload))
         res = get_pages_status("dan-petty/devops-cli")
         assert res is not None
@@ -70,7 +70,7 @@ def test_get_pages_status_success() -> None:
 
 def test_get_pages_status_failure() -> None:
     """get_pages_status returns None when repository does not have Pages enabled."""
-    with patch("devops_cli.github.pages.run_subprocess") as mock_proc:
+    with patch("devops_cli.github.pages.run_gh") as mock_proc:
         mock_proc.return_value = MagicMock(returncode=1, stdout="Not Found")
         res = get_pages_status("dan-petty/no-pages")
         assert res is None
@@ -88,7 +88,7 @@ def test_get_pages_builds_success() -> None:
             "updated_at": "2026-09-09T14:26:43Z",
         }
     ]
-    with patch("devops_cli.github.pages.run_subprocess") as mock_proc:
+    with patch("devops_cli.github.pages.run_gh") as mock_proc:
         mock_proc.return_value = MagicMock(returncode=0, stdout=json.dumps(builds_payload))
         builds = get_pages_builds("dan-petty/devops-cli")
         assert len(builds) == 1
@@ -98,7 +98,7 @@ def test_get_pages_builds_success() -> None:
 
 def test_request_pages_build() -> None:
     """request_pages_build calls GitHub API to request a build."""
-    with patch("devops_cli.github.pages.run_subprocess") as mock_proc:
+    with patch("devops_cli.github.pages.run_gh") as mock_proc:
         mock_proc.return_value = MagicMock(returncode=0, stdout="{}")
         ok = request_pages_build("dan-petty/devops-cli")
         assert ok is True

@@ -50,6 +50,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **JIT Python 3.14 Tail-Call & Bytecode Optimization Benchmarking**: Comprehensive runtime benchmarks utilizing Python 3.14+ specialization and JIT compiler tiers.
 - [ ] **Universal `--json` CLI Output Flag Alias Pipeline (`devops * --json`)**: First-class `--json` alias for `--format json` across all inspection and diagnostic subcommands.
 - [ ] **Mutation-Driven GitHub Cache Invalidation Hooks**: Automatic invalidation of cached GitHub REST and GraphQL responses on edit, patch, and reconcile operations.
+- [ ] **Proportional API Rate Budgeting & GraphQL Circuit Breaker Guard**: Proportional budget allocation per CLI command and automated circuit breaking when external API quota drops below 20%, preventing rapid quota exhaustion.
 
 
 ---

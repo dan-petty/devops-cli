@@ -26,7 +26,6 @@ from devops_cli.config.settings import (
     save_settings,
 )
 from devops_cli.core.binaries import check_binary
-from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import render_dry_run_result
 from devops_cli.http.validation import validate_service_url
 from devops_cli.lang import HELP, MESSAGES
@@ -59,11 +58,11 @@ def _render_secret_store_error(key: str, exc: SecretStorageError) -> None:
 
 
 def _gh_auth_status() -> bool:
-    from devops_cli.core.process import run_subprocess
+    from devops_cli.github.rate_limiter import run_gh
 
     try:
-        result = run_subprocess(
-            ["gh", "auth", "status"],
+        result = run_gh(
+            ["auth", "status"],
             quiet=True,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
@@ -73,11 +72,11 @@ def _gh_auth_status() -> bool:
 
 
 def _gh_auth_token() -> str | None:
-    from devops_cli.core.process import run_subprocess
+    from devops_cli.github.rate_limiter import run_gh
 
     try:
-        result = run_subprocess(
-            ["gh", "auth", "token"],
+        result = run_gh(
+            ["auth", "token"],
             quiet=True,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
@@ -211,8 +210,10 @@ def init() -> None:
         if not _gh_auth_status() and typer.confirm(
             "Authenticate with GitHub CLI now using 'gh auth login'?", default=True
         ):
-            run_subprocess(
-                ["gh", "auth", "login"],
+            from devops_cli.github.rate_limiter import run_gh
+
+            run_gh(
+                ["auth", "login"],
                 check=False,
                 capture_output=False,
                 timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS * 4,

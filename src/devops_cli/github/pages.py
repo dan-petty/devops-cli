@@ -11,7 +11,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
-from devops_cli.core.process import run_subprocess
+from devops_cli.github.rate_limiter import run_gh
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class GitHubPagesBuildInfo(BaseModel):
 def get_pages_status(repo: str) -> GitHubPagesInfo | None:
     """Fetch GitHub Pages site configuration and status via gh api."""
     cmd = [CONST_GH_CLI, "api", f"repos/{repo}/pages"]
-    res = run_subprocess(cmd, check=False, quiet=True)
+    res = run_gh(cmd, check=False, quiet=True)
     if res.returncode != 0 or not res.stdout.strip():
         return None
 
@@ -84,7 +84,7 @@ def _parse_single_build(item: dict[str, Any]) -> GitHubPagesBuildInfo:
 def get_pages_builds(repo: str, limit: int = 5) -> list[GitHubPagesBuildInfo]:
     """Retrieve historical Pages build records for the repository."""
     cmd = [CONST_GH_CLI, "api", f"repos/{repo}/pages/builds?per_page={limit}"]
-    res = run_subprocess(cmd, check=False, quiet=True)
+    res = run_gh(cmd, check=False, quiet=True)
     if res.returncode != 0 or not res.stdout.strip():
         return []
 
@@ -101,7 +101,7 @@ def get_pages_builds(repo: str, limit: int = 5) -> list[GitHubPagesBuildInfo]:
 def request_pages_build(repo: str) -> bool:
     """Request a new deployment build for GitHub Pages."""
     cmd = [CONST_GH_CLI, "api", "-X", "POST", f"repos/{repo}/pages/builds"]
-    res = run_subprocess(cmd, check=False, quiet=True)
+    res = run_gh(cmd, check=False, quiet=True)
     return res.returncode == 0
 
 

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from devops_cli.config.constants import CONST_GH_CLI, CONST_URL_GITHUB_API_BASE
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
-from devops_cli.core.process import run_subprocess
+from devops_cli.github.rate_limiter import run_gh
 from devops_cli.models.ssh import SSHKeyInfo
 
 if TYPE_CHECKING:
@@ -342,7 +342,7 @@ class GhCliClient:
         cmd = [CONST_GH_CLI, "label", "list", "--json", "name,color,description"]
         if target_repo:
             cmd.extend(["--repo", target_repo])
-        res = run_subprocess(cmd, check=False, quiet=True)
+        res = run_gh(cmd, check=False, quiet=True)
         if res.returncode == 0 and res.stdout.strip():
             try:
                 return json.loads(res.stdout)  # type: ignore[no-any-return]
@@ -364,7 +364,7 @@ class GhCliClient:
         ]
         if target_repo:
             cmd.extend(["--repo", target_repo])
-        run_subprocess(cmd, check=False)
+        run_gh(cmd, check=False)
 
     def edit_label(self, repo: str, name: str, color: str, description: str = "") -> None:
         target_repo = repo or self.default_repo or ""
@@ -380,7 +380,7 @@ class GhCliClient:
         ]
         if target_repo:
             cmd.extend(["--repo", target_repo])
-        run_subprocess(cmd, check=False)
+        run_gh(cmd, check=False)
 
     def get_milestones(self, repo: str, state: str = "all") -> list[dict[str, Any]]:
         target_repo = repo or self.default_repo or ""
@@ -390,7 +390,7 @@ class GhCliClient:
             "--paginate",
             f"repos/{target_repo}/milestones?state={state}&per_page=100",
         ]
-        res = run_subprocess(cmd, check=False, quiet=True)
+        res = run_gh(cmd, check=False, quiet=True)
         if res.returncode == 0 and res.stdout.strip():
             raw = parse_paginated_json(res.stdout)
             return [
@@ -429,7 +429,7 @@ class GhCliClient:
         ]
         if due_on:
             cmd.extend(["-f", f"due_on={due_on}"])
-        run_subprocess(cmd, check=False)
+        run_gh(cmd, check=False)
 
     def edit_milestone(
         self,
@@ -450,4 +450,4 @@ class GhCliClient:
             cmd.extend(["-f", f"state={state}"])
         if due_on is not None:
             cmd.extend(["-f", f"due_on={due_on}"])
-        run_subprocess(cmd, check=False)
+        run_gh(cmd, check=False)

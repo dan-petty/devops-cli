@@ -16,7 +16,7 @@ from devops_cli.output.formatters.tables import (
     format_review_findings_table,
 )
 from devops_cli.output.markup import escape_text
-from devops_cli.output.models import PanelPayload
+from devops_cli.output.models import MarkdownPayload, PanelPayload
 
 
 def format_finding_panel(finding: Any, finding_index: int = 1) -> PanelPayload:
@@ -118,7 +118,7 @@ def render_review_raw(persona: Any, raw: str) -> None:
 
     persona_title = getattr(persona, "title", str(persona))
     panel_payload = PanelPayload(
-        content=raw,
+        content=MarkdownPayload(content=raw),
         title=f"[bold cyan]{escape_text(str(persona_title))}[/bold cyan]",
         border_style="cyan",
     )

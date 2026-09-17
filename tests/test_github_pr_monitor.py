@@ -181,7 +181,7 @@ class TestResolveBranchPrNumber:
 
     def test_resolve_success(self) -> None:
         mock_proc = MagicMock(returncode=0, stdout="168\n", stderr="")
-        with patch("devops_cli.github.pr_monitor.run_subprocess", return_value=mock_proc):
+        with patch("devops_cli.github.pr_monitor.run_gh", return_value=mock_proc):
             num = resolve_branch_pr_number("feat/test")
             assert num == 168
 
@@ -195,7 +195,7 @@ class TestResolveBranchPrNumber:
 
     def test_resolve_failure_no_pr(self) -> None:
         mock_proc = MagicMock(returncode=1, stdout="", stderr="no pull requests found")
-        with patch("devops_cli.github.pr_monitor.run_subprocess", return_value=mock_proc):
+        with patch("devops_cli.github.pr_monitor.run_gh", return_value=mock_proc):
             with pytest.raises(GitHubOperationError, match="No open pull request found"):
                 resolve_branch_pr_number("feat/untracked")
 
@@ -262,7 +262,7 @@ class TestGetPRMonitoringStatus:
             return MagicMock(returncode=0, stdout="", stderr="")
 
         with (
-            patch("devops_cli.github.pr_monitor.run_subprocess", side_effect=mock_subprocess),
+            patch("devops_cli.github.pr_monitor.run_gh", side_effect=mock_subprocess),
             patch("devops_cli.github.pr_monitor.list_pr_review_threads", return_value=[]),
         ):
             status = get_pr_monitoring_status("dan-petty", "devops-cli", 168)
@@ -500,7 +500,7 @@ class TestMonitorPR:
         ]
         from devops_cli.github.pr_monitor import _detect_copilot_status
 
-        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+        with patch("devops_cli.github.pr_monitor.run_gh") as mock_sub:
             mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
             status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews_data)
             assert status.state == "changes_requested"
@@ -518,7 +518,7 @@ class TestMonitorPR:
         ]
         from devops_cli.github.pr_monitor import _detect_copilot_status
 
-        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+        with patch("devops_cli.github.pr_monitor.run_gh") as mock_sub:
             mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
             status = _detect_copilot_status(
                 "dan-petty", "devops-cli", 168, reviews_data, unresolved_threads=[]
@@ -549,7 +549,7 @@ class TestMonitorPR:
         ]
         from devops_cli.github.pr_monitor import _detect_copilot_status
 
-        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+        with patch("devops_cli.github.pr_monitor.run_gh") as mock_sub:
             mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
             status = _detect_copilot_status(
                 "dan-petty", "devops-cli", 168, reviews_data, unresolved_threads=unresolved
@@ -666,7 +666,7 @@ class TestMonitorPR:
         ]
         from devops_cli.github.pr_monitor import _detect_copilot_status
 
-        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+        with patch("devops_cli.github.pr_monitor.run_gh") as mock_sub:
             mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
             status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews_data)
             assert status.state == "completed"
@@ -687,7 +687,7 @@ class TestMonitorPR:
         ]
         from devops_cli.github.pr_monitor import _detect_copilot_status
 
-        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+        with patch("devops_cli.github.pr_monitor.run_gh") as mock_sub:
             mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
             status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews_data)
             assert status.state == "completed"
@@ -707,7 +707,7 @@ class TestMonitorPR:
         )
         from devops_cli.github.pr_monitor import _detect_copilot_status
 
-        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+        with patch("devops_cli.github.pr_monitor.run_gh") as mock_sub:
             mock_sub.return_value = MagicMock(returncode=0, stdout=timeline, stderr="")
             status = _detect_copilot_status("dan-petty", "devops-cli", 168, reviews_data)
             assert status.is_active is True
@@ -716,7 +716,7 @@ class TestMonitorPR:
     def test_get_pr_monitoring_status_bounds_oversized_errors(self) -> None:
         huge_err = "x" * 500
         mock_proc = MagicMock(returncode=1, stdout="", stderr=huge_err)
-        with patch("devops_cli.github.pr_monitor.run_subprocess", return_value=mock_proc):
+        with patch("devops_cli.github.pr_monitor.run_gh", return_value=mock_proc):
             with pytest.raises(GitHubOperationError) as exc_info:
                 get_pr_monitoring_status("dan-petty", "devops-cli", 168)
             assert len(str(exc_info.value)) < 350
@@ -835,7 +835,7 @@ class TestMonitorPR:
         page2 = json.dumps([{"user": {"login": "user2"}, "state": "COMMENTED"}])
         paginated_stdout = f"{page1}\n{page2}\n"
 
-        with patch("devops_cli.github.pr_monitor.run_subprocess") as mock_sub:
+        with patch("devops_cli.github.pr_monitor.run_gh") as mock_sub:
             mock_sub.return_value = MagicMock(returncode=0, stdout=paginated_stdout, stderr="")
             reviews = _fetch_raw_reviews("dan-petty", "devops-cli", 168)
             assert len(reviews) == 2
