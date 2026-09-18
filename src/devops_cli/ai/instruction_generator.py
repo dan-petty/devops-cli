@@ -202,6 +202,22 @@ devops --help                        # Access global DevOps automation CLI
         else ""
     )
 
+    devops_roadmap_governance_block = (
+        "- **Continuous Roadmap Synthesis, Field Observations & Innovative Self-Improvement**:\n"
+        "  - AI agents must cultivate continuous, innovative self-improvement across all tasks, interactions, and engineering sessions:\n"
+        "    - **Automatic Roadmap Ingestion for Issues, Struggles, Challenges & Insights**:\n"
+        "      - Whenever encountering **any issue, struggle, friction point, debugging challenge, technical hurdle, cognitive barrier, or insight** during any task or interaction, AI agents **MUST AUTOMATICALLY ADD AN ITEM TO THE ROADMAP (`docs/ROADMAP.md`)** under the appropriate upcoming milestone or future research track. Document the root friction and the proposed engineering solution or architectural guardrail to turn real-world struggles into permanent systemic capabilities.\n"
+        "    - **Automatic Roadmap Ingestion for Missing Parameters, API Inconsistencies & Contract Deficiencies**:\n"
+        "      - Whenever encountering **missing parameters, argument mismatches, inconsistent signatures, incomplete parameter propagation, or similar API/interface inconsistencies** across commands, submodules, schemas, or tool calls in the codebase, AI agents **MUST AUTOMATICALLY ADD A TASK ITEM TO THE ROADMAP (`docs/ROADMAP.md`)** under the active or next upcoming milestone. Document the inconsistency, the affected interfaces/functions, and the unified contract specification required to eliminate the discrepancy.\n"
+        "    - **Automatic Roadmap Ingestion for Bad Patterns, Anti-Patterns & Deficiencies**:\n"
+        "      - Whenever observing **bad patterns, anti-patterns, code smells, brittle logic, formatting bugs, missing error boundaries, unhandled edge cases, or recurring architectural deficiencies** during code reviews, audits, investigations, refactoring, or test executions, AI agents **MUST AUTOMATICALLY ADD TASK ENTRIES TO THE ROADMAP (`docs/ROADMAP.md`)** under the relevant upcoming milestone. Capture the anti-pattern, representative locations, and the systemic architectural remediation required to permanently eliminate the deficiency.\n"
+        "    - **Automatic Roadmap Ingestion for Features, Suggestions & Integrations**:\n"
+        "      - Whenever identifying **features, useful suggestions, constructive enhancements, workflow automations, refactoring ideas, or third-party integrations** that could improve developer velocity, system resilience, or codebase quality, AI agents **MUST AUTOMATICALLY ADD ITEMS AS TASKS TO THE ROADMAP (`docs/ROADMAP.md`)** under the appropriate upcoming milestone or strategic research track to design and implement them.\n"
+        "      - Any good suggestions, architectural observations, or optimization ideas that emerge while working **MUST BE PROACTIVELY ADDED TO THE ROADMAP (`docs/ROADMAP.md`)** under the appropriate upcoming milestone or future vision series, keeping the roadmap living, accurate, and continuously advancing the state of the art.\n"
+        if meta.is_devops_cli
+        else ""
+    )
+
     return f"""\
 # {meta.name} — AI Agent Instructions & Engineering Best Practices
 
@@ -301,18 +317,7 @@ codebase or reviewing target repositories.
 - **Mandatory Root-Cause Remediation & Instruction Hardening (Fix Underlying Cause / Prevent Recurrence)**:
   - Whenever encountering any problem, bug, defect, failure, runtime exception, or unexpected error, AI agents and automated workflows **MUST ALWAYS INVESTIGATE AND FIX THE CAUSE OF THE UNDERLYING ISSUE** directly at its source. Applying superficial workarounds, bypassing assertions, suppressing warnings, or masking symptoms without remediating the root cause is strictly prohibited.
   - If the underlying issue cannot be fixed immediately (such as an external dependency bug, upstream platform constraint, environment limitation, or fundamental architectural blocker), the agent **MUST PROMPTLY UPDATE AGENT INSTRUCTIONS (`AGENTS.md`)** with defensive guardrails, pre-flight checks, avoidance patterns, or operational guidelines to prevent the issue from re-occurring in future sessions.
-- **Continuous Roadmap Synthesis, Field Observations & Innovative Self-Improvement**:
-  - AI agents must cultivate continuous, innovative self-improvement across all tasks, interactions, and engineering sessions:
-    - **Automatic Roadmap Ingestion for Issues, Struggles, Challenges & Insights**:
-      - Whenever encountering **any issue, struggle, friction point, debugging challenge, technical hurdle, cognitive barrier, or insight** during any task or interaction, AI agents **MUST AUTOMATICALLY ADD AN ITEM TO THE ROADMAP (`docs/ROADMAP.md`)** under the appropriate upcoming milestone or future research track. Document the root friction and the proposed engineering solution or architectural guardrail to turn real-world struggles into permanent systemic capabilities.
-    - **Automatic Roadmap Ingestion for Missing Parameters, API Inconsistencies & Contract Deficiencies**:
-      - Whenever encountering **missing parameters, argument mismatches, inconsistent signatures, incomplete parameter propagation, or similar API/interface inconsistencies** across commands, submodules, schemas, or tool calls in the codebase, AI agents **MUST AUTOMATICALLY ADD A TASK ITEM TO THE ROADMAP (`docs/ROADMAP.md`)** under the active or next upcoming milestone. Document the inconsistency, the affected interfaces/functions, and the unified contract specification required to eliminate the discrepancy.
-    - **Automatic Roadmap Ingestion for Bad Patterns, Anti-Patterns & Deficiencies**:
-      - Whenever observing **bad patterns, anti-patterns, code smells, brittle logic, formatting bugs, missing error boundaries, unhandled edge cases, or recurring architectural deficiencies** during code reviews, audits, investigations, refactoring, or test executions, AI agents **MUST AUTOMATICALLY ADD TASK ENTRIES TO THE ROADMAP (`docs/ROADMAP.md`)** under the relevant upcoming milestone. Capture the anti-pattern, representative locations, and the systemic architectural remediation required to permanently eliminate the deficiency.
-    - **Automatic Roadmap Ingestion for Features, Suggestions & Integrations**:
-      - Whenever identifying **features, useful suggestions, constructive enhancements, workflow automations, refactoring ideas, or third-party integrations** that could improve developer velocity, system resilience, or codebase quality, AI agents **MUST AUTOMATICALLY ADD ITEMS AS TASKS TO THE ROADMAP (`docs/ROADMAP.md`)** under the appropriate upcoming milestone or strategic research track to design and implement them.
-      - Any good suggestions, architectural observations, or optimization ideas that emerge while working **MUST BE PROACTIVELY ADDED TO THE ROADMAP (`docs/ROADMAP.md`)** under the appropriate upcoming milestone or future vision series, keeping the roadmap living, accurate, and continuously advancing the state of the art.
-- **Continuous Interaction & Collaborative Value Improvement (Proactive Improvement Suggestions)**:
+{devops_roadmap_governance_block}- **Continuous Interaction & Collaborative Value Improvement (Proactive Improvement Suggestions)**:
   - In every interaction with the user, peer agents, or development workflows, AI agents must actively look for and suggest concrete, actionable ways to improve developer ergonomics, workflow speed, system resilience, documentation clarity, test coverage, and tooling efficiency whenever relevant.
 
 
