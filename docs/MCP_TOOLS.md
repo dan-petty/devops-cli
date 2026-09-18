@@ -97,6 +97,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_thread_reply`](#pr-thread-reply) | Post an in-thread reply directly to a pull request review discussion thread. |
 | [`pr_thread_resolve`](#pr-thread-resolve) | Programmatically mark a pull request review discussion thread as resolved. |
 | [`pr_threads_list`](#pr-threads-list) | List review discussion threads, file locations, and comments on a pull request. |
+| [`pr_update_branch`](#pr-update-branch) | Update a pull request branch with latest commits from its base branch. |
 | [`prometheus_query`](#prometheus-query) | Execute PromQL instant query against Prometheus endpoint. |
 | [`rag_drift`](#rag-drift) | Detect staleness and drift between the working tree and the Qdrant vector index. |
 | [`rag_index`](#rag-index) | Index workspace files into Qdrant vector database for semantic retrieval. |
@@ -1148,6 +1149,19 @@ List review discussion threads, file locations, and comments on a pull request.
 |---|---|---|---|---|
 | `pr_number` | `integer` | Yes | - | - |
 | `unresolved_only` | `boolean` | No | `True` | - |
+
+### `pr_update_branch`
+
+Update a pull request branch with latest commits from its base branch.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pr_number` | `integer` | Yes | - | - |
+| `repo` | `string` | No | - | - |
+| `expected_head_sha` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `False` | - |
 
 ### `prometheus_query`
 

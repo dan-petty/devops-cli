@@ -263,6 +263,32 @@ devops pr check-readiness [OPTIONS] <number>
 
 ---
 
+## `devops pr update`
+
+**Update pull request branch with latest commits from its base branch.**
+
+```bash
+devops pr update [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | Pull request number to update (optional if --all is specified). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--all`, `-a` | `boolean` | - | Update all open pull requests targeting the base branch. |
+| `--base`, `-B` | `string` | - | Filter open pull requests by base branch (e.g. main, release/v0.2.20). |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--expected-head-sha` | `string` | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops pr threads`
 
 ```bash

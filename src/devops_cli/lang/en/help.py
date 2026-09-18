@@ -642,6 +642,13 @@ class PRCommandHelp:
     ready_monitor: str = (
         "Automatically transition to monitoring checks and reviews after marking ready."
     )
+    update: str = "Update pull request branch with latest changes from its base branch."
+    update_number: str = "Pull request number to update (optional if --all is specified)."
+    update_all: str = "Update all open pull requests targeting the base branch."
+    update_base: str = "Filter open pull requests by base branch (e.g. main, release/v0.2.20)."
+    update_expected_head_sha: str = (
+        "Expected SHA of the pull request's HEAD ref for optimistic locking."
+    )
 
 
 @dataclass(frozen=True)

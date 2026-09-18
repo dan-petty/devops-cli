@@ -121,7 +121,8 @@
         "ms-azuretools.vscode-docker",
         "ms-azuretools.vscode-containers",
         "ms-kubernetes-tools.vscode-kubernetes-tools",
-        "Ollama.ollama"
+        "Ollama.ollama",
+        "github.vscode-github-actions"
       ],
       "settings": {
         "editor.formatOnSave": true,
