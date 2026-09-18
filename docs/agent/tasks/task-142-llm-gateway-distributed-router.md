@@ -1,8 +1,8 @@
 # Task 142: High-Throughput LLM Gateway & Distributed Model Router
 
 **Issue**: [#142](https://github.com/dan-petty/devops-cli/issues/142)
-**PR**: TBD
-**Status**: In Progress
+**PR**: [#242](https://github.com/dan-petty/devops-cli/pull/242)
+**Status**: In Review
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p0-critical`
 **Scope**: `scope/ai`
@@ -38,5 +38,5 @@ Design, deploy, and integrate a centralized, high-performance OpenAI-compatible 
 - [x] Author Kubernetes manifests for vLLM Tensor Parallelism on multi-GPU nodes (`k8s/llm/vllm/`).
 - [x] Implement client routing integration and fallback in `src/devops_cli/ai/gateway.py` and `src/devops_cli/ai/router.py`.
 - [x] Author FastMCP tools and cluster resource in `src/devops_cli/ai/mcp/server.py`.
-- [ ] Add unit and integration tests with $\ge 90\%$ code coverage.
-- [ ] Run full CI quality gate suite (`devops ci`).
+- [x] Add unit and integration tests with $\ge 90\%$ code coverage (`tests/test_ai_gateway.py`, `tests/test_k8s_llm_gateway.py`).
+- [x] Run full CI quality gate suite (`devops ci` 10/10 passed).
