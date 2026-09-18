@@ -443,8 +443,11 @@ def _save_findings_json(
 
 def _review_to_markdown(review: ReviewResult | str) -> str:
     if isinstance(review, str):
-        parsed = parse_review_response(review)
-        return _review_to_markdown(parsed) if parsed else review
+        from devops_cli.ai.thinking_stream import strip_think_blocks
+
+        clean_text = strip_think_blocks(review)
+        parsed = parse_review_response(clean_text)
+        return _review_to_markdown(parsed) if parsed else clean_text
     lines: list[str] = [f"**Recommendation: {review.recommendation}**\n"]
     if review.findings:
         lines.append("## Findings\n")

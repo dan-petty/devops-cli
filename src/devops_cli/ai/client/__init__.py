@@ -17,6 +17,8 @@ from devops_cli.ai.client.network import (
     validate_base_url,
 )
 from devops_cli.ai.client.streaming import (
+    StreamingReasoningSanitizer,
+    StreamingTokenProcessor,
     _consume_streaming_lines,
     _extract_claude_stream_chunk,
     _extract_ollama_stream_chunk,
@@ -36,6 +38,8 @@ __all__ = [
     "LLMClient",
     "LLMResponse",
     "MAX_STREAM_BYTES",
+    "StreamingReasoningSanitizer",
+    "StreamingTokenProcessor",
     "StructuredOutputMixin",
     "_consume_streaming_lines",
     "_extract_claude_stream_chunk",

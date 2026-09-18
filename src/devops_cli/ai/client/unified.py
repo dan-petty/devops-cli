@@ -629,13 +629,19 @@ class LLMClient(
         )
 
     def chat_stream(
-        self, system: str, user: str, *, enable_thinking: bool = True
+        self,
+        system: str,
+        user: str,
+        *,
+        enable_thinking: bool = True,
+        sanitize: bool = False,
     ) -> Generator[str]:
         """Send a single-turn chat message and yield streaming tokens as they arrive."""
         yield from self.chat_messages_stream(
             system,
             [ChatMessage(role="user", content=user)],
             enable_thinking=enable_thinking,
+            sanitize=sanitize,
         )
 
     def _record_first_token(
@@ -654,6 +660,7 @@ class LLMClient(
         messages: list[ChatMessage],
         *,
         enable_thinking: bool = True,
+        sanitize: bool = False,
     ) -> Generator[str]:
         """Send a multi-turn conversation and yield streaming tokens as they arrive."""
         p = self._config.provider
@@ -667,10 +674,15 @@ class LLMClient(
                 "gen_ai.system": p,
                 "gen_ai.request.model": self._config.model,
                 "gen_ai.enable_thinking": enable_thinking,
+                "gen_ai.sanitize": sanitize,
             },
         ) as span_h:
             try:
                 gen = self._dispatch_stream(system, messages, enable_thinking=enable_thinking)
+                if sanitize:
+                    from devops_cli.ai.client.streaming import StreamingTokenProcessor
+
+                    gen = StreamingTokenProcessor().sanitize_stream(gen)
                 for chunk in gen:
                     first_token_time = self._record_first_token(span_h, t_start, first_token_time)
                     token_chunks_count += 1

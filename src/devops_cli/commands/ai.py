@@ -31,6 +31,7 @@ from devops_cli.config.constants import (
     CONST_GIT_DIR_NAME,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_AI_EVICT_KEEP_ALIVE,
     DEFAULT_AI_PIPELINE_MAX_TURNS,
     DEFAULT_AI_PIPELINE_PERSONAS,
     DEFAULT_AI_PIPELINE_PROMPT,
@@ -68,6 +69,7 @@ from devops_cli.output import (
     write_stdout,
     write_text_file,
 )
+from devops_cli.telemetry.tracer import record_metric, trace_span
 
 app = new_typer(
     help=HELP.ai.app,
@@ -696,7 +698,7 @@ def prewarm(
     all_nodes: Annotated[
         bool,
         typer.Option(
-            "--all-nodes",
+            "--all-nodes/--single-node",
             "-a",
             help=HELP.ai.prewarm_all_nodes,
         ),
@@ -730,26 +732,40 @@ def prewarm(
 
     settings = load_settings()
     target_model = model or settings.ai.model
-    target_keep_alive: str | int = 0 if evict else keep_alive
+    target_keep_alive: str | int = DEFAULT_AI_EVICT_KEEP_ALIVE if evict else keep_alive
     urls = _resolve_prewarm_urls(url, all_nodes, settings.ai.get_ollama_urls)
 
-    client = LLMClient(settings.ai, api_key=get_ai_api_key(settings), cache_enabled=False)
-    results = client.preload_models(
-        model=target_model,
-        keep_alive=target_keep_alive,
-        urls=urls,
-        blocking=True,
-    )
+    with trace_span(
+        "ai.prewarm",
+        attributes={
+            "ai.model": str(target_model),
+            "ai.evict": evict,
+            "ai.keep_alive": str(target_keep_alive),
+            "ai.all_nodes": all_nodes,
+        },
+    ):
+        client = LLMClient(settings.ai, api_key=get_ai_api_key(settings), cache_enabled=False)
+        results = client.preload_models(
+            model=target_model,
+            keep_alive=target_keep_alive,
+            urls=urls,
+            blocking=True,
+        )
 
-    success = _render_prewarm_results(
-        results=results,
-        model=target_model,
-        keep_alive=target_keep_alive,
-        is_evict=evict,
-        json_output=json_output,
-    )
-    if not success:
-        raise typer.Exit(1)
+        success = _render_prewarm_results(
+            results=results,
+            model=target_model,
+            keep_alive=target_keep_alive,
+            is_evict=evict,
+            json_output=json_output,
+        )
+        record_metric(
+            "ai.prewarm.success",
+            1.0 if success else 0.0,
+            attributes={"model": str(target_model), "evict": str(evict)},
+        )
+        if not success:
+            raise typer.Exit(1)
 
 
 # =============================================================================
