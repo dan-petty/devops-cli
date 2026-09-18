@@ -377,7 +377,14 @@ def sync_roadmap_to_issues(
     if milestone_filter:
         uncompleted = [i for i in uncompleted if i.milestone == milestone_filter]
 
-    existing_issues = get_repository_issues(repo, state="all", limit=200)
+    try:
+        existing_issues = get_repository_issues(repo, state="all", limit=200)
+    except Exception as exc:
+        logger.warning(
+            "Failed to retrieve existing GitHub issues for deduplication (treating as empty): %s",
+            exc,
+        )
+        existing_issues = []
 
     result = RoadmapSyncResult(
         total_roadmap_items=len(all_items),

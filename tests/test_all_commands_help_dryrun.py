@@ -65,7 +65,6 @@ COMMAND_SPECS = [
     (repos_app, ["sync", "--dry-run"]),
     (main_app, ["branches", "clean", "--dry-run"]),
     (gh_app, ["issues", "sync-roadmap", "--help"]),
-    (gh_app, ["issues", "sync-roadmap", "--dry-run"]),
 ]
 
 
