@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
+import devops_cli.commands.k8s.networking as net
 import devops_cli.commands.k8s.stack_lifecycle as stack_life
 from devops_cli.config.defaults import (
     DEFAULT_K8S_ALL_STACK,
@@ -18,6 +19,7 @@ from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
+    print_success,
 )
 
 
@@ -43,10 +45,11 @@ def bootstrap(
     if not runtime._minikube_running():
         if auto_start:
             print_info(MESSAGES.k8s.starting_minikube, prefix=False)
-            started, _ = runtime._start_minikube()
+            started, msg = runtime._start_minikube()
             if not started:
                 print_error(MESSAGES.k8s.failed_start_minikube, prefix=False)
                 raise typer.Exit(1)
+            print_success(msg, prefix=False)
         else:
             print_error(
                 MESSAGES.k8s.minikube_not_running,
@@ -57,3 +60,4 @@ def bootstrap(
         runtime._run_cmd(["minikube", "update-context"], check=False)
 
     stack_life.deploy_stack(k8s_dir=k8s_dir, stack=stack)
+    net.configure_urls(stack=stack, context="minikube")

@@ -28,7 +28,7 @@ docker pull ghcr.io/dan-petty/devops-cli/devcontainer:v0.2.16
 
 ## 2. Pre-Installed Tooling & Capabilities
 
-The published Dev Container image is built on Python 3.14 (`trixie`) and includes comprehensive cloud-native, DevOps, and AI developer tooling pre-configured out of the box:
+The published Dev Container image is built on `debian:sid` (Debian Unstable) providing Python 3.14+ and includes comprehensive cloud-native, DevOps, and AI developer tooling pre-configured out of the box:
 
 - **Runtimes & Package Managers**: Python 3.14+, `uv` (ultra-fast package & virtualenv manager), `git`, `zsh` with Oh My Zsh.
 - **Containers & Virtualization**: Docker-in-Docker (DinD) enabled with rootless socket mapping for non-root user `vscode`.
