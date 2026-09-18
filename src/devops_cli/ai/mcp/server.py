@@ -1621,6 +1621,28 @@ def gh_issue_status(repo: str | None = None) -> str:
 
 
 @mcp.tool()
+def gh_sync_roadmap(
+    milestone: str | None = None,
+    dry_run: bool = True,
+    limit: int = 20,
+    repo: str | None = None,
+) -> str:
+    """Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files."""
+    cmd = ["uv", "run", "devops", "gh", "issues", "sync-roadmap"]
+    if milestone:
+        _validate_mcp_arg("milestone", milestone)
+        cmd.extend(["--milestone", milestone])
+    if dry_run:
+        cmd.append("--dry-run")
+    if limit:
+        cmd.extend(["--limit", str(limit)])
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def gh_project_list(owner: str | None = None) -> str:
     """List available GitHub Projects v2 boards for user or organization."""
     cmd = ["uv", "run", "devops", "gh", "project", "list"]

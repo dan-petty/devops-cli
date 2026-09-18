@@ -55,6 +55,7 @@ from devops_cli.github.projects import (
     sync_remote_project_views,
 )
 from devops_cli.github.rate_limiter import run_gh
+from devops_cli.github.roadmap_sync import sync_roadmap_to_issues
 from devops_cli.github.secrets import (
     list_repository_secrets,
     sync_repository_secrets,
@@ -1014,6 +1015,72 @@ def edit_issue_cmd(
     print_success(f"Issue #{number} updated successfully.")
 
 
+def _format_issues_table_rows(created_issues: list[dict[str, Any]]) -> list[list[str]]:
+    """Format created issues dictionary entries into table rows."""
+    return [
+        [
+            f"#{iss.get('number', 0)}" if iss.get("number") else "new",
+            str(iss.get("title", ""))[:50],
+            str(iss.get("milestone", "")),
+            ", ".join(iss.get("labels", [])),
+        ]
+        for iss in created_issues
+    ]
+
+
+@issues_app.command(
+    "sync-roadmap",
+    help="Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files.",
+)
+def issues_sync_roadmap_cmd(
+    milestone: Annotated[
+        str | None,
+        typer.Option("--milestone", "-m", help="Filter by release milestone (e.g. v0.2.20)"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run", help="Preview issue and task creation without modifying remote state"
+        ),
+    ] = False,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", "-L", help="Maximum issues to create"),
+    ] = 20,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help="Target repository"),
+    ] = None,
+) -> None:
+    """Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files."""
+    target_repo = repo or _resolve_repo()
+    result = sync_roadmap_to_issues(
+        target_repo,
+        milestone_filter=milestone,
+        dry_run=dry_run,
+        limit=limit,
+    )
+    columns = ["Metric", "Count"]
+    rows = [
+        ["Total Roadmap Items", str(result.total_roadmap_items)],
+        ["Eligible Uncompleted", str(result.eligible_uncompleted)],
+        ["Already Tracked", str(result.already_tracked)],
+        ["Issues Created", str(result.created_count)],
+        ["Task Files Created", str(len(result.task_files_created))],
+    ]
+    mode_str = " (Dry-Run)" if dry_run else ""
+    print_table(f"Roadmap Issues Synchronization{mode_str} ({target_repo})", columns, rows)
+    if result.created_issues:
+        issue_cols = ["#", "Title", "Milestone", "Labels"]
+        print_table(
+            "Generated Issues", issue_cols, _format_issues_table_rows(result.created_issues)
+        )
+    if not dry_run and result.created_count > 0:
+        print_success(
+            f"Successfully synchronized {result.created_count} roadmap deliverables into issues and tasks."
+        )
+
+
 # =============================================================================
 # Command: devops gh api
 # =============================================================================
@@ -1198,6 +1265,43 @@ def _enrich_rate_limit_resources(resources: dict[str, Any]) -> dict[str, Any]:
     return resources
 
 
+def _parse_rate_limit_payload(stdout: str) -> dict[str, Any]:
+    """Parse and validate JSON payload from GitHub rate_limit API."""
+    try:
+        data = json.loads(stdout) if stdout.strip() else {}
+    except json.JSONDecodeError as exc:
+        print_error(f"Failed to parse rate limit response: {exc}")
+        raise typer.Exit(1) from exc
+
+    if not isinstance(data, dict):
+        print_error("Invalid rate limit response: expected JSON object")
+        raise typer.Exit(1)
+
+    resources = data.get("resources")
+    if not isinstance(resources, dict):
+        print_error("Invalid rate limit response: missing 'resources' object")
+        raise typer.Exit(1)
+
+    resources = _enrich_rate_limit_resources(resources)
+    data["resources"] = resources
+    return data
+
+
+def _format_rate_limit_rows(resources: dict[str, Any]) -> list[list[str]]:
+    """Format rate limit resources dictionary into display table rows."""
+    rows: list[list[str]] = []
+    for res_name, info in sorted(resources.items()):
+        if not isinstance(info, dict):
+            continue
+        limit = str(info.get("limit", "-")) if info.get("limit") is not None else "-"
+        used = str(info.get("used", "-")) if info.get("used") is not None else "-"
+        remaining = str(info.get("remaining", "-")) if info.get("remaining") is not None else "-"
+        reset_epoch = info.get("reset")
+        reset_str = _format_reset_time(float(reset_epoch)) if reset_epoch is not None else "-"
+        rows.append([res_name, limit, used, remaining, reset_str])
+    return rows
+
+
 @app.command("rate-limit", help=HELP.gh.rate_limit)
 @app.command("rate_limit", hidden=True)
 def rate_limit_cmd(
@@ -1219,23 +1323,7 @@ def rate_limit_cmd(
         print_error(f"Failed to query rate limits: {clean_err}", safe=True)
         raise typer.Exit(res.returncode)
 
-    try:
-        data = json.loads(res.stdout) if res.stdout.strip() else {}
-    except json.JSONDecodeError as exc:
-        print_error(f"Failed to parse rate limit response: {exc}")
-        raise typer.Exit(1) from exc
-
-    if not isinstance(data, dict):
-        print_error("Invalid rate limit response: expected JSON object")
-        raise typer.Exit(1)
-
-    resources = data.get("resources")
-    if not isinstance(resources, dict):
-        print_error("Invalid rate limit response: missing 'resources' object")
-        raise typer.Exit(1)
-
-    resources = _enrich_rate_limit_resources(resources)
-    data["resources"] = resources
+    data = _parse_rate_limit_payload(res.stdout)
 
     if output_format == "json":
         from devops_cli.output import write_stream
@@ -1243,23 +1331,10 @@ def rate_limit_cmd(
         write_stream(json.dumps(data, indent=2) + "\n")
         return
 
-    rows: list[list[str]] = []
-    for res_name, info in sorted(resources.items()):
-        if not isinstance(info, dict):
-            continue
-        limit = str(info["limit"]) if "limit" in info and info["limit"] is not None else "-"
-        used = str(info["used"]) if "used" in info and info["used"] is not None else "-"
-        remaining = (
-            str(info["remaining"]) if "remaining" in info and info["remaining"] is not None else "-"
-        )
-        reset_epoch = info.get("reset")
-        reset_str = _format_reset_time(float(reset_epoch)) if reset_epoch is not None else "-"
-        rows.append([res_name, limit, used, remaining, reset_str])
-
     print_table(
         title="GitHub API Rate Limits & Quotas",
         columns=["Resource", "Limit", "Used", "Remaining", "Reset"],
-        rows=rows,
+        rows=_format_rate_limit_rows(data["resources"]),
     )
 
 
@@ -1278,6 +1353,21 @@ def _format_run_status(status: str, conclusion: str) -> str:
     if status.upper() == "COMPLETED":
         return f"[dim]{conclusion or status}[/dim]"
     return f"[yellow]● {status}[/yellow]"
+
+
+def _format_runs_table_rows(runs: list[dict[str, Any]]) -> list[list[str]]:
+    """Format workflow run dictionary entries into table rows."""
+    return [
+        [
+            str(r.get("databaseId", "")),
+            str(r.get("name", "")),
+            _format_run_status(str(r.get("status", "")), str(r.get("conclusion") or "")),
+            str(r.get("headBranch", "")),
+            str(r.get("event", "")),
+            str(r.get("url", "")),
+        ]
+        for r in runs
+    ]
 
 
 @runs_app.command("list", help=HELP.gh.runs_list)
@@ -1327,20 +1417,10 @@ def runs_list_cmd(
         write_stream(json.dumps(runs, indent=2) + "\n")
         return
 
-    rows: list[list[str]] = []
-    for r in runs:
-        run_id = str(r.get("databaseId", ""))
-        name = str(r.get("name", ""))
-        st_badge = _format_run_status(str(r.get("status", "")), str(r.get("conclusion") or ""))
-        br = str(r.get("headBranch", ""))
-        evt = str(r.get("event", ""))
-        url = str(r.get("url", ""))
-        rows.append([run_id, name, st_badge, br, evt, url])
-
     print_table(
         title=f"Workflow Runs ({target_repo})",
         columns=["Run ID", "Workflow", "Status", "Branch", "Event", "URL"],
-        rows=rows,
+        rows=_format_runs_table_rows(runs),
     )
 
 

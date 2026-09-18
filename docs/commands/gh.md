@@ -521,6 +521,23 @@ devops gh issues edit [OPTIONS] <number>
 | `--state`, `-s` | `string` | - | New state (open or closed). |
 | `--repo`, `-R` | `string` | - | Target repository |
 
+### `devops gh issues sync-roadmap`
+
+**Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files.**
+
+```bash
+devops gh issues sync-roadmap [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--milestone`, `-m` | `string` | - | Filter by release milestone (e.g. v0.2.20) |
+| `--dry-run` | `boolean` | - | Preview issue and task creation without modifying remote state |
+| `--limit`, `-L` | `integer` | `20` | Maximum issues to create |
+| `--repo`, `-R` | `string` | - | Target repository |
+
 ---
 
 ## `devops gh runs`

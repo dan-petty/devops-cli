@@ -9,6 +9,7 @@ from devops_cli.commands.ai import app as ai_app
 from devops_cli.commands.argo import app as argo_app
 from devops_cli.commands.ci import app as ci_app
 from devops_cli.commands.config import app as config_app
+from devops_cli.commands.gh import app as gh_app
 from devops_cli.commands.k8s import app as k8s_app
 from devops_cli.commands.mcp import app as mcp_app
 from devops_cli.commands.repos import app as repos_app
@@ -63,6 +64,7 @@ COMMAND_SPECS = [
     (main_app, ["repos", "sync", "--dry-run"]),
     (repos_app, ["sync", "--dry-run"]),
     (main_app, ["branches", "clean", "--dry-run"]),
+    (gh_app, ["issues", "sync-roadmap", "--help"]),
 ]
 
 

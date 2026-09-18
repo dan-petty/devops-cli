@@ -65,6 +65,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_rate_limit`](#gh-rate-limit) | Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 | [`gh_run_view`](#gh-run-view) | View details and diagnostic failure logs of a specific GitHub Actions workflow run. |
 | [`gh_runs_list`](#gh-runs-list) | List recent GitHub Actions CI/CD workflow runs. |
+| [`gh_sync_roadmap`](#gh-sync-roadmap) | Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files. |
 | [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
 | [`gh_views_audit`](#gh-views-audit) | Audit remote project views against standardized view template specifications. |
 | [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
@@ -795,6 +796,19 @@ List recent GitHub Actions CI/CD workflow runs.
 |---|---|---|---|---|
 | `limit` | `integer` | No | `10` | - |
 | `branch` | `string` | No | - | - |
+| `repo` | `string` | No | - | - |
+
+### `gh_sync_roadmap`
+
+Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `milestone` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `True` | - |
+| `limit` | `integer` | No | `20` | - |
 | `repo` | `string` | No | - | - |
 
 ### `gh_view_spec`

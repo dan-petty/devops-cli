@@ -1,4 +1,5 @@
 Perform an objective, evidence-grounded review of the source files below following the chain-of-thought review protocol.
+Evaluate invariants and defects, and identify forward-looking improvements, useful features, and meaningful integrations to expand the project roadmap (`docs/ROADMAP.md`).
 
 ## Target Review Scope: {title}
 
