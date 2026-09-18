@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -270,21 +271,31 @@ def test_release_prepare_pr_draft_default(sample_project_dir: Path) -> None:
 
 
 def test_release_pr_command(sample_project_dir: Path) -> None:
+    def mock_gh_dispatch(
+        cmd: list[str], *args: Any, **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        if "issue" in cmd:
+            return subprocess.CompletedProcess(
+                args=[CONST_GH_CLI, "issue", "list"],
+                returncode=0,
+                stdout='[{"number": 99, "title": "feat(core): core feature"}]',
+                stderr="",
+            )
+        if "pr" in cmd and "create" in cmd:
+            return subprocess.CompletedProcess(
+                args=[CONST_GH_CLI, "pr", "create"],
+                returncode=0,
+                stdout="https://github.com/your-org/devops-cli/pull/42\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
     with (
         patch("devops_cli.commands.release.run_subprocess") as mock_sub,
-        patch("devops_cli.commands.release.run_gh") as mock_gh,
+        patch("devops_cli.commands.release.run_gh", side_effect=mock_gh_dispatch) as mock_gh,
     ):
-        mock_gh.return_value = subprocess.CompletedProcess(
-            args=[CONST_GH_CLI, "issue", "list"],
-            returncode=0,
-            stdout='[{"number": 99, "title": "feat(core): core feature"}]',
-            stderr="",
-        )
         mock_sub.return_value = subprocess.CompletedProcess(
-            args=[CONST_GH_CLI, "pr", "create"],
-            returncode=0,
-            stdout="https://github.com/your-org/devops-cli/pull/42\n",
-            stderr="",
+            args=[], returncode=0, stdout="", stderr=""
         )
         result = runner.invoke(
             app,
@@ -294,7 +305,11 @@ def test_release_pr_command(sample_project_dir: Path) -> None:
         assert "Created Release Pull Request" in result.output
         assert "pull/42" in result.output
         assert mock_gh.called
-        create_args = mock_sub.call_args[0][0]
+        create_calls = [
+            c[0][0] for c in mock_gh.call_args_list if "pr" in c[0][0] and "create" in c[0][0]
+        ]
+        assert len(create_calls) == 1
+        create_args = create_calls[0]
         body_idx = create_args.index("--body") + 1
         assert "- #99" in create_args[body_idx]
 
@@ -515,16 +530,21 @@ def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> Non
         assert res_br_fail.exit_code == 1
 
     # 2. Breaking change PR
-    def mock_breaking_subproc(cmd, *args, **kwargs):
+    def mock_breaking_gh(
+        cmd: list[str], *args: Any, **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
         if "pr" in cmd and "create" in cmd:
             return subprocess.CompletedProcess(
                 args=cmd, returncode=0, stdout="https://github.com/org/repo/pull/2\n", stderr=""
             )
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
 
     with (
-        patch("devops_cli.commands.release.run_subprocess", side_effect=mock_breaking_subproc),
-        patch("devops_cli.commands.release.run_gh", return_value=mock_gh_empty),
+        patch(
+            "devops_cli.commands.release.run_subprocess",
+            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+        ),
+        patch("devops_cli.commands.release.run_gh", side_effect=mock_breaking_gh),
     ):
         res_breaking = runner.invoke(
             app,
@@ -541,16 +561,19 @@ def test_release_pr_error_branches_and_breaking(sample_project_dir: Path) -> Non
         assert "Created Release Pull Request" in res_breaking.output
 
     # 3. gh pr create failure
-    def mock_gh_fail_subproc(cmd, *args, **kwargs):
+    def mock_gh_fail(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
         if "pr" in cmd and "create" in cmd:
             return subprocess.CompletedProcess(
                 args=cmd, returncode=1, stdout="", stderr="gh: authentication required"
             )
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
 
     with (
-        patch("devops_cli.commands.release.run_subprocess", side_effect=mock_gh_fail_subproc),
-        patch("devops_cli.commands.release.run_gh", return_value=mock_gh_empty),
+        patch(
+            "devops_cli.commands.release.run_subprocess",
+            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+        ),
+        patch("devops_cli.commands.release.run_gh", side_effect=mock_gh_fail),
     ):
         res_gh_fail = runner.invoke(
             app, ["pr", "--version", "0.1.8", "--root", str(sample_project_dir)]
