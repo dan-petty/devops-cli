@@ -146,9 +146,7 @@ def test_rate_limiter_no_initial_quotas() -> None:
     """Verify rate limiter has no hardcoded initial quotas and raises error if refresh fails."""
     limiter = GitHubRateLimiter()
     state = limiter.get_quota("core")
-    assert state.remaining is None
-    assert state.limit is None
-    assert state.reset_epoch == 0.0
+    assert (state.remaining, state.limit, state.reset_epoch) == (None, None, None)
 
     with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
         mock_sub.return_value = subprocess.CompletedProcess(
@@ -537,10 +535,10 @@ def test_detect_resource_and_reset_epoch() -> None:
     assert _detect_resource(["gh"]) == "core"
     assert _detect_resource(["api", "repos/owner/repo/dependency-graph/sbom"]) == "dependency_sbom"
 
-    assert _parse_reset_epoch(None) == 0.0
-    assert _parse_reset_epoch("") == 0.0
-    assert _parse_reset_epoch("invalid-date-string") == 0.0
-    assert _parse_reset_epoch("2026-09-15T12:00:00Z") > 0.0
+    assert (_parse_reset_epoch(None), _parse_reset_epoch("")) == (None, None)
+    with pytest.raises(ValueError, match="Failed to parse resetAt timestamp"):
+        _parse_reset_epoch("invalid-date-string")
+    assert _parse_reset_epoch("2026-09-15T12:00:00Z") is not None
 
 
 def test_parse_safe_helpers() -> None:
@@ -758,18 +756,51 @@ def test_get_quota_unknown_subcommand_does_not_mutate_quotas() -> None:
     """Verify get_quota on untracked subcommand returns blank state without mutating internal quotas."""
     limiter = GitHubRateLimiter()
     quota = limiter.get_quota("nonexistent_subcmd")
-    assert (quota.remaining, quota.used, quota.is_valid()) == (None, 0, False)
+    assert (quota.remaining, quota.used, quota.is_valid()) == (None, None, False)
     assert "nonexistent_subcmd" not in limiter.get_all_quotas()
 
 
-def test_quota_from_dict_rejects_missing_or_null_used() -> None:
-    """Verify QuotaState.from_dict rejects data lacking a valid used count instead of resetting to 0."""
-    with pytest.raises(ValueError, match="Missing or unknown 'used' field"):
-        QuotaState.from_dict({"limit": 5000, "remaining": 5000, "reset_epoch": 1000.0})
-    with pytest.raises(ValueError, match="Missing or unknown 'used' field"):
-        QuotaState.from_dict(
-            {"limit": 5000, "remaining": 5000, "used": None, "reset_epoch": 1000.0}
-        )
+def test_quota_from_dict_preserves_none_and_rejects_malformed() -> None:
+    """Verify QuotaState.from_dict preserves None rather than defaulting to 0, and rejects invalid types."""
+    parsed = QuotaState.from_dict({"limit": 5000, "remaining": 5000, "reset_epoch": 1000.0})
+    assert (parsed.used, parsed.last_request_epoch) == (None, None)
+    with pytest.raises(GitHubRateLimitError, match="Expected dict for QuotaState"):
+        QuotaState.from_dict("not_a_dict")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="Malformed quota state dictionary"):
+        QuotaState.from_dict({"limit": "not_an_int"})
+    with pytest.raises(ValueError, match="Malformed quota state dictionary"):
+        QuotaState.from_dict({"reset_epoch": -10.0})
+
+
+def test_is_cacheable_api_call_rejects_all_mutations() -> None:
+    """Verify _is_cacheable_api_call rejects all HTTP mutation verbs and field arguments."""
+    from devops_cli.github.rate_limiter import _is_cacheable_api_call
+
+    assert _is_cacheable_api_call(["api", "repos/owner/repo/pulls"]) is True
+    assert not _is_cacheable_api_call(["api", "-X", "POST", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "-X", "PUT", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "-X", "PATCH", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "-X", "DELETE", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "--method=DELETE", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "repos/owner/repo/pulls", "-f", "title=foo"])
+
+
+def test_backoff_and_quota_max_age_enforcement() -> None:
+    """Verify calculate_backoff_delay pauses for full reset epoch and quota_max_age detects stale quota."""
+    limiter = GitHubRateLimiter(quota_max_age=10.0)
+    now = time.time()
+    limiter.update_quota("core", remaining=0, limit=5000, reset_epoch=now + 120.0)
+    delay = limiter.calculate_backoff_delay("rate limit exceeded", attempt=1, subcommand="core")
+    assert 118.0 <= delay <= 121.0
+
+    state = QuotaState(
+        limit=5000,
+        remaining=4000,
+        reset_epoch=now + 3600.0,
+        last_updated=now - 20.0,
+    )
+    assert not state.is_valid(now=now, max_age=limiter.quota_max_age)
+    assert state.is_valid(now=now) is True
 
 
 def test_disk_quota_lock_exception_propagation_and_cleanup(tmp_path: Path) -> None:
@@ -799,8 +830,8 @@ def test_disk_quota_lock_oserror_fallback_and_propagation(tmp_path: Path) -> Non
                 raise KeyError("expected_key_error")
 
 
-def test_rate_limiter_acquire_fallback_on_unresolvable_quota(tmp_path: Path) -> None:
-    """Verify acquire falls back to min_interval when quota state cannot be resolved."""
+def test_rate_limiter_acquire_propagates_unresolvable_quota_error(tmp_path: Path) -> None:
+    """Verify acquire propagates GitHubRateLimitError when quota state cannot be resolved."""
     cache_file = tmp_path / "gh_quota.json"
     limiter = GitHubRateLimiter(persist_path=cache_file, min_interval=0.05)
 
@@ -812,10 +843,9 @@ def test_rate_limiter_acquire_fallback_on_unresolvable_quota(tmp_path: Path) -> 
         ),
         patch("time.sleep") as mock_sleep,
     ):
-        delay = limiter.acquire("core")
-        assert delay == pytest.approx(0.05, abs=0.01)
-        mock_sleep.assert_called_once()
-        assert mock_sleep.call_args[0][0] == pytest.approx(0.05, abs=0.01)
+        with pytest.raises(GitHubRateLimitError, match="offline"):
+            limiter.acquire("core")
+        mock_sleep.assert_not_called()
 
 
 def test_build_paginated_url_and_extraction() -> None:

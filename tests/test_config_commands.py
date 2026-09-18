@@ -9,6 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.config import app as config_app
+from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.settings import SecretStorageError, Settings
 
 runner = CliRunner()
@@ -94,9 +95,9 @@ def test_config_init_wizard_flow(tmp_path: Path) -> None:
     mock_gh_token = MagicMock(returncode=0, stdout="ghp_cli_token\n")
 
     def mock_subprocess_gh(cmd, *args, **kwargs):
-        if cmd == ["gh", "auth", "status"]:
+        if cmd == [CONST_GH_CLI, "auth", "status"]:
             return mock_gh_status
-        if cmd == ["gh", "auth", "token"]:
+        if cmd == [CONST_GH_CLI, "auth", "token"]:
             return mock_gh_token
         return MagicMock(returncode=0)
 
@@ -104,7 +105,7 @@ def test_config_init_wizard_flow(tmp_path: Path) -> None:
         patch("devops_cli.commands.config.load_settings", return_value=settings),
         patch("devops_cli.commands.config.save_settings"),
         patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.core.process.run_subprocess", side_effect=mock_subprocess_gh),
+        patch("devops_cli.github.rate_limiter.run_subprocess", side_effect=mock_subprocess_gh),
         patch("typer.confirm", return_value=True),
         patch(
             "typer.prompt",
@@ -178,7 +179,9 @@ def test_config_extended_commands(tmp_path: Path) -> None:
         assert "DEVOPS_" in res_env.output
 
     # 2. _gh_auth_status and _gh_auth_token failure
-    with patch("devops_cli.core.process.run_subprocess", side_effect=OSError("gh not found")):
+    with patch(
+        "devops_cli.github.rate_limiter.run_subprocess", side_effect=OSError("gh not found")
+    ):
         assert _gh_auth_status() is False
         assert _gh_auth_token() is None
 

@@ -363,7 +363,7 @@ def test_gh_cli_client_labels() -> None:
     )
     mock_run = MagicMock(return_value=mock_list_proc)
 
-    with patch("devops_cli.github.client.run_subprocess", mock_run):
+    with patch("devops_cli.github.client.run_gh", mock_run):
         labels = client.get_labels("owner/my-repo")
         assert len(labels) == 1
         assert labels[0]["name"] == "bug"
@@ -392,7 +392,7 @@ def test_gh_cli_client_milestones_paginated() -> None:
     mock_proc = MagicMock(returncode=0, stdout=multi_page_stdout)
     mock_run = MagicMock(return_value=mock_proc)
 
-    with patch("devops_cli.github.client.run_subprocess", mock_run):
+    with patch("devops_cli.github.client.run_gh", mock_run):
         milestones = client.get_milestones("owner/my-repo")
         assert len(milestones) == 2
         assert milestones[0]["title"] == "v0.1.0"

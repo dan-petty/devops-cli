@@ -278,6 +278,15 @@ CONST_RECOMMENDATION_BLOCK = "BLOCK"
 # ── GitHub CLI & Pull Requests ────────────────────────────────────────────────
 CONST_GH_CLI = "gh"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
+CONST_GH_NON_API_COMMANDS: Final[frozenset[str]] = frozenset(
+    {
+        "auth",
+        "version",
+        "--version",
+        "help",
+        "--help",
+    }
+)
 CONST_GH_FAILING_CHECK_CONCLUSIONS: Final[frozenset[str]] = frozenset(
     {
         "failure",
@@ -287,6 +296,11 @@ CONST_GH_FAILING_CHECK_CONCLUSIONS: Final[frozenset[str]] = frozenset(
         "startup_failure",
     }
 )
+CONST_PR_API_STATE_MAP: Final[dict[str, str]] = {
+    "all": "all",
+    "closed": "closed",
+    "merged": "closed",
+}
 CONST_BRANCH_PREFIXES: tuple[str, ...] = (
     "feat/",
     "fix/",
@@ -594,3 +608,36 @@ CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"
 
 # RAG embedding distributed caching
 CONST_VALKEY_EMBEDDING_PREFIX: Final[str] = "valkey:rag:embedding"
+
+# GitHub CLI rate limiter mutation verbs and HTTP methods
+CONST_GH_MUTATION_VERBS: Final[frozenset[str]] = frozenset(
+    {
+        "edit",
+        "create",
+        "delete",
+        "add",
+        "close",
+        "reopen",
+        "merge",
+        "comment",
+        "item-edit",
+        "item-add",
+        "item-delete",
+        "field-create",
+        "field-delete",
+        "ready",
+        "resolve",
+        "archive",
+        "sync",
+        "set",
+    }
+)
+
+CONST_GH_MUTATION_HTTP_METHODS: Final[frozenset[str]] = frozenset(
+    {
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+    }
+)

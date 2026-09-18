@@ -1005,3 +1005,110 @@ Fetching ViewerProjectWithItems...
     assert "https://example.com/owner/repo/issues/10" in data
     assert data["https://example.com/owner/repo/issues/10"]["status"] == "In Progress"
     assert data["https://example.com/owner/repo/issues/10"]["priority"] == "P1-High"
+
+
+def test_mutation_budget_lifecycle() -> None:
+    """MutationBudget decrements remaining, tracks total_mutations, and exhausts at limit."""
+    from devops_cli.github.projects import MutationBudget
+
+    budget = MutationBudget(limit=2)
+    assert (budget.limit, budget.remaining, budget.is_exhausted) == (2, 2, False)
+
+    res1 = budget.record_mutation()
+    assert (res1, budget.remaining, budget.total_mutations, budget.is_exhausted) == (
+        True,
+        1,
+        1,
+        False,
+    )
+
+    res2 = budget.record_mutation()
+    assert (res2, budget.remaining, budget.total_mutations, budget.is_exhausted) == (
+        True,
+        0,
+        2,
+        True,
+    )
+
+    res3 = budget.record_mutation()
+    assert (res3, budget.remaining, budget.total_mutations, budget.is_exhausted) == (
+        False,
+        0,
+        2,
+        True,
+    )
+
+
+def test_apply_field_updates_respects_mutation_budget() -> None:
+    """_apply_field_updates stops editing fields once mutation budget is exhausted."""
+    from unittest.mock import patch
+
+    from devops_cli.github.projects import MutationBudget, _apply_field_updates
+
+    budget = MutationBudget(limit=2)
+    fields = [("Status", "Done"), ("Priority", "P1-High"), ("Category", "Quick Win")]
+    current = {"status": "Todo", "priority": "P2-Medium", "category": "Foundation"}
+
+    with (
+        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
+        patch(
+            "devops_cli.github.projects._edit_project_item_field", return_value=True
+        ) as mock_edit,
+    ):
+        updated = _apply_field_updates(
+            "owner", 1, "https://example.com/1", fields, current, budget=budget
+        )
+        assert (updated, mock_edit.call_count, budget.total_mutations, budget.is_exhausted) == (
+            True,
+            2,
+            2,
+            True,
+        )
+
+
+def test_provision_and_reconcile_share_mutation_budget() -> None:
+    """_provision_missing_candidates and _reconcile_candidate_items share a single MutationBudget."""
+    from unittest.mock import patch
+
+    from devops_cli.github.projects import (
+        MutationBudget,
+        _provision_missing_candidates,
+        _reconcile_candidate_items,
+    )
+
+    budget = MutationBudget(limit=2)
+    candidates = [
+        {
+            "html_url": "https://example.com/owner/repo/issues/1",
+            "title": "issue 1",
+            "state": "OPEN",
+            "labels": [{"name": "priority/p1-high"}],
+        },
+        {
+            "html_url": "https://example.com/owner/repo/issues/2",
+            "title": "issue 2",
+            "state": "OPEN",
+            "labels": [{"name": "priority/p1-high"}],
+        },
+    ]
+    items_data: dict[str, dict[str, str | None]] = {}
+
+    with (
+        patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
+        patch("devops_cli.github.projects._resolve_project_owner_arg", return_value="owner"),
+        patch(
+            "devops_cli.github.projects._add_project_item_with_fallback", return_value=True
+        ) as mock_add,
+        patch(
+            "devops_cli.github.projects._edit_project_item_field", return_value=True
+        ) as mock_edit,
+    ):
+        # 1. Provision candidates: consumes 2 mutations, exhausting budget
+        _provision_missing_candidates("owner", 1, candidates, items_data, budget=budget)
+        assert (mock_add.call_count, budget.remaining, budget.is_exhausted) == (2, 0, True)
+
+        # 2. Reconcile candidates: should perform 0 edits because budget is exhausted
+        reconciled = _reconcile_candidate_items(
+            "owner", 1, candidates, items_data, set(), dry_run=False, budget=budget
+        )
+        assert (reconciled, mock_edit.call_count) == (0, 0)

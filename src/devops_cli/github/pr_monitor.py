@@ -15,6 +15,7 @@ from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.pr_threads import ReviewThread, list_pr_review_threads
+from devops_cli.github.rate_limiter import run_gh
 
 logger = logging.getLogger(__name__)
 
@@ -157,14 +158,16 @@ def _try_resolve_pr_via_rest(repo_full: str | None, target_branch: str) -> int |
     if not repo_full or "/" not in repo_full:
         return None
     repo_owner, repo_name = repo_full.split("/", 1)
-    res = run_subprocess(
+    res = run_gh(
         [
             CONST_GH_CLI,
             "api",
             f"repos/{repo_owner}/{repo_name}/pulls?head={repo_owner}:{target_branch}&state=open",
             "--jq",
             ".[0].number",
-        ]
+        ],
+        check=False,
+        quiet=True,
     )
     if res.returncode == 0 and res.stdout.strip() and res.stdout.strip() != "null":
         try:
@@ -179,7 +182,7 @@ def _resolve_pr_via_gh_view(target_repo: str | None, target_branch: str) -> int:
     cmd = [CONST_GH_CLI, "pr", "view", target_branch, "--json", "number", "--jq", ".number"]
     if target_repo:
         cmd.extend(["-R", target_repo])
-    proc = run_subprocess(cmd)
+    proc = run_gh(cmd, check=False, quiet=True)
     if proc.returncode != 0 or not proc.stdout.strip():
         raise GitHubOperationError(f"No open pull request found for branch '{target_branch}'.")
     try:
@@ -318,7 +321,7 @@ def _query_timeline_copilot_state(owner: str, repo_name: str, pr_number: int) ->
         "--jq",
         '.[] | select(.event | test("copilot|reviewed")) | {event: .event, created_at: .created_at, submitted_at: .submitted_at, author: (.actor.login // .user.login // "")}',
     ]
-    proc = run_subprocess(cmd)
+    proc = run_gh(cmd, check=False, quiet=True)
     if proc.returncode == 0 and proc.stdout.strip():
         return _parse_timeline_copilot_state(proc.stdout)
     return False, ""
@@ -389,7 +392,7 @@ def _fetch_commit_check_runs(owner: str, repo: str, head_sha: str) -> list[PRChe
         "--paginate",
         f"repos/{owner}/{repo}/commits/{head_sha}/check-runs",
     ]
-    check_proc = run_subprocess(check_cmd)
+    check_proc = run_gh(check_cmd, check=False, quiet=True)
     if check_proc.returncode != 0 or not check_proc.stdout.strip():
         return []
     try:
@@ -421,7 +424,7 @@ def _fetch_commit_status_contexts(owner: str, repo: str, head_sha: str) -> list[
         "api",
         f"repos/{owner}/{repo}/commits/{head_sha}/status",
     ]
-    status_proc = run_subprocess(status_cmd)
+    status_proc = run_gh(status_cmd, check=False, quiet=True)
     if status_proc.returncode != 0 or not status_proc.stdout.strip():
         return []
     try:
@@ -460,7 +463,7 @@ def _fetch_rest_check_runs(owner: str, repo: str, head_sha: str) -> list[PRCheck
 def _fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
     """Query GitHub REST API for pull request core attributes."""
     pr_cmd = [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls/{pr_number}"]
-    pr_proc = run_subprocess(pr_cmd)
+    pr_proc = run_gh(pr_cmd, check=False, quiet=True)
     if pr_proc.returncode != 0 or not pr_proc.stdout.strip():
         err = pr_proc.stderr.strip()[:256] if pr_proc.stderr else f"Exit code {pr_proc.returncode}"
         raise GitHubOperationError(f"Failed to query PR #{pr_number}: {err}")
@@ -481,7 +484,7 @@ def _fetch_raw_reviews(owner: str, repo_name: str, pr_number: int) -> list[dict[
         "--paginate",
         f"repos/{owner}/{repo_name}/pulls/{pr_number}/reviews",
     ]
-    reviews_proc = run_subprocess(reviews_cmd)
+    reviews_proc = run_gh(reviews_cmd, check=False, quiet=True)
     if reviews_proc.returncode == 0 and reviews_proc.stdout.strip():
         return parse_paginated_json(reviews_proc.stdout)
     return []

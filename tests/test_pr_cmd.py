@@ -35,7 +35,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_output, stderr=""),
             ),
         ):
@@ -49,7 +49,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout="[]", stderr=""),
             ),
         ):
@@ -61,7 +61,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout="PR details", stderr=""),
             ) as mock_run,
         ):
@@ -77,7 +77,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout="Checks passed", stderr=""),
             ) as mock_run,
         ):
@@ -92,7 +92,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout="", stderr=""),
             ) as mock_run,
         ):
@@ -105,65 +105,6 @@ class TestPrCommands:
             assert "--base" in args
             assert "release/v0.1.12" in args
 
-    def test_edit_pr_milestone(self, runner: CliRunner) -> None:
-        with (
-            patch("shutil.which", return_value="/usr/bin/gh"),
-            patch(
-                "devops_cli.commands.pr.run_subprocess",
-                return_value=MagicMock(returncode=0, stdout="", stderr=""),
-            ) as mock_run,
-        ):
-            result = runner.invoke(app, ["edit", "217", "--milestone", "v0.2.19"])
-            args = mock_run.call_args[0][0]
-            assert (
-                result.exit_code,
-                "Successfully updated PR #217" in result.output,
-                "--milestone" in args,
-                "v0.2.19" in args,
-            ) == (0, True, True, True)
-
-    def test_fallback_patch_pr_milestone_title(self) -> None:
-        from devops_cli.commands.pr import _fallback_patch_pr
-
-        milestones_json = '[{"title": "v0.2.19", "number": 19}]'
-        with (
-            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
-            patch(
-                "devops_cli.github.rate_limiter.run_gh",
-                return_value=MagicMock(returncode=0, stdout=milestones_json),
-            ),
-            patch(
-                "devops_cli.commands.pr.run_subprocess",
-                return_value=MagicMock(returncode=0, stdout=""),
-            ) as mock_run,
-        ):
-            success = _fallback_patch_pr(217, milestone="v0.2.19")
-            args = mock_run.call_args[0][0]
-            assert (
-                success,
-                "issues/217" in " ".join(args),
-                "-F" in args,
-                "milestone=19" in args,
-            ) == (True, True, True, True)
-
-    def test_fallback_patch_pr_milestone_digits_and_fields(self) -> None:
-        from devops_cli.commands.pr import _fallback_patch_pr
-
-        with (
-            patch("devops_cli.core.repo.get_repo_origin_name", return_value="dan-petty/devops-cli"),
-            patch(
-                "devops_cli.commands.pr.run_subprocess",
-                return_value=MagicMock(returncode=0, stdout=""),
-            ) as mock_run,
-        ):
-            success = _fallback_patch_pr(217, title="New Title", milestone="19")
-            call_cmds = [" ".join(c[0][0]) for c in mock_run.call_args_list]
-            assert (
-                success,
-                any("pulls/217" in c and "title=New Title" in c for c in call_cmds),
-                any("issues/217" in c and "-F milestone=19" in c for c in call_cmds),
-            ) == (True, True, True)
-
     def test_create_pr(self, runner: CliRunner) -> None:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
@@ -172,7 +113,7 @@ class TestPrCommands:
                 return_value="release/v0.1.12",
             ),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(
                     returncode=0,
                     stdout="https://github.com/org/repo/pull/14",
@@ -594,7 +535,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 side_effect=[
                     MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
                     MagicMock(returncode=0, stdout="", stderr=""),
@@ -613,7 +554,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
             ) as mock_subprocess,
         ):
@@ -630,7 +571,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 side_effect=[
                     MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
                     MagicMock(returncode=1, stdout="", stderr=rate_limit_err),
@@ -649,7 +590,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 side_effect=[
                     MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
                     MagicMock(returncode=0, stdout="", stderr=""),
@@ -671,7 +612,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 side_effect=[
                     MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
                     MagicMock(returncode=0, stdout=mock_check_runs, stderr=""),
@@ -692,7 +633,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 side_effect=[
                     MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
                     MagicMock(returncode=0, stdout="", stderr=""),
@@ -710,7 +651,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_diff, stderr=""),
             ) as mock_subprocess,
         ):
@@ -726,7 +667,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout="", stderr=""),
             ) as mock_subprocess,
         ):
@@ -759,7 +700,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 side_effect=[
                     MagicMock(returncode=1, stdout="", stderr="GraphQL: rate limit exceeded"),
                     MagicMock(returncode=0, stdout=mock_pr_json, stderr=""),
@@ -800,7 +741,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 side_effect=[
                     MagicMock(returncode=1, stdout="", stderr="GraphQL: rate limit exceeded"),
                     MagicMock(returncode=0, stdout=mock_pr_json, stderr=""),
@@ -819,7 +760,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 side_effect=[
                     MagicMock(returncode=1, stdout="", stderr="GraphQL: rate limit exceeded"),
                     MagicMock(returncode=0, stdout="", stderr=""),
@@ -846,6 +787,21 @@ class TestPrCommands:
             assert res.exit_code == 0
             assert "No changes specified" in res.output
 
+    def test_pr_edit_with_milestone(self, runner: CliRunner) -> None:
+        """devops pr edit passes --milestone to gh pr edit and succeeds."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_gh", return_value=MagicMock(returncode=0)
+            ) as mock_run,
+        ):
+            res = runner.invoke(app, ["edit", "184", "--milestone", "v0.2.19"])
+            assert res.exit_code == 0
+            assert "Successfully updated PR #184" in res.output
+            assert "--milestone" in mock_run.call_args[0][0]
+            assert "v0.2.19" in mock_run.call_args[0][0]
+
     def test_list_prs_rest_fallback(self, runner: CliRunner) -> None:
         """devops pr list falls back to REST when GraphQL fails."""
         mock_rest_prs = json.dumps(
@@ -865,7 +821,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 side_effect=[
                     MagicMock(returncode=1, stdout="", stderr="GraphQL: rate limit exceeded"),
                     MagicMock(returncode=0, stdout=mock_rest_prs, stderr=""),
@@ -891,14 +847,53 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
             ),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
         ):
             res = runner.invoke(app, ["check-readiness", "187"])
-            assert res.exit_code == 0
-            assert "satisfies merge readiness" in res.output
+            assert (res.exit_code, "satisfies merge readiness" in res.output) == (0, True)
+
+    def test_check_readiness_already_merged(self, runner: CliRunner) -> None:
+        """devops pr check-readiness passes when PR is already merged."""
+        mock_pr = json.dumps(
+            {
+                "state": "closed",
+                "merged": True,
+                "base": {"ref": "release/v0.2.17"},
+            }
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_gh",
+                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
+            ),
+        ):
+            res = runner.invoke(app, ["check-readiness", "187"])
+            assert (res.exit_code, "already merged into base branch" in res.output) == (0, True)
+
+    def test_check_readiness_closed_unmerged(self, runner: CliRunner) -> None:
+        """devops pr check-readiness fails when PR is closed without being merged."""
+        mock_pr = json.dumps(
+            {
+                "state": "closed",
+                "merged": False,
+                "base": {"ref": "release/v0.2.17"},
+            }
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_gh",
+                return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
+            ),
+        ):
+            res = runner.invoke(app, ["check-readiness", "187"])
+            assert (res.exit_code, "closed without being merged" in res.output) == (1, True)
 
     def test_check_readiness_conflicts(self, runner: CliRunner) -> None:
         """devops pr check-readiness fails on merge conflicts."""
@@ -914,7 +909,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
             ),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
@@ -944,7 +939,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
             ),
             patch(
@@ -974,7 +969,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
             ),
             patch(
@@ -1016,7 +1011,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
             ),
             patch(
@@ -1060,7 +1055,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
             ),
             patch(
@@ -1086,7 +1081,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
             ),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
@@ -1109,7 +1104,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
             ),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
@@ -1132,7 +1127,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
             ),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
@@ -1155,7 +1150,7 @@ class TestPrCommands:
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
             ),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
@@ -1169,7 +1164,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(
                     returncode=0,
                     stdout="+ export GITHUB_TOKEN=ghp_secrettoken1234567890abcdefghijklmn\n",
@@ -1186,7 +1181,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(
                     returncode=1,
                     stdout="",
@@ -1203,7 +1198,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(
                     returncode=1,
                     stdout="",
@@ -1232,7 +1227,7 @@ class TestPrCommands:
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch("devops_cli.commands.pr._detect_current_branch", return_value="feat/test"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_existing, stderr=""),
             ) as mock_sub,
         ):
@@ -1274,7 +1269,7 @@ class TestPrCommands:
         with (
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_prs, stderr=""),
             ),
             patch("devops_cli.commands.pr._render_pr_table") as mock_table,
@@ -1295,7 +1290,7 @@ class TestPrCommands:
                 return_value="release/v0.2.17",
             ),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=1, stdout="", stderr="GraphQL error"),
             ),
             patch("devops_cli.commands.pr._fallback_create_pr", return_value=True) as mock_fallback,
@@ -1313,7 +1308,7 @@ class TestPrCommands:
                 return_value="release/v0.2.17",
             ),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout="", stderr=""),
             ) as mock_sub,
         ):
@@ -1346,7 +1341,7 @@ class TestPrCommands:
                 return_value={"draft": True, "number": 184},
             ),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(
                     returncode=1,
                     stdout="",
@@ -1367,7 +1362,7 @@ class TestPrCommands:
                 side_effect=[{"draft": True, "number": 184}, {"draft": False, "number": 184}],
             ),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout="", stderr=""),
             ),
         ):
@@ -1433,7 +1428,7 @@ class TestPrCommands:
             patch("devops_cli.commands.pr._fetch_pr_details", return_value=mock_pr_details),
             patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=0, stdout=mock_api_empty, stderr=""),
             ),
             patch("devops_cli.commands.pr.print_info") as mock_print_info,
@@ -1447,7 +1442,7 @@ class TestPrCommands:
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
-                "devops_cli.commands.pr.run_subprocess",
+                "devops_cli.commands.pr.run_gh",
                 return_value=MagicMock(returncode=2, stdout="", stderr="Error fetching diff"),
             ),
         ):

@@ -437,6 +437,8 @@ class PRMessages:
     pr_ready_success: str = "PR #{number} is 100% READY FOR MERGING: All checks passed, reviews complete, 0 unresolved threads."
     pr_marked_ready_success: str = "PR #{number} marked as ready for review."
     pr_already_ready: str = "PR #{number} is already marked ready for review."
+    pr_already_merged: str = "PR #{number} is already merged into base branch '{base}'."
+    pr_closed_unmerged: str = "PR #{number} is closed without being merged."
     pr_closed_success: str = "PR #{number} closed successfully."
     pr_still_draft_error: str = (
         "PR #{number} is still in draft state after ready conversion command."

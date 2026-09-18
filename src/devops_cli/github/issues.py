@@ -10,8 +10,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
-from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.github.rate_limiter import run_gh
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ def _fetch_issues_rest(
     if labels:
         api_path += f"&labels={','.join(labels)}"
     cmd = [CONST_GH_CLI, "api", api_path]
-    res = run_subprocess(cmd, check=False, quiet=True)
+    res = run_gh(cmd, check=False, quiet=True)
     if res.returncode != 0 or not res.stdout.strip():
         return []
     try:
@@ -161,7 +161,7 @@ def get_repository_issues(
     for lbl in all_labels:
         cmd.extend(["--label", lbl])
 
-    res = run_subprocess(cmd, check=False, quiet=True)
+    res = run_gh(cmd, check=False, quiet=True)
     if res.returncode == 0 and res.stdout.strip():
         try:
             raw_list = json.loads(res.stdout)
@@ -240,7 +240,7 @@ def create_repository_issue(
 ) -> GitHubIssue:
     """Create a new GitHub issue with taxonomy labels and milestone linkage."""
     cmd = _build_create_issue_cmd(repo, title, body, milestone, labels)
-    res = run_subprocess(cmd, check=False, quiet=True)
+    res = run_gh(cmd, check=False, quiet=True)
     if res.returncode != 0:
         raise GitHubOperationError(
             f"Failed to create GitHub issue: {res.stderr or res.stdout}",

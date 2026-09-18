@@ -141,8 +141,8 @@ devops pr edit [OPTIONS] <number>
 | `--base`, `-B` | `string` | - | Change the base branch for this pull request. |
 | `--title`, `-t` | `string` | - | Set the new title. |
 | `--body`, `-b` | `string` | - | Set the new body. |
-| `--milestone`, `-m` | `string` | - | Set the milestone for this pull request. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--milestone`, `-m` | `string` | - | Set the milestone for this pull request. |
 
 ---
 

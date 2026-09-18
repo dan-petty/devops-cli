@@ -8,6 +8,7 @@ import sys
 
 import pytest
 
+from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.core.process import (
     DEFAULT_ALLOWED_ENV_PREFIXES,
     DEFAULT_ALLOWED_ENV_VARS,
@@ -204,7 +205,7 @@ def test_run_subprocess_forwards_tokens_to_gh(monkeypatch: pytest.MonkeyPatch) -
 
     with patch("subprocess.run") as mock_sub:
         mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
-        run_subprocess(["gh", "pr", "view", "184"])
+        run_subprocess([CONST_GH_CLI, "pr", "view", "184"])
         called_env = mock_sub.call_args.kwargs.get("env", {})
         assert called_env.get("GH_TOKEN") == "ghp_devops_secret"
 
@@ -218,7 +219,8 @@ def test_run_subprocess_forwards_explicit_env_devops_token() -> None:
     with patch("subprocess.run") as mock_sub:
         mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
         run_subprocess(
-            ["gh", "pr", "view", "184"], env={"DEVOPS_CLI_GITHUB_TOKEN": "ghp_explicit_token"}
+            [CONST_GH_CLI, "pr", "view", "184"],
+            env={"DEVOPS_CLI_GITHUB_TOKEN": "ghp_explicit_token"},
         )
         called_env = mock_sub.call_args.kwargs.get("env", {})
         assert called_env.get("GH_TOKEN") == "ghp_explicit_token"
@@ -229,7 +231,7 @@ def test_sanitize_command_for_telemetry() -> None:
     from devops_cli.core.process import _sanitize_command_for_telemetry
 
     cmd = [
-        "gh",
+        CONST_GH_CLI,
         "pr",
         "close",
         "187",
@@ -240,6 +242,6 @@ def test_sanitize_command_for_telemetry() -> None:
     assert "[REDACTED]" in summary
     assert "ghp_secrettoken" not in summary
 
-    cmd2 = ["gh", "api", "issues/1", "-f", "title=Secret issue title"]
+    cmd2 = [CONST_GH_CLI, "api", "issues/1", "-f", "title=Secret issue title"]
     summary2 = _sanitize_command_for_telemetry(cmd2)
     assert "title=[REDACTED]" in summary2

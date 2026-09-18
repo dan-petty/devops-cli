@@ -11,8 +11,8 @@ import yaml
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
-from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.github.rate_limiter import run_gh
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -129,7 +129,7 @@ def get_remote_branch_protection(repo: str, branch: str) -> dict[str, Any] | Non
     """Fetch branch protection configuration from GitHub REST API via gh cli."""
     with trace_span("github.branch_protection.get", attributes={"repo": repo, "branch": branch}):
         cmd = [CONST_GH_CLI, "api", f"repos/{repo}/branches/{branch}/protection"]
-        res = run_subprocess(cmd, check=False, quiet=True)
+        res = run_gh(cmd, check=False, quiet=True)
         if res.returncode != 0 or not res.stdout.strip():
             logger.debug("Branch %s has no protection or fetch failed: %s", branch, res.stderr)
             return None
@@ -361,7 +361,7 @@ def _apply_remote_protection(repo: str, branch: str, payload: dict[str, Any]) ->
         "-",
     ]
     payload_str = json.dumps(payload)
-    res = run_subprocess(cmd, input=payload_str, check=False, quiet=True)
+    res = run_gh(cmd, input=payload_str, check=False, quiet=True)
     if res.returncode != 0:
         logger.error(
             "Failed to update branch protection for %s on %s: %s",

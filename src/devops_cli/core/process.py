@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -231,7 +232,7 @@ def run_subprocess(
         isolate_env=isolate_env,
         extra_allowed_keys=extra_allowed_env,
     )
-    if bin_name == "gh":
+    if bin_name == CONST_GH_CLI:
         for token_var in ("GH_TOKEN", "GITHUB_TOKEN"):
             if token_var in os.environ and token_var not in sub_env:
                 sub_env[token_var] = os.environ[token_var]

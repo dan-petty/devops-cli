@@ -54,7 +54,7 @@ def test_encrypt_secret_invalid_key() -> None:
     assert "Failed to encrypt secret" in str(exc_info.value)
 
 
-@patch("devops_cli.github.secrets.run_subprocess")
+@patch("devops_cli.github.secrets.run_gh")
 def test_get_repository_public_key_success(mock_sub: MagicMock) -> None:
     mock_sub.return_value = MagicMock(
         returncode=0,
@@ -65,7 +65,7 @@ def test_get_repository_public_key_success(mock_sub: MagicMock) -> None:
     assert pk.key == "dGVzdC1wdWJsaWMta2V5"
 
 
-@patch("devops_cli.github.secrets.run_subprocess")
+@patch("devops_cli.github.secrets.run_gh")
 def test_get_repository_public_key_failure(mock_sub: MagicMock) -> None:
     mock_sub.return_value = MagicMock(returncode=1, stdout="", stderr="HTTP 403 Forbidden")
     with pytest.raises(GitHubOperationError) as exc_info:
@@ -73,7 +73,7 @@ def test_get_repository_public_key_failure(mock_sub: MagicMock) -> None:
     assert "Failed to get Actions public key" in str(exc_info.value)
 
 
-@patch("devops_cli.github.secrets.run_subprocess")
+@patch("devops_cli.github.secrets.run_gh")
 def test_get_repository_public_key_invalid_json(mock_sub: MagicMock) -> None:
     mock_sub.return_value = MagicMock(returncode=0, stdout="not valid json")
     with pytest.raises(GitHubOperationError) as exc_info:
@@ -81,7 +81,7 @@ def test_get_repository_public_key_invalid_json(mock_sub: MagicMock) -> None:
     assert "Invalid public key response" in str(exc_info.value)
 
 
-@patch("devops_cli.github.secrets.run_subprocess")
+@patch("devops_cli.github.secrets.run_gh")
 def test_list_repository_secrets_success(mock_sub: MagicMock) -> None:
     mock_sub.return_value = MagicMock(
         returncode=0,
@@ -91,7 +91,7 @@ def test_list_repository_secrets_success(mock_sub: MagicMock) -> None:
     assert secrets == ["MY_SECRET_1", "MY_SECRET_2"]
 
 
-@patch("devops_cli.github.secrets.run_subprocess")
+@patch("devops_cli.github.secrets.run_gh")
 def test_list_repository_secrets_empty_on_error(mock_sub: MagicMock) -> None:
     mock_sub.return_value = MagicMock(returncode=1, stdout="", stderr="error")
     secrets = list_repository_secrets("dan-petty/devops-cli")
@@ -121,14 +121,14 @@ def test_resolve_secret_unsupported_source() -> None:
     assert "Unsupported secret source" in str(exc_info.value)
 
 
-@patch("devops_cli.github.secrets.run_subprocess")
+@patch("devops_cli.github.secrets.run_gh")
 def test_upload_encrypted_secret_success(mock_sub: MagicMock) -> None:
     mock_sub.return_value = MagicMock(returncode=0, stdout="")
     success = _upload_encrypted_secret("dan-petty/devops-cli", "TEST_KEY", "enc-value", "key-id")
     assert success is True
 
 
-@patch("devops_cli.github.secrets.run_subprocess")
+@patch("devops_cli.github.secrets.run_gh")
 def test_upload_encrypted_secret_failure(mock_sub: MagicMock) -> None:
     mock_sub.return_value = MagicMock(returncode=1, stdout="", stderr="Upload rejected")
     success = _upload_encrypted_secret("dan-petty/devops-cli", "TEST_KEY", "enc-value", "key-id")
