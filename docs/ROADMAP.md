@@ -249,35 +249,26 @@ High-density product roadmap, engineering milestones, and open-source integratio
 ## Value vs. Effort Prioritization Matrix
 
 > [!NOTE]
-> This matrix tracks active, scheduled, and future roadmap deliverables across Value and Effort dimensions. Historical deliverables that have reached completion are summarized in category rows to keep the prioritization backlog focused on in-flight and upcoming work.
+> This matrix prioritizes forward-looking, active, scheduled, and future roadmap deliverables across Value and Effort dimensions. Completed items are recorded in milestone history and release changelogs, keeping this prioritization backlog strictly focused on in-flight and upcoming work.
 
 | Priority Category | Feature / Focus | Primary Open Source Resource | Value | Effort | Target Release | Status |
 |---|---|---|---|---|---|---|
-| **Quick Wins** | Observability, Context Budgeting, Valkey Cache & Security Pre-Filters | Standard Library / PydanticAI / Valkey | High | Low | v0.2.x | ✅ Completed |
-|  | Context-Window & VRAM-Aware Dynamic Model Router | RouteLLM / Pydantic | High | Low | v0.2.19 | ✅ Completed |
-|  | Consolidated AI Review Report Markdown Sanitization | Standard Library / CommonMark | High | Low | v0.2.20 | ✅ Completed |
-|  | Universal Subcommand Option Propagation (`--dry-run` & `--explain`) | Click / Typer / Rich | High | Low | v0.2.20 | ✅ Completed (PR #253) |
-|  | Fast CI Execution Caching & Pre-Commit File Tracking | Git / SHA-256 / Typer | High | Low | v0.2.20 | ✅ Completed (PR #257) |
-|  | Automated GitHub PR Sync & Branch Update Integrations | GitHub API / Typer / Actions | High | Low | v0.2.20 | 🔄 In Progress (#258) |
+| **Quick Wins** | Automated GitHub PR Sync & Branch Update Integrations | GitHub API / Typer / Actions | High | Low | v0.2.20 | 🔄 In Progress (#258) |
 |  | In-Flight Work, PR Stagnation & Blocker Radar (`devops gh pm inflight`) | GitHub API / FIFO / Metrics | High | Low | v0.2.22 | 📋 Scheduled (P1) |
 |  | Universal Command Palette & Fuzzy Action Launcher | Textual CommandPalette | High | Low | v0.2.23 | 📋 Scheduled (P1) |
 |  | Zero-Trust Git Commit & Tag Signature Verifier | `git`, GPG, Sigstore | High | Low | v0.3.0 | 💡 Future Vision |
 |  | JIT Python 3.14 Bytecode Optimization Benchmarking | `pytest-benchmark` / JIT | Medium | Low | v0.3.0 | 💡 Future Vision |
 |  | Universal `--json` CLI Output Flag Alias Pipeline | Typer / Rich | Medium | Low | v0.3.0 | 💡 Future Vision |
 |  | Mutation-Driven GitHub Cache Invalidation Hooks | Disk Cache / SQLite | High | Low | v0.3.0 | 💡 Future Vision |
-| **Major Projects** | Universal Stage Pipelines, Ephemeral Sandboxing & Dynamic Probing | Docker / K8s / Tree-Sitter | High | High | v0.2.x | ✅ Completed |
-|  | MCTS & Tree-of-Thought Solution Exploration Engine (`devops ai explore`) | MCTS / UCT / Beam Search | High | High | v0.2.20 | 📋 Scheduled (P0) |
+| **Major Projects** | MCTS & Tree-of-Thought Solution Exploration Engine (`devops ai explore`) | MCTS / UCT / Beam Search | High | High | v0.2.20 | 📋 Scheduled (P0) |
 |  | Ephemeral Shadow Worktrees & CoW State Snapshots | Git / CoW / Docker | High | High | v0.2.20 | 📋 Scheduled (P0) |
-|  | Forward-Looking Project Management, Roadmap Evolution & Issue Sync | GitHub API / PydanticAI | High | High | v0.2.20 | ✅ Completed (#254, PR #255) |
 |  | Syntopical Dialectical Synthesis Engine (`devops ai research syntopical`) | PydanticAI / Multi-Source | High | High | v0.2.21 | 📋 Scheduled (P0) |
 |  | Agentic Information Foraging & Scent Tracker (`devops ai research forage`) | Graph Search / Scent | High | High | v0.2.21 | 📋 Scheduled (P0) |
 |  | Continuous State Machine Reconciler & Card Daemon (`devops gh pm reconcile`) | GitHub API / Watcher | High | High | v0.2.22 | 📋 Scheduled (P0) |
 |  | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 |  | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 |  | Distributed Multi-Cluster Telemetry & OTel Egress Mesh | OTel Collector / Prometheus | High | High | v0.3.0 | 💡 Future Vision |
-| **Strategic Investments** | Unified LLM Gateway & Distributed Model Routing Service | LiteLLM Proxy / AI Gateway | High | Medium | v0.2.19 | ✅ Completed |
-|  | vLLM Continuous Batching & Tensor-Parallel Serving Stack | vLLM / PyTorch / CUDA | High | Medium | v0.2.19 | ✅ Completed |
-|  | Counterexample-Guided Inductive Synthesis (CEGIS) Loop | AST / Pytest / Negative Constraints | High | Medium | v0.2.20 | 📋 Scheduled (P0) |
+| **Strategic Investments** | Counterexample-Guided Inductive Synthesis (CEGIS) Loop | AST / Pytest / Negative Constraints | High | Medium | v0.2.20 | 📋 Scheduled (P0) |
 |  | Hierarchical Delta-Debugging & Patch Minimization Engine | Delta-AST / Delta-Debugging | High | Medium | v0.2.20 | 📋 Scheduled (P1) |
 |  | Multi-Objective Pareto Solution Ranker (`devops ai rank-solutions`) | Pydantic / AST / Profiler | High | Medium | v0.2.20 | 📋 Scheduled (P1) |
 |  | Valkey L2 Trial Invalidation Cache & Experience Replay | Valkey L2 / Hashing | High | Medium | v0.2.20 | 📋 Scheduled (P1) |
@@ -313,10 +304,8 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Standup & Executive Velocity Reporter (`devops gh pm report`) | Pydantic / Markdown / Rich | High | Low | v0.2.22 | 📋 Scheduled (P1) |
 |  | FastMCP Agentic PM Tools & System Resources | FastMCP / PydanticAI | High | Low | v0.2.22 | 📋 Scheduled (P1) |
 |  | FastMCP TUI Management Tools & Dynamic Resources | FastMCP / PydanticAI | Medium | Low | v0.2.23 | 📋 Scheduled (P2) |
-| **Fill-Ins** | Dynamic Schema Export, AST Memoization & Knowledge Base Linters | Click / Typer Introspection | Low | Low | v0.2.x | ✅ Completed |
-|  | Multi-Scale Semantic Outline Scanner (`devops ai read --inspect`) | Python AST / Tree-Sitter | High | Low | v0.2.21 | 📋 Scheduled (P0) |
+| **Fill-Ins** | Multi-Scale Semantic Outline Scanner (`devops ai read --inspect`) | Python AST / Tree-Sitter | High | Low | v0.2.21 | 📋 Scheduled (P0) |
 |  | Information Scent Trail Visualizer & Breadcrumb Tree | Rich Trees / Graphviz | Medium | Low | v0.2.21 | 📋 Scheduled (P2) |
 |  | Dependency DAG Visualizer & Critical Path Graph | Mermaid / Rich Trees | Medium | Low | v0.2.22 | 📋 Scheduled (P2) |
-| **Foundation** | DevContainer Lifecycle, PSA Enforcement & Invariant Gates | Linux / Docker / OTel | Low | High | v0.2.x | ✅ Completed |
 | **De-prioritized** | Bare-Metal OS Installers | Shell scripts | Low | High | — | ❌ Rejected (DevContainer native) |
 |  | Heavyweight Monolithic Orchestrators | Full LangChain | Low | High | — | ❌ Rejected (FastMCP + PydanticAI) |
