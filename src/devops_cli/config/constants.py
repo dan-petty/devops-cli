@@ -685,3 +685,42 @@ CONST_TASK_TAXONOMY_REASONING: Final[frozenset[str]] = frozenset(
         "synthesis",
     }
 )
+
+# ── Strategic Roadmap Taxonomy & Synchronization Constants ────────────────────
+CONST_ROADMAP_SCOPE_KEYWORDS: Final[dict[str, frozenset[str]]] = {
+    "scope/github": frozenset(
+        {"pm", "github", "project", "backlog", "sprint", "kanban", "pr", "prs", "fleet", "daemon"}
+    ),
+    "scope/ai": frozenset(
+        {
+            "ai",
+            "mcts",
+            "explore",
+            "syntopical",
+            "forage",
+            "socratic",
+            "reasoning",
+            "model",
+            "prompt",
+            "llm",
+            "embedding",
+            "rag",
+        }
+    ),
+    "scope/k8s": frozenset({"k8s", "kubernetes", "pod", "pods", "cluster", "minikube", "helm"}),
+    "scope/security": frozenset(
+        {"sec", "vault", "security", "fuzz", "cve", "trivy", "gitleaks", "semgrep"}
+    ),
+    "scope/review": frozenset({"review", "finding", "findings", "hallucination"}),
+    "scope/docs": frozenset({"docs", "roadmap", "compaction"}),
+    "scope/telemetry": frozenset(
+        {"telemetry", "metric", "metrics", "tracing", "trace", "loki", "jaeger", "prometheus"}
+    ),
+}
+
+CONST_ROADMAP_PRIORITY_TAGS: Final[dict[str, tuple[str, ...]]] = {
+    "priority/p0-critical": ("p0", "blocker", "critical"),
+    "priority/p1-high": ("p1", "high"),
+    "priority/p2-medium": ("p2", "medium"),
+    "priority/p3-low": ("p3", "low"),
+}

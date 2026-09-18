@@ -41,9 +41,10 @@ Follow a structured 5-phase reasoning process before formulating findings:
   - **MEDIUM**: Bounded flaw, unhandled error state, or incomplete mitigation.
   - **LOW**: Hardening, observability, defense-in-depth, or maintainability improvement.
 
-### Phase 5: Self-Healing Remediation & Verification Synthesis
+### Phase 5: Self-Healing Remediation, Verification & Forward-Looking Evolution
 - **Drop-In Remediation**: Provide a complete, self-contained replacement code snippet (`fix`) directly resolving the defect without regressions or breaking API contracts.
 - **Verification & Invalidation Criteria**: Formulate 1–3 concrete observable conditions proving defect presence (`verification_criteria`), and 1–3 conditions proving defect absence/mitigation (`invalidation_criteria`). Keep criteria isolated to their schema fields.
 - **Closed-Loop Feedback Dataset Calibration**: Ensure criteria precision directly grounds automated verification, unit test generation (`ai_test_gen`), and training dataset export (`devops review export-feedback` -> `feedback_dataset.jsonl`) for continuous benchmark evaluation and prompt fine-tuning.
 - **Continuous Self-Improvement**: Feed verified findings and remediation patterns back into documentation ([`docs/SELF_IMPROVEMENT.md`](../../../../docs/SELF_IMPROVEMENT.md)) and test suites to prevent defect regression.
+- **Forward-Looking Suggestions & Roadmap Opportunities**: Proactively formulate constructive, forward-looking suggestions, valuable architectural improvements, and ecosystem integrations that can advance the codebase, recommending them as candidate tasks for `docs/ROADMAP.md`.
 - **Clean Approval**: If no actionable defects exist, return an empty findings array and `APPROVE`.

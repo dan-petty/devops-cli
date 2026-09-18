@@ -432,5 +432,63 @@ def test_doc_compactor_section_counters(tmp_path: Path, compactor: DocCompactor)
         series="v0.2",
         dry_run=True,
     )
-    assert res.roadmap_sections_count > 0
-    assert res.release_notes_sections_count > 0
+    assert (res.roadmap_sections_count > 0, res.release_notes_sections_count > 0) == (True, True)
+
+
+def test_compact_roadmap_preserves_scheduled_milestones(compactor: DocCompactor) -> None:
+    """Verify that compacting a series with completed milestones does NOT purge scheduled milestones."""
+    mixed_roadmap = """# Strategic Roadmap
+
+## Release Milestones (Chronological Order)
+
+### Workstation Foundation (v0.1.0 - Completed)
+- [x] **Base CLI**: Core commands.
+
+### Early v0.2 Feature (v0.2.0 - Completed)
+- [x] **Observability**: Prometheus metrics.
+
+### Middle v0.2 Feature (v0.2.1 - Completed)
+- [x] **PydanticAI**: Agent workflows.
+
+### Active v0.2 Milestone (v0.2.20 - Current Release / Active Development)
+- [ ] **MCTS Exploration**: Tree search over solutions.
+- [x] **Review Markdown Fix**: Clean code blocks.
+
+### Scheduled v0.2 Milestone (v0.2.21 - Scheduled)
+- [ ] **Syntopical Synthesis**: Dialectical matrix.
+
+### Future Vision Milestone (v0.3.0 - Future Vision)
+- [ ] **Multi-Region Mesh**: Cluster federation.
+
+## Value vs. Effort Prioritization Matrix
+
+| Priority Category | Feature / Focus | Primary Resource | Value | Effort | Target Release | Status |
+|---|---|---|---|---|---|---|
+| **Quick Wins** | Observability | Prometheus | High | Low | v0.2.0 | ✅ Completed |
+|  | PydanticAI | PydanticAI | High | Low | v0.2.1 | ✅ Completed |
+|  | Review Markdown Fix | Standard Library | High | Low | v0.2.20 | ✅ Completed |
+|  | Universal Dry Run | Typer | High | Low | v0.2.20 | 🔄 In Progress |
+| **Major Projects** | MCTS Exploration | Beam Search | High | High | v0.2.20 | 📋 Scheduled (P0) |
+|  | Syntopical Synthesis | PydanticAI | High | High | v0.2.21 | 📋 Scheduled (P0) |
+|  | Multi-Region Mesh | Service Mesh | High | High | v0.3.0 | 💡 Future Vision |
+"""
+    compacted = compactor.compact_roadmap(mixed_roadmap, series="v0.2")
+
+    milestone_checks = (
+        "Early v0.2 Feature" not in compacted,
+        "Middle v0.2 Feature" not in compacted,
+        "### Active v0.2 Milestone (v0.2.20 - Current Release / Active Development)" in compacted,
+        "- [ ] **MCTS Exploration**: Tree search over solutions." in compacted,
+        "### Scheduled v0.2 Milestone (v0.2.21 - Scheduled)" in compacted,
+        "- [ ] **Syntopical Synthesis**: Dialectical matrix." in compacted,
+        "### Future Vision Milestone (v0.3.0 - Future Vision)" in compacted,
+    )
+    matrix_checks = (
+        "| v0.2.x | ✅ Completed |" in compacted,
+        "Universal Dry Run | Typer | High | Low | v0.2.20 | 🔄 In Progress |" in compacted,
+        "MCTS Exploration | Beam Search | High | High | v0.2.20 | 📋 Scheduled (P0) |" in compacted,
+        "Syntopical Synthesis | PydanticAI | High | High | v0.2.21 | 📋 Scheduled (P0) |"
+        in compacted,
+        "Multi-Region Mesh | Service Mesh | High | High | v0.3.0 | 💡 Future Vision |" in compacted,
+    )
+    assert (all(milestone_checks), all(matrix_checks)) == (True, True)

@@ -173,12 +173,44 @@ def _is_historical_log_header(header_line: str, normalized_series: str) -> bool:
     return False
 
 
+def _is_completed_milestone_block(match: re.Match[str]) -> bool:
+    """Predicate checking if a milestone subsection represents a completed release."""
+    header_line = match.group(0).splitlines()[0].lower()
+    body = match.group(3)
+    if "completed" in header_line:
+        return True
+    if "- [ ]" in body:
+        return False
+    return "- [x]" in body
+
+
 def _is_matrix_series_row(line: str, normalized_series: str) -> bool:
-    """Check if a table row corresponds to the target release series."""
+    """Check if a table row corresponds to completed deliverables of the target series."""
     if not line.startswith("|"):
         return False
     row_cells = [cell.strip() for cell in line.split("|")[1:-1]]
-    return len(row_cells) >= 6 and _version_matches_series(row_cells[5], normalized_series)
+    if len(row_cells) < 7:
+        return False
+    target_rel = row_cells[5]
+    status = row_cells[6].lower()
+    is_series = _version_matches_series(target_rel, normalized_series)
+    is_completed = "completed" in status or "✅" in status
+    return is_series and is_completed
+
+
+def _extract_versions_from_blocks(blocks: list[re.Match[str]], series: str) -> list[str]:
+    """Extract ordered unique versions matching series from regex match blocks."""
+    versions: list[str] = []
+    for b in blocks:
+        for match in re.findall(r"v\d+\.\d+\.\d+", b.group(0).splitlines()[0]):
+            if _version_matches_series(match, series) and match not in versions:
+                versions.append(match)
+    return versions
+
+
+def _is_already_compacted_title(blocks: list[re.Match[str]], title: str | None) -> bool:
+    """Predicate checking if the only block is already the series title."""
+    return bool(len(blocks) == 1 and title and blocks[0].group(1).strip() == title)
 
 
 class DocCompactor:
@@ -214,19 +246,14 @@ class DocCompactor:
         return f"{header}\n" + "\n".join(bullets) + "\n"
 
     def _compact_roadmap_subsections(self, content: str, series: str) -> tuple[str, bool, int]:
-        """Consolidate Section 2 milestone subsections for given series."""
+        """Consolidate Section 2 completed milestone subsections for given series."""
         normalized_series = _normalize_series(series)
-        versions = self._extract_roadmap_versions(content, normalized_series)
-        if not versions:
-            return content, False, 0
-
         sec2_match = re.search(r"## Release Milestones \(Chronological Order\)\n\n", content)
         sec3_match = re.search(r"\n## Value vs\. Effort Prioritization Matrix", content)
         if not sec2_match or not sec3_match:
             return content, False, 0
 
-        sec2_start = sec2_match.end()
-        sec3_start = sec3_match.start()
+        sec2_start, sec3_start = sec2_match.end(), sec3_match.start()
         sec2_content = content[sec2_start:sec3_start]
 
         subsection_re = re.compile(
@@ -236,20 +263,19 @@ class DocCompactor:
         matching_blocks = [
             b for b in blocks if _version_matches_series(b.group(2), normalized_series)
         ]
-        if not matching_blocks:
-            return content, False, 0
-
+        completed_blocks = [b for b in matching_blocks if _is_completed_milestone_block(b)]
         title = self.series_title_map.get(normalized_series)
-        if len(matching_blocks) == 1 and title and matching_blocks[0].group(1).strip() == title:
+        if not completed_blocks or _is_already_compacted_title(completed_blocks, title):
             return content, False, 0
 
-        first_span_start = matching_blocks[0].start()
-        last_span_end = matching_blocks[-1].end()
+        versions = _extract_versions_from_blocks(completed_blocks, normalized_series)
+        first_span_start = completed_blocks[0].start()
+        last_span_end = completed_blocks[-1].end()
 
         summary_block = self._build_roadmap_summary_block(normalized_series, versions)
         new_sec2 = sec2_content[:first_span_start] + summary_block + sec2_content[last_span_end:]
         compacted = content[:sec2_start] + new_sec2 + content[sec3_start:]
-        return compacted, True, len(matching_blocks)
+        return compacted, True, len(completed_blocks)
 
     def _compact_roadmap_matrix(self, content: str, series: str) -> tuple[str, bool]:
         """Consolidate Section 3 Prioritization Matrix table rows for given series."""
@@ -390,6 +416,83 @@ class DocCompactor:
 
         return "\n".join(final_retained) + "\n", "\n".join(archived_lines) + "\n"
 
+    def _compact_roadmap_file(
+        self,
+        path: Path,
+        series: str,
+        dry_run: bool,
+        check: bool,
+        result: DocCompactionResult,
+        modified_files: list[str],
+    ) -> tuple[int, int]:
+        """Compact roadmap file and record metrics."""
+        if not path.exists():
+            return 0, 0
+        orig_text = path.read_text(encoding="utf-8")
+        orig_bytes = len(orig_text.encode("utf-8"))
+        new_text, count = self.compact_roadmap_with_count(orig_text, series)
+        new_bytes = len(new_text.encode("utf-8"))
+        result.roadmap_sections_count = count
+        if new_text != orig_text:
+            result.roadmap_compacted = True
+            modified_files.append(str(path))
+            if not dry_run and not check:
+                write_text_file(path, new_text)
+        return orig_bytes, new_bytes
+
+    def _compact_release_notes_file(
+        self,
+        path: Path,
+        series: str,
+        dry_run: bool,
+        check: bool,
+        result: DocCompactionResult,
+        modified_files: list[str],
+    ) -> tuple[int, int]:
+        """Compact release notes file and record metrics."""
+        if not path.exists():
+            return 0, 0
+        orig_text = path.read_text(encoding="utf-8")
+        orig_bytes = len(orig_text.encode("utf-8"))
+        new_text, count = self.compact_release_notes_with_count(orig_text, series)
+        new_bytes = len(new_text.encode("utf-8"))
+        result.release_notes_sections_count = count
+        if new_text != orig_text:
+            result.release_notes_compacted = True
+            modified_files.append(str(path))
+            if not dry_run and not check:
+                write_text_file(path, new_text)
+        return orig_bytes, new_bytes
+
+    def _compact_log_file(
+        self,
+        log_path: Path,
+        archive_dir: Path,
+        series: str,
+        dry_run: bool,
+        check: bool,
+        result: DocCompactionResult,
+        modified_files: list[str],
+    ) -> tuple[int, int]:
+        """Compact sprint log file, write archive, and record metrics."""
+        if not log_path.exists():
+            return 0, 0
+        orig_text = log_path.read_text(encoding="utf-8")
+        orig_bytes = len(orig_text.encode("utf-8"))
+        compacted_log, archive_content = self.compact_log(orig_text, series)
+        new_bytes = len(compacted_log.encode("utf-8"))
+        if compacted_log != orig_text:
+            result.log_compacted = True
+            archive_file = _resolve_safe_archive_file(
+                archive_dir, f"historical-phases-{series}.x.md"
+            )
+            result.archive_file_path = str(archive_file)
+            modified_files.append(str(log_path))
+            if not dry_run and not check:
+                write_text_file(log_path, compacted_log)
+                write_text_file(archive_file, archive_content)
+        return orig_bytes, new_bytes
+
     def compact_all(
         self,
         docs_dir: Path,
@@ -405,54 +508,40 @@ class DocCompactor:
         normalized_series = _normalize_series(series)
         result = DocCompactionResult(series=normalized_series)
         modified_files: list[str] = []
-        total_orig_bytes = 0
-        total_new_bytes = 0
+        orig_bytes, new_bytes = 0, 0
 
-        roadmap_path = docs_dir / "ROADMAP.md"
-        if compact_roadmap and roadmap_path.exists():
-            orig_text = roadmap_path.read_text(encoding="utf-8")
-            total_orig_bytes += len(orig_text.encode("utf-8"))
-            new_text, roadmap_count = self.compact_roadmap_with_count(orig_text, normalized_series)
-            total_new_bytes += len(new_text.encode("utf-8"))
-            result.roadmap_sections_count = roadmap_count
-            if new_text != orig_text:
-                result.roadmap_compacted = True
-                modified_files.append(str(roadmap_path))
-                if not dry_run and not check:
-                    write_text_file(roadmap_path, new_text)
-
-        notes_path = docs_dir / "RELEASE_NOTES.md"
-        if compact_release_notes and notes_path.exists():
-            orig_text = notes_path.read_text(encoding="utf-8")
-            total_orig_bytes += len(orig_text.encode("utf-8"))
-            new_text, notes_count = self.compact_release_notes_with_count(
-                orig_text, normalized_series
+        if compact_roadmap:
+            ob, nb = self._compact_roadmap_file(
+                docs_dir / "ROADMAP.md", normalized_series, dry_run, check, result, modified_files
             )
-            total_new_bytes += len(new_text.encode("utf-8"))
-            result.release_notes_sections_count = notes_count
-            if new_text != orig_text:
-                result.release_notes_compacted = True
-                modified_files.append(str(notes_path))
-                if not dry_run and not check:
-                    write_text_file(notes_path, new_text)
+            orig_bytes += ob
+            new_bytes += nb
 
-        log_path = docs_dir / "LOG.md"
-        if compact_log and log_path.exists():
-            orig_text = log_path.read_text(encoding="utf-8")
-            total_orig_bytes += len(orig_text.encode("utf-8"))
-            compacted_log, archive_content = self.compact_log(orig_text, normalized_series)
-            total_new_bytes += len(compacted_log.encode("utf-8"))
-            if compacted_log != orig_text:
-                result.log_compacted = True
-                archive_file = _resolve_safe_archive_file(
-                    archive_dir, f"historical-phases-{normalized_series}.x.md"
-                )
-                result.archive_file_path = str(archive_file)
-                modified_files.append(str(log_path))
-                if not dry_run and not check:
-                    write_text_file(log_path, compacted_log)
-                    write_text_file(archive_file, archive_content)
+        if compact_release_notes:
+            ob, nb = self._compact_release_notes_file(
+                docs_dir / "RELEASE_NOTES.md",
+                normalized_series,
+                dry_run,
+                check,
+                result,
+                modified_files,
+            )
+            orig_bytes += ob
+            new_bytes += nb
+
+        if compact_log:
+            ob, nb = self._compact_log_file(
+                docs_dir / "LOG.md",
+                archive_dir,
+                normalized_series,
+                dry_run,
+                check,
+                result,
+                modified_files,
+            )
+            orig_bytes += ob
+            new_bytes += nb
 
         result.modified_files = modified_files
-        result.bytes_saved = max(0, total_orig_bytes - total_new_bytes)
+        result.bytes_saved = max(0, orig_bytes - new_bytes)
         return result

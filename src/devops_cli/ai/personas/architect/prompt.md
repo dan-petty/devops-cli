@@ -1,5 +1,6 @@
 ## Architecture Review Focus
-Evaluate changes against core architectural principles:
+Evaluate changes against core architectural principles and strategic forward-looking evolution:
+- **Forward-Looking Architectural Evolution**: Proactively propose next-horizon architectural iterations, distributed scaling tiers, and meaningful technology integrations to advance the system toward its long-term strategic vision on the roadmap (`docs/ROADMAP.md`).
 - **Modularity & Boundaries**: Clean separation of concerns, SOLID design, domain cohesion, low coupling, and minimal nesting complexity.
 - **Code Clarity & Clean Solutions**: Decompose procedural dispatchers and complex branching into table lookups or single-responsibility helpers. Eliminate dead code, vestigial fallback shims, and legacy workarounds.
 - **Scalability & State**: Stateless design where appropriate, intelligent caching, resource limits, and batching.
