@@ -128,7 +128,9 @@ def _extract_enabled_flag(value: Any) -> bool:
 def _is_branch_unprotected_error(err_msg: str) -> bool:
     """Predicate determining if gh api error output indicates an unprotected branch."""
     err_lower = err_msg.lower()
-    return any(p in err_lower for p in ("branch not protected", "not found", "404"))
+    if "branch not protected" in err_lower:
+        return True
+    return "404" in err_msg and ("branch" in err_lower or "protection" in err_lower)
 
 
 def get_remote_branch_protection(repo: str, branch: str) -> dict[str, Any] | None:
@@ -423,18 +425,18 @@ def sync_branch_protection(
         attributes={"repo": repo, "dry_run": dry_run, "policies_count": len(target_policies)},
     ):
         for pol in target_policies:
-            remote = get_remote_branch_protection(repo, pol.branch)
-            diff = diff_branch_protection(pol, remote)
-            if diff.is_compliant:
-                skipped.append(pol.branch)
-                continue
-
-            if dry_run:
-                synced.append(pol.branch)
-                continue
-
-            payload = build_protection_payload(pol)
             try:
+                remote = get_remote_branch_protection(repo, pol.branch)
+                diff = diff_branch_protection(pol, remote)
+                if diff.is_compliant:
+                    skipped.append(pol.branch)
+                    continue
+
+                if dry_run:
+                    synced.append(pol.branch)
+                    continue
+
+                payload = build_protection_payload(pol)
                 _apply_remote_protection(repo, pol.branch, payload)
                 synced.append(pol.branch)
             except GitHubOperationError as exc:

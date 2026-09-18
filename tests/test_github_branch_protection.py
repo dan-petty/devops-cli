@@ -216,9 +216,23 @@ def test_get_remote_branch_protection_success(mock_sub: MagicMock) -> None:
 
 @patch("devops_cli.github.branch_protection.run_gh")
 def test_get_remote_branch_protection_not_found(mock_sub: MagicMock) -> None:
-    mock_sub.return_value = MagicMock(returncode=1, stdout="", stderr="Not Found")
+    mock_sub.return_value = MagicMock(
+        returncode=1, stdout="", stderr="gh: HTTP 404: Branch not protected"
+    )
     data = get_remote_branch_protection("dan-petty/devops-cli", "main")
     assert data is None
+
+
+@patch("devops_cli.github.branch_protection.run_gh")
+def test_get_remote_branch_protection_repo_not_found_raises(mock_sub: MagicMock) -> None:
+    mock_sub.return_value = MagicMock(
+        returncode=1,
+        stdout="",
+        stderr="gh: HTTP 404: Not Found (https://api.github.com/repos/org/repo)",
+    )
+    with pytest.raises(GitHubOperationError) as exc_info:
+        get_remote_branch_protection("dan-petty/devops-cli", "main")
+    assert "Failed to fetch branch protection" in str(exc_info.value)
 
 
 @patch("devops_cli.github.branch_protection.run_gh")
@@ -315,6 +329,14 @@ def test_sync_branch_protection_failure(mock_get: MagicMock, mock_apply: MagicMo
     policies = [BranchProtectionPolicy(branch="main")]
     res = sync_branch_protection("dan-petty/devops-cli", policies, dry_run=False)
     assert "main" in res.failed_branches
+
+
+@patch("devops_cli.github.branch_protection.get_remote_branch_protection")
+def test_sync_branch_protection_fetch_failure(mock_get: MagicMock) -> None:
+    mock_get.side_effect = GitHubOperationError("API rate limit exceeded")
+    policies = [BranchProtectionPolicy(branch="main"), BranchProtectionPolicy(branch="release/*")]
+    res = sync_branch_protection("dan-petty/devops-cli", policies, dry_run=False)
+    assert res.failed_branches == ["main", "release/*"]
 
 
 @patch("devops_cli.commands.gh.audit_branch_protection")

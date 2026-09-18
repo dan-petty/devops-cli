@@ -7,6 +7,7 @@ and mandatory pause enforcement.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import time
 from collections.abc import Generator
@@ -927,3 +928,68 @@ def test_run_gh_paginated_multipage_success(tmp_path: Path) -> None:
             '[{"id": 1}, {"id": 2}, {"id": 3}]',
             2,
         )
+
+
+def test_extract_rate_limit_endpoint_response_valid() -> None:
+    """Verify _extract_rate_limit_endpoint_response parses valid metrics without defaulting reset to 0.0."""
+    from devops_cli.github.rate_limiter import (
+        GitHubRateLimiter,
+        _extract_rate_limit_endpoint_response,
+    )
+
+    limiter = GitHubRateLimiter()
+    raw = json.dumps(
+        {
+            "resources": {
+                "core": {"limit": 5000, "remaining": 4900, "used": 100, "reset": 1789249509},
+                "search": {"limit": 30, "remaining": 25},
+            }
+        }
+    )
+    _extract_rate_limit_endpoint_response(raw, limiter)
+    core_quota = limiter.get_quota("core")
+    assert (core_quota.remaining, core_quota.limit, core_quota.used, core_quota.reset_epoch) == (
+        4900,
+        5000,
+        100,
+        1789249509.0,
+    )
+    search_quota = limiter.get_quota("search")
+    assert (search_quota.remaining, search_quota.limit, search_quota.reset_epoch) == (
+        25,
+        30,
+        None,
+    )
+
+
+def test_extract_rate_limit_endpoint_response_invalid_format_raises() -> None:
+    """Verify _extract_rate_limit_endpoint_response raises GitHubRateLimitError on invalid payload format."""
+    from devops_cli.exceptions.git import GitHubRateLimitError
+    from devops_cli.github.rate_limiter import (
+        GitHubRateLimiter,
+        _extract_rate_limit_endpoint_response,
+    )
+
+    limiter = GitHubRateLimiter()
+    with pytest.raises(GitHubRateLimitError) as exc_info:
+        _extract_rate_limit_endpoint_response("not-json", limiter)
+    assert "Invalid rate_limit payload format" in str(exc_info.value)
+
+    with pytest.raises(GitHubRateLimitError) as exc_info2:
+        _extract_rate_limit_endpoint_response('{"no_resources": true}', limiter)
+    assert "Missing resources dictionary" in str(exc_info2.value)
+
+
+def test_extract_rate_limit_endpoint_response_malformed_metric_raises() -> None:
+    """Verify _extract_rate_limit_endpoint_response raises GitHubRateLimitError on malformed metric values."""
+    from devops_cli.exceptions.git import GitHubRateLimitError
+    from devops_cli.github.rate_limiter import (
+        GitHubRateLimiter,
+        _extract_rate_limit_endpoint_response,
+    )
+
+    limiter = GitHubRateLimiter()
+    bad_payload = json.dumps({"resources": {"core": {"remaining": "not-an-int"}}})
+    with pytest.raises(GitHubRateLimitError) as exc_info:
+        _extract_rate_limit_endpoint_response(bad_payload, limiter)
+    assert "Malformed rate limit metric" in str(exc_info.value)

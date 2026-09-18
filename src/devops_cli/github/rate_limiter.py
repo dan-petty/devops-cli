@@ -1245,17 +1245,29 @@ def _extract_rate_limit_endpoint_response(output: str, limiter: GitHubRateLimite
         )
     for r_name, r_info in resources.items():
         if isinstance(r_info, dict) and "remaining" in r_info and r_info["remaining"] is not None:
-            reset_val = r_info.get("reset")
-            reset_epoch = float(reset_val) if reset_val is not None else None
+            try:
+                reset_val = r_info.get("reset")
+                reset_epoch = float(reset_val) if reset_val is not None else None
+                rem_val = int(r_info["remaining"])
+                limit_val = (
+                    int(r_info["limit"])
+                    if "limit" in r_info and r_info["limit"] is not None
+                    else None
+                )
+                used_val = (
+                    int(r_info["used"]) if "used" in r_info and r_info["used"] is not None else None
+                )
+            except (ValueError, TypeError) as exc:
+                raise GitHubRateLimitError(
+                    f"Malformed rate limit metric for resource '{r_name}': {exc}",
+                    operation="refresh_quota",
+                    details={"resource": str(r_name)[:256], "error": str(exc)[:256]},
+                ) from exc
             limiter.update_quota(
                 r_name,
-                remaining=int(r_info["remaining"]),
-                limit=int(r_info["limit"])
-                if "limit" in r_info and r_info["limit"] is not None
-                else None,
-                used=int(r_info["used"])
-                if "used" in r_info and r_info["used"] is not None
-                else None,
+                remaining=rem_val,
+                limit=limit_val,
+                used=used_val,
                 reset_epoch=reset_epoch,
             )
 
