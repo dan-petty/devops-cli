@@ -94,13 +94,19 @@ def _scan_file_drift(
 ) -> None:
     """Scan a single indexable file and classify as synced, stale, or new."""
     try:
+        resolved_root = root_dir.resolve()
+        resolved_fpath = fpath.resolve()
+        if fpath.is_symlink() or not resolved_fpath.is_relative_to(resolved_root):
+            return
+        if not resolved_fpath.is_file() or resolved_fpath.stat().st_size > 5 * 1024 * 1024:
+            return
         rel_str = str(fpath.relative_to(root_dir))
-    except ValueError:
-        rel_str = fpath.name
+    except ValueError, OSError, RuntimeError:
+        return
 
     cache_key = f"{proj}:{rel_str}"
     try:
-        content = fpath.read_text(encoding="utf-8", errors="replace")
+        content = resolved_fpath.read_text(encoding="utf-8", errors="replace")
         cur_hash = SemanticChunker._hash_content(content)
     except Exception:
         return

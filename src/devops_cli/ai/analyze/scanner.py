@@ -352,23 +352,34 @@ def _extract_file_purpose(rel_path: str, content: str, lang: str, symbols: list[
 def scan_directory(target_dir: Path = DEFAULT_CURRENT_PATH) -> list[FileAnalysisMeta]:
     """Scan directory and return basic FileAnalysisMeta for each file."""
     from devops_cli.ai.analyze.outlines import analyze_single_file
+    from devops_cli.core.paths import validate_no_path_traversal
     from devops_cli.core.repo import find_repo_root, list_repo_files
+    from devops_cli.exceptions import SecurityError
 
+    validate_no_path_traversal(target_dir)
     repo = find_repo_root(target_dir)
+    repo_resolved = repo.resolve()
     target_abs = target_dir.resolve() if target_dir.is_absolute() else (repo / target_dir).resolve()
+    if not target_abs.is_relative_to(repo_resolved):
+        raise SecurityError(f"Target directory {target_abs} escapes repository root {repo}")
+
     collected_paths = list_repo_files(target_abs)
     results: list[FileAnalysisMeta] = []
     for file_path in collected_paths:
         try:
+            resolved_file = file_path.resolve()
+            if file_path.is_symlink() or not resolved_file.is_relative_to(repo_resolved):
+                continue
             rel_path = str(file_path.relative_to(repo))
-        except ValueError:
-            rel_path = file_path.name
+        except ValueError, OSError, RuntimeError:
+            continue
         content = ""
         size_bytes = 0
-        if file_path.exists():
+        if file_path.is_file():
             try:
-                content = file_path.read_text(encoding="utf-8", errors="replace")
                 size_bytes = file_path.stat().st_size
+                if size_bytes <= 5 * 1024 * 1024:
+                    content = file_path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 pass
         fmeta = analyze_single_file(rel_path, content, size_bytes, repo_root=repo)

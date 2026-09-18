@@ -7,6 +7,7 @@ import math
 import random
 import re
 from collections import Counter
+from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
 
@@ -168,14 +169,35 @@ _STOPWORDS: frozenset[str] = frozenset(
 def _read_architecture_extra_docs(repo_root: Path) -> list[str]:
     """Read extra architecture reference files if present."""
     extras: list[str] = []
+    root_resolved = repo_root.resolve()
     for extra in ("AGENTS.md", "docs/ARCHITECTURE.md"):
         p_extra = repo_root / extra
-        if p_extra.is_file():
-            try:
-                extras.append(p_extra.read_text(encoding="utf-8"))
-            except Exception:
-                pass
+        try:
+            resolved = p_extra.resolve()
+            if not resolved.is_relative_to(root_resolved) or p_extra.is_symlink():
+                continue
+            if resolved.is_file() and resolved.stat().st_size <= 5 * 1024 * 1024:
+                extras.append(resolved.read_text(encoding="utf-8", errors="replace"))
+        except OSError, RuntimeError:
+            continue
     return extras
+
+
+def _read_kb_topic_docs(kb_dir: Path, rel_paths: Sequence[str]) -> list[str]:
+    """Read documentation files for a specific knowledge base topic with path containment."""
+    kb_resolved = kb_dir.resolve()
+    doc_texts: list[str] = []
+    for rel in rel_paths:
+        path = kb_dir / rel
+        try:
+            resolved = path.resolve()
+            if not resolved.is_relative_to(kb_resolved) or path.is_symlink():
+                continue
+            if resolved.is_file() and resolved.stat().st_size <= 5 * 1024 * 1024:
+                doc_texts.append(resolved.read_text(encoding="utf-8", errors="replace"))
+        except OSError, RuntimeError:
+            continue
+    return doc_texts
 
 
 @lru_cache(maxsize=1)
@@ -187,15 +209,7 @@ def _get_domain_knowledge_base_index() -> dict[str, tuple[set[str], set[str]]]:
     domain_word_counts: dict[str, Counter[str]] = {}
 
     for domain, rel_paths in _DOMAIN_KB_TOPIC_MAP.items():
-        doc_texts: list[str] = []
-        for rel in rel_paths:
-            path = kb_dir / rel
-            if path.is_file():
-                try:
-                    doc_texts.append(path.read_text(encoding="utf-8"))
-                except Exception:
-                    pass
-
+        doc_texts = _read_kb_topic_docs(kb_dir, rel_paths)
         if domain == "architecture":
             doc_texts.extend(_read_architecture_extra_docs(repo_root))
 

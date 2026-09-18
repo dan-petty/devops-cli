@@ -73,8 +73,19 @@ def record_audit_event(
 
 def _resolve_audit_log_dest(log_file: Path | None) -> Path:
     """Resolve audit log destination path, validating env paths stay in data_dir."""
+    from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+    from devops_cli.exceptions import SecurityError
+
     if log_file is not None:
-        return log_file.resolve()
+        validate_no_path_traversal(log_file, label="Audit log destination")
+        resolved = log_file.resolve()
+        if is_forbidden_system_path(resolved):
+            raise SecurityError(
+                f"Audit log destination resolves to forbidden system path: {resolved}"
+            )
+        if log_file.is_symlink():
+            raise SecurityError(f"Audit log destination must not be a symlink: {log_file}")
+        return resolved
     if "DEVOPS_CLI_AUDIT_LOG_DEST" in os.environ:
         candidate = Path(os.environ["DEVOPS_CLI_AUDIT_LOG_DEST"]).resolve()
         data_dir_env = os.environ.get("DEVOPS_CLI_DATA_DIR")
@@ -82,8 +93,6 @@ def _resolve_audit_log_dest(log_file: Path | None) -> Path:
         if data_dir_env:
             allowed_roots.append(Path(data_dir_env).resolve())
         if not any(candidate.is_relative_to(root) for root in allowed_roots):
-            from devops_cli.exceptions import SecurityError
-
             raise SecurityError(
                 f"DEVOPS_CLI_AUDIT_LOG_DEST must be within {allowed_roots[0]}; got {candidate}"
             )
@@ -102,16 +111,7 @@ def stream_audit_records(destination_url: str, log_file: Path | None = None) -> 
 
     Returns streamed record count.
     """
-    if log_file is not None:
-        dest = log_file
-    else:
-        from devops_cli.config.settings import load_settings
-        from devops_cli.core.repo import find_top_level_repo_root
-
-        dest = load_settings().data.audit_log_path
-        if not dest.is_absolute():
-            dest = (find_top_level_repo_root() / dest).resolve()
-
+    dest = _resolve_audit_log_dest(log_file)
     if not dest.exists():
         return 0
 

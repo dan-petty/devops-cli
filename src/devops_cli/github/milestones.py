@@ -51,7 +51,18 @@ _ROADMAP_HEADING_PATTERN = re.compile(
 
 def _is_safe_roadmap_path(roadmap_path: Path) -> bool:
     """Predicate determining if roadmap path is free from directory traversal patterns."""
-    return ".." not in roadmap_path.parts
+    from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+
+    try:
+        validate_no_path_traversal(roadmap_path, label="Roadmap path")
+        resolved = roadmap_path.resolve()
+        if is_forbidden_system_path(resolved):
+            return False
+        if roadmap_path.is_symlink():
+            return False
+        return True
+    except Exception:
+        return False
 
 
 def _validate_roadmap_path(roadmap_path: Path) -> Path:
@@ -76,6 +87,12 @@ def extract_roadmap_milestones(
 ) -> list[MilestoneSpec]:
     """Parse markdown headings from ROADMAP.md into MilestoneSpec objects."""
     valid_path = _validate_roadmap_path(roadmap_path)
+    if valid_path.stat().st_size > 10 * 1024 * 1024:
+        raise GitHubOperationError(
+            f"Roadmap file exceeds size limit: {valid_path}",
+            operation="extract_roadmap_milestones",
+            details={"path": str(valid_path)},
+        )
     content = valid_path.read_text(encoding="utf-8")
 
     specs: list[MilestoneSpec] = []

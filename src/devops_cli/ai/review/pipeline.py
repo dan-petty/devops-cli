@@ -2142,7 +2142,9 @@ class ReviewPipelineOrchestrator:
             "|---|---|---|---|---|",
         ]
         for f in reportable_findings:
-            clean_sev = f.severity.replace("|", "\\|").replace("\n", " ").strip()
+            clean_sev = (
+                (f.severity or "INFORMATIONAL").replace("|", "\\|").replace("\n", " ").strip()
+            )
             clean_loc = f.location.strip("`").replace("|", "\\|").replace("\n", " ").strip()
             clean_title = f.title.replace("|", "\\|").replace("\n", " ").strip()
             if clean_title.count("`") % 2 != 0:
@@ -2166,7 +2168,7 @@ class ReviewPipelineOrchestrator:
             if clean_title.count("`") % 2 != 0:
                 clean_title += "`"
             clean_loc = f.location.strip("`").strip()
-            lines.append(f"### {idx}. [{f.severity}] {clean_title}")
+            lines.append(f"### {idx}. [{(f.severity or 'INFORMATIONAL').upper()}] {clean_title}")
             lines.append(f"- **Location**: `{clean_loc}`")
             lines.append(f"- **Persona**: {f.persona_title}")
             lines.append(f"- **Status**: {f.status}")
@@ -2331,7 +2333,8 @@ class ReviewPipelineOrchestrator:
         }
 
         for finding_index, finding in enumerate(reportable_findings, 1):
-            sev_str = sev_badges.get(finding.severity.upper(), f"[white]{finding.severity}[/white]")
+            sev_upper = (finding.severity or "INFORMATIONAL").upper()
+            sev_str = sev_badges.get(sev_upper, f"[white]{sev_upper}[/white]")
             st_str = st_badges.get(finding.status.upper(), f"[dim]{finding.status}[/dim]")
             conf_str = (
                 f"{int(finding.confidence_score * 100)}%"
@@ -2361,7 +2364,7 @@ class ReviewPipelineOrchestrator:
         """Render a single finding detail panel with remediation and references."""
         from devops_cli.output import SEV_COLOR_MAP
 
-        sev_upper = finding.severity.upper()
+        sev_upper = (finding.severity or "INFORMATIONAL").upper()
         sev_color = SEV_COLOR_MAP.get(sev_upper, "white")
         st_badge = _get_finding_status_badge(finding.status)
         title_header = f"[{sev_color} bold]Finding #{finding_index}: [{sev_upper}] {escape_text(finding.title)}[/{sev_color} bold]  {st_badge}"
@@ -2497,14 +2500,24 @@ class ReviewPipelineOrchestrator:
 
         counts = {
             "CRITICAL": sum(
-                1 for finding in reportable_findings if finding.severity.upper() == "CRITICAL"
+                1
+                for finding in reportable_findings
+                if (finding.severity or "").upper() == "CRITICAL"
             ),
-            "HIGH": sum(1 for finding in reportable_findings if finding.severity.upper() == "HIGH"),
+            "HIGH": sum(
+                1 for finding in reportable_findings if (finding.severity or "").upper() == "HIGH"
+            ),
             "MEDIUM": sum(
-                1 for finding in reportable_findings if finding.severity.upper() == "MEDIUM"
+                1 for finding in reportable_findings if (finding.severity or "").upper() == "MEDIUM"
             ),
-            "LOW": sum(1 for finding in reportable_findings if finding.severity.upper() == "LOW"),
-            "INFO": sum(1 for finding in reportable_findings if finding.severity.upper() == "INFO"),
+            "LOW": sum(
+                1 for finding in reportable_findings if (finding.severity or "").upper() == "LOW"
+            ),
+            "INFO": sum(
+                1
+                for finding in reportable_findings
+                if (finding.severity or "").upper() in ("INFO", "INFORMATIONAL")
+            ),
         }
         styles = {
             "CRITICAL": "[bold red]{cnt} Critical[/bold red]",
@@ -2518,7 +2531,7 @@ class ReviewPipelineOrchestrator:
         findings_str = f"{len(reportable_findings)} ({sev_breakdown})"
 
         ver_count = sum(
-            1 for finding in reportable_findings if finding.status.upper() == "VERIFIED"
+            1 for finding in reportable_findings if (finding.status or "").upper() == "VERIFIED"
         )
         ver_pct = ver_count / len(reportable_findings)
         ver_rate_str = f"{ver_count}/{len(reportable_findings)} verified ({ver_pct:.0%})"
@@ -2529,7 +2542,7 @@ class ReviewPipelineOrchestrator:
         if not all_deps:
             return "0 scanned"
         vuln_count = sum(
-            1 for dep in all_deps if dep.severity.upper() not in ("CLEAN", "NONE", "INFO")
+            1 for dep in all_deps if (dep.severity or "").upper() not in ("CLEAN", "NONE", "INFO")
         )
         vuln_note = (
             f" ([red]{vuln_count} vulnerable[/red])" if vuln_count else " ([green]clean[/green])"

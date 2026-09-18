@@ -64,7 +64,7 @@ def extract_good_patterns(
         "**Defensive Typing & Schema Modeling**: Widespread adoption of Pydantic v2 schemas and explicit data contracts across domain models and tool interfaces.",
     ]
     if all_deps is not None and not any(
-        d.severity.upper() in ("CRITICAL", "HIGH") for d in all_deps
+        (d.severity or "").upper() in ("CRITICAL", "HIGH") for d in all_deps
     ):
         patterns.append(
             "**Supply Chain & Lockfile Integrity**: External dependencies validated against authoritative lockfiles with zero unpinned critical/high CVEs."
@@ -92,16 +92,20 @@ def extract_bad_patterns(reportable_findings: list[SavedFinding]) -> list[str]:
         groups.items(),
         key=lambda item: (
             -len(item[1]),
-            min(_SEVERITY_WEIGHTS.get(f.severity.upper(), 5) for f in item[1]),
+            min(_SEVERITY_WEIGHTS.get((f.severity or "INFORMATIONAL").upper(), 5) for f in item[1]),
         ),
     )
 
     bad_patterns: list[str] = []
     for theme, findings in sorted_groups:
         rep = findings[0]
-        max_sev = min(
-            findings, key=lambda f: _SEVERITY_WEIGHTS.get(f.severity.upper(), 5)
-        ).severity.upper()
+        max_sev = (
+            min(
+                findings,
+                key=lambda f: _SEVERITY_WEIGHTS.get((f.severity or "INFORMATIONAL").upper(), 5),
+            ).severity
+            or "INFORMATIONAL"
+        ).upper()
 
         if "`" in rep.title:
             rep_title_str = rep.title
@@ -125,10 +129,10 @@ def synthesize_report_executive_summary(
     errored_files: dict[str, str] | None = None,
 ) -> list[str]:
     """Construct Markdown lines for the Executive Summary section at the top of the review report."""
-    crit = sum(1 for f in reportable_findings if f.severity.upper() == "CRITICAL")
-    high = sum(1 for f in reportable_findings if f.severity.upper() == "HIGH")
-    med = sum(1 for f in reportable_findings if f.severity.upper() == "MEDIUM")
-    low = sum(1 for f in reportable_findings if f.severity.upper() == "LOW")
+    crit = sum(1 for f in reportable_findings if (f.severity or "").upper() == "CRITICAL")
+    high = sum(1 for f in reportable_findings if (f.severity or "").upper() == "HIGH")
+    med = sum(1 for f in reportable_findings if (f.severity or "").upper() == "MEDIUM")
+    low = sum(1 for f in reportable_findings if (f.severity or "").upper() == "LOW")
 
     if errored_files:
         summary_stmt = (
@@ -235,7 +239,9 @@ def run_reporting_stage(
             ]
         )
         for idx, f in enumerate(reportable_findings, 1):
-            clean_sev = f.severity.replace("|", "\\|").replace("\n", " ").strip()
+            clean_sev = (
+                (f.severity or "INFORMATIONAL").replace("|", "\\|").replace("\n", " ").strip()
+            )
             clean_loc = f.location.strip("`").replace("|", "\\|").replace("\n", " ").strip()
             clean_title = f.title.replace("|", "\\|").replace("\n", " ").strip()
             if clean_title.count("`") % 2 != 0:

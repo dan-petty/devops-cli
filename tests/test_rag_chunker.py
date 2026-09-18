@@ -78,3 +78,39 @@ Deployment instructions.
     assert all(c.doc_type == "doc" for c in chunks)
     titles = [s for c in chunks for s in c.symbol_names]
     assert any("Architecture" in t for t in titles)
+
+
+def test_chunk_file_defensive_boundaries(tmp_path: Path) -> None:
+    """Verify that chunk_file defensively returns empty list for symlinks, oversized files, and traversal attempts."""
+    from unittest.mock import MagicMock
+
+    chunker = SemanticChunker()
+
+    # 1. Path outside relative_to (containment check)
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_file = outside_dir / "external.py"
+    outside_file.write_text("x = 1\n", encoding="utf-8")
+    inside_dir = tmp_path / "inside"
+    inside_dir.mkdir()
+    chunks_traversal = chunker.chunk_file(outside_file, relative_to=inside_dir)
+
+    # 2. Symlink
+    target_file = inside_dir / "real.py"
+    target_file.write_text("y = 2\n", encoding="utf-8")
+    symlink_file = inside_dir / "link.py"
+    symlink_file.symlink_to(target_file)
+    chunks_symlink = chunker.chunk_file(symlink_file, relative_to=inside_dir)
+
+    # 3. Oversized file (> 5MB)
+    mock_large = MagicMock(spec=Path)
+    mock_large.resolve.return_value = mock_large
+    mock_large.is_symlink.return_value = False
+    mock_large.is_file.return_value = True
+    mock_large.is_relative_to.return_value = True
+    mock_large.stat.return_value.st_size = 6 * 1024 * 1024
+    mock_large.relative_to.return_value = Path("huge.py")
+    mock_large.suffix = ".py"
+    chunks_oversized = chunker.chunk_file(mock_large, relative_to=inside_dir)
+
+    assert (chunks_traversal, chunks_symlink, chunks_oversized) == ([], [], [])

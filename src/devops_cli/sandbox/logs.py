@@ -81,13 +81,27 @@ def parse_docker_log_line(raw: str | bytes, default_stream: str = "stdout") -> S
 
 def resolve_incident_dir(base_dir: Path | None = None) -> Path:
     """Determine incident directory respecting DEVOPS_CLI_DATA_DIR and path traversal safety."""
+    from devops_cli.core.paths import is_forbidden_system_path
+
     if base_dir is not None:
         target = validate_no_path_traversal(base_dir, label="Incident base dir")
-        return Path(target)
+        resolved = Path(target).resolve()
+        if is_forbidden_system_path(resolved):
+            raise SecurityError(f"Incident base dir {resolved} resolves to a forbidden system path")
+        if Path(base_dir).is_symlink():
+            raise SecurityError(f"Incident base dir must not be a symlink: {base_dir}")
+        return resolved
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_dir:
         validated_env = validate_no_path_traversal(env_dir, label="DEVOPS_CLI_DATA_DIR")
-        return Path(validated_env) / "sandbox" / "incidents"
+        resolved_env = Path(validated_env).resolve()
+        if is_forbidden_system_path(resolved_env):
+            raise SecurityError(
+                f"DEVOPS_CLI_DATA_DIR {resolved_env} resolves to a forbidden system path"
+            )
+        if Path(env_dir).is_symlink():
+            raise SecurityError(f"DEVOPS_CLI_DATA_DIR must not be a symlink: {env_dir}")
+        return resolved_env / "sandbox" / "incidents"
     return DEFAULT_SANDBOX_INCIDENTS_DIR
 
 

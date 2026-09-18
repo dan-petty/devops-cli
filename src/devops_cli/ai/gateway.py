@@ -114,8 +114,22 @@ def _count_backends(routes: list[GatewayRoute]) -> dict[str, int]:
 
 def _resolve_state_file(data_dir: Path | str | None = None) -> Path:
     """Resolve persistent gateway state file path under agent directory."""
-    base = Path(data_dir) if data_dir else load_settings().data.dir.resolve()
-    return base / "agent" / "gateway_state.json"
+    from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+    from devops_cli.exceptions import SecurityError
+
+    if data_dir:
+        validate_no_path_traversal(data_dir, label="Gateway data_dir")
+        base = Path(data_dir).resolve()
+    else:
+        base = load_settings().data.dir.resolve()
+
+    if is_forbidden_system_path(base):
+        raise SecurityError(f"Gateway data_dir resolves to forbidden system path: {base}")
+
+    target = base / "agent" / "gateway_state.json"
+    if not target.resolve().is_relative_to(base):
+        raise SecurityError(f"Gateway state file escapes base directory: {target}")
+    return target
 
 
 def _load_gateway_state(state_file: Path) -> tuple[bool, list[GatewayRoute] | None]:

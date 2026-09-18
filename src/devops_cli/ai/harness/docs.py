@@ -95,7 +95,11 @@ class PydanticAIDocs(BaseCapability):
     def _read_local_doc(self, local_file: Path) -> str | None:
         """Attempt to read local doc file."""
         try:
-            return local_file.read_text(encoding="utf-8")
+            if local_file.is_symlink():
+                return None
+            if local_file.stat().st_size > 5 * 1024 * 1024:
+                return None
+            return local_file.read_text(encoding="utf-8", errors="replace")
         except Exception as e:
             logger.debug("Error reading local doc %s: %s", local_file, e)
             return None
@@ -122,7 +126,11 @@ class PydanticAIDocs(BaseCapability):
         # 1. Local checkout
         if self.local_docs_path is not None:
             local_file = (self.local_docs_path / f"{clean_topic}.md").resolve()
-            if local_file.is_relative_to(self.local_docs_path) and local_file.is_file():
+            if (
+                not local_file.is_symlink()
+                and local_file.is_relative_to(self.local_docs_path)
+                and local_file.is_file()
+            ):
                 content = self._read_local_doc(local_file)
                 if content is not None:
                     if self.cache:

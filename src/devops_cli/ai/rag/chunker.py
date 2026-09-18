@@ -180,8 +180,22 @@ class SemanticChunker:
         relative_to: Path | None = None,
         project_name: str = "default",
     ) -> list[CodeChunk]:
-        """Parse and chunk a given file based on its language and structural semantics."""
+        if relative_to is not None:
+            try:
+                resolved_rel = relative_to.resolve()
+                resolved_fpath = file_path.resolve()
+                if file_path.is_symlink() or not resolved_fpath.is_relative_to(resolved_rel):
+                    return []
+            except OSError, RuntimeError:
+                return []
+
         try:
+            if (
+                file_path.is_symlink()
+                or not file_path.is_file()
+                or file_path.stat().st_size > 5 * 1024 * 1024
+            ):
+                return []
             content = file_path.read_text(encoding="utf-8", errors="replace")
         except Exception:
             return []
