@@ -626,6 +626,24 @@ def _sync_mcp_configuration(workspace_dir: Path, *, dry_run: bool = False) -> li
     return actions
 
 
+def _reconcile_shadowed_user_binaries(actions: list[str], *, dry_run: bool = False) -> None:
+    """Reconcile stale user binaries in ~/.local/bin that shadow system container binaries."""
+    local_bin = Path.home() / ".local" / "bin"
+    for tool_name in ("uv", "uvx"):
+        sys_path = Path("/usr/local/bin") / tool_name
+        usr_path = local_bin / tool_name
+        if not (sys_path.exists() and usr_path.exists() and not usr_path.is_symlink()):
+            continue
+        if dry_run:
+            actions.append(f"Would remove stale shadowed binary {usr_path} in favor of {sys_path}")
+            continue
+        try:
+            usr_path.unlink()
+            actions.append(f"Removed stale shadowed binary {usr_path} in favor of {sys_path}")
+        except OSError as exc:
+            logger.debug("Failed to remove shadowed binary %s: %s", usr_path, exc)
+
+
 def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
     """Execute DevContainer post-create setup tasks in pure Python."""
     actions: list[str] = []
@@ -633,7 +651,9 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     # 1. Volume mount permissions & ownership
     actions.extend(_setup_volume_mount_permissions(workspace_dir, dry_run=dry_run))
 
-    # 2. Bootstrap uv & tools if not present
+    # 2. Reconcile shadowed binaries & bootstrap tools if not present
+    _reconcile_shadowed_user_binaries(actions, dry_run=dry_run)
+
     if shutil.which("uv") is None and not dry_run:
         res = run_subprocess(
             ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],

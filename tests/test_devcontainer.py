@@ -1078,4 +1078,37 @@ class TestDevcontainerCli:
             "UV_COMPILE_BYTECODE=1" in content,
             "ghcr.io/astral-sh/uv:0.12.16" in content,
             "VERSION_CODENAME=trixie" in content,
-        ) == (True, True, True, True, True, True, True, True, True, True)
+            "COPY pyproject.toml README.md /tmp/devops-cli/" in content,
+        ) == (True, True, True, True, True, True, True, True, True, True, True)
+
+    def test_reconcile_shadowed_user_binaries(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify _reconcile_shadowed_user_binaries unlinks stale shadowed ~/.local/bin binaries."""
+        from devops_cli.commands.devcontainer import _reconcile_shadowed_user_binaries
+
+        fake_home = tmp_path / "home"
+        fake_local_bin = fake_home / ".local" / "bin"
+        fake_local_bin.mkdir(parents=True)
+        fake_uv = fake_local_bin / "uv"
+        fake_uv.write_text("fake-old-uv", encoding="utf-8")
+        fake_uvx = fake_local_bin / "uvx"
+        fake_uvx.write_text("fake-old-uvx", encoding="utf-8")
+
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+        actions_dry: list[str] = []
+        _reconcile_shadowed_user_binaries(actions_dry, dry_run=True)
+        assert (
+            len(actions_dry) == 2,
+            fake_uv.exists(),
+            fake_uvx.exists(),
+        ) == (True, True, True)
+
+        actions_real: list[str] = []
+        _reconcile_shadowed_user_binaries(actions_real, dry_run=False)
+        assert (
+            len(actions_real) == 2,
+            fake_uv.exists(),
+            fake_uvx.exists(),
+        ) == (True, False, False)

@@ -41,6 +41,8 @@ class TablePayload(BaseModel):
     border_style: str | None = "dim"
     box_style: Any = None
     caption: str | None = None
+    show_header: bool = True
+    header_style: str | None = None
 
     @property
     def row_count(self) -> int:

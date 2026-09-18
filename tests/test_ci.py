@@ -163,6 +163,45 @@ def test_ci_docs_command(monkeypatch) -> None:
     assert any("devops" in c and "docs" in c and "check" in c for c in called)
 
 
+def test_ci_uv_check_command(monkeypatch) -> None:
+    called = []
+
+    def mock_run(cmd, *args, **kwargs):
+        called.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    result = runner.invoke(app, ["uv-check"])
+    assert (result.exit_code, any("uv" in c and "check" in c for c in called)) == (0, True)
+
+
+def test_ci_lockfile_command(monkeypatch) -> None:
+    called = []
+
+    def mock_run(cmd, *args, **kwargs):
+        called.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    result = runner.invoke(app, ["lockfile"])
+    assert (result.exit_code, any("lock" in c and "--check" in c for c in called)) == (0, True)
+
+
+def test_ci_outdated_command(monkeypatch) -> None:
+    called = []
+
+    def mock_run(cmd, *args, **kwargs):
+        called.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    result = runner.invoke(app, ["outdated"])
+    assert (result.exit_code, any("tree" in c and "--outdated" in c for c in called)) == (0, True)
+
+
 def test_ci_python_version_check_failure(monkeypatch) -> None:
     monkeypatch.setattr(sys, "version_info", (3, 12, 0))
 
@@ -195,17 +234,24 @@ def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
         patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
     ):
         result = runner.invoke(app, [])
-        assert result.exit_code == 0
-        assert "audit" in result.output
-        assert "coverage" in result.output
-        assert "security" in result.output
-        assert "actionlint" in result.output
-        assert any("audit" in c for c in called)
-        assert any("bandit" in c for c in called)
-        assert any("actionlint" in c for c in called)
-        # Default fix=True automatically runs format and lint fix
-        assert any("ruff" in c and "format" in c and "--check" not in c for c in called)
-        assert any("ruff" in c and "check" in c and "--fix" in c for c in called)
+        assert (
+            result.exit_code == 0
+            and "audit" in result.output
+            and "coverage" in result.output
+            and "security" in result.output
+            and "actionlint" in result.output
+            and "uv_check" in result.output.lower()
+            and "lockfile" in result.output.lower()
+        )
+        assert (
+            any("audit" in c for c in called),
+            any("bandit" in c for c in called),
+            any("actionlint" in c for c in called),
+            any("check" in c and "uv" in c for c in called),
+            any("lock" in c and "--check" in c for c in called),
+            any("ruff" in c and "format" in c and "--check" not in c for c in called),
+            any("ruff" in c and "check" in c and "--fix" in c for c in called),
+        ) == (True, True, True, True, True, True, True)
 
 
 def test_ci_all_checks_with_check_flag() -> None:
@@ -249,19 +295,21 @@ def test_ci_failure_branches_and_filters() -> None:
     )
     with patch("devops_cli.commands.ci.run_subprocess", return_value=mock_fail_proc):
         res_audit_fail = runner.invoke(app, ["audit"])
-        assert res_audit_fail.exit_code == 1
-
         res_sec_fail = runner.invoke(app, ["security"])
-        assert res_sec_fail.exit_code == 1
-
         res_lint_fail = runner.invoke(app, ["lint"])
-        assert res_lint_fail.exit_code == 1
-
         res_type_fail = runner.invoke(app, ["typecheck"])
-        assert res_type_fail.exit_code == 1
-
         res_doc_fail = runner.invoke(app, ["docs"])
-        assert res_doc_fail.exit_code == 1
+        res_uv_check_fail = runner.invoke(app, ["uv-check"])
+        res_lockfile_fail = runner.invoke(app, ["lockfile"])
+        assert (
+            res_audit_fail.exit_code,
+            res_sec_fail.exit_code,
+            res_lint_fail.exit_code,
+            res_type_fail.exit_code,
+            res_doc_fail.exit_code,
+            res_uv_check_fail.exit_code,
+            res_lockfile_fail.exit_code,
+        ) == (1, 1, 1, 1, 1, 1, 1)
 
 
 def test_ci_additional_subcommands(monkeypatch) -> None:

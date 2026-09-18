@@ -1019,7 +1019,7 @@ def get_current_span_context() -> dict[str, str | None]:
         current_span = trace.get_current_span()
         if current_span and current_span.is_recording():
             ctx = current_span.get_span_context()
-            if ctx and ctx.trace_id and ctx.span_id:
+            if ctx.is_valid and ctx.trace_id and ctx.span_id:
                 return {
                     "trace_id": format(ctx.trace_id, "032x"),
                     "span_id": format(ctx.span_id, "016x"),

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Final, Literal
 
 from devops_cli.config.constants import (
     CONST_ANALYSIS_DIR_NAME,
@@ -234,7 +234,7 @@ DEFAULT_SERVER_OPENAPI_URL: str = "/openapi.json"
 DEFAULT_SERVER_HOST: str = "127.0.0.1"
 DEFAULT_SERVER_PORT: int = 8000
 DEFAULT_SERVER_WORKERS: int = 1
-DEFAULT_LOG_LEVEL: str = "info"
+DEFAULT_LOG_LEVEL: Final = "info"
 
 # ── Output, Formatting & File Writing Defaults ─────────────────────────────────
 DEFAULT_FORMAT_TYPE: str = "json"
@@ -253,7 +253,7 @@ DEFAULT_BADGE_OK_COLOR: str = "green"
 DEFAULT_BADGE_FAIL_COLOR: str = "red"
 DEFAULT_BADGE_WARN_COLOR: str = "yellow"
 DEFAULT_CODE_SPAN_COLOR: str = "cyan"
-DEFAULT_STREAM_NAME: str = "stdout"
+DEFAULT_STREAM_NAME: Final = "stdout"
 DEFAULT_STREAM_PERSONA: str = "devsecops"
 DEFAULT_ALLOWED_STREAM_PERSONAS: frozenset[str] = frozenset(
     {"devsecops", "architect", "challenger", "auditor", "qa", "pm"}

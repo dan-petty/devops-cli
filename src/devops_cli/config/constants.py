@@ -518,6 +518,15 @@ CONST_COMMON_PROPERTY_SUFFIXES: frozenset[str] = frozenset(
     }
 )
 
+# MIME types that correspond to top-level domains or legacy formats and should not classify domains as files
+CONST_EXCLUDED_FILE_MIME_TYPES: frozenset[str] = frozenset(
+    {
+        "application/x-msdos-program",
+        "application/vnd.lotus-organizer",
+        "text/org",
+    }
+)
+
 # Common telemetry, metric, and logging invocation function names
 CONST_TELEMETRY_CALL_NAMES: frozenset[str] = frozenset(
     {

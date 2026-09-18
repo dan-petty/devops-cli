@@ -38,12 +38,7 @@ class StreamingTokenProcessor:
         on_reasoning_start: Callable[[], None] | None = None,
         on_reasoning_end: Callable[[], None] | None = None,
     ) -> None:
-        if (
-            not thinking_tags
-            or len(thinking_tags) != 2
-            or not thinking_tags[0]
-            or not thinking_tags[1]
-        ):
+        if len(thinking_tags) != 2 or not thinking_tags[0] or not thinking_tags[1]:
             raise ValueError(
                 "thinking_tags must be a tuple of two non-empty strings (open_tag, close_tag)."
             )

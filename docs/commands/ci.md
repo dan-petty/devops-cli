@@ -161,6 +161,54 @@ devops ci docs [OPTIONS]
 
 ---
 
+## `devops ci uv-check`
+
+**Run uv check for fast static type checking and project validation.**
+
+```bash
+devops ci uv-check [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci lockfile`
+
+**Verify lockfile consistency and freshness via uv lock --check.**
+
+```bash
+devops ci lockfile [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci outdated`
+
+**Display outdated dependencies and packages via uv tree --outdated.**
+
+```bash
+devops ci outdated [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops ci maintain`
 
 **Run automated toolchain, dependency freshness, and lockfile maintenance checks.**
