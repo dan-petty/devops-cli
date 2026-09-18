@@ -1095,10 +1095,15 @@ class TestDevcontainerCli:
         fake_uvx = fake_local_bin / "uvx"
         fake_uvx.write_text("fake-old-uvx", encoding="utf-8")
 
+        fake_sys_bin = tmp_path / "usr_local_bin"
+        fake_sys_bin.mkdir(parents=True)
+        (fake_sys_bin / "uv").write_text("sys-uv", encoding="utf-8")
+        (fake_sys_bin / "uvx").write_text("sys-uvx", encoding="utf-8")
+
         monkeypatch.setattr(Path, "home", lambda: fake_home)
 
         actions_dry: list[str] = []
-        _reconcile_shadowed_user_binaries(actions_dry, dry_run=True)
+        _reconcile_shadowed_user_binaries(actions_dry, dry_run=True, sys_bin=fake_sys_bin)
         assert (
             len(actions_dry) == 2,
             fake_uv.exists(),
@@ -1106,9 +1111,47 @@ class TestDevcontainerCli:
         ) == (True, True, True)
 
         actions_real: list[str] = []
-        _reconcile_shadowed_user_binaries(actions_real, dry_run=False)
+        _reconcile_shadowed_user_binaries(actions_real, dry_run=False, sys_bin=fake_sys_bin)
         assert (
             len(actions_real) == 2,
             fake_uv.exists(),
             fake_uvx.exists(),
         ) == (True, False, False)
+
+    def test_reconcile_shadowed_user_binaries_edge_cases(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify _reconcile_shadowed_user_binaries handles absent binaries, symlinks, and OSErrors."""
+        from devops_cli.commands.devcontainer import _reconcile_shadowed_user_binaries
+
+        fake_home = tmp_path / "home"
+        fake_local_bin = fake_home / ".local" / "bin"
+        fake_local_bin.mkdir(parents=True)
+        fake_uv = fake_local_bin / "uv"
+        fake_uv.write_text("fake-uv", encoding="utf-8")
+
+        fake_target = tmp_path / "target"
+        fake_target.write_text("target", encoding="utf-8")
+        fake_uvx = fake_local_bin / "uvx"
+        fake_uvx.symlink_to(fake_target)
+
+        fake_sys_bin = tmp_path / "empty_sys_bin"
+        fake_sys_bin.mkdir()
+
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+        actions_none: list[str] = []
+        _reconcile_shadowed_user_binaries(actions_none, sys_bin=fake_sys_bin)
+
+        (fake_sys_bin / "uv").write_text("sys-uv", encoding="utf-8")
+        (fake_sys_bin / "uvx").write_text("sys-uvx", encoding="utf-8")
+
+        def _raising_unlink(self: Path) -> None:
+            raise OSError("mock permission denied")
+
+        monkeypatch.setattr(Path, "unlink", _raising_unlink)
+
+        actions_err: list[str] = []
+        _reconcile_shadowed_user_binaries(actions_err, sys_bin=fake_sys_bin)
+
+        assert (len(actions_none), len(actions_err), fake_uv.exists()) == (0, 0, True)

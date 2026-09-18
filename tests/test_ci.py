@@ -202,6 +202,18 @@ def test_ci_outdated_command(monkeypatch) -> None:
     assert (result.exit_code, any("tree" in c and "--outdated" in c for c in called)) == (0, True)
 
 
+def test_ci_uv_check_and_lockfile_failures(monkeypatch) -> None:
+    def mock_run_fail(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(args=cmd, returncode=1, stdout="", stderr="failed")
+
+    monkeypatch.setattr("subprocess.run", mock_run_fail)
+
+    res_uv = runner.invoke(app, ["uv-check"])
+    res_lock = runner.invoke(app, ["lockfile"])
+    res_outdated = runner.invoke(app, ["outdated"])
+    assert (res_uv.exit_code, res_lock.exit_code, res_outdated.exit_code) == (1, 1, 1)
+
+
 def test_ci_python_version_check_failure(monkeypatch) -> None:
     monkeypatch.setattr(sys, "version_info", (3, 12, 0))
 

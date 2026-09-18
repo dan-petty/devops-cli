@@ -626,11 +626,16 @@ def _sync_mcp_configuration(workspace_dir: Path, *, dry_run: bool = False) -> li
     return actions
 
 
-def _reconcile_shadowed_user_binaries(actions: list[str], *, dry_run: bool = False) -> None:
+def _reconcile_shadowed_user_binaries(
+    actions: list[str],
+    *,
+    dry_run: bool = False,
+    sys_bin: Path = Path("/usr/local/bin"),
+) -> None:
     """Reconcile stale user binaries in ~/.local/bin that shadow system container binaries."""
     local_bin = Path.home() / ".local" / "bin"
     for tool_name in ("uv", "uvx"):
-        sys_path = Path("/usr/local/bin") / tool_name
+        sys_path = sys_bin / tool_name
         usr_path = local_bin / tool_name
         if not (sys_path.exists() and usr_path.exists() and not usr_path.is_symlink()):
             continue
