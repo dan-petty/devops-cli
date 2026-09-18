@@ -10,8 +10,10 @@ import time
 from pathlib import Path
 from typing import Annotated, Any
 
+import click
 import typer
 from pydantic import BaseModel, ConfigDict
+from typer.core import TyperGroup
 
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
@@ -23,6 +25,33 @@ from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success
+
+
+class FileOrSubcommandGroup(TyperGroup):
+    """Custom TyperGroup routing non-subcommand arguments to group callback as files."""
+
+    def resolve_command(self, ctx: Any, args: list[str]) -> tuple[str | None, Any, list[str]]:
+        try:
+            return super().resolve_command(ctx, args)
+        except click.UsageError:
+            if self.invoke_without_command:
+                return None, None, args
+            raise
+
+    def invoke(self, ctx: Any) -> Any:
+        if not ctx._protected_args:
+            return super().invoke(ctx)
+        cmd_name = ctx._protected_args[0]
+        cmd = self.get_command(ctx, cmd_name)
+        if cmd is None:
+            ctx.args = [*ctx._protected_args, *ctx.args]
+            ctx._protected_args = []
+            with ctx:
+                if self.callback is not None:
+                    return ctx.invoke(self.callback, **ctx.params)
+                return None
+        return super().invoke(ctx)
+
 
 _LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
     "run_subprocess": ("devops_cli.core.process", "run_subprocess"),
@@ -59,7 +88,7 @@ def _get(name: str) -> Any:
     return getattr(sys.modules[__name__], name)
 
 
-app = new_typer(help=HELP.ci.app)
+app = new_typer(cls=FileOrSubcommandGroup, help=HELP.ci.app)
 
 
 def _get_project_root() -> Path:
@@ -415,13 +444,19 @@ def _print_failures(results: list[CheckResult]) -> None:
                 _get("write_stderr")(res.stderr.rstrip() + "\n")
 
 
-def _print_summary(results: list[CheckResult], total_elapsed: float) -> None:
+def _print_summary(
+    results: list[CheckResult], total_elapsed: float, *, cached: bool = False
+) -> None:
     """Render the final formatted CI Summary table."""
     from devops_cli.output import format_duration
 
     rows: list[list[str]] = []
     for res in results:
-        status_text = "[green]✓ pass[/green]" if res.passed else "[red]✗ fail[/red]"
+        status_text = (
+            "[green]✓ pass (cached)[/green]"
+            if (cached and res.passed)
+            else ("[green]✓ pass[/green]" if res.passed else "[red]✗ fail[/red]")
+        )
         dur_text = format_duration(res.duration_seconds) if res.duration_seconds > 0 else "<0.01s"
         rows.append([res.name, status_text, dur_text])
 
@@ -430,9 +465,124 @@ def _print_summary(results: list[CheckResult], total_elapsed: float) -> None:
         columns=[(MESSAGES.ci.col_check, "cyan"), MESSAGES.ci.col_result, ("Duration", "dim")],
         rows=rows,
     )
-    _get("print_muted")(
-        f"Total Elapsed: {format_duration(total_elapsed)} (concurrent async execution)\n"
+    mode_text = "cached execution" if cached else "concurrent async execution"
+    _get("print_muted")(f"Total Elapsed: {format_duration(total_elapsed)} ({mode_text})\n")
+
+
+def _collect_ci_target_files(
+    opt_files: list[str] | None,
+    extra_args: list[str] | None,
+) -> list[str] | None:
+    """Combine explicit --files options and positional arguments into a clean sorted list."""
+    combined = list(opt_files or [])
+    if extra_args:
+        combined.extend(a for a in extra_args if not a.startswith("-"))
+    clean = sorted({f.strip() for f in combined if f.strip()})
+    return clean if clean else None
+
+
+def _try_get_ci_cache(
+    root: Path,
+    files: list[str] | None,
+    ci_options: dict[str, Any],
+) -> list[CheckResult] | None:
+    """Attempt fast retrieval of passing CI cache entry."""
+    from devops_cli.ci.cache import compute_workspace_fingerprint, get_ci_cache
+
+    fp_info = compute_workspace_fingerprint(root=root, options=ci_options)
+    if not fp_info:
+        return None
+    fingerprint, _, _ = fp_info
+    entry = get_ci_cache(fingerprint=fingerprint, files=files, options=ci_options, root=root)
+    if entry is None:
+        return None
+    return [
+        CheckResult(
+            name=c.name,
+            display_title=c.display_title,
+            passed=c.passed,
+            duration_seconds=c.duration_seconds,
+            stdout=c.stdout,
+            stderr=c.stderr,
+        )
+        for c in entry.checks
+    ]
+
+
+def _try_save_ci_cache(
+    root: Path,
+    results: list[CheckResult],
+    files: list[str] | None,
+    ci_options: dict[str, Any],
+) -> None:
+    """Persist successful CI run into cache."""
+    from devops_cli.ci.cache import (
+        CICachedCheck,
+        compute_workspace_fingerprint,
+        save_ci_cache,
     )
+
+    fp_info = compute_workspace_fingerprint(root=root, options=ci_options)
+    if not fp_info:
+        return
+    fingerprint, head_sha, file_hashes = fp_info
+    cached_checks = [
+        CICachedCheck(
+            name=res.name,
+            display_title=res.display_title,
+            passed=res.passed,
+            duration_seconds=res.duration_seconds,
+            stdout=res.stdout,
+            stderr=res.stderr,
+        )
+        for res in results
+    ]
+    save_ci_cache(
+        fingerprint=fingerprint,
+        head_sha=head_sha,
+        checks=cached_checks,
+        file_hashes=file_hashes,
+        options=ci_options,
+        passed=True,
+    )
+
+
+def _try_fast_cached_ci(
+    root: Path,
+    files: list[str] | None,
+    ci_options: dict[str, Any],
+    *,
+    cache: bool,
+    force: bool,
+) -> bool:
+    """Attempt fast cached CI execution, rendering summary and returning True on hit."""
+    if not cache or force or is_dry_run():
+        return False
+    cached_results = _try_get_ci_cache(root, files, ci_options)
+    if cached_results is None:
+        return False
+    _get("print_info")(MESSAGES.ci.cache_hit)
+    _print_summary(cached_results, total_elapsed=0.005, cached=True)
+    return True
+
+
+def _handle_ci_results(
+    results: list[CheckResult],
+    cache: bool,
+    root: Path,
+    all_files: list[str] | None,
+    ci_options: dict[str, Any],
+) -> None:
+    """Handle post-execution caching or failure exit."""
+    if all(res.passed for res in results):
+        if cache and not is_dry_run():
+            _try_save_ci_cache(root, results, all_files, ci_options)
+        return
+
+    from devops_cli.ci.cache import clear_ci_cache
+
+    clear_ci_cache()
+    raise typer.Exit(1)
 
 
 @app.callback(invoke_without_command=True)
@@ -446,6 +596,18 @@ def all_checks(
         bool,
         typer.Option("--check", help=HELP.ci.check_all),
     ] = False,
+    cache: Annotated[
+        bool,
+        typer.Option("--cache/--no-cache", help=HELP.ci.cache),
+    ] = True,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help=HELP.ci.force),
+    ] = False,
+    files: Annotated[
+        list[str] | None,
+        typer.Option("--files", help=HELP.ci.files),
+    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -458,6 +620,13 @@ def all_checks(
         set_dry_run(True)
 
     effective_fix = fix and not check
+    ci_options = {"fix": effective_fix, "check": check}
+    root = _get_project_root()
+    all_files = _collect_ci_target_files(files, getattr(ctx, "args", []))
+
+    if _try_fast_cached_ci(root, all_files, ci_options, cache=cache, force=force):
+        return
+
     start_time = time.perf_counter()
     _get("print_info")("Executing CI quality gates concurrently...")
     sys.stdout.flush()
@@ -468,9 +637,7 @@ def all_checks(
     )
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - start_time)
-
-    if not all(res.passed for res in results):
-        raise typer.Exit(1)
+    _handle_ci_results(results, cache, root, all_files, ci_options)
 
 
 # =============================================================================
