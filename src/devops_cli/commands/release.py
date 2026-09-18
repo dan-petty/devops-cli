@@ -107,7 +107,9 @@ def _get_init_version(root: Path) -> str | None:
     match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
     if match:
         return match.group(1)
-    return _get_pyproject_version(root)
+    if "__version__" in content:
+        return _get_pyproject_version(root)
+    return None
 
 
 def _get_latest_git_tag(root: Path) -> str | None:
@@ -290,9 +292,11 @@ def _update_init_version(root: Path, new_version: str) -> bool:
     if not init_file.exists():
         return False
     content = init_file.read_text(encoding="utf-8")
+    if "__version__" not in content:
+        return False
     match = re.search(r'(__version__\s*=\s*["\'])[^"\']+(["\'])', content)
     if not match:
-        # Dynamically derived from pyproject.toml
+        # Dynamically derived from pyproject.toml (e.g. __version__ = get_version())
         return True
     new_content, count = re.subn(
         r'(__version__\s*=\s*["\'])[^"\']+(["\'])',

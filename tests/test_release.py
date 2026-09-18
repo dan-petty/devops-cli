@@ -122,6 +122,22 @@ def test_dynamic_init_version_handling(tmp_path: Path) -> None:
     )
 
 
+def test_missing_init_version_handling(tmp_path: Path) -> None:
+    """Verify release functions return None/False when __init__.py lacks __version__."""
+    src_dir = tmp_path / "src" / "devops_cli"
+    src_dir.mkdir(parents=True)
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "devops-cli"\nversion = "0.2.0"\n',
+        encoding="utf-8",
+    )
+    init_file = src_dir / "__init__.py"
+    init_file.write_text('"""Package without version."""\n', encoding="utf-8")
+
+    get_res = _get_init_version(tmp_path)
+    update_res = _update_init_version(tmp_path, "0.2.1")
+    assert (get_res, update_res) == (None, False)
+
+
 def test_release_status_command(sample_project_dir: Path) -> None:
     with patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])):
         result = runner.invoke(app, ["status", "--root", str(sample_project_dir)])
