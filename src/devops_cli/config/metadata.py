@@ -28,7 +28,7 @@ class ProjectMetadata(BaseModel):
 
 _DEFAULT_METADATA = ProjectMetadata(
     name="devops-cli",
-    version="0.1.11",
+    version="0.0.0",
     description="DevOps CLI for managing repos, SSH keys, Kubernetes, and more",
     requires_python=">=3.14",
     python_version="3.14",
