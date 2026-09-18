@@ -11,7 +11,7 @@
 
 ## 1. Description & Objectives
 
-In DevContainer environments, `devops devcontainer run-lifecycle` or `devops k8s bootstrap` starts Minikube. If the host has an NVIDIA GPU passed into the container, Minikube must be launched with `--gpus=all`, falling back to standard CPU mode if GPU acceleration is unavailable. Furthermore, service NodePorts (`minikube service --url`) pointing to Minikube internal IPs (`192.168.49.2:<port>`) are often unreachable from within container network namespaces without localhost port-forwarding.
+In DevContainer environments, `devops devcontainer run-lifecycle` or `devops k8s bootstrap` starts Minikube. If the host has an NVIDIA GPU passed into the container, Minikube must be launched with `--gpus=all`, falling back to standard CPU mode if GPU acceleration is unavailable. Furthermore, service NodePorts (`minikube service --url`) pointing to Minikube internal IPs (`192.0.2.2:<port>`) are often unreachable from within container network namespaces without localhost port-forwarding.
 
 Objectives:
 1. **Automated GPU Enablement**: Detect NVIDIA GPU hardware via `shutil.which("nvidia-smi")` and attempt `minikube start --driver=docker --gpus=all`, cleanly falling back to CPU mode (`minikube start --driver=docker`) on failure.

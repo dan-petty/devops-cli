@@ -210,15 +210,17 @@ def _resolve_loopback_fallback(scheme: str, port: int) -> str:
 
 
 def _resolve_accessible_url(
-    detected_url: str | None, preferred_localhost_ports: list[int] | None = None
+    detected_url: str | None,
+    preferred_localhost_ports: list[int] | None = None,
+    default_scheme: str = "http",
 ) -> str | None:
     """Resolve service URL to ensure it is accessible from devcontainer / host OS environment."""
     from urllib.parse import urlparse
 
-    scheme = "http"
+    scheme = default_scheme
     if detected_url:
         parsed_orig = urlparse(detected_url)
-        scheme = parsed_orig.scheme or "http"
+        scheme = parsed_orig.scheme or default_scheme
 
     preferred = _check_preferred_ports(scheme, preferred_localhost_ports)
     if preferred:
@@ -290,7 +292,9 @@ def _configure_llm_stack_urls(
     ollama_url = _resolve_accessible_url(raw_ollama, preferred_localhost_ports=[11434])
     webui_url = _resolve_accessible_url(raw_webui, preferred_localhost_ports=[3000, 8080])
     qdrant_url = _resolve_accessible_url(raw_qdrant, preferred_localhost_ports=[6333])
-    valkey_url = _resolve_accessible_url(raw_valkey, preferred_localhost_ports=[6379])
+    valkey_url = _resolve_accessible_url(
+        raw_valkey, preferred_localhost_ports=[6379], default_scheme="tcp"
+    )
 
     if ollama_url:
         settings.ai.ollama_urls = [ollama_url]
