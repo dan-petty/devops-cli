@@ -9,6 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.config import app as config_app
+from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.settings import SecretStorageError, Settings
 
 runner = CliRunner()
@@ -94,9 +95,9 @@ def test_config_init_wizard_flow(tmp_path: Path) -> None:
     mock_gh_token = MagicMock(returncode=0, stdout="ghp_cli_token\n")
 
     def mock_subprocess_gh(cmd, *args, **kwargs):
-        if cmd == ["gh", "auth", "status"]:
+        if cmd == [CONST_GH_CLI, "auth", "status"]:
             return mock_gh_status
-        if cmd == ["gh", "auth", "token"]:
+        if cmd == [CONST_GH_CLI, "auth", "token"]:
             return mock_gh_token
         return MagicMock(returncode=0)
 

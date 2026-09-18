@@ -22,6 +22,7 @@ from devops_cli.commands.release import (
     _verify_release_versions,
     app,
 )
+from devops_cli.config.constants import CONST_GH_CLI
 
 runner = CliRunner()
 
@@ -274,13 +275,13 @@ def test_release_pr_command(sample_project_dir: Path) -> None:
         patch("devops_cli.commands.release.run_gh") as mock_gh,
     ):
         mock_gh.return_value = subprocess.CompletedProcess(
-            args=["gh", "issue", "list"],
+            args=[CONST_GH_CLI, "issue", "list"],
             returncode=0,
             stdout='[{"number": 99, "title": "feat(core): core feature"}]',
             stderr="",
         )
         mock_sub.return_value = subprocess.CompletedProcess(
-            args=["gh", "pr", "create"],
+            args=[CONST_GH_CLI, "pr", "create"],
             returncode=0,
             stdout="https://github.com/your-org/devops-cli/pull/42\n",
             stderr="",
@@ -779,7 +780,7 @@ def test_build_release_pr_body_draft_mode(sample_project_dir: Path) -> None:
         {"number": 118, "title": "perf(ai): high-performance AST context packer", "state": "OPEN"},
     ]
     mock_gh_res = subprocess.CompletedProcess(
-        args=["gh"], returncode=0, stdout=json.dumps(mock_issues), stderr=""
+        args=[CONST_GH_CLI], returncode=0, stdout=json.dumps(mock_issues), stderr=""
     )
 
     with patch("devops_cli.commands.release.run_gh", return_value=mock_gh_res):

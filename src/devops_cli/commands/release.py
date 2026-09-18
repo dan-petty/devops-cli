@@ -17,6 +17,7 @@ from devops_cli.config.constants import (
     CONST_CONVENTIONAL_COMMIT_CATEGORIES,
     CONST_CONVENTIONAL_COMMIT_CATEGORY_ORDER,
     CONST_DOCS_DIR_NAME,
+    CONST_GH_CLI,
     CONST_GIT_MAIN_BRANCH,
     CONST_INIT_PY_PATH,
     CONST_PYPROJECT_FILENAME,
@@ -832,7 +833,7 @@ def _build_release_pr_command(
 ) -> list[str]:
     """Construct command argument list for opening release pull request."""
     pr_cmd = [
-        "gh",
+        CONST_GH_CLI,
         "pr",
         "create",
         "--title",
