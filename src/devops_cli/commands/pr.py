@@ -17,6 +17,7 @@ from devops_cli.config.defaults import DEFAULT_PR_LIMIT, DEFAULT_PR_STATE
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
+from devops_cli.dry_run.state import is_dry_run, set_dry_run
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
@@ -1372,6 +1373,210 @@ def check_readiness(
         allow_replied_threads=allow_replied_threads,
     )
     _emit_readiness_status(blockers, pr_num)
+
+
+# =============================================================================
+# Command: devops pr update
+# =============================================================================
+
+
+def _build_update_branch_cmd(
+    owner_repo: str,
+    number: int,
+    expected_head_sha: str | None = None,
+) -> list[str]:
+    """Build GitHub CLI API invocation for updating a pull request branch."""
+    endpoint = f"repos/{owner_repo}/pulls/{number}/update-branch"
+    cmd = [CONST_GH_CLI, "api", "-X", "PUT", endpoint]
+    if expected_head_sha:
+        cmd.extend(["-f", f"expected_head_sha={expected_head_sha}"])
+    return cmd
+
+
+def _parse_update_error(raw_text: str) -> str:
+    """Extract readable error message from gh api failure output."""
+    clean = raw_text.strip()
+    try:
+        data = json.loads(clean)
+        if isinstance(data, dict) and "message" in data:
+            msg = str(data["message"])
+            errors = data.get("errors")
+            if isinstance(errors, list) and errors:
+                return f"{msg}: {', '.join(str(e) for e in errors)}"
+            return msg
+    except json.JSONDecodeError:
+        pass
+    return clean or "Unknown API error"
+
+
+def _execute_update_branch(cmd: list[str]) -> tuple[bool, str]:
+    """Execute update-branch gh api command and return (success, message)."""
+    res = run_gh(cmd, check=False, quiet=True)
+    if res.returncode == 0:
+        return True, "Branch update requested successfully."
+    error_msg = _parse_update_error(res.stderr or res.stdout)
+    return False, error_msg
+
+
+def _update_single_pr(
+    number: int,
+    repo: str | None = None,
+    expected_head_sha: str | None = None,
+    dry_run: bool = False,
+) -> tuple[bool, str]:
+    """Update a specific pull request branch from its base branch."""
+    _require_gh_cli()
+    from devops_cli.core.repo import get_repo_origin_name
+
+    target_repo = repo or get_repo_origin_name()
+    if not target_repo or "/" not in target_repo:
+        print_error("Target repository must be in OWNER/REPO format.", prefix=False)
+        return False, "Target repository could not be determined."
+
+    pr = _fetch_pr_details(number, target_repo)
+    head_ref = pr.get("head", {}).get("ref", f"PR #{number}")
+    base_ref = pr.get("base", {}).get("ref", "base")
+
+    if dry_run or is_dry_run():
+        msg = MESSAGES.pr.update_branch_dry_run.format(
+            number=number, branch=head_ref, base=base_ref
+        )
+        print_info(msg)
+        return True, msg
+
+    cmd = _build_update_branch_cmd(target_repo, number, expected_head_sha)
+    success, message = _execute_update_branch(cmd)
+    if success:
+        print_success(MESSAGES.pr.update_branch_success.format(number=number, base=base_ref))
+    else:
+        print_error(
+            MESSAGES.pr.update_branch_failed.format(number=number, error=message),
+            prefix=False,
+        )
+    return success, message
+
+
+def _fetch_open_prs(repo: str | None, base: str | None) -> list[dict[str, Any]]:
+    """Fetch candidate open pull requests matching base branch."""
+    cmd = [
+        CONST_GH_CLI,
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "number,title,headRefName,baseRefName,isDraft",
+    ]
+    if repo:
+        cmd.extend(["--repo", repo])
+    if base:
+        cmd.extend(["--base", base])
+    res = run_gh(cmd, check=False, quiet=True)
+    if res.returncode != 0 or not res.stdout.strip():
+        return []
+    try:
+        prs = json.loads(res.stdout)
+        return prs if isinstance(prs, list) else []
+    except json.JSONDecodeError:
+        return []
+
+
+def _process_candidate_pr_row(
+    pr: dict[str, Any],
+    repo: str | None,
+    dry_run: bool,
+) -> list[str] | None:
+    """Evaluate and update a single candidate PR, returning a summary table row."""
+    num = pr.get("number")
+    if not num:
+        return None
+    head = str(pr.get("headRefName", ""))
+    b_ref = str(pr.get("baseRefName", ""))
+    if bool(pr.get("isDraft", False)):
+        return [f"#{num}", head, b_ref, "[dim]draft (skipped)[/dim]"]
+    success, _ = _update_single_pr(int(num), repo=repo, dry_run=dry_run)
+    status_text = "[green]✓ updated[/green]" if success else "[red]✗ failed[/red]"
+    return [f"#{num}", head, b_ref, status_text]
+
+
+def _update_all_prs(
+    base: str | None = None,
+    repo: str | None = None,
+    dry_run: bool = False,
+) -> None:
+    """Update all open non-draft pull requests targeting base branch."""
+    target_base = base or _detect_active_release_branch()
+    prs = _fetch_open_prs(repo, target_base)
+    if not prs:
+        print_info(MESSAGES.pr.update_branch_no_prs)
+        return
+
+    rows: list[list[str]] = []
+    for pr in prs:
+        row = _process_candidate_pr_row(pr, repo=repo, dry_run=dry_run)
+        if row:
+            rows.append(row)
+
+    print_table(
+        title=MESSAGES.pr.update_table_title,
+        columns=["PR", "Head Branch", "Base Branch", "Status"],
+        rows=rows,
+    )
+
+
+@app.command("update")
+def update_pr(
+    number: Annotated[
+        int | None,
+        typer.Argument(help=HELP.pr.update_number),
+    ] = None,
+    all_prs: Annotated[
+        bool,
+        typer.Option("--all", "-a", help=HELP.pr.update_all),
+    ] = False,
+    base: Annotated[
+        str | None,
+        typer.Option("--base", "-B", help=HELP.pr.update_base),
+    ] = None,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
+    ] = None,
+    expected_head_sha: Annotated[
+        str | None,
+        typer.Option("--expected-head-sha", help=HELP.pr.update_expected_head_sha),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Update pull request branch with latest commits from its base branch."""
+    _require_gh_cli()
+    if dry_run:
+        set_dry_run(True)
+
+    if all_prs:
+        _update_all_prs(base=base, repo=repo, dry_run=dry_run)
+        return
+
+    if number is None:
+        print_error(
+            "Please specify a PR number or use --all to update all open pull requests.",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    success, _ = _update_single_pr(
+        number=number,
+        repo=repo,
+        expected_head_sha=expected_head_sha,
+        dry_run=dry_run,
+    )
+    if not success and not (dry_run or is_dry_run()):
+        raise typer.Exit(1)
 
 
 # =============================================================================
