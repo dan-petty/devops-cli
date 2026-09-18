@@ -555,10 +555,10 @@ def test_get_current_git_branch() -> None:
 
     # Attached branch
     cp_branch = subprocess.CompletedProcess(
-        args=["git"], returncode=0, stdout="release/v0.2.19\n", stderr=""
+        args=["git"], returncode=0, stdout="release/v0.2.20\n", stderr=""
     )
     with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_branch):
-        assert _get_current_git_branch(Path(".")) == "release/v0.2.19"
+        assert _get_current_git_branch(Path(".")) == "release/v0.2.20"
 
     # Detached HEAD
     cp_head = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="HEAD\n", stderr="")
@@ -627,12 +627,12 @@ def test_resolve_branch_targets() -> None:
     # 1. On release branch, passing 'main' (which equals base 'main') -> diff current branch against main
     with (
         patch(
-            "devops_cli.ai.review.runner._get_current_git_branch", return_value="release/v0.2.19"
+            "devops_cli.ai.review.runner._get_current_git_branch", return_value="release/v0.2.20"
         ),
         patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
     ):
         branch, base, is_wt = _resolve_branch_targets(Path("."), "main", "main")
-        assert branch == "release/v0.2.19"
+        assert branch == "release/v0.2.20"
         assert base == "main"
         assert is_wt is False
 
