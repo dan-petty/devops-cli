@@ -20,6 +20,7 @@ from devops_cli.config.constants import (
     CONST_URL_GITHUB_COPILOT_API_BASE,
     CONST_URL_OPENAI_API_BASE,
 )
+from devops_cli.config.defaults import DEFAULT_AI_GATEWAY_URL
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import inject_trace_context
 
@@ -32,6 +33,9 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
     def _api_base(self) -> str:
         if self._config.api_base_url:
             return self._validate_base_url(self._config.api_base_url, purpose="provider API")
+        if self._config.provider == "gateway":
+            gw_url = getattr(self._config, "gateway_url", None) or DEFAULT_AI_GATEWAY_URL
+            return self._validate_base_url(gw_url, purpose="provider API")
         if self._config.provider == "copilot":
             return CONST_URL_GITHUB_COPILOT_API_BASE
         return CONST_URL_OPENAI_API_BASE

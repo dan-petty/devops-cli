@@ -6,7 +6,13 @@ metadata:
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
-  podSelector: {}
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: NotIn
+        values:
+          - llm-gateway
+          - vllm
   policyTypes:
     - Ingress
     - Egress

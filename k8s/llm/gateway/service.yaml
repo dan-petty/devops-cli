@@ -1,0 +1,19 @@
+# LiteLLM Proxy / AI Gateway Service.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-gateway
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: llm-gateway
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 4000
+      targetPort: 4000
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: llm-gateway

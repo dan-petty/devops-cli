@@ -36,6 +36,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_CONTEXT_WINDOW,
+    DEFAULT_AI_GATEWAY_URL,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import AIConfig
@@ -163,31 +164,30 @@ class LLMClient(
     @property
     def backend_host(self) -> str:
         """Return the endpoint host for the current AI provider."""
-        p = getattr(self._config, "provider", "ollama")
-        if not isinstance(p, str):
-            p = "ollama"
+        p = str(getattr(self._config, "provider", "ollama") or "ollama")
         if p == "ollama":
-            urls = getattr(self._config, "get_ollama_urls", ["http://localhost:11434"])
-            if not isinstance(urls, (list, tuple)):
-                urls = ["http://localhost:11434"]
-            hosts: list[str] = []
-            for u in urls:
-                if isinstance(u, str):
-                    parsed = urlparse(u)
-                    hosts.append(parsed.netloc or parsed.path or u)
-            return ", ".join(hosts) or "localhost:11434"
+            return self._resolve_ollama_backend_host()
         base_url = getattr(self._config, "api_base_url", None)
         if not isinstance(base_url, str) or not base_url:
-            if p == "claude":
-                base_url = CONST_URL_ANTHROPIC_API_BASE
-            elif p == "copilot":
-                base_url = CONST_URL_GITHUB_COPILOT_API_BASE
-            elif p == "openai":
-                base_url = CONST_URL_OPENAI_API_BASE
+            provider_defaults = {
+                "claude": CONST_URL_ANTHROPIC_API_BASE,
+                "copilot": CONST_URL_GITHUB_COPILOT_API_BASE,
+                "openai": CONST_URL_OPENAI_API_BASE,
+                "gateway": getattr(self._config, "gateway_url", None) or DEFAULT_AI_GATEWAY_URL,
+            }
+            base_url = provider_defaults.get(p)
         if isinstance(base_url, str) and base_url:
             parsed = urlparse(base_url)
             return str(parsed.netloc or parsed.path or base_url)
         return "unknown"
+
+    def _resolve_ollama_backend_host(self) -> str:
+        """Resolve comma-separated backend host string for configured Ollama endpoints."""
+        urls = getattr(self._config, "get_ollama_urls", ["http://localhost:11434"])
+        if not isinstance(urls, (list, tuple)):
+            urls = ["http://localhost:11434"]
+        hosts = [urlparse(u).netloc or urlparse(u).path or u for u in urls if isinstance(u, str)]
+        return ", ".join(hosts) or "localhost:11434"
 
     @property
     def backend_info(self) -> str:
@@ -317,13 +317,13 @@ class LLMClient(
                 res = self._ollama_messages(system, messages, enable_thinking=enable_thinking)
             elif p == "claude":
                 res = self._claude_messages(system, messages, enable_thinking=enable_thinking)
-            elif p in ("copilot", "github_copilot", "openai"):
+            elif p in ("copilot", "github_copilot", "openai", "gateway"):
                 res = self._openai_compat_messages(
                     system, messages, enable_thinking=enable_thinking
                 )
             else:
                 raise LLMInferenceError(
-                    f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai",
+                    f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai, gateway",
                     provider=p,
                 )
 
@@ -622,10 +622,10 @@ class LLMClient(
             return self._ollama_stream(system, messages, enable_thinking=enable_thinking)
         if p == "claude":
             return self._claude_stream(system, messages, enable_thinking=enable_thinking)
-        if p in ("copilot", "github_copilot", "openai"):
+        if p in ("copilot", "github_copilot", "openai", "gateway"):
             return self._openai_compat_stream(system, messages, enable_thinking=enable_thinking)
         raise LLMInferenceError(
-            f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai", provider=p
+            f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai, gateway", provider=p
         )
 
     def chat_stream(
@@ -700,7 +700,7 @@ class LLMClient(
         p = self._config.provider
         if p == "ollama":
             return self._ollama_models()
-        if p in ("copilot", "openai"):
+        if p in ("copilot", "openai", "gateway"):
             return self._openai_models()
         return [self._config.model]
 

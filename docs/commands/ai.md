@@ -1254,3 +1254,81 @@ devops ai ast graph [OPTIONS]
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
+
+## `devops ai gateway`
+
+**LLM Gateway and distributed inference mesh management.**
+
+```bash
+devops ai gateway COMMAND [ARGS]...
+```
+
+### `devops ai gateway status`
+
+**Probe LLM Gateway health, latency, and circuit breaker metrics.**
+
+```bash
+devops ai gateway status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai gateway routes`
+
+**List registered virtual models and target backend inference instances.**
+
+```bash
+devops ai gateway routes [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai gateway failover`
+
+**Trigger or test circuit-breaker failover of a virtual model to secondary backends.**
+
+```bash
+devops ai gateway failover [OPTIONS] <virtual_model>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<virtual_model>` | `string` | Yes | Virtual model alias to trigger failover for (devops-chat, devops-coder, devops-reasoning, devops-embedding). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--simulate`, `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai gateway scale`
+
+**Inspect or scale vLLM Tensor Parallelism serving configurations.**
+
+```bash
+devops ai gateway scale [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--replicas`, `-r` | `integer` | - | Replica count for vLLM Tensor-Parallel deployment. |
+| `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree (e.g. 2). |
+| `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+---
