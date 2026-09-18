@@ -113,7 +113,7 @@ uv run devops ci
 
 ### Core Validation Checks
 1. **Python Version Check**: Strictly enforces Python 3.14+ runtime.
-2. **Unit Tests (`pytest -n auto --maxprocesses=4`)**: Parallel unit test execution with full mock isolation.
+2. **Unit Tests (`pytest -n auto --maxprocesses=8`)**: Parallel unit test execution with dynamic worker auto-scaling and full mock isolation.
 3. **Code Coverage (`pytest-cov`)**: Enforces branch and line coverage thresholds.
 4. **Linting (`ruff check .`)**: Strict PEP 8 linting, import sorting, and unused symbol elimination.
 5. **Formatting (`ruff format --check .`)**: Enforces 100-character line length standards.
