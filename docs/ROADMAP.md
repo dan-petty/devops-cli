@@ -278,8 +278,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 
 | Priority Category | Feature / Focus | Primary Open Source Resource | Value | Effort | Target Release | Status |
 |---|---|---|---|---|---|---|
-| **Quick Wins** | Fine-Grained Gate Input Caching & Zero-Blocking Pipeline Dispatch | Asyncio / SHA-256 | High | Medium | v0.2.20 | 📋 Scheduled (P1) |
-|  | In-Flight Work, PR Stagnation & Blocker Radar (`devops gh pm inflight`) | GitHub API / FIFO / Metrics | High | Low | v0.2.22 | 📋 Scheduled (P1) |
+| **Quick Wins** | In-Flight Work, PR Stagnation & Blocker Radar (`devops gh pm inflight`) | GitHub API / FIFO / Metrics | High | Low | v0.2.22 | 📋 Scheduled (P1) |
 |  | Universal Command Palette & Fuzzy Action Launcher | Textual CommandPalette | High | Low | v0.2.23 | 📋 Scheduled (P1) |
 |  | Zero-Trust Git Commit & Tag Signature Verifier | `git`, GPG, Sigstore | High | Low | v0.3.0 | 💡 Future Vision |
 |  | JIT Python 3.14 Bytecode Optimization Benchmarking | `pytest-benchmark` / JIT | Medium | Low | v0.3.0 | 💡 Future Vision |
