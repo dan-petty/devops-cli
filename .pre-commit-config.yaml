@@ -1,4 +1,4 @@
-default_install_hook_types: [pre-commit, pre-push]
+default_install_hook_types: [pre-commit]
 default_stages: [pre-commit]
 
 repos:
@@ -6,38 +6,35 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        stages: [pre-commit]
       - id: end-of-file-fixer
+        stages: [pre-commit]
       - id: mixed-line-ending
         args: [--fix=lf]
+        stages: [pre-commit]
       - id: check-yaml
         args: [--allow-multiple-documents]
         exclude: ^(\.devcontainer/|\.vscode/)
+        stages: [pre-commit]
       - id: check-added-large-files
+        stages: [pre-commit]
       - id: detect-private-key
         exclude: ^tests/(test_review_prompt_guardrails\.py|test_security_gitleaks\.py)$
+        stages: [pre-commit]
       - id: check-merge-conflict
+        stages: [pre-commit]
       - id: check-toml
+        stages: [pre-commit]
       - id: check-json
         exclude: ^\.vscode/
-
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.22
-    hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
-
-  - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.7
-    hooks:
-      - id: actionlint
+        stages: [pre-commit]
 
   - repo: local
     hooks:
-      - id: devops-ci-pre-push
-        name: devops ci (pre-push quality gate)
+      - id: devops-ci-pre-commit
+        name: devops ci (pre-commit quality gate)
         entry: uv run devops ci
         language: system
-        stages: [pre-push]
+        stages: [pre-commit]
         pass_filenames: false
         always_run: true

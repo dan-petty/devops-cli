@@ -71,6 +71,39 @@ class ReviewWorkerPool:
         self.rate_limiter = rate_limiter
         self.timeout_per_task = timeout_per_task
 
+    @classmethod
+    def create(
+        cls,
+        concurrency: int | None = None,
+        *,
+        rate_limit: float | None = None,
+        burst_capacity: float | None = None,
+        timeout_per_task: float | None = None,
+    ) -> ReviewWorkerPool:
+        """Create a configured ReviewWorkerPool with bounded concurrency and rate limiting."""
+        from devops_cli.config.defaults import (
+            DEFAULT_REVIEW_CONCURRENCY,
+            DEFAULT_REVIEW_MAX_CONCURRENCY,
+            DEFAULT_REVIEW_RATE_CAPACITY,
+            DEFAULT_REVIEW_RATE_LIMIT,
+        )
+
+        effective_concurrency = (
+            min(max(1, int(concurrency)), DEFAULT_REVIEW_MAX_CONCURRENCY)
+            if concurrency is not None
+            else DEFAULT_REVIEW_CONCURRENCY
+        )
+        effective_rate = float(rate_limit) if rate_limit is not None else DEFAULT_REVIEW_RATE_LIMIT
+        effective_capacity = (
+            float(burst_capacity) if burst_capacity is not None else DEFAULT_REVIEW_RATE_CAPACITY
+        )
+        limiter = TokenBucketRateLimiter(rate=effective_rate, capacity=effective_capacity)
+        return cls(
+            max_concurrency=effective_concurrency,
+            rate_limiter=limiter,
+            timeout_per_task=timeout_per_task,
+        )
+
     async def _execute_task[T, R](
         self,
         fn: Callable[[T], Coroutine[Any, Any, R]],

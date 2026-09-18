@@ -189,9 +189,13 @@ class DocCompactor:
 
     def _extract_roadmap_versions(self, text: str, series: str) -> list[str]:
         """Extract all version numbers matching series in Section 2."""
-        pattern = r"###\s+.*?\((v\d+\.\d+\.\d+).*?\)"
-        matches = re.findall(pattern, text)
-        return [v for v in matches if _version_matches_series(v, series)]
+        headers = re.findall(r"###\s+.*?\(.*?\)", text)
+        versions: list[str] = []
+        for header in headers:
+            for match in re.findall(r"v\d+\.\d+\.\d+", header):
+                if _version_matches_series(match, series) and match not in versions:
+                    versions.append(match)
+        return versions
 
     def _build_roadmap_summary_block(self, series: str, versions: list[str]) -> str:
         """Construct consolidated roadmap summary subsection."""
@@ -233,6 +237,10 @@ class DocCompactor:
             b for b in blocks if _version_matches_series(b.group(2), normalized_series)
         ]
         if not matching_blocks:
+            return content, False, 0
+
+        title = self.series_title_map.get(normalized_series)
+        if len(matching_blocks) == 1 and title and matching_blocks[0].group(1).strip() == title:
             return content, False, 0
 
         first_span_start = matching_blocks[0].start()

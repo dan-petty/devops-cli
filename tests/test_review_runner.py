@@ -15,8 +15,11 @@ from devops_cli.ai.review.runner import (
     _build_path_prompt,
     _build_recompose_prompt,
     _build_segment_review_prompt,
+    _calculate_parallel_review_workers,
     _collect_file_blocks,
     _collect_files,
+    _execute_findings_validation,
+    _execute_review_segments,
     _get_reviews_base_dir,
     _git_repo_root,
     _is_allowed_review_boundary,
@@ -213,9 +216,12 @@ def test_prepare_content_helpers(tmp_path: Path) -> None:
     )
 
     with patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_cp):
-        b_pages, b_title, b_agents = _prepare_branch_content("feat/test", "main", Path("."))
+        b_pages, b_title, b_agents, b_target = _prepare_branch_content(
+            "feat/test", "main", Path(".")
+        )
         assert len(b_pages) >= 1
         assert "feat/test" in b_title
+        assert b_target == "feat/test"
 
     with patch("devops_cli.github.client.GitHubClient") as mock_gh_cls:
         mock_gh = mock_gh_cls.return_value
@@ -341,12 +347,12 @@ def test_review_runner_extended_branches(tmp_path: Path) -> None:
 
 def test_review_runner_dry_run_and_summary_metas(tmp_path: Path) -> None:
     """Verify dry-run mock constructors, summary generation with file metadata, and error branches."""
-    from devops_cli.ai.analyze.outlines import FileAnalysisMeta
     from devops_cli.ai.review.runner import (
         _build_dry_run_persona_result,
         _build_dry_run_segment_result,
         _write_summary,
     )
+    from devops_cli.models.ai import FileAnalysisMeta
 
     # 1. Dry run constructors
     seg_res = _build_dry_run_segment_result("app.py", "app.py analysis")
@@ -541,3 +547,319 @@ def test_make_review_clients() -> None:
     clients = _make_review_clients(st)
     assert clients.analysis is not None
     assert clients.compose is not None
+
+
+def test_get_current_git_branch() -> None:
+    """Verify active branch name detection and detached HEAD handling."""
+    from devops_cli.ai.review.runner import _get_current_git_branch
+
+    # Attached branch
+    cp_branch = subprocess.CompletedProcess(
+        args=["git"], returncode=0, stdout="release/v0.2.19\n", stderr=""
+    )
+    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_branch):
+        assert _get_current_git_branch(Path(".")) == "release/v0.2.19"
+
+    # Detached HEAD
+    cp_head = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="HEAD\n", stderr="")
+    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_head):
+        assert _get_current_git_branch(Path(".")) == ""
+
+    # Failure
+    cp_fail = subprocess.CompletedProcess(args=["git"], returncode=1, stdout="", stderr="fatal")
+    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_fail):
+        assert _get_current_git_branch(Path(".")) == ""
+
+
+def test_has_uncommitted_working_tree_changes() -> None:
+    """Verify detection of staged and unstaged working tree changes."""
+    from devops_cli.ai.review.runner import _has_uncommitted_working_tree_changes
+
+    cp_dirty = subprocess.CompletedProcess(
+        args=["git"], returncode=0, stdout="diff --git a/f b/f\n", stderr=""
+    )
+    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_dirty):
+        assert _has_uncommitted_working_tree_changes(Path(".")) is True
+
+    cp_clean = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="", stderr="")
+    with patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_clean):
+        assert _has_uncommitted_working_tree_changes(Path(".")) is False
+
+
+def test_resolve_main_branch_fallback_base() -> None:
+    """Verify base resolution on main using git tags and parent commits."""
+    from devops_cli.ai.review.runner import _resolve_main_branch_fallback_base
+
+    # Tag exists with non-empty diff
+    cp_diff = subprocess.CompletedProcess(
+        args=["git"], returncode=0, stdout="diff content\n", stderr=""
+    )
+    with (
+        patch("devops_cli.git.operations.get_latest_git_tag", return_value="v0.2.18"),
+        patch("devops_cli.ai.review.runner._run_subprocess", return_value=cp_diff),
+    ):
+        assert _resolve_main_branch_fallback_base(Path("."), "main") == "v0.2.18"
+
+    # Tag exists but diff is empty -> fallback to parent commit main~1
+    cp_empty = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="", stderr="")
+    cp_parent_ok = subprocess.CompletedProcess(
+        args=["git"], returncode=0, stdout="commit-hash\n", stderr=""
+    )
+
+    def _mock_subp(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "diff" in cmd:
+            return cp_empty
+        if len(cmd) > 4 and "main~1" in cmd[4]:
+            return cp_parent_ok
+        return cp_empty
+
+    with (
+        patch("devops_cli.git.operations.get_latest_git_tag", return_value="v0.2.18"),
+        patch("devops_cli.ai.review.runner._run_subprocess", side_effect=_mock_subp),
+    ):
+        assert _resolve_main_branch_fallback_base(Path("."), "main") == "main~1"
+
+
+def test_resolve_branch_targets() -> None:
+    """Verify resolution of branch target and effective base across branch permutations."""
+    from devops_cli.ai.review.runner import _resolve_branch_targets
+
+    # 1. On release branch, passing 'main' (which equals base 'main') -> diff current branch against main
+    with (
+        patch(
+            "devops_cli.ai.review.runner._get_current_git_branch", return_value="release/v0.2.19"
+        ),
+        patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
+    ):
+        branch, base, is_wt = _resolve_branch_targets(Path("."), "main", "main")
+        assert branch == "release/v0.2.19"
+        assert base == "main"
+        assert is_wt is False
+
+    # 2. On main branch with uncommitted changes -> diff main against HEAD
+    with (
+        patch("devops_cli.ai.review.runner._get_current_git_branch", return_value="main"),
+        patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
+        patch(
+            "devops_cli.ai.review.runner._has_uncommitted_working_tree_changes", return_value=True
+        ),
+    ):
+        branch, base, is_wt = _resolve_branch_targets(Path("."), None, "main")
+        assert branch == "main"
+        assert base == "HEAD"
+        assert is_wt is True
+
+    # 3. On main branch with clean tree -> diff main against fallback base
+    with (
+        patch("devops_cli.ai.review.runner._get_current_git_branch", return_value="main"),
+        patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
+        patch(
+            "devops_cli.ai.review.runner._has_uncommitted_working_tree_changes", return_value=False
+        ),
+        patch(
+            "devops_cli.ai.review.runner._resolve_main_branch_fallback_base", return_value="v0.2.18"
+        ),
+    ):
+        branch, base, is_wt = _resolve_branch_targets(Path("."), "main", "main")
+        assert branch == "main"
+        assert base == "v0.2.18"
+        assert is_wt is False
+
+    # 4. Standard feature branch -> normal diff
+    with (
+        patch("devops_cli.ai.review.runner._get_current_git_branch", return_value="feat/test"),
+        patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
+    ):
+        branch, base, is_wt = _resolve_branch_targets(Path("."), "feat/test", "main")
+        assert branch == "feat/test"
+        assert base == "main"
+        assert is_wt is False
+
+
+def test_prepare_branch_content_on_main_and_base_switching() -> None:
+    """Verify _prepare_branch_content properly prepares pages on main and base-passed branches."""
+    from devops_cli.ai.review.runner import _prepare_branch_content
+
+    mock_diff = subprocess.CompletedProcess(
+        args=["git"],
+        returncode=0,
+        stdout="diff --git a/app.py b/app.py\n+print('hello')\n",
+        stderr="",
+    )
+
+    # Calling with 'main' from release/v0.2.19
+    with (
+        patch(
+            "devops_cli.ai.review.runner._get_current_git_branch", return_value="release/v0.2.19"
+        ),
+        patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
+        patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_diff),
+    ):
+        pages, title, agents, target = _prepare_branch_content("main", "main", Path("."))
+        assert len(pages) >= 1
+        assert "release/v0.2.19" in title
+        assert "main" in title
+        assert target == "release/v0.2.19"
+
+    # Calling on main with uncommitted changes
+    with (
+        patch("devops_cli.ai.review.runner._get_current_git_branch", return_value="main"),
+        patch("devops_cli.ai.review.runner._detect_base_branch", return_value="main"),
+        patch(
+            "devops_cli.ai.review.runner._has_uncommitted_working_tree_changes", return_value=True
+        ),
+        patch("devops_cli.ai.review.runner._run_subprocess", return_value=mock_diff),
+    ):
+        pages, title, agents, target = _prepare_branch_content(None, "main", Path("."))
+        assert len(pages) >= 1
+        assert "main" in title
+        assert "HEAD" in title
+        assert target == "main"
+
+
+def test_calculate_parallel_review_workers() -> None:
+    """Verify worker capacity calculation honoring concurrency, configs, and upper bounds."""
+    from devops_cli.config.defaults import (
+        DEFAULT_REVIEW_CONCURRENCY,
+        DEFAULT_REVIEW_MAX_CONCURRENCY,
+    )
+
+    clients = MagicMock()
+    clients.analysis._config.ollama_max_parallel = 2
+    clients.analysis._config.ollama_urls = ["http://example.com:11434"]
+
+    # 1. Explicit concurrency override
+    workers_explicit = _calculate_parallel_review_workers(clients, num_tasks=10, concurrency=6)
+    workers_clamped = _calculate_parallel_review_workers(clients, num_tasks=2, concurrency=6)
+    workers_min = _calculate_parallel_review_workers(clients, num_tasks=5, concurrency=-1)
+    assert (workers_explicit, workers_clamped, workers_min) == (6, 2, 1)
+
+    # 2. Default calculation based on ollama_urls
+    workers_default = _calculate_parallel_review_workers(clients, num_tasks=10)
+    assert workers_default == DEFAULT_REVIEW_CONCURRENCY
+
+    # 3. High capacity capped by DEFAULT_REVIEW_MAX_CONCURRENCY
+    clients.analysis._config.ollama_urls = [f"http://example.com:{11434 + i}" for i in range(10)]
+    workers_max = _calculate_parallel_review_workers(clients, num_tasks=20)
+    assert workers_max == DEFAULT_REVIEW_MAX_CONCURRENCY
+
+
+def test_execute_review_segments_parallel_and_error_handling() -> None:
+    """Verify _execute_review_segments runs in parallel and isolates segment failures."""
+    import threading
+    import time
+
+    clients = MagicMock()
+    clients.analysis._config.ollama_max_parallel = 2
+    clients.analysis._config.ollama_urls = ["http://example.com:11434"]
+    persona = PERSONAS[Persona.DEVSECOPS]
+
+    pages = ["diff 1", "diff 2", "diff 3"]
+    active_workers = 0
+    max_active = 0
+    lock = threading.Lock()
+
+    def _mock_attempt(clients, sys_prompt, user_prompt, label, suffix):
+        nonlocal active_workers, max_active
+        with lock:
+            active_workers += 1
+            max_active = max(max_active, active_workers)
+        time.sleep(0.04)
+        try:
+            if "segment 2/3" in label:
+                raise RuntimeError("LLM failure on segment 2")
+            return f"Review for {label}"
+        finally:
+            with lock:
+                active_workers -= 1
+
+    with (
+        patch("devops_cli.ai.review.runner.is_dry_run", return_value=False),
+        patch(
+            "devops_cli.ai.review.runner._execute_review_segment_attempt",
+            side_effect=_mock_attempt,
+        ),
+    ):
+        results = _execute_review_segments(
+            pages=pages,
+            title="Parallel Segments Test",
+            metadata={},
+            build_prompt=_build_path_prompt,
+            persona=persona,
+            clients=clients,
+            analysis_suffix="",
+            analysis_system="System Prompt",
+        )
+        assert (
+            len(results),
+            max_active >= 2,
+            "Review for segment 1/3" in results[0],
+            results[1],
+            "Review for segment 3/3" in results[2],
+        ) == (3, True, True, "", True)
+
+
+def test_execute_findings_validation_parallel_and_error_handling() -> None:
+    """Verify _execute_findings_validation runs in parallel and isolates validation errors."""
+    clients = MagicMock()
+    clients.analysis._config.ollama_max_parallel = 2
+    clients.analysis._config.ollama_urls = ["http://example.com:11434"]
+
+    pages = ["diff --git a/one.py b/one.py", "diff --git a/two.py b/two.py"]
+    res1 = ReviewResult(persona=Persona.DEVSECOPS, recommendation="APPROVE", findings=[])
+    res2 = ReviewResult(persona=Persona.DEVSECOPS, recommendation="REQUEST CHANGES", findings=[])
+
+    def _mock_val(index, page, parsed, total, all_pages, cl, metas, repo, suffix):
+        if index == 2:
+            raise RuntimeError("Validation crash")
+        return (index, parsed)
+
+    with (
+        patch("devops_cli.ai.review.runner.is_dry_run", return_value=False),
+        patch(
+            "devops_cli.ai.review.runner._validate_single_segment_findings",
+            side_effect=_mock_val,
+        ),
+    ):
+        validated = _execute_findings_validation(
+            pages=pages,
+            segment_results=[res1, res2],
+            clients=clients,
+            analysis_suffix="",
+        )
+        assert (len(validated), validated[0], validated[1]) == (2, res1, None)
+
+
+def test_run_persona_loop_parallel_and_error_handling() -> None:
+    """Verify _run_persona_loop executes personas in parallel and isolates errors."""
+    clients = MagicMock()
+    clients.analysis._config.ollama_max_parallel = 2
+    clients.analysis._config.ollama_urls = ["http://example.com:11434"]
+    pages = ["diff content"]
+
+    def _mock_run(pages, title, pd, cl, agents, build_p, prebuilt_metadata=None, session_dir=None):
+        if pd.name == "qa":
+            raise RuntimeError("QA Persona crashed")
+        return f"Completed review for {pd.title}"
+
+    with (
+        patch("devops_cli.ai.review.runner.is_dry_run", return_value=False),
+        patch("devops_cli.ai.review.runner._review_session_dir", return_value=None),
+        patch("devops_cli.ai.review.runner._load_shared_metadata_for_pages", return_value={}),
+        patch("devops_cli.ai.review.runner._run_review", side_effect=_mock_run),
+        patch("devops_cli.ai.review.runner._print_review"),
+    ):
+        completed = _run_persona_loop(
+            pages=pages,
+            title="Persona Loop Test",
+            build_prompt=_build_path_prompt,
+            clients=clients,
+            agents_md="",
+            all_personas=True,
+            persona=None,
+        )
+        completed_names = [pd.name for pd, _ in completed]
+        assert ("qa" not in completed_names, "devsecops" in completed_names) == (
+            True,
+            True,
+        )

@@ -1,9 +1,9 @@
 # Task 142: High-Throughput LLM Gateway & Distributed Model Router
 
 **Issue**: [#142](https://github.com/dan-petty/devops-cli/issues/142)
-**PR**: TBD
-**Status**: Ready
-**Milestone**: `v0.2.18`
+**PR**: [#242](https://github.com/dan-petty/devops-cli/pull/242)
+**Status**: In Review
+**Milestone**: `v0.2.19`
 **Priority**: `priority/p0-critical`
 **Scope**: `scope/ai`
 
@@ -22,7 +22,7 @@ Design, deploy, and integrate a centralized, high-performance OpenAI-compatible 
 2. **vLLM Continuous Batching & Tensor-Parallel Serving (`k8s/llm/vllm/`)**:
    - Multi-GPU Tensor Parallelism ($TP=2$) on high-capacity worker nodes (48GB VRAM) for 70B models (`llama-3.3-70b-instruct`, `qwen2.5-coder-32b`).
    - PagedAttention and continuous batching for 5-10x throughput over Ollama during multi-file reviews.
-3. **Context-Window & VRAM-Aware Dynamic Router (`devops_cli.ai.router.gateway`)**:
+3. **Context-Window & VRAM-Aware Dynamic Router (`devops_cli.ai.gateway`, `devops_cli.ai.router`)**:
    - Prompt context token inspection: $\le 16\text{k}$ to fast single-GPU nodes, $\ge 32\text{k}-64\text{k}$ to multi-GPU vLLM.
 4. **FastMCP Gateway Tools & Telemetry**:
    - FastMCP tools (`ai_gateway_status`, `ai_gateway_routes`, `ai_gateway_failover`, `ai_vllm_scale`) and GPU resource.
@@ -32,11 +32,11 @@ Design, deploy, and integrate a centralized, high-performance OpenAI-compatible 
 
 ## 2. Implementation Progress
 
-- [x] Ground issue in GitHub tracking (#142) under milestone `v0.2.18`.
+- [x] Ground issue in GitHub tracking (#142) under milestone `v0.2.19`.
 - [x] Integrate roadmap specification into `docs/ROADMAP.md`.
-- [ ] Author Kubernetes / Helm manifests for LiteLLM Gateway (`k8s/llm/gateway/`).
-- [ ] Author Kubernetes manifests for vLLM Tensor Parallelism on multi-GPU nodes (`k8s/llm/vllm/`).
-- [ ] Implement client routing integration and fallback in `src/devops_cli/ai/client/`.
-- [ ] Author FastMCP tools and cluster GPU resource in `src/devops_cli/mcp/`.
-- [ ] Add unit and integration tests with $\ge 90\%$ code coverage.
-- [ ] Run full CI quality gate suite (`devops ci`).
+- [x] Author Kubernetes manifests for LiteLLM Gateway (`k8s/llm/gateway/`).
+- [x] Author Kubernetes manifests for vLLM Tensor Parallelism on multi-GPU nodes (`k8s/llm/vllm/`).
+- [x] Implement client routing integration and fallback in `src/devops_cli/ai/gateway.py` and `src/devops_cli/ai/router.py`.
+- [x] Author FastMCP tools and cluster resource in `src/devops_cli/ai/mcp/server.py`.
+- [x] Add unit and integration tests with $\ge 90\%$ code coverage (`tests/test_ai_gateway.py`, `tests/test_k8s_llm_gateway.py`).
+- [x] Run full CI quality gate suite (`devops ci` 10/10 passed).

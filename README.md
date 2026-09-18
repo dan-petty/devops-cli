@@ -158,7 +158,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 | Command Group | Subcommand / Usage | Purpose & Features |
 |---|---|---|
 | **repos** | `devops repos clone-org [OPTIONS] <org>` | Clone all repos from a GitHub org into `repos/<org>/.`. |
-|  | `devops repos clone [OPTIONS] <url>` | Clone an individual repository into `repos/_standalone/<name>/.`. |
+|  | `devops repos clone [OPTIONS] <url>` | Clone an individual repository into `repos/<org>/<name>/.` (or `repos/_standalone/<name>/.`). |
 |  | `devops repos list [OPTIONS]` | List all cloned repositories. |
 |  | `devops repos update [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
 |  | `devops repos sync [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
@@ -259,6 +259,9 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ci security [OPTIONS]` | Run bandit static security vulnerability analysis over src/. |
 |  | `devops ci actionlint [OPTIONS]` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
 |  | `devops ci docs [OPTIONS]` | Verify (or update with --fix) that documentation is up to date with CLI commands and configuration. |
+|  | `devops ci uv-check [OPTIONS]` | Run uv check for fast static type checking and project validation. |
+|  | `devops ci lockfile [OPTIONS]` | Verify lockfile consistency and freshness via uv lock --check. |
+|  | `devops ci outdated [OPTIONS]` | Display outdated dependencies and packages via uv tree --outdated. |
 |  | `devops ci maintain [OPTIONS]` | Run automated toolchain, dependency freshness, and lockfile maintenance checks. |
 |  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
 | **uv** | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
@@ -277,6 +280,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai models` | List available models for the configured provider. |
 |  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
 |  | `devops ai test [OPTIONS]` | Send a test prompt to verify AI provider connectivity across configured servers. |
+|  | `devops ai prewarm [OPTIONS]` | Prewarm local models into GPU VRAM or evict idle models across cluster nodes. |
 |  | `devops ai agents [OPTIONS]` | Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md). |
 |  | `devops ai chat [OPTIONS]` | Start an interactive chat with a Pydantic AI persona (tools, thinking, streaming, RAG). |
 |  | `devops ai bundle-models [OPTIONS]` | Bundle Ollama model metadata into tarball for air-gapped DevContainers. |
@@ -303,6 +307,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai harness COMMAND [ARGS]...` | Manage agent harness slots, sub-agent local offloading, and tiered synthesis. |
 |  | `devops ai ingest COMMAND [ARGS]...` | Ingest library API contracts, type stubs, and documentation. |
 |  | `devops ai ast COMMAND [ARGS]...` | Tree-Sitter multilingual AST concrete syntax tree parsing and code graph synthesis. |
+|  | `devops ai gateway COMMAND [ARGS]...` | LLM Gateway and distributed inference mesh management. |
 | **review** | `devops review path [OPTIONS] <targets>` | Review source files directly (no git required). |
 |  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |
@@ -324,13 +329,14 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops release pr [OPTIONS]` | Create release branch, commit version bumps, and open a GitHub Release Pull Request. |
 |  | `devops release check [OPTIONS]` | Verify release readiness (version consistency, docs freshness, and CI quality gates). |
 |  | `devops release notes [OPTIONS]` | Print markdown release notes for a specified or current release version. |
+|  | `devops release changelog [OPTIONS]` | Compile and generate changelog entries from git commits or PR deliverables. |
 |  | `devops release tag [OPTIONS]` | Create release commit and annotated git tag. |
 | **pr** | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
 |  | `devops pr wait [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
 |  | `devops pr monitor [OPTIONS] <number>` | Monitor PR checks, Copilot review sessions, and unresolved threads until ready. |
-|  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, or body. |
+|  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, body, or milestone. |
 |  | `devops pr create [OPTIONS]` | Create a pull request with automatic release branch target validation. |
 |  | `devops pr ready [OPTIONS] <number>` | Mark a draft pull request as ready for review. |
 |  | `devops pr diff [OPTIONS] <number>` | View diff of a pull request. |

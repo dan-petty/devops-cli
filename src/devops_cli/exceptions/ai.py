@@ -652,6 +652,20 @@ class DocsIngestionError(DevOpsCLIError):
         super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
 
 
+class StructuredOutputSchemaError(DevOpsCLIError, ValueError):
+    """Raised when a schema class is missing or invalid for structured LLM output generation."""
+
+    def __init__(
+        self,
+        message: str = "A schema model class must be provided.",
+        *,
+        exit_code: int = CONST_EXIT_FAILURE,
+        error_code: str = "STRUCTURED_OUTPUT_SCHEMA_INVALID",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, exit_code=exit_code, error_code=error_code, details=details)
+
+
 # Native re-exports for control flow, groups, and warnings
 SkipModelRequest = p_exc.SkipModelRequest
 SkipToolValidation = p_exc.SkipToolValidation
@@ -698,6 +712,7 @@ __all__ = [
     "SkipModelRequest",
     "SkipToolExecution",
     "SkipToolValidation",
+    "StructuredOutputSchemaError",
     "SuspendedResponseExpired",
     "ToolFailed",
     "ToolFailedError",

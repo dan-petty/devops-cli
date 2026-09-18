@@ -13,16 +13,21 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_constellation_status`](#ai-constellation-status) | Display constellation fleet status, active fallback routes, and suspended tasks. |
 | [`ai_diagram`](#ai-diagram) | Generate visual Mermaid architecture or threat modeling diagram. |
 | [`ai_failover`](#ai-failover) | Emergency failover controller re-routing tasks to designated fallback endpoints. |
+| [`ai_gateway_failover`](#ai-gateway-failover) | Trigger or test circuit-breaker failover of a virtual model to secondary backends. |
+| [`ai_gateway_routes`](#ai-gateway-routes) | List registered virtual models and target backend inference instances. |
+| [`ai_gateway_status`](#ai-gateway-status) | Probe LLM Gateway health, latency, and circuit breaker metrics. |
 | [`ai_harness_status`](#ai-harness-status) | Inspect AI agent harness slot configuration, active models, skills, and sandbox state. |
 | [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into .data/libraries/. |
 | [`ai_inspect_symbol`](#ai-inspect-symbol) | Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts. |
 | [`ai_pack_context`](#ai-pack-context) | Pack and prune source code context to fit token budget while preserving signatures and types. |
+| [`ai_prewarm_models`](#ai-prewarm-models) | Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes. |
 | [`ai_query_library`](#ai-query-library) | Search library contracts and documentation via semantic search or exact symbol lookup. |
 | [`ai_quiesce`](#ai-quiesce) | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
 | [`ai_resume`](#ai-resume) | Gracefully resume suspended constellation agent loops and task runners. |
 | [`ai_subagent_offload`](#ai-subagent-offload) | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
 | [`ai_test_gen`](#ai-test-gen) | Synthesize isolated pytest unit test suite for a target Python file. |
+| [`ai_vllm_scale`](#ai-vllm-scale) | Inspect or configure vLLM Tensor Parallelism serving parameters. |
 | [`argo_fleet_sync`](#argo-fleet-sync) | Coordinate multi-cluster ArgoCD fleet synchronization with bounded concurrency. |
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
 | [`argo_rollout_analyze`](#argo-rollout-analyze) | Analyze progressive rollout metric gates and trigger automated rollback on threshold violation. |
@@ -84,7 +89,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_checks`](#pr-checks) | Inspect detailed status of GitHub Actions CI checks for a pull request. |
 | [`pr_close`](#pr-close) | Close a pull request with optional comment and remote branch deletion. |
 | [`pr_diff`](#pr-diff) | View the unified git diff for a pull request. |
-| [`pr_edit`](#pr-edit) | Edit an existing pull request title, body, or base branch. |
+| [`pr_edit`](#pr-edit) | Edit an existing pull request title, body, base branch, or milestone. |
 | [`pr_list`](#pr-list) | List GitHub pull requests with review approval state and CI check summaries. |
 | [`pr_monitor`](#pr-monitor) | Monitor PR CI checks, Copilot reviews, and review threads until ready for merge. |
 | [`pr_ready`](#pr-ready) | Mark a draft pull request as ready for review and optionally begin monitoring. |
@@ -224,6 +229,37 @@ Emergency failover controller re-routing tasks to designated fallback endpoints.
 | `target_model` | `string` | No | `qwen2.5-coder:7b` | - |
 | `dry_run` | `boolean` | No | `False` | - |
 
+### `ai_gateway_failover`
+
+Trigger or test circuit-breaker failover of a virtual model to secondary backends.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `virtual_model` | `string` | Yes | - | - |
+| `simulate` | `boolean` | No | `True` | - |
+
+### `ai_gateway_routes`
+
+List registered virtual models and target backend inference instances.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `gateway_url` | `string` | No | `` | - |
+
+### `ai_gateway_status`
+
+Probe LLM Gateway health, latency, and circuit breaker metrics.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `gateway_url` | `string` | No | `` | - |
+
 ### `ai_harness_status`
 
 Inspect AI agent harness slot configuration, active models, skills, and sandbox state.
@@ -265,6 +301,19 @@ Pack and prune source code context to fit token budget while preserving signatur
 | `max_tokens` | `integer` | No | `1500` | - |
 | `strip_private` | `boolean` | No | `True` | - |
 | `skeletonize` | `boolean` | No | `True` | - |
+
+### `ai_prewarm_models`
+
+Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `model` | `string` | No | `` | - |
+| `keep_alive` | `string` | No | `1h` | - |
+| `evict` | `boolean` | No | `False` | - |
+| `all_nodes` | `boolean` | No | `True` | - |
 
 ### `ai_query_library`
 
@@ -331,6 +380,17 @@ Synthesize isolated pytest unit test suite for a target Python file.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `target_file` | `string` | Yes | - | - |
+
+### `ai_vllm_scale`
+
+Inspect or configure vLLM Tensor Parallelism serving parameters.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `replicas` | `integer` | No | `1` | - |
+| `tensor_parallel_size` | `integer` | No | `2` | - |
 
 ### `argo_fleet_sync`
 
@@ -993,7 +1053,7 @@ View the unified git diff for a pull request.
 
 ### `pr_edit`
 
-Edit an existing pull request title, body, or base branch.
+Edit an existing pull request title, body, base branch, or milestone.
 
 **Parameters:**
 
@@ -1003,6 +1063,7 @@ Edit an existing pull request title, body, or base branch.
 | `title` | `string` | No | - | - |
 | `body` | `string` | No | - | - |
 | `base` | `string` | No | - | - |
+| `milestone` | `string` | No | - | - |
 | `repo` | `string` | No | - | - |
 
 ### `pr_list`

@@ -18,8 +18,28 @@ CONST_VSCODE_WORKSPACE_FILE = Path(".code-workspace")
 CONST_VSCODE_CLI = "code"
 CONST_AGENTS_MD_FILENAME = "AGENTS.md"
 CONST_PYPROJECT_FILENAME = "pyproject.toml"
+CONST_CHANGELOG_FILENAME = "CHANGELOG.md"
 CONST_README_FILENAME = "README.md"
 CONST_INIT_PY_PATH = Path("src/devops_cli/__init__.py")
+CONST_CONVENTIONAL_COMMIT_CATEGORIES: Final[dict[str, str]] = {
+    "feat": "Added",
+    "fix": "Fixed & Hardened",
+    "sec": "Fixed & Hardened",
+    "security": "Fixed & Hardened",
+    "perf": "Changed & Improved",
+    "refactor": "Changed & Improved",
+    "docs": "Changed & Improved",
+    "chore": "Changed & Improved",
+    "ci": "Changed & Improved",
+    "test": "Changed & Improved",
+    "style": "Changed & Improved",
+}
+CONST_CONVENTIONAL_COMMIT_CATEGORY_ORDER: Final[tuple[str, ...]] = (
+    "Added",
+    "Fixed & Hardened",
+    "Changed & Improved",
+    "Other Changes",
+)
 CONST_CURRENT_DIR = Path(".")
 CONST_ROOT_DIR = Path("/")
 CONST_SRC_DIR_NAME = "src"
@@ -258,6 +278,15 @@ CONST_RECOMMENDATION_BLOCK = "BLOCK"
 # ── GitHub CLI & Pull Requests ────────────────────────────────────────────────
 CONST_GH_CLI = "gh"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
+CONST_GH_NON_API_COMMANDS: Final[frozenset[str]] = frozenset(
+    {
+        "auth",
+        "version",
+        "--version",
+        "help",
+        "--help",
+    }
+)
 CONST_GH_FAILING_CHECK_CONCLUSIONS: Final[frozenset[str]] = frozenset(
     {
         "failure",
@@ -267,6 +296,11 @@ CONST_GH_FAILING_CHECK_CONCLUSIONS: Final[frozenset[str]] = frozenset(
         "startup_failure",
     }
 )
+CONST_PR_API_STATE_MAP: Final[dict[str, str]] = {
+    "all": "all",
+    "closed": "closed",
+    "merged": "closed",
+}
 CONST_BRANCH_PREFIXES: tuple[str, ...] = (
     "feat/",
     "fix/",
@@ -308,6 +342,14 @@ CONST_ERROR_CODE_SANDBOX_PORT_ALLOCATION = "SANDBOX_PORT_ALLOCATION_ERROR"
 CONST_ERROR_CODE_SANDBOX_NOT_FOUND = "SANDBOX_NOT_FOUND_ERROR"
 CONST_ERROR_CODE_COSIGN = "COSIGN_ERROR"
 CONST_ERROR_CODE_COSIGN_VERIFY = "COSIGN_VERIFICATION_FAILED"
+CONST_ERROR_CODE_STRUCTURED_VALIDATION = "STRUCTURED_VALIDATION_ERROR"
+CONST_MAX_ERROR_DETAIL_LENGTH = 256
+
+# ── AI Client Structured Output Metric Invariants ─────────────────────────────
+CONST_METRIC_AI_STRUCTURED_SUCCESS = "ai.client.structured_success"
+CONST_METRIC_AI_STRUCTURED_REPAIR_SUCCESS = "ai.client.structured_repair_success"
+CONST_METRIC_AI_STRUCTURED_RETRY_COUNT = "ai.client.structured_retry_count"
+CONST_METRIC_AI_STRUCTURED_VALIDATION_FAILURE = "ai.client.structured_validation_failure"
 
 
 CONST_EXIT_SUCCESS: int = 0
@@ -476,6 +518,15 @@ CONST_COMMON_PROPERTY_SUFFIXES: frozenset[str] = frozenset(
     }
 )
 
+# MIME types that correspond to top-level domains or legacy formats and should not classify domains as files
+CONST_EXCLUDED_FILE_MIME_TYPES: frozenset[str] = frozenset(
+    {
+        "application/x-msdos-program",
+        "application/vnd.lotus-organizer",
+        "text/org",
+    }
+)
+
 # Common telemetry, metric, and logging invocation function names
 CONST_TELEMETRY_CALL_NAMES: frozenset[str] = frozenset(
     {
@@ -563,3 +614,74 @@ CONST_MAX_SECURITY_STREAM_TAIL_LINES: Final[int] = 10000
 
 # Threat intelligence distributed caching
 CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"
+
+# RAG embedding distributed caching
+CONST_VALKEY_EMBEDDING_PREFIX: Final[str] = "valkey:rag:embedding"
+
+# GitHub CLI rate limiter mutation verbs and HTTP methods
+CONST_GH_MUTATION_VERBS: Final[frozenset[str]] = frozenset(
+    {
+        "edit",
+        "create",
+        "delete",
+        "add",
+        "close",
+        "reopen",
+        "merge",
+        "comment",
+        "item-edit",
+        "item-add",
+        "item-delete",
+        "field-create",
+        "field-delete",
+        "ready",
+        "resolve",
+        "archive",
+        "sync",
+        "set",
+    }
+)
+
+CONST_GH_MUTATION_HTTP_METHODS: Final[frozenset[str]] = frozenset(
+    {
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+    }
+)
+
+# ── AI Gateway & Distributed Router Constants ─────────────────────────────────
+CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
+    "devops-chat",
+    "devops-coder",
+    "devops-reasoning",
+    "devops-embedding",
+)
+CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
+CONST_AI_GATEWAY_DEFAULT_PORT: Final[int] = 4000
+CONST_TASK_TAXONOMY_EMBEDDING: Final[frozenset[str]] = frozenset(
+    {"embedding", "embed_documents", "vector_index", "rag_index", "semantic_search"}
+)
+CONST_TASK_TAXONOMY_CODER: Final[frozenset[str]] = frozenset(
+    {
+        "persona_review",
+        "verify_finding",
+        "test_gen",
+        "ast_analysis",
+        "codegen",
+        "review",
+        "refactor",
+    }
+)
+CONST_TASK_TAXONOMY_REASONING: Final[frozenset[str]] = frozenset(
+    {
+        "architecture",
+        "threat_model",
+        "cross_repo",
+        "novel_synthesis",
+        "adversarial_debate",
+        "deep_review",
+        "synthesis",
+    }
+)

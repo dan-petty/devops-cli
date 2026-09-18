@@ -80,6 +80,7 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `SANDBOX_VALIDATION_ERROR` | `1` | Sandbox | Raised when sandbox configuration or directory mount paths violate security boundaries. |
 | `SecretExposureError` | `1` | Security | Raised when an unmasked credential or private key is detected in uncommitted diffs. |
 | `SECURITY_ERROR` | `1` | Security | Base exception for all security, policy, and egress violations. |
+| `STRUCTURED_OUTPUT_SCHEMA_INVALID` | `1` | Ai | Raised when a schema class is missing or invalid for structured LLM output generation. |
 | `SUBPROCESS_FAILED` | `1` | Tools | Raised when an external subprocess command exits with a non-zero code or fails execution. |
 | `SUSPENDED_RESPONSE_EXPIRED` | `28` | Ai | Raised when resuming a suspended response whose server-side job is no longer available. |
 | `TELEMETRY_ERROR` | `1` | Telemetry | Base exception for telemetry, tracing, and metric collection errors. |

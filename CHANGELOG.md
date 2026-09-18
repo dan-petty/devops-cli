@@ -5,7 +5,91 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.18] - 2026-09-14
+## [0.2.19] - 2026-09-16
+
+### Added
+- **Adaptive Embedding Batch Sizing Circuit Breaker & Valkey L2 Chunk Caching (`devops_cli.ai.rag.embeddings`)**:
+  - Implemented dynamic batch sizing starting at 32 with automatic halving (32 -> 16 -> 8 -> 4 -> 2 -> 1) on latency degradation (> 2.0s) or timeouts.
+  - Added recursive sub-batch subdivision and single-chunk request fallback when multi-chunk batches fail across candidate nodes.
+  - Implemented exponential backoff with bounded jitter on transient network timeouts.
+  - Integrated pre-flight Valkey SHA-256 chunk cache checks before remote embedding dispatch, with automatic write-through caching and 7-day TTL.
+- **Automated Draft Release PR Description Generator (`devops release pr`)**:
+  - Automatically queries and lists target milestone issues and deliverables under `### Target Milestone Deliverables`.
+  - Dynamically synthesizes 10-gate CI quality checklists, CodeQL, and PR readiness controls adapted for draft vs. ready pull requests.
+  - Resolves clean, non-duplicate release notes from git commits and changelog sources, preventing previous release note duplication.
+- **Git Squash Merge Commit Body Parsing & Categorization (`devops release changelog`)**:
+  - Parses squash commit bodies (`%B`) to extract PR commit items into Keep-a-Changelog sections (`### Added`, `### Fixed & Hardened`, `### Changed & Improved`).
+
+### Performance & Optimization
+- **Parallel Async Branch and PR Review Worker Pool with Semaphore Concurrency (`devops_cli.ai.review`)**:
+  - Implemented `ReviewWorkerPool.create()` with bounded semaphore concurrency ($1 \le C \le 8$), token-bucket rate limiting (`DEFAULT_REVIEW_RATE_LIMIT = 10.0`), and per-task timeout management.
+  - Upgraded pre-analysis refresh, multi-persona segment review, findings validation, and persona loops in both `ReviewPipelineOrchestrator` and `runner.py` to use managed asynchronous worker pools.
+  - Replaced legacy unbound `ThreadPoolExecutor` and sequential single-worker fallbacks with concurrent execution, accelerating multi-file and multi-persona review cycles while preventing VRAM spikes, Ollama out-of-memory errors, and rate-limit throttling.
+  - Hardened error isolation with `return_exceptions=True` across parallel review stages, guaranteeing that an isolated LLM inference error or malformed payload does not fail remaining segment reviews.
+
+### Fixed & Hardened
+- **GitHub Copilot Review Completion on Resolved Threads (`devops pr monitor`, `devops pr wait`)**:
+  - Automatically transitions `copilot_status` to `completed` when all recommended changes in review threads have been addressed and 0 unresolved threads remain.
+  - Prevents premature failure exit code 2 when all CI checks are green and all discussion threads have been resolved.
+  - Excludes bot reviews from human review approval decision evaluations in `_resolve_review_decision`.
+- **Main Branch AI Review & Base Resolution (`devops ai review branch`)**:
+  - Dynamically resolves comparison bases when reviewing `main` branch or when passing `main` as an argument from another branch (e.g. `release/v0.2.19`).
+  - Supports diffing uncommitted working tree modifications against `HEAD`, and cleanly falls back to latest release tags or parent commits (`main~1`) when working tree is clean.
+  - Automatically switches comparison targets when positional branch argument matches default base on an active topic/release branch.
+- **Documentation Compactor Idempotency (`devops docs compact`)**:
+  - Enhanced version range regex to parse all matching version patterns from roadmap headers and recognize canonical summary blocks, guaranteeing idempotent compaction.
+- **Polyglot Tree-Sitter File Size Boundary Guard & Resource Containment (`devops_cli.ai.repomap`)**:
+  - Enforced pre-flight `MAX_REPOMAP_FILE_SIZE_BYTES` checks in `_polyglot_to_file_node` for all multilingual source trees (TypeScript, Go, Rust, Java, HCL), excluding files exceeding 5MB to prevent memory spikes and OOM crashes.
+  - Hardened symlink resolution with `strict=True` to trap and exclude circular symlink loops (`ELOOP`) and symlinks escaping repository workspace boundaries.
+  - Added structured warning logging on oversized file exclusions and symlink containment violations.
+- **Pre-Release Non-Empty Changelog Verification (`devops release check`)**:
+  - Enforced strict validation ensuring changelog notes are populated prior to release certification.
+
+### Changed & Improved
+- **AI/LLM Prompt Deduplication & Token Utilization Optimization**:
+  - Authoritatively centralized anti-hallucination invariants into `src/devops_cli/ai/tasks/review.md`.
+  - Removed duplicate multi-paragraph blocks across all 6 personas (`architect`, `auditor`, `challenger`, `devsecops`, `pm`, `qa`) and review task prompts.
+  - Slashed prompt footprint by 32% (~1,500 tokens saved per review turn).
+- **High-Performance AST Context Packer with Binary Search Truncation (`devops_cli.ai.context_packer`)**:
+  - Replaced O(N^2) linear statement re-unparsing loops with O(log N) binary search truncation index discovery.
+  - Implemented O(1) per-statement token weight estimation with AST node memoization (`_estimate_stmt_tokens`).
+  - Added tokenizer pre-warming in `ContextPacker` initialization, dropping 1,000-line AST tree pruning latency from >300ms down to <5ms.
+- **Release v0.2.19 Branch Initialization**:
+  - Created `release/v0.2.19` tracking branch, bumped version to `0.2.19`, and synchronized documentation across the repository.
+
+
+## [0.2.18] - 2026-09-16
+
+### Added
+- **Sigstore Cosign Container Provenance & Automated Keyless Signing (`devops docker sign`, `devops docker verify`)**:
+  - Cryptographic container image signing and signature verification using Sigstore Cosign with Keyring-backed ephemeral OIDC tokens.
+  - Automated pre-push artifact verification, GHCR registry cleanup, and zero-trust container supply chain security.
+- **Kubernetes Falco eBPF Runtime Security Streaming & Anomaly Detection (`devops k8s security-stream`)**:
+  - Real-time kernel eBPF runtime security event streaming, priority filtering, and automated anomaly classification via Falco sidecar.
+  - Granular severity thresholding, JSON event ingestion, and terminal alerting for unexpected process execution, filesystem writes, and privilege escalations.
+- **Distributed Threat Intelligence Valkey L2 Cache & Cloudflare Radar Batching (`devops security intel package`, `devops security intel network`)**:
+  - Distributed threat intelligence evaluation pipeline with Valkey L2 caching, Cloudflare Radar batching, and OSV package vulnerability analysis.
+  - Configurable TTL caching, offline-first fallback, and automated domain/package reputation scoring.
+- **Multi-Tier Docker Sandbox Networking Options (`devops sandbox deploy --network-mode`)**:
+  - Configurable sandbox network isolation modes: `isolated` (zero egress), `egress-only` (restricted outbound), and `host`.
+  - Network policy verification, automated port mapping validation, and container egress containment.
+- **Native GitHub API Rate Limiting & Token-Bucket Pacing (`devops gh api`, `devops gh rate-limit`)**:
+  - Native client-side token-bucket rate limiter (`run_gh`, `GitHubRateLimiter`) with adaptive request throttling, low-quota circuit breakers, and read caching.
+  - Automatic quota reset monitoring and elimination of bare unmanaged `gh` CLI invocations.
+
+### Fixed & Hardened
+- **Zero Information Leakage & Secret Sanitizer Hardening**:
+  - Word-boundary regex enforcement for sensitive keys and tokens, eliminating partial-word false positives.
+  - Comprehensive path exclusions preventing credential leakage in log streams and exception representations.
+  - Concrete RFC 1918 and internal homelab hostnames replaced with RFC 5737 documentation placeholders across code, tests, and documentation.
+- **Kubernetes Ollama Memory Uncapping & DaemonSet Limit Elevation**:
+  - Uncapped Ollama container memory limits in Kubernetes manifests to prevent OOM kills on high-parameter models.
+  - Elevated CoreDNS and daemonset resource allocations for high-throughput cluster environments.
+- **Mandatory Draft PR Policy & Pre-Push Quality Gate Enforcement**:
+  - Defaulted release pull requests to draft mode (`devops release pr --draft`) to guarantee review controls.
+  - Enforced mandatory pre-push local `devops ci` gate via pre-commit hooks, guaranteeing 100% test passing and >= 90% code coverage.
+- **DevSecOps Review Feedback Remediation**:
+  - Remediated review findings across sandbox container streaming, path traversal mitigations, and mock provider locations.
 
 ## [0.2.17] - 2026-09-14
 

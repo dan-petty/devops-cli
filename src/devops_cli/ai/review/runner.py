@@ -6,7 +6,6 @@ import json
 import logging
 import time
 from collections.abc import Callable
-from concurrent.futures import as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -70,7 +69,6 @@ from devops_cli.security.sanitizer import (
     redact_text,
     sanitize_prompt_boundary_tags,
 )
-from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -445,8 +443,11 @@ def _save_findings_json(
 
 def _review_to_markdown(review: ReviewResult | str) -> str:
     if isinstance(review, str):
-        parsed = parse_review_response(review)
-        return _review_to_markdown(parsed) if parsed else review
+        from devops_cli.ai.thinking_stream import strip_think_blocks
+
+        clean_text = strip_think_blocks(review)
+        parsed = parse_review_response(clean_text)
+        return _review_to_markdown(parsed) if parsed else clean_text
     lines: list[str] = [f"**Recommendation: {review.recommendation}**\n"]
     if review.findings:
         lines.append("## Findings\n")
@@ -754,11 +755,28 @@ def _execute_review_segments(
         return (i, result_text)
 
     if total > 1 and not is_dry_run():
+        from devops_cli.ai.review.pool import ReviewWorkerPool
+
         workers = _calculate_parallel_review_workers(clients, total)
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [executor.submit(_review_segment, i, page) for i, page in enumerate(pages, 1)]
-            indexed_results = [f.result() for f in futures]
-            responses = [res for _, res in sorted(indexed_results, key=lambda x: x[0])]
+        pool = ReviewWorkerPool.create(concurrency=workers)
+
+        def _worker_task(item: tuple[int, str]) -> tuple[int, str]:
+            i, page = item
+            return _review_segment(i, page)
+
+        raw_results = pool.run_sync_all(
+            _worker_task, list(enumerate(pages, 1)), return_exceptions=True
+        )
+        indexed_results: list[tuple[int, str]] = []
+        for idx, res in enumerate(raw_results, 1):
+            if isinstance(res, tuple) and len(res) == 2:
+                indexed_results.append((res[0], str(res[1])))
+            elif isinstance(res, Exception):
+                logger.error("Segment %d review error (%s)", idx, type(res).__name__)
+                indexed_results.append((idx, ""))
+            else:
+                indexed_results.append((idx, str(res or "")))
+        responses = [res for _, res in sorted(indexed_results, key=lambda x: x[0])]
     else:
         responses = [_review_segment(i, page)[1] for i, page in enumerate(pages, 1)]
 
@@ -834,31 +852,18 @@ def _execute_findings_validation(
     file_analysis_metas = _load_file_analysis_metas(None, repo_root=repo_target)
 
     validated_results = list(segment_results)
-    if total > 1:
+    if total > 1 and not is_dry_run():
+        from devops_cli.ai.review.pool import ReviewWorkerPool
+
         workers = _calculate_parallel_review_workers(clients, total)
         val_items = list(enumerate(zip(pages, segment_results), 1))
-        with ThreadPoolExecutor(max_workers=workers) as val_executor:
-            val_futures = [
-                val_executor.submit(
-                    _validate_single_segment_findings,
-                    i,
-                    page,
-                    parsed,
-                    total,
-                    pages,
-                    clients,
-                    file_analysis_metas,
-                    repo_target,
-                    analysis_suffix,
-                )
-                for i, (page, parsed) in val_items
-            ]
-            for val_fut in val_futures:
-                idx_val, val_res = val_fut.result()
-                validated_results[idx_val - 1] = val_res
-    else:
-        for i, (page, parsed) in enumerate(zip(pages, segment_results), 1):
-            _, val_res = _validate_single_segment_findings(
+        pool = ReviewWorkerPool.create(concurrency=workers)
+
+        def _val_task(
+            item: tuple[int, tuple[str, ReviewResult | None]],
+        ) -> tuple[int, ReviewResult | None]:
+            i, (page, parsed) = item
+            return _validate_single_segment_findings(
                 i,
                 page,
                 parsed,
@@ -869,7 +874,41 @@ def _execute_findings_validation(
                 repo_target,
                 analysis_suffix,
             )
-            validated_results[i - 1] = val_res
+
+        val_results = pool.run_sync_all(_val_task, val_items, return_exceptions=True)
+        for (idx_val, _), res_entry in zip(val_items, val_results):
+            if isinstance(res_entry, tuple) and len(res_entry) == 2:
+                _, val_obj = res_entry
+                validated_results[idx_val - 1] = val_obj
+            elif isinstance(res_entry, Exception):
+                logger.error(
+                    "Findings validation error for segment %d (%s)",
+                    idx_val,
+                    type(res_entry).__name__,
+                )
+                validated_results[idx_val - 1] = None
+    else:
+        for i, (page, parsed) in enumerate(zip(pages, segment_results), 1):
+            try:
+                _, single_res = _validate_single_segment_findings(
+                    i,
+                    page,
+                    parsed,
+                    total,
+                    pages,
+                    clients,
+                    file_analysis_metas,
+                    repo_target,
+                    analysis_suffix,
+                )
+                validated_results[i - 1] = single_res
+            except Exception as exc:
+                logger.error(
+                    "Findings validation error for segment %d (%s)",
+                    i,
+                    type(exc).__name__,
+                )
+                validated_results[i - 1] = None
 
     print_info(f"[dim]  total {format_duration(time.monotonic() - t3)}[/dim]", prefix=False)
     return validated_results
@@ -1005,13 +1044,23 @@ def _load_shared_metadata_for_pages(pages: list[str]) -> dict[str, FileAnalysisM
     return _load_file_analysis_metas(all_files, repo_root=repo_target)
 
 
-def _calculate_parallel_review_workers(clients: ReviewClients, num_personas: int) -> int:
-    """Calculate thread pool worker count for multi-persona execution."""
+def _calculate_parallel_review_workers(
+    clients: ReviewClients, num_tasks: int, concurrency: int | None = None
+) -> int:
+    """Calculate worker pool capacity for parallel review execution."""
+    from devops_cli.config.defaults import (
+        DEFAULT_REVIEW_CONCURRENCY,
+        DEFAULT_REVIEW_MAX_CONCURRENCY,
+    )
+
+    if concurrency is not None:
+        return min(num_tasks, max(1, concurrency))
     config = getattr(clients.analysis, "_config", None)
     ollama_urls = _resolve_ollama_urls(config)
     raw_par = getattr(config, "ollama_max_parallel", None)
     max_par = int(raw_par) if isinstance(raw_par, int) else 2
-    return min(num_personas, max(len(ollama_urls) * max_par, 1))
+    capacity = max(DEFAULT_REVIEW_CONCURRENCY, len(ollama_urls) * max_par)
+    return min(num_tasks, capacity, DEFAULT_REVIEW_MAX_CONCURRENCY)
 
 
 def _run_persona_loop(
@@ -1068,12 +1117,17 @@ def _run_persona_loop(
                 _write_summary(title, session_dir, pages, completed, shared_meta)
 
         if len(personas) > 1 and not is_dry_run():
+            from devops_cli.ai.review.pool import ReviewWorkerPool
+
             workers = _calculate_parallel_review_workers(clients, len(personas))
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                future_map = {executor.submit(_execute_persona, pd): pd for pd in personas}
-                for future in as_completed(future_map):
-                    pd, review_text = future.result()
+            pool = ReviewWorkerPool.create(concurrency=workers)
+            persona_results = pool.run_sync_all(_execute_persona, personas, return_exceptions=True)
+            for item in persona_results:
+                if isinstance(item, tuple) and len(item) == 2:
+                    pd, review_text = item
                     _record_result(pd, review_text)
+                elif isinstance(item, Exception):
+                    logger.error("Persona review execution error (%s)", type(item).__name__)
         else:
             for pd in personas:
                 pd, review_text = _execute_persona(pd)
@@ -1317,6 +1371,36 @@ def _is_allowed_review_boundary(target: Path, settings: Settings) -> bool:
     return any(is_safe_subpath(root, target_resolved) for root in allowed_roots)
 
 
+def _detect_remote_default_branch(repo_path: Path) -> str:
+    """Detect origin default branch from symbolic-ref or HEAD."""
+    res_sym = _run_subprocess(
+        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    if res_sym.returncode == 0 and res_sym.stdout:
+        if target_str := res_sym.stdout.strip().removeprefix("origin/"):
+            return target_str
+
+    head_proc = _run_subprocess(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    if (
+        head_proc.returncode == 0
+        and (head_name := str(head_proc.stdout).strip())
+        and head_name != "HEAD"
+    ):
+        return head_name
+
+    return ""
+
+
 def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BRANCH) -> str:
     """Return preferred_base if it exists, otherwise detect master/main/origin default."""
     res = _run_subprocess(
@@ -1349,31 +1433,8 @@ def _detect_base_branch(repo_path: Path, preferred_base: str = CONST_GIT_MAIN_BR
         if alt in local_branches:
             return alt
 
-    res_sym = _run_subprocess(
-        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-        capture_output=True,
-        text=True,
-        cwd=repo_path,
-        check=False,
-    )
-    if res_sym.returncode == 0 and res_sym.stdout:
-        target_str: str = res_sym.stdout.strip().removeprefix("origin/")
-        if target_str:
-            return target_str
-
-    head_proc = _run_subprocess(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        capture_output=True,
-        text=True,
-        cwd=repo_path,
-        check=False,
-    )
-    if (
-        head_proc.returncode == 0
-        and (head_name := str(head_proc.stdout).strip())
-        and head_name != "HEAD"
-    ):
-        return head_name
+    if remote_branch := _detect_remote_default_branch(repo_path):
+        return remote_branch
 
     return str(preferred_base)
 
@@ -1428,10 +1489,92 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
     return pages, title, agents_md
 
 
+def _get_current_git_branch(repo_path: Path) -> str:
+    """Return active git branch name if HEAD is attached, otherwise empty string."""
+    proc = _run_subprocess(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    if proc.returncode == 0 and (name := proc.stdout.strip()) and name != "HEAD":
+        return name
+    return ""
+
+
+def _has_uncommitted_working_tree_changes(repo_path: Path) -> bool:
+    """Return True if working tree has staged or unstaged modifications."""
+    proc = _run_subprocess(
+        ["git", "diff", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    return proc.returncode == 0 and bool(proc.stdout.strip())
+
+
+def _resolve_main_branch_fallback_base(repo_path: Path, branch_name: str) -> str:
+    """Find appropriate comparison base when reviewing main/primary branch."""
+    from devops_cli.git.operations import get_latest_git_tag
+
+    tag = get_latest_git_tag(repo_path)
+    if tag:
+        tag_diff = _run_subprocess(
+            ["git", "diff", f"{tag}...{branch_name}"],
+            capture_output=True,
+            text=True,
+            cwd=repo_path,
+            check=False,
+        )
+        if tag_diff.returncode == 0 and tag_diff.stdout.strip():
+            return tag
+
+    parent_proc = _run_subprocess(
+        ["git", "rev-parse", "--verify", "--quiet", f"{branch_name}~1"],
+        capture_output=True,
+        text=True,
+        cwd=repo_path,
+        check=False,
+    )
+    if parent_proc.returncode == 0:
+        return f"{branch_name}~1"
+
+    return "HEAD"
+
+
+def _resolve_branch_targets(
+    repo_path: Path, branch_name: str | None, base: str
+) -> tuple[str, str, bool]:
+    """Resolve target branch and comparison base, handling main branch review edge cases."""
+    current_branch = _get_current_git_branch(repo_path)
+    target_branch = branch_name or current_branch
+    if not target_branch:
+        return "", "", False
+
+    effective_base = _detect_base_branch(repo_path, base)
+
+    # When target branch equals effective base (e.g. both are 'main')
+    if target_branch == effective_base:
+        if current_branch and current_branch != target_branch:
+            # User passed base branch while on another branch (e.g. 'devops review branch main' from release/v0.2.19)
+            return current_branch, effective_base, False
+
+        # User is reviewing main branch directly
+        if _has_uncommitted_working_tree_changes(repo_path):
+            return target_branch, "HEAD", True
+
+        fallback_base = _resolve_main_branch_fallback_base(repo_path, target_branch)
+        return target_branch, fallback_base, False
+
+    return target_branch, effective_base, False
+
+
 def _prepare_branch_content(
     branch_name: str | None, base: str, repo_path: Path
-) -> tuple[list[str], str, str]:
-    """Prepare paginated diff pages, title, and agents_md for branch review target."""
+) -> tuple[list[str], str, str, str]:
+    """Prepare paginated diff pages, title, agents_md, and resolved target_branch."""
     import typer
 
     from devops_cli.ai.review.chunker import diff_pages
@@ -1444,41 +1587,39 @@ def _prepare_branch_content(
         print_error(err_msg, prefix=False)
         raise typer.Exit(1)
 
-    effective_base = _detect_base_branch(repo_path, base)
-
-    if branch_name is None:
-        proc = _run_subprocess(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=repo_path,
-        )
-        if (
-            proc.returncode != 0
-            or not (branch_name := proc.stdout.strip())
-            or branch_name == "HEAD"
-        ):
-            print_error(MESSAGES.review.detect_branch_failed, prefix=False)
-            raise typer.Exit(1)
+    target_branch, effective_base, is_working_tree = _resolve_branch_targets(
+        repo_path, branch_name, base
+    )
+    if not target_branch:
+        print_error(MESSAGES.review.detect_branch_failed, prefix=False)
+        raise typer.Exit(1)
 
     diffing_msg = MESSAGES.review.diffing_branches.format(
-        branch=f"[cyan]{branch_name}[/cyan]", base=f"[cyan]{effective_base}[/cyan]"
+        branch=f"[cyan]{target_branch}[/cyan]", base=f"[cyan]{effective_base}[/cyan]"
     )
     print_info(diffing_msg, prefix=False)
 
-    diff_proc = _run_subprocess(
-        ["git", "diff", f"{effective_base}...{branch_name}"],
-        capture_output=True,
-        text=True,
-        cwd=repo_path,
-    )
-    if diff_proc.returncode != 0:
+    if is_working_tree:
         diff_proc = _run_subprocess(
-            ["git", "diff", effective_base, branch_name],
+            ["git", "diff", "HEAD"],
             capture_output=True,
             text=True,
             cwd=repo_path,
         )
+    else:
+        diff_proc = _run_subprocess(
+            ["git", "diff", f"{effective_base}...{target_branch}"],
+            capture_output=True,
+            text=True,
+            cwd=repo_path,
+        )
+        if diff_proc.returncode != 0:
+            diff_proc = _run_subprocess(
+                ["git", "diff", effective_base, target_branch],
+                capture_output=True,
+                text=True,
+                cwd=repo_path,
+            )
     if diff_proc.returncode != 0:
         diff_err = MESSAGES.review.git_diff_failed.format(error=diff_proc.stderr.strip())
         print_error(diff_err, prefix=False)
@@ -1487,10 +1628,10 @@ def _prepare_branch_content(
         print_warning(MESSAGES.review.no_diff_found, prefix=False)
         raise typer.Exit(0)
 
-    title = f"Branch `{branch_name}` vs `{effective_base}`"
+    title = f"Branch `{target_branch}` vs `{effective_base}`"
     agents_md = _load_agents_md(repo_path)
     pages = [redact_text(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
-    return pages, title, agents_md
+    return pages, title, agents_md, target_branch
 
 
 def _prepare_pr_content(

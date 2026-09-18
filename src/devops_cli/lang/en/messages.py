@@ -437,6 +437,8 @@ class PRMessages:
     pr_ready_success: str = "PR #{number} is 100% READY FOR MERGING: All checks passed, reviews complete, 0 unresolved threads."
     pr_marked_ready_success: str = "PR #{number} marked as ready for review."
     pr_already_ready: str = "PR #{number} is already marked ready for review."
+    pr_already_merged: str = "PR #{number} is already merged into base branch '{base}'."
+    pr_closed_unmerged: str = "PR #{number} is closed without being merged."
     pr_closed_success: str = "PR #{number} closed successfully."
     pr_still_draft_error: str = (
         "PR #{number} is still in draft state after ready conversion command."
@@ -601,6 +603,9 @@ class CIMessages:
     ruff_check: str = "ruff check"
     ruff_format: str = "ruff format"
     mypy_check: str = "mypy (py314 strict)"
+    uv_check: str = "uv check"
+    uv_lock: str = "uv lockfile freshness"
+    uv_outdated: str = "uv tree --outdated"
     uv_audit: str = "uv audit"
     bandit_scan: str = "bandit security scan"
     actionlint: str = "actionlint (github workflows)"

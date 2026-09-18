@@ -15,6 +15,7 @@ from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.pr_threads import ReviewThread, list_pr_review_threads
+from devops_cli.github.rate_limiter import run_gh
 
 logger = logging.getLogger(__name__)
 
@@ -112,20 +113,24 @@ class PRMonitorStatus(BaseModel):
         return len(self.checks) > 0 and all(c.is_success for c in self.checks)
 
     @property
+    def is_review_ready(self) -> bool:
+        """Evaluate if reviews and thread resolutions satisfy readiness."""
+        threads_ok = len(self.unresolved_threads) == 0
+        approval_ok = (self.review_decision == "APPROVED") if self.require_reviews else True
+        copilot_ok = (
+            not self.copilot_status.is_active
+            and self.copilot_status.state != "changes_requested"
+            and not self.has_changes_requested
+        )
+        return threads_ok and approval_ok and copilot_ok
+
+    @property
     def is_ready_for_merge(self) -> bool:
         """Evaluate if PR is completely verified and ready for merge."""
         draft_ok = not self.is_draft
         checks_ok = self.all_checks_completed and self.all_checks_passed
-        threads_ok = len(self.unresolved_threads) == 0
-        review_approval_ok = (self.review_decision == "APPROVED") if self.require_reviews else True
-        review_ok = (
-            not self.copilot_status.is_active
-            and self.copilot_status.state != "changes_requested"
-            and not self.has_changes_requested
-            and review_approval_ok
-        )
         merge_ok = self.mergeable is True and (self.mergeable_state or "").lower() == "clean"
-        return draft_ok and checks_ok and threads_ok and review_ok and merge_ok
+        return draft_ok and checks_ok and self.is_review_ready and merge_ok
 
 
 class PRMonitorResult(BaseModel):
@@ -153,14 +158,16 @@ def _try_resolve_pr_via_rest(repo_full: str | None, target_branch: str) -> int |
     if not repo_full or "/" not in repo_full:
         return None
     repo_owner, repo_name = repo_full.split("/", 1)
-    res = run_subprocess(
+    res = run_gh(
         [
             CONST_GH_CLI,
             "api",
             f"repos/{repo_owner}/{repo_name}/pulls?head={repo_owner}:{target_branch}&state=open",
             "--jq",
             ".[0].number",
-        ]
+        ],
+        check=False,
+        quiet=True,
     )
     if res.returncode == 0 and res.stdout.strip() and res.stdout.strip() != "null":
         try:
@@ -175,7 +182,7 @@ def _resolve_pr_via_gh_view(target_repo: str | None, target_branch: str) -> int:
     cmd = [CONST_GH_CLI, "pr", "view", target_branch, "--json", "number", "--jq", ".number"]
     if target_repo:
         cmd.extend(["-R", target_repo])
-    proc = run_subprocess(cmd)
+    proc = run_gh(cmd, check=False, quiet=True)
     if proc.returncode != 0 or not proc.stdout.strip():
         raise GitHubOperationError(f"No open pull request found for branch '{target_branch}'.")
     try:
@@ -314,7 +321,7 @@ def _query_timeline_copilot_state(owner: str, repo_name: str, pr_number: int) ->
         "--jq",
         '.[] | select(.event | test("copilot|reviewed")) | {event: .event, created_at: .created_at, submitted_at: .submitted_at, author: (.actor.login // .user.login // "")}',
     ]
-    proc = run_subprocess(cmd)
+    proc = run_gh(cmd, check=False, quiet=True)
     if proc.returncode == 0 and proc.stdout.strip():
         return _parse_timeline_copilot_state(proc.stdout)
     return False, ""
@@ -325,6 +332,7 @@ def _detect_copilot_status(
     repo_name: str,
     pr_number: int,
     reviews: list[dict[str, Any]],
+    unresolved_threads: list[ReviewThread] | None = None,
 ) -> CopilotReviewStatus:
     """Inspect timeline events and review states to detect Copilot review activity."""
     latest_review, has_changes, latest_state, last_time = _extract_latest_copilot_review(reviews)
@@ -339,6 +347,14 @@ def _detect_copilot_status(
             active_event=active_event,
         )
     if has_changes:
+        if unresolved_threads is not None and not unresolved_threads:
+            return CopilotReviewStatus(
+                is_active=False,
+                state="completed",
+                message="Copilot review session completed (all recommended changes resolved)",
+                last_review_at=last_time,
+                active_event=active_event,
+            )
         msg = (
             "Copilot requested changes on the pull request"
             if latest_state == "CHANGES_REQUESTED"
@@ -376,7 +392,7 @@ def _fetch_commit_check_runs(owner: str, repo: str, head_sha: str) -> list[PRChe
         "--paginate",
         f"repos/{owner}/{repo}/commits/{head_sha}/check-runs",
     ]
-    check_proc = run_subprocess(check_cmd)
+    check_proc = run_gh(check_cmd, check=False, quiet=True)
     if check_proc.returncode != 0 or not check_proc.stdout.strip():
         return []
     try:
@@ -408,7 +424,7 @@ def _fetch_commit_status_contexts(owner: str, repo: str, head_sha: str) -> list[
         "api",
         f"repos/{owner}/{repo}/commits/{head_sha}/status",
     ]
-    status_proc = run_subprocess(status_cmd)
+    status_proc = run_gh(status_cmd, check=False, quiet=True)
     if status_proc.returncode != 0 or not status_proc.stdout.strip():
         return []
     try:
@@ -447,7 +463,7 @@ def _fetch_rest_check_runs(owner: str, repo: str, head_sha: str) -> list[PRCheck
 def _fetch_pr_details(owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
     """Query GitHub REST API for pull request core attributes."""
     pr_cmd = [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls/{pr_number}"]
-    pr_proc = run_subprocess(pr_cmd)
+    pr_proc = run_gh(pr_cmd, check=False, quiet=True)
     if pr_proc.returncode != 0 or not pr_proc.stdout.strip():
         err = pr_proc.stderr.strip()[:256] if pr_proc.stderr else f"Exit code {pr_proc.returncode}"
         raise GitHubOperationError(f"Failed to query PR #{pr_number}: {err}")
@@ -468,7 +484,7 @@ def _fetch_raw_reviews(owner: str, repo_name: str, pr_number: int) -> list[dict[
         "--paginate",
         f"repos/{owner}/{repo_name}/pulls/{pr_number}/reviews",
     ]
-    reviews_proc = run_subprocess(reviews_cmd)
+    reviews_proc = run_gh(reviews_cmd, check=False, quiet=True)
     if reviews_proc.returncode == 0 and reviews_proc.stdout.strip():
         return parse_paginated_json(reviews_proc.stdout)
     return []
@@ -531,15 +547,13 @@ def _build_failure_reasons(
     return reasons
 
 
-def _resolve_review_decision(
-    raw_reviews: list[dict[str, Any]], head_sha: str | None = None
-) -> str | None:
-    """Derive aggregate review decision from latest state per reviewer targeting head_sha."""
-    if not raw_reviews:
-        return None
+def _extract_latest_reviews_by_user(
+    raw_reviews: list[dict[str, Any]],
+) -> dict[str, tuple[str, str]]:
+    """Map each reviewer to their latest review state and target commit ID."""
     latest_by_user: dict[str, tuple[str, str]] = {}
     for r in raw_reviews:
-        if not isinstance(r, dict):
+        if not isinstance(r, dict) or _is_copilot_review_dict(r):
             continue
         user = str(
             r.get("user", {}).get("login", "") or r.get("author", {}).get("login", "")
@@ -548,20 +562,27 @@ def _resolve_review_decision(
         commit_id = str(r.get("commit_id") or r.get("commitId") or "")
         if user and state:
             latest_by_user[user] = (state, commit_id)
+    return latest_by_user
 
-    # Any active changes requested blocks approval
-    for state, _ in latest_by_user.values():
-        if state == "CHANGES_REQUESTED":
-            return "CHANGES_REQUESTED"
 
-    # Require at least one APPROVED review targeting current head_sha (if provided)
+def _resolve_review_decision(
+    raw_reviews: list[dict[str, Any]], head_sha: str | None = None
+) -> str | None:
+    """Derive aggregate review decision from latest state per reviewer targeting head_sha."""
+    if not raw_reviews:
+        return None
+    latest_by_user = _extract_latest_reviews_by_user(raw_reviews)
+    if not latest_by_user:
+        return None
+
+    if any(state == "CHANGES_REQUESTED" for state, _ in latest_by_user.values()):
+        return "CHANGES_REQUESTED"
+
     has_approval = any(
         state == "APPROVED" and (not head_sha or commit_id == head_sha)
         for state, commit_id in latest_by_user.values()
     )
-    if has_approval:
-        return "APPROVED"
-    return "REVIEW_REQUIRED"
+    return "APPROVED" if has_approval else "REVIEW_REQUIRED"
 
 
 def _has_active_changes_requested(raw_reviews: list[dict[str, Any]]) -> bool:
@@ -582,8 +603,10 @@ def get_pr_monitoring_status(
 
     checks = _fetch_rest_check_runs(owner, repo_name, head_sha)
     raw_reviews = _fetch_raw_reviews(owner, repo_name, pr_number)
-    copilot_status = _detect_copilot_status(owner, repo_name, pr_number, raw_reviews)
     unresolved_threads = _fetch_unresolved_threads(owner, repo_name, pr_number)
+    copilot_status = _detect_copilot_status(
+        owner, repo_name, pr_number, raw_reviews, unresolved_threads=unresolved_threads
+    )
 
     review_decision = _resolve_review_decision(raw_reviews, head_sha=head_sha)
     has_changes_requested = (

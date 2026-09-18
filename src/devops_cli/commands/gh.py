@@ -1087,7 +1087,7 @@ def api_cmd(
 # =============================================================================
 
 
-def _format_reset_time(epoch_seconds: int) -> str:
+def _format_reset_time(epoch_seconds: int | float) -> str:
     """Format an epoch timestamp into a human-readable UTC string and countdown."""
     import time
 
@@ -1141,20 +1141,23 @@ def _extract_graphql_rate_limit() -> dict[str, Any]:
         if not isinstance(rl_data, dict):
             return {}
         reset_at = rl_data.get("resetAt")
-        epoch = 0
+        epoch: float | None = None
         if reset_at:
             try:
                 dt = datetime.datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
-                epoch = int(dt.timestamp())
-            except Exception:
-                pass
+                epoch = dt.timestamp()
+            except ValueError, TypeError:
+                epoch = None
+        limit_val = rl_data.get("limit")
+        rem_val = rl_data.get("remaining")
+        used_val = rl_data.get("used")
         return {
-            "limit": rl_data.get("limit", 5000),
-            "remaining": rl_data.get("remaining", 5000),
-            "used": rl_data.get("used", 0),
+            "limit": int(limit_val) if limit_val is not None else None,
+            "remaining": int(rem_val) if rem_val is not None else None,
+            "used": int(used_val) if used_val is not None else None,
             "reset": epoch,
         }
-    except Exception:
+    except json.JSONDecodeError:
         return {}
 
 
@@ -1162,10 +1165,11 @@ def _enrich_rate_limit_resources(resources: dict[str, Any]) -> dict[str, Any]:
     """Augment deprecated GitHub /rate_limit endpoint dictionary with live REST and GraphQL quotas."""
     rest_headers = _extract_rest_rate_limit_headers()
     if rest_headers:
-        limit = rest_headers.get("x-ratelimit-limit", 5000)
-        remaining = rest_headers.get("x-ratelimit-remaining", limit)
-        used = rest_headers.get("x-ratelimit-used", max(0, limit - remaining))
-        reset_epoch = rest_headers.get("x-ratelimit-reset", 0)
+        core_res = resources.get("core", {}) if isinstance(resources.get("core"), dict) else {}
+        limit = rest_headers.get("x-ratelimit-limit", core_res.get("limit"))
+        remaining = rest_headers.get("x-ratelimit-remaining", core_res.get("remaining"))
+        used = rest_headers.get("x-ratelimit-used", core_res.get("used"))
+        reset_epoch = rest_headers.get("x-ratelimit-reset", core_res.get("reset"))
         resources["core"] = {
             "limit": limit,
             "used": used,
@@ -1180,11 +1184,16 @@ def _enrich_rate_limit_resources(resources: dict[str, Any]) -> dict[str, Any]:
     for _res_name, info in resources.items():
         if not isinstance(info, dict):
             continue
-        lim_val = int(info.get("limit", 0))
-        rem_val = int(info.get("remaining", 0))
-        used_val = int(info.get("used", 0))
-        if used_val == 0 and lim_val > rem_val:
-            info["used"] = lim_val - rem_val
+        lim_val = info.get("limit")
+        rem_val = info.get("remaining")
+        used_val = info.get("used")
+        if (
+            used_val is None
+            and lim_val is not None
+            and rem_val is not None
+            and int(lim_val) >= int(rem_val)
+        ):
+            info["used"] = int(lim_val) - int(rem_val)
 
     return resources
 
@@ -1198,6 +1207,10 @@ def rate_limit_cmd(
     ] = "table",
 ) -> None:
     """Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns."""
+    if output_format not in {"table", "json"}:
+        print_error(f"Unsupported format '{output_format}'. Supported formats: table, json.")
+        raise typer.Exit(1)
+
     res = run_gh(["api", "rate_limit"], check=False, quiet=True, use_cache=False)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
@@ -1208,17 +1221,21 @@ def rate_limit_cmd(
 
     try:
         data = json.loads(res.stdout) if res.stdout.strip() else {}
-    except json.JSONDecodeError:
-        data = {}
+    except json.JSONDecodeError as exc:
+        print_error(f"Failed to parse rate limit response: {exc}")
+        raise typer.Exit(1) from exc
 
-    if output_format not in {"table", "json"}:
-        print_error(f"Unsupported format '{output_format}'. Supported formats: table, json.")
+    if not isinstance(data, dict):
+        print_error("Invalid rate limit response: expected JSON object")
         raise typer.Exit(1)
 
-    resources = data.get("resources", {})
-    if isinstance(resources, dict):
-        resources = _enrich_rate_limit_resources(resources)
-        data["resources"] = resources
+    resources = data.get("resources")
+    if not isinstance(resources, dict):
+        print_error("Invalid rate limit response: missing 'resources' object")
+        raise typer.Exit(1)
+
+    resources = _enrich_rate_limit_resources(resources)
+    data["resources"] = resources
 
     if output_format == "json":
         from devops_cli.output import write_stream
@@ -1230,11 +1247,13 @@ def rate_limit_cmd(
     for res_name, info in sorted(resources.items()):
         if not isinstance(info, dict):
             continue
-        limit = str(info.get("limit", 0))
-        used = str(info.get("used", 0))
-        remaining = str(info.get("remaining", 0))
-        reset_epoch = info.get("reset", 0)
-        reset_str = _format_reset_time(reset_epoch) if reset_epoch else "-"
+        limit = str(info["limit"]) if "limit" in info and info["limit"] is not None else "-"
+        used = str(info["used"]) if "used" in info and info["used"] is not None else "-"
+        remaining = (
+            str(info["remaining"]) if "remaining" in info and info["remaining"] is not None else "-"
+        )
+        reset_epoch = info.get("reset")
+        reset_str = _format_reset_time(float(reset_epoch)) if reset_epoch is not None else "-"
         rows.append([res_name, limit, used, remaining, reset_str])
 
     print_table(

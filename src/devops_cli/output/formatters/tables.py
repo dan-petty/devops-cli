@@ -63,14 +63,17 @@ def render_table(
 ) -> Table:
     """Construct a styled Rich Table from columns and rows or TablePayload."""
 
-    if hasattr(title, "render") and callable(getattr(title, "render")):
-        rendered = title.render()
+    render_fn = getattr(title, "render", None)
+    if callable(render_fn):
+        rendered = render_fn()
         if isinstance(rendered, Table):
             return rendered
-    if hasattr(title, "to_table_payload") and callable(getattr(title, "to_table_payload")):
-        payload = title.to_table_payload()
-        if hasattr(payload, "render") and callable(getattr(payload, "render")):
-            rendered = payload.render()
+    to_payload_fn = getattr(title, "to_table_payload", None)
+    if callable(to_payload_fn):
+        payload = to_payload_fn()
+        payload_render = getattr(payload, "render", None)
+        if callable(payload_render):
+            rendered = payload_render()
             if isinstance(rendered, Table):
                 return rendered
 
@@ -80,13 +83,16 @@ def render_table(
     effective_rows = rows or getattr(title, "rows", None) or []
     effective_border = getattr(title, "border_style", border_style)
     effective_box = getattr(title, "box_style", box_style)
+    effective_show_header = getattr(title, "show_header", True)
+    effective_header_style = getattr(title, "header_style", None) or "bold"
 
     table = Table(
         title=effective_title,
         border_style=effective_border,
         box=effective_box,
         title_style="bold cyan",
-        header_style="bold",
+        header_style=effective_header_style,
+        show_header=effective_show_header,
     )
     for col in effective_cols:
         _add_table_column(table, col, safe=safe)

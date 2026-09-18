@@ -63,6 +63,27 @@ devops ai test [OPTIONS]
 
 ---
 
+## `devops ai prewarm`
+
+**Prewarm local models into GPU VRAM or evict idle models across cluster nodes.**
+
+```bash
+devops ai prewarm [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--model`, `-m` | `string` | - | Model name to prewarm or evict (defaults to configured AI model). |
+| `--keep-alive`, `-k` | `string` | `1h` | Keep-alive duration for loaded model (e.g. 1h, 24h, forever, or 0 for eviction). |
+| `--all-nodes`, `-a`, `--single-node` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
+| `--evict` | `boolean` | - | Evict the model from GPU VRAM immediately (sets keep_alive to 0). |
+| `--url`, `-u` | `string` | - | Specific Ollama node URL to target instead of all candidate nodes. |
+| `--json` | `boolean` | - | Output results as structured JSON. |
+
+---
+
 ## `devops ai agents`
 
 **Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md).**
@@ -1231,5 +1252,83 @@ devops ai ast graph [OPTIONS]
 | `--output`, `-o` | `path` | - | Destination file path for output report or artifacts. |
 | `--format`, `-f` | `string` | `json` | Output format for synthesized code graph: 'json' or 'dot'. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ai gateway`
+
+**LLM Gateway and distributed inference mesh management.**
+
+```bash
+devops ai gateway COMMAND [ARGS]...
+```
+
+### `devops ai gateway status`
+
+**Probe LLM Gateway health, latency, and circuit breaker metrics.**
+
+```bash
+devops ai gateway status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai gateway routes`
+
+**List registered virtual models and target backend inference instances.**
+
+```bash
+devops ai gateway routes [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai gateway failover`
+
+**Trigger or test circuit-breaker failover of a virtual model to secondary backends.**
+
+```bash
+devops ai gateway failover [OPTIONS] <virtual_model>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<virtual_model>` | `string` | Yes | Virtual model alias to trigger failover for (devops-chat, devops-coder, devops-reasoning, devops-embedding). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--simulate`, `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai gateway scale`
+
+**Inspect or scale vLLM Tensor Parallelism serving configurations.**
+
+```bash
+devops ai gateway scale [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--replicas`, `-r` | `integer` | - | Replica count for vLLM Tensor-Parallel deployment. |
+| `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree (e.g. 2). |
+| `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ---

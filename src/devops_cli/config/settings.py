@@ -31,6 +31,8 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_DURABLE_STORE_PATH,
     DEFAULT_AI_DURABLE_TASK_QUEUE,
     DEFAULT_AI_DURABLE_WORKFLOW_PREFIX,
+    DEFAULT_AI_GATEWAY_ENABLED,
+    DEFAULT_AI_GATEWAY_URL,
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
@@ -145,10 +147,55 @@ class QdrantConfig(BaseModel):
     api_key: str | None = None
 
 
+class OpenWebUIConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    url: str | None = None
+
+
+def _parse_valkey_url(raw_url: str, data: dict[str, Any]) -> None:
+    """Derive host, port, and password from valkey connection URL."""
+    from urllib.parse import urlparse
+
+    clean_url = raw_url.strip()
+    if "://" not in clean_url:
+        clean_url = f"tcp://{clean_url}"
+    try:
+        parsed = urlparse(clean_url)
+        if parsed.hostname:
+            port = parsed.port or 6379
+            h = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+            data.setdefault("host", f"{h}:{port}")
+            data.setdefault("port", port)
+        if parsed.password and not data.get("password"):
+            data["password"] = parsed.password
+    except ValueError, AttributeError:
+        pass
+
+
+def _normalize_valkey_host(raw_host: str, raw_port: Any, data: dict[str, Any]) -> None:
+    """Normalize host string and port integer."""
+    clean = raw_host.strip()
+    if clean.startswith("[") and "]:" in clean:
+        _, p = clean.rsplit("]:", 1)
+        if p.isdigit():
+            data["host"] = clean
+            data["port"] = int(p)
+            return
+    elif ":" in clean and not clean.startswith("["):
+        parts = clean.rsplit(":", 1)
+        if parts[1].isdigit():
+            data["host"] = clean
+            data["port"] = int(parts[1])
+            return
+    if raw_port is not None:
+        data["host"] = f"{clean}:{raw_port}"
+
+
 class ValkeyConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     host: str = "localhost:6379"
     port: int = 6379
+    url: str | None = None
     password: str | None = None
     db: int = 0
     timeout: float = 2.0
@@ -158,17 +205,13 @@ class ValkeyConfig(BaseModel):
     @classmethod
     def _normalize_host_port(cls, data: Any) -> Any:
         if isinstance(data, dict):
+            raw_url = data.get("url")
+            if isinstance(raw_url, str) and raw_url.strip():
+                _parse_valkey_url(raw_url, data)
             raw_host = data.get("host")
             raw_port = data.get("port")
             if isinstance(raw_host, str):
-                clean = raw_host.strip()
-                if ":" in clean and not clean.startswith("["):
-                    parts = clean.rsplit(":", 1)
-                    if parts[1].isdigit():
-                        data["host"] = clean
-                        data["port"] = int(parts[1])
-                elif raw_port is not None:
-                    data["host"] = f"{clean}:{raw_port}"
+                _normalize_valkey_host(raw_host, raw_port, data)
         return data
 
 
@@ -272,6 +315,8 @@ class AIConfig(BaseModel):
     max_tokens: int | None = None
     ollama_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_OLLAMA_URLS))
     ollama_max_parallel: int = DEFAULT_OLLAMA_MAX_PARALLEL
+    gateway_url: str = DEFAULT_AI_GATEWAY_URL
+    gateway_enabled: bool = DEFAULT_AI_GATEWAY_ENABLED
     api_base_url: str | None = None
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES
@@ -425,6 +470,7 @@ class Settings(BaseSettings):
     k8s: KubernetesConfig = KubernetesConfig()
     sandbox: SandboxConfig = SandboxConfig()
     ai: AIConfig = AIConfig()
+    open_webui: OpenWebUIConfig = OpenWebUIConfig()
     data: DataConfig = DataConfig()
 
 

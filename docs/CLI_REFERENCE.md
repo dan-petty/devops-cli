@@ -71,7 +71,7 @@ devops repos clone-org [OPTIONS] <org>
 
 ### `devops repos clone`
 
-**Clone an individual repository into `repos/_standalone/<name>/.`.**
+**Clone an individual repository into `repos/<org>/<name>/.` (or `repos/_standalone/<name>/.`).**
 
 ```bash
 devops repos clone [OPTIONS] <url>
@@ -2273,6 +2273,48 @@ devops ci docs [OPTIONS]
 | `--fix` | `boolean` | - | Synchronize Complete Command Matrix in README.md. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ci uv-check`
+
+**Run uv check for fast static type checking and project validation.**
+
+```bash
+devops ci uv-check [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ci lockfile`
+
+**Verify lockfile consistency and freshness via uv lock --check.**
+
+```bash
+devops ci lockfile [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops ci outdated`
+
+**Display outdated dependencies and packages via uv tree --outdated.**
+
+```bash
+devops ci outdated [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops ci maintain`
 
 **Run automated toolchain, dependency freshness, and lockfile maintenance checks.**
@@ -2605,6 +2647,25 @@ devops ai test [OPTIONS]
 |---|---|---|---|
 | `--prompt`, `-p` | `string` | `Hello, world!` | Test prompt to send to the provider. |
 | `--url`, `-u` | `string` | - | Specific Ollama server URL to test. |
+
+### `devops ai prewarm`
+
+**Prewarm local models into GPU VRAM or evict idle models across cluster nodes.**
+
+```bash
+devops ai prewarm [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--model`, `-m` | `string` | - | Model name to prewarm or evict (defaults to configured AI model). |
+| `--keep-alive`, `-k` | `string` | `1h` | Keep-alive duration for loaded model (e.g. 1h, 24h, forever, or 0 for eviction). |
+| `--all-nodes`, `-a`, `--single-node` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
+| `--evict` | `boolean` | - | Evict the model from GPU VRAM immediately (sets keep_alive to 0). |
+| `--url`, `-u` | `string` | - | Specific Ollama node URL to target instead of all candidate nodes. |
+| `--json` | `boolean` | - | Output results as structured JSON. |
 
 ### `devops ai agents`
 
@@ -3725,6 +3786,82 @@ devops ai ast graph [OPTIONS]
 | `--format`, `-f` | `string` | `json` | Output format for synthesized code graph: 'json' or 'dot'. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ai gateway`
+
+**LLM Gateway and distributed inference mesh management.**
+
+```bash
+devops ai gateway COMMAND [ARGS]...
+```
+
+#### `devops ai gateway status`
+
+**Probe LLM Gateway health, latency, and circuit breaker metrics.**
+
+```bash
+devops ai gateway status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai gateway routes`
+
+**List registered virtual models and target backend inference instances.**
+
+```bash
+devops ai gateway routes [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai gateway failover`
+
+**Trigger or test circuit-breaker failover of a virtual model to secondary backends.**
+
+```bash
+devops ai gateway failover [OPTIONS] <virtual_model>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<virtual_model>` | `string` | Yes | Virtual model alias to trigger failover for (devops-chat, devops-coder, devops-reasoning, devops-embedding). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--simulate`, `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai gateway scale`
+
+**Inspect or scale vLLM Tensor Parallelism serving configurations.**
+
+```bash
+devops ai gateway scale [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--replicas`, `-r` | `integer` | - | Replica count for vLLM Tensor-Parallel deployment. |
+| `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree (e.g. 2). |
+| `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
 ---
 
 ## devops review
@@ -4207,6 +4344,24 @@ devops release notes [OPTIONS]
 | `--raw` | `boolean` | - | Output raw string without formatting or shell escapes. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
 
+### `devops release changelog`
+
+**Compile and generate changelog entries from git commits or PR deliverables.**
+
+```bash
+devops release changelog [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--version`, `-v` | `string` | - | Target semantic version (e.g., 0.1.8). |
+| `--update`, `-u` | `boolean` | - | Update CHANGELOG.md in-place with generated release notes. |
+| `--from-tag` | `string` | - | Starting git tag or ref for changelog compilation. |
+| `--raw` | `boolean` | - | Output raw string without formatting or shell escapes. |
+| `--root`, `-r` | `path` | - | Project repository root directory. |
+
 ### `devops release tag`
 
 **Create release commit and annotated git tag.**
@@ -4340,7 +4495,7 @@ devops pr monitor [OPTIONS] <number>
 
 ### `devops pr edit`
 
-**Edit pull request base branch, title, or body.**
+**Edit pull request base branch, title, body, or milestone.**
 
 ```bash
 devops pr edit [OPTIONS] <number>
@@ -4360,6 +4515,7 @@ devops pr edit [OPTIONS] <number>
 | `--title`, `-t` | `string` | - | Set the new title. |
 | `--body`, `-b` | `string` | - | Set the new body. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--milestone`, `-m` | `string` | - | Set the milestone for this pull request. |
 
 ### `devops pr create`
 
@@ -5307,7 +5463,7 @@ devops gh pr monitor [OPTIONS] <number>
 
 #### `devops gh pr edit`
 
-**Edit pull request base branch, title, or body.**
+**Edit pull request base branch, title, body, or milestone.**
 
 ```bash
 devops gh pr edit [OPTIONS] <number>
@@ -5327,6 +5483,7 @@ devops gh pr edit [OPTIONS] <number>
 | `--title`, `-t` | `string` | - | Set the new title. |
 | `--body`, `-b` | `string` | - | Set the new body. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--milestone`, `-m` | `string` | - | Set the milestone for this pull request. |
 
 #### `devops gh pr create`
 

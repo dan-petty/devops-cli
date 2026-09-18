@@ -545,7 +545,8 @@ def _execute_pre_analysis_batch(
     ai_client: LLMClient,
     batch_capacity: int,
 ) -> list[FileAnalysisMeta]:
-    """Execute parallel pre-analysis across batch of repository paths."""
+    """Execute parallel pre-analysis across batch of repository paths using ReviewWorkerPool."""
+    from devops_cli.ai.review.pool import ReviewWorkerPool
 
     def _analyze_path(item: tuple[Path, str]) -> FileAnalysisMeta | None:
         path_obj, rel_path = item
@@ -562,13 +563,11 @@ def _execute_pre_analysis_batch(
         except Exception:
             return None
 
-    results: list[FileAnalysisMeta] = []
-    workers = min(len(paths_to_analyze), batch_capacity, 32)
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        for meta in executor.map(_analyze_path, paths_to_analyze):
-            if meta is not None:
-                results.append(meta)
-    return results
+    effective_workers = max(1, batch_capacity)
+    workers = min(len(paths_to_analyze), effective_workers, 32)
+    pool = ReviewWorkerPool.create(concurrency=workers)
+    raw_results = pool.run_sync_all(_analyze_path, paths_to_analyze, return_exceptions=True)
+    return [meta for meta in raw_results if isinstance(meta, FileAnalysisMeta)]
 
 
 def _execute_page_review_steps(
@@ -849,7 +848,13 @@ class ReviewPipelineOrchestrator:
             ollama_urls = _resolve_ollama_urls(config)
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
-            batch_capacity = max(1, len(ollama_urls) * max_par)
+            from devops_cli.config.defaults import DEFAULT_PRE_ANALYSIS_WORKERS
+
+            batch_capacity = (
+                max(1, self.concurrency)
+                if self.concurrency is not None
+                else max(DEFAULT_PRE_ANALYSIS_WORKERS, len(ollama_urls) * max_par)
+            )
 
             paths_to_analyze = _collect_paths_to_analyze(
                 collected_paths,
@@ -1687,11 +1692,20 @@ class ReviewPipelineOrchestrator:
             ollama_urls = _resolve_ollama_urls(config)
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
-            batch_capacity = max(1, len(ollama_urls) * max_par)
+            from devops_cli.config.defaults import (
+                DEFAULT_REVIEW_CONCURRENCY,
+                DEFAULT_REVIEW_MAX_CONCURRENCY,
+            )
+
+            batch_capacity = max(DEFAULT_REVIEW_CONCURRENCY, len(ollama_urls) * max_par)
             if self.concurrency is not None:
                 n_workers = min(total_files, max(1, self.concurrency)) if total_files > 0 else 1
             else:
-                n_workers = min(total_files, batch_capacity, 32) if total_files > 0 else 1
+                n_workers = (
+                    min(total_files, batch_capacity, DEFAULT_REVIEW_MAX_CONCURRENCY)
+                    if total_files > 0
+                    else 1
+                )
 
             stage_span.set_attribute("review.workers", n_workers)
             stage_span.set_attribute("review.batch_capacity", batch_capacity)
@@ -1722,11 +1736,35 @@ class ReviewPipelineOrchestrator:
             if self.parallel and n_workers > 1:
                 from devops_cli.ai.review.pool import ReviewWorkerPool
 
-                pool = ReviewWorkerPool(max_concurrency=n_workers)
-                pool.run_sync_all(_review_task, items)
+                pool = ReviewWorkerPool.create(concurrency=n_workers)
+                review_results = pool.run_sync_all(_review_task, items, return_exceptions=True)
+                for (idx, payload), res in zip(items, review_results):
+                    if isinstance(res, Exception):
+                        err_desc = _format_error_detail("ReviewWorker", res)
+                        logger.error(
+                            "Unexpected worker exception reviewing %s (%s)",
+                            payload.file_path,
+                            type(res).__name__,
+                        )
+                        payload.findings = []
+                        payload.ai_scratchpad["stage"] = "failed"
+                        payload.ai_scratchpad["error"] = err_desc
+                        self.errored_files[payload.file_path] = err_desc
             else:
-                for item in items:
-                    _review_task(item)
+                for idx, payload in items:
+                    try:
+                        _review_task((idx, payload))
+                    except Exception as exc:
+                        err_desc = _format_error_detail("ReviewWorker", exc)
+                        logger.error(
+                            "Unexpected worker exception reviewing %s (%s)",
+                            payload.file_path,
+                            type(exc).__name__,
+                        )
+                        payload.findings = []
+                        payload.ai_scratchpad["stage"] = "failed"
+                        payload.ai_scratchpad["error"] = err_desc
+                        self.errored_files[payload.file_path] = err_desc
 
     # ── Cross-Referencing Verification & Reasoning ──────────────────────────
     def _safe_verify_file_payload(
@@ -1898,11 +1936,18 @@ class ReviewPipelineOrchestrator:
             ollama_urls = _resolve_ollama_urls(config)
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
-            batch_capacity = max(1, len(ollama_urls) * max_par)
+            from devops_cli.config.defaults import (
+                DEFAULT_REVIEW_CONCURRENCY,
+                DEFAULT_REVIEW_MAX_CONCURRENCY,
+            )
+
+            batch_capacity = max(DEFAULT_REVIEW_CONCURRENCY, len(ollama_urls) * max_par)
             if self.concurrency is not None:
                 n_workers = min(len(payloads_with_findings), max(1, self.concurrency))
             else:
-                n_workers = min(len(payloads_with_findings), batch_capacity)
+                n_workers = min(
+                    len(payloads_with_findings), batch_capacity, DEFAULT_REVIEW_MAX_CONCURRENCY
+                )
 
             s4_span.set_attribute("review.workers", n_workers)
             s4_span.set_attribute("review.batch_capacity", batch_capacity)
@@ -1914,11 +1959,35 @@ class ReviewPipelineOrchestrator:
             if self.parallel and n_workers > 1:
                 from devops_cli.ai.review.pool import ReviewWorkerPool
 
-                pool = ReviewWorkerPool(max_concurrency=n_workers)
-                pool.run_sync_all(_verify_task, payloads_with_findings)
+                pool = ReviewWorkerPool.create(concurrency=n_workers)
+                verify_results = pool.run_sync_all(
+                    _verify_task, payloads_with_findings, return_exceptions=True
+                )
+                for (idx, payload), res in zip(payloads_with_findings, verify_results):
+                    if isinstance(res, Exception):
+                        err_desc = _format_error_detail("VerificationWorker", res)
+                        logger.error(
+                            "Unexpected worker exception verifying %s (%s)",
+                            payload.file_path,
+                            type(res).__name__,
+                        )
+                        payload.ai_scratchpad["stage"] = "failed"
+                        payload.ai_scratchpad["error"] = err_desc
+                        self.errored_files[payload.file_path] = err_desc
             else:
-                for item in payloads_with_findings:
-                    _verify_task(item)
+                for idx, payload in payloads_with_findings:
+                    try:
+                        _verify_task((idx, payload))
+                    except Exception as exc:
+                        err_desc = _format_error_detail("VerificationWorker", exc)
+                        logger.error(
+                            "Unexpected worker exception verifying %s (%s)",
+                            payload.file_path,
+                            type(exc).__name__,
+                        )
+                        payload.ai_scratchpad["stage"] = "failed"
+                        payload.ai_scratchpad["error"] = err_desc
+                        self.errored_files[payload.file_path] = err_desc
 
             from devops_cli.ai.review.stages.adversarial_debate import (
                 run_adversarial_debate_stage,

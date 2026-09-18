@@ -13,7 +13,15 @@ def __getattr__(name: str) -> Any:
     except ModuleNotFoundError:
         pass
 
-    if name in {"AIClientError", "LLMClient", "LLMResponse", "model_request_sync", "model_request"}:
+    if name in {
+        "AIClientError",
+        "LLMClient",
+        "LLMResponse",
+        "StreamingReasoningSanitizer",
+        "StreamingTokenProcessor",
+        "model_request_sync",
+        "model_request",
+    }:
         import devops_cli.ai.client
 
         return getattr(devops_cli.ai.client, name)
@@ -734,6 +742,8 @@ __all__ = [
     "SnapshotHistorySource",
     "Spill",
     "SqlitePlanStore",
+    "StreamingReasoningSanitizer",
+    "StreamingTokenProcessor",
     "SubAgent",
     "SubAgents",
     "Summarize",

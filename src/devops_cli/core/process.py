@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -202,6 +203,18 @@ def _validate_subprocess_cwd(cwd: Path | str | None) -> None:
         raise SecurityError(f"Subprocess cwd cannot reside in forbidden system directory: '{cwd}'.")
 
 
+def _inject_gh_credentials(sub_env: dict[str, str], env: dict[str, str] | None) -> None:
+    """Inject ambient GitHub tokens into subprocess environment when invoking GitHub CLI."""
+    for token_var in ("GH_TOKEN", "GITHUB_TOKEN"):
+        if token_var in os.environ and token_var not in sub_env:
+            sub_env[token_var] = os.environ[token_var]
+    devops_token = (env or {}).get("DEVOPS_CLI_GITHUB_TOKEN") or os.environ.get(
+        "DEVOPS_CLI_GITHUB_TOKEN"
+    )
+    if devops_token and "GH_TOKEN" not in sub_env and "GITHUB_TOKEN" not in sub_env:
+        sub_env["GH_TOKEN"] = devops_token
+
+
 def run_subprocess(
     cmd: list[str],
     *,
@@ -231,15 +244,8 @@ def run_subprocess(
         isolate_env=isolate_env,
         extra_allowed_keys=extra_allowed_env,
     )
-    if bin_name == "gh":
-        for token_var in ("GH_TOKEN", "GITHUB_TOKEN"):
-            if token_var in os.environ and token_var not in sub_env:
-                sub_env[token_var] = os.environ[token_var]
-        devops_token = (env or {}).get("DEVOPS_CLI_GITHUB_TOKEN") or os.environ.get(
-            "DEVOPS_CLI_GITHUB_TOKEN"
-        )
-        if devops_token and "GH_TOKEN" not in sub_env and "GITHUB_TOKEN" not in sub_env:
-            sub_env["GH_TOKEN"] = devops_token
+    if bin_name == CONST_GH_CLI:
+        _inject_gh_credentials(sub_env, env)
 
     with trace_span(
         f"subprocess.{bin_name}",
@@ -379,6 +385,8 @@ async def run_subprocess_async(
         isolate_env=isolate_env,
         extra_allowed_keys=extra_allowed_env,
     )
+    if bin_name == CONST_GH_CLI:
+        _inject_gh_credentials(sub_env, env)
 
     with trace_span(
         f"subprocess.{bin_name}",

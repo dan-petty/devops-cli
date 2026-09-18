@@ -117,6 +117,8 @@ class WorkloadSandboxConfig(BaseModel):
         default_factory=lambda: SandboxNetworkConfig(mode=SandboxNetworkMode.ISOLATED)
     )
     network_mode: str = DEFAULT_SANDBOX_NETWORK
+    public_whitelist: list[str] = Field(default_factory=list)
+    local_whitelist: list[str] = Field(default_factory=list)
     rootless: bool = True
     timeout: float = 300.0
     env: dict[str, str] = Field(default_factory=dict)

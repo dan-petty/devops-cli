@@ -11,8 +11,8 @@ import yaml
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
-from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.github.rate_limiter import run_gh
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -125,21 +125,46 @@ def _extract_enabled_flag(value: Any) -> bool:
     return False
 
 
+def _is_branch_unprotected_error(err_msg: str) -> bool:
+    """Predicate determining if gh api error output indicates an unprotected branch."""
+    err_lower = err_msg.lower()
+    if "branch not protected" in err_lower:
+        return True
+    return "404" in err_msg and ("branch" in err_lower or "protection" in err_lower)
+
+
 def get_remote_branch_protection(repo: str, branch: str) -> dict[str, Any] | None:
     """Fetch branch protection configuration from GitHub REST API via gh cli."""
     with trace_span("github.branch_protection.get", attributes={"repo": repo, "branch": branch}):
         cmd = [CONST_GH_CLI, "api", f"repos/{repo}/branches/{branch}/protection"]
-        res = run_subprocess(cmd, check=False, quiet=True)
-        if res.returncode != 0 or not res.stdout.strip():
-            logger.debug("Branch %s has no protection or fetch failed: %s", branch, res.stderr)
+        res = run_gh(cmd, check=False, quiet=True)
+        if res.returncode != 0:
+            err_msg = (res.stderr or "").strip()
+            if _is_branch_unprotected_error(err_msg):
+                logger.debug("Branch %s has no remote protection: %s", branch, err_msg)
+                return None
+            raise GitHubOperationError(
+                f"Failed to fetch branch protection for {branch} on {repo}: {err_msg}",
+                operation="get_remote_branch_protection",
+                details={
+                    "repo": repo,
+                    "branch": branch,
+                    "exit_code": res.returncode,
+                    "stderr": err_msg[:256],
+                },
+            )
+        if not res.stdout.strip():
             return None
 
         try:
             data: dict[str, Any] = json.loads(res.stdout)
             return data
         except json.JSONDecodeError as exc:
-            logger.warning("Failed to parse protection JSON for %s: %s", branch, exc)
-            return None
+            raise GitHubOperationError(
+                f"Failed to parse protection JSON for {branch}: {exc}",
+                operation="get_remote_branch_protection",
+                details={"repo": repo, "branch": branch, "error": str(exc)[:256]},
+            ) from exc
 
 
 def _diff_status_checks(
@@ -361,15 +386,25 @@ def _apply_remote_protection(repo: str, branch: str, payload: dict[str, Any]) ->
         "-",
     ]
     payload_str = json.dumps(payload)
-    res = run_subprocess(cmd, input=payload_str, check=False, quiet=True)
+    res = run_gh(cmd, input=payload_str, check=False, quiet=True)
     if res.returncode != 0:
+        err_msg = (res.stderr or "").strip()
         logger.error(
             "Failed to update branch protection for %s on %s: %s",
             branch,
             repo,
-            res.stderr.strip()[:256],
+            err_msg[:256],
         )
-        return False
+        raise GitHubOperationError(
+            f"Failed to update branch protection for {branch} on {repo}: {err_msg}",
+            operation="apply_remote_protection",
+            details={
+                "repo": repo,
+                "branch": branch,
+                "exit_code": res.returncode,
+                "stderr": err_msg[:256],
+            },
+        )
     return True
 
 
@@ -390,21 +425,22 @@ def sync_branch_protection(
         attributes={"repo": repo, "dry_run": dry_run, "policies_count": len(target_policies)},
     ):
         for pol in target_policies:
-            remote = get_remote_branch_protection(repo, pol.branch)
-            diff = diff_branch_protection(pol, remote)
-            if diff.is_compliant:
-                skipped.append(pol.branch)
-                continue
+            try:
+                remote = get_remote_branch_protection(repo, pol.branch)
+                diff = diff_branch_protection(pol, remote)
+                if diff.is_compliant:
+                    skipped.append(pol.branch)
+                    continue
 
-            if dry_run:
-                synced.append(pol.branch)
-                continue
+                if dry_run:
+                    synced.append(pol.branch)
+                    continue
 
-            payload = build_protection_payload(pol)
-            success = _apply_remote_protection(repo, pol.branch, payload)
-            if success:
+                payload = build_protection_payload(pol)
+                _apply_remote_protection(repo, pol.branch, payload)
                 synced.append(pol.branch)
-            else:
+            except GitHubOperationError as exc:
+                logger.error("Sync failed for branch %s: %s", pol.branch, exc)
                 failed.append(pol.branch)
 
     return BranchProtectionSyncResult(

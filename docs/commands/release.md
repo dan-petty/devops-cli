@@ -109,6 +109,26 @@ devops release notes [OPTIONS]
 
 ---
 
+## `devops release changelog`
+
+**Compile and generate changelog entries from git commits or PR deliverables.**
+
+```bash
+devops release changelog [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--version`, `-v` | `string` | - | Target semantic version (e.g., 0.1.8). |
+| `--update`, `-u` | `boolean` | - | Update CHANGELOG.md in-place with generated release notes. |
+| `--from-tag` | `string` | - | Starting git tag or ref for changelog compilation. |
+| `--raw` | `boolean` | - | Output raw string without formatting or shell escapes. |
+| `--root`, `-r` | `path` | - | Project repository root directory. |
+
+---
+
 ## `devops release tag`
 
 **Create release commit and annotated git tag.**

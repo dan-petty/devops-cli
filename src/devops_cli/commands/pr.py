@@ -8,11 +8,16 @@ from typing import Annotated, Any, cast
 
 import typer
 
-from devops_cli.config.constants import CONST_GH_CLI, CONST_GH_FAILING_CHECK_CONCLUSIONS
+from devops_cli.config.constants import (
+    CONST_GH_CLI,
+    CONST_GH_FAILING_CHECK_CONCLUSIONS,
+    CONST_PR_API_STATE_MAP,
+)
 from devops_cli.config.defaults import DEFAULT_PR_LIMIT, DEFAULT_PR_STATE
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
+from devops_cli.github.rate_limiter import run_gh
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -40,7 +45,7 @@ def _run_gh_pr_command(subcommand: str, number: int, repo: str | None = None) ->
     cmd = [CONST_GH_CLI, "pr", subcommand, str(number)]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False)
     if res.returncode != 0:
         raise typer.Exit(res.returncode)
 
@@ -109,6 +114,16 @@ def _render_pr_table(prs: list[dict[str, Any]], state: str) -> None:
     )
 
 
+def _filter_fallback_prs(raw_prs: Any, state: str, limit: int) -> list[dict[str, Any]] | None:
+    """Filter and slice pull requests from REST API response."""
+    if not isinstance(raw_prs, list):
+        return None
+    prs: list[dict[str, Any]] = [p for p in raw_prs if isinstance(p, dict)]
+    if state == "merged":
+        prs = [p for p in prs if p.get("merged_at") is not None]
+    return prs[:limit]
+
+
 def _render_pr_list_fallback(state: str, limit: int, repo: str | None = None) -> bool:
     """Fallback to REST API GET /pulls when gh pr list fails (e.g. GraphQL rate limits)."""
     from devops_cli.core.repo import get_repo_origin_name
@@ -117,14 +132,9 @@ def _render_pr_list_fallback(state: str, limit: int, repo: str | None = None) ->
     if not target or "/" not in target:
         return False
     owner, repo_name = target.split("/", 1)
-    if state == "all":
-        api_state = "all"
-    elif state in ("closed", "merged"):
-        api_state = "closed"
-    else:
-        api_state = "open"
+    api_state = CONST_PR_API_STATE_MAP.get(state, "open")
     fetch_limit = min(max(limit * 2, 50), 100) if state == "merged" else limit
-    res = run_subprocess(
+    res = run_gh(
         [
             CONST_GH_CLI,
             "api",
@@ -135,12 +145,9 @@ def _render_pr_list_fallback(state: str, limit: int, repo: str | None = None) ->
     if res.returncode != 0 or not res.stdout.strip():
         return False
     try:
-        prs = json.loads(res.stdout)
-        if isinstance(prs, list):
-            if state == "merged":
-                prs = [p for p in prs if isinstance(p, dict) and p.get("merged_at") is not None]
-            prs = prs[:limit]
-            _render_pr_table(prs, state)
+        filtered = _filter_fallback_prs(json.loads(res.stdout), state, limit)
+        if filtered is not None:
+            _render_pr_table(filtered, state)
             return True
     except json.JSONDecodeError:
         pass
@@ -178,7 +185,7 @@ def list_prs(
     if repo:
         cmd.extend(["--repo", repo])
 
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False)
     if res.returncode != 0:
         if _render_pr_list_fallback(state, limit, repo):
             return
@@ -206,7 +213,7 @@ def _fetch_pr_details(number: int, repo: str | None = None) -> dict[str, Any]:
     if not target or "/" not in target:
         return {}
     owner, repo_name = target.split("/", 1)
-    res = run_subprocess(
+    res = run_gh(
         [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls/{number}"],
         check=False,
         quiet=True,
@@ -254,24 +261,42 @@ def _render_pr_view_fallback(number: int, repo: str | None = None) -> bool:
     return True
 
 
-def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
-    """Render check runs via REST API when gh pr checks fails or hits rate limits."""
+def _check_run_badge(cr: dict[str, Any]) -> str:
+    """Format check run conclusion or status into a colorized badge."""
+    conclusion = str(cr.get("conclusion") or "")
+    status = str(cr.get("status") or "")
+    if conclusion == "success":
+        return "[green]✓ success[/green]"
+    if status in {"in_progress", "queued", "waiting"}:
+        return f"[yellow]● {status}[/yellow]"
+    if conclusion:
+        return f"[bold red]✗ {conclusion}[/bold red]"
+    return f"[dim]{status}[/dim]"
+
+
+def _resolve_pr_head_sha(number: int, repo: str | None = None) -> str:
+    """Retrieve the head commit SHA for a pull request."""
     pr = _fetch_pr_details(number, repo)
     if not pr:
-        return False
+        return ""
     head_data = pr.get("head", {})
-    sha = head_data.get("sha", "") if isinstance(head_data, dict) else ""
+    return head_data.get("sha", "") if isinstance(head_data, dict) else ""
+
+
+def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
+    """Render check runs via REST API when gh pr checks fails or hits rate limits."""
+    sha = _resolve_pr_head_sha(number, repo)
     if not sha:
         return False
     from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.security.sanitizer import mask_secrets
 
     target = repo or get_repo_origin_name()
     if not target or "/" not in target:
         return False
     owner, repo_name = target.split("/", 1)
-    from devops_cli.security.sanitizer import mask_secrets
 
-    res = run_subprocess(
+    res = run_gh(
         [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{sha}/check-runs"],
         check=False,
         quiet=True,
@@ -286,21 +311,14 @@ def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
     if not check_runs:
         print_info(f"No check runs found for PR #{number}.")
         return True
-    rows = []
-    for cr in check_runs:
-        name = mask_secrets(str(cr.get("name", "")))
-        conclusion = str(cr.get("conclusion") or "")
-        status = str(cr.get("status") or "")
-        if conclusion == "success":
-            badge = "[green]✓ success[/green]"
-        elif status in {"in_progress", "queued", "waiting"}:
-            badge = f"[yellow]● {status}[/yellow]"
-        elif conclusion:
-            badge = f"[bold red]✗ {conclusion}[/bold red]"
-        else:
-            badge = f"[dim]{status}[/dim]"
-        url = mask_secrets(str(cr.get("html_url", "")))
-        rows.append([name, badge, url])
+    rows = [
+        [
+            mask_secrets(str(cr.get("name", ""))),
+            _check_run_badge(cr),
+            mask_secrets(str(cr.get("html_url", ""))),
+        ]
+        for cr in check_runs
+    ]
     print_table(
         title=f"CI Quality Gate Checks (PR #{number})",
         columns=["Check", "Status", "URL"],
@@ -329,7 +347,7 @@ def view_pr(
     cmd = [CONST_GH_CLI, "pr", "view", str(number)]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False)
     if res.stdout:
         typer.echo(mask_secrets(res.stdout.rstrip()))
     if res.returncode != 0:
@@ -358,7 +376,7 @@ def pr_checks(
     cmd = [CONST_GH_CLI, "pr", "checks", str(number)]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False)
     if res.stdout:
         typer.echo(mask_secrets(res.stdout.rstrip()))
     if res.returncode != 0:
@@ -397,13 +415,13 @@ def _render_monitor_summary(status: Any) -> None:
 
 def _render_unresolved_threads_summary(threads: list[Any]) -> None:
     """Render table of unresolved review discussion threads."""
-    from devops_cli.security.sanitizer import sanitize_secrets
+    from devops_cli.security.sanitizer import mask_secrets
 
     rows = []
     for t in threads:
         author = t.comments[0].author if t.comments else "unknown"
         loc = f"{t.path}:{t.line}" if t.line else t.path
-        body = sanitize_secrets(t.comments[0].body) if t.comments else ""
+        body = mask_secrets(t.comments[0].body) if t.comments else ""
         first_comment = (body[:60] + "...") if len(body) > 60 else body
         first_comment = first_comment.replace("\n", " ")
         rows.append([t.id, loc, author, first_comment])
@@ -454,18 +472,18 @@ def _handle_monitor_exit(result: Any, pr_number: int) -> None:
 
 def _sanitize_threads_for_output(status_dict: dict[str, Any]) -> dict[str, Any]:
     """Apply secret masking to review comment bodies in status dictionary."""
-    from devops_cli.security.sanitizer import sanitize_secrets
+    from devops_cli.security.sanitizer import mask_secrets
 
     for thread in status_dict.get("unresolved_threads", []):
         for comment in thread.get("comments", []):
             if "body" in comment and isinstance(comment["body"], str):
-                comment["body"] = sanitize_secrets(comment["body"])
+                comment["body"] = mask_secrets(comment["body"])
     return status_dict
 
 
 def _format_markdown_threads_section(threads: list[Any]) -> list[str]:
     """Format markdown section for unresolved threads."""
-    from devops_cli.security.sanitizer import sanitize_secrets
+    from devops_cli.security.sanitizer import mask_secrets
 
     lines = [
         "",
@@ -477,7 +495,7 @@ def _format_markdown_threads_section(threads: list[Any]) -> list[str]:
     for t in threads:
         auth = t.comments[0].author if t.comments else "unknown"
         loc = f"{t.path}:{t.line}" if t.line else t.path
-        body = sanitize_secrets(t.comments[0].body) if t.comments else ""
+        body = mask_secrets(t.comments[0].body) if t.comments else ""
         clean_b = body.replace("\n", " ")
         short_b = (clean_b[:60] + "...") if len(clean_b) > 60 else clean_b
         lines.append(f"| `{t.id}` | {loc} | {auth} | {short_b} |")
@@ -665,6 +683,7 @@ def _fallback_patch_pr(
     title: str | None = None,
     body: str | None = None,
     repo: str | None = None,
+    milestone: str | None = None,
 ) -> bool:
     """Fallback to REST API PATCH when gh pr edit fails (e.g. rate limit)."""
     from devops_cli.core.repo import get_repo_origin_name
@@ -686,8 +705,24 @@ def _fallback_patch_pr(
         patch_cmd.extend(["-f", f"body={body}"])
     if base is not None:
         patch_cmd.extend(["-f", f"base={base}"])
-    res = run_subprocess(patch_cmd, check=False)
-    return res.returncode == 0
+    pull_ok = True
+    if len(patch_cmd) > 5:
+        res = run_gh(patch_cmd, check=False)
+        pull_ok = res.returncode == 0
+
+    if milestone is not None:
+        ms_cmd = [
+            CONST_GH_CLI,
+            "api",
+            "--method",
+            "PATCH",
+            f"repos/{owner}/{repo_name}/issues/{number}",
+            "-F",
+            f"milestone={milestone}",
+        ]
+        res_ms = run_gh(ms_cmd, check=False)
+        return pull_ok and res_ms.returncode == 0
+    return pull_ok
 
 
 @app.command("edit")
@@ -709,11 +744,15 @@ def edit_pr(
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
     ] = None,
+    milestone: Annotated[
+        str | None,
+        typer.Option("--milestone", "-m", help=HELP.pr.edit_milestone),
+    ] = None,
 ) -> None:
-    """Edit pull request base branch, title, or body."""
+    """Edit pull request base branch, title, body, or milestone."""
     _require_gh_cli()
-    if not any([title, body, base]):
-        print_warning("No changes specified. Use --title, --body, or --base.")
+    if not any([title, body, base, milestone]):
+        print_warning("No changes specified. Use --title, --body, --base, or --milestone.")
         return
 
     cmd = [CONST_GH_CLI, "pr", "edit", str(number)]
@@ -725,10 +764,12 @@ def edit_pr(
         cmd.extend(["--body", body])
     if repo:
         cmd.extend(["--repo", repo])
+    if milestone:
+        cmd.extend(["--milestone", milestone])
 
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False)
     if res.returncode != 0:
-        if _fallback_patch_pr(number, base, title, body, repo):
+        if _fallback_patch_pr(number, base, title, body, repo, milestone=milestone):
             print_success(f"Successfully updated PR #{number}")
             return
         raise typer.Exit(res.returncode)
@@ -747,7 +788,7 @@ def _detect_current_branch() -> str | None:
 
 def _find_existing_pr(owner: str, repo_name: str, head: str, base: str) -> dict[str, Any] | None:
     """Check if an open pull request already exists for the given head and base branches."""
-    res = run_subprocess(
+    res = run_gh(
         [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/pulls?head={owner}:{head}&state=open"],
         check=False,
         quiet=True,
@@ -765,6 +806,17 @@ def _find_existing_pr(owner: str, repo_name: str, head: str, base: str) -> dict[
         if isinstance(item, dict) and (not base or item.get("base", {}).get("ref") == base):
             return item
     return None
+
+
+def _print_created_pr_message(stdout: str, base: str) -> None:
+    """Print PR creation success message from REST API response."""
+    try:
+        data = json.loads(stdout) if stdout.strip() else {}
+        url = data.get("html_url", "")
+        num = data.get("number", "")
+        print_success(f"Pull request #{num} created successfully: {url}")
+    except json.JSONDecodeError:
+        print_success(f"Pull request created successfully targeting base [bold]{base}[/bold]")
 
 
 def _fallback_create_pr(
@@ -807,15 +859,9 @@ def _fallback_create_pr(
     ]
     if draft:
         cmd.extend(["-F", "draft=true"])
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False)
     if res.returncode == 0:
-        try:
-            data = json.loads(res.stdout) if res.stdout.strip() else {}
-            url = data.get("html_url", "")
-            num = data.get("number", "")
-            print_success(f"Pull request #{num} created successfully: {url}")
-        except json.JSONDecodeError:
-            print_success(f"Pull request created successfully targeting base [bold]{base}[/bold]")
+        _print_created_pr_message(res.stdout, base)
         return True
     return False
 
@@ -863,7 +909,7 @@ def create_pr(
     if repo:
         cmd.extend(["--repo", repo])
 
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False)
     if res.returncode != 0:
         if _fallback_create_pr(title, body, target_base, draft, repo):
             return
@@ -923,7 +969,7 @@ def _fetch_commit_check_runs(repo: str | None, sha: str) -> str:
     if not target or "/" not in target:
         return ""
     owner, repo_name = target.split("/", 1)
-    res = run_subprocess(
+    res = run_gh(
         [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{sha}/check-runs"],
         check=False,
         quiet=True,
@@ -999,7 +1045,7 @@ def ready_pr(
     cmd = [CONST_GH_CLI, "pr", "ready", str(number)]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False)
     if res.returncode != 0:
         _handle_pr_ready_failure(res.stderr, number)
         raise typer.Exit(1)
@@ -1032,7 +1078,7 @@ def diff_pr(
     cmd = [CONST_GH_CLI, "pr", "diff", str(number), "--color", color]
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -1076,7 +1122,7 @@ def close_pr(
         cmd.append("--delete-branch")
     if repo:
         cmd.extend(["--repo", repo])
-    res = run_subprocess(cmd, check=False)
+    res = run_gh(cmd, check=False)
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
@@ -1116,6 +1162,11 @@ def _check_mergeable_blocker(
     pr_data: dict[str, Any], pr_num: int, allow_blocked_state: bool = False
 ) -> str | None:
     """Evaluate whether PR mergeable state represents a merge blocker."""
+    if pr_data.get("merged") is True:
+        return None
+    if pr_data.get("state", "").lower() == "closed":
+        return f"PR #{pr_num} is closed without being merged."
+
     mergeable = pr_data.get("mergeable")
     mergeable_state = pr_data.get("mergeable_state", "")
     base_ref = pr_data.get("base", {}).get("ref", "")
@@ -1175,6 +1226,9 @@ def _evaluate_pr_blockers(
     allow_replied_threads: bool = False,
 ) -> list[str]:
     """Inspect PR data and unresolved discussion threads for merge blockers."""
+    if pr_data.get("merged") is True:
+        return []
+
     from devops_cli.exceptions.git import GitHubOperationError
     from devops_cli.github.pr_threads import list_pr_review_threads
 
@@ -1202,6 +1256,61 @@ def _evaluate_pr_blockers(
         _evaluate_threads_blockers(unresolved, pr_num, allow_replied_threads=allow_replied_threads)
     )
     return blockers
+
+
+def _resolve_readiness_target(repo: str | None, number: int | None) -> tuple[str, str, int, str]:
+    """Resolve repository owner, name, target PR number, and target repo string."""
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.github.pr_monitor import resolve_branch_pr_number
+
+    target_repo = repo or get_repo_origin_name()
+    if not target_repo or "/" not in target_repo:
+        print_error("Target repository must be in OWNER/REPO format.")
+        raise typer.Exit(1)
+
+    owner, repo_name = target_repo.split("/", 1)
+    pr_num = number or resolve_branch_pr_number(owner=owner, repo=repo_name)
+    return owner, repo_name, pr_num, target_repo
+
+
+def _check_pr_terminal_state(pr_data: dict[str, Any], pr_num: int) -> bool:
+    """Check if PR is already merged or closed unmerged.
+
+    Returns True if PR is merged (caller should return success).
+    Raises typer.Exit(1) if PR is closed without merging.
+    Returns False if PR is open.
+    """
+    if pr_data.get("merged") is True:
+        base_ref = pr_data.get("base", {}).get("ref", "")
+        print_success(MESSAGES.pr.pr_already_merged.format(number=pr_num, base=base_ref))
+        return True
+
+    if pr_data.get("state", "").lower() == "closed":
+        print_error(MESSAGES.pr.pr_closed_unmerged.format(number=pr_num))
+        raise typer.Exit(1)
+
+    return False
+
+
+def _auto_resolve_replied_threads(owner: str, repo_name: str, pr_num: int) -> None:
+    """Auto-resolve review discussion threads that already have replies."""
+    from devops_cli.github.pr_threads import resolve_all_pr_review_threads
+
+    resolved = resolve_all_pr_review_threads(owner, repo_name, pr_num, only_replied=True)
+    count = sum(1 for r in resolved if r.success and r.is_resolved)
+    if count > 0:
+        print_success(f"Auto-resolved {count} replied review discussion thread(s).")
+
+
+def _emit_readiness_status(blockers: list[str], pr_num: int) -> None:
+    """Print readiness blockers or success message, exiting with code 1 if blocked."""
+    if not blockers:
+        print_success(f"PR #{pr_num} satisfies merge readiness: 0 conflicts, 0 unresolved threads.")
+        return
+
+    for blocker in blockers:
+        print_error(blocker, prefix=False)
+    raise typer.Exit(1)
 
 
 @app.command("check-readiness")
@@ -1241,32 +1350,17 @@ def check_readiness(
     ] = None,
 ) -> None:
     """Validate PR merge readiness: verify no unresolved review threads, no conflicts, and clean state."""
-    from devops_cli.core.repo import get_repo_origin_name
-    from devops_cli.github.pr_monitor import resolve_branch_pr_number
-
-    target_repo = repo or get_repo_origin_name()
-    if not target_repo or "/" not in target_repo:
-        print_error("Target repository must be in OWNER/REPO format.")
-        raise typer.Exit(1)
-
-    owner, repo_name = target_repo.split("/", 1)
-    pr_num = number or resolve_branch_pr_number(owner=owner, repo=repo_name)
-
+    owner, repo_name, pr_num, target_repo = _resolve_readiness_target(repo, number)
     pr_data = _fetch_pr_details(pr_num, target_repo)
     if not pr_data:
         print_error(f"Unable to retrieve details for PR #{pr_num}.")
         raise typer.Exit(1)
 
-    if auto_resolve:
-        from devops_cli.github.pr_threads import resolve_all_pr_review_threads
+    if _check_pr_terminal_state(pr_data, pr_num):
+        return
 
-        resolved = resolve_all_pr_review_threads(owner, repo_name, pr_num, only_replied=True)
-        if resolved:
-            successful = [r for r in resolved if r.success and r.is_resolved]
-            if successful:
-                print_success(
-                    f"Auto-resolved {len(successful)} replied review discussion thread(s)."
-                )
+    if auto_resolve:
+        _auto_resolve_replied_threads(owner, repo_name, pr_num)
 
     blockers = _evaluate_pr_blockers(
         pr_data,
@@ -1277,12 +1371,7 @@ def check_readiness(
         allow_blocked_state=allow_blocked_state,
         allow_replied_threads=allow_replied_threads,
     )
-    if blockers:
-        for b in blockers:
-            print_error(b, prefix=False)
-        raise typer.Exit(1)
-
-    print_success(f"PR #{pr_num} satisfies merge readiness: 0 conflicts, 0 unresolved threads.")
+    _emit_readiness_status(blockers, pr_num)
 
 
 # =============================================================================

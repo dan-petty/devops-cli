@@ -112,7 +112,7 @@ def _sanitize_output_text(text: str) -> str:
 
 def write_stream(
     text: str,
-    stream: Literal["stdout", "stderr"] = DEFAULT_STREAM_NAME,  # type: ignore[assignment]
+    stream: Literal["stdout", "stderr"] = DEFAULT_STREAM_NAME,
     *,
     flush: bool = True,
 ) -> None:
@@ -374,7 +374,7 @@ def print_safe(
 def print_message(
     message: str,
     *,
-    level: MessageLevel = DEFAULT_LOG_LEVEL,  # type: ignore[assignment]
+    level: MessageLevel = DEFAULT_LOG_LEVEL,
     prefix: bool | str = True,
     to_stderr: bool = False,
     style: str | None = None,
@@ -661,9 +661,10 @@ def print_syntax_panel(
 ) -> None:
     """Render syntax-highlighted code inside a styled panel."""
     active_console = console or get_console()
+    render_fn = getattr(code, "render", None)
     syntax = (
-        code.render()
-        if hasattr(code, "render")
+        render_fn()
+        if callable(render_fn)
         else _RichSyntax(
             str(code),
             language,

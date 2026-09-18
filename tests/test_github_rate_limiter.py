@@ -7,10 +7,12 @@ and mandatory pause enforcement.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import time
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -62,18 +64,18 @@ def test_calculate_request_delay_zero_rate_when_exhausted() -> None:
 
 def test_calculate_request_delay_variations() -> None:
     """Verify calculate_request_delay across multiple valid quota states."""
-    # 1000 tokens remaining, 3000s left -> 3.0s delay (without threshold)
-    assert calculate_request_delay(time_until_reset=3000.0, remaining=1000) == 3.0
+    delays = (
+        calculate_request_delay(time_until_reset=3000.0, remaining=1000),
+        round(calculate_request_delay(time_until_reset=3600.0, remaining=5000), 2),
+        round(calculate_request_delay(time_until_reset=2400.0, remaining=2000), 2),
+        calculate_request_delay(time_until_reset=0.0, remaining=10),
+        calculate_request_delay(time_until_reset=0.0, remaining=0),
+    )
+    assert delays == (3.0, 0.72, 1.2, 0.0, 0.0)
 
-    # 5000 tokens remaining, 3600s left -> 0.72s delay (without threshold)
-    assert calculate_request_delay(time_until_reset=3600.0, remaining=5000) == pytest.approx(0.72)
-
-    # Reset already reached (time_left == 0) -> 0.0s delay
-    assert calculate_request_delay(time_until_reset=0.0, remaining=10) == 0.0
     # Negative time_until_reset must raise ValueError
     with pytest.raises(ValueError, match="time_until_reset must be non-negative"):
         calculate_request_delay(time_until_reset=-10.0, remaining=10)
-    assert calculate_request_delay(time_until_reset=0.0, remaining=0) == 0.0
 
 
 def test_quota_state_rejects_negative_values() -> None:
@@ -101,28 +103,33 @@ def test_quota_state_rejects_negative_values() -> None:
         state.record_utilization(cost=-1)
 
 
-def test_calculate_request_delay_percent_used_threshold() -> None:
-    """Verify that requests under the no-delay percent used threshold have delay == 0.0."""
-    # 500 out of 5000 tokens used (10% used) with 25% threshold -> 0.0s delay
-    delay = calculate_request_delay(
-        time_until_reset=3600.0, remaining=4500, limit=5000, no_delay_percent_used_threshold=25.0
-    )
-    assert delay == 0.0
-
-    # 1500 out of 5000 tokens used (30% used) with 25% threshold -> pacing delay applied
-    delay = calculate_request_delay(
-        time_until_reset=3500.0, remaining=3500, limit=5000, no_delay_percent_used_threshold=25.0
-    )
-    assert delay == 1.0  # 3500s / 3500 tokens = 1.0s
-
-    # Negative threshold raises ValueError
-    with pytest.raises(ValueError, match="no_delay_percent_used_threshold must be non-negative"):
-        calculate_request_delay(
-            time_until_reset=100.0, remaining=50, limit=100, no_delay_percent_used_threshold=-1.0
-        )
-    # Negative limit raises ValueError
+def test_calculate_request_delay_negative_limit() -> None:
+    """Verify calculate_request_delay raises ValueError on negative limit."""
     with pytest.raises(ValueError, match="rate limit must be non-negative"):
         calculate_request_delay(time_until_reset=100.0, remaining=50, limit=-10)
+
+
+def test_calculate_request_delay_zero_bypass_forbidden() -> None:
+    """Verify pacing delay is strictly applied even when 0 tokens have been used (no 0.0s bypass)."""
+    # 5000 remaining of 5000 limit with 3600s left -> 3600 / 5000 = 0.72s delay
+    delay = calculate_request_delay(time_until_reset=3600.0, remaining=5000, limit=5000)
+    assert round(delay, 2) == 0.72
+
+
+def test_graphql_mandatory_pacing_default_no_bypass() -> None:
+    """Verify GitHubRateLimiter applies mandatory pacing without 0.0s threshold bypass."""
+    limiter = GitHubRateLimiter()
+    now = time.time()
+
+    # 5000 requests in 60 minutes -> 0.72s
+    limiter._quotas["graphql"] = QuotaState(remaining=5000, limit=5000, reset_epoch=now + 3600.0)
+    delay_5000 = limiter.calculate_delay("graphql")
+
+    # 2000 requests in 40 minutes -> 1.20s
+    limiter._quotas["graphql"] = QuotaState(remaining=2000, limit=5000, reset_epoch=now + 2400.0)
+    delay_2000 = limiter.calculate_delay("graphql")
+
+    assert (round(delay_5000, 2), round(delay_2000, 2)) == (0.72, 1.2)
 
 
 def test_calculate_delay_rejects_negative_time_left() -> None:
@@ -140,9 +147,7 @@ def test_rate_limiter_no_initial_quotas() -> None:
     """Verify rate limiter has no hardcoded initial quotas and raises error if refresh fails."""
     limiter = GitHubRateLimiter()
     state = limiter.get_quota("core")
-    assert state.remaining is None
-    assert state.limit is None
-    assert state.reset_epoch == 0.0
+    assert (state.remaining, state.limit, state.reset_epoch) == (None, None, None)
 
     with patch("devops_cli.github.rate_limiter.run_subprocess") as mock_sub:
         mock_sub.return_value = subprocess.CompletedProcess(
@@ -187,16 +192,18 @@ def test_rate_limiter_mandatory_pause_when_quota_exhausted() -> None:
         assert actual_slept == pytest.approx(20.0, abs=0.5)
 
 
-def test_rate_limiter_acquire_no_pause_when_delay_zero(tmp_path: Path) -> None:
-    """Verify acquire does not pause when delay is 0.0."""
+def test_rate_limiter_acquire_mandatory_pacing(tmp_path: Path) -> None:
+    """Verify acquire always applies calculated pacing delay with zero threshold bypass."""
     cache_file = tmp_path / "gh_quota.json"
     limiter = GitHubRateLimiter(persist_path=cache_file)
     now = time.time()
-    limiter.update_quota("core", remaining=5000, limit=5000, reset_epoch=now + 3600.0)
+    limiter.update_quota("core", remaining=3600, limit=5000, reset_epoch=now + 3600.0)
     with patch("time.sleep") as mock_sleep:
         delay = limiter.acquire("core")
-        assert delay == 0.0
-        mock_sleep.assert_not_called()
+        assert delay == pytest.approx(1.0, abs=0.1)
+        mock_sleep.assert_called_once()
+        actual_slept = mock_sleep.call_args[0][0]
+        assert actual_slept == pytest.approx(1.0, abs=0.1)
 
 
 def test_rate_limiter_decrement_quota_estimate(tmp_path: Path) -> None:
@@ -529,10 +536,10 @@ def test_detect_resource_and_reset_epoch() -> None:
     assert _detect_resource(["gh"]) == "core"
     assert _detect_resource(["api", "repos/owner/repo/dependency-graph/sbom"]) == "dependency_sbom"
 
-    assert _parse_reset_epoch(None) == 0.0
-    assert _parse_reset_epoch("") == 0.0
-    assert _parse_reset_epoch("invalid-date-string") == 0.0
-    assert _parse_reset_epoch("2026-09-15T12:00:00Z") > 0.0
+    assert (_parse_reset_epoch(None), _parse_reset_epoch("")) == (None, None)
+    with pytest.raises(ValueError, match="Failed to parse resetAt timestamp"):
+        _parse_reset_epoch("invalid-date-string")
+    assert _parse_reset_epoch("2026-09-15T12:00:00Z") is not None
 
 
 def test_parse_safe_helpers() -> None:
@@ -552,12 +559,6 @@ def test_parse_safe_helpers() -> None:
     _extract_graphql_ratelimit_json("not json", limiter)
     _extract_graphql_ratelimit_json('{"data": "not a dict"}', limiter)
     _extract_graphql_ratelimit_json('{"data": {"rateLimit": null}}', limiter)
-
-
-def test_rate_limiter_constructor_negative_threshold() -> None:
-    """Verify constructor raises ValueError on negative threshold."""
-    with pytest.raises(ValueError, match="no_delay_percent_used_threshold must be non-negative"):
-        GitHubRateLimiter(no_delay_percent_used_threshold=-1.0)
 
 
 def test_calculate_delay_remaining_none_or_negative() -> None:
@@ -686,3 +687,309 @@ def test_quota_state_malformed_types_discarded(tmp_path: Path) -> None:
 
     loaded = _load_disk_quota(cache_file)
     assert loaded == {}
+
+
+def test_global_request_tracking_across_limiter_instances(tmp_path: Path) -> None:
+    """Verify global requests and quota state synchronize across independent limiter instances."""
+    cache_file = tmp_path / "gh_quota.json"
+    limiter_a = GitHubRateLimiter(persist_path=cache_file)
+    limiter_b = GitHubRateLimiter(persist_path=cache_file)
+    now = time.time()
+    limiter_a.update_quota("core", remaining=100, limit=100, reset_epoch=now + 100.0)
+
+    with patch("time.sleep"):
+        limiter_a.acquire("core")
+        limiter_b.acquire("core")
+
+    assert (
+        limiter_a.get_global_request_count(),
+        limiter_b.get_global_request_count(),
+        limiter_a.get_quota("core").remaining,
+        limiter_b.get_quota("core").remaining,
+    ) == (2, 2, 98, 98)
+
+
+def test_get_quota_live_disk_sync(tmp_path: Path) -> None:
+    """Verify get_quota reloads fresh state from disk when updated externally."""
+    cache_file = tmp_path / "gh_quota.json"
+    limiter_a = GitHubRateLimiter(persist_path=cache_file)
+    limiter_b = GitHubRateLimiter(persist_path=cache_file)
+    now = time.time()
+
+    limiter_a.update_quota("graphql", remaining=500, limit=5000, reset_epoch=now + 3600.0)
+    quota_b = limiter_b.get_quota("graphql")
+    assert (quota_b.remaining, quota_b.limit) == (500, 5000)
+
+    # External update from instance A
+    limiter_a.update_quota("graphql", remaining=400, limit=5000, reset_epoch=now + 3600.0)
+    quota_b_fresh = limiter_b.get_quota("graphql")
+    assert quota_b_fresh.remaining == 400
+
+
+def test_merge_single_quota_preserves_freshest_consumption() -> None:
+    """Verify _merge_single_quota never overwrites lower remaining with stale higher count."""
+    from devops_cli.github.rate_limiter import _merge_single_quota
+
+    disk_state = QuotaState(limit=5000, remaining=3000, used=2000, reset_epoch=1000.0)
+    mem_state = QuotaState(limit=5000, remaining=4000, used=1000, reset_epoch=1000.0)
+
+    merged = _merge_single_quota(disk_state, mem_state)
+    assert (merged.remaining, merged.used) == (3000, 2000)
+
+
+def test_update_quota_preserves_utilization_on_unknown_used(tmp_path: Path) -> None:
+    """Verify update_quota never resets or overwrites tracked used when used is None."""
+    limiter = GitHubRateLimiter(persist_path=tmp_path / "gh_quota.json")
+    now = time.time()
+
+    limiter.update_quota("graphql", remaining=5000, limit=5000, used=150, reset_epoch=now + 3600.0)
+    assert limiter.get_quota("graphql").used == 150
+
+    # Live response without used header must preserve existing utilization, not reset to 0
+    limiter.update_quota("graphql", remaining=4900, limit=5000, used=None, reset_epoch=now + 3600.0)
+    assert (limiter.get_quota("graphql").used, limiter.get_quota("graphql").remaining) == (
+        150,
+        4900,
+    )
+
+
+def test_get_quota_unknown_subcommand_does_not_mutate_quotas() -> None:
+    """Verify get_quota on untracked subcommand returns blank state without mutating internal quotas."""
+    limiter = GitHubRateLimiter()
+    quota = limiter.get_quota("nonexistent_subcmd")
+    assert (quota.remaining, quota.used, quota.is_valid()) == (None, None, False)
+    assert "nonexistent_subcmd" not in limiter.get_all_quotas()
+
+
+def test_quota_from_dict_preserves_none_and_rejects_malformed() -> None:
+    """Verify QuotaState.from_dict preserves None rather than defaulting to 0, and rejects invalid types."""
+    parsed = QuotaState.from_dict({"limit": 5000, "remaining": 5000, "reset_epoch": 1000.0})
+    assert (parsed.used, parsed.last_request_epoch) == (None, None)
+    with pytest.raises(GitHubRateLimitError, match="Expected dict for QuotaState"):
+        QuotaState.from_dict("not_a_dict")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="Malformed quota state dictionary"):
+        QuotaState.from_dict({"limit": "not_an_int"})
+    with pytest.raises(ValueError, match="Malformed quota state dictionary"):
+        QuotaState.from_dict({"reset_epoch": -10.0})
+
+
+def test_is_cacheable_api_call_rejects_all_mutations() -> None:
+    """Verify _is_cacheable_api_call rejects all HTTP mutation verbs and field arguments."""
+    from devops_cli.github.rate_limiter import _is_cacheable_api_call
+
+    assert _is_cacheable_api_call(["api", "repos/owner/repo/pulls"]) is True
+    assert not _is_cacheable_api_call(["api", "-X", "POST", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "-X", "PUT", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "-X", "PATCH", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "-X", "DELETE", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "--method=DELETE", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "repos/owner/repo/pulls", "-f", "title=foo"])
+
+
+def test_backoff_and_quota_max_age_enforcement() -> None:
+    """Verify calculate_backoff_delay pauses for full reset epoch and quota_max_age detects stale quota."""
+    limiter = GitHubRateLimiter(quota_max_age=10.0)
+    now = time.time()
+    limiter.update_quota("core", remaining=0, limit=5000, reset_epoch=now + 120.0)
+    delay = limiter.calculate_backoff_delay("rate limit exceeded", attempt=1, subcommand="core")
+    assert 118.0 <= delay <= 121.0
+
+    state = QuotaState(
+        limit=5000,
+        remaining=4000,
+        reset_epoch=now + 3600.0,
+        last_updated=now - 20.0,
+    )
+    assert not state.is_valid(now=now, max_age=limiter.quota_max_age)
+    assert state.is_valid(now=now) is True
+
+
+def test_disk_quota_lock_exception_propagation_and_cleanup(tmp_path: Path) -> None:
+    """Verify _disk_quota_lock unlocks and propagates inner exceptions without throw error."""
+    from devops_cli.github.rate_limiter import _DISK_LOCK_STATE, _disk_quota_lock
+
+    lock_target = tmp_path / "quota.json"
+    lock_file = lock_target.with_suffix(".lock")
+
+    with pytest.raises(ZeroDivisionError, match="division by zero"):
+        with _disk_quota_lock(lock_target):
+            assert _DISK_LOCK_STATE.depth.get(lock_file) == 1
+            _ = 1 / 0
+
+    assert _DISK_LOCK_STATE.depth.get(lock_file) == 0
+
+
+def test_disk_quota_lock_oserror_fallback_and_propagation(tmp_path: Path) -> None:
+    """Verify _disk_quota_lock yields and propagates exceptions when advisory locking fails."""
+    from devops_cli.github.rate_limiter import _disk_quota_lock
+
+    lock_target = tmp_path / "quota.json"
+
+    with patch("fcntl.flock", side_effect=OSError("Flock failed")):
+        with pytest.raises(KeyError):
+            with _disk_quota_lock(lock_target):
+                raise KeyError("expected_key_error")
+
+
+def test_rate_limiter_acquire_propagates_unresolvable_quota_error(tmp_path: Path) -> None:
+    """Verify acquire propagates GitHubRateLimitError when quota state cannot be resolved."""
+    cache_file = tmp_path / "gh_quota.json"
+    limiter = GitHubRateLimiter(persist_path=cache_file, min_interval=0.05)
+
+    with (
+        patch.object(
+            limiter,
+            "_resolve_quota_state",
+            side_effect=GitHubRateLimitError("offline"),
+        ),
+        patch("time.sleep") as mock_sleep,
+    ):
+        with pytest.raises(GitHubRateLimitError, match="offline"):
+            limiter.acquire("core")
+        mock_sleep.assert_not_called()
+
+
+def test_build_paginated_url_and_extraction() -> None:
+    """Verify _build_paginated_url and _extract_page_per_page handle query params cleanly."""
+    from urllib.parse import parse_qs, urlsplit
+
+    from devops_cli.github.rate_limiter import (
+        _build_paginated_url,
+        _extract_page_per_page,
+    )
+
+    url_with_per_page = "repos/owner/repo/issues?state=all&per_page=100"
+    url_p2 = _build_paginated_url(url_with_per_page, 2)
+    qs_p2 = parse_qs(urlsplit(url_p2).query)
+
+    url_plain = "repos/owner/repo/issues"
+    url_plain_p3 = _build_paginated_url(url_plain, 3)
+    qs_plain = parse_qs(urlsplit(url_plain_p3).query)
+
+    url_existing_page = "repos/owner/repo/pulls?page=1&per_page=50"
+    url_existing_p4 = _build_paginated_url(url_existing_page, 4)
+    qs_existing = parse_qs(urlsplit(url_existing_p4).query)
+
+    assert (
+        _extract_page_per_page(url_with_per_page),
+        _extract_page_per_page(url_plain),
+        _extract_page_per_page("repos/owner/repo?per_page=25"),
+        qs_p2.get("page"),
+        qs_p2.get("state"),
+        qs_p2.get("per_page"),
+        qs_plain.get("page"),
+        qs_existing.get("page"),
+        qs_existing.get("per_page"),
+    ) == (
+        100,
+        100,
+        25,
+        ["2"],
+        ["all"],
+        ["100"],
+        ["3"],
+        ["4"],
+        ["50"],
+    )
+
+
+def test_run_gh_paginated_multipage_success(tmp_path: Path) -> None:
+    """Verify _run_gh_paginated iterates across multiple pages and terminates correctly."""
+    page_calls: list[list[str]] = []
+
+    def mock_subprocess_runner(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        page_calls.append(cmd)
+        from urllib.parse import parse_qs, urlsplit
+
+        target_arg = next((arg for arg in cmd if "repos/owner/repo/issues" in arg), "")
+        page_val = parse_qs(urlsplit(target_arg).query).get("page")
+        if page_val == ["2"]:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout='[{"id": 3}]', stderr=""
+            )
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout='[{"id": 1}, {"id": 2}]', stderr=""
+        )
+
+    with (
+        patch(
+            "devops_cli.github.rate_limiter._extract_page_per_page",
+            return_value=2,
+        ),
+        patch(
+            "devops_cli.github.rate_limiter.run_subprocess",
+            side_effect=mock_subprocess_runner,
+        ),
+        patch.object(get_github_rate_limiter(), "acquire", return_value=0.0),
+    ):
+        res = run_gh(["api", "--paginate", "repos/owner/repo/issues?per_page=2"])
+        assert (res.returncode, res.stdout, len(page_calls)) == (
+            0,
+            '[{"id": 1}, {"id": 2}, {"id": 3}]',
+            2,
+        )
+
+
+def test_extract_rate_limit_endpoint_response_valid() -> None:
+    """Verify _extract_rate_limit_endpoint_response parses valid metrics without defaulting reset to 0.0."""
+    from devops_cli.github.rate_limiter import (
+        GitHubRateLimiter,
+        _extract_rate_limit_endpoint_response,
+    )
+
+    limiter = GitHubRateLimiter()
+    raw = json.dumps(
+        {
+            "resources": {
+                "core": {"limit": 5000, "remaining": 4900, "used": 100, "reset": 1789249509},
+                "search": {"limit": 30, "remaining": 25},
+            }
+        }
+    )
+    _extract_rate_limit_endpoint_response(raw, limiter)
+    core_quota = limiter.get_quota("core")
+    assert (core_quota.remaining, core_quota.limit, core_quota.used, core_quota.reset_epoch) == (
+        4900,
+        5000,
+        100,
+        1789249509.0,
+    )
+    search_quota = limiter.get_quota("search")
+    assert (search_quota.remaining, search_quota.limit, search_quota.reset_epoch) == (
+        25,
+        30,
+        None,
+    )
+
+
+def test_extract_rate_limit_endpoint_response_invalid_format_raises() -> None:
+    """Verify _extract_rate_limit_endpoint_response raises GitHubRateLimitError on invalid payload format."""
+    from devops_cli.exceptions.git import GitHubRateLimitError
+    from devops_cli.github.rate_limiter import (
+        GitHubRateLimiter,
+        _extract_rate_limit_endpoint_response,
+    )
+
+    limiter = GitHubRateLimiter()
+    with pytest.raises(GitHubRateLimitError) as exc_info:
+        _extract_rate_limit_endpoint_response("not-json", limiter)
+    assert "Invalid rate_limit payload format" in str(exc_info.value)
+
+    with pytest.raises(GitHubRateLimitError) as exc_info2:
+        _extract_rate_limit_endpoint_response('{"no_resources": true}', limiter)
+    assert "Missing resources dictionary" in str(exc_info2.value)
+
+
+def test_extract_rate_limit_endpoint_response_malformed_metric_raises() -> None:
+    """Verify _extract_rate_limit_endpoint_response raises GitHubRateLimitError on malformed metric values."""
+    from devops_cli.exceptions.git import GitHubRateLimitError
+    from devops_cli.github.rate_limiter import (
+        GitHubRateLimiter,
+        _extract_rate_limit_endpoint_response,
+    )
+
+    limiter = GitHubRateLimiter()
+    bad_payload = json.dumps({"resources": {"core": {"remaining": "not-an-int"}}})
+    with pytest.raises(GitHubRateLimitError) as exc_info:
+        _extract_rate_limit_endpoint_response(bad_payload, limiter)
+    assert "Malformed rate limit metric" in str(exc_info.value)

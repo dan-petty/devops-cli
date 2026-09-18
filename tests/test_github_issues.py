@@ -63,7 +63,7 @@ def test_get_repository_issues_success() -> None:
             "url": "https://github.com/dan-petty/devops-cli/issues/77",
         }
     ]
-    with patch("devops_cli.github.issues.run_subprocess") as mock_proc:
+    with patch("devops_cli.github.issues.run_gh") as mock_proc:
         mock_proc.return_value = MagicMock(returncode=0, stdout=json.dumps(payload))
         issues = get_repository_issues("dan-petty/devops-cli")
         assert len(issues) == 1
@@ -83,7 +83,7 @@ def test_create_repository_issue_success() -> None:
         "assignees": [],
         "url": "https://github.com/dan-petty/devops-cli/issues/84",
     }
-    with patch("devops_cli.github.issues.run_subprocess") as mock_proc:
+    with patch("devops_cli.github.issues.run_gh") as mock_proc:
         mock_proc.return_value = MagicMock(returncode=0, stdout=json.dumps(payload))
         issue = create_repository_issue(
             repo="dan-petty/devops-cli",
@@ -161,7 +161,7 @@ def test_get_issues_summary() -> None:
 def test_create_repository_issue_failure_bounds_title_in_error_details() -> None:
     """Verify that GitHubOperationError details truncates unbounded title to max 256 chars."""
     huge_title = "fix(security): " + ("A" * 1500)
-    with patch("devops_cli.github.issues.run_subprocess") as mock_proc:
+    with patch("devops_cli.github.issues.run_gh") as mock_proc:
         mock_proc.return_value = MagicMock(returncode=1, stderr="GraphQL mutation error", stdout="")
         with pytest.raises(GitHubOperationError) as exc_info:
             create_repository_issue(
@@ -204,9 +204,7 @@ def test_get_repository_issues_graphql_rate_limit_fallback_to_rest() -> None:
     ]
     mock_rest_res = MagicMock(returncode=0, stdout=json.dumps(rest_issues_payload), stderr="")
 
-    with patch(
-        "devops_cli.github.issues.run_subprocess", side_effect=[mock_gh_cli_err, mock_rest_res]
-    ):
+    with patch("devops_cli.github.issues.run_gh", side_effect=[mock_gh_cli_err, mock_rest_res]):
         issues = get_repository_issues("dan-petty/devops-cli", milestone="v0.2.17")
         assert len(issues) == 1
         assert issues[0].number == 180
@@ -262,7 +260,7 @@ def test_fetch_issues_rest_filtering_and_limits() -> None:
         {"number": 3, "title": "Issue 3", "milestone": {"title": "v0.2.17"}, "labels": []},
     ]
     mock_res = MagicMock(returncode=0, stdout=json.dumps(payload), stderr="")
-    with patch("devops_cli.github.issues.run_subprocess", return_value=mock_res):
+    with patch("devops_cli.github.issues.run_gh", return_value=mock_res):
         issues = _fetch_issues_rest(
             "dan-petty/devops-cli",
             milestone="v0.2.17",
@@ -278,13 +276,13 @@ def test_fetch_issues_rest_errors_and_invalid_json() -> None:
     from devops_cli.github.issues import _fetch_issues_rest
 
     mock_fail = MagicMock(returncode=1, stdout="", stderr="Error")
-    with patch("devops_cli.github.issues.run_subprocess", return_value=mock_fail):
+    with patch("devops_cli.github.issues.run_gh", return_value=mock_fail):
         assert _fetch_issues_rest("dan-petty/devops-cli") == []
 
     mock_bad_json = MagicMock(returncode=0, stdout="not-json", stderr="")
-    with patch("devops_cli.github.issues.run_subprocess", return_value=mock_bad_json):
+    with patch("devops_cli.github.issues.run_gh", return_value=mock_bad_json):
         assert _fetch_issues_rest("dan-petty/devops-cli") == []
 
     mock_not_list = MagicMock(returncode=0, stdout="{}", stderr="")
-    with patch("devops_cli.github.issues.run_subprocess", return_value=mock_not_list):
+    with patch("devops_cli.github.issues.run_gh", return_value=mock_not_list):
         assert _fetch_issues_rest("dan-petty/devops-cli") == []

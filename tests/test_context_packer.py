@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import ast
 import json
+import time
 from pathlib import Path
 
 from typer.testing import CliRunner
 
+from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.context_packer import (
     ContextPacker,
     PackedContext,
     PackingConfig,
+    _estimate_stmt_tokens,
+    _find_truncation_index,
+    _prune_tree_to_budget,
 )
 from devops_cli.main import app
 
@@ -267,3 +272,103 @@ def test_prune_tree_linear_statement_scaling() -> None:
     assert len(packed.pruned_symbols) > 50
     # Output must be syntactically valid Python
     ast.parse(packed.content)
+
+
+def test_prune_tree_binary_search_under_10ms() -> None:
+    """Verify that binary search truncation on 1,000-line AST trees runs under 10ms."""
+    code_lines = [
+        f"def worker_fn_{i}(arg: int) -> int:\n    y = arg + {i}\n    return y\n"
+        for i in range(334)
+    ]
+    large_code = "\n".join(code_lines)
+    tree = ast.parse(large_code)
+    # Warm up tokenizer encoding
+    count_tokens("def _warmup() -> None:\n    pass")
+
+    pruned: list[str] = []
+    start_time = time.perf_counter()
+    unparsed, truncated = _prune_tree_to_budget(tree, 200, pruned)
+    duration = time.perf_counter() - start_time
+
+    assert count_tokens(unparsed) <= 200
+    assert len(pruned) > 300
+    assert truncated is True
+    assert duration < 0.010, f"Execution exceeded benchmark threshold: {duration * 1000:.2f}ms"
+    # Output must be syntactically valid Python without syntax errors
+    parsed = ast.parse(unparsed)
+    assert parsed is not None
+
+
+def test_prune_tree_exact_boundary_integrity() -> None:
+    """Verify boundary cases for statement truncation: tiny budgets and empty bodies."""
+    packer = ContextPacker()
+
+    # Zero/minimal budget fallback
+    packed_tight = packer.pack_code(
+        "def foo() -> None:\n    pass\ndef bar() -> None:\n    pass",
+        config=PackingConfig(max_tokens=3),
+    )
+    assert isinstance(packed_tight, PackedContext)
+    assert packed_tight.truncated is True
+
+    # High budget retains all statements
+    packed_full = packer.pack_code(
+        "def a(): pass\ndef b(): pass",
+        config=PackingConfig(max_tokens=500),
+    )
+    assert packed_full.truncated is False
+    assert "def a" in packed_full.content
+    assert "def b" in packed_full.content
+
+    # Empty AST module body produces empty content without truncation
+    empty_tree = ast.Module(body=[], type_ignores=[])
+    pruned_empty: list[str] = []
+    res_empty, trunc_empty = _prune_tree_to_budget(empty_tree, 100, pruned_empty)
+    assert res_empty == ""
+    assert trunc_empty is False
+    assert pruned_empty == []
+
+    # Non-empty tree with max_tokens <= 0 omits every statement and records pruned symbols
+    zero_budget_tree = ast.parse("def a(): pass\ndef b(): pass")
+    pruned_zero: list[str] = []
+    res_zero, trunc_zero = _prune_tree_to_budget(zero_budget_tree, 0, pruned_zero)
+    assert res_zero == "# [Code truncated due to token budget]"
+    assert trunc_zero is True
+    assert pruned_zero == ["a", "b"]
+    assert zero_budget_tree.body == []
+
+
+def test_find_truncation_index_short_statements_expands_to_full_body() -> None:
+    """Verify that truncation index search explores full body for short statements."""
+    code_lines = [f"x_{i} = {i}" for i in range(50)]
+    tree = ast.parse("\n".join(code_lines))
+    budget = count_tokens("\n".join(code_lines)) + 10
+    pruned: list[str] = []
+    unparsed, trunc = _prune_tree_to_budget(tree, budget, pruned)
+    assert trunc is False
+    assert len(pruned) == 0
+    assert "x_49" in unparsed
+
+    best_k, cand = _find_truncation_index(tree.body, budget)
+    assert best_k == len(tree.body)
+
+    # When budget is strictly constrained, truncation occurs and pruned symbols are recorded
+    pruned_partial: list[str] = []
+    tree_partial = ast.parse("\n".join(code_lines))
+    unparsed_part, trunc_part = _prune_tree_to_budget(tree_partial, 50, pruned_partial)
+    assert trunc_part is True
+    assert len(pruned_partial) > 0
+    assert count_tokens(unparsed_part) <= 50
+
+
+def test_estimate_stmt_tokens_memoization() -> None:
+    """Verify that statement token weights are estimated in O(1) and memoized on AST nodes."""
+    tree = ast.parse("def sample_function(x: int, y: str) -> bool:\n    pass")
+    fn_node = tree.body[0]
+    est1 = _estimate_stmt_tokens(fn_node)
+    assert est1 > 0
+    assert getattr(fn_node, "_est_tokens", None) == est1
+
+    # Mutate attribute to test memoization lookup
+    fn_node._est_tokens = 999
+    assert _estimate_stmt_tokens(fn_node) == 999

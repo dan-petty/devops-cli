@@ -218,12 +218,12 @@ def test_cli_labels_sync(tmp_path: Path) -> None:
     )
 
     runner = CliRunner()
+    mock_client = MagicMock()
+    mock_client.get_labels.return_value = []
     with (
-        patch("devops_cli.commands.gh._get_github_client", return_value=None),
+        patch("devops_cli.commands.gh._get_github_client", return_value=mock_client),
         patch("devops_cli.commands.gh._get_repo_labels", return_value=[]),
-        patch("devops_cli.commands.gh.run_gh") as mock_sub,
     ):
-        mock_sub.return_value = MagicMock(returncode=0, stdout="")
         res = runner.invoke(app, ["labels", "sync", "--file", str(labels_file), "--dry-run"])
         assert res.exit_code == 0
         assert "DRY RUN" in res.output
@@ -329,12 +329,12 @@ def test_cli_milestones_sync(tmp_path: Path) -> None:
     roadmap.write_text("# Roadmap\n### Test Milestone (v0.9.0 - Scheduled)\n", encoding="utf-8")
 
     runner = CliRunner()
+    mock_client = MagicMock()
+    mock_client.get_milestones.return_value = []
     with (
-        patch("devops_cli.commands.gh._get_github_client", return_value=None),
+        patch("devops_cli.commands.gh._get_github_client", return_value=mock_client),
         patch("devops_cli.commands.gh._get_repo_milestones", return_value=[]),
-        patch("devops_cli.commands.gh.run_gh") as mock_sub,
     ):
-        mock_sub.return_value = MagicMock(returncode=0, stdout="")
         res = runner.invoke(app, ["milestones", "sync", "--roadmap", str(roadmap), "--dry-run"])
         assert res.exit_code == 0
         assert "Milestone synchronization" in res.output

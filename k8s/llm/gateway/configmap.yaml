@@ -1,0 +1,42 @@
+# LiteLLM Proxy / AI Gateway routing configuration.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-gateway-config
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: llm-gateway
+    app.kubernetes.io/part-of: devops-cli-stack
+data:
+  config.yaml: |
+    model_list:
+      - model_name: devops-chat
+        litellm_params:
+          model: ollama/qwen2.5-coder:7b
+          api_base: http://ollama.llm.svc.cluster.local:11434
+      - model_name: devops-coder
+        litellm_params:
+          model: ollama/qwen2.5-coder:14b
+          api_base: http://ollama.llm.svc.cluster.local:11434
+      - model_name: devops-reasoning
+        litellm_params:
+          model: openai/llama-3.3-70b-instruct
+          api_base: http://vllm.llm.svc.cluster.local:8000/v1
+          api_key: none
+      - model_name: devops-embedding
+        litellm_params:
+          model: ollama/bge-m3
+          api_base: http://ollama.llm.svc.cluster.local:11434
+
+    router_settings:
+      routing_strategy: least-busy
+      num_retries: 3
+      timeout: 60
+      fallbacks:
+        - devops-reasoning: [devops-coder]
+        - devops-coder: [devops-chat]
+
+    general_settings:
+      store_model_in_db: false
+      proxy_batch_write_at: 10

@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from devops_cli import __version__
+from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.telemetry.tracer import get_tracer
 
 router = APIRouter(prefix="/api/v1", tags=["Status"])
@@ -48,7 +49,7 @@ async def get_system_status() -> SystemStatusResponse:
         "tofu",
         "terraform",
         "ollama",
-        "gh",
+        CONST_GH_CLI,
     ]
     from pathlib import Path
 

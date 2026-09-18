@@ -109,6 +109,15 @@ class AICommandHelp:
     tools: str = "Enable DevOps agent tools."
     thinking: str = "Enable model reasoning/thinking."
     prewarm: str = "Prewarm the model before starting chat."
+    prewarm_cmd: str = (
+        "Prewarm local models into GPU VRAM or evict idle models across cluster nodes."
+    )
+    prewarm_model: str = "Model name to prewarm or evict (defaults to configured AI model)."
+    prewarm_keep_alive: str = (
+        "Keep-alive duration for loaded model (e.g. 1h, 24h, forever, or 0 for eviction)."
+    )
+    prewarm_all_nodes: str = "Prewarm or evict model across all configured Ollama cluster nodes."
+    prewarm_evict: str = "Evict the model from GPU VRAM immediately (sets keep_alive to 0)."
     explain_chat: str = "Explain chat personas, tools, and reasoning modes."
     explain_all: str = "Explain AI agent workflows, FastMCP tools, RAG terminology, and metrics."
     goal: str = "Initial goal or prompt for the multi-agent pipeline."
@@ -442,6 +451,9 @@ class CICommandHelp:
     maintain: str = (
         "Run automated toolchain, dependency freshness, and lockfile maintenance checks."
     )
+    uv_check: str = "Run uv check for fast static type checking and project validation."
+    lockfile: str = "Verify lockfile consistency and freshness via uv lock --check."
+    outdated: str = "Display outdated dependencies and packages via uv tree --outdated."
 
 
 @dataclass(frozen=True)
@@ -587,6 +599,7 @@ class PRCommandHelp:
     edit_base: str = "Change the base branch for this pull request."
     edit_title: str = "Set the new title."
     edit_body: str = "Set the new body."
+    edit_milestone: str = "Set the milestone for this pull request."
     threads_app: str = "Manage and programmatically resolve PR review discussion threads."
     threads_list: str = "List PR review discussion threads, file locations, and comments."
     threads_reply: str = "Post an in-thread reply to a PR review discussion thread."
@@ -720,6 +733,10 @@ class ReleaseCommandHelp:
     skip_ci: str = "Skip running the 7-gate CI test suite."
     allow_dirty: str = "Allow uncommitted changes in git repository."
     tag_message: str = "Custom tag annotation message."
+    changelog: str = "Compile and generate changelog entries from commits or PRs."
+    changelog_update: str = "Update CHANGELOG.md in-place with generated release notes."
+    changelog_from_tag: str = "Starting git tag or ref for changelog compilation."
+    changelog_to_tag: str = "Ending git tag or ref for changelog compilation."
 
 
 @dataclass(frozen=True)

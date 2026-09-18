@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
 import sys
 import time
 from pathlib import Path
@@ -114,7 +115,7 @@ def _run(
     root = _get_project_root()
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
-        full_cmd[1:1] = ["--preview-features", "malware-check"]
+        full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
     result = _get("run_subprocess")(
         full_cmd, cwd=root, timeout=timeout, capture_output=capture_output
     )
@@ -125,8 +126,11 @@ def _section(title: str) -> None:
     _get("print_section")(f" {title} ", style="cyan")
 
 
-def _clean_coverage_artifacts() -> None:
+def _clean_coverage_artifacts(*, force: bool = False) -> None:
     """Clean up residual temporary .coverage.* worker files from root workspace and .data/."""
+    if not force and os.getenv("PYTEST_CURRENT_TEST"):
+        return
+
     current_root = getattr(sys.modules[__name__], "_ROOT", _get_project_root())
 
     for target_dir in (current_root, current_root / ".data"):
@@ -144,6 +148,20 @@ def _clean_coverage_artifacts() -> None:
             pass
 
 
+def _format_process_output(raw: str | bytes | None) -> str:
+    """Safely decode raw subprocess output to string."""
+    if not raw:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    return raw.decode("utf-8", errors="replace")
+
+
+def _format_check_badge(passed: bool) -> str:
+    """Format rich terminal badge for check status."""
+    return "[green]✓ pass[/green]" if passed else "[bold red]✗ fail[/bold red]"
+
+
 async def _execute_check_async(
     name: str,
     display_title: str,
@@ -157,7 +175,7 @@ async def _execute_check_async(
     root = _get_project_root()
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
-        full_cmd[1:1] = ["--preview-features", "malware-check"]
+        full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
 
     with _get("trace_span")(span_name):
         proc = await _get("run_subprocess_async")(
@@ -171,19 +189,18 @@ async def _execute_check_async(
         _get("record_metric")(
             "ci.step_pass", 1.0 if passed else 0.0, attributes={"step": metric_step}
         )
-        stdout_val = getattr(proc, "stdout", "") or ""
-        stderr_val = getattr(proc, "stderr", "") or ""
+        from devops_cli.output import format_duration
+
+        badge = _format_check_badge(passed)
+        _get("print_muted")(f"  {badge} [{name}] {display_title} ({format_duration(dur)})")
+        sys.stdout.flush()
         return CheckResult(
             name=name,
             display_title=display_title,
             passed=passed,
             duration_seconds=dur,
-            stdout=stdout_val
-            if isinstance(stdout_val, str)
-            else stdout_val.decode("utf-8", errors="replace"),
-            stderr=stderr_val
-            if isinstance(stderr_val, str)
-            else stderr_val.decode("utf-8", errors="replace"),
+            stdout=_format_process_output(getattr(proc, "stdout", "")),
+            stderr=_format_process_output(getattr(proc, "stderr", "")),
         )
 
 
@@ -210,6 +227,13 @@ async def _run_all_checks_async(
         passed=py_ok,
         duration_seconds=py_dur,
     )
+    from devops_cli.output import format_duration
+
+    py_badge = "[green]✓ pass[/green]" if py_ok else "[bold red]✗ fail[/bold red]"
+    _get("print_muted")(
+        f"  {py_badge} [python_version] {py_result.display_title} ({format_duration(py_dur)})"
+    )
+    sys.stdout.flush()
     if not py_ok:
         return [py_result]
 
@@ -248,10 +272,14 @@ async def _run_all_checks_async(
                 "docs_fix",
             )
 
+    _get("print_muted")(f"  ⏳ [test] {MESSAGES.ci.pytest_coverage} running in background...")
+    sys.stdout.flush()
+
     with _get("trace_span")(
         "ci.run_pipeline",
         attributes={"lint_fix": lint_fix, "format_fix": format_fix, "docs_fix": docs_fix},
     ):
+        _clean_coverage_artifacts()
         tasks = [
             _execute_check_async(
                 "test",
@@ -325,6 +353,27 @@ async def _run_all_checks_async(
                 ["uv", "run", "devops", "docs", "check"],
                 "ci.step.docs",
                 "docs",
+            ),
+            _execute_check_async(
+                "uv_check",
+                MESSAGES.ci.uv_check,
+                ["uv", "check"],
+                "ci.step.uv_check",
+                "uv_check",
+            ),
+            _execute_check_async(
+                "lockfile",
+                MESSAGES.ci.uv_lock,
+                ["uv", "lock", "--check"],
+                "ci.step.lockfile",
+                "lockfile",
+            ),
+            _execute_check_async(
+                "outdated",
+                MESSAGES.ci.uv_outdated,
+                ["uv", "tree", "--outdated", "--depth=1"],
+                "ci.step.outdated",
+                "outdated",
             ),
         ]
 
@@ -410,6 +459,8 @@ def all_checks(
 
     effective_fix = fix and not check
     start_time = time.perf_counter()
+    _get("print_info")("Executing CI quality gates concurrently...")
+    sys.stdout.flush()
     results = asyncio.run(
         _run_all_checks_async(
             lint_fix=effective_fix, format_fix=effective_fix, docs_fix=effective_fix
@@ -644,6 +695,54 @@ def docs(
         if not _run(["uv", "run", "devops", "docs", "generate", "--sync-readme"]):
             raise typer.Exit(1)
     if not _run(["uv", "run", "devops", "docs", "check"]):
+        raise typer.Exit(1)
+
+
+@app.command(name="uv-check")
+def uv_check(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Run uv check for fast static type checking and project validation."""
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    if not _run(["uv", "check"]):
+        raise typer.Exit(1)
+
+
+@app.command()
+def lockfile(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Verify lockfile consistency and freshness via uv lock --check."""
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    if not _run(["uv", "lock", "--check"]):
+        raise typer.Exit(1)
+
+
+@app.command()
+def outdated(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Display outdated dependencies and packages via uv tree --outdated."""
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    if not _run(["uv", "tree", "--outdated", "--depth=1"]):
         raise typer.Exit(1)
 
 

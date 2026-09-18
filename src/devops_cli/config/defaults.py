@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Final, Literal
 
 from devops_cli.config.constants import (
     CONST_ANALYSIS_DIR_NAME,
@@ -67,7 +67,16 @@ DEFAULT_AI_CONTEXT_WINDOW: int = 32768
 DEFAULT_AI_MAX_CONTEXT_WINDOW: int = 131072
 DEFAULT_OLLAMA_URLS: tuple[str, ...] = (CONST_URL_OLLAMA_LOCALHOST,)
 DEFAULT_OLLAMA_MAX_PARALLEL: int = 2
+DEFAULT_AI_PREWARM_KEEP_ALIVE: str = "1h"
+DEFAULT_AI_EVICT_KEEP_ALIVE: int = 0
 DEFAULT_AI_MAX_RETRIES: int = 2
+DEFAULT_AI_GATEWAY_URL: str = "http://localhost:4000/v1"
+DEFAULT_AI_GATEWAY_CLUSTER_URL: str = "http://llm-gateway.llm.svc.cluster.local:4000/v1"
+DEFAULT_AI_GATEWAY_ENABLED: bool = False
+DEFAULT_AI_GATEWAY_TIMEOUT_SECONDS: float = 60.0
+DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS: float = 5.0
+DEFAULT_STRUCTURED_OUTPUT_MAX_RETRIES: int = 2
+DEFAULT_STRUCTURED_RETRY_BACKOFF_SECONDS: float = 0.5
 DEFAULT_AI_DURABLE_ENGINE: str = "sqlite"
 DEFAULT_AI_DURABLE_STORE_PATH: Path = DEFAULT_DATA_DIR / "durable_runs.db"
 DEFAULT_AI_DURABLE_TASK_QUEUE: str = "devops-cli-tasks"
@@ -150,6 +159,12 @@ DEFAULT_RAG_EMBEDDING_MODEL = "qwen3-embedding:0.6b"
 DEFAULT_RAG_EMBEDDING_URL: str | None = None
 DEFAULT_RAG_EMBEDDING_CACHE_SIZE: int = 1024  # Max entries in in-memory embedding LRU cache
 DEFAULT_RAG_EMBEDDING_TIMEOUT: float = 15.0  # Bounded timeout for fast failover across nodes
+DEFAULT_RAG_EMBEDDING_BATCH_SIZE: int = 32  # Dynamic batch starting size
+DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE: int = 1  # Minimum single-chunk fallback size
+DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS: float = 2.0  # Target latency ceiling
+DEFAULT_RAG_EMBEDDING_BACKOFF_BASE_SECONDS: float = 0.5  # Base delay for exponential backoff
+DEFAULT_RAG_EMBEDDING_MAX_BACKOFF_SECONDS: float = 2.0  # Max delay cap for backoff
+DEFAULT_VALKEY_EMBEDDING_TTL_SECONDS: int = 604800  # 7 days TTL for cached chunk embeddings
 DEFAULT_RAG_TOP_K: int = 5
 DEFAULT_RAG_SCORE_THRESHOLD: float = 0.35
 DEFAULT_RAG_CHUNK_SIZE: int = 2400
@@ -219,7 +234,7 @@ DEFAULT_SERVER_OPENAPI_URL: str = "/openapi.json"
 DEFAULT_SERVER_HOST: str = "127.0.0.1"
 DEFAULT_SERVER_PORT: int = 8000
 DEFAULT_SERVER_WORKERS: int = 1
-DEFAULT_LOG_LEVEL: str = "info"
+DEFAULT_LOG_LEVEL: Final = "info"
 
 # ── Output, Formatting & File Writing Defaults ─────────────────────────────────
 DEFAULT_FORMAT_TYPE: str = "json"
@@ -238,7 +253,7 @@ DEFAULT_BADGE_OK_COLOR: str = "green"
 DEFAULT_BADGE_FAIL_COLOR: str = "red"
 DEFAULT_BADGE_WARN_COLOR: str = "yellow"
 DEFAULT_CODE_SPAN_COLOR: str = "cyan"
-DEFAULT_STREAM_NAME: str = "stdout"
+DEFAULT_STREAM_NAME: Final = "stdout"
 DEFAULT_STREAM_PERSONA: str = "devsecops"
 DEFAULT_ALLOWED_STREAM_PERSONAS: frozenset[str] = frozenset(
     {"devsecops", "architect", "challenger", "auditor", "qa", "pm"}
@@ -297,6 +312,10 @@ DEFAULT_MAX_RELATED_FILES: int = 3
 DEFAULT_RELATED_FILE_MAX_CHARS: int = 1500
 DEFAULT_PRE_ANALYSIS_WORKERS: int = 4
 DEFAULT_REVIEW_MAX_WORKERS: int = 4
+DEFAULT_REVIEW_CONCURRENCY: int = 4
+DEFAULT_REVIEW_MAX_CONCURRENCY: int = 8
+DEFAULT_REVIEW_RATE_LIMIT: float = 10.0
+DEFAULT_REVIEW_RATE_CAPACITY: float = 10.0
 DEFAULT_APPLY_PATCH_INDEX: int = 1
 DEFAULT_INVALIDATED_STATUS: str = "INVALIDATED"
 DEFAULT_BANDIT_SEVERITY: str = "medium"
@@ -532,8 +551,12 @@ DEFAULT_PR_MONITOR_SETTLE_TIMEOUT_SECONDS: int = 60
 DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS: float = 30.0
 DEFAULT_GH_MAX_RETRIES: int = 2
 DEFAULT_GH_RESOURCE: str = "core"
-DEFAULT_GH_CACHE_TTL_SECONDS: float = 1.0
-DEFAULT_GH_NO_DELAY_USED_PERCENT: float = 30.0
+DEFAULT_GH_CACHE_TTL_SECONDS: float = 60.0
+DEFAULT_GH_GRAPHQL_SAFETY_THRESHOLD: int = 500
+DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC: int = 25
+DEFAULT_GH_QUOTA_MAX_AGE_SECONDS: float = 300.0
+DEFAULT_GH_MAX_PAGINATED_PAGES: int = 100
+DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_VAULT_SECRET_PATH: str = "secret/devops"
 DEFAULT_SECRET_SOURCE: str = "keyring"
 

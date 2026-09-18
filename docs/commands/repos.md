@@ -30,7 +30,7 @@ devops repos clone-org [OPTIONS] <org>
 
 ## `devops repos clone`
 
-**Clone an individual repository into `repos/_standalone/<name>/.`.**
+**Clone an individual repository into `repos/<org>/<name>/.` (or `repos/_standalone/<name>/.`).**
 
 ```bash
 devops repos clone [OPTIONS] <url>

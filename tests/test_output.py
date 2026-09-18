@@ -892,3 +892,26 @@ def test_format_link_and_badges_escape_markup() -> None:
 
     badge = format_status_badge("ok", label="[bold]Status: OK[/bold]")
     assert r"\[bold]Status: OK\[/bold]" in badge
+
+
+def test_table_payload_render_honors_header_options() -> None:
+    """Verify TablePayload.render honors show_header and header_style."""
+    from devops_cli.output.models import TablePayload
+
+    payload_custom = TablePayload(
+        title="Custom Header",
+        columns=["Name", "Value"],
+        rows=[["A", "1"]],
+        show_header=False,
+        header_style="italic yellow",
+    )
+    tbl = payload_custom.render()
+    assert (tbl.show_header, tbl.header_style) == (False, "italic yellow")
+
+    payload_default = TablePayload(
+        title="Default Header",
+        columns=["Name", "Value"],
+        rows=[["B", "2"]],
+    )
+    tbl_default = payload_default.render()
+    assert (tbl_default.show_header, tbl_default.header_style) == (True, "bold")

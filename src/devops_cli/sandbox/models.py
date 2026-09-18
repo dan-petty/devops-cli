@@ -128,7 +128,7 @@ def _resolve_public_host(host: str) -> list[str]:
             raise
     try:
         addr_info = socket.getaddrinfo(host, None)
-        resolved_ips = {str(info[4][0]) for info in addr_info if info and len(info) >= 5}
+        resolved_ips = {str(info[4][0]) for info in addr_info if len(info) >= 5}
     except OSError as exc:
         raise ValueError(f"Public whitelist domain '{host}' DNS resolution failed: {exc}") from exc
     if not resolved_ips:
@@ -166,7 +166,7 @@ def _resolve_local_host(host: str) -> list[str]:
             raise
     try:
         addr_info = socket.getaddrinfo(host, None)
-        resolved_ips = {str(info[4][0]) for info in addr_info if info and len(info) >= 5}
+        resolved_ips = {str(info[4][0]) for info in addr_info if len(info) >= 5}
     except OSError as exc:
         raise ValueError(f"Local whitelist hostname '{host}' DNS resolution failed: {exc}") from exc
     if not resolved_ips:
@@ -370,6 +370,8 @@ class SandboxDeployConfig(BaseModel):
     cpu_limit: float = DEFAULT_SANDBOX_CPUS
     network_config: SandboxNetworkConfig = Field(default_factory=SandboxNetworkConfig)
     network_mode: str = "none"
+    public_whitelist: list[str] = Field(default_factory=list)
+    local_whitelist: list[str] = Field(default_factory=list)
     rootless: bool = True
     env: dict[str, str] = Field(default_factory=dict)
     timeout: float = 300.0

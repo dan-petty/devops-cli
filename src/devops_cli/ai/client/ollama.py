@@ -23,6 +23,7 @@ from devops_cli.ai.client.streaming import (
     _consume_streaming_lines,
     _extract_ollama_stream_tuple,
 )
+from devops_cli.config.defaults import DEFAULT_AI_EVICT_KEEP_ALIVE
 from devops_cli.models.ai import ChatMessage
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
@@ -34,8 +35,14 @@ logger = logging.getLogger(__name__)
 class OllamaProviderMixin(BaseLLMProviderMixin):
     """Mixin implementing Ollama chat, streaming, and model discovery methods."""
 
-    def _preload_single_ollama_url(self, url: str) -> tuple[str, bool]:
-        """Prewarm model on a single Ollama endpoint."""
+    def _preload_single_ollama_url(
+        self,
+        url: str,
+        model: str | None = None,
+        keep_alive: str | int = "1h",
+    ) -> tuple[str, bool]:
+        """Prewarm or evict model on a single Ollama endpoint."""
+        target_model = model or self._config.model
         try:
             base = self._validate_base_url(
                 url,
@@ -45,7 +52,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
                 res = http_client.post(
                     f"{base}/api/generate",
-                    json={"model": self._config.model, "keep_alive": "1h"},
+                    json={"model": target_model, "prompt": "", "keep_alive": keep_alive},
                 )
                 return (url, res.status_code == 200)
         except Exception:
@@ -54,11 +61,16 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
     def _execute_preload_all(
         self,
         all_urls: list[str],
-        on_complete: Callable[[dict[str, bool]], None] | None,
+        on_complete: Callable[[dict[str, bool]], None] | None = None,
+        model: str | None = None,
+        keep_alive: str | int = "1h",
     ) -> dict[str, bool]:
         results: dict[str, bool] = {}
         with ThreadPoolExecutor(max_workers=max(len(all_urls), 1)) as executor:
-            futures = [executor.submit(self._preload_single_ollama_url, url) for url in all_urls]
+            futures = [
+                executor.submit(self._preload_single_ollama_url, url, model, keep_alive)
+                for url in all_urls
+            ]
             for future in as_completed(futures):
                 url, ok = future.result()
                 results[url] = ok
@@ -74,36 +86,87 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
     def preload_models(
         self,
         *,
+        model: str | None = None,
+        keep_alive: str | int = "1h",
+        urls: list[str] | None = None,
         blocking: bool = True,
         on_complete: Callable[[dict[str, bool]], None] | None = None,
     ) -> dict[str, bool]:
-        """Preload model into VRAM across all configured Ollama servers concurrently."""
+        """Preload or evict model in VRAM across configured Ollama servers concurrently."""
         if self._config.provider != "ollama":
             return {}
-        all_urls = self._config.get_ollama_urls
-        if not all_urls:
+        target_urls = urls if urls is not None else self._config.get_ollama_urls
+        if not target_urls:
             return {}
 
+        target_model = model or self._config.model
         if not blocking:
             import threading
 
             thread = threading.Thread(
                 target=self._execute_preload_all,
-                args=(all_urls, on_complete),
-                name=f"ollama-prewarm-{self._config.model}",
+                args=(target_urls, on_complete, target_model, keep_alive),
+                name=f"ollama-prewarm-{target_model}",
                 daemon=True,
             )
             thread.start()
             return {}
 
-        return self._execute_preload_all(all_urls, on_complete)
+        return self._execute_preload_all(
+            target_urls,
+            on_complete=on_complete,
+            model=target_model,
+            keep_alive=keep_alive,
+        )
+
+    def prewarm_models(
+        self,
+        *,
+        model: str | None = None,
+        keep_alive: str | int = "1h",
+        urls: list[str] | None = None,
+        blocking: bool = True,
+        on_complete: Callable[[dict[str, bool]], None] | None = None,
+    ) -> dict[str, bool]:
+        """Prewarm model in VRAM across Ollama servers concurrently."""
+        return self.preload_models(
+            model=model,
+            keep_alive=keep_alive,
+            urls=urls,
+            blocking=blocking,
+            on_complete=on_complete,
+        )
+
+    def evict_models(
+        self,
+        *,
+        model: str | None = None,
+        urls: list[str] | None = None,
+        blocking: bool = True,
+        on_complete: Callable[[dict[str, bool]], None] | None = None,
+    ) -> dict[str, bool]:
+        """Evict model from VRAM immediately across Ollama nodes (keep_alive=0)."""
+        return self.preload_models(
+            model=model,
+            keep_alive=DEFAULT_AI_EVICT_KEEP_ALIVE,
+            urls=urls,
+            blocking=blocking,
+            on_complete=on_complete,
+        )
 
     def prewarm_async(
         self,
         on_complete: Callable[[dict[str, bool]], None] | None = None,
+        model: str | None = None,
+        keep_alive: str | int = "1h",
     ) -> None:
         """Non-blocking helper to prewarm model in a background daemon thread."""
-        self.preload_models(blocking=False, on_complete=on_complete)
+        self.preload_models(
+            blocking=False,
+            on_complete=on_complete,
+            model=model,
+            keep_alive=keep_alive,
+        )
 
     def _get_ollama_urls_loop(self) -> list[tuple[int, str]]:
         """Return list of (index, url) tuples for Ollama failover sorted by active requests."""

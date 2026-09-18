@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import re
 import sys
 from datetime import UTC, datetime
@@ -12,7 +13,11 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.config.constants import (
+    CONST_CHANGELOG_FILENAME,
+    CONST_CONVENTIONAL_COMMIT_CATEGORIES,
+    CONST_CONVENTIONAL_COMMIT_CATEGORY_ORDER,
     CONST_DOCS_DIR_NAME,
+    CONST_GH_CLI,
     CONST_GIT_MAIN_BRANCH,
     CONST_INIT_PY_PATH,
     CONST_PYPROJECT_FILENAME,
@@ -30,6 +35,7 @@ from devops_cli.lang import HELP, MESSAGES
 _LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
     "DocGenerator": ("devops_cli.docs.generator", "DocGenerator"),
     "run_subprocess": ("devops_cli.core.process", "run_subprocess"),
+    "run_gh": ("devops_cli.github.rate_limiter", "run_gh"),
     "print_error": ("devops_cli.output", "print_error"),
     "print_info": ("devops_cli.output", "print_info"),
     "print_success": ("devops_cli.output", "print_success"),
@@ -149,11 +155,65 @@ def _extract_docs_release_notes(root: Path, version: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
+_CONVENTIONAL_RE = re.compile(r"^([a-zA-Z]+)(?:\([^\)]+\))?!?:\s*(.*)$")
+_RELEASE_COMMIT_RE = re.compile(r"^(?:feat|fix|chore)\(release\)!?:\s*", re.IGNORECASE)
+
+
+def _categorize_commit_item(line: str) -> str:
+    """Categorize commit item by conventional commit prefix."""
+    match = _CONVENTIONAL_RE.match(line.strip())
+    if match:
+        prefix = match.group(1).lower()
+        return CONST_CONVENTIONAL_COMMIT_CATEGORIES.get(prefix, "Other Changes")
+    return "Other Changes"
+
+
+def _extract_raw_commit_lines(raw_log: str) -> list[str]:
+    """Extract individual bullet items or commit message lines from git log output."""
+    raw_lines = [
+        line.strip().lstrip("*- ").strip() for line in raw_log.splitlines() if line.strip()
+    ]
+    seen: set[str] = set()
+    items: list[str] = []
+    for line in raw_lines:
+        if len(line) <= 4 or _RELEASE_COMMIT_RE.match(line):
+            continue
+        if line not in seen:
+            seen.add(line)
+            items.append(line)
+    return items
+
+
+def _format_categorized_notes(items: list[str], version: str) -> str:
+    """Format extracted commit items into categorized markdown release notes."""
+    cleaned_ver = version.lstrip("v")
+    categories: dict[str, list[str]] = {k: [] for k in CONST_CONVENTIONAL_COMMIT_CATEGORY_ORDER}
+    for item in items:
+        cat = _categorize_commit_item(item)
+        categories[cat].append(item)
+
+    has_conventional = any(
+        categories[cat] for cat in ("Added", "Fixed & Hardened", "Changed & Improved")
+    )
+    if not has_conventional:
+        bullets = "\n".join(f"* {item}" for item in items)
+        return f"### Changes in v{cleaned_ver}\n\n{bullets}"
+
+    sections: list[str] = [f"### Changes in v{cleaned_ver}\n"]
+    for cat in CONST_CONVENTIONAL_COMMIT_CATEGORY_ORDER:
+        entries = categories[cat]
+        if entries:
+            bullet_list = "\n".join(f"- {entry}" for entry in entries)
+            sections.append(f"### {cat}\n{bullet_list}\n")
+
+    return "\n".join(sections).strip()
+
+
 def _extract_git_commit_notes(root: Path, version: str) -> str | None:
-    """Extract commit log messages as fallback release notes."""
+    """Extract and categorize commit log messages and squash bodies as fallback release notes."""
     prev_tag = _get_latest_git_tag(root)
     log_args = [f"{prev_tag}..HEAD"] if prev_tag else ["-n", "20"]
-    cmd = ["git", "log", *log_args, "--pretty=format:* %s (%h)"]
+    cmd = ["git", "log", *log_args, "--pretty=format:%B"]
     proc = _get("run_subprocess")(
         cmd,
         cwd=root,
@@ -161,7 +221,20 @@ def _extract_git_commit_notes(root: Path, version: str) -> str | None:
         check=False,
         quiet=True,
     )
+    if proc.returncode != 0 or not proc.stdout or not proc.stdout.strip():
+        fallback_cmd = ["git", "log", *log_args, "--pretty=format:* %s (%h)"]
+        proc = _get("run_subprocess")(
+            fallback_cmd,
+            cwd=root,
+            capture_output=True,
+            check=False,
+            quiet=True,
+        )
+
     if proc.returncode == 0 and proc.stdout and proc.stdout.strip():
+        items = _extract_raw_commit_lines(proc.stdout)
+        if items:
+            return _format_categorized_notes(items, version)
         cleaned_ver = version.lstrip("v")
         return f"### Changes in v{cleaned_ver}\n\n{proc.stdout.strip()}"
     return None
@@ -229,33 +302,54 @@ def _update_init_version(root: Path, new_version: str) -> bool:
     return True
 
 
+def _build_changelog_section(root: Path, new_version: str, today: str) -> str:
+    """Build a complete changelog markdown section for a release version."""
+    compiled_notes = _extract_git_commit_notes(root, new_version)
+    if compiled_notes:
+        notes_body = re.sub(r"^###\s+Changes in v[^\n]+\n*", "", compiled_notes).strip()
+        if notes_body:
+            return f"## [{new_version}] - {today}\n\n{notes_body}\n\n"
+    return f"## [{new_version}] - {today}\n\n### Added\n- Release version {new_version}.\n\n"
+
+
 def _update_changelog_header(root: Path, new_version: str, release_date: str | None = None) -> bool:
     """Ensure CHANGELOG.md has a header for the new version."""
     from devops_cli.output import write_text_file
 
-    changelog_file = _resolve_safe_project_path(root, "CHANGELOG.md")
+    changelog_file = _resolve_safe_project_path(root, CONST_CHANGELOG_FILENAME)
     if not changelog_file.exists():
         return False
     today = release_date or datetime.now(UTC).strftime("%Y-%m-%d")
     content = changelog_file.read_text(encoding="utf-8")
 
-    # If version already present in changelog, update date
+    # If version already present in changelog, update date and populate if empty
     if f"## [{new_version}]" in content:
-        new_content = re.sub(
-            rf"##\s+\[{re.escape(new_version)}\]\s*(?:-\s*\d{{4}}-\d{{2}}-\d{{2}})?",
-            f"## [{new_version}] - {today}",
-            content,
-        )
+        current_notes = _extract_changelog_notes(root, new_version)
+        if current_notes:
+            new_content = re.sub(
+                rf"##\s+\[{re.escape(new_version)}\]\s*(?:-\s*\d{{4}}-\d{{2}}-\d{{2}})?",
+                f"## [{new_version}] - {today}",
+                content,
+            )
+        else:
+            section = _build_changelog_section(root, new_version, today)
+            pattern = rf"##\s+\[{re.escape(new_version)}\][^\n]*(?:\n\s*)*"
+            new_content = re.sub(pattern, section, content, count=1)
         write_text_file(changelog_file, new_content)
         return True
 
     # If [Unreleased] section exists, rename to [new_version] - date
     if "## [Unreleased]" in content:
-        new_content = content.replace(
-            "## [Unreleased]",
-            f"## [{new_version}] - {today}",
-            1,
-        )
+        unreleased_notes = _extract_changelog_notes(root, "Unreleased")
+        if unreleased_notes:
+            new_content = content.replace(
+                "## [Unreleased]",
+                f"## [{new_version}] - {today}",
+                1,
+            )
+        else:
+            section = _build_changelog_section(root, new_version, today)
+            new_content = re.sub(r"##\s+\[Unreleased\][^\n]*(?:\n\s*)*", section, content, count=1)
         write_text_file(changelog_file, new_content)
         return True
 
@@ -263,8 +357,8 @@ def _update_changelog_header(root: Path, new_version: str, release_date: str | N
     first_section = re.search(r"^##\s+\[", content, re.MULTILINE)
     if first_section:
         pos = first_section.start()
-        header = f"## [{new_version}] - {today}\n\n### Added\n- Release version {new_version}.\n\n"
-        new_content = content[:pos] + header + content[pos:]
+        section = _build_changelog_section(root, new_version, today)
+        new_content = content[:pos] + section + content[pos:]
         write_text_file(changelog_file, new_content)
         return True
 
@@ -572,6 +666,163 @@ def _commit_and_push_release_branch(
             )
 
 
+def _query_gh_milestone_issues(repo_root: Path, milestone_tag: str) -> list[str]:
+    """Query GitHub milestone issues via rate-managed run_gh."""
+    try:
+        run_gh_fn = _get("run_gh")
+        proc = run_gh_fn(
+            [
+                "issue",
+                "list",
+                "--milestone",
+                milestone_tag,
+                "--json",
+                "number,title,labels,state",
+                "--limit",
+                "50",
+            ],
+            cwd=repo_root,
+            quiet=True,
+            use_cache=False,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            raw_issues = json.loads(proc.stdout)
+            return [f"- #{iss['number']}" for iss in raw_issues if iss.get("number")]
+    except Exception:
+        pass
+    return []
+
+
+def _query_branch_commit_deliverables(repo_root: Path, base: str, branch_name: str) -> list[str]:
+    """Extract branch commit messages as fallback release deliverables."""
+    try:
+        log_proc = _get("run_subprocess")(
+            ["git", "log", f"{base}..{branch_name}", "--pretty=format:* %s (%h)"],
+            cwd=repo_root,
+            quiet=True,
+        )
+        if log_proc.returncode == 0 and log_proc.stdout:
+            return [f"- {line}" for line in _extract_raw_commit_lines(log_proc.stdout)]
+    except Exception:
+        pass
+    return []
+
+
+def _fetch_milestone_deliverables(
+    repo_root: Path,
+    target_ver: str,
+    base: str = CONST_GIT_MAIN_BRANCH,
+    branch_name: str | None = None,
+) -> list[str]:
+    """Fetch milestone issues and branch commits for release PR deliverable tracking."""
+    milestone_tag = f"v{target_ver.lstrip('v')}"
+    deliverables = _query_gh_milestone_issues(repo_root, milestone_tag)
+    if not deliverables and branch_name:
+        return _query_branch_commit_deliverables(repo_root, base, branch_name)
+    return deliverables
+
+
+def _is_stale_duplicate_changelog(repo_root: Path, cleaned_ver: str, notes: str) -> bool:
+    """Check if extracted changelog notes are duplicated from the immediately preceding release."""
+    changelog_file = _resolve_safe_project_path(repo_root, CONST_CHANGELOG_FILENAME)
+    if not changelog_file.exists():
+        return False
+    content = changelog_file.read_text(encoding="utf-8")
+    all_vers = re.findall(r"^##\s+\[(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)\]", content, re.MULTILINE)
+    matched_vers = [v[0] if isinstance(v, tuple) else v for v in all_vers]
+    if cleaned_ver not in matched_vers:
+        return False
+    idx = matched_vers.index(cleaned_ver)
+    if idx + 1 >= len(matched_vers):
+        return False
+    prev_notes = _extract_changelog_notes(repo_root, matched_vers[idx + 1])
+    return bool(prev_notes and prev_notes.strip() == notes.strip())
+
+
+def _extract_branch_release_notes(
+    repo_root: Path, base: str, branch_name: str, cleaned_ver: str
+) -> str | None:
+    """Extract and categorize release notes from branch commits relative to base."""
+    try:
+        log_proc = _get("run_subprocess")(
+            ["git", "log", f"{base}..{branch_name}", "--pretty=format:%B"],
+            cwd=repo_root,
+            quiet=True,
+        )
+        if log_proc.returncode == 0 and log_proc.stdout and log_proc.stdout.strip():
+            items = _extract_raw_commit_lines(log_proc.stdout)
+            if items:
+                return _format_categorized_notes(items, cleaned_ver)
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_clean_release_notes(
+    repo_root: Path,
+    target_ver: str,
+    base: str = CONST_GIT_MAIN_BRANCH,
+    branch_name: str | None = None,
+) -> str:
+    """Resolve clean, non-duplicate release notes for release PR description."""
+    cleaned_ver = target_ver.lstrip("v")
+    notes = _extract_changelog_notes(repo_root, cleaned_ver)
+    if notes and not _is_stale_duplicate_changelog(repo_root, cleaned_ver, notes):
+        return notes.strip()
+
+    if branch_name:
+        branch_notes = _extract_branch_release_notes(repo_root, base, branch_name, cleaned_ver)
+        if branch_notes:
+            return branch_notes
+
+    return f"### Added\n- Initial release branch preparation and quality certification for v{cleaned_ver}."
+
+
+def _build_quality_checklist(branch_name: str, draft: bool) -> str:
+    """Build standardized 10-gate quality checklist for release PR."""
+    pr_checked = " " if draft else "x"
+    return (
+        "### Quality Gate Checklist\n"
+        f"- [{pr_checked}] 10-Gate CI Quality Gate passing (`devops ci`)\n"
+        f"- [{pr_checked}] Documentation and Command Matrix in `README.md` synchronized\n"
+        f"- [{pr_checked}] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`\n"
+        f"- [{pr_checked}] CodeQL & Static Analysis passing\n"
+        f"- [{pr_checked}] Pre-commit & CI validation passing\n"
+        f"- [{pr_checked}] Milestone deliverables reviewed and merged into `{branch_name}`\n"
+        f"- [{pr_checked}] Final release readiness verified before converting from draft"
+    )
+
+
+def _build_release_pr_body(
+    repo_root: Path,
+    target_ver: str,
+    base: str,
+    branch_name: str,
+    draft: bool,
+    pr_title: str,
+) -> str:
+    """Build authoritative markdown description for release pull request."""
+    cleaned_ver = target_ver.lstrip("v")
+    deliverables = _fetch_milestone_deliverables(repo_root, cleaned_ver, base, branch_name)
+    notes = _resolve_clean_release_notes(repo_root, cleaned_ver, base, branch_name)
+    checklist = _build_quality_checklist(branch_name, draft)
+
+    sections = [
+        f"## {pr_title}",
+        f"### Summary\nRelease `v{cleaned_ver}` tracking PR under GitHub pull request merge controls.",
+    ]
+
+    if deliverables:
+        heading = "### Target Milestone Deliverables" if draft else "### Included Deliverables"
+        sections.append(f"{heading}\n" + "\n".join(deliverables))
+
+    if notes:
+        sections.append(f"### Release Notes\n{notes}")
+
+    sections.append(checklist)
+    return "\n\n".join(sections).strip() + "\n"
+
+
 def _build_release_pr_command(
     pr_title: str,
     pr_body: str,
@@ -582,7 +833,7 @@ def _build_release_pr_command(
 ) -> list[str]:
     """Construct command argument list for opening release pull request."""
     pr_cmd = [
-        "gh",
+        CONST_GH_CLI,
         "pr",
         "create",
         "--title",
@@ -613,14 +864,15 @@ def _execute_release_pr(
     repo_root: Path,
 ) -> None:
     """Execute gh pr create with label fallback if labels fail."""
-    pr_proc = _get("run_subprocess")(pr_cmd, cwd=repo_root)
+    run_gh_fn = _get("run_gh")
+    pr_proc = run_gh_fn(pr_cmd, cwd=repo_root)
     if pr_proc.returncode != 0 and labels and "label" in (pr_proc.stderr or "").lower():
         fallback_cmd = [
             arg
             for idx, arg in enumerate(pr_cmd)
             if arg != "--label" and (idx == 0 or pr_cmd[idx - 1] != "--label")
         ]
-        pr_proc = _get("run_subprocess")(fallback_cmd, cwd=repo_root)
+        pr_proc = run_gh_fn(fallback_cmd, cwd=repo_root)
 
     if pr_proc.returncode == 0:
         pr_url = str(pr_proc.stdout).strip()
@@ -708,18 +960,14 @@ def release_pr(
     _get("print_info")(
         MESSAGES.release.creating_release_pr.format(version=target_ver), prefix=False
     )
-    notes = _extract_changelog_notes(repo_root, target_ver) or f"Release v{target_ver}"
     pr_title = release_title
-    pr_body = (
-        f"## {pr_title}\n\n"
-        "### Summary\n"
-        f"Release `v{target_ver}` preparation, changelog synchronization, and quality validation "
-        "under GitHub pull request merge controls.\n\n"
-        f"### Release Notes\n{notes}\n\n"
-        "### Quality Gate Checklist\n"
-        "- [x] 7-Gate CI Quality Gate passing (`devops ci run`)\n"
-        "- [x] Documentation and Command Matrix in `README.md` synchronized\n"
-        "- [x] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`\n"
+    pr_body = _build_release_pr_body(
+        repo_root=repo_root,
+        target_ver=target_ver,
+        base=base,
+        branch_name=branch_name,
+        draft=draft,
+        pr_title=pr_title,
     )
 
     pr_cmd = _build_release_pr_command(
@@ -761,6 +1009,15 @@ def _verify_release_versions(repo_root: Path) -> str:
         _get("print_error")(
             f"Version mismatch: CHANGELOG.md ({changelog_ver or 'missing'}) does not match "
             f"pyproject.toml ({pyproject_ver}). Update CHANGELOG.md before releasing.",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    changelog_notes = _extract_changelog_notes(repo_root, pyproject_ver)
+    if not changelog_notes:
+        _get("print_error")(
+            f"CHANGELOG.md entry for v{pyproject_ver} is empty. "
+            "Populate release notes before releasing.",
             prefix=False,
         )
         raise typer.Exit(1)
@@ -909,8 +1166,116 @@ def release_notes(
 
 
 # =============================================================================
+# Command: release changelog
+# =============================================================================
+
+
+@app.command("changelog")
+def release_changelog(
+    version: Annotated[
+        str | None,
+        typer.Option("--version", "-v", help=HELP.release.target_version),
+    ] = None,
+    update: Annotated[
+        bool,
+        typer.Option("--update", "-u", help=HELP.release.changelog_update),
+    ] = False,
+    from_tag: Annotated[
+        str | None,
+        typer.Option("--from-tag", help=HELP.release.changelog_from_tag),
+    ] = None,
+    raw: Annotated[
+        bool,
+        typer.Option("--raw", help=HELP.options.raw),
+    ] = False,
+    root: Annotated[
+        Path | None,
+        typer.Option("--root", "-r", help=HELP.options.root),
+    ] = None,
+) -> None:
+    """Compile and generate changelog entries from git commits or PR deliverables."""
+    from devops_cli.output import (
+        print_error,
+        print_panel,
+        print_success,
+        write_stdout,
+    )
+
+    repo_root = _get_project_root(root)
+    target_ver = (version or _get_pyproject_version(repo_root) or "").lstrip("v")
+    if not target_ver:
+        print_error("Could not determine target release version.", prefix=False)
+        raise typer.Exit(1)
+
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    compiled_notes = (
+        _extract_git_commit_notes(repo_root, target_ver)
+        or f"### Changes in v{target_ver}\n\n* Release v{target_ver}"
+    )
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops release changelog",
+            action="compile_release_changelog",
+            target=target_ver,
+            details={"version": target_ver, "update": update, "raw": raw, "from_tag": from_tag},
+        )
+        return
+
+    if update:
+        if _update_changelog_header(repo_root, target_ver, today):
+            print_success(
+                MESSAGES.release.updated_changelog.format(version=target_ver, date=today),
+                prefix=False,
+            )
+        return
+
+    if raw:
+        write_stdout(compiled_notes + "\n")
+        return
+
+    print_panel(
+        compiled_notes,
+        title=f"Changelog — v{target_ver}",
+        border_style="cyan",
+    )
+
+
+# =============================================================================
 # Command: release tag
 # =============================================================================
+
+
+def _commit_release_tag_changes(repo_root: Path, release_title: str) -> None:
+    """Stage release files and create commit before tagging."""
+    _get("run_subprocess")(
+        [
+            "git",
+            "add",
+            CONST_PYPROJECT_FILENAME,
+            str(CONST_INIT_PY_PATH),
+            CONST_CHANGELOG_FILENAME,
+            CONST_README_FILENAME,
+            f"{CONST_DOCS_DIR_NAME}/",
+        ],
+        cwd=repo_root,
+    )
+    _get("run_subprocess")(
+        ["git", "commit", "-m", release_title],
+        cwd=repo_root,
+    )
+
+
+def _push_git_tag(repo_root: Path, tag_name: str, target_ver: str) -> None:
+    """Push annotated tag to origin and close release milestone."""
+    push_proc = _get("run_subprocess")(["git", "push", "origin", "--tags"], cwd=repo_root)
+    if push_proc.returncode != 0:
+        _get("print_error")(
+            f"Failed to push tag {tag_name} to origin: {push_proc.stderr}", prefix=False
+        )
+        raise typer.Exit(1)
+    _get("print_success")(MESSAGES.release.tag_pushed.format(tag=tag_name), prefix=False)
+    _close_release_milestone_safe(repo_root, target_ver)
 
 
 @app.command("tag")
@@ -950,11 +1315,7 @@ def release_tag(
 ) -> None:
     """Create release commit and annotated git tag."""
     repo_root = _get_project_root(root)
-    target_ver = (version or _get_pyproject_version(repo_root) or "").lstrip("v")
-    if not target_ver or not _SEMVER_RE.match(target_ver):
-        err_msg = MESSAGES.release.invalid_version.format(version=target_ver or version or "")
-        _get("print_error")(err_msg, prefix=False)
-        raise typer.Exit(1)
+    target_ver = _validate_release_version(version, repo_root)
 
     tag_name = f"v{target_ver}"
     release_title = _format_release_title(target_ver, prefix=release_type, breaking=breaking)
@@ -977,23 +1338,7 @@ def release_tag(
         )
         return
 
-    # Commit release changes if any are staged/modified
-    _get("run_subprocess")(
-        [
-            "git",
-            "add",
-            CONST_PYPROJECT_FILENAME,
-            str(CONST_INIT_PY_PATH),
-            "CHANGELOG.md",
-            CONST_README_FILENAME,
-            f"{CONST_DOCS_DIR_NAME}/",
-        ],
-        cwd=repo_root,
-    )
-    _get("run_subprocess")(
-        ["git", "commit", "-m", release_title],
-        cwd=repo_root,
-    )
+    _commit_release_tag_changes(repo_root, release_title)
 
     # Create annotated tag
     tag_proc = _get("run_subprocess")(["git", "tag", "-a", tag_name, "-m", tag_msg], cwd=repo_root)
@@ -1004,14 +1349,7 @@ def release_tag(
     _get("print_success")(MESSAGES.release.tag_created.format(tag=tag_name), prefix=False)
 
     if push:
-        push_proc = _get("run_subprocess")(["git", "push", "origin", "--tags"], cwd=repo_root)
-        if push_proc.returncode != 0:
-            _get("print_error")(
-                f"Failed to push tag {tag_name} to origin: {push_proc.stderr}", prefix=False
-            )
-            raise typer.Exit(1)
-        _get("print_success")(MESSAGES.release.tag_pushed.format(tag=tag_name), prefix=False)
-        _close_release_milestone_safe(repo_root, target_ver)
+        _push_git_tag(repo_root, tag_name, target_ver)
 
 
 def _close_release_milestone_safe(repo_root: Path, version: str) -> None:
