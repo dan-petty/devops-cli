@@ -17,6 +17,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into .data/libraries/. |
 | [`ai_inspect_symbol`](#ai-inspect-symbol) | Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts. |
 | [`ai_pack_context`](#ai-pack-context) | Pack and prune source code context to fit token budget while preserving signatures and types. |
+| [`ai_prewarm_models`](#ai-prewarm-models) | Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes. |
 | [`ai_query_library`](#ai-query-library) | Search library contracts and documentation via semantic search or exact symbol lookup. |
 | [`ai_quiesce`](#ai-quiesce) | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
@@ -265,6 +266,19 @@ Pack and prune source code context to fit token budget while preserving signatur
 | `max_tokens` | `integer` | No | `1500` | - |
 | `strip_private` | `boolean` | No | `True` | - |
 | `skeletonize` | `boolean` | No | `True` | - |
+
+### `ai_prewarm_models`
+
+Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `model` | `string` | No | `` | - |
+| `keep_alive` | `string` | No | `1h` | - |
+| `evict` | `boolean` | No | `False` | - |
+| `all_nodes` | `boolean` | No | `True` | - |
 
 ### `ai_query_library`
 

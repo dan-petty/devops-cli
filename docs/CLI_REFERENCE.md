@@ -2606,6 +2606,25 @@ devops ai test [OPTIONS]
 | `--prompt`, `-p` | `string` | `Hello, world!` | Test prompt to send to the provider. |
 | `--url`, `-u` | `string` | - | Specific Ollama server URL to test. |
 
+### `devops ai prewarm`
+
+**Prewarm local models into GPU VRAM or evict idle models across cluster nodes.**
+
+```bash
+devops ai prewarm [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--model`, `-m` | `string` | - | Model name to prewarm or evict (defaults to configured AI model). |
+| `--keep-alive`, `-k` | `string` | `1h` | Keep-alive duration for loaded model (e.g. 1h, 24h, forever, or 0 for eviction). |
+| `--all-nodes`, `-a` | `boolean` | `True` | Prewarm or evict model across all configured Ollama cluster nodes. |
+| `--evict` | `boolean` | - | Evict the model from GPU VRAM immediately (sets keep_alive to 0). |
+| `--url`, `-u` | `string` | - | Specific Ollama node URL to target instead of all candidate nodes. |
+| `--json` | `boolean` | - | Output results as structured JSON. |
+
 ### `devops ai agents`
 
 **Generate LLM/Agent instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md).**
