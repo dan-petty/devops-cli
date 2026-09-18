@@ -80,6 +80,7 @@ devops repos update [OPTIONS]
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
 | `--pull`, `--no-pull` | `boolean` | `True` | - |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -97,5 +98,6 @@ devops repos sync [OPTIONS]
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
 | `--pull`, `--no-pull` | `boolean` | `True` | - |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

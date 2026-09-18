@@ -1,8 +1,8 @@
 # Task 250: Remediate Markdown Formatting Issues and Unbalanced Code Blocks in Review Reports
 
 **Issue**: [#250](https://github.com/dan-petty/devops-cli/issues/250)
-**PR**: None (Draft pending)
-**Status**: In Progress
+**PR**: [#251](https://github.com/dan-petty/devops-cli/pull/251) (Merged)
+**Status**: Completed
 **Milestone**: `v0.2.20`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/review`, `scope/ai`
