@@ -13,7 +13,6 @@ from devops_cli.ai.client.models import AIClientError
 from devops_cli.ai.client.streaming import (
     StreamingReasoningSanitizer,
     StreamingTokenProcessor,
-    _attempt_stream_reconnect,
     _consume_streaming_lines,
     _extract_claude_stream_chunk,
     _extract_ollama_stream_chunk,
@@ -71,6 +70,30 @@ class TestStreamingTokenProcessorBasic:
             summary["has_reasoning"],
             summary["total_bytes"] > 0,
         ) == ("Summary output", "Quick thought", True, True)
+
+    def test_invalid_thinking_tags_raises_value_error(self) -> None:
+        """Verify empty or malformed thinking_tags raise ValueError."""
+        with pytest.raises(ValueError, match="thinking_tags must be a tuple"):
+            StreamingTokenProcessor(thinking_tags=("", "</think>"))  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="thinking_tags must be a tuple"):
+            StreamingTokenProcessor(thinking_tags=("<think>", ""))  # type: ignore[arg-type]
+
+    def test_explicit_thinking_lifecycle_callbacks(self) -> None:
+        """Verify explicit thinking chunks trigger on_reasoning_start and on_reasoning_end on transition or flush."""
+        lifecycle_events: list[str] = []
+        proc = StreamingTokenProcessor(
+            on_reasoning_start=lambda: lifecycle_events.append("start"),
+            on_reasoning_end=lambda: lifecycle_events.append("end"),
+        )
+        proc.feed("step1", is_thinking=True)
+        assert lifecycle_events == ["start"]
+        proc.feed("clean content", is_thinking=False)
+        assert lifecycle_events == ["start", "end"]
+        proc.flush()
+        assert (proc.clean_content, proc.reasoning_scratchpad) == (
+            "clean content",
+            "step1",
+        )
 
 
 class TestTokenChunkBoundaries:
@@ -319,46 +342,33 @@ class TestConsumeStreamingLines:
         results = list(_read_response_lines(mock_resp, extractor, "Provider", 1000, 0))
         assert len(results) == 1 and results[0][0] == "chunk"
 
-    def test_stream_reconnect_success(self) -> None:
-        """Verify transient network error triggers reconnect factory and resumes stream."""
-        mock_resp1 = MagicMock()
-        mock_resp1.iter_lines.side_effect = httpx2.RemoteProtocolError("Connection reset")
+    def test_raw_lines_counted_before_extraction_exceeds_bytes(self) -> None:
+        """Verify raw lines are counted before extraction, enforcing limits even on ignored chunks."""
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.return_value = ["ignored_header_line" * 10]
 
-        mock_resp2 = MagicMock()
-        mock_resp2.iter_lines.return_value = ["recovered_line"]
+        def extractor(line: str) -> tuple[str | None, bool]:
+            return (None, False)
 
-        reconnect_called = False
-
-        def _reconnect() -> httpx2.Response:
-            nonlocal reconnect_called
-            reconnect_called = True
-            return mock_resp2
-
-        def extractor(line: str) -> tuple[str, bool]:
-            return (line, False)
-
-        tokens = list(
-            _consume_streaming_lines(
-                mock_resp1,
-                extractor,
-                "TestProvider",
-                reconnect_factory=_reconnect,
+        with pytest.raises(AIClientError, match="maximum stream size \\(20 bytes\\)"):
+            list(
+                _consume_streaming_lines(mock_resp, extractor, "TestProvider", max_stream_bytes=20)
             )
+
+    def test_consume_streaming_lines_transport_error_truncation(self) -> None:
+        """Verify transport errors are caught and raised with bounded exception length."""
+        long_message = "x" * 1000
+        mock_resp = MagicMock()
+        mock_resp.iter_lines.side_effect = httpx2.RemoteProtocolError(long_message)
+
+        with pytest.raises(AIClientError) as exc_info:
+            list(_consume_streaming_lines(mock_resp, lambda line: (line, False), "TestProvider"))
+
+        err_str = str(exc_info.value)
+        assert (
+            "TestProvider streaming connection terminated unexpectedly" in err_str
+            and len(err_str) < 400
         )
-
-        assert (reconnect_called, tokens) == (True, ["recovered_line"])
-
-    def test_stream_reconnect_failure_raises(self) -> None:
-        """Verify failed reconnection raises AIClientError."""
-        exc = httpx2.TransportError("Dead connection")
-        with pytest.raises(AIClientError, match="streaming connection terminated unexpectedly"):
-            _attempt_stream_reconnect("TestProvider", None, 0, 2, exc)
-
-        def bad_factory() -> httpx2.Response:
-            raise RuntimeError("DNS failure")
-
-        with pytest.raises(AIClientError, match="SSE stream reconnect failed"):
-            _attempt_stream_reconnect("TestProvider", bad_factory, 0, 2, exc)
 
 
 class TestZeroLeakageDownstream:
@@ -423,14 +433,6 @@ class TestZeroLeakageDownstream:
             [],
             "Content",
         )
-
-    def test_reconnect_max_retries_exceeded(self) -> None:
-        """Verify _attempt_stream_reconnect raises AIClientError when max_reconnects is reached."""
-        exc = httpx2.TransportError("Socket dropped")
-        factory = MagicMock()
-        with pytest.raises(AIClientError, match="streaming connection terminated unexpectedly"):
-            _attempt_stream_reconnect("TestProvider", factory, 2, 2, exc)
-        assert not factory.called
 
     def test_llm_client_chat_stream_with_sanitization(self) -> None:
         """Verify LLMClient chat_stream with sanitize=True strips think tags."""

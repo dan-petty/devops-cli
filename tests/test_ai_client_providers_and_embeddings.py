@@ -309,9 +309,8 @@ def test_llm_client_streaming_and_error_branches(monkeypatch: pytest.MonkeyPatch
             DummyStreamResp(),  # type: ignore[arg-type]
             lambda line: (line, False),
             "TestProvider",
+            max_stream_bytes=50,
         )
-        # Force low limit by setting MAX_STREAM_BYTES temporarily
-        monkeypatch.setattr("devops_cli.ai.client.MAX_STREAM_BYTES", 50)
         list(gen)
 
     # 5. Ollama semaphore and active tracking

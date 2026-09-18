@@ -38,6 +38,15 @@ class StreamingTokenProcessor:
         on_reasoning_start: Callable[[], None] | None = None,
         on_reasoning_end: Callable[[], None] | None = None,
     ) -> None:
+        if (
+            not thinking_tags
+            or len(thinking_tags) != 2
+            or not thinking_tags[0]
+            or not thinking_tags[1]
+        ):
+            raise ValueError(
+                "thinking_tags must be a tuple of two non-empty strings (open_tag, close_tag)."
+            )
         self.max_stream_bytes = max_stream_bytes
         self.thinking_tags = thinking_tags
         self.open_tag = thinking_tags[0]
@@ -53,6 +62,7 @@ class StreamingTokenProcessor:
         self._reasoning_chunks: list[str] = []
         self.in_think: bool = False
         self.thinking_detected: bool = False
+        self._explicit_thinking_active: bool = False
         self._reasoning_started: bool = False
         self._reasoning_ended: bool = False
 
@@ -66,17 +76,20 @@ class StreamingTokenProcessor:
     def _trigger_reasoning_start(self) -> None:
         if not self._reasoning_started:
             self._reasoning_started = True
+            self._reasoning_ended = False
             if self.on_reasoning_start:
                 self.on_reasoning_start()
 
     def _trigger_reasoning_end(self) -> None:
         if self._reasoning_started and not self._reasoning_ended:
             self._reasoning_ended = True
+            self._reasoning_started = False
             if self.on_reasoning_end:
                 self.on_reasoning_end()
 
     def _handle_explicit_thinking(self, chunk: str) -> list[str]:
         self.thinking_detected = True
+        self._explicit_thinking_active = True
         self._trigger_reasoning_start()
         self._reasoning_chunks.append(chunk)
         if self.on_reasoning:
@@ -159,12 +172,18 @@ class StreamingTokenProcessor:
         self._record_bytes(chunk)
         if is_thinking:
             return self._handle_explicit_thinking(chunk)
+        if self._explicit_thinking_active:
+            self._explicit_thinking_active = False
+            self._trigger_reasoning_end()
         self._buffer += chunk
         return self._process_buffer()
 
     def flush(self) -> list[str]:
         """Flush remaining buffered tokens and finalize reasoning states."""
         emitted: list[str] = []
+        if self._explicit_thinking_active:
+            self._explicit_thinking_active = False
+            self._trigger_reasoning_end()
         if self.in_think:
             if self._buffer:
                 self._append_reasoning(self._buffer)
@@ -314,33 +333,23 @@ def _read_response_lines(
     """Iterate response lines and yield (chunk_str, cumulative_bytes)."""
     current_bytes = initial_bytes
     for line in response.iter_lines():
+        line_bytes = len(line.encode("utf-8")) if isinstance(line, str) else len(line)
+        current_bytes += line_bytes
+        if current_bytes > max_bytes:
+            limit_str = (
+                f"{max_bytes // (1024 * 1024)}MB"
+                if max_bytes >= 1024 * 1024
+                else f"{max_bytes} bytes"
+            )
+            raise AIClientError(
+                f"{provider_name} response exceeded maximum stream size ({limit_str})."
+            )
         chunk_str, is_done = chunk_extractor(line)
         if is_done:
             break
         if chunk_str is None:
             continue
-        current_bytes += len(chunk_str.encode("utf-8"))
-        if current_bytes > max_bytes:
-            raise AIClientError(f"{provider_name} response exceeded maximum stream size (50MB).")
         yield chunk_str, current_bytes
-
-
-def _attempt_stream_reconnect(
-    provider_name: str,
-    reconnect_factory: Callable[[], httpx2.Response] | None,
-    reconnect_count: int,
-    max_reconnects: int,
-    original_exc: Exception,
-) -> httpx2.Response:
-    """Attempt reconnection if factory provided, otherwise re-raise as AIClientError."""
-    if reconnect_factory is not None and reconnect_count < max_reconnects:
-        try:
-            return reconnect_factory()
-        except Exception as exc:
-            raise AIClientError(f"{provider_name} SSE stream reconnect failed: {exc}") from exc
-    raise AIClientError(
-        f"{provider_name} streaming connection terminated unexpectedly: {original_exc}"
-    ) from original_exc
 
 
 def _consume_streaming_lines(
@@ -349,10 +358,8 @@ def _consume_streaming_lines(
     provider_name: str,
     *,
     max_stream_bytes: int | None = None,
-    reconnect_factory: Callable[[], httpx2.Response] | None = None,
-    max_reconnects: int = 2,
 ) -> Generator[str]:
-    """Yield extracted tokens from an HTTP streaming response with bounded size and reconnection."""
+    """Yield extracted tokens from an HTTP streaming response with bounded size and error safety."""
     import devops_cli.ai.client as client_pkg
     import devops_cli.ai.client.models as client_models
 
@@ -365,24 +372,19 @@ def _consume_streaming_lines(
             getattr(client_models, "MAX_STREAM_BYTES", MAX_STREAM_BYTES),
         )
     )
-    current_resp = response
-    reconnect_count = 0
     total_bytes = 0
-
-    while True:
-        try:
-            for chunk_str, total_bytes in _read_response_lines(
-                current_resp, chunk_extractor, provider_name, effective_max, total_bytes
-            ):
-                yield chunk_str
-            return
-        except (
-            httpx2.RemoteProtocolError,
-            httpx2.ReadTimeout,
-            httpx2.TransportError,
-            httpx2.ReadError,
-        ) as exc:
-            current_resp = _attempt_stream_reconnect(
-                provider_name, reconnect_factory, reconnect_count, max_reconnects, exc
-            )
-            reconnect_count += 1
+    try:
+        for chunk_str, total_bytes in _read_response_lines(
+            response, chunk_extractor, provider_name, effective_max, total_bytes
+        ):
+            yield chunk_str
+    except (
+        httpx2.RemoteProtocolError,
+        httpx2.ReadTimeout,
+        httpx2.TransportError,
+        httpx2.ReadError,
+    ) as exc:
+        safe_err = str(exc)[:256]
+        raise AIClientError(
+            f"{provider_name} streaming connection terminated unexpectedly: {safe_err}"
+        ) from exc
