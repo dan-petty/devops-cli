@@ -242,29 +242,55 @@ def _parse_check_runs(raw_checks: list[dict[str, Any]]) -> list[PRCheckRun]:
     return [_parse_check_run_node(item) for item in raw_checks if isinstance(item, dict)]
 
 
+def _safe_json_to_dicts(text: str) -> list[dict[str, Any]]:
+    """Convert a single JSON string or array to a list of dicts if valid."""
+    try:
+        data = json.loads(text)
+        items = data if isinstance(data, list) else [data]
+        return [item for item in items if isinstance(item, dict)]
+    except json.JSONDecodeError:
+        return []
+
+
+def _parse_ndjson_dicts(text: str) -> list[dict[str, Any]]:
+    """Parse newline-delimited JSON lines into dictionary items."""
+    results: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        line_str = line.strip()
+        if line_str:
+            results.extend(_safe_json_to_dicts(line_str))
+    return results
+
+
+def _extract_timeline_events(timeline_stdout: str) -> list[dict[str, Any]]:
+    """Extract timeline event dicts from JSON array, object, or NDJSON."""
+    stripped = timeline_stdout.strip()
+    if not stripped:
+        return []
+    top_dicts = _safe_json_to_dicts(stripped)
+    return top_dicts if top_dicts else _parse_ndjson_dicts(stripped)
+
+
+def _process_single_timeline_event(
+    evt: dict[str, Any], current_state: tuple[bool, str]
+) -> tuple[bool, str]:
+    """Update Copilot working state based on a single timeline event dictionary."""
+    evt_name = evt.get("event")
+    if evt_name == "copilot_work_started":
+        return True, "copilot_work_started"
+    if evt_name == "reviewed":
+        evt_author = str(evt.get("author", "")).lower()
+        if not evt_author or "copilot" in evt_author:
+            return False, "reviewed"
+    return current_state
+
+
 def _parse_timeline_copilot_state(timeline_stdout: str) -> tuple[bool, str]:
     """Parse timeline events to determine if Copilot is actively working."""
-    copilot_working = False
-    active_event = ""
-    for line in timeline_stdout.strip().splitlines():
-        line_str = line.strip()
-        if not line_str:
-            continue
-        try:
-            evt = json.loads(line_str)
-        except json.JSONDecodeError:
-            continue
-
-        evt_name = evt.get("event")
-        if evt_name == "copilot_work_started":
-            copilot_working = True
-            active_event = "copilot_work_started"
-        elif evt_name == "reviewed":
-            evt_author = str(evt.get("author", "")).lower()
-            if not evt_author or "copilot" in evt_author:
-                copilot_working = False
-                active_event = "reviewed"
-    return copilot_working, active_event
+    state = (False, "")
+    for evt in _extract_timeline_events(timeline_stdout):
+        state = _process_single_timeline_event(evt, state)
+    return state
 
 
 def _is_copilot_review_dict(r: Any) -> bool:

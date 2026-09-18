@@ -888,3 +888,46 @@ class TestMonitorPR:
             review_decision="REVIEW_REQUIRED",
         )
         assert any("requires approved review" in r for r in reasons)
+
+    def test_parse_timeline_copilot_state_empty_array(self) -> None:
+        """Verify _parse_timeline_copilot_state handles empty JSON array."""
+        from devops_cli.github.pr_monitor import _parse_timeline_copilot_state
+
+        working, event = _parse_timeline_copilot_state("[]")
+        assert (working, event) == (False, "")
+
+    def test_parse_timeline_copilot_state_json_array(self) -> None:
+        """Verify _parse_timeline_copilot_state parses JSON array payloads."""
+        from devops_cli.github.pr_monitor import _parse_timeline_copilot_state
+
+        payload = json.dumps(
+            [
+                {"event": "copilot_work_started"},
+                {"event": "reviewed", "author": "github-actions[bot]"},
+            ]
+        )
+        assert _parse_timeline_copilot_state(payload) == (True, "copilot_work_started")
+
+        payload_finished = json.dumps(
+            [
+                {"event": "copilot_work_started"},
+                {"event": "reviewed", "author": "copilot-swe-reviewer"},
+            ]
+        )
+        assert _parse_timeline_copilot_state(payload_finished) == (False, "reviewed")
+
+    def test_parse_timeline_copilot_state_ndjson(self) -> None:
+        """Verify _parse_timeline_copilot_state parses NDJSON lines."""
+        from devops_cli.github.pr_monitor import _parse_timeline_copilot_state
+
+        ndjson_text = (
+            '{"event": "unrelated_event"}\n{"event": "copilot_work_started"}\ninvalid json line\n'
+        )
+        assert _parse_timeline_copilot_state(ndjson_text) == (True, "copilot_work_started")
+
+    def test_parse_timeline_copilot_state_empty_or_whitespace(self) -> None:
+        """Verify _parse_timeline_copilot_state handles empty and whitespace strings."""
+        from devops_cli.github.pr_monitor import _parse_timeline_copilot_state
+
+        assert _parse_timeline_copilot_state("") == (False, "")
+        assert _parse_timeline_copilot_state("   \n\n  ") == (False, "")
