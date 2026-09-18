@@ -323,3 +323,28 @@ def test_consolidated_markdown_report_markdown_invariants(tmp_path: Path) -> Non
         len(unclosed_bold),
         len(table_mismatches),
     ) == (0, 0, 0)
+
+
+def test_consolidated_markdown_report_none_severity(tmp_path: Path) -> None:
+    """Verify that findings with severity=None default safely to INFORMATIONAL without error."""
+    pipeline = _make_dummy_pipeline(tmp_path)
+    finding = SavedFinding(
+        id=1,
+        location="src/test.py:10",
+        title="Finding with None severity",
+        description="Detailed explanation",
+        status="VERIFIED",
+        verified=True,
+        reportable=True,
+        persona_title="Senior QA Engineer",
+    )
+    object.__setattr__(finding, "severity", None)
+    report_md = pipeline._build_consolidated_markdown_report(
+        session_id="none-severity-session",
+        generated_at="2026-09-18T12:00:00Z",
+        reportable_findings=[finding],
+        all_deps=[],
+        all_nets=[],
+    )
+    assert "| **INFORMATIONAL** |" in report_md
+    assert "### 1. [INFORMATIONAL] Finding with None severity" in report_md

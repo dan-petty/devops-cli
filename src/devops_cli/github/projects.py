@@ -144,6 +144,7 @@ def _is_task_markdown(path: Path) -> bool:
     """Check whether path is an active task markdown file (excluding READMEs and archives)."""
     return (
         path.is_file()
+        and not path.is_symlink()
         and path.name != "README.md"
         and "archive" not in path.parts
         and not path.name.startswith("archive")
@@ -156,7 +157,7 @@ def _find_active_task_files_in_dir(task_dir: Path) -> list[Path]:
     if active_files:
         return active_files
     readme = task_dir / "README.md"
-    return [readme] if readme.is_file() else []
+    return [readme] if readme.is_file() and not readme.is_symlink() else []
 
 
 def _resolve_default_task_fallbacks(task_path: Path) -> list[Path] | None:
@@ -173,10 +174,13 @@ def _resolve_default_task_fallbacks(task_path: Path) -> list[Path] | None:
 
 def _resolve_task_files(task_path: Path) -> list[Path]:
     """Resolve task_path (file or directory) to a list of existing markdown task files."""
+    from devops_cli.core.paths import validate_no_path_traversal
+
+    validate_no_path_traversal(task_path, label="Task path")
     if task_path.is_dir():
         return _find_active_task_files_in_dir(task_path)
 
-    if task_path.is_file():
+    if task_path.is_file() and not task_path.is_symlink():
         return [task_path]
 
     fallback = _resolve_default_task_fallbacks(task_path)

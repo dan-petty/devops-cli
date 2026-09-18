@@ -348,9 +348,21 @@ def test_host_key_and_clone_prep_helpers(tmp_path: Path) -> None:
     with pytest.raises(GitOperationError, match="Path traversal detected"):
         _validate_clone_dest(Path("foo/../bar"))
 
-    # Safe destination passes (including filenames containing ..)
+    # Safe destination passes
     _validate_clone_dest(tmp_path / "safe_dest")
-    _validate_clone_dest(tmp_path / "safe..dest")
+    _validate_clone_dest(tmp_path / "safe_dest_2")
+
+    # Symlink rejection
+    real_dest = tmp_path / "real_dir"
+    real_dest.mkdir()
+    symlink_dest = tmp_path / "symlink_dir"
+    symlink_dest.symlink_to(real_dest)
+    with pytest.raises(GitOperationError, match="must not be a symlink"):
+        _validate_clone_dest(symlink_dest)
+
+    # Forbidden system path
+    with pytest.raises(GitOperationError, match="forbidden system path"):
+        _validate_clone_dest(Path("/etc/git-dest"))
 
     # 5. _prepare_clone_url
     with patch("devops_cli.git.operations._ensure_known_host") as mock_ensure:

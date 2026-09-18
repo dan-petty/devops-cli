@@ -260,9 +260,11 @@ def chaos_cmd(
 
 def _handle_security_stream_export(result: Any, output: Path | None, json_output: bool) -> None:
     """Handle export and JSON output of security stream result."""
+    from devops_cli.output.file_writer import write_serialized_file
+
     dumped = result.model_dump()
     if output:
-        output.write_text(format_json(dumped), encoding="utf-8")
+        write_serialized_file(output, dumped, format_type="json")
     if json_output:
         write_stdout(format_json(dumped) + "\n")
 

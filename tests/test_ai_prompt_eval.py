@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -30,3 +31,24 @@ def test_prompt_eval_cli() -> None:
     assert res_json.exit_code == 0
     data = json.loads(res_json.output)
     assert "accuracy_score" in data
+
+
+def test_prompt_evaluation_security_boundaries(tmp_path: Path) -> None:
+    """Verify that symlinks and path traversal attempts raise SecurityError."""
+    import pytest
+
+    from devops_cli.exceptions import SecurityError
+
+    # 1. Traversal outside repo root and cwd
+    outside_path = Path("/etc/passwd")
+    with pytest.raises(SecurityError):
+        evaluate_persona_prompts("devsecops", dataset_path=outside_path)
+
+    # 2. Symlink
+    real_file = tmp_path / "dataset.jsonl"
+    real_file.write_text('{"id": "1"}\n', encoding="utf-8")
+    symlink_file = tmp_path / "symlink_dataset.jsonl"
+    symlink_file.symlink_to(real_file)
+
+    with pytest.raises(SecurityError):
+        evaluate_persona_prompts("devsecops", dataset_path=symlink_file)

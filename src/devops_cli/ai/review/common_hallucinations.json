@@ -502,5 +502,98 @@
     "occurrence_count": 1,
     "last_seen": "2026-09-14T00:00:00",
     "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-INTERNAL-SERVICE-PRIVATE-NETWORK",
+    "name": "Internal Service Connector Private Network False SSRF Claim",
+    "category": "boundary_errors",
+    "description": "Flagging allow_private_network=True on internal infrastructure service connectors (such as Valkey, Vault broker, Kubernetes cluster API, Prometheus, Grafana, or local Ollama) as an SSRF vulnerability.",
+    "signature_patterns": [
+      "allow_private_network.*(?:ssrf|vulnerability|private\\s+ip)",
+      "ssrf.*allow_private_network",
+      "ssrf.*(?:valkey|vault|prometheus|grafana|k8s|kubernetes)"
+    ],
+    "pattern_keywords": [
+      "allow_private_network",
+      "internal_connector_ssrf",
+      "valkey_ssrf",
+      "vault_ssrf"
+    ],
+    "file_patterns": [
+      "*valkey*.py",
+      "*vault*.py",
+      "*prometheus*.py",
+      "*grafana*.py",
+      "*k8s*.py"
+    ],
+    "resolution": "Internal infrastructure connectors intentionally permit private network connectivity to reach local/homelab services. SSRF applies strictly to arbitrary user-supplied external URLs.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-18T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-PRINTED-PATH-INFO-LEAK",
+    "name": "CLI Console File Path Output Flagged as Information Exposure",
+    "category": "general",
+    "description": "Flagging normal CLI terminal output or debug logging of processed file paths, filenames, or directory paths as CWE-200 Information Exposure.",
+    "signature_patterns": [
+      "(?:information\\s+leak|cwe-200|information\\s+exposure).*(?:file\\s+path|debug\\s+log|printed)",
+      "(?:debug\\s+log|console\\.print).*(?:leak|expose).*(?:path|file)"
+    ],
+    "pattern_keywords": [
+      "printed_path_leak",
+      "debug_log_path",
+      "console_path_exposure"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "CLI utilities fundamentally report inspected, generated, and target file paths to the console and debug logs to inform the operator.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-18T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-UNCHECKED-VARIABLE-NAMEERROR",
+    "name": "Scope-Local Variable Claimed Undefined / NameError",
+    "category": "syntax_grammar",
+    "description": "Claiming that a local variable is undefined or causes NameError when it was defined in preceding statements or fallback branches in the same method/function.",
+    "signature_patterns": [
+      "undefined\\s+variable\\s+`?[a-zA-Z0-9_]+`?.*nameerror",
+      "nameerror.*undefined\\s+variable"
+    ],
+    "pattern_keywords": [
+      "undefined_variable_nameerror",
+      "false_nameerror",
+      "local_variable_missing"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "Verify whether the variable is assigned in preceding statements or conditional branches within the enclosing function scope before claiming it is undefined.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-18T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-SAFE-GETATTR-RCE",
+    "name": "Safe Model getattr Flagged as Remote Code Execution",
+    "category": "syntax_grammar",
+    "description": "Claiming that getattr(obj, attr, default) on internal data models or messages constitutes Remote Code Execution.",
+    "signature_patterns": [
+      "getattr.*(?:remote\\s+code\\s+execution|rce|arbitrary\\s+code)",
+      "(?:remote\\s+code\\s+execution|rce).*getattr"
+    ],
+    "pattern_keywords": [
+      "getattr_rce",
+      "safe_getattr_model"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "Standard getattr on internal Pydantic models or message objects is safe attribute inspection, not arbitrary dynamic evaluation.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-18T00:00:00",
+    "source": "builtin"
   }
 ]

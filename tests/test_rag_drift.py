@@ -175,3 +175,45 @@ def test_cli_rag_drift_auto_sync(tmp_path: Path) -> None:
         res = runner.invoke(app, ["ai", "rag", "drift", str(tmp_path), "--auto-sync"])
         assert res.exit_code == 0
         mock_detect.assert_called_with(auto_sync=True)
+
+
+def test_drift_detector_defensive_boundaries(tmp_path: Path) -> None:
+    """Verify that symlinks, traversal paths, and oversized files are skipped during drift scanning."""
+    from devops_cli.ai.rag.drift import _scan_file_drift
+
+    # 1. Normal file
+    valid_file = tmp_path / "valid.py"
+    valid_file.write_text("x = 42\n", encoding="utf-8")
+    stale: list[str] = []
+    new: list[str] = []
+    _scan_file_drift(valid_file, tmp_path, "proj", {}, stale, new)
+    assert new == ["valid.py"]
+
+    # 2. Symlink file
+    target_file = tmp_path / "target.py"
+    target_file.write_text("y = 100\n", encoding="utf-8")
+    symlink_file = tmp_path / "symlink.py"
+    symlink_file.symlink_to(target_file)
+    stale_sym, new_sym = [], []
+    _scan_file_drift(symlink_file, tmp_path, "proj", {}, stale_sym, new_sym)
+    assert (stale_sym, new_sym) == ([], [])
+
+    # 3. Path outside root_dir (traversal)
+    outside_dir = tmp_path.parent / "outside_dir"
+    outside_dir.mkdir(exist_ok=True)
+    outside_file = outside_dir / "external.py"
+    outside_file.write_text("z = 1\n", encoding="utf-8")
+    stale_out, new_out = [], []
+    _scan_file_drift(outside_file, tmp_path, "proj", {}, stale_out, new_out)
+    assert (stale_out, new_out) == ([], [])
+
+    # 4. Oversized file (> 5MB)
+    mock_large = MagicMock(spec=Path)
+    mock_large.resolve.return_value = mock_large
+    mock_large.is_symlink.return_value = False
+    mock_large.is_file.return_value = True
+    mock_large.is_relative_to.return_value = True
+    mock_large.stat.return_value.st_size = 6 * 1024 * 1024
+    stale_large, new_large = [], []
+    _scan_file_drift(mock_large, tmp_path, "proj", {}, stale_large, new_large)
+    assert (stale_large, new_large) == ([], [])

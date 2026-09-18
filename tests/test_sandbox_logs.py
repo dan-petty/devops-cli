@@ -389,13 +389,28 @@ def test_engine_logs_generator_stream() -> None:
 
 
 def test_resolve_incident_dir_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify resolve_incident_dir honors DEVOPS_CLI_DATA_DIR."""
+    """Verify resolve_incident_dir honors DEVOPS_CLI_DATA_DIR and enforces security."""
+    from devops_cli.exceptions import SecurityError
     from devops_cli.sandbox.logs import resolve_incident_dir
 
     custom_data = tmp_path / "custom_data"
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(custom_data))
     resolved = resolve_incident_dir()
     assert resolved == custom_data / "sandbox" / "incidents"
+
+    # Forbidden system path
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", "/etc")
+    with pytest.raises(SecurityError, match="resolves to a forbidden system path"):
+        resolve_incident_dir()
+
+    # Symlink rejection
+    real_data = tmp_path / "real_data"
+    real_data.mkdir()
+    symlink_data = tmp_path / "symlink_data"
+    symlink_data.symlink_to(real_data)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(symlink_data))
+    with pytest.raises(SecurityError, match="must not be a symlink"):
+        resolve_incident_dir()
 
 
 def test_cli_sandbox_logs_auto_resolve_success() -> None:
