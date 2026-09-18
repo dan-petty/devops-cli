@@ -1,8 +1,8 @@
 # Task 254: Forward-Looking Project Management, Roadmap Reconstruction, Compactor Hardening & Issue Sync
 
 **Issue**: [#254](https://github.com/dan-petty/devops-cli/issues/254)
-**PR**: None (Draft)
-**Status**: In Progress
+**PR**: [#255](https://github.com/dan-petty/devops-cli/pull/255)
+**Status**: Review / In Progress
 **Milestone**: `v0.2.20`
 **Priority**: `priority/p0-critical`
 **Scope**: `scope/github`, `scope/cli`, `scope/ai`
@@ -18,9 +18,9 @@ Establish a forward-looking project management paradigm across agent instruction
 4. **Automated Roadmap-to-Issue & Task Synchronization Engine (`src/devops_cli/github/roadmap_sync.py`)**: Parse uncompleted roadmap items from `docs/ROADMAP.md`, query existing issues/tasks to eliminate duplicates, automatically create GitHub Issues with taxonomy labels, generate local per-task tracking files, and sync to GitHub Projects v2.
 
 #### Key Deliverables:
-1. Update `AGENTS.md` with Forward-Looking Project Management & Continuous Roadmap Evolution Mandate.
-2. Update AI persona prompts (`pm/prompt.md`, `pm/role.md`, `architect/prompt.md`) and task prompts (`code_review_prompt.md`, `diff_review_prompt.md`, `path_review_prompt.md`, `architecture_analysis_prompt.md`, `review.md`).
-3. Reconstruct `docs/ROADMAP.md` with full milestones and matrix.
-4. Harden `compactor.py` and expand `tests/test_docs_compactor.py`.
-5. Implement `src/devops_cli/github/roadmap_sync.py`, CLI command `devops gh issues sync-roadmap`, FastMCP tool `gh_sync_roadmap`, and tests in `tests/test_github_roadmap_sync.py`.
-6. Enforce $M \le 10$, depth $\le 5$, structural tuple equality in tests, and 100% pass on all 10 CI gates (`uv run devops ci`).
+- [x] 1. Update `AGENTS.md` with Forward-Looking Project Management & Continuous Roadmap Evolution Mandate.
+- [x] 2. Update AI persona prompts (`pm/prompt.md`, `pm/role.md`, `architect/prompt.md`) and task prompts (`code_review_prompt.md`, `diff_review_prompt.md`, `path_review_prompt.md`, `architecture_analysis_prompt.md`, `review.md`).
+- [x] 3. Reconstruct `docs/ROADMAP.md` with full milestones and matrix.
+- [x] 4. Harden `compactor.py` and expand `tests/test_docs_compactor.py`.
+- [x] 5. Implement `src/devops_cli/github/roadmap_sync.py`, CLI command `devops gh issues sync-roadmap`, FastMCP tool `gh_sync_roadmap`, and tests in `tests/test_github_roadmap_sync.py`.
+- [x] 6. Enforce $M \le 10$, depth $\le 5$, structural tuple equality in tests, and 100% pass on all 10 CI gates (`uv run devops ci`).
