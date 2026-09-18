@@ -145,10 +145,16 @@ class QdrantConfig(BaseModel):
     api_key: str | None = None
 
 
+class OpenWebUIConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    url: str | None = None
+
+
 class ValkeyConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     host: str = "localhost:6379"
     port: int = 6379
+    url: str | None = None
     password: str | None = None
     db: int = 0
     timeout: float = 2.0
@@ -158,6 +164,15 @@ class ValkeyConfig(BaseModel):
     @classmethod
     def _normalize_host_port(cls, data: Any) -> Any:
         if isinstance(data, dict):
+            raw_url = data.get("url")
+            if isinstance(raw_url, str) and raw_url.strip():
+                clean_url = raw_url.strip()
+                endpoint = clean_url.split("://", 1)[1] if "://" in clean_url else clean_url
+                if ":" in endpoint:
+                    h, p = endpoint.rsplit(":", 1)
+                    if p.isdigit():
+                        data.setdefault("host", f"{h}:{p}")
+                        data.setdefault("port", int(p))
             raw_host = data.get("host")
             raw_port = data.get("port")
             if isinstance(raw_host, str):
@@ -425,6 +440,7 @@ class Settings(BaseSettings):
     k8s: KubernetesConfig = KubernetesConfig()
     sandbox: SandboxConfig = SandboxConfig()
     ai: AIConfig = AIConfig()
+    open_webui: OpenWebUIConfig = OpenWebUIConfig()
     data: DataConfig = DataConfig()
 
 

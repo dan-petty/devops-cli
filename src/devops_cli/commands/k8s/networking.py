@@ -23,6 +23,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_VALKEY_PORT,
 )
+from devops_cli.config.settings import load_settings, save_settings
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -93,30 +94,56 @@ def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | Non
     return None
 
 
-def _detect_service_url(service: str, namespace: str, context: str | None = None) -> str | None:
-    """Query service URL via minikube service or kubectl nodePort/cluster info."""
-    effective_ctx = runtime.resolve_effective_context(context)
-    # 1. Try minikube service if context is minikube
-    if effective_ctx and effective_ctx.strip().lower() == "minikube":
-        try:
-            res = runtime.run_subprocess(
-                ["minikube", "service", service, "-n", namespace, "--url"],
-                capture_output=True,
-                text=True,
-                check=False,
-                quiet=True,
-                timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-            )
-            if res.returncode == 0 and res.stdout.strip():
-                url = _parse_minikube_service_url(res.stdout)
-                if url:
-                    return url
-        except OSError, subprocess.SubprocessError:
-            pass
-
-    # 2. Generic K8s nodePort or loadBalancer detection via kubectl
+def _detect_minikube_service_url(
+    service: str, namespace: str, effective_ctx: str | None
+) -> str | None:
+    """Query Minikube service URL via minikube service CLI."""
+    if not (effective_ctx and effective_ctx.strip().lower() == "minikube"):
+        return None
     try:
-        ctx_args = ["--context", effective_ctx] if effective_ctx else []
+        res = runtime.run_subprocess(
+            ["minikube", "service", service, "-n", namespace, "--url"],
+            capture_output=True,
+            text=True,
+            check=False,
+            quiet=True,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return _parse_minikube_service_url(res.stdout)
+    except OSError, subprocess.SubprocessError:
+        pass
+    return None
+
+
+def _extract_service_ingress_or_nodeport(
+    svc_data: dict[str, Any], ctx_args: list[str]
+) -> str | None:
+    """Extract LoadBalancer ingress URL or NodePort URL from Kubernetes service spec."""
+    spec = svc_data.get("spec", {})
+    ports = spec.get("ports", [])
+    if not ports:
+        return None
+    node_port = ports[0].get("nodePort")
+    port_num = ports[0].get("port")
+
+    ingress = svc_data.get("status", {}).get("loadBalancer", {}).get("ingress", [])
+    if ingress:
+        lb_host = ingress[0].get("ip") or ingress[0].get("hostname")
+        if lb_host and port_num:
+            return f"http://{lb_host}:{port_num}"
+
+    if node_port:
+        return _resolve_k8s_node_port_url(ctx_args, int(node_port))
+    return None
+
+
+def _detect_kubectl_service_url(
+    service: str, namespace: str, effective_ctx: str | None
+) -> str | None:
+    """Query generic Kubernetes service URL via kubectl JSON output."""
+    ctx_args = ["--context", effective_ctx] if effective_ctx else []
+    try:
         svc_res = runtime.run_subprocess(
             ["kubectl", "get", "svc", service, "-n", namespace, "-o", "json"] + ctx_args,
             capture_output=True,
@@ -129,27 +156,18 @@ def _detect_service_url(service: str, namespace: str, context: str | None = None
             import json
 
             svc_data = json.loads(svc_res.stdout)
-            spec = svc_data.get("spec", {})
-            ports = spec.get("ports", [])
-            node_port = ports[0].get("nodePort") if ports else None
-            port_num = ports[0].get("port") if ports else None
-
-            # Check LoadBalancer ingress IP
-            ingress = svc_data.get("status", {}).get("loadBalancer", {}).get("ingress", [])
-            if ingress:
-                lb_host = ingress[0].get("ip") or ingress[0].get("hostname")
-                if lb_host and port_num:
-                    return f"http://{lb_host}:{port_num}"
-
-            # Check NodePort
-            if node_port:
-                node_url = _resolve_k8s_node_port_url(ctx_args, int(node_port))
-                if node_url:
-                    return node_url
+            return _extract_service_ingress_or_nodeport(svc_data, ctx_args)
     except Exception:
         pass
-
     return None
+
+
+def _detect_service_url(service: str, namespace: str, context: str | None = None) -> str | None:
+    """Query service URL via minikube service or kubectl nodePort/cluster info."""
+    effective_ctx = runtime.resolve_effective_context(context)
+    return _detect_minikube_service_url(
+        service, namespace, effective_ctx
+    ) or _detect_kubectl_service_url(service, namespace, effective_ctx)
 
 
 def _verify_url_reachability(url: str, timeout: float = DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS) -> bool:
@@ -169,37 +187,128 @@ def _verify_url_reachability(url: str, timeout: float = DEFAULT_HTTP_PROBE_TIMEO
         return False
 
 
+def _check_preferred_ports(scheme: str, ports: list[int] | None) -> str | None:
+    """Return first reachable preferred localhost endpoint candidate."""
+    if not ports:
+        return None
+    for port in ports:
+        candidate = f"{scheme}://localhost:{port}"
+        if _verify_url_reachability(candidate):
+            return candidate
+    return None
+
+
+def _resolve_loopback_fallback(scheme: str, port: int) -> str:
+    """Resolve and test localhost/loopback fallbacks for unreachable NodePort."""
+    localhost_url = f"{scheme}://localhost:{port}"
+    if _verify_url_reachability(localhost_url):
+        return localhost_url
+    loopback_url = f"{scheme}://127.0.0.1:{port}"
+    if _verify_url_reachability(loopback_url):
+        return loopback_url
+    return localhost_url
+
+
 def _resolve_accessible_url(
     detected_url: str | None, preferred_localhost_ports: list[int] | None = None
 ) -> str | None:
     """Resolve service URL to ensure it is accessible from devcontainer / host OS environment."""
-    if preferred_localhost_ports:
-        for port in preferred_localhost_ports:
-            candidate = f"http://localhost:{port}"
-            if _verify_url_reachability(candidate):
-                return candidate
-
-    if not detected_url:
-        return None
-
     from urllib.parse import urlparse
 
-    if _verify_url_reachability(detected_url):
+    scheme = "http"
+    if detected_url:
+        parsed_orig = urlparse(detected_url)
+        scheme = parsed_orig.scheme or "http"
+
+    preferred = _check_preferred_ports(scheme, preferred_localhost_ports)
+    if preferred:
+        return preferred
+
+    if not detected_url or _verify_url_reachability(detected_url):
         return detected_url
 
     parsed = urlparse(detected_url)
     if parsed.port:
-        localhost_url = f"{parsed.scheme}://localhost:{parsed.port}"
-        if _verify_url_reachability(localhost_url):
-            return localhost_url
-
-        loopback_url = f"{parsed.scheme}://127.0.0.1:{parsed.port}"
-        if _verify_url_reachability(loopback_url):
-            return loopback_url
-
-        return localhost_url
+        return _resolve_loopback_fallback(parsed.scheme or scheme, parsed.port)
 
     return detected_url
+
+
+def _configure_infra_stack_urls(
+    effective_context: str | None,
+    settings: Any,
+    configured: dict[str, str],
+) -> None:
+    """Detect and configure accessible URLs for infrastructure stack services."""
+    from devops_cli.config.settings import dotted_set
+
+    raw_argocd = _detect_service_url("argocd-server", "argocd", context=effective_context)
+    raw_grafana = _detect_service_url(
+        "kube-prometheus-grafana", "monitoring", context=effective_context
+    )
+    raw_prom = _detect_service_url(
+        "kube-prometheus-kube-prome-prometheus", "monitoring", context=effective_context
+    )
+    raw_jaeger = _detect_service_url("jaeger", "otel", context=effective_context)
+
+    argocd_url = _resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])
+    grafana_url = _resolve_accessible_url(raw_grafana, preferred_localhost_ports=[8030, 8000, 3000])
+    prom_url = _resolve_accessible_url(raw_prom, preferred_localhost_ports=[8090, 9090])
+    jaeger_url = _resolve_accessible_url(raw_jaeger, preferred_localhost_ports=[16686])
+
+    if argocd_url:
+        dotted_set(settings, "argocd.url", argocd_url)
+        configured["argocd.url"] = argocd_url
+    if grafana_url:
+        dotted_set(settings, "grafana.url", grafana_url)
+        configured["grafana.url"] = grafana_url
+    if prom_url:
+        dotted_set(settings, "prometheus.url", prom_url)
+        configured["prometheus.url"] = prom_url
+    if jaeger_url:
+        dotted_set(settings, "jaeger.url", jaeger_url)
+        configured["jaeger.url"] = jaeger_url
+        dotted_set(settings, "otel.endpoint", "http://localhost:4318")
+        configured["otel.endpoint"] = "http://localhost:4318"
+
+
+def _configure_llm_stack_urls(
+    effective_context: str | None,
+    settings: Any,
+    configured: dict[str, str],
+) -> None:
+    """Detect and configure accessible URLs for LLM stack services."""
+    from urllib.parse import urlparse
+
+    from devops_cli.config.settings import dotted_set
+
+    raw_ollama = _detect_service_url("ollama", "llm", context=effective_context)
+    raw_webui = _detect_service_url("open-webui", "llm", context=effective_context)
+    raw_qdrant = _detect_service_url("qdrant", "llm", context=effective_context)
+    raw_valkey = _detect_service_url("valkey", "llm", context=effective_context)
+
+    ollama_url = _resolve_accessible_url(raw_ollama, preferred_localhost_ports=[11434])
+    webui_url = _resolve_accessible_url(raw_webui, preferred_localhost_ports=[3000, 8080])
+    qdrant_url = _resolve_accessible_url(raw_qdrant, preferred_localhost_ports=[6333])
+    valkey_url = _resolve_accessible_url(raw_valkey, preferred_localhost_ports=[6379])
+
+    if ollama_url:
+        settings.ai.ollama_urls = [ollama_url]
+        configured["ai.ollama_urls"] = ollama_url
+    if webui_url:
+        dotted_set(settings, "open_webui.url", webui_url)
+        configured["open_webui.url"] = webui_url
+    if qdrant_url:
+        dotted_set(settings, "qdrant.url", qdrant_url)
+        configured["qdrant.url"] = qdrant_url
+    if valkey_url:
+        dotted_set(settings, "valkey.url", valkey_url)
+        p_valkey = urlparse(valkey_url)
+        if p_valkey.port:
+            h = p_valkey.hostname or "localhost"
+            dotted_set(settings, "valkey.host", f"{h}:{p_valkey.port}")
+            dotted_set(settings, "valkey.port", str(p_valkey.port))
+        configured["valkey.url"] = valkey_url
 
 
 def configure_urls(
@@ -252,63 +361,14 @@ def configure_urls(
         prefix=False,
     )
 
-    from devops_cli.config.settings import dotted_set, load_settings, save_settings
-
     settings = load_settings()
     configured: dict[str, str] = {}
 
     if "infra" in selected_stacks:
-        raw_argocd = _detect_service_url("argocd-server", "argocd", context=effective_context)
-        raw_grafana = _detect_service_url(
-            "kube-prometheus-grafana", "monitoring", context=effective_context
-        )
-        raw_prom = _detect_service_url(
-            "kube-prometheus-kube-prome-prometheus", "monitoring", context=effective_context
-        )
-        raw_jaeger = _detect_service_url("jaeger", "otel", context=effective_context)
-
-        argocd_url = _resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])
-        grafana_url = _resolve_accessible_url(
-            raw_grafana, preferred_localhost_ports=[8030, 8000, 3000]
-        )
-        prom_url = _resolve_accessible_url(raw_prom, preferred_localhost_ports=[8090, 9090])
-        jaeger_url = _resolve_accessible_url(raw_jaeger, preferred_localhost_ports=[16686])
-
-        if argocd_url:
-            dotted_set(settings, "argocd.url", argocd_url)
-            configured["argocd.url"] = argocd_url
-        if grafana_url:
-            dotted_set(settings, "grafana.url", grafana_url)
-            configured["grafana.url"] = grafana_url
-        if prom_url:
-            dotted_set(settings, "prometheus.url", prom_url)
-            configured["prometheus.url"] = prom_url
-        if jaeger_url:
-            dotted_set(settings, "jaeger.url", jaeger_url)
-            configured["jaeger.url"] = jaeger_url
-            dotted_set(settings, "otel.endpoint", "http://localhost:4318")
-            configured["otel.endpoint"] = "http://localhost:4318"
+        _configure_infra_stack_urls(effective_context, settings, configured)
 
     if "llm" in selected_stacks:
-        raw_ollama = _detect_service_url("ollama", "llm", context=effective_context)
-        raw_webui = _detect_service_url("open-webui", "llm", context=effective_context)
-        raw_qdrant = _detect_service_url("qdrant", "llm", context=effective_context)
-        raw_valkey = _detect_service_url("valkey", "llm", context=effective_context)
-
-        ollama_url = _resolve_accessible_url(raw_ollama, preferred_localhost_ports=[11434])
-        webui_url = _resolve_accessible_url(raw_webui, preferred_localhost_ports=[3000, 8080])
-        qdrant_url = _resolve_accessible_url(raw_qdrant, preferred_localhost_ports=[6333])
-        valkey_url = _resolve_accessible_url(raw_valkey, preferred_localhost_ports=[6379])
-
-        if ollama_url:
-            settings.ai.ollama_urls = [ollama_url]
-            configured["ai.ollama_urls"] = ollama_url
-        if webui_url:
-            configured["open_webui.url"] = webui_url
-        if qdrant_url:
-            configured["qdrant.url"] = qdrant_url
-        if valkey_url:
-            configured["valkey.url"] = valkey_url
+        _configure_llm_stack_urls(effective_context, settings, configured)
 
     if configured:
         save_settings(settings)
