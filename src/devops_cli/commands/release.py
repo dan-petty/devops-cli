@@ -864,14 +864,15 @@ def _execute_release_pr(
     repo_root: Path,
 ) -> None:
     """Execute gh pr create with label fallback if labels fail."""
-    pr_proc = _get("run_subprocess")(pr_cmd, cwd=repo_root)
+    run_gh_fn = _get("run_gh")
+    pr_proc = run_gh_fn(pr_cmd, cwd=repo_root)
     if pr_proc.returncode != 0 and labels and "label" in (pr_proc.stderr or "").lower():
         fallback_cmd = [
             arg
             for idx, arg in enumerate(pr_cmd)
             if arg != "--label" and (idx == 0 or pr_cmd[idx - 1] != "--label")
         ]
-        pr_proc = _get("run_subprocess")(fallback_cmd, cwd=repo_root)
+        pr_proc = run_gh_fn(fallback_cmd, cwd=repo_root)
 
     if pr_proc.returncode == 0:
         pr_url = str(pr_proc.stdout).strip()
