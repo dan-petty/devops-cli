@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+import devops_cli
 from devops_cli.ai.instruction_generator import (
     CONST_CLAUDE_MD_FILENAME,
     CONST_COPILOT_INSTRUCTIONS_PATH,
@@ -337,7 +338,7 @@ def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
     devops_meta = ProjectMetadata(
         name="devops-cli",
         description="DevOps CLI Automation Tool",
-        version="0.2.20",
+        version=devops_cli.__version__,
         requires_python=">=3.14",
         is_devops_cli=True,
     )

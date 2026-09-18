@@ -183,12 +183,39 @@ def test_format_markdown_fix_balances_and_escapes() -> None:
     # 4. Empty / whitespace-only fix
     res4 = format_markdown_fix("   ")
 
+    # 5. Fix with literal backticks inside inline string (e.g. print("```")): wrapped in 4 backticks, not malformed
+    fix_inline_ticks = 'print("```")'
+    res5 = format_markdown_fix(fix_inline_ticks)
+
     assert (
-        res1.count("```") % 2,
+        res1.startswith("- **Fix Recommendation**:\n```\n"),
         res2.count("```") % 2,
-        res3.count("```") % 2,
+        res3.endswith("\n```"),
         res4,
-    ) == (0, 0, 0, "")
+        res5.startswith('- **Fix Recommendation**:\n````\nprint("```")\n````'),
+    ) == (True, 0, True, "", True)
+
+
+def test_escape_markdown_title_and_heading_asterisks() -> None:
+    """Ensure asterisks in finding titles are escaped to prevent Markdown heading and table collisions."""
+    from devops_cli.ai.review.sanitization import escape_markdown_title
+
+    heading_title = escape_markdown_title("Unused **kwargs in resolve_stage_flags", is_table=False)
+    table_title = escape_markdown_title("Handle *ptr | and **kwargs", is_table=True)
+    backticked_title = escape_markdown_title("Unused `**kwargs` and `*args`", is_table=False)
+    unclosed_backtick = escape_markdown_title("Unclosed `backtick title", is_table=False)
+
+    assert (
+        heading_title,
+        table_title,
+        backticked_title,
+        unclosed_backtick,
+    ) == (
+        r"Unused \*\*kwargs in resolve_stage_flags",
+        r"Handle \*ptr \| and \*\*kwargs",
+        "Unused `**kwargs` and `*args`",
+        "Unclosed `backtick title`",
+    )
 
 
 def test_derive_finding_theme_strips_scanner_prefixes_and_avoids_word_hyphens() -> None:

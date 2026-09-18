@@ -159,6 +159,18 @@ _DEFECT_KEYWORD_REGEX = re.compile(
 )
 
 
+def strip_outer_markdown_bold(text: str) -> str:
+    """Strip paired outer markdown bold markers (**text**) while preserving legitimate prefixes like **kwargs."""
+    val = text.strip()
+    if val.startswith("**") and val.endswith("**") and len(val) >= 4:
+        inner = val[2:-2].strip()
+        # Verify outer bold is not prematurely closed by an un-backticked `**` inside
+        non_code = re.sub(r"`[^`]*`", "", inner)
+        if "**" not in non_code:
+            return inner
+    return val
+
+
 def sanitize_finding_text(text: str) -> str:
     """Scrub prompt criteria leakage, instruction headers, scratchpad prefixes, and markdown noise from text."""
     val = normalize_unicode_text(str(text)).strip()
@@ -190,9 +202,8 @@ def sanitize_finding_text(text: str) -> str:
     ) and not _DEFECT_KEYWORD_REGEX.search(val):
         return ""
 
-    # Strip leading/trailing stray asterisks or markdown bold markers
-    val = re.sub(r"^\s*\*\*\s*", "", val)
-    val = re.sub(r"\s*\*\*\s*$", "", val)
+    # Strip paired outer markdown bold markers while preserving legitimate prefixes like **kwargs
+    val = strip_outer_markdown_bold(val)
 
     return val.strip()
 

@@ -39,6 +39,8 @@ from devops_cli.ai.review.review_environment import (
 from devops_cli.ai.review.sanitization import (
     _escape_backticks,
     _sanitize_filename,
+    balance_markdown_fences,
+    escape_markdown_title,
 )
 from devops_cli.ai.review.verification import _validate_segment_findings
 from devops_cli.ai.review_schema import (
@@ -50,6 +52,7 @@ from devops_cli.ai.review_schema import (
     consolidate_duplicate_findings,
     format_clean_text_field,
     parse_review_response,
+    strip_outer_markdown_bold,
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.ai.thinking_stream import extract_think_blocks
@@ -2097,17 +2100,13 @@ class ReviewPipelineOrchestrator:
     @staticmethod
     def _format_markdown_fix(fix: str) -> str:
         """Format fix recommendation safely into Markdown without unbalancing code fences."""
-        clean_fix = fix.strip()
-        clean_fix = re.sub(r"^\s*\*\*\s*", "", clean_fix)
-        clean_fix = re.sub(r"\s*\*\*\s*$", "", clean_fix)
+        clean_fix = strip_outer_markdown_bold(fix.strip())
         if not clean_fix:
             return ""
 
-        fence_count = clean_fix.count("```")
-        if fence_count > 0:
-            if fence_count % 2 != 0:
-                clean_fix += "\n```"
-            return f"- **Fix Recommendation**:\n\n{clean_fix}"
+        balanced_fix, has_fences = balance_markdown_fences(clean_fix)
+        if has_fences:
+            return f"- **Fix Recommendation**:\n\n{balanced_fix}"
 
         max_backticks = max((len(m) for m in re.findall(r"`+", clean_fix)), default=0)
         fence = "`" * max(3, max_backticks + 1)
@@ -2116,16 +2115,13 @@ class ReviewPipelineOrchestrator:
     @staticmethod
     def _format_markdown_description(description: str) -> str:
         """Format finding description into indented Markdown list item preserving paragraphs."""
-        clean_desc = description.strip()
-        clean_desc = re.sub(r"^\s*\*\*\s*", "", clean_desc)
-        clean_desc = re.sub(r"\s*\*\*\s*$", "", clean_desc)
+        clean_desc = strip_outer_markdown_bold(description.strip())
         if not clean_desc:
             return ""
-        if clean_desc.count("```") % 2 != 0:
-            clean_desc += "\n```"
-        lines = clean_desc.splitlines()
+        balanced_desc, _ = balance_markdown_fences(clean_desc)
+        lines = balanced_desc.splitlines()
         if len(lines) <= 1:
-            return f"- **Description**: {clean_desc}"
+            return f"- **Description**: {balanced_desc}"
         indented = (
             lines[0] + "\n" + "\n".join(f"  {line}" if line.strip() else "" for line in lines[1:])
         )
@@ -2146,9 +2142,7 @@ class ReviewPipelineOrchestrator:
                 (f.severity or "INFORMATIONAL").replace("|", "\\|").replace("\n", " ").strip()
             )
             clean_loc = f.location.strip("`").replace("|", "\\|").replace("\n", " ").strip()
-            clean_title = f.title.replace("|", "\\|").replace("\n", " ").strip()
-            if clean_title.count("`") % 2 != 0:
-                clean_title += "`"
+            clean_title = escape_markdown_title(f.title, is_table=True)
             clean_status = f.status.replace("|", "\\|").replace("\n", " ").strip()
             clean_persona = f.persona_title.replace("|", "\\|").replace("\n", " ").strip()
             lines.append(
@@ -2164,9 +2158,7 @@ class ReviewPipelineOrchestrator:
 
         lines = ["", "## Detailed Findings"]
         for idx, f in enumerate(reportable_findings, 1):
-            clean_title = f.title.replace("\n", " ").strip()
-            if clean_title.count("`") % 2 != 0:
-                clean_title += "`"
+            clean_title = escape_markdown_title(f.title, is_table=False)
             clean_loc = f.location.strip("`").strip()
             lines.append(f"### {idx}. [{(f.severity or 'INFORMATIONAL').upper()}] {clean_title}")
             lines.append(f"- **Location**: `{clean_loc}`")
