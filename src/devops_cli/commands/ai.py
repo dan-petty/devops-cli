@@ -34,6 +34,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_PIPELINE_MAX_TURNS,
     DEFAULT_AI_PIPELINE_PERSONAS,
     DEFAULT_AI_PIPELINE_PROMPT,
+    DEFAULT_AI_PREWARM_KEEP_ALIVE,
     DEFAULT_AI_TEST_PROMPT,
     DEFAULT_DIFF_CHUNK_BUDGET,
     DEFAULT_ESTIMATED_PROMPT_TOKENS,
@@ -614,6 +615,140 @@ def test(
         print_success(f"{str(resp).strip()} [dim](handled by {handled}{wall_sec})[/dim]")
     except Exception as exc:
         print_error(f"AI provider test failed: {exc}", prefix=False)
+        raise typer.Exit(1)
+
+
+def _resolve_prewarm_urls(
+    url: str | None,
+    all_nodes: bool,
+    configured_urls: list[str],
+) -> list[str]:
+    """Resolve target Ollama URLs based on explicit override or cluster node flags."""
+    if url:
+        return [url]
+    if all_nodes or not configured_urls:
+        return list(configured_urls)
+    return [configured_urls[0]]
+
+
+def _render_prewarm_results(
+    results: dict[str, bool],
+    model: str,
+    keep_alive: str | int,
+    is_evict: bool,
+    json_output: bool,
+) -> bool:
+    """Render prewarm or eviction results to console or JSON output."""
+    import json
+
+    from devops_cli.output import write_stdout
+
+    action = "Eviction" if is_evict else "Prewarming"
+    all_ok = bool(results) and all(results.values())
+    if json_output:
+        payload = {
+            "action": action.lower(),
+            "model": model,
+            "keep_alive": keep_alive,
+            "success": all_ok,
+            "nodes": results,
+        }
+        write_stdout(json.dumps(payload, indent=2) + "\n")
+        return all_ok
+
+    if not results:
+        print_warning("No candidate Ollama nodes configured for prewarming.")
+        return False
+
+    status_word = "evicted from" if is_evict else "prewarmed into"
+    print_info(f"{action} model [cyan]{model}[/cyan] ({status_word} VRAM)...", prefix=False)
+    for endpoint, ok in results.items():
+        if ok:
+            print_success(f"  ✓ {endpoint}: confirmed HTTP 200 (keep_alive={keep_alive})")
+        else:
+            print_error(f"  ✗ {endpoint}: request failed or timed out", prefix=False)
+    return all_ok
+
+
+# =============================================================================
+# Command: devops ai prewarm
+# =============================================================================
+
+
+@app.command("prewarm", help=HELP.ai.prewarm_cmd)
+def prewarm(
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            "-m",
+            help=HELP.ai.prewarm_model,
+        ),
+    ] = None,
+    keep_alive: Annotated[
+        str,
+        typer.Option(
+            "--keep-alive",
+            "-k",
+            help=HELP.ai.prewarm_keep_alive,
+        ),
+    ] = DEFAULT_AI_PREWARM_KEEP_ALIVE,
+    all_nodes: Annotated[
+        bool,
+        typer.Option(
+            "--all-nodes",
+            "-a",
+            help=HELP.ai.prewarm_all_nodes,
+        ),
+    ] = True,
+    evict: Annotated[
+        bool,
+        typer.Option(
+            "--evict",
+            help=HELP.ai.prewarm_evict,
+        ),
+    ] = False,
+    url: Annotated[
+        str | None,
+        typer.Option(
+            "--url",
+            "-u",
+            help="Specific Ollama node URL to target instead of all candidate nodes.",
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Output results as structured JSON.",
+        ),
+    ] = False,
+) -> None:
+    """Prewarm local LLM models into GPU VRAM or proactively evict them to free memory."""
+    from devops_cli.ai.client import LLMClient
+    from devops_cli.config.settings import get_ai_api_key, load_settings
+
+    settings = load_settings()
+    target_model = model or settings.ai.model
+    target_keep_alive: str | int = 0 if evict else keep_alive
+    urls = _resolve_prewarm_urls(url, all_nodes, settings.ai.get_ollama_urls)
+
+    client = LLMClient(settings.ai, api_key=get_ai_api_key(settings), cache_enabled=False)
+    results = client.preload_models(
+        model=target_model,
+        keep_alive=target_keep_alive,
+        urls=urls,
+        blocking=True,
+    )
+
+    success = _render_prewarm_results(
+        results=results,
+        model=target_model,
+        keep_alive=target_keep_alive,
+        is_evict=evict,
+        json_output=json_output,
+    )
+    if not success:
         raise typer.Exit(1)
 
 

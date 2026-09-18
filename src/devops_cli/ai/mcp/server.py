@@ -1019,6 +1019,27 @@ def ai_test_gen(target_file: str) -> str:
 
 
 @mcp.tool()
+def ai_prewarm_models(
+    model: str = "",
+    keep_alive: str = "1h",
+    evict: bool = False,
+    all_nodes: bool = True,
+) -> str:
+    """Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes."""
+    if model:
+        _validate_mcp_arg("model", model)
+    _validate_mcp_arg("keep_alive", keep_alive)
+    cmd = ["uv", "run", "devops", "ai", "prewarm", "--keep-alive", keep_alive]
+    if model:
+        cmd.extend(["--model", model])
+    if evict:
+        cmd.append("--evict")
+    if all_nodes:
+        cmd.append("--all-nodes")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS * 2)
+
+
+@mcp.tool()
 def config_audit_keys() -> str:
     """Audit OS Keyring health, token state, and zero-plaintext secret compliance."""
     return _run_mcp_cmd(

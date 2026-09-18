@@ -109,6 +109,15 @@ class AICommandHelp:
     tools: str = "Enable DevOps agent tools."
     thinking: str = "Enable model reasoning/thinking."
     prewarm: str = "Prewarm the model before starting chat."
+    prewarm_cmd: str = (
+        "Prewarm local models into GPU VRAM or evict idle models across cluster nodes."
+    )
+    prewarm_model: str = "Model name to prewarm or evict (defaults to configured AI model)."
+    prewarm_keep_alive: str = (
+        "Keep-alive duration for loaded model (e.g. 1h, 24h, forever, or 0 for eviction)."
+    )
+    prewarm_all_nodes: str = "Prewarm or evict model across all configured Ollama cluster nodes."
+    prewarm_evict: str = "Evict the model from GPU VRAM immediately (sets keep_alive to 0)."
     explain_chat: str = "Explain chat personas, tools, and reasoning modes."
     explain_all: str = "Explain AI agent workflows, FastMCP tools, RAG terminology, and metrics."
     goal: str = "Initial goal or prompt for the multi-agent pipeline."
