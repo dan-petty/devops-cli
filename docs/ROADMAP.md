@@ -52,6 +52,8 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **Universal `--json` CLI Output Flag Alias Pipeline (`devops * --json`)**: First-class `--json` alias for `--format json` across all inspection and diagnostic subcommands.
 - [ ] **Mutation-Driven GitHub Cache Invalidation Hooks**: Automatic invalidation of cached GitHub REST and GraphQL responses on edit, patch, and reconcile operations.
 - [ ] **Proportional API Rate Budgeting & GraphQL Circuit Breaker Guard**: Proportional budget allocation per CLI command and automated circuit breaking when external API quota drops below 20%, preventing rapid quota exhaustion.
+- [ ] **Consolidated AI Review Report Markdown Sanitization & Code Block Hardening**: Systemic normalization and sanitization of `review.md` artifacts—smart detection of existing fenced code blocks (`Fix Recommendation`), automatic balancing of open code fences, escaping of raw placeholder angle brackets (`<token>`, `<digest>`), and robust theme extraction resilient to bracketed prefixes (`[DRY-RUN]`, `[GITLEAKS]`).
+- [ ] **Automated Parameter, Schema & CLI Interface Parity Oracle**: Static AST analyzer and runtime validator detecting missing or unpropagated CLI options, asymmetric parameter signatures, and schema discrepancies across Typer commands, FastMCP tools, and orchestrator APIs.
 
 
 ---
@@ -68,13 +70,16 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | **Fill-Ins** | Dynamic Schema Export, AST Memoization & Knowledge Base Linters | Click / Typer Introspection | Low | Low | v0.2.x | ✅ Completed |
 | **Foundation** | DevContainer Lifecycle, PSA Enforcement & Invariant Gates | Linux / Docker / OTel | Low | High | v0.2.x | ✅ Completed |
 |  | Zero-Trust Git Commit & Tag Signature Verifier | `git`, GPG, Sigstore | High | Low | v0.3.0 | 💡 Future Vision |
+|  | Consolidated Review Markdown Sanitizer & Code Block Hardening | Standard Library / CommonMark | High | Low | v0.3.0 | 💡 Future Vision |
 |  | JIT Python 3.14 Bytecode Optimization Benchmarking | `pytest-benchmark` / JIT | Medium | Low | v0.3.0 | 💡 Future Vision |
 |  | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 |  | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 |  | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |
+|  | Automated Parameter & Interface Parity Oracle | Python AST / Typer / FastMCP | High | Medium | v0.3.0 | 💡 Future Vision |
 |  | Distributed Multi-Cluster Telemetry & OTel Egress Mesh | OTel Collector / Prometheus | High | High | v0.3.0 | 💡 Future Vision |
 |  | Distributed Cache & Shared Semantic Embeddings Sync | S3 / OCI / SQLite | High | Medium | v0.3.0 | 💡 Future Vision |
 |  | Universal `--json` CLI Output Flag Alias Pipeline | Typer / Rich | Medium | Low | v0.3.0 | 💡 Future Vision |
 |  | Mutation-Driven GitHub Cache Invalidation Hooks | Disk Cache / SQLite | High | Low | v0.3.0 | 💡 Future Vision |
+|  | Proportional API Rate Budgeting & GraphQL Circuit Breaker Guard | Standard Library / SQLite | High | Medium | v0.3.0 | 💡 Future Vision |
 | **De-prioritized** | Bare-Metal OS Installers | Shell scripts | Low | High | — | ❌ Rejected (DevContainer native) |
 |  | Heavyweight Monolithic Orchestrators | Full LangChain | Low | High | — | ❌ Rejected (FastMCP + PydanticAI) |

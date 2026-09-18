@@ -321,14 +321,18 @@ def test_generate_agents_md_root_cause_roadmap_and_interaction_tenets() -> None:
         requires_python=">=3.14",
     )
     content = generate_agents_md(meta)
-    assert "Mandatory Root-Cause Remediation & Instruction Hardening" in content
-    assert "INVESTIGATE AND FIX THE CAUSE OF THE UNDERLYING ISSUE" in content
-    assert "UPDATE AGENT INSTRUCTIONS (`AGENTS.md`)" in content
-    assert (
-        "Continuous Roadmap Synthesis, Field Observations & Innovative Self-Improvement" in content
+    expected_phrases = (
+        "Mandatory Root-Cause Remediation & Instruction Hardening",
+        "INVESTIGATE AND FIX THE CAUSE OF THE UNDERLYING ISSUE",
+        "UPDATE AGENT INSTRUCTIONS (`AGENTS.md`)",
+        "Continuous Roadmap Synthesis, Field Observations & Innovative Self-Improvement",
+        "PROACTIVELY ADDED TO THE ROADMAP (`docs/ROADMAP.md`)",
+        "Automatic Roadmap Ingestion for Issues, Struggles, Challenges & Insights",
+        "Automatic Roadmap Ingestion for Missing Parameters, API Inconsistencies & Contract Deficiencies",
+        "Automatic Roadmap Ingestion for Bad Patterns, Anti-Patterns & Deficiencies",
+        "Automatic Roadmap Ingestion for Features, Suggestions & Integrations",
+        "Continuous Interaction & Collaborative Value Improvement",
+        "suggest concrete, actionable ways to improve",
     )
-    assert "PROACTIVELY ADDED TO THE ROADMAP (`docs/ROADMAP.md`)" in content
-    assert "Automatic Roadmap Ingestion for Issues, Struggles, Challenges & Insights" in content
-    assert "Automatic Roadmap Ingestion for Features, Suggestions & Integrations" in content
-    assert "Continuous Interaction & Collaborative Value Improvement" in content
-    assert "suggest concrete, actionable ways to improve" in content
+    missing = [phrase for phrase in expected_phrases if phrase not in content]
+    assert missing == []

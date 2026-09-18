@@ -11,6 +11,7 @@ import html
 import logging
 import tomllib
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -47,6 +48,39 @@ class ProjectMetadata(BaseModel):
     is_devops_cli: bool = False
 
 
+def _extract_pyproject_deps(data: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Extract standard and dev dependencies from parsed pyproject.toml dictionary."""
+    deps: list[str] = []
+    dev_deps: list[str] = []
+    project = data.get("project")
+    if isinstance(project, dict):
+        raw_deps = project.get("dependencies")
+        if isinstance(raw_deps, list):
+            deps = [str(d) for d in raw_deps]
+    dep_groups = data.get("dependency-groups")
+    if isinstance(dep_groups, dict):
+        raw_dev = dep_groups.get("dev")
+        if isinstance(raw_dev, list):
+            dev_deps = [str(d) for d in raw_dev]
+    return deps, dev_deps
+
+
+def _extract_pyproject_meta(
+    project: dict[str, Any], default_name: str, default_desc: str
+) -> tuple[str, str, str, str, str]:
+    """Extract core project naming, description, version, python, and entry points."""
+    name = str(project.get("name", default_name))
+    desc = str(project.get("description", default_desc))
+    ver = str(project.get("version", DEFAULT_PROJECT_VERSION))
+    req_py = str(project.get("requires-python", DEFAULT_PYTHON_REQUIRES))
+    entry = ""
+    scripts = project.get("scripts")
+    if isinstance(scripts, dict) and scripts:
+        first_script = next(iter(scripts.keys()))
+        entry = f"{first_script} ({scripts[first_script]})"
+    return name, desc, ver, req_py, entry
+
+
 def parse_project_metadata(repo_path: Path) -> ProjectMetadata:
     """Extract structured metadata from pyproject.toml and repository structure."""
     resolved_path = repo_path.resolve()
@@ -64,28 +98,12 @@ def parse_project_metadata(repo_path: Path) -> ProjectMetadata:
         try:
             with pyproject_file.open("rb") as f:
                 data = tomllib.load(f)
-
-            project = data.get("project", {})
+            project = data.get("project")
             if isinstance(project, dict):
-                name = str(project.get("name", name))
-                description = str(project.get("description", description))
-                version = str(project.get("version", version))
-                requires_python = str(project.get("requires-python", requires_python))
-
-                scripts = project.get("scripts", {})
-                if isinstance(scripts, dict) and scripts:
-                    first_script = next(iter(scripts.keys()))
-                    entry_point = f"{first_script} ({scripts[first_script]})"
-
-                deps = project.get("dependencies", [])
-                if isinstance(deps, list):
-                    dependencies = [str(d) for d in deps]
-
-            dep_groups = data.get("dependency-groups", {})
-            if isinstance(dep_groups, dict):
-                dev_group = dep_groups.get("dev", [])
-                if isinstance(dev_group, list):
-                    dev_dependencies = [str(d) for d in dev_group]
+                name, description, version, requires_python, entry_point = _extract_pyproject_meta(
+                    project, name, description
+                )
+            dependencies, dev_dependencies = _extract_pyproject_deps(data)
         except Exception as exc:
             logger.debug("Failed parsing pyproject.toml at %s: %s", pyproject_file, exc)
 
@@ -287,8 +305,12 @@ codebase or reviewing target repositories.
   - AI agents must cultivate continuous, innovative self-improvement across all tasks, interactions, and engineering sessions:
     - **Automatic Roadmap Ingestion for Issues, Struggles, Challenges & Insights**:
       - Whenever encountering **any issue, struggle, friction point, debugging challenge, technical hurdle, cognitive barrier, or insight** during any task or interaction, AI agents **MUST AUTOMATICALLY ADD AN ITEM TO THE ROADMAP (`docs/ROADMAP.md`)** under the appropriate upcoming milestone or future research track. Document the root friction and the proposed engineering solution or architectural guardrail to turn real-world struggles into permanent systemic capabilities.
+    - **Automatic Roadmap Ingestion for Missing Parameters, API Inconsistencies & Contract Deficiencies**:
+      - Whenever encountering **missing parameters, argument mismatches, inconsistent signatures, incomplete parameter propagation, or similar API/interface inconsistencies** across commands, submodules, schemas, or tool calls in the codebase, AI agents **MUST AUTOMATICALLY ADD A TASK ITEM TO THE ROADMAP (`docs/ROADMAP.md`)** under the active or next upcoming milestone. Document the inconsistency, the affected interfaces/functions, and the unified contract specification required to eliminate the discrepancy.
+    - **Automatic Roadmap Ingestion for Bad Patterns, Anti-Patterns & Deficiencies**:
+      - Whenever observing **bad patterns, anti-patterns, code smells, brittle logic, formatting bugs, missing error boundaries, unhandled edge cases, or recurring architectural deficiencies** during code reviews, audits, investigations, refactoring, or test executions, AI agents **MUST AUTOMATICALLY ADD TASK ENTRIES TO THE ROADMAP (`docs/ROADMAP.md`)** under the relevant upcoming milestone. Capture the anti-pattern, representative locations, and the systemic architectural remediation required to permanently eliminate the deficiency.
     - **Automatic Roadmap Ingestion for Features, Suggestions & Integrations**:
-      - Whenever identifying **features, constructive suggestions, workflow automations, refactoring ideas, or third-party integrations** that could improve the codebase, AI agents **MUST AUTOMATICALLY ADD ITEMS TO THE ROADMAP (`docs/ROADMAP.md`)** to design and implement them.
+      - Whenever identifying **features, useful suggestions, constructive enhancements, workflow automations, refactoring ideas, or third-party integrations** that could improve developer velocity, system resilience, or codebase quality, AI agents **MUST AUTOMATICALLY ADD ITEMS AS TASKS TO THE ROADMAP (`docs/ROADMAP.md`)** under the appropriate upcoming milestone or strategic research track to design and implement them.
       - Any good suggestions, architectural observations, or optimization ideas that emerge while working **MUST BE PROACTIVELY ADDED TO THE ROADMAP (`docs/ROADMAP.md`)** under the appropriate upcoming milestone or future vision series, keeping the roadmap living, accurate, and continuously advancing the state of the art.
 - **Continuous Interaction & Collaborative Value Improvement (Proactive Improvement Suggestions)**:
   - In every interaction with the user, peer agents, or development workflows, AI agents must actively look for and suggest concrete, actionable ways to improve developer ergonomics, workflow speed, system resilience, documentation clarity, test coverage, and tooling efficiency whenever relevant.
