@@ -614,6 +614,9 @@ class CIMessages:
     col_check: str = "Check"
     col_result: str = "Result"
     python_version_fail: str = "Strict Python {required}+ requirement failed. Current: {current}"
+    cache_hit: str = (
+        "Codebase unchanged since last verification. Utilizing CI cache (all checks passed)."
+    )
 
 
 @dataclass(frozen=True)

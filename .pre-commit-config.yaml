@@ -36,5 +36,6 @@ repos:
         entry: uv run devops ci
         language: system
         stages: [pre-commit]
-        pass_filenames: false
+        pass_filenames: true
+        require_serial: true
         always_run: true
