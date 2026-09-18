@@ -327,9 +327,10 @@ def list_repos(
 def update(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
     pull: Annotated[bool, typer.Option("--pull/--no-pull")] = True,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Fetch (and optionally pull) all tracking branches across repos."""
-    if is_dry_run():
+    if dry_run or is_dry_run():
         _get("render_dry_run_result")(
             command="devops repos sync",
             action="sync_workspace_repositories",
