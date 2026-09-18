@@ -275,6 +275,9 @@ def _update_pyproject_version(root: Path, new_version: str) -> bool:
     )
     if count > 0:
         write_text_file(pyproject_file, new_content)
+        from devops_cli.config.metadata import load_project_metadata
+
+        load_project_metadata.cache_clear()
         return True
     return False
 
@@ -287,7 +290,8 @@ def _update_init_version(root: Path, new_version: str) -> bool:
     if not init_file.exists():
         return False
     content = init_file.read_text(encoding="utf-8")
-    if "__version__ = " not in content:
+    match = re.search(r'(__version__\s*=\s*["\'])[^"\']+(["\'])', content)
+    if not match:
         # Dynamically derived from pyproject.toml
         return True
     new_content, count = re.subn(

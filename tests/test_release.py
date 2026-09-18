@@ -83,6 +83,45 @@ def test_update_versions(sample_project_dir: Path) -> None:
     assert _get_latest_changelog_version(sample_project_dir) == "0.1.8"
 
 
+def test_dynamic_init_version_handling(tmp_path: Path) -> None:
+    """Verify release functions handle dynamic __version__ without overwriting __init__.py."""
+    src_dir = tmp_path / "src" / "devops_cli"
+    src_dir.mkdir(parents=True)
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "devops-cli"\nversion = "0.2.0"\n',
+        encoding="utf-8",
+    )
+    init_file = src_dir / "__init__.py"
+    init_code = (
+        "from devops_cli.config.metadata import get_version\n\n__version__ = get_version()\n"
+    )
+    init_file.write_text(init_code, encoding="utf-8")
+
+    initial_init_ver = _get_init_version(tmp_path)
+    update_init_res = _update_init_version(tmp_path, "0.2.1")
+    init_content_after = init_file.read_text(encoding="utf-8")
+
+    update_pyproject_res = _update_pyproject_version(tmp_path, "0.2.1")
+    pyproject_ver_after = _get_pyproject_version(tmp_path)
+    init_ver_after = _get_init_version(tmp_path)
+
+    assert (
+        initial_init_ver,
+        update_init_res,
+        init_content_after,
+        update_pyproject_res,
+        pyproject_ver_after,
+        init_ver_after,
+    ) == (
+        "0.2.0",
+        True,
+        init_code,
+        True,
+        "0.2.1",
+        "0.2.1",
+    )
+
+
 def test_release_status_command(sample_project_dir: Path) -> None:
     with patch("devops_cli.commands.release.DocGenerator.check_docs", return_value=(True, [])):
         result = runner.invoke(app, ["status", "--root", str(sample_project_dir)])

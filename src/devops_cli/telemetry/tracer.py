@@ -490,7 +490,7 @@ class OTelTelemetryClient:
 
             return __version__
         except Exception:
-            return "0.1.0"
+            return "0.0.0"
 
     def _get_resource_attributes(self) -> list[dict[str, Any]]:
         """Return standardized OpenTelemetry resource attributes."""
