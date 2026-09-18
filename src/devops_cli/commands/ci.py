@@ -368,6 +368,13 @@ async def _run_all_checks_async(
                 "ci.step.lockfile",
                 "lockfile",
             ),
+            _execute_check_async(
+                "outdated",
+                MESSAGES.ci.uv_outdated,
+                ["uv", "tree", "--outdated", "--depth=1"],
+                "ci.step.outdated",
+                "outdated",
+            ),
         ]
 
         raw_results = await asyncio.gather(*tasks)

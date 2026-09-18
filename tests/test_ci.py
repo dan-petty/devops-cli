@@ -254,6 +254,7 @@ def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
             and "actionlint" in result.output
             and "uv_check" in result.output.lower()
             and "lockfile" in result.output.lower()
+            and "outdated" in result.output.lower()
         )
         assert (
             any("audit" in c for c in called),
@@ -261,9 +262,10 @@ def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
             any("actionlint" in c for c in called),
             any("check" in c and "uv" in c for c in called),
             any("lock" in c and "--check" in c for c in called),
+            any("tree" in c and "--outdated" in c for c in called),
             any("ruff" in c and "format" in c and "--check" not in c for c in called),
             any("ruff" in c and "check" in c and "--fix" in c for c in called),
-        ) == (True, True, True, True, True, True, True)
+        ) == (True, True, True, True, True, True, True, True)
 
 
 def test_ci_all_checks_with_check_flag() -> None:
