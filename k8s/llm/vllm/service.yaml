@@ -1,0 +1,19 @@
+# vLLM Tensor Parallelism Service.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: vllm

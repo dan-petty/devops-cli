@@ -31,6 +31,8 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_DURABLE_STORE_PATH,
     DEFAULT_AI_DURABLE_TASK_QUEUE,
     DEFAULT_AI_DURABLE_WORKFLOW_PREFIX,
+    DEFAULT_AI_GATEWAY_ENABLED,
+    DEFAULT_AI_GATEWAY_URL,
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
@@ -313,6 +315,8 @@ class AIConfig(BaseModel):
     max_tokens: int | None = None
     ollama_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_OLLAMA_URLS))
     ollama_max_parallel: int = DEFAULT_OLLAMA_MAX_PARALLEL
+    gateway_url: str = DEFAULT_AI_GATEWAY_URL
+    gateway_enabled: bool = DEFAULT_AI_GATEWAY_ENABLED
     api_base_url: str | None = None
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES

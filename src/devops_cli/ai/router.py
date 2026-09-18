@@ -75,6 +75,10 @@ _DEFAULT_MODEL_BY_TIER: Final[dict[tuple[str, TaskComplexity], str]] = {
     ("copilot", TaskComplexity.MEDIUM): "gpt-4o-mini",
     ("copilot", TaskComplexity.HIGH): "claude-3-7-sonnet",
     ("copilot", TaskComplexity.FRONTIER): "claude-3-7-sonnet",
+    ("gateway", TaskComplexity.LOW): "devops-chat",
+    ("gateway", TaskComplexity.MEDIUM): "devops-coder",
+    ("gateway", TaskComplexity.HIGH): "devops-reasoning",
+    ("gateway", TaskComplexity.FRONTIER): "devops-reasoning",
 }
 
 _LATENCY_TIER_BY_COMPLEXITY: Final[dict[TaskComplexity, str]] = {
@@ -126,6 +130,43 @@ class LLMRouter:
             return TaskComplexity.MEDIUM
         return TaskComplexity.LOW
 
+    def _resolve_model_for_provider(
+        self,
+        provider: str,
+        complexity: TaskComplexity,
+        default_model: str,
+    ) -> str:
+        """Resolve model name considering custom user configuration and tier defaults."""
+        is_custom = bool(
+            self.config.model
+            and self.config.model != DEFAULT_AI_MODEL
+            and self.config.provider == provider
+        )
+        return (
+            self.config.model
+            if is_custom
+            else _DEFAULT_MODEL_BY_TIER.get((provider, complexity), default_model)
+        )
+
+    def _select_provider_for_complexity(
+        self,
+        complexity: TaskComplexity,
+        configured_provider: str,
+        allowed_providers: list[str] | None,
+    ) -> str:
+        """Select target provider based on task complexity and allowed providers constraint."""
+        if complexity == TaskComplexity.LOW:
+            return (
+                "ollama"
+                if (not allowed_providers or "ollama" in allowed_providers)
+                else configured_provider
+            )
+        if complexity == TaskComplexity.MEDIUM:
+            if configured_provider in ("openai", "claude"):
+                return configured_provider
+            return "ollama"
+        return configured_provider if configured_provider != "ollama" else "claude"
+
     def _resolve_provider_and_model(
         self,
         complexity: TaskComplexity,
@@ -134,69 +175,32 @@ class LLMRouter:
     ) -> tuple[str, str]:
         """Resolve primary provider and model considering sensitivity and provider overrides."""
         if sensitivity == DataSensitivity.CONFIDENTIAL_AIRGAP:
-            provider = "ollama"
-            is_custom = (
-                self.config.model
-                and self.config.model != DEFAULT_AI_MODEL
-                and self.config.provider == "ollama"
-            )
-            model = (
-                self.config.model if is_custom else _DEFAULT_MODEL_BY_TIER[(provider, complexity)]
-            )
-            return provider, model
+            model = self._resolve_model_for_provider("ollama", complexity, "qwen2.5-coder:7b")
+            return "ollama", model
 
         configured_provider = self.config.provider or "ollama"
+        if (self.config.gateway_enabled or configured_provider == "gateway") and (
+            not allowed_providers or "gateway" in allowed_providers
+        ):
+            model = self._resolve_model_for_provider("gateway", complexity, "devops-chat")
+            return "gateway", model
+
         if allowed_providers and configured_provider not in allowed_providers:
             configured_provider = allowed_providers[0]
 
-        if complexity == TaskComplexity.LOW:
-            provider = (
-                "ollama"
-                if (not allowed_providers or "ollama" in allowed_providers)
-                else configured_provider
-            )
-            is_custom = bool(
-                self.config.model
-                and self.config.model != DEFAULT_AI_MODEL
-                and self.config.provider == provider
-            )
-            model = (
-                self.config.model
-                if is_custom
-                else _DEFAULT_MODEL_BY_TIER.get((provider, complexity), "qwen2.5-coder:7b")
-            )
-            return provider, model
-
-        if complexity == TaskComplexity.MEDIUM:
-            provider = (
-                "openai"
-                if configured_provider == "openai"
-                else ("claude" if configured_provider == "claude" else "ollama")
-            )
-            is_custom = bool(
-                self.config.model
-                and self.config.model != DEFAULT_AI_MODEL
-                and self.config.provider == provider
-            )
-            model = (
-                self.config.model
-                if is_custom
-                else _DEFAULT_MODEL_BY_TIER.get((provider, complexity), "gpt-4o-mini")
-            )
-            return provider, model
-
-        # HIGH / FRONTIER complexity
-        provider = configured_provider if configured_provider != "ollama" else "claude"
-        is_custom = bool(
-            self.config.model
-            and self.config.model != DEFAULT_AI_MODEL
-            and self.config.provider == provider
+        provider = self._select_provider_for_complexity(
+            complexity, configured_provider, allowed_providers
         )
-        model = (
-            self.config.model
-            if is_custom
-            else _DEFAULT_MODEL_BY_TIER.get((provider, complexity), "claude-3-7-sonnet-20250219")
+        default_m = (
+            "qwen2.5-coder:7b"
+            if complexity == TaskComplexity.LOW
+            else (
+                "gpt-4o-mini"
+                if complexity == TaskComplexity.MEDIUM
+                else "claude-3-7-sonnet-20250219"
+            )
         )
+        model = self._resolve_model_for_provider(provider, complexity, default_m)
         return provider, model
 
     def _build_fallback_chain(
@@ -211,7 +215,7 @@ class LLMRouter:
             fallbacks = [("ollama", "qwen2.5-coder:14b"), ("ollama", "qwen2.5-coder:7b")]
             return [fb for fb in fallbacks if fb != (primary_provider, primary_model)]
 
-        cascade_providers = ["claude", "openai", "copilot", "ollama"]
+        cascade_providers = ["gateway", "claude", "openai", "copilot", "ollama"]
         chain: list[tuple[str, str]] = []
         for prov in cascade_providers:
             candidate = (prov, _DEFAULT_MODEL_BY_TIER.get((prov, complexity), "qwen2.5-coder:7b"))
@@ -228,6 +232,8 @@ class LLMRouter:
         model: str,
     ) -> str:
         """Compose human-readable explanation of the routing decision."""
+        if provider == "gateway":
+            return f"Routed to high-throughput LLM gateway '{provider}' ({model}) with least-latency load balancing."
         if sensitivity == DataSensitivity.CONFIDENTIAL_AIRGAP:
             return f"Routed strictly to local air-gapped provider '{provider}' ({model}) to prevent cloud data egress."
         if complexity == TaskComplexity.LOW:
@@ -240,7 +246,7 @@ class LLMRouter:
 
     def _estimate_cost(self, provider: str, model: str, token_count: int) -> float:
         """Estimate execution cost in USD based on provider pricing rules and token volume."""
-        if provider.lower() in ("ollama", "copilot"):
+        if provider.lower() in ("ollama", "copilot", "gateway"):
             return 0.0
         from devops_cli.ai.agents.spend import DEFAULT_MODEL_PRICING, ModelPricing
 

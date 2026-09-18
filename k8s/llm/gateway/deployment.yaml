@@ -1,0 +1,93 @@
+# LiteLLM Proxy / AI Gateway Deployment.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-gateway
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: llm-gateway
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: llm-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: llm-gateway
+        app.kubernetes.io/part-of: devops-cli-stack
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: litellm
+          image: ghcr.io/berriai/litellm:v1.61.16
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          args:
+            - "--config"
+            - "/app/config.yaml"
+            - "--port"
+            - "4000"
+            - "--host"
+            - "0.0.0.0"
+          env:
+            - name: LITELLM_REDIS_HOST
+              value: "valkey.llm.svc.cluster.local"
+            - name: LITELLM_REDIS_PORT
+              value: "6379"
+            - name: HTTP_PROXY
+              value: "http://squid.squid.svc.cluster.local:3128"
+            - name: HTTPS_PROXY
+              value: "http://squid.squid.svc.cluster.local:3128"
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,llm-gateway.llm.svc.cluster.local,ollama.llm.svc.cluster.local,vllm.llm.svc.cluster.local,valkey.llm.svc.cluster.local"
+          ports:
+            - name: http
+              containerPort: 4000
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: tmp-volume
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2048Mi
+          livenessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: 4000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+      volumes:
+        - name: config-volume
+          configMap:
+            name: llm-gateway-config
+        - name: tmp-volume
+          emptyDir: {}

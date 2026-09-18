@@ -13,6 +13,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_constellation_status`](#ai-constellation-status) | Display constellation fleet status, active fallback routes, and suspended tasks. |
 | [`ai_diagram`](#ai-diagram) | Generate visual Mermaid architecture or threat modeling diagram. |
 | [`ai_failover`](#ai-failover) | Emergency failover controller re-routing tasks to designated fallback endpoints. |
+| [`ai_gateway_failover`](#ai-gateway-failover) | Trigger or test circuit-breaker failover of a virtual model to secondary backends. |
+| [`ai_gateway_routes`](#ai-gateway-routes) | List registered virtual models and target backend inference instances. |
+| [`ai_gateway_status`](#ai-gateway-status) | Probe LLM Gateway health, latency, and circuit breaker metrics. |
 | [`ai_harness_status`](#ai-harness-status) | Inspect AI agent harness slot configuration, active models, skills, and sandbox state. |
 | [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into .data/libraries/. |
 | [`ai_inspect_symbol`](#ai-inspect-symbol) | Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts. |
@@ -24,6 +27,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_resume`](#ai-resume) | Gracefully resume suspended constellation agent loops and task runners. |
 | [`ai_subagent_offload`](#ai-subagent-offload) | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
 | [`ai_test_gen`](#ai-test-gen) | Synthesize isolated pytest unit test suite for a target Python file. |
+| [`ai_vllm_scale`](#ai-vllm-scale) | Inspect or configure vLLM Tensor Parallelism serving parameters. |
 | [`argo_fleet_sync`](#argo-fleet-sync) | Coordinate multi-cluster ArgoCD fleet synchronization with bounded concurrency. |
 | [`argo_list`](#argo-list) | List ArgoCD applications. |
 | [`argo_rollout_analyze`](#argo-rollout-analyze) | Analyze progressive rollout metric gates and trigger automated rollback on threshold violation. |
@@ -225,6 +229,37 @@ Emergency failover controller re-routing tasks to designated fallback endpoints.
 | `target_model` | `string` | No | `qwen2.5-coder:7b` | - |
 | `dry_run` | `boolean` | No | `False` | - |
 
+### `ai_gateway_failover`
+
+Trigger or test circuit-breaker failover of a virtual model to secondary backends.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `virtual_model` | `string` | Yes | - | - |
+| `simulate` | `boolean` | No | `True` | - |
+
+### `ai_gateway_routes`
+
+List registered virtual models and target backend inference instances.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `gateway_url` | `string` | No | `` | - |
+
+### `ai_gateway_status`
+
+Probe LLM Gateway health, latency, and circuit breaker metrics.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `gateway_url` | `string` | No | `` | - |
+
 ### `ai_harness_status`
 
 Inspect AI agent harness slot configuration, active models, skills, and sandbox state.
@@ -345,6 +380,17 @@ Synthesize isolated pytest unit test suite for a target Python file.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `target_file` | `string` | Yes | - | - |
+
+### `ai_vllm_scale`
+
+Inspect or configure vLLM Tensor Parallelism serving parameters.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `replicas` | `integer` | No | `1` | - |
+| `tensor_parallel_size` | `integer` | No | `2` | - |
 
 ### `argo_fleet_sync`
 

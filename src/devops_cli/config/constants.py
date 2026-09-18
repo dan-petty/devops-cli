@@ -641,3 +641,13 @@ CONST_GH_MUTATION_HTTP_METHODS: Final[frozenset[str]] = frozenset(
         "DELETE",
     }
 )
+
+# ── AI Gateway & Distributed Router Constants ─────────────────────────────────
+CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
+    "devops-chat",
+    "devops-coder",
+    "devops-reasoning",
+    "devops-embedding",
+)
+CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
+CONST_AI_GATEWAY_DEFAULT_PORT: Final[int] = 4000

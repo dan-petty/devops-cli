@@ -2519,6 +2519,84 @@ def ai_inspect_symbol(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
+@mcp.tool()
+def ai_gateway_status(
+    gateway_url: str = "",
+) -> str:
+    """Probe LLM Gateway health, latency, and circuit breaker metrics."""
+    cmd = ["uv", "run", "devops", "ai", "gateway", "status", "--format", "json"]
+    if gateway_url:
+        _validate_mcp_arg("gateway_url", gateway_url)
+        cmd.extend(["--gateway-url", gateway_url])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_gateway_routes(
+    gateway_url: str = "",
+) -> str:
+    """List registered virtual models and target backend inference instances."""
+    cmd = ["uv", "run", "devops", "ai", "gateway", "routes", "--format", "json"]
+    if gateway_url:
+        _validate_mcp_arg("gateway_url", gateway_url)
+        cmd.extend(["--gateway-url", gateway_url])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_gateway_failover(
+    virtual_model: str,
+    simulate: bool = True,
+) -> str:
+    """Trigger or test circuit-breaker failover of a virtual model to secondary backends."""
+    _validate_mcp_arg("virtual_model", virtual_model)
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "gateway",
+        "failover",
+        virtual_model,
+        "--simulate" if simulate else "--no-simulate",
+        "--format",
+        "json",
+    ]
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_vllm_scale(
+    replicas: int = 1,
+    tensor_parallel_size: int = 2,
+) -> str:
+    """Inspect or configure vLLM Tensor Parallelism serving parameters."""
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "gateway",
+        "scale",
+        "--replicas",
+        str(replicas),
+        "--tensor-parallel-size",
+        str(tensor_parallel_size),
+        "--format",
+        "json",
+    ]
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.resource("resource://ai/gateway")
+def get_ai_gateway_resource() -> str:
+    """Return live LLM Gateway health and active virtual model routing table."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "gateway", "routes", "--format", "json"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
 @mcp.resource("resource://libraries/indexed")
 def get_indexed_libraries_resource() -> str:
     """Return JSON metadata of all indexed library contracts, module counts, and symbol counts."""

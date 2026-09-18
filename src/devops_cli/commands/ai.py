@@ -19,6 +19,7 @@ from devops_cli.commands.ai_controller import (
     run_quiesce_cmd,
     run_resume_cmd,
 )
+from devops_cli.commands.ai_gateway import app as gateway_app
 from devops_cli.commands.ai_harness import app as harness_app
 from devops_cli.commands.ai_ingest import app as ingest_app
 from devops_cli.commands.analyze import app as analyze_app
@@ -112,6 +113,11 @@ app.add_typer(
     ast_app,
     name="ast",
     help=HELP.ai.ast,
+)
+app.add_typer(
+    gateway_app,
+    name="gateway",
+    help="LLM Gateway and distributed inference mesh management.",
 )
 
 

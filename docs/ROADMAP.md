@@ -39,6 +39,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Valkey Distributed Caching & Rate Limiting**: Pure-Python RESP3 wire protocol client, token-bucket rate limiter, and vector cache slashing LLM latency.
 - [x] **Code Intelligence, Tree-Sitter & Ingestion Engine**: Polyglot CST parser, library contract introspector, API drift auditor, AST context packing, and file-size/symlink resource containment boundaries.
 - [x] **Workload Sandboxing & Dynamic Runtime Security**: Rootless container sandbox, endpoint health probing, dynamic fuzzing, and base security scanner consolidation.
+- [x] **High-Throughput LLM Gateway & Distributed Model Router (`#142`)**: Centralized OpenAI-compatible LiteLLM proxy in `llm` namespace with virtual model tiering (`devops-chat`, `devops-coder`, `devops-reasoning`, `devops-embedding`), vLLM Tensor Parallelism ($TP=2$) serving 70B models, least-latency routing, and circuit-breaking.
 
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-premise and multi-cloud Kubernetes clusters with automatic service mesh routing.
