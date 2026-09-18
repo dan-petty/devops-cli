@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.20] - 2026-09-18
 
+### Fixed & Hardened
+- **PR Copilot Timeline State Parser Robustness (`devops_cli.github.pr_monitor`)**:
+  - Safely handles JSON array timeline payloads and empty responses (`[]`) from `gh api .../timeline`, preventing `AttributeError: 'list' object has no attribute 'get'` during PR monitoring.
+
 ### Changed & Improved
 - **Release v0.2.20 Branch Initialization**:
   - Created `release/v0.2.20` tracking branch, bumped package version to `0.2.20`, and synchronized documentation across the repository.
