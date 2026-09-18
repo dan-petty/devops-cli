@@ -54,6 +54,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **Proportional API Rate Budgeting & GraphQL Circuit Breaker Guard**: Proportional budget allocation per CLI command and automated circuit breaking when external API quota drops below 20%, preventing rapid quota exhaustion.
 - [ ] **Consolidated AI Review Report Markdown Sanitization & Code Block Hardening**: Systemic normalization and sanitization of `review.md` artifacts—smart detection of existing fenced code blocks (`Fix Recommendation`), automatic balancing of open code fences, escaping of raw placeholder angle brackets (`<token>`, `<digest>`), and robust theme extraction resilient to bracketed prefixes (`[DRY-RUN]`, `[GITLEAKS]`).
 - [ ] **Automated Parameter, Schema & CLI Interface Parity Oracle**: Static AST analyzer and runtime validator detecting missing or unpropagated CLI options, asymmetric parameter signatures, and schema discrepancies across Typer commands, FastMCP tools, and orchestrator APIs.
+- [ ] **Universal Subcommand Option Propagation (`--dry-run` & `--explain`)**: Enable first-class trailing `--dry-run` across all mutating commands (e.g. `devops release prepare`, `devops repos sync`, `devops tf apply`) and uniform `--explain` option handling across diagnostic and analytical commands via `OTelTyper` context inheritance.
 
 
 ---
