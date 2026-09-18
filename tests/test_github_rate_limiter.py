@@ -764,10 +764,41 @@ def test_quota_from_dict_preserves_none_and_rejects_malformed() -> None:
     """Verify QuotaState.from_dict preserves None rather than defaulting to 0, and rejects invalid types."""
     parsed = QuotaState.from_dict({"limit": 5000, "remaining": 5000, "reset_epoch": 1000.0})
     assert (parsed.used, parsed.last_request_epoch) == (None, None)
+    with pytest.raises(GitHubRateLimitError, match="Expected dict for QuotaState"):
+        QuotaState.from_dict("not_a_dict")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="Malformed quota state dictionary"):
         QuotaState.from_dict({"limit": "not_an_int"})
     with pytest.raises(ValueError, match="Malformed quota state dictionary"):
         QuotaState.from_dict({"reset_epoch": -10.0})
+
+
+def test_is_cacheable_api_call_rejects_all_mutations() -> None:
+    """Verify _is_cacheable_api_call rejects all HTTP mutation verbs and field arguments."""
+    from devops_cli.github.rate_limiter import _is_cacheable_api_call
+
+    assert _is_cacheable_api_call(["api", "repos/owner/repo/pulls"]) is True
+    assert not _is_cacheable_api_call(["api", "-X", "POST", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "-X", "PUT", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "-X", "PATCH", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "-X", "DELETE", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "--method=DELETE", "repos/owner/repo/pulls"])
+    assert not _is_cacheable_api_call(["api", "repos/owner/repo/pulls", "-f", "title=foo"])
+
+
+def test_max_backoff_and_quota_max_age_enforcement() -> None:
+    """Verify max_backoff caps delays and quota_max_age detects stale quota."""
+    limiter = GitHubRateLimiter(max_backoff=5.0, quota_max_age=10.0)
+    delay = limiter.calculate_backoff_delay("rate limit exceeded", attempt=10)
+    assert delay <= 5.0
+
+    state = QuotaState(
+        limit=5000,
+        remaining=4000,
+        reset_epoch=time.time() + 3600.0,
+        last_updated=time.time() - 20.0,
+    )
+    assert not state.is_valid(now=time.time(), max_age=limiter.quota_max_age)
+    assert state.is_valid(now=time.time()) is True
 
 
 def test_disk_quota_lock_exception_propagation_and_cleanup(tmp_path: Path) -> None:

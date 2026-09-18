@@ -787,6 +787,21 @@ class TestPrCommands:
             assert res.exit_code == 0
             assert "No changes specified" in res.output
 
+    def test_pr_edit_with_milestone(self, runner: CliRunner) -> None:
+        """devops pr edit passes --milestone to gh pr edit and succeeds."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_gh", return_value=MagicMock(returncode=0)
+            ) as mock_run,
+        ):
+            res = runner.invoke(app, ["edit", "184", "--milestone", "v0.2.19"])
+            assert res.exit_code == 0
+            assert "Successfully updated PR #184" in res.output
+            assert "--milestone" in mock_run.call_args[0][0]
+            assert "v0.2.19" in mock_run.call_args[0][0]
+
     def test_list_prs_rest_fallback(self, runner: CliRunner) -> None:
         """devops pr list falls back to REST when GraphQL fails."""
         mock_rest_prs = json.dumps(

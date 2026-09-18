@@ -80,6 +80,28 @@ class ProjectItem(BaseModel):
     milestone: str | None = None
 
 
+class MutationBudget:
+    """Tracks and bounds the aggregate count of GraphQL write mutations across sync phases."""
+
+    def __init__(self, limit: int = DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC) -> None:
+        self.limit = max(0, limit)
+        self.remaining = self.limit
+        self.total_mutations = 0
+
+    @property
+    def is_exhausted(self) -> bool:
+        """Return True if mutation budget has been reached or exceeded."""
+        return self.remaining <= 0
+
+    def record_mutation(self) -> bool:
+        """Record a successful write mutation. Return True if permitted, False if exhausted."""
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        self.total_mutations += 1
+        return True
+
+
 def load_project_template(
     template_path: Path = Path(".github/project-template.json"),
 ) -> ProjectTemplate:
@@ -796,11 +818,13 @@ def sync_repository_issues_to_project(
     project_number: int,
     dry_run: bool = False,
     state: str = "open",
+    budget: MutationBudget | None = None,
 ) -> int:
     """Synchronize open and active repository issues to the project board."""
     if dry_run or _is_graphql_quota_exhausted():
         return 0
 
+    mutation_budget = budget or MutationBudget(limit=DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC)
     owner_arg = _resolve_project_owner_arg(owner)
     existing_items = _fetch_project_items_data(owner, project_number) or {}
     existing_urls = set(existing_items.keys())
@@ -808,8 +832,10 @@ def sync_repository_issues_to_project(
     added = 0
 
     for iss in issues:
-        if _is_graphql_quota_exhausted():
-            logger.warning("GraphQL quota critically low. Halting issue sync.")
+        if mutation_budget.is_exhausted or _is_graphql_quota_exhausted():
+            logger.warning(
+                "GraphQL quota critically low or reached mutation budget. Halting issue sync."
+            )
             break
         url = iss.get("html_url") or iss.get("url")
         if (
@@ -819,6 +845,7 @@ def sync_repository_issues_to_project(
         ):
             added += 1
             existing_urls.add(url)
+            mutation_budget.record_mutation()
 
     return added
 
@@ -1011,6 +1038,7 @@ def _reconcile_single_item(
     dry_run: bool,
     has_open_pr: bool = False,
     current_fields: dict[str, str | None] | None = None,
+    budget: MutationBudget | None = None,
 ) -> bool:
     """Infer and apply custom fields to a project item only if values differ from remote state."""
     url = item.get("html_url") or item.get("url") or ""
@@ -1045,7 +1073,9 @@ def _reconcile_single_item(
     if dry_run:
         return True
 
-    return _apply_field_updates(owner, project_number, url, fields_to_update, current_fields)
+    return _apply_field_updates(
+        owner, project_number, url, fields_to_update, current_fields, budget=budget
+    )
 
 
 def _apply_field_updates(
@@ -1054,15 +1084,20 @@ def _apply_field_updates(
     url: str,
     fields_to_update: list[tuple[str, str]],
     current_fields: dict[str, str | None] | None,
+    budget: MutationBudget | None = None,
 ) -> bool:
     """Apply field updates via gh project CLI, breaking early if quota exhausted."""
     updated_any = False
     for fname, fval in fields_to_update:
-        if _is_graphql_quota_exhausted():
-            logger.warning("GraphQL quota critically low. Halting field update.")
+        if (budget is not None and budget.is_exhausted) or _is_graphql_quota_exhausted():
+            logger.warning(
+                "GraphQL quota critically low or reached mutation budget. Halting field update."
+            )
             break
         if _edit_project_item_field(owner, project_number, url, fname, fval):
             updated_any = True
+            if budget is not None:
+                budget.record_mutation()
             if current_fields is not None:
                 current_fields[fname.lower()] = fval
     return updated_any
@@ -1107,14 +1142,14 @@ def _provision_missing_candidates(
     project_number: int,
     candidates: list[dict[str, Any]],
     items_data: dict[str, dict[str, str | None]],
-    max_mutations: int = DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC,
+    budget: MutationBudget | None = None,
 ) -> None:
     """Add any missing candidate issues/PRs to the remote project board."""
     owner_arg = _resolve_project_owner_arg(owner)
     existing_urls = set(items_data.keys())
-    provisioned = 0
+    mutation_budget = budget or MutationBudget(limit=DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC)
     for it in candidates:
-        if provisioned >= max_mutations or _is_graphql_quota_exhausted():
+        if mutation_budget.is_exhausted or _is_graphql_quota_exhausted():
             logger.warning(
                 "GraphQL quota critically low or reached mutation budget. Halting candidate provisioning."
             )
@@ -1127,20 +1162,23 @@ def _provision_missing_candidates(
         ):
             existing_urls.add(url)
             items_data[url] = {}
-            provisioned += 1
+            mutation_budget.record_mutation()
 
 
-def _can_continue_reconciliation(reconciled_count: int, max_mutations: int, dry_run: bool) -> bool:
+def _can_continue_reconciliation(
+    dry_run: bool,
+    budget: MutationBudget | None = None,
+) -> bool:
     """Predicate determining if candidate reconciliation may continue."""
     if dry_run:
         return True
     if _is_graphql_quota_exhausted():
         logger.warning("GraphQL quota critically low or unknown. Halting candidate reconciliation.")
         return False
-    if reconciled_count >= max_mutations:
+    if budget is not None and budget.is_exhausted:
         logger.info(
             "Reached maximum mutations per sync budget (%d). Pausing reconciliation.",
-            max_mutations,
+            budget.limit,
         )
         return False
     return True
@@ -1153,12 +1191,12 @@ def _reconcile_candidate_items(
     items_data: dict[str, dict[str, str | None]],
     open_pr_issue_numbers: set[int],
     dry_run: bool,
-    max_mutations: int = DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC,
+    budget: MutationBudget | None = None,
 ) -> int:
     """Iterate over candidates and reconcile custom fields where values differ."""
     reconciled_count = 0
     for it in candidates:
-        if not _can_continue_reconciliation(reconciled_count, max_mutations, dry_run):
+        if not _can_continue_reconciliation(dry_run, budget=budget):
             break
         url = it.get("html_url") or it.get("url") or ""
         if dry_run and url not in items_data:
@@ -1172,6 +1210,7 @@ def _reconcile_candidate_items(
             dry_run,
             has_open_pr=(it_num in open_pr_issue_numbers),
             current_fields=current,
+            budget=budget,
         ):
             reconciled_count += 1
     return reconciled_count
@@ -1183,6 +1222,7 @@ def reconcile_project_custom_fields(
     project_number: int,
     dry_run: bool = False,
     state: str = "open",
+    budget: MutationBudget | None = None,
 ) -> dict[str, Any]:
     """Reconcile custom field values (Status, Priority, Category, Value, Effort) on project items."""
     if _is_graphql_quota_exhausted():
@@ -1210,6 +1250,7 @@ def reconcile_project_custom_fields(
             "dry_run": dry_run,
         }
 
+    mutation_budget = budget or MutationBudget(limit=DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC)
     issues = _fetch_repository_issues(repo, state=state)
     prs = _fetch_repository_prs(repo, state=state)
     candidates = issues + prs
@@ -1218,7 +1259,9 @@ def reconcile_project_custom_fields(
     active_items = items_data or {}
 
     if not dry_run:
-        _provision_missing_candidates(owner, project_number, candidates, active_items)
+        _provision_missing_candidates(
+            owner, project_number, candidates, active_items, budget=mutation_budget
+        )
 
     eval_candidates = (
         [it for it in candidates if (it.get("html_url") or it.get("url") or "") in active_items]
@@ -1227,7 +1270,13 @@ def reconcile_project_custom_fields(
     )
 
     reconciled_count = _reconcile_candidate_items(
-        owner, project_number, eval_candidates, active_items, open_pr_issue_numbers, dry_run
+        owner,
+        project_number,
+        eval_candidates,
+        active_items,
+        open_pr_issue_numbers,
+        dry_run,
+        budget=mutation_budget,
     )
 
     return {
@@ -1273,9 +1322,14 @@ def sync_remote_project(
     proj_num = int(matched.get("number", 1))
     linked = link_project_to_repository(proj_num, owner, repo)
     provisioned = provision_remote_project_fields(proj_num, owner, template.fields)
-    items_added = sync_repository_issues_to_project(owner, repo, proj_num, dry_run=False)
+    mutation_budget = MutationBudget(limit=DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC)
+    items_added = sync_repository_issues_to_project(
+        owner, repo, proj_num, dry_run=False, budget=mutation_budget
+    )
     if reconcile_fields:
-        reconcile_project_custom_fields(owner, repo, proj_num, dry_run=False)
+        reconcile_project_custom_fields(
+            owner, repo, proj_num, dry_run=False, budget=mutation_budget
+        )
 
     return ProjectSyncResult(
         project_number=proj_num,

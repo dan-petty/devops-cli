@@ -135,13 +135,16 @@ class QuotaState:
             if f_val is not None and f_val < 0.0:
                 raise ValueError(f"{name} must be non-negative, got {f_val}")
 
-    def is_valid(self, now: float | None = None) -> bool:
-        """Return True if cached quota is active and has not expired past reset epoch.
+    def is_valid(self, now: float | None = None, max_age: float | None = None) -> bool:
+        """Return True if cached quota is active and has not expired past reset epoch or max age.
 
         Cached values that are not updated on every request or past reset epoch
         should never be used or relied on.
         """
         current_time = now if now is not None else time.time()
+        if max_age is not None and self.last_updated is not None:
+            if (current_time - self.last_updated) > max_age:
+                return False
         return (
             self.remaining is not None
             and self.reset_epoch is not None
@@ -175,7 +178,7 @@ class QuotaState:
     def from_dict(cls, data: dict[str, Any]) -> QuotaState:
         """Construct from dictionary preserving None for unknown metrics without defaulting to 0."""
         if not isinstance(data, dict):
-            raise TypeError(f"Expected dict for QuotaState, got {type(data).__name__}")
+            raise GitHubRateLimitError(f"Expected dict for QuotaState, got {type(data).__name__}")
         try:
             limit_val = data.get("limit")
             limit = int(limit_val) if limit_val is not None else None
@@ -723,7 +726,7 @@ class GitHubRateLimiter:
 
         now = time.time()
         state = self._quotas.get(subcommand)
-        if state and state.is_valid(now):
+        if state and state.is_valid(now, max_age=self.quota_max_age):
             return state
 
         if not self._is_refreshing:
@@ -733,7 +736,7 @@ class GitHubRateLimiter:
             finally:
                 self._is_refreshing = False
             state = self._quotas.get(subcommand)
-            if state and state.is_valid(now):
+            if state and state.is_valid(now, max_age=self.quota_max_age):
                 return state
 
         raise GitHubRateLimitError(
@@ -874,6 +877,7 @@ class GitHubRateLimiter:
         subcommand: str = "core",
         resource: str | None = None,
         is_mutation: bool = False,
+        cost: int = 1,
     ) -> float:
         """Institute mandatory pause of the request delay calculated for that subcommand.
 
@@ -883,9 +887,11 @@ class GitHubRateLimiter:
         with self._lock:
             if self.persist_path:
                 with _disk_quota_lock(self.persist_path):
-                    sleep_duration = self._acquire_locked(target, is_mutation=is_mutation)
+                    sleep_duration = self._acquire_locked(
+                        target, is_mutation=is_mutation, cost=cost
+                    )
             else:
-                sleep_duration = self._acquire_locked(target, is_mutation=is_mutation)
+                sleep_duration = self._acquire_locked(target, is_mutation=is_mutation, cost=cost)
 
         if sleep_duration > 0.0:
             logger.info(
@@ -897,7 +903,7 @@ class GitHubRateLimiter:
 
         return sleep_duration
 
-    def _acquire_locked(self, target: str, is_mutation: bool = False) -> float:
+    def _acquire_locked(self, target: str, is_mutation: bool = False, cost: int = 1) -> float:
         """Internal lock-guarded execution of rate limit acquisition."""
         if self.persist_path:
             self._sync_from_disk_locked()
@@ -924,8 +930,8 @@ class GitHubRateLimiter:
         self._last_request_epoch = now + sleep_duration
         if is_mutation:
             self._last_mutation_epoch = now + sleep_duration
-        if state and state.is_valid(now):
-            state.record_utilization(cost=1)
+        if state and state.is_valid(now, max_age=self.quota_max_age):
+            state.record_utilization(cost=cost)
         self._total_requests += 1
         self._persist_to_disk_locked()
 
@@ -1069,10 +1075,10 @@ class GitHubRateLimiter:
             if state and state.reset_epoch is not None and state.reset_epoch > 0.0:
                 now = time.time()
                 if state.reset_epoch > now:
-                    return float(state.reset_epoch - now)
+                    return min(float(state.reset_epoch - now), self.max_backoff)
         base_delay = 1.0 * (2 ** min(attempt, 4))
         jitter = random.uniform(0.2, 1.0)
-        return float(base_delay + jitter)
+        return min(float(base_delay + jitter), self.max_backoff)
 
     def get_cached(self, key: str) -> str | None:
         """Retrieve unexpired cached stdout string for an idempotent query."""
@@ -1193,15 +1199,10 @@ def _is_cacheable_cli_read(first: str, rest_args: list[str]) -> bool:
 
 def _is_cacheable_api_call(args: list[str]) -> bool:
     """Predicate determining if gh api call is safe for read caching."""
-    has_post = any(
-        arg.upper() == "POST"
-        or arg.startswith("-XPOST")
-        or arg == "--method=POST"
-        or arg.startswith("-X=POST")
-        for arg in args
-    )
+    if _is_api_mutation(args):
+        return False
     has_field = any(arg in ("-f", "--field", "-F", "--raw-field") for arg in args)
-    return not (has_post or has_field)
+    return not has_field
 
 
 def _should_cache(args: list[str], use_cache: bool, input: str | None = None) -> bool:
@@ -1448,12 +1449,6 @@ def _post_process_run(
         return
 
     _parse_rate_limit_from_output(proc.stdout, resource, limiter)
-    stdout_clean = proc.stdout or ""
-    if "rateLimit" not in stdout_clean and "x-ratelimit-remaining" not in stdout_clean.lower():
-        try:
-            limiter.record_utilization(resource, cost=cost)
-        except TypeError, ValueError:
-            pass
 
 
 def _handle_cached_or_paginated(
@@ -1510,7 +1505,7 @@ def _execute_gh_single_attempt(
 ) -> subprocess.CompletedProcess[str]:
     """Execute a single attempt of GitHub CLI command under rate limiting."""
     if not is_exempt:
-        limiter.acquire(subcommand=target_resource, is_mutation=is_mutation)
+        limiter.acquire(subcommand=target_resource, is_mutation=is_mutation, cost=cost)
     try:
         proc = cast(
             subprocess.CompletedProcess[str],

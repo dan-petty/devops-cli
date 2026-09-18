@@ -4358,7 +4358,7 @@ devops pr monitor [OPTIONS] <number>
 
 ### `devops pr edit`
 
-**Edit pull request base branch, title, or body.**
+**Edit pull request base branch, title, body, or milestone.**
 
 ```bash
 devops pr edit [OPTIONS] <number>
@@ -4378,6 +4378,7 @@ devops pr edit [OPTIONS] <number>
 | `--title`, `-t` | `string` | - | Set the new title. |
 | `--body`, `-b` | `string` | - | Set the new body. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--milestone`, `-m` | `string` | - | Set the milestone for this pull request. |
 
 ### `devops pr create`
 
@@ -5325,7 +5326,7 @@ devops gh pr monitor [OPTIONS] <number>
 
 #### `devops gh pr edit`
 
-**Edit pull request base branch, title, or body.**
+**Edit pull request base branch, title, body, or milestone.**
 
 ```bash
 devops gh pr edit [OPTIONS] <number>
@@ -5345,6 +5346,7 @@ devops gh pr edit [OPTIONS] <number>
 | `--title`, `-t` | `string` | - | Set the new title. |
 | `--body`, `-b` | `string` | - | Set the new body. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--milestone`, `-m` | `string` | - | Set the milestone for this pull request. |
 
 #### `devops gh pr create`
 
