@@ -42,8 +42,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_GH_CACHE_TTL_SECONDS,
-    DEFAULT_GH_MAX_BACKOFF_SECONDS,
-    DEFAULT_GH_MAX_PACING_DELAY_SECONDS,
     DEFAULT_GH_MAX_PAGINATED_PAGES,
     DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS,
     DEFAULT_GH_QUOTA_MAX_AGE_SECONDS,
@@ -617,27 +615,19 @@ class GitHubRateLimiter:
         persist_path: Path | None = None,
         min_interval: float = 0.0,
         fallback_delay: float = 1.0,
-        max_pacing_delay: float = DEFAULT_GH_MAX_PACING_DELAY_SECONDS,
         mutation_min_interval: float = DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS,
-        max_backoff: float = DEFAULT_GH_MAX_BACKOFF_SECONDS,
         quota_max_age: float = DEFAULT_GH_QUOTA_MAX_AGE_SECONDS,
     ) -> None:
-        if max_pacing_delay < 0.0:
-            raise ValueError(f"max_pacing_delay must be non-negative, got {max_pacing_delay}")
         if mutation_min_interval < 0.0:
             raise ValueError(
                 f"mutation_min_interval must be non-negative, got {mutation_min_interval}"
             )
-        if max_backoff < 0.0:
-            raise ValueError(f"max_backoff must be non-negative, got {max_backoff}")
         if quota_max_age < 0.0:
             raise ValueError(f"quota_max_age must be non-negative, got {quota_max_age}")
         self.persist_path = persist_path
         self.min_interval = min_interval
         self.fallback_delay = fallback_delay
-        self.max_pacing_delay = max_pacing_delay
         self.mutation_min_interval = mutation_min_interval
-        self.max_backoff = max_backoff
         self.quota_max_age = quota_max_age
         self._lock = threading.RLock()
         self._cache: dict[str, _CacheEntry] = {}
@@ -823,54 +813,12 @@ class GitHubRateLimiter:
             )
             return max(self.min_interval, delay)
 
-    def _check_exhausted_quota(self, state: QuotaState | None, now: float, target: str) -> None:
-        """Raise if tracked quota is exhausted and reset window exceeds max pacing delay."""
-        if not (state and state.is_valid(now) and state.remaining == 0):
-            return
-        if state.reset_epoch is None:
-            raise GitHubRateLimitError(
-                f"reset_epoch is unknown for subcommand '{target}'",
-                subcommand=target,
-            )
-        time_left = state.reset_epoch - now
-        if time_left > self.max_pacing_delay:
-            raise GitHubRateLimitError(
-                f"GitHub API primary rate limit for '{target}' is exhausted "
-                f"(0/{state.limit or 'unknown'} remaining). Quota resets in {time_left:.0f}s.",
-                subcommand=target,
-                details={
-                    "subcommand": target[:256],
-                    "remaining": "0",
-                    "limit": str(state.limit),
-                    "reset_epoch": str(state.reset_epoch),
-                    "time_left": f"{time_left:.0f}s",
-                },
-            )
-
     def _calculate_target_delay(self, target: str, is_mutation: bool) -> float:
         """Calculate request pacing delay strictly from tracked quota state."""
         delay = self.calculate_delay(target)
         if is_mutation:
             delay = max(delay, self.mutation_min_interval)
         return delay
-
-    def _check_pacing_delay_cap(
-        self, raw_sleep: float, state: QuotaState | None, target: str
-    ) -> None:
-        """Enforce maximum pacing delay circuit breaker."""
-        if raw_sleep > self.max_pacing_delay and (state is None or state.remaining != 0):
-            raise GitHubRateLimitError(
-                f"Required pacing delay ({raw_sleep:.1f}s) for '{target}' exceeds "
-                f"maximum allowed delay ({self.max_pacing_delay:.1f}s). "
-                f"Halting to prevent rate limit exhaustion.",
-                subcommand=target,
-                details={
-                    "subcommand": target[:256],
-                    "required_delay": f"{raw_sleep:.1f}s",
-                    "max_delay": f"{self.max_pacing_delay:.1f}s",
-                    "remaining": str(getattr(state, "remaining", "unknown")),
-                },
-            )
 
     def acquire(
         self,
@@ -908,8 +856,6 @@ class GitHubRateLimiter:
         if self.persist_path:
             self._sync_from_disk_locked()
         now = time.time()
-        state = self._quotas.get(target)
-        self._check_exhausted_quota(state, now, target)
 
         delay = self._calculate_target_delay(target, is_mutation)
         state = self._quotas.get(target)
@@ -923,9 +869,7 @@ class GitHubRateLimiter:
         scheduled_time = max(now, prev_scheduled) + delay
         raw_sleep = max(0.0, scheduled_time - now)
 
-        self._check_pacing_delay_cap(raw_sleep, state, target)
-
-        sleep_duration = min(self.max_pacing_delay, raw_sleep)
+        sleep_duration = raw_sleep
         self._next_allowed_time[target] = now + sleep_duration
         self._last_request_epoch = now + sleep_duration
         if is_mutation:
@@ -1075,10 +1019,10 @@ class GitHubRateLimiter:
             if state and state.reset_epoch is not None and state.reset_epoch > 0.0:
                 now = time.time()
                 if state.reset_epoch > now:
-                    return min(float(state.reset_epoch - now), self.max_backoff)
+                    return float(state.reset_epoch - now)
         base_delay = 1.0 * (2 ** min(attempt, 4))
         jitter = random.uniform(0.2, 1.0)
-        return min(float(base_delay + jitter), self.max_backoff)
+        return float(base_delay + jitter)
 
     def get_cached(self, key: str) -> str | None:
         """Retrieve unexpired cached stdout string for an idempotent query."""

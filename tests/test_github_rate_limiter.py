@@ -785,20 +785,22 @@ def test_is_cacheable_api_call_rejects_all_mutations() -> None:
     assert not _is_cacheable_api_call(["api", "repos/owner/repo/pulls", "-f", "title=foo"])
 
 
-def test_max_backoff_and_quota_max_age_enforcement() -> None:
-    """Verify max_backoff caps delays and quota_max_age detects stale quota."""
-    limiter = GitHubRateLimiter(max_backoff=5.0, quota_max_age=10.0)
-    delay = limiter.calculate_backoff_delay("rate limit exceeded", attempt=10)
-    assert delay <= 5.0
+def test_backoff_and_quota_max_age_enforcement() -> None:
+    """Verify calculate_backoff_delay pauses for full reset epoch and quota_max_age detects stale quota."""
+    limiter = GitHubRateLimiter(quota_max_age=10.0)
+    now = time.time()
+    limiter.update_quota("core", remaining=0, limit=5000, reset_epoch=now + 120.0)
+    delay = limiter.calculate_backoff_delay("rate limit exceeded", attempt=1, subcommand="core")
+    assert 118.0 <= delay <= 121.0
 
     state = QuotaState(
         limit=5000,
         remaining=4000,
-        reset_epoch=time.time() + 3600.0,
-        last_updated=time.time() - 20.0,
+        reset_epoch=now + 3600.0,
+        last_updated=now - 20.0,
     )
-    assert not state.is_valid(now=time.time(), max_age=limiter.quota_max_age)
-    assert state.is_valid(now=time.time()) is True
+    assert not state.is_valid(now=now, max_age=limiter.quota_max_age)
+    assert state.is_valid(now=now) is True
 
 
 def test_disk_quota_lock_exception_propagation_and_cleanup(tmp_path: Path) -> None:

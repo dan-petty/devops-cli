@@ -1095,6 +1095,7 @@ def test_provision_and_reconcile_share_mutation_budget() -> None:
 
     with (
         patch("devops_cli.github.projects._is_graphql_quota_exhausted", return_value=False),
+        patch("devops_cli.github.projects._resolve_project_owner_arg", return_value="owner"),
         patch(
             "devops_cli.github.projects._add_project_item_with_fallback", return_value=True
         ) as mock_add,
