@@ -633,7 +633,8 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     # 1. Volume mount permissions & ownership
     actions.extend(_setup_volume_mount_permissions(workspace_dir, dry_run=dry_run))
 
-    # 2. Bootstrap uv & tools if not present
+    # 2. Bootstrap tools if not present
+
     if shutil.which("uv") is None and not dry_run:
         res = run_subprocess(
             ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],

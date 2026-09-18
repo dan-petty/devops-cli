@@ -41,6 +41,8 @@ class TablePayload(BaseModel):
     border_style: str | None = "dim"
     box_style: Any = None
     caption: str | None = None
+    show_header: bool = True
+    header_style: str | None = None
 
     @property
     def row_count(self) -> int:
@@ -82,7 +84,8 @@ class TablePayload(BaseModel):
             border_style=self.border_style,
             box=self.box_style,
             title_style="bold cyan",
-            header_style="bold",
+            header_style=self.header_style or "bold",
+            show_header=self.show_header,
         )
         for col in self.columns:
             _add_table_column_to_table(table, col)

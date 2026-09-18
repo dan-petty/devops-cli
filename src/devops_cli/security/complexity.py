@@ -8,7 +8,7 @@ from pathlib import Path
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import DEFAULT_MAX_COMPLEXITY, DEFAULT_MAX_NESTING_DEPTH
-from devops_cli.core.repo import find_top_level_repo_root, is_ignored_by_git
+from devops_cli.core.repo import find_top_level_repo_root, list_repo_files
 
 
 @dataclass
@@ -216,9 +216,7 @@ def run_complexity_scan(
         files = [target]
     elif target.is_dir():
         root = find_top_level_repo_root(target)
-        files = [
-            p for p in target.rglob("*.py") if not p.is_symlink() and not is_ignored_by_git(root, p)
-        ]
+        files = [p for p in list_repo_files(target) if p.suffix == ".py" and not p.is_symlink()]
     else:
         return findings
 

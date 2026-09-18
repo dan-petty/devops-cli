@@ -55,9 +55,17 @@ jobs:
       - name: Synchronize dependencies
         run: uv sync --all-groups --all-extras
 
+      - name: Lockfile Freshness & Dependency Audit
+        run: |
+          uv lock --check
+          uv audit
+          uv tree --outdated --depth=1
+
       - name: Initialize Workspace Directories
         run: mkdir -p .data/reviews .data/analysis .data/logs
 
+      - name: Type Checking & Project Validation (uv check)
+        run: uv check
 
       - name: Linting (Ruff)
         run: uv run ruff check .

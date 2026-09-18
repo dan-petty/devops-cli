@@ -32,6 +32,7 @@ from devops_cli.config.constants import (
     CONST_CODE_CONFIG_PREFIXES,
     CONST_COMMON_PROPERTY_SUFFIXES,
     CONST_DEFAULT_LINE_NUMBER,
+    CONST_EXCLUDED_FILE_MIME_TYPES,
     CONST_EXCLUDED_PUBLIC_REGISTRIES,
     CONST_RFC2606_RESERVED_DOMAINS,
     CONST_RFC2606_RESERVED_TLDS,
@@ -568,10 +569,7 @@ def is_file_reference(target: str, source_file: str = "") -> bool:
 
     # 5. Standard MIME or recognized language file reference
     mime_type, encoding = mimetypes.guess_type(clean)
-    if encoding or (
-        mime_type
-        and mime_type not in ("application/x-msdos-program", "application/vnd.lotus-organizer")
-    ):
+    if encoding or (mime_type and mime_type not in CONST_EXCLUDED_FILE_MIME_TYPES):
         return True
     if Path(clean).suffix and detect_language(clean) not in ("plaintext", "org"):
         return True

@@ -451,6 +451,9 @@ class CICommandHelp:
     maintain: str = (
         "Run automated toolchain, dependency freshness, and lockfile maintenance checks."
     )
+    uv_check: str = "Run uv check for fast static type checking and project validation."
+    lockfile: str = "Verify lockfile consistency and freshness via uv lock --check."
+    outdated: str = "Display outdated dependencies and packages via uv tree --outdated."
 
 
 @dataclass(frozen=True)

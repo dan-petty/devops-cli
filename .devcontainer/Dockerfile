@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     rm -rf /tmp/requirements.txt
 
 # Copy devops-cli source files and install the package without re-downloading dependencies
-COPY README.md /tmp/devops-cli/
+COPY pyproject.toml README.md /tmp/devops-cli/
 COPY src/ /tmp/devops-cli/src/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --break-system-packages --no-deps /tmp/devops-cli && \

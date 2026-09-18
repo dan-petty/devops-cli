@@ -115,7 +115,7 @@ def _run(
     root = _get_project_root()
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
-        full_cmd[1:1] = ["--preview-features", "malware-check"]
+        full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
     result = _get("run_subprocess")(
         full_cmd, cwd=root, timeout=timeout, capture_output=capture_output
     )
@@ -175,7 +175,7 @@ async def _execute_check_async(
     root = _get_project_root()
     full_cmd = list(cmd)
     if full_cmd and full_cmd[0] == "uv" and "--preview-features" not in full_cmd:
-        full_cmd[1:1] = ["--preview-features", "malware-check"]
+        full_cmd[1:1] = ["--preview-features", "malware-check,check-command"]
 
     with _get("trace_span")(span_name):
         proc = await _get("run_subprocess_async")(
@@ -353,6 +353,27 @@ async def _run_all_checks_async(
                 ["uv", "run", "devops", "docs", "check"],
                 "ci.step.docs",
                 "docs",
+            ),
+            _execute_check_async(
+                "uv_check",
+                MESSAGES.ci.uv_check,
+                ["uv", "check"],
+                "ci.step.uv_check",
+                "uv_check",
+            ),
+            _execute_check_async(
+                "lockfile",
+                MESSAGES.ci.uv_lock,
+                ["uv", "lock", "--check"],
+                "ci.step.lockfile",
+                "lockfile",
+            ),
+            _execute_check_async(
+                "outdated",
+                MESSAGES.ci.uv_outdated,
+                ["uv", "tree", "--outdated", "--depth=1"],
+                "ci.step.outdated",
+                "outdated",
             ),
         ]
 
@@ -674,6 +695,54 @@ def docs(
         if not _run(["uv", "run", "devops", "docs", "generate", "--sync-readme"]):
             raise typer.Exit(1)
     if not _run(["uv", "run", "devops", "docs", "check"]):
+        raise typer.Exit(1)
+
+
+@app.command(name="uv-check")
+def uv_check(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Run uv check for fast static type checking and project validation."""
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    if not _run(["uv", "check"]):
+        raise typer.Exit(1)
+
+
+@app.command()
+def lockfile(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Verify lockfile consistency and freshness via uv lock --check."""
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    if not _run(["uv", "lock", "--check"]):
+        raise typer.Exit(1)
+
+
+@app.command()
+def outdated(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Display outdated dependencies and packages via uv tree --outdated."""
+    if dry_run:
+        set_dry_run(True)
+    if not _verify_python_314_environment():
+        raise typer.Exit(1)
+    if not _run(["uv", "tree", "--outdated", "--depth=1"]):
         raise typer.Exit(1)
 
 
