@@ -2,7 +2,7 @@
 
 **Issue**: [#258](https://github.com/dan-petty/devops-cli/issues/258)
 **PR**: [#259](https://github.com/dan-petty/devops-cli/pull/259)
-**Status**: In Review
+**Status**: Closed (Merged in PR #259)
 **Milestone**: `v0.2.20`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/cli`

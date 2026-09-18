@@ -1062,3 +1062,31 @@ def test_is_helm_v4_or_newer_capability_detection() -> None:
     with patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_cmd:
         mock_cmd.return_value = MagicMock(returncode=0, stdout="invalid-version\n")
         assert _is_helm_v4_or_newer() is False
+
+
+def test_extract_service_url_ingress_and_nodeport() -> None:
+    """Verify LoadBalancer ingress and NodePort extraction from service spec."""
+    from devops_cli.commands.k8s.networking import _extract_service_ingress_or_nodeport
+
+    ingress_svc = {
+        "spec": {"ports": [{"port": 8080}]},
+        "status": {"loadBalancer": {"ingress": [{"ip": "1.2.3.4"}]}},
+    }
+    url_ingress = _extract_service_ingress_or_nodeport(ingress_svc, [])
+
+    nodeport_svc = {
+        "spec": {"ports": [{"port": 80, "nodePort": 30080}]},
+    }
+    with patch(
+        "devops_cli.commands.k8s.networking._resolve_k8s_node_port_url",
+        return_value="http://127.0.0.1:30080",
+    ):
+        url_nodeport = _extract_service_ingress_or_nodeport(nodeport_svc, [])
+
+    url_empty = _extract_service_ingress_or_nodeport({}, [])
+
+    assert (url_ingress, url_nodeport, url_empty) == (
+        "http://1.2.3.4:8080",
+        "http://127.0.0.1:30080",
+        None,
+    )

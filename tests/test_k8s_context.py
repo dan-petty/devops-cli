@@ -60,10 +60,10 @@ def test_k8s_bootstrap_success(tmp_path: Path) -> None:
         patch("devops_cli.commands.k8s._minikube_running", return_value=True),
         patch("devops_cli.commands.k8s._run_cmd"),
         patch("devops_cli.commands.k8s.deploy_stack") as mock_deploy,
+        patch("devops_cli.commands.k8s.networking.configure_urls") as mock_urls,
     ):
         result = runner.invoke(app, ["bootstrap", "--dir", str(manifest_dir), "--stack", "infra"])
-        assert result.exit_code == 0
-        assert mock_deploy.called
+        assert (result.exit_code, mock_deploy.called, mock_urls.called) == (0, True, True)
 
 
 def test_k8s_apply_rejects_ssrf_and_private_metadata_urls() -> None:

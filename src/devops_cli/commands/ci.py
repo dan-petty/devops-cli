@@ -238,6 +238,12 @@ async def _execute_check_async(
 # =============================================================================
 
 
+def _resolve_pytest_worker_count() -> int:
+    """Dynamically determine optimal Pytest xdist worker count based on available CPU cores."""
+    cpu_count = os.cpu_count() or 4
+    return max(1, min(cpu_count, 8))
+
+
 async def _run_all_checks_async(
     *, lint_fix: bool, format_fix: bool, docs_fix: bool = False
 ) -> list[CheckResult]:
@@ -283,23 +289,6 @@ async def _run_all_checks_async(
             "ci.step.lint_fix",
             "lint_fix",
         )
-    if docs_fix:
-        from devops_cli.config.defaults import DEFAULT_DOCS_DIR
-        from devops_cli.docs.generator import DocGenerator
-
-        generator = DocGenerator()
-        docs_target = _get_project_root() / DEFAULT_DOCS_DIR
-        docs_up_to_date, _ = await asyncio.to_thread(
-            generator.check_docs, docs_target, check_readme_table=True
-        )
-        if not docs_up_to_date:
-            await _execute_check_async(
-                "docs_fix",
-                MESSAGES.ci.docs_validation,
-                ["uv", "run", "devops", "docs", "generate", "--sync-readme"],
-                "ci.step.docs_fix",
-                "docs_fix",
-            )
 
     _get("print_muted")(f"  ⏳ [test] {MESSAGES.ci.pytest_coverage} running in background...")
     sys.stdout.flush()
@@ -319,7 +308,7 @@ async def _run_all_checks_async(
                     "pytest",
                     "-n",
                     "auto",
-                    "--maxprocesses=4",
+                    f"--maxprocesses={_resolve_pytest_worker_count()}",
                     "--cov=src",
                     "--cov-report=term-missing",
                 ],
@@ -379,7 +368,11 @@ async def _run_all_checks_async(
             _execute_check_async(
                 "docs",
                 MESSAGES.ci.docs_validation,
-                ["uv", "run", "devops", "docs", "check"],
+                (
+                    ["uv", "run", "devops", "docs", "generate", "--sync-readme"]
+                    if docs_fix
+                    else ["uv", "run", "devops", "docs", "check"]
+                ),
                 "ci.step.docs",
                 "docs",
             ),

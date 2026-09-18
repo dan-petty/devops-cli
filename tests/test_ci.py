@@ -245,7 +245,7 @@ def test_ci_all_checks_includes_audit_coverage_and_security() -> None:
         patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_exec),
         patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
     ):
-        result = runner.invoke(app, [])
+        result = runner.invoke(app, ["--no-cache"])
         assert (
             result.exit_code == 0
             and "audit" in result.output
@@ -291,7 +291,7 @@ def test_ci_all_checks_with_check_flag() -> None:
         patch("devops_cli.commands.ci._execute_check_async", side_effect=mock_exec),
         patch("devops_cli.docs.generator.DocGenerator.check_docs", return_value=(True, [])),
     ):
-        result = runner.invoke(app, ["--check"])
+        result = runner.invoke(app, ["--check", "--no-cache"])
         assert result.exit_code == 0
         # In check-only mode, in-place format_fix and lint_fix are not run
         format_or_lint_fixes = [
@@ -578,3 +578,97 @@ def test_ci_workflow_has_tooling_cache_step() -> None:
     assert "tooling-cache-" in cache_key
     assert "hashFiles" in cache_key
     assert "github.sha" not in cache_key
+
+
+def test_resolve_pytest_worker_count() -> None:
+    """Verify dynamic Pytest xdist worker auto-scaling and clamping."""
+    from devops_cli.commands.ci import _resolve_pytest_worker_count
+
+    with patch("os.cpu_count", return_value=32):
+        w32 = _resolve_pytest_worker_count()
+    with patch("os.cpu_count", return_value=6):
+        w6 = _resolve_pytest_worker_count()
+    with patch("os.cpu_count", return_value=1):
+        w1 = _resolve_pytest_worker_count()
+    with patch("os.cpu_count", return_value=None):
+        wnone = _resolve_pytest_worker_count()
+
+    assert (w32, w6, w1, wnone) == (8, 6, 1, 4)
+
+
+@pytest.mark.asyncio
+async def test_execute_check_async_success_and_failure() -> None:
+    """Verify asynchronous check execution with process isolation and metrics."""
+    import contextlib
+    from typing import Any
+    from unittest.mock import AsyncMock, MagicMock
+
+    from devops_cli.commands.ci import _execute_check_async
+
+    mock_proc_ok = MagicMock(returncode=0, stdout="success output", stderr="")
+    mock_proc_fail = MagicMock(returncode=1, stdout="", stderr="failure output")
+
+    @contextlib.contextmanager
+    def dummy_span(*a: Any, **kw: Any) -> Any:
+        yield
+
+    def mock_get_ok(key: str) -> Any:
+        if key == "trace_span":
+            return dummy_span
+        if key == "run_subprocess_async":
+            return AsyncMock(return_value=mock_proc_ok)
+        return lambda *a, **kw: None
+
+    with patch("devops_cli.commands.ci._get", side_effect=mock_get_ok):
+        res_ok = await _execute_check_async(
+            "test_step", "Test Step", ["echo", "hello"], "span.test", "metric.test"
+        )
+
+    def mock_get_fail(key: str) -> Any:
+        if key == "trace_span":
+            return dummy_span
+        if key == "run_subprocess_async":
+            return AsyncMock(return_value=mock_proc_fail)
+        return lambda *a, **kw: None
+
+    with patch("devops_cli.commands.ci._get", side_effect=mock_get_fail):
+        res_fail = await _execute_check_async(
+            "test_step", "Test Step", ["uv", "run", "fake"], "span.test", "metric.test"
+        )
+
+    assert (res_ok.passed, res_ok.name, res_fail.passed, res_fail.name) == (
+        True,
+        "test_step",
+        False,
+        "test_step",
+    )
+
+
+def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
+    """Verify CI cache save and result handling logic."""
+    import typer
+
+    from devops_cli.commands.ci import CheckResult, _handle_ci_results, _try_save_ci_cache
+
+    results = [CheckResult(name="t", display_title="T", passed=True, duration_seconds=1.0)]
+    with (
+        patch("devops_cli.ci.cache.compute_workspace_fingerprint", return_value=("fp", "sha", {})),
+        patch("devops_cli.ci.cache.save_ci_cache") as mock_save,
+    ):
+        _try_save_ci_cache(tmp_path, results, None, {"fix": True})
+        assert mock_save.called
+
+    with (
+        patch("devops_cli.commands.ci._try_save_ci_cache") as mock_try_save,
+        patch("devops_cli.commands.ci.is_dry_run", return_value=False),
+    ):
+        _handle_ci_results(results, cache=True, root=tmp_path, all_files=None, ci_options={})
+        assert mock_try_save.called
+
+    fail_results = [CheckResult(name="t", display_title="T", passed=False, duration_seconds=1.0)]
+    with (
+        patch("devops_cli.ci.cache.clear_ci_cache") as mock_clear,
+        pytest.raises(typer.Exit),
+    ):
+        _handle_ci_results(fail_results, cache=True, root=tmp_path, all_files=None, ci_options={})
+        assert mock_clear.called
