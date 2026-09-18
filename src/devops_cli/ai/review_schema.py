@@ -81,13 +81,24 @@ def format_clean_text_field(val: Any) -> str:
     if val is None:
         return ""
     if isinstance(val, (list, tuple, set)):
-        return "\n".join(str(item).strip() for item in val if str(item).strip())
+        items = [
+            str(item).strip()
+            for item in val
+            if str(item).strip() and str(item).strip() not in ("**", "*", "---")
+        ]
+        return "\n".join(items)
     if isinstance(val, str):
         s = val.strip()
         coll = _parse_stringified_collection(s)
         if coll is not None:
-            return "\n".join(str(item).strip() for item in coll if str(item).strip())
-        return s
+            items = [
+                str(item).strip()
+                for item in coll
+                if str(item).strip() and str(item).strip() not in ("**", "*", "---")
+            ]
+            return "\n".join(items)
+        lines = [line for line in s.splitlines() if line.strip() not in ("**", "*", "---")]
+        return "\n".join(lines).strip()
     return str(val)
 
 
@@ -116,7 +127,7 @@ _PROMPT_CRITERIA_SPLIT_REGEX = re.compile(
 )
 
 _INSTRUCTION_HEADER_PREFIX_REGEX = re.compile(
-    r"^(?:Provide\s+(?:fix|remediation|patch|verification|invalidation)|Title|Issue|Defect|Finding|Problem|Observation):\s*",
+    r"^(?:\*\*)?(?:Provide\s+(?:fix|remediation|patch|verification|invalidation)|Title|Issue|Defect|Finding|Problem|Observation|Description|Fix|Location)(?:\*\*)?:\s*(?:\*\*)?\s*",
     re.IGNORECASE,
 )
 
@@ -179,7 +190,11 @@ def sanitize_finding_text(text: str) -> str:
     ) and not _DEFECT_KEYWORD_REGEX.search(val):
         return ""
 
-    return val
+    # Strip leading/trailing stray asterisks or markdown bold markers
+    val = re.sub(r"^\s*\*\*\s*", "", val)
+    val = re.sub(r"\s*\*\*\s*$", "", val)
+
+    return val.strip()
 
 
 def unique_items[T: Hashable](items: Iterable[T]) -> list[T]:
