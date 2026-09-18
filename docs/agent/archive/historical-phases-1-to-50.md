@@ -584,7 +584,7 @@
   - [x] Release documentation synchronized: `CHANGELOG.md`, `docs/RELEASE_NOTES.md`, `docs/ROADMAP.md`, `docs/PENDING_FEATURES.md`, `docs/LOG.md`.
   - [x] Synchronized CLI documentation and README: `devops docs generate --sync-readme`.
   - [x] Verified release consistency status: `devops release status` (100% matched).
-  - [x] Run Full 10-Gate CI Verification Suite (`uv run devops ci` — 10/10 green).
+  - [x] Run Full Gated CI Verification Suite (`uv run devops ci` — 10/10 green).
   - [x] Author release deliverable commit (`2a858f1`) and push to `origin/release/v0.2.12`.
   - [x] Open Release PR [#50](https://github.com/dan-petty/devops-cli/pull/50) targeting `main` titled `feat(release): v0.2.12` linked to milestone `v0.2.12`.
   - [x] Verified 100% green remote GitHub Actions CI checks on PR #50.
@@ -936,7 +936,7 @@
   - [x] 3. Updated `CHANGELOG.md` with complete v0.2.14 release notes across AST intelligence, library drift auditor, context packer, and RAG drift detector.
   - [x] 4. Updated `docs/RELEASE_NOTES.md` and `docs/ROADMAP.md` (marked v0.2.14 Completed, activated v0.2.15).
   - [x] 5. Regenerated introspected CLI documentation and synchronized `README.md`.
-  - [x] 6. Executed comprehensive 10-gate CI quality suite (`uv run devops ci`).
+  - [x] 6. Executed comprehensive Gated CI quality suite (`uv run devops ci`).
   - [x] 7. Prepared GitHub Release Pull Request targeting `main`.
   - [x] 8. Migrated Jekyll documentation configuration to `docs/github-pages.config.yaml` to eliminate vague root-level configuration files.
 
@@ -977,7 +977,7 @@
   - [x] 5. Cleaned GitHub client wrappers (`_GhCliLabelShim`, `_GhCliMilestoneShim`), `LabelAuditFinding` alias, and `ai_app = app` alias.
   - [x] 6. Removed pass-through wrappers (`_validate_dir`, `_validate_path`, `_project_python_version`, `_validate_version_str`, `_is_git_ignored`).
   - [x] 7. Renamed stopwatch timers from `start_time` and schema identifiers from numeric single-letters to semantic names.
-  - [x] 8. Validated with 10-gate CI suite (10/10 green, 90% coverage maintained).
+  - [x] 8. Validated with Gated CI suite (10/10 green, 90% coverage maintained).
   - [x] 9. Hardened secret redaction pipeline and eliminated CodeQL clear-text storage false positives on review outputs.
 - [x] Phase 50.14: Centralized Kubernetes Logging Stack and LogQL Integration (Closes #89)
   - [x] 1. Declarative Loki and Fluent Bit stack in `k8s/logging/` (`loki-values.yaml`, `fluent-bit-values.yaml`, `networkpolicy.yaml`).
@@ -987,14 +987,14 @@
   - [x] 5. Integrated `devops k8s logs [query|tail|stream]` with live follow and fallback to `kubectl logs`.
   - [x] 6. Registered FastMCP tools `k8s_logs_query` and `k8s_logs_tail` with 119 schemas exported.
   - [x] 7. Unit and integration tests in `tests/test_k8s_logging_stack.py` and `tests/test_k8s_logql.py`.
-  - [x] 8. Validated with 10-gate CI suite (10/10 green, 90% coverage maintained).
+  - [x] 8. Validated with Gated CI suite (10/10 green, 90% coverage maintained).
 - [/] Phase 51.5: Optimize Caching Configuration Across All GitHub Workflows (P2 - Medium, Closes #99)
   - [x] 1. Configured setup-uv with `cache-python: "true"`, `prune-cache: "true"`, and `cache-dependency-glob: "uv.lock"` in `ci.yml` and `release.yml`.
   - [x] 2. Configured `actions/cache` in `ci.yml` for `.mypy_cache`, `.ruff_cache`, and `.pytest_cache`.
   - [x] 3. Configured `devcontainers/ci` with `cacheFrom: ${{ steps.image_repo.outputs.name }}:latest` in `ci.yml` and `release.yml`.
   - [x] 4. Authored unit tests in `tests/test_ci.py` validating declarative workflow caching invariants.
   - [x] 5. Remediate Copilot code review comments (stable cache key without github.sha, exact cacheFrom assertion in test).
-  - [x] 6. Verify full 10-gate CI quality suite passes cleanly (`uv run devops ci`).
+  - [x] 6. Verify full Gated CI quality suite passes cleanly (`uv run devops ci`).
 
 ---
 

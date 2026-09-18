@@ -877,7 +877,7 @@ def test_build_release_pr_body_draft_mode(sample_project_dir: Path) -> None:
         assert "- #118" in body
         assert "- **#117**" not in body
         assert "### Quality Gate Checklist" in body
-        assert "- [ ] 10-Gate CI Quality Gate passing (`devops ci`)" in body
+        assert "- [ ] Gated CI Quality Gate passing (`devops ci`)" in body
         assert "- [ ] Documentation and Command Matrix in `README.md` synchronized" in body
         assert (
             "- [ ] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`"
@@ -912,7 +912,7 @@ def test_build_release_pr_body_ready_mode(sample_project_dir: Path) -> None:
             )
             assert "### Included Deliverables" in body
             assert "feat(security): cosign container signing (#213)" in body
-            assert "- [x] 10-Gate CI Quality Gate passing (`devops ci`)" in body
+            assert "- [x] Gated CI Quality Gate passing (`devops ci`)" in body
             assert "- [x] CodeQL & Static Analysis passing" in body
             assert "- [x] Milestone deliverables reviewed and merged into `release/v0.2.19`" in body
 

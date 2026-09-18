@@ -742,7 +742,7 @@ class ReleaseCommandHelp:
     auto_pr: str = "Create release branch, commit changes, and open a GitHub Release PR."
     prefix: str = "Conventional commit prefix (feat or fix)."
     breaking: str = "Flag release as containing breaking changes (!)."
-    skip_ci: str = "Skip running the 7-gate CI test suite."
+    skip_ci: str = "Skip running the Gated CI test suite."
     allow_dirty: str = "Allow uncommitted changes in git repository."
     tag_message: str = "Custom tag annotation message."
     changelog: str = "Compile and generate changelog entries from commits or PRs."
