@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx2
@@ -122,9 +123,10 @@ class TestGatewayRouter:
             (CONST_AI_GATEWAY_PROVIDER, "devops-embedding"),
         )
 
-    def test_trigger_failover_simulation_and_execution(self) -> None:
+    def test_trigger_failover_simulation_and_execution(self, tmp_path: Path) -> None:
         """Verify simulated failover leaves routes untouched while non-simulated alters table."""
-        router = GatewayRouter()
+        state_file = tmp_path / "gateway_state.json"
+        router = GatewayRouter(state_file=state_file)
 
         simulated = router.trigger_failover("devops-reasoning", simulate=True)
         assert (
@@ -134,28 +136,32 @@ class TestGatewayRouter:
         ) == (
             "devops-coder",
             True,
-            "meta-llama/Llama-3.3-70B-Instruct",
+            "llama-3.3-70b-instruct",
         )
 
         executed = router.trigger_failover("devops-reasoning", simulate=False)
         assert (
             executed["fallback_target"],
+            executed["target_model"],
             executed["simulated"],
             router.list_routes()[2].target_model,
+            router.list_routes()[2].backend_type,
         ) == (
             "devops-coder",
+            "qwen2.5-coder:14b",
             False,
-            "devops-coder",
+            "qwen2.5-coder:14b",
+            "failover:ollama",
         )
 
     def test_trigger_failover_invalid_model_raises_value_error(self) -> None:
-        """Verify unknown virtual model alias raises ValueError."""
+        """Verify unknown virtual model alias raises ValidationError (subclass of ValueError)."""
         router = GatewayRouter()
         with pytest.raises(ValueError, match="Unknown virtual model 'unknown-model'"):
             router.trigger_failover("unknown-model")
 
     def test_scale_vllm_parameters(self) -> None:
-        """Verify vLLM scale configurations calculate correct VRAM aggregates."""
+        """Verify vLLM scale configurations calculate correct VRAM aggregates with replica multiplication."""
         router = GatewayRouter()
         default_scale = router.scale_vllm()
         custom_scale = router.scale_vllm(replicas=2, tensor_parallel_size=4)
@@ -167,12 +173,14 @@ class TestGatewayRouter:
             custom_scale["replicas"],
             custom_scale["tensor_parallel_size"],
             custom_scale["total_vram_gb"],
+            custom_scale["vram_per_replica_gb"],
         ) == (
             1,
             2,
             48,
             2,
             4,
+            192,
             96,
         )
 
@@ -299,3 +307,103 @@ class TestFastMCPGatewayTools:
             get_ai_gateway_resource()
 
         assert mock_run.call_count == 5
+
+
+class TestRouterAndClientGatewayIntegration:
+    """Test suite for Router fallback chain and LLMClient gateway provider dispatch."""
+
+    def test_router_fallback_chain_respects_gateway_enabled(self) -> None:
+        """Verify gateway is only inserted into fallback chain when gateway_enabled is True."""
+        from devops_cli.ai.router import DataSensitivity, LLMRouter, TaskComplexity
+
+        router_disabled = LLMRouter(AIConfig(gateway_enabled=False))
+        chain_disabled = router_disabled._build_fallback_chain(
+            "ollama", "qwen2.5-coder:7b", TaskComplexity.LOW, DataSensitivity.INTERNAL
+        )
+
+        router_enabled = LLMRouter(AIConfig(gateway_enabled=True))
+        chain_enabled = router_enabled._build_fallback_chain(
+            "ollama", "qwen2.5-coder:7b", TaskComplexity.LOW, DataSensitivity.INTERNAL
+        )
+
+        assert (
+            any(prov == "gateway" for prov, _ in chain_disabled),
+            chain_enabled[0][0],
+        ) == (
+            False,
+            "gateway",
+        )
+
+    def test_unified_client_gateway_dispatch(self) -> None:
+        """Verify LLMClient dispatches to OpenAI compatible handler when provider is gateway."""
+        from devops_cli.ai.client.models import LLMResponse
+        from devops_cli.ai.client.unified import LLMClient
+
+        client = LLMClient(AIConfig(provider="gateway", gateway_url="http://example.com/v1"))
+        dummy_res = LLMResponse(content="gateway response", backend_info="gateway (example.com)")
+
+        with patch.object(client, "_openai_compat_messages", return_value=dummy_res) as mock_compat:
+            resp = client.chat("system prompt", "user query")
+
+        assert (
+            mock_compat.call_count,
+            resp.content,
+            client.backend_type,
+            client.backend_host,
+        ) == (
+            1,
+            "gateway response",
+            "gateway",
+            "example.com",
+        )
+
+    def test_scale_vllm_kubectl_apply_success_and_failure(self) -> None:
+        """Verify scale_vllm applies kubectl scale command when apply=True."""
+        router = GatewayRouter()
+        mock_proc_ok = MagicMock(returncode=0, stdout="deployment.apps/vllm scaled", stderr="")
+        mock_proc_err = MagicMock(
+            returncode=1, stdout="", stderr="Error from server: connection refused"
+        )
+
+        with patch("subprocess.run", return_value=mock_proc_ok) as mock_sub:
+            res_ok = router.scale_vllm(replicas=3, apply=True)
+            called_cmd = mock_sub.call_args[0][0]
+
+        with patch("subprocess.run", return_value=mock_proc_err):
+            res_err = router.scale_vllm(replicas=3, apply=True)
+
+        assert (
+            res_ok["status"],
+            "--replicas=3" in called_cmd,
+            res_err["status"],
+            "connection refused" in res_err["details"]["error"],
+        ) == (
+            "scaled",
+            True,
+            "error",
+            True,
+        )
+
+    def test_probe_gateway_strips_v1_and_updates_circuit_breaker(self, tmp_path: Path) -> None:
+        """Verify health probe strips /v1 and updates circuit breaker on failure."""
+        state_file = tmp_path / "gw_state.json"
+        router = GatewayRouter(AIConfig(gateway_url="http://example.com/v1"), state_file=state_file)
+
+        mock_resp_fail = MagicMock(status_code=502)
+        with patch.object(httpx2.Client, "get", return_value=mock_resp_fail) as mock_get:
+            status = router.probe_gateway()
+            initial_probe_url = mock_get.call_args_list[0][0][0]
+
+        assert (
+            initial_probe_url,
+            status.healthy,
+            status.circuit_breaker_tripped,
+            router._circuit_breaker_active,
+            all(not r.healthy for r in router.list_routes()),
+        ) == (
+            "http://example.com/health/readiness",
+            False,
+            True,
+            True,
+            True,
+        )

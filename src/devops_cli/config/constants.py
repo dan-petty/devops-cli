@@ -651,3 +651,28 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
 )
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
 CONST_AI_GATEWAY_DEFAULT_PORT: Final[int] = 4000
+CONST_TASK_TAXONOMY_EMBEDDING: Final[frozenset[str]] = frozenset(
+    {"embedding", "embed_documents", "vector_index", "rag_index", "semantic_search"}
+)
+CONST_TASK_TAXONOMY_CODER: Final[frozenset[str]] = frozenset(
+    {
+        "persona_review",
+        "verify_finding",
+        "test_gen",
+        "ast_analysis",
+        "codegen",
+        "review",
+        "refactor",
+    }
+)
+CONST_TASK_TAXONOMY_REASONING: Final[frozenset[str]] = frozenset(
+    {
+        "architecture",
+        "threat_model",
+        "cross_repo",
+        "novel_synthesis",
+        "adversarial_debate",
+        "deep_review",
+        "synthesis",
+    }
+)

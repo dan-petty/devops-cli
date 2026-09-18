@@ -149,6 +149,13 @@ def scale_cmd(
         int | None,
         typer.Option("--tensor-parallel-size", "-tp", help="Tensor Parallelism degree (e.g. 2)."),
     ] = None,
+    apply: Annotated[
+        bool,
+        typer.Option(
+            "--apply/--no-apply",
+            help="Apply replica scale mutation to Kubernetes deployment via kubectl.",
+        ),
+    ] = False,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
@@ -157,7 +164,9 @@ def scale_cmd(
     """Inspect or scale vLLM Tensor Parallelism serving configurations."""
     settings = load_settings()
     router = GatewayRouter(settings.ai)
-    outcome = router.scale_vllm(replicas=replicas, tensor_parallel_size=tensor_parallel_size)
+    outcome = router.scale_vllm(
+        replicas=replicas, tensor_parallel_size=tensor_parallel_size, apply=apply
+    )
 
     if output_format.lower() == "json":
         write_stdout(format_json(outcome))

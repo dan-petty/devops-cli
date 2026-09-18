@@ -2592,7 +2592,7 @@ def ai_vllm_scale(
 def get_ai_gateway_resource() -> str:
     """Return live LLM Gateway health and active virtual model routing table."""
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "ai", "gateway", "routes", "--format", "json"],
+        ["uv", "run", "devops", "ai", "gateway", "status", "--format", "json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 

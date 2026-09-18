@@ -215,7 +215,9 @@ class LLMRouter:
             fallbacks = [("ollama", "qwen2.5-coder:14b"), ("ollama", "qwen2.5-coder:7b")]
             return [fb for fb in fallbacks if fb != (primary_provider, primary_model)]
 
-        cascade_providers = ["gateway", "claude", "openai", "copilot", "ollama"]
+        cascade_providers = ["claude", "openai", "copilot", "ollama"]
+        if self.config.gateway_enabled:
+            cascade_providers.insert(0, "gateway")
         chain: list[tuple[str, str]] = []
         for prov in cascade_providers:
             candidate = (prov, _DEFAULT_MODEL_BY_TIER.get((prov, complexity), "qwen2.5-coder:7b"))

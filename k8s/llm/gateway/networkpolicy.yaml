@@ -16,8 +16,18 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow incoming API requests to port 4000 from all cluster namespaces
-    - ports:
+    # Allow incoming API requests to port 4000 from devops-cli stack workloads and monitoring
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: devops-cli
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: devops-cli-stack
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
         - protocol: TCP
           port: 4000
   egress:

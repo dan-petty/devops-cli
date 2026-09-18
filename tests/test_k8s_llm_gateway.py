@@ -73,20 +73,23 @@ class TestK8sLLMGatewayManifests:
         )
         netpol = next(d for d in netpol_docs if d and d.get("kind") == "NetworkPolicy")
 
+        ingress_from = netpol["spec"]["ingress"][0].get("from", [])
         assert (
             svc["spec"]["type"],
             svc["spec"]["ports"][0]["port"],
             netpol["metadata"]["name"],
             netpol["spec"]["podSelector"]["matchLabels"]["app.kubernetes.io/name"],
+            len(ingress_from) >= 2,
         ) == (
             "ClusterIP",
             4000,
             "llm-gateway-perimeter",
             "llm-gateway",
+            True,
         )
 
     def test_vllm_deployment_tensor_parallelism(self) -> None:
-        """Verify vLLM deployment configures Tensor Parallelism (TP=2) and 48GB VRAM limit."""
+        """Verify vLLM deployment configures AWQ quantization, served-model-name, and TP=2."""
         vllm_path = VLLM_DIR / "deployment.yaml"
         docs = list(yaml.safe_load_all(vllm_path.read_text(encoding="utf-8")))
         dep = next(d for d in docs if d and d.get("kind") == "Deployment")
@@ -97,6 +100,11 @@ class TestK8sLLMGatewayManifests:
 
         assert (
             spec["nodeSelector"]["nvidia.com/gpu.present"],
+            "--model" in cmd
+            and cmd[cmd.index("--model") + 1] == "casperhansen/llama-3.3-70b-instruct-awq",
+            "--quantization" in cmd and cmd[cmd.index("--quantization") + 1] == "awq",
+            "--served-model-name" in cmd
+            and cmd[cmd.index("--served-model-name") + 1] == "llama-3.3-70b-instruct",
             "--tensor-parallel-size" in cmd and cmd[cmd.index("--tensor-parallel-size") + 1] == "2",
             "--max-model-len" in cmd and cmd[cmd.index("--max-model-len") + 1] == "32768",
             container["resources"]["limits"]["nvidia.com/gpu"],
@@ -105,8 +113,27 @@ class TestK8sLLMGatewayManifests:
             "true",
             True,
             True,
+            True,
+            True,
+            True,
             "2",
             "48Gi",
+        )
+
+    def test_llm_namespace_default_perimeter_excludes_gateway_and_vllm(self) -> None:
+        """Verify llm-default-perimeter excludes llm-gateway and vllm to avoid additive policy leakage."""
+        np_path = Path("k8s/llm/networkpolicy.yaml")
+        docs = list(yaml.safe_load_all(np_path.read_text(encoding="utf-8")))
+        np = next(d for d in docs if d and d.get("kind") == "NetworkPolicy")
+        exprs = np["spec"]["podSelector"]["matchExpressions"]
+        name_expr = next(e for e in exprs if e.get("key") == "app.kubernetes.io/name")
+
+        assert (
+            name_expr["operator"],
+            sorted(name_expr["values"]),
+        ) == (
+            "NotIn",
+            ["llm-gateway", "vllm"],
         )
 
     def test_zero_homelab_ip_or_hostname_leakage(self) -> None:

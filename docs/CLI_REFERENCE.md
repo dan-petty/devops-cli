@@ -3817,6 +3817,7 @@ devops ai gateway scale [OPTIONS]
 |---|---|---|---|
 | `--replicas`, `-r` | `integer` | - | Replica count for vLLM Tensor-Parallel deployment. |
 | `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree (e.g. 2). |
+| `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ---
