@@ -14,6 +14,7 @@ from devops_cli.ai.review_schema import (
     canonicalize_finding_location,
     derive_recommendation,
     sanitize_finding_text,
+    strip_outer_markdown_bold,
 )
 
 
@@ -96,6 +97,28 @@ class TestTextAndLocationSanitization:
             sanitize_finding_text("The function uses write_file for write_bytes_file. Good.") == ""
         )
         assert sanitize_finding_text("No issues found in this module. Looks solid.") == ""
+
+    def test_strip_outer_markdown_bold_preserves_unpacking_and_strips_pairs(self) -> None:
+        """Strip outer markdown bold wrapper while preserving Python unpacking like **kwargs."""
+        results = (
+            strip_outer_markdown_bold("**Important security finding**"),
+            strip_outer_markdown_bold("**kwargs must be typed"),
+            strip_outer_markdown_bold("**options"),
+            strip_outer_markdown_bold("**kwargs**"),
+            strip_outer_markdown_bold("**bold1** and **bold2**"),
+            sanitize_finding_text("**kwargs are unvalidated"),
+            sanitize_finding_text("**Critical bug in parser**"),
+        )
+        expected = (
+            "Important security finding",
+            "**kwargs must be typed",
+            "**options",
+            "kwargs",
+            "**bold1** and **bold2**",
+            "**kwargs are unvalidated",
+            "Critical bug in parser",
+        )
+        assert results == expected
 
     def test_finding_is_empty_filters_markdown_garbage_and_praise(self) -> None:
         """Findings with punctuation locations or conversational praise must be marked empty."""
