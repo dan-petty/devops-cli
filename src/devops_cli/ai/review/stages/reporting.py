@@ -30,8 +30,26 @@ def _derive_finding_theme(finding: SavedFinding) -> str:
         if clean_ref.upper().startswith(("CWE-", "OWASP", "CVE-")):
             return clean_ref.split(":")[0].strip()
 
-    clean_title = re.split(r"[:\-\(]", finding.title)[0].strip()
-    return clean_title or finding.title
+    title = finding.title.strip()
+    # Cleanly strip leading bracketed scanner/tool tags (e.g. [DRY-RUN], [GITLEAKS:...], [B602])
+    stripped_title = re.sub(r"^(?:\[[^\]]+\]\s*)+", "", title).strip()
+    candidate = stripped_title or title
+
+    # Split only on delimiter sequences with surrounding whitespace or parenthesis,
+    # preventing accidental splits on hyphens inside words (e.g. rate-limit, cross-site, --flag) or colons in URLs
+    parts = re.split(r"\s+[-—:]\s+|\s*\(", candidate)
+    clean_theme = parts[0].strip() if parts else candidate
+
+    # Ensure clean_theme does not leave an unclosed backtick or bracket
+    if clean_theme.count("`") % 2 != 0:
+        clean_theme += "`"
+    if clean_theme.count("[") > clean_theme.count("]"):
+        clean_theme += "]"
+    clean_theme = clean_theme.strip("`'\" ")
+    if "**" in clean_theme:
+        clean_theme = clean_theme.replace("**", "")
+
+    return clean_theme or finding.title
 
 
 def extract_good_patterns(
@@ -84,8 +102,17 @@ def extract_bad_patterns(reportable_findings: list[SavedFinding]) -> list[str]:
         max_sev = min(
             findings, key=lambda f: _SEVERITY_WEIGHTS.get(f.severity.upper(), 5)
         ).severity.upper()
+
+        if "`" in rep.title:
+            rep_title_str = rep.title
+            if rep_title_str.count("`") % 2 != 0:
+                rep_title_str += "`"
+        else:
+            rep_title_str = f"`{rep.title}`"
+
+        loc_str = rep.location.strip("`")
         bad_patterns.append(
-            f"**{theme}**: {len(findings)} finding(s) identified (highest severity: {max_sev}). Representative issue: `{rep.title}` at `{rep.location}`."
+            f"**{theme}**: {len(findings)} finding(s) identified (highest severity: {max_sev}). Representative issue: {rep_title_str} at `{loc_str}`."
         )
 
     return bad_patterns
@@ -208,7 +235,15 @@ def run_reporting_stage(
             ]
         )
         for idx, f in enumerate(reportable_findings, 1):
-            md_lines.append(f"| {idx} | {f.severity} | `{f.location}` | {f.title} | {f.status} |")
+            clean_sev = f.severity.replace("|", "\\|").replace("\n", " ").strip()
+            clean_loc = f.location.strip("`").replace("|", "\\|").replace("\n", " ").strip()
+            clean_title = f.title.replace("|", "\\|").replace("\n", " ").strip()
+            if clean_title.count("`") % 2 != 0:
+                clean_title += "`"
+            clean_status = f.status.replace("|", "\\|").replace("\n", " ").strip()
+            md_lines.append(
+                f"| {idx} | {clean_sev} | `{clean_loc}` | {clean_title} | {clean_status} |"
+            )
 
         report_path.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
 
