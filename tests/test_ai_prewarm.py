@@ -62,7 +62,7 @@ class TestOllamaProviderPrewarm:
 
             mock_http.post.assert_called_once_with(
                 "http://example.com:11434/api/generate",
-                json={"model": "gemma4:26b", "keep_alive": "1h"},
+                json={"model": "gemma4:26b", "prompt": "", "keep_alive": "1h"},
             )
 
     def test_preload_single_ollama_url_failure(self) -> None:
@@ -100,7 +100,7 @@ class TestOllamaProviderPrewarm:
             assert (url, ok) == ("http://example.com:11434", True)
             mock_http.post.assert_called_once_with(
                 "http://example.com:11434/api/generate",
-                json={"model": "qwen2.5-coder:7b", "keep_alive": 0},
+                json={"model": "qwen2.5-coder:7b", "prompt": "", "keep_alive": 0},
             )
 
     def test_execute_preload_all_and_callback(self) -> None:
@@ -129,6 +129,27 @@ class TestOllamaProviderPrewarm:
             )
             expected = {"http://localhost:11434": True, "http://example.com:11434": True}
             assert (results, callback_results) == (expected, expected)
+
+    def test_execute_preload_all_callback_failure_handled(self) -> None:
+        """Verify exception raised in on_complete callback is caught and logged."""
+        config = AIConfig(provider="ollama", model="gemma4:26b")
+        provider = DummyOllamaProvider(config)
+
+        def bad_callback(_: dict[str, bool]) -> None:
+            raise RuntimeError("Callback crashed")
+
+        with patch.object(
+            provider,
+            "_preload_single_ollama_url",
+            return_value=("http://localhost:11434", True),
+        ):
+            results = provider._execute_preload_all(
+                ["http://localhost:11434"],
+                on_complete=bad_callback,
+                model="gemma4:26b",
+                keep_alive="1h",
+            )
+            assert results == {"http://localhost:11434": True}
 
     def test_preload_models_provider_guard(self) -> None:
         """Verify preload_models exits early when provider is not ollama or urls are empty."""
@@ -302,6 +323,45 @@ class TestCLIPrewarmCommand:
 
             assert result.exit_code == 1
             assert "request failed or timed out" in result.output
+
+    def test_cli_prewarm_single_node_flag(self) -> None:
+        """Verify devops ai prewarm --single-node targets only primary node."""
+        with patch("devops_cli.ai.client.LLMClient.preload_models") as mock_preload:
+            mock_preload.return_value = {"http://localhost:11434": True}
+            result = runner.invoke(app, ["ai", "prewarm", "--single-node"])
+
+            assert result.exit_code == 0
+            assert mock_preload.call_args[1]["urls"] == ["http://localhost:11434"]
+
+    def test_cli_prewarm_telemetry_recording(self) -> None:
+        """Verify devops ai prewarm records OpenTelemetry span and execution metric."""
+        with (
+            patch(
+                "devops_cli.ai.client.LLMClient.preload_models",
+                return_value={"http://localhost:11434": True},
+            ),
+            patch("devops_cli.commands.ai.record_metric") as mock_metric,
+            patch("devops_cli.commands.ai.trace_span") as mock_span,
+        ):
+            result = runner.invoke(app, ["ai", "prewarm"])
+
+            assert result.exit_code == 0
+            assert (mock_span.called, mock_metric.called) == (True, True)
+
+    def test_cli_prewarm_telemetry_recording_failure(self) -> None:
+        """Verify devops ai prewarm records failure metric when node prewarm fails."""
+        with (
+            patch(
+                "devops_cli.ai.client.LLMClient.preload_models",
+                return_value={"http://localhost:11434": False},
+            ),
+            patch("devops_cli.commands.ai.record_metric") as mock_metric,
+            patch("devops_cli.commands.ai.trace_span") as mock_span,
+        ):
+            result = runner.invoke(app, ["ai", "prewarm"])
+
+            assert result.exit_code == 1
+            assert (mock_span.called, mock_metric.called) == (True, True)
 
 
 class TestFastMCPPrewarmTool:

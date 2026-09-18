@@ -201,6 +201,11 @@ class ThinkingStreamProcessor:
         """Return accumulated thinking content with duplicate lines removed using a set."""
         return unique_lines(self.thinking_content)
 
+    @property
+    def reasoning_scratchpad(self) -> str:
+        """Standardized reasoning scratchpad buffer containing extracted thinking tokens."""
+        return self.thinking_content
+
     def to_model_response(self, model_name: str | None = None) -> Any:
         """Construct a ModelResponse from accumulated thinking and content."""
         from pydantic_ai.messages import ModelResponse, TextPart, ThinkingPart

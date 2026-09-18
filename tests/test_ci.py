@@ -319,7 +319,7 @@ def test_ci_helpers_and_edge_cases(tmp_path: Path) -> None:
     cov_file = tmp_path / ".coverage.test1"
     cov_file.write_text("test", encoding="utf-8")
     with patch("devops_cli.commands.ci._ROOT", tmp_path):
-        _clean_coverage_artifacts()
+        _clean_coverage_artifacts(force=True)
         assert not cov_file.exists()
 
     # 2. _print_failures and _print_summary
@@ -395,7 +395,7 @@ def test_ci_clean_coverage_and_extended_options(tmp_path: Path) -> None:
     fake_cov = fake_data / ".coverage.sample"
     fake_cov.write_text("sample", encoding="utf-8")
     with patch("devops_cli.commands.ci._ROOT", tmp_path):
-        _clean_coverage_artifacts()
+        _clean_coverage_artifacts(force=True)
         assert not fake_cov.exists()
 
     # 2. coverage --html

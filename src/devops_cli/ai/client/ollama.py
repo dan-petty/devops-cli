@@ -23,6 +23,7 @@ from devops_cli.ai.client.streaming import (
     _consume_streaming_lines,
     _extract_ollama_stream_tuple,
 )
+from devops_cli.config.defaults import DEFAULT_AI_EVICT_KEEP_ALIVE
 from devops_cli.models.ai import ChatMessage
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
@@ -51,7 +52,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
                 res = http_client.post(
                     f"{base}/api/generate",
-                    json={"model": target_model, "keep_alive": keep_alive},
+                    json={"model": target_model, "prompt": "", "keep_alive": keep_alive},
                 )
                 return (url, res.status_code == 200)
         except Exception:
@@ -147,7 +148,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         """Evict model from VRAM immediately across Ollama nodes (keep_alive=0)."""
         return self.preload_models(
             model=model,
-            keep_alive=0,
+            keep_alive=DEFAULT_AI_EVICT_KEEP_ALIVE,
             urls=urls,
             blocking=blocking,
             on_complete=on_complete,

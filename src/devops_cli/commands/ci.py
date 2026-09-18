@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
 import sys
 import time
 from pathlib import Path
@@ -125,8 +126,11 @@ def _section(title: str) -> None:
     _get("print_section")(f" {title} ", style="cyan")
 
 
-def _clean_coverage_artifacts() -> None:
+def _clean_coverage_artifacts(*, force: bool = False) -> None:
     """Clean up residual temporary .coverage.* worker files from root workspace and .data/."""
+    if not force and os.getenv("PYTEST_CURRENT_TEST"):
+        return
+
     current_root = getattr(sys.modules[__name__], "_ROOT", _get_project_root())
 
     for target_dir in (current_root, current_root / ".data"):
@@ -275,6 +279,7 @@ async def _run_all_checks_async(
         "ci.run_pipeline",
         attributes={"lint_fix": lint_fix, "format_fix": format_fix, "docs_fix": docs_fix},
     ):
+        _clean_coverage_artifacts()
         tasks = [
             _execute_check_async(
                 "test",
