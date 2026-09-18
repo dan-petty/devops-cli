@@ -87,22 +87,21 @@ jobs:
             echo "Updating PR #${PR_NUM} triggered by comment..."
             uv run devops pr update "$PR_NUM" --repo "$REPO"
           elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            DRY_FLAG=""
+            ARGS=()
             if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-              DRY_FLAG="--dry-run"
+              ARGS+=("--dry-run")
             fi
             PR_INPUT="${{ github.event.inputs.pr_number }}"
             BASE_INPUT="${{ github.event.inputs.base_branch }}"
             if [ -n "$PR_INPUT" ]; then
               echo "Updating specific PR #${PR_INPUT} via workflow dispatch..."
-              uv run devops pr update "$PR_INPUT" --repo "$REPO" $DRY_FLAG
+              uv run devops pr update "$PR_INPUT" --repo "$REPO" "${ARGS[@]}"
             else
-              BASE_OPT=""
               if [ -n "$BASE_INPUT" ]; then
-                BASE_OPT="--base $BASE_INPUT"
+                ARGS+=("--base" "$BASE_INPUT")
               fi
               echo "Updating all open PRs targeting base '${BASE_INPUT:-auto}'..."
-              uv run devops pr update --all --repo "$REPO" $BASE_OPT $DRY_FLAG
+              uv run devops pr update --all --repo "$REPO" "${ARGS[@]}"
             fi
           else
             # Push to base branch (main or release/**)
