@@ -1077,4 +1077,5 @@ class TestDevcontainerCli:
             "UV_LINK_MODE=copy" in content,
             "UV_COMPILE_BYTECODE=1" in content,
             "ghcr.io/astral-sh/uv:0.12.16" in content,
-        ) == (True, True, True, True, True, True, True, True, True)
+            "VERSION_CODENAME=trixie" in content,
+        ) == (True, True, True, True, True, True, True, True, True, True)

@@ -15,6 +15,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     python3.14 \
     python-is-python3 \
     ca-certificates \
+    && sed -i 's/VERSION_CODENAME=forky/VERSION_CODENAME=trixie/' /etc/os-release \
     && rm -rf /var/lib/apt/lists/*
 
 # Install standalone uv and uvx binaries into /usr/local/bin pinned to release
