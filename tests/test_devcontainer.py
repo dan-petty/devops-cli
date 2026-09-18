@@ -1061,3 +1061,20 @@ class TestDevcontainerCli:
             assert ok is False
             assert "ghp_secrettoken" not in msg
             assert "<masked-github-token>" in msg
+
+    def test_devcontainer_dockerfile_uses_debian_sid(self) -> None:
+        """Verify repository .devcontainer/Dockerfile builds from debian:sid with python runtime and CI cache mounts."""
+        dockerfile_path = Path(__file__).resolve().parent.parent / ".devcontainer" / "Dockerfile"
+        assert dockerfile_path.exists()
+        content = dockerfile_path.read_text(encoding="utf-8")
+        assert (
+            "FROM debian:sid" in content,
+            "python3.14" in content,
+            "python-is-python3" in content,
+            "ca-certificates" in content,
+            "--break-system-packages" in content,
+            "--mount=type=cache,target=/root/.cache/uv" in content,
+            "UV_LINK_MODE=copy" in content,
+            "UV_COMPILE_BYTECODE=1" in content,
+            "ghcr.io/astral-sh/uv:0.12.16" in content,
+        ) == (True, True, True, True, True, True, True, True, True)
