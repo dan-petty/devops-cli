@@ -23,7 +23,6 @@ from devops_cli.config.constants import (
     CONST_GH_HEADER_ETAG,
     CONST_GH_HEADER_IF_NONE_MATCH,
     CONST_GH_HEADER_USER_AGENT,
-    CONST_GH_WEBHOOK_SIGNATURE_HEADER,
     CONST_URL_GITHUB_GRAPHQL,
 )
 from devops_cli.config.defaults import (
