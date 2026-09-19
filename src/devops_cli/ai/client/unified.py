@@ -18,6 +18,7 @@ from devops_cli.ai.client.claude import ClaudeProviderMixin
 from devops_cli.ai.client.models import (
     AIClientError,
     LLMResponse,
+    RequestPriority,
     _is_json_error_payload,
 )
 from devops_cli.ai.client.network import (
@@ -290,6 +291,7 @@ class LLMClient(
         messages: list[ChatMessage],
         *,
         enable_thinking: bool = True,
+        priority: RequestPriority | str | None = None,
     ) -> LLMResponse:
         p = self._config.provider
         start = time.perf_counter()
@@ -298,6 +300,12 @@ class LLMClient(
             if m.role == "user":
                 prompt_preview = m.content[:200].replace("\n", " ").strip()
                 break
+
+        resolved_priority = (
+            RequestPriority(priority)
+            if isinstance(priority, str)
+            else (priority or network.current_request_priority.get())
+        )
 
         with trace_span(
             "ai.llm.dispatch",
@@ -308,13 +316,16 @@ class LLMClient(
                 "gen_ai.request.message_count": len(messages),
                 "gen_ai.request.system_prompt_length": len(system),
                 "gen_ai.request.enable_thinking": enable_thinking,
+                "gen_ai.request.priority": resolved_priority.value,
                 "gen_ai.prompt_preview": prompt_preview,
                 "provider": p,
                 "model": self._config.model,
             },
         ) as span_handle:
             if p == "ollama":
-                res = self._ollama_messages(system, messages, enable_thinking=enable_thinking)
+                res = self._ollama_messages(
+                    system, messages, enable_thinking=enable_thinking, priority=resolved_priority
+                )
             elif p == "claude":
                 res = self._claude_messages(system, messages, enable_thinking=enable_thinking)
             elif p in ("copilot", "github_copilot", "openai", "gateway"):
@@ -387,6 +398,7 @@ class LLMClient(
         starting_point: str | None = None,
         context_tag: str | None = None,
         append_cache: bool | None = None,
+        priority: RequestPriority | str | None = RequestPriority.HIGH,
     ) -> LLMResponse:
         """Send a single-turn chat message and return the assistant reply."""
         return self.chat_messages(
@@ -399,6 +411,7 @@ class LLMClient(
             starting_point=starting_point,
             context_tag=context_tag,
             append_cache=append_cache,
+            priority=priority,
         )
 
     def _record_chat_telemetry(self, span_h: Any, res: LLMResponse) -> None:
@@ -511,12 +524,18 @@ class LLMClient(
         enable_thinking: bool,
         context_tag: str | None,
         span_h: Any,
+        priority: RequestPriority | str | None = None,
     ) -> LLMResponse:
         """Execute chat dispatch across retries with validation and error tracking."""
         last_exc: Exception | None = None
         for attempt in range(1, attempts + 1):
             try:
-                res = self._dispatch_messages(system, out_messages, enable_thinking=enable_thinking)
+                res = self._dispatch_messages(
+                    system,
+                    out_messages,
+                    enable_thinking=enable_thinking,
+                    priority=priority,
+                )
                 if not self._validate_response_text(res, validator):
                     m = self._config.model
                     msg = f"Response validation failed for model '{m}' (attempt {attempt}/{attempts})."
@@ -553,12 +572,19 @@ class LLMClient(
         starting_point: str | None = None,
         context_tag: str | None = None,
         append_cache: bool | None = None,
+        priority: RequestPriority | str | None = None,
     ) -> LLMResponse:
         """Send a multi-turn chat request with response validation, caching, and retries."""
         eff_append = self._append_cache if append_cache is None else append_cache
         eff_start = starting_point
         if eff_start is None and context_tag:
             eff_start = self._cache.get_starting_point(context_tag=context_tag)
+
+        resolved_p = (
+            RequestPriority(priority)
+            if isinstance(priority, str)
+            else (priority or network.current_request_priority.get())
+        )
 
         if eff_append and eff_start is None and use_cache:
             unaugmented_key = self._cache.generate_key(
@@ -586,6 +612,7 @@ class LLMClient(
             attributes={
                 "gen_ai.system": self._config.provider,
                 "gen_ai.request.model": self._config.model,
+                "gen_ai.request.priority": resolved_p.value,
                 "gen_ai.enable_thinking": enable_thinking,
                 "use_cache": use_cache,
                 "append_cache": eff_append,
@@ -607,6 +634,7 @@ class LLMClient(
                 enable_thinking=enable_thinking,
                 context_tag=context_tag,
                 span_h=span_h,
+                priority=resolved_p,
             )
 
     def _dispatch_stream(
@@ -615,11 +643,14 @@ class LLMClient(
         messages: list[ChatMessage],
         *,
         enable_thinking: bool = True,
+        priority: RequestPriority | str | None = None,
     ) -> Generator[str]:
         """Dispatch streaming request to appropriate provider handler."""
         p = self._config.provider
         if p == "ollama":
-            return self._ollama_stream(system, messages, enable_thinking=enable_thinking)
+            return self._ollama_stream(
+                system, messages, enable_thinking=enable_thinking, priority=priority
+            )
         if p == "claude":
             return self._claude_stream(system, messages, enable_thinking=enable_thinking)
         if p in ("copilot", "github_copilot", "openai", "gateway"):
@@ -635,6 +666,7 @@ class LLMClient(
         *,
         enable_thinking: bool = True,
         sanitize: bool = False,
+        priority: RequestPriority | str | None = RequestPriority.HIGH,
     ) -> Generator[str]:
         """Send a single-turn chat message and yield streaming tokens as they arrive."""
         yield from self.chat_messages_stream(
@@ -642,6 +674,7 @@ class LLMClient(
             [ChatMessage(role="user", content=user)],
             enable_thinking=enable_thinking,
             sanitize=sanitize,
+            priority=priority,
         )
 
     def _record_first_token(
@@ -661,24 +694,33 @@ class LLMClient(
         *,
         enable_thinking: bool = True,
         sanitize: bool = False,
+        priority: RequestPriority | str | None = None,
     ) -> Generator[str]:
         """Send a multi-turn conversation and yield streaming tokens as they arrive."""
         p = self._config.provider
         t_start = time.perf_counter()
         first_token_time: float | None = None
         token_chunks_count = 0
+        resolved_p = (
+            RequestPriority(priority)
+            if isinstance(priority, str)
+            else (priority or network.current_request_priority.get())
+        )
 
         with trace_span(
             "gen_ai.stream",
             attributes={
                 "gen_ai.system": p,
                 "gen_ai.request.model": self._config.model,
+                "gen_ai.request.priority": resolved_p.value,
                 "gen_ai.enable_thinking": enable_thinking,
                 "gen_ai.sanitize": sanitize,
             },
         ) as span_h:
             try:
-                gen = self._dispatch_stream(system, messages, enable_thinking=enable_thinking)
+                gen = self._dispatch_stream(
+                    system, messages, enable_thinking=enable_thinking, priority=resolved_p
+                )
                 if sanitize:
                     from devops_cli.ai.client.streaming import StreamingTokenProcessor
 

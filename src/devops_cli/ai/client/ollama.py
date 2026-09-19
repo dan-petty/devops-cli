@@ -12,12 +12,13 @@ from urllib.parse import urlparse
 import httpx2
 
 from devops_cli.ai.client.base import BaseLLMProviderMixin
-from devops_cli.ai.client.models import AIClientError, LLMResponse
+from devops_cli.ai.client.models import AIClientError, LLMResponse, RequestPriority
 from devops_cli.ai.client.network import (
     acquire_ollama_slot,
     active_ollama_requests,
     ollama_active_lock,
     read_limited_json,
+    request_priority_scope,
 )
 from devops_cli.ai.client.streaming import (
     _consume_streaming_lines,
@@ -100,24 +101,25 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             return {}
 
         target_model = model or self._config.model
-        if not blocking:
-            import threading
+        with request_priority_scope(RequestPriority.AS_AVAILABLE):
+            if not blocking:
+                import threading
 
-            thread = threading.Thread(
-                target=self._execute_preload_all,
-                args=(target_urls, on_complete, target_model, keep_alive),
-                name=f"ollama-prewarm-{target_model}",
-                daemon=True,
+                thread = threading.Thread(
+                    target=self._execute_preload_all,
+                    args=(target_urls, on_complete, target_model, keep_alive),
+                    name=f"ollama-prewarm-{target_model}",
+                    daemon=True,
+                )
+                thread.start()
+                return {}
+
+            return self._execute_preload_all(
+                target_urls,
+                on_complete=on_complete,
+                model=target_model,
+                keep_alive=keep_alive,
             )
-            thread.start()
-            return {}
-
-        return self._execute_preload_all(
-            target_urls,
-            on_complete=on_complete,
-            model=target_model,
-            keep_alive=keep_alive,
-        )
 
     def prewarm_models(
         self,
@@ -223,7 +225,12 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             ) from exc
 
     def _ollama_messages(
-        self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
+        self,
+        system: str,
+        messages: list[ChatMessage],
+        *,
+        enable_thinking: bool = True,
+        priority: RequestPriority | str | None = None,
     ) -> LLMResponse:
         candidates = [url for _idx, url in self._get_ollama_urls_loop()]
         max_par = getattr(self._config, "ollama_max_parallel", 2)
@@ -233,7 +240,9 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         while remaining_candidates:
             leased_url: str | None = None
             try:
-                with acquire_ollama_slot(remaining_candidates, max_parallel=max_par) as leased_url:
+                with acquire_ollama_slot(
+                    remaining_candidates, max_parallel=max_par, priority=priority
+                ) as leased_url:
                     base = self._validate_base_url(
                         leased_url,
                         purpose="Ollama",
@@ -389,7 +398,12 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             ) from exc
 
     def _ollama_stream(
-        self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
+        self,
+        system: str,
+        messages: list[ChatMessage],
+        *,
+        enable_thinking: bool = True,
+        priority: RequestPriority | str | None = None,
     ) -> Generator[str]:
         candidates = [url for _idx, url in self._get_ollama_urls_loop()]
         max_par = getattr(self._config, "ollama_max_parallel", 2)
@@ -399,7 +413,9 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         while remaining_candidates:
             leased_url: str | None = None
             try:
-                with acquire_ollama_slot(remaining_candidates, max_parallel=max_par) as leased_url:
+                with acquire_ollama_slot(
+                    remaining_candidates, max_parallel=max_par, priority=priority
+                ) as leased_url:
                     base = self._validate_base_url(
                         leased_url,
                         purpose="Ollama",

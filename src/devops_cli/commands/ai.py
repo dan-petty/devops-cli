@@ -733,7 +733,7 @@ def prewarm(
     ] = False,
 ) -> None:
     """Prewarm local LLM models into GPU VRAM or proactively evict them to free memory."""
-    from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.client import LLMClient, RequestPriority, request_priority_scope
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
     settings = load_settings()
@@ -741,14 +741,17 @@ def prewarm(
     target_keep_alive: str | int = DEFAULT_AI_EVICT_KEEP_ALIVE if evict else keep_alive
     urls = _resolve_prewarm_urls(url, all_nodes, settings.ai.get_ollama_urls)
 
-    with trace_span(
-        "ai.prewarm",
-        attributes={
-            "ai.model": str(target_model),
-            "ai.evict": evict,
-            "ai.keep_alive": str(target_keep_alive),
-            "ai.all_nodes": all_nodes,
-        },
+    with (
+        request_priority_scope(RequestPriority.AS_AVAILABLE),
+        trace_span(
+            "ai.prewarm",
+            attributes={
+                "ai.model": str(target_model),
+                "ai.evict": evict,
+                "ai.keep_alive": str(target_keep_alive),
+                "ai.all_nodes": all_nodes,
+            },
+        ),
     ):
         client = LLMClient(settings.ai, api_key=get_ai_api_key(settings), cache_enabled=False)
         results = client.preload_models(
@@ -940,7 +943,7 @@ def chat(
     import sys
 
     from devops_cli.ai.agents import PydanticAgent
-    from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.client import LLMClient, RequestPriority, current_request_priority
     from devops_cli.ai.tools import get_persona_tools
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
@@ -989,62 +992,66 @@ def chat(
         prefix=False,
     )
 
-    while True:
-        try:
-            user_input = get_console().input("[bold cyan]You:[/bold cyan] ").strip()
-        except EOFError, KeyboardInterrupt:
-            from devops_cli.lang import MESSAGES
+    p_token = current_request_priority.set(RequestPriority.HIGH)
+    try:
+        while True:
+            try:
+                user_input = get_console().input("[bold cyan]You:[/bold cyan] ").strip()
+            except EOFError, KeyboardInterrupt:
+                from devops_cli.lang import MESSAGES
 
-            print_info(f"\n[dim]{MESSAGES.messages.goodbye}[/dim]", prefix=False)
-            break
+                print_info(f"\n[dim]{MESSAGES.messages.goodbye}[/dim]", prefix=False)
+                break
 
-        if not user_input:
-            continue
-        if user_input.lower() in {"exit", "quit", "/exit", "/quit"}:
-            print_info("[dim]Goodbye.[/dim]", prefix=False)
-            break
+            if not user_input:
+                continue
+            if user_input.lower() in {"exit", "quit", "/exit", "/quit"}:
+                print_info("[dim]Goodbye.[/dim]", prefix=False)
+                break
 
-        effective_prompt = user_input
-        if rag:
-            rag_snippet = _try_retrieve_rag_context(user_input, persona=persona, top_k=3)
-            if rag_snippet:
-                effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
+            effective_prompt = user_input
+            if rag:
+                rag_snippet = _try_retrieve_rag_context(user_input, persona=persona, top_k=3)
+                if rag_snippet:
+                    effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
 
-        try:
-            get_console().print(
-                f"\n[bold dark_orange]{persona_def.title}:[/bold dark_orange] ", end=""
-            )
-            sys.stdout.flush()
-
-            from devops_cli.ai.thinking_stream import strip_think_blocks
-
-            if stream and not tools:
-                _stream_interactive_chat_turn(client, agent, thinking, effective_prompt)
-            else:
-                agent_res = agent.run(
-                    effective_prompt,
-                    enable_thinking=thinking,
-                    on_thought=_print_chat_thought if thinking else None,
-                    on_tool_call=_print_chat_tool,
+            try:
+                get_console().print(
+                    f"\n[bold dark_orange]{persona_def.title}:[/bold dark_orange] ", end=""
                 )
+                sys.stdout.flush()
 
-                reply = strip_think_blocks(agent_res.content)
-                if reply.strip():
-                    render_chat_response(reply.strip())
+                from devops_cli.ai.thinking_stream import strip_think_blocks
 
-        except KeyboardInterrupt:
-            print_info("\n[dim]Interrupted.[/dim]\n", prefix=False)
-        except Exception as exc:
-            print_error(f"\nError: {exc}\n", prefix=False)
-            if agent.memory.entries:
-                agent.memory.entries.pop()  # don't add failed turn to history
-            continue
+                if stream and not tools:
+                    _stream_interactive_chat_turn(client, agent, thinking, effective_prompt)
+                else:
+                    agent_res = agent.run(
+                        effective_prompt,
+                        enable_thinking=thinking,
+                        on_thought=_print_chat_thought if thinking else None,
+                        on_tool_call=_print_chat_tool,
+                    )
 
-        if agent.memory.auto_summarize_if_needed(llm_client=client):
-            print_info(
-                "[dim]⚡ Long conversation memory consolidated into context summary.[/dim]",
-                prefix=False,
-            )
+                    reply = strip_think_blocks(agent_res.content)
+                    if reply.strip():
+                        render_chat_response(reply.strip())
+
+            except KeyboardInterrupt:
+                print_info("\n[dim]Interrupted.[/dim]\n", prefix=False)
+            except Exception as exc:
+                print_error(f"\nError: {exc}\n", prefix=False)
+                if agent.memory.entries:
+                    agent.memory.entries.pop()  # don't add failed turn to history
+                continue
+
+            if agent.memory.auto_summarize_if_needed(llm_client=client):
+                print_info(
+                    "[dim]⚡ Long conversation memory consolidated into context summary.[/dim]",
+                    prefix=False,
+                )
+    finally:
+        current_request_priority.reset(p_token)
 
 
 # =============================================================================
