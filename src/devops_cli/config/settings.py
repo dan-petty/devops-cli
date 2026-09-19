@@ -495,7 +495,7 @@ def _keyring_get(key: str) -> str | None:
     except NoKeyringError:
         return None
     except Exception as exc:
-        logger.warning("Failed to retrieve secret %r from OS Keyring: %s", key, exc)
+        logger.warning("Failed to retrieve secret from OS Keyring: %s", type(exc).__name__)
         return None
 
 
@@ -514,7 +514,7 @@ def _keyring_has(key: str) -> bool:
         val = keyring.get_password(KEYRING_SERVICE, key)
         return bool(val is not None)
     except (NoKeyringError, Exception) as exc:
-        logger.debug("Keyring check failed for %r: %s", key, exc)
+        logger.debug("Keyring check failed: %s", type(exc).__name__)
         return False
 
 
@@ -551,7 +551,7 @@ def set_keyring_secret(key: str, value: str) -> bool:
         _keyring_set(key, value)
         return True
     except Exception as exc:
-        logger.warning("Failed to set secret %r in OS Keyring: %s", key, exc)
+        logger.warning("Failed to set secret in OS Keyring: %s", type(exc).__name__)
         return False
 
 

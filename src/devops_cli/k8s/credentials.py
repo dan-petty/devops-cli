@@ -30,7 +30,7 @@ def _decode_k8s_secret_field(raw_b64: str) -> str | None:
         decoded_bytes = base64.b64decode(cleaned)
         return decoded_bytes.decode("utf-8").strip()
     except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
-        logger.debug("Failed to decode k8s secret field as utf-8: %s", exc)
+        logger.debug("Failed to decode k8s secret field as utf-8: %s", type(exc).__name__)
         return None
 
 
@@ -65,14 +65,12 @@ def fetch_secret_data(
     if res.returncode != 0:
         stderr_msg = res.stderr.strip() if res.stderr else ""
         if "NotFound" in stderr_msg or "not found" in stderr_msg.lower():
-            logger.debug("Secret %r not found in namespace %r", secret_name, namespace)
+            logger.debug("K8s secret resource not found in namespace %s", namespace)
         else:
             logger.warning(
-                "kubectl get secret %r failed in namespace %r (exit %d): %s",
-                secret_name,
+                "kubectl get secret failed in namespace %s (exit %d)",
                 namespace,
                 res.returncode,
-                stderr_msg[:256],
             )
         return {}
     if not res.stdout.strip():
@@ -83,7 +81,9 @@ def fetch_secret_data(
         data = payload.get("data", {})
         return {k: _decode_k8s_secret_field(v) or "" for k, v in data.items() if isinstance(v, str)}
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as err:
-        logger.warning("Failed to parse secret payload for %r: %s", secret_name, err)
+        logger.warning(
+            "Failed to parse secret payload in namespace %s: %s", namespace, type(err).__name__
+        )
         return {}
 
 
