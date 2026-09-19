@@ -51,6 +51,31 @@ CONST_TESTS_DIR_NAME = "tests"
 CONST_TESTS_DIR_PATH = Path(CONST_TESTS_DIR_NAME)
 CONST_VSCODE_DIR_NAME = ".vscode"
 CONST_MCP_JSON_NAME = "mcp.json"
+CONST_MCP_RESOURCE_SCHEME = "resource://"
+CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
+    {
+        "ai",
+        "argo",
+        "benchmark",
+        "config",
+        "docker",
+        "github",
+        "grafana",
+        "k8s",
+        "prometheus",
+        "review",
+        "sandbox",
+        "scan",
+        "secrets",
+        "ssh",
+        "telemetry",
+        "tf",
+        "tls",
+        "valkey",
+        "vault",
+        "workspace",
+    }
+)
 CONST_SYSTEM_TEMP_DIRS: tuple[Path, ...] = (Path("/tmp"), Path("/var/tmp"))  # nosec B108
 CONST_FORBIDDEN_SYSTEM_DIRS: tuple[Path, ...] = (
     Path("/etc"),
