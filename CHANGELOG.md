@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.21] - 2026-09-19
+
+### Added
+- **Multi-Scale Semantic Outline & Inspectional Reading Scanner (`devops_cli.ai.inspect`)**:
+  - Replaced monolithic file dumping with human-like inspectional reading and hierarchical perceptual scaffolding across 3 zoom levels: Topology, Structural Outline, and Deep Focal Window (`devops ai read --inspect`).
+  - Added AST symbol extraction, hotspot complexity mapping, and dynamic focal window targeting.
+- **Approximate Lifetime Spend Tracking & Observability (`devops_cli.ai.cost`)**:
+  - Introduced persistent ACID SQLite ledger (`spend.db`) tracking request tokens, backend server endpoints, model names, durations, and approximate USD spend without blocking execution (`devops ai spend`, `devops ai cost report`).
+  - Integrated model pricing dataset (LiteLLM registry) with parameter-bracket heuristics and custom overrides (`devops ai cost set-price`).
+  - Exported Prometheus metrics (`/metrics`) and dedicated Grafana observability dashboard (`k8s/monitoring/dashboards/ai-spend.json`).
+- **Priority Classification for AI/LLM Inference (`devops_cli.ai.gateway`, `devops_cli.ai.models`)**:
+  - Implemented dynamic request classification prioritizing interactive/chat calls (`high`), pipeline tasks (`normal`), and background jobs (`as_available`).
+  - Integrated client-side token governance and capacity-aware dispatch.
+- **LightLLM & Portkey AI Routing Services Integration (`devops_cli.ai.gateway`, `devops_cli.ai.models`)**:
+  - Expanded DevOps CLI AI routing tier to support Portkey AI Gateway on port 8787 and LightLLM TokenAttention inference engine on port 8000.
+  - Implemented zero-trust perimeter policies, dynamic model route discovery, and direct backend health probing.
+- **Dynamic Slot Leasing & Context-Aware File Review (`devops_cli.ai.client`, `devops_cli.ai.review`)**:
+  - Dynamic least-loaded slot leasing across candidate inference servers with condition variable notifications.
+  - Multi-layered file classification (shebangs, MIME types, AST parsing, canonical names) routing documentation, config, and code files to specialized review task prompts.
+- **Milestone, Release Epics & Subsystem Research Synchronization (`devops_cli.github.release_epics`, `devops_cli.github.roadmap_sync`)**:
+  - Added native Release Epics management engine (`devops release epic`) and FastMCP tool `release_epic_sync`.
+  - Automated 20-deliverable issue synchronization for `v0.2.22` (#307–#326) with local task file generation in `docs/agent/tasks/`.
+  - Replaced fragile multi-word bag overlap heuristics with strict deterministic title and issue number matching in roadmap sync.
+  - Synchronized GitHub Projects v2 custom fields with client-side quota budgeting and rate-limit safety guards.
+
+### Fixed & Hardened
+- **Reliability Hardening, Exception Sanitization & Telemetry Optimization (`devops_cli.telemetry`, `devops_cli.core.exceptions`)**:
+  - Hardened exception handling across AI, Git, Security, and Core modules with explicit domain exception hierarchies.
+  - Enforced bounded string length caps ($\le 256$ chars) on external exception details to prevent log bloat and CWE-209/CWE-400 leakage.
+  - Optimized OTel span processors and deduplicated telemetry attributes across command invocations.
+  - Resolved Bandit B608 static finding in `SpendLedger` using parameterized SQLite queries.
+
 ## [0.2.20] - 2026-09-18
 
 ### Added

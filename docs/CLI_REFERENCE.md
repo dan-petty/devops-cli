@@ -2873,6 +2873,33 @@ devops ai pack-context [OPTIONS] <target_path>
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ai read`
+
+**Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window).**
+
+```bash
+devops ai read [OPTIONS] <target_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target_path>` | `path` | Yes | Target file path to read or inspect. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--inspect`, `-i` | `boolean` | - | Enable multi-scale semantic outline and inspection scanner. |
+| `--level`, `-l` | `integer` | - | Focal zoom level: 0 (Topology: <200 tokens), 1 (Structural Outline: control flow & signatures), 2 (Deep Focal Window: line slice). |
+| `--lines`, `-L` | `string` | - | Line range for Level 2 focal window (e.g. '40:80'). |
+| `--symbol`, `-s` | `string` | - | Target symbol name to inspect or focus on. |
+| `--format`, `-f` | `string` | `markdown` | Output format: 'text', 'markdown', or 'json'. |
+| `--repo`, `-r` | `path` | - | Repository or workspace root directory. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops ai diagram`
 
 **Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams.**
@@ -3809,6 +3836,7 @@ devops ai gateway status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--provider`, `-p` | `string` | - | Gateway provider: litellm or portkey. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops ai gateway routes`
@@ -3824,6 +3852,7 @@ devops ai gateway routes [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--provider`, `-p` | `string` | - | Gateway provider: litellm or portkey. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops ai gateway failover`
@@ -3849,7 +3878,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 
 #### `devops ai gateway scale`
 
-**Inspect or scale vLLM Tensor Parallelism serving configurations.**
+**Inspect or scale inference backend (vLLM, LightLLM) serving configurations.**
 
 ```bash
 devops ai gateway scale [OPTIONS]
@@ -3859,10 +3888,238 @@ devops ai gateway scale [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--replicas`, `-r` | `integer` | - | Replica count for vLLM Tensor-Parallel deployment. |
-| `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree (e.g. 2). |
+| `--backend`, `-b` | `string` | `vllm` | Inference backend to scale: vllm or lightllm. |
+| `--replicas`, `-r` | `integer` | - | Replica count for backend deployment. |
+| `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree for vLLM (e.g. 2). |
 | `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai gateway probe-backend`
+
+**Directly probe health and latency of an inference backend.**
+
+```bash
+devops ai gateway probe-backend [OPTIONS] <backend>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<backend>` | `string` | Yes | Backend to probe: vllm, lightllm, or ollama. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--backend-url`, `-u` | `string` | - | Optional backend base URL override. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai cost`
+
+**Track approximate lifetime spend and manage model pricing.**
+
+```bash
+devops ai cost [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, all. |
+| `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai cost report`
+
+**Generate detailed spend and token report across backend services and servers.**
+
+```bash
+devops ai cost report [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, all. |
+| `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai cost prometheus`
+
+**Export AI spend and usage metrics in Prometheus exposition format.**
+
+```bash
+devops ai cost prometheus
+```
+
+#### `devops ai cost update-pricing`
+
+**Synchronize open-source industrial average pricing catalog from remote registry.**
+
+```bash
+devops ai cost update-pricing [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--source`, `-s` | `string` | - | Custom URL or file path for open-source model pricing dataset. |
+| `--timeout`, `-t` | `float` | `15.0` | Request timeout in seconds. |
+
+#### `devops ai cost list-pricing`
+
+**List active token pricing rates per model and backend server.**
+
+```bash
+devops ai cost list-pricing [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--search`, `-s` | `string` | - | Substring or pattern filter for model/endpoint names. |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai cost set-price`
+
+**Set custom token pricing override for a model or backend server.**
+
+```bash
+devops ai cost set-price <target> <prompt_rate> <completion_rate>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `string` | Yes | Target model identifier or backend server address (e.g. 'qwen2.5-coder:14b', 'localhost:11434'). |
+| `<prompt_rate>` | `float` | Yes | Prompt token cost in USD per 1,000,000 tokens. |
+| `<completion_rate>` | `float` | Yes | Completion token cost in USD per 1,000,000 tokens. |
+
+#### `devops ai cost reset`
+
+**Reset the lifetime AI spend ledger records.**
+
+```bash
+devops ai cost reset [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--yes`, `-y` | `boolean` | - | Confirm deletion of lifetime spend ledger records. |
+
+### `devops ai spend`
+
+**Alias for 'cost' command.**
+
+```bash
+devops ai spend [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, all. |
+| `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai spend report`
+
+**Generate detailed spend and token report across backend services and servers.**
+
+```bash
+devops ai spend report [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, all. |
+| `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai spend prometheus`
+
+**Export AI spend and usage metrics in Prometheus exposition format.**
+
+```bash
+devops ai spend prometheus
+```
+
+#### `devops ai spend update-pricing`
+
+**Synchronize open-source industrial average pricing catalog from remote registry.**
+
+```bash
+devops ai spend update-pricing [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--source`, `-s` | `string` | - | Custom URL or file path for open-source model pricing dataset. |
+| `--timeout`, `-t` | `float` | `15.0` | Request timeout in seconds. |
+
+#### `devops ai spend list-pricing`
+
+**List active token pricing rates per model and backend server.**
+
+```bash
+devops ai spend list-pricing [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--search`, `-s` | `string` | - | Substring or pattern filter for model/endpoint names. |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai spend set-price`
+
+**Set custom token pricing override for a model or backend server.**
+
+```bash
+devops ai spend set-price <target> <prompt_rate> <completion_rate>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `string` | Yes | Target model identifier or backend server address (e.g. 'qwen2.5-coder:14b', 'localhost:11434'). |
+| `<prompt_rate>` | `float` | Yes | Prompt token cost in USD per 1,000,000 tokens. |
+| `<completion_rate>` | `float` | Yes | Completion token cost in USD per 1,000,000 tokens. |
+
+#### `devops ai spend reset`
+
+**Reset the lifetime AI spend ledger records.**
+
+```bash
+devops ai spend reset [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--yes`, `-y` | `boolean` | - | Confirm deletion of lifetime spend ledger records. |
 
 ---
 
@@ -4383,6 +4640,29 @@ devops release tag [OPTIONS]
 | `--message`, `-m` | `string` | - | Custom tag annotation message. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
 
+### `devops release epic`
+
+**Provision, correlate, and synchronize parent release tracking epics for milestones.**
+
+```bash
+devops release epic [OPTIONS] <version>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<version>` | `string` | No | Target release milestone version (e.g. v0.2.21 or 0.2.21). Omit with --all. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--all`, `-a` | `boolean` | - | Synchronize release epics for all roadmap milestones |
+| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Simulate release epic creation without modifying remote issues |
+
 ---
 
 ## devops pr
@@ -4872,6 +5152,7 @@ devops gh milestones sync [OPTIONS]
 |---|---|---|---|
 | `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--create-release-epics` | `boolean` | - | Provision or synchronize release tracking epics for each milestone |
 | `--dry-run` | `boolean` | - | Simulate milestone extraction without creating remote records |
 
 #### `devops gh milestones status`
@@ -4912,6 +5193,30 @@ devops gh milestones close [OPTIONS] <name>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh milestones edit`
+
+**Edit an existing milestone title, description, state, or due date.**
+
+```bash
+devops gh milestones edit [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Milestone version, title, or number (e.g. v0.2.21 or 34) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--title`, `-t` | `string` | - | New milestone title |
+| `--description`, `-d` | `string` | - | New milestone description |
+| `--state`, `-s` | `string` | - | New state (open or closed) |
+| `--due-date` | `string` | - | ISO due date (YYYY-MM-DD) |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 ### `devops gh project`
@@ -4965,6 +5270,7 @@ devops gh project reconcile [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--project-number`, `-n` | `integer` | - | GitHub Projects v2 board number |
+| `--state`, `-s` | `string` | `all` | Filter issue/PR states (open, closed, all) |
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run` | `boolean` | - | Preview field reconciliation without mutations |
 
@@ -5230,7 +5536,7 @@ devops gh issues status [OPTIONS]
 
 #### `devops gh issues edit`
 
-**Edit an existing issue title, body, or state.**
+**Edit an existing issue title, body, state, milestone, or taxonomy labels.**
 
 ```bash
 devops gh issues edit [OPTIONS] <number>
@@ -5249,7 +5555,28 @@ devops gh issues edit [OPTIONS] <number>
 | `--title`, `-t` | `string` | - | New issue title. |
 | `--body`, `-b` | `string` | - | New issue body text. |
 | `--state`, `-s` | `string` | - | New state (open or closed). |
+| `--milestone`, `-m` | `string` | - | New milestone version, title, or number (e.g. v0.2.21). |
+| `--clear-milestone` | `boolean` | - | Remove milestone linkage from the issue. |
+| `--add-label` | `string` | - | Taxonomy label to attach (repeatable). |
+| `--remove-label` | `string` | - | Taxonomy label to detach (repeatable). |
 | `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh issues reconcile-roadmap`
+
+**Reconcile existing issue milestones to match docs/ROADMAP.md specifications.**
+
+```bash
+devops gh issues reconcile-roadmap [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
+| `--tasks-dir`, `-t` | `path` | `docs/agent/tasks` | Directory for local per-task tracking files |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview issue milestone reconciliation without mutations |
 
 #### `devops gh issues sync-roadmap`
 

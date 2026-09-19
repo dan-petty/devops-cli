@@ -11,6 +11,9 @@ image:
 ollama:
   enabled: false
 
+pipelines:
+  enabled: false
+
 ollamaUrls:
   - http://ollama.llm.svc.cluster.local:11434
 

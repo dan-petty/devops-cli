@@ -49,6 +49,13 @@ spec:
     - to:
         - podSelector:
             matchLabels:
+              app.kubernetes.io/name: lightllm
+      ports:
+        - protocol: TCP
+          port: 8000
+    - to:
+        - podSelector:
+            matchLabels:
               app.kubernetes.io/name: valkey
       ports:
         - protocol: TCP

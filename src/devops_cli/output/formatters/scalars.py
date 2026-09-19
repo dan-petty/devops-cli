@@ -247,7 +247,7 @@ def format_timestamp_age(created_at: str) -> str:
         if minutes > 0:
             return f"{minutes}m{seconds}s"
         return f"{seconds}s"
-    except Exception:
+    except ValueError, TypeError, AttributeError:
         return "—"
 
 

@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -705,6 +706,7 @@ def _extract_item_fields(it: dict[str, Any]) -> dict[str, str | None]:
         "category": fields_by_lower.get("category"),
         "value": fields_by_lower.get("value"),
         "effort": fields_by_lower.get("effort"),
+        "milestone": fields_by_lower.get("milestone"),
         "id": fields_by_lower.get("id"),
     }
 
@@ -816,6 +818,24 @@ def _add_project_item_with_fallback(
     return proc.returncode == 0
 
 
+def _sync_single_issue_item(
+    owner_arg: str,
+    project_number: int,
+    iss: dict[str, Any],
+    existing_urls: set[str],
+    budget: MutationBudget,
+) -> bool:
+    """Add a single issue to project if not already present."""
+    url = iss.get("html_url") or iss.get("url")
+    if not url or url in existing_urls:
+        return False
+    if _add_project_item_with_fallback(owner_arg, project_number, url):
+        existing_urls.add(url)
+        budget.record_mutation()
+        return True
+    return False
+
+
 def sync_repository_issues_to_project(
     owner: str,
     repo: str,
@@ -841,15 +861,8 @@ def sync_repository_issues_to_project(
                 "GraphQL quota critically low or reached mutation budget. Halting issue sync."
             )
             break
-        url = iss.get("html_url") or iss.get("url")
-        if (
-            url
-            and url not in existing_urls
-            and _add_project_item_with_fallback(owner_arg, project_number, url)
-        ):
+        if _sync_single_issue_item(owner_arg, project_number, iss, existing_urls, mutation_budget):
             added += 1
-            existing_urls.add(url)
-            mutation_budget.record_mutation()
 
     return added
 
@@ -1021,7 +1034,7 @@ def _edit_project_item_field(
 
 
 def _filter_differing_fields(
-    current_fields: dict[str, str | None] | None,
+    current_fields: Mapping[str, str | None] | None,
     target_fields: list[tuple[str, str]],
 ) -> list[tuple[str, str]]:
     """Return only target fields whose values differ from current remote values."""
@@ -1041,7 +1054,7 @@ def _reconcile_single_item(
     item: dict[str, Any],
     dry_run: bool,
     has_open_pr: bool = False,
-    current_fields: dict[str, str | None] | None = None,
+    current_fields: Mapping[str, str | None] | None = None,
     budget: MutationBudget | None = None,
 ) -> bool:
     """Infer and apply custom fields to a project item only if values differ from remote state."""
@@ -1059,16 +1072,26 @@ def _reconcile_single_item(
         state, labels, is_pr=is_pr, has_open_pr=has_open_pr, is_draft=is_draft
     )
     category, val, eff = infer_item_category_value_effort(title, priority, labels=labels)
+    milestone_obj = item.get("milestone")
+    milestone_val = (
+        milestone_obj.get("title")
+        if isinstance(milestone_obj, dict)
+        else (str(milestone_obj) if milestone_obj else None)
+    )
+
+    target_fields: list[tuple[str, str]] = [
+        ("Status", status),
+        ("Priority", priority),
+        ("Category", category),
+        ("Value", val),
+        ("Effort", eff),
+    ]
+    if milestone_val:
+        target_fields.append(("Milestone", str(milestone_val)))
 
     fields_to_update = _filter_differing_fields(
         current_fields=current_fields,
-        target_fields=[
-            ("Status", status),
-            ("Priority", priority),
-            ("Category", category),
-            ("Value", val),
-            ("Effort", eff),
-        ],
+        target_fields=target_fields,
     )
 
     if not fields_to_update:
@@ -1087,7 +1110,7 @@ def _apply_field_updates(
     project_number: int,
     url: str,
     fields_to_update: list[tuple[str, str]],
-    current_fields: dict[str, str | None] | None,
+    current_fields: Mapping[str, str | None] | None,
     budget: MutationBudget | None = None,
 ) -> bool:
     """Apply field updates via gh project CLI, breaking early if quota exhausted."""
@@ -1102,7 +1125,7 @@ def _apply_field_updates(
             updated_any = True
             if budget is not None:
                 budget.record_mutation()
-            if current_fields is not None:
+            if isinstance(current_fields, dict):
                 current_fields[fname.lower()] = fval
     return updated_any
 

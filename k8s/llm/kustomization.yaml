@@ -11,6 +11,13 @@ resources:
   - gateway/deployment.yaml
   - gateway/service.yaml
   - gateway/networkpolicy.yaml
+  - portkey/configmap.yaml
+  - portkey/deployment.yaml
+  - portkey/service.yaml
+  - portkey/networkpolicy.yaml
   - vllm/deployment.yaml
   - vllm/service.yaml
   - vllm/networkpolicy.yaml
+  - lightllm/deployment.yaml
+  - lightllm/service.yaml
+  - lightllm/networkpolicy.yaml

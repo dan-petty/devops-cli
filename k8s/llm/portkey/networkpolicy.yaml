@@ -1,0 +1,80 @@
+# NetworkPolicy for Portkey AI Gateway in llm namespace.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: portkey-perimeter
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: portkey
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: portkey
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow incoming API requests to port 8787 from devops-cli stack workloads and monitoring
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: devops-cli
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: devops-cli-stack
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8787
+  egress:
+    # Allow communication to backend inference pods (Ollama, vLLM, LightLLM) and Valkey cache
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ollama
+      ports:
+        - protocol: TCP
+          port: 11434
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vllm
+      ports:
+        - protocol: TCP
+          port: 8000
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: lightllm
+      ports:
+        - protocol: TCP
+          port: 8000
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: valkey
+      ports:
+        - protocol: TCP
+          port: 6379
+    # DNS queries to kube-system
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Squid forward proxy in squid namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: squid
+      ports:
+        - protocol: TCP
+          port: 3128

@@ -1,0 +1,48 @@
+# Portkey AI Gateway Configuration.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: portkey-config
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: portkey
+    app.kubernetes.io/part-of: devops-cli-stack
+data:
+  config.json: |
+    {
+      "strategy": {
+        "mode": "fallback"
+      },
+      "targets": [
+        {
+          "virtual_key": "vllm-backend",
+          "provider": "openai",
+          "override_params": {
+            "model": "llama-3.3-70b-instruct"
+          }
+        },
+        {
+          "virtual_key": "lightllm-backend",
+          "provider": "openai",
+          "override_params": {
+            "model": "llama-3.3-70b-instruct"
+          }
+        },
+        {
+          "virtual_key": "ollama-coder",
+          "provider": "ollama",
+          "override_params": {
+            "model": "qwen2.5-coder:14b"
+          }
+        }
+      ],
+      "cache": {
+        "mode": "semantic",
+        "max_age": 86400
+      },
+      "retry": {
+        "attempts": 2,
+        "on_status_codes": [429, 500, 502, 503, 504]
+      }
+    }

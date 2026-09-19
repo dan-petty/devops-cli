@@ -209,6 +209,19 @@ CONST_PERM_PUBLIC_KEY = 0o644
 CONST_PERM_EXEC = 0o755
 
 CONST_MAX_FILE_SIZE_BYTES = 200 * 1024 * 1024
+CONST_MAX_PROBE_FILE_SIZE_BYTES: Final[int] = (
+    512 * 1024
+)  # 512 KiB pre-flight file size cap for review probes
+CONST_PROBE_MANIFEST_NAMES: Final[tuple[str, ...]] = (
+    "pyproject.toml",
+    "package.json",
+    "cargo.toml",
+    "cargo.lock",
+    "go.mod",
+    "requirements.txt",
+    "requirements-dev.txt",
+    "requirements.in",
+)
 
 # ── Code Review & Analysis ────────────────────────────────────────────────────
 CONST_REVIEW_GENERATED_FILES = frozenset(
@@ -662,7 +675,14 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
     "devops-embedding",
 )
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
+CONST_AI_GATEWAY_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey")
+CONST_AI_GATEWAY_PROVIDER_LITELLM: Final[str] = "litellm"
+CONST_AI_GATEWAY_PROVIDER_PORTKEY: Final[str] = "portkey"
 CONST_AI_GATEWAY_DEFAULT_PORT: Final[int] = 4000
+CONST_AI_PORTKEY_DEFAULT_PORT: Final[int] = 8787
+CONST_AI_LIGHTLLM_DEFAULT_PORT: Final[int] = 8000
+CONST_AI_BACKEND_LIGHTLLM: Final[str] = "lightllm"
+CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama", "vllm", "lightllm")
 CONST_TASK_TAXONOMY_EMBEDDING: Final[frozenset[str]] = frozenset(
     {"embedding", "embed_documents", "vector_index", "rag_index", "semantic_search"}
 )
@@ -710,7 +730,20 @@ CONST_ROADMAP_SCOPE_KEYWORDS: Final[dict[str, frozenset[str]]] = {
             "rag",
         }
     ),
-    "scope/k8s": frozenset({"k8s", "kubernetes", "pod", "pods", "cluster", "minikube", "helm"}),
+    "scope/k8s": frozenset(
+        {
+            "k8s",
+            "kubernetes",
+            "pod",
+            "pods",
+            "cluster",
+            "minikube",
+            "helm",
+            "argo",
+            "argocd",
+            "rollout",
+        }
+    ),
     "scope/security": frozenset(
         {"sec", "vault", "security", "fuzz", "cve", "trivy", "gitleaks", "semgrep"}
     ),
@@ -719,6 +752,8 @@ CONST_ROADMAP_SCOPE_KEYWORDS: Final[dict[str, frozenset[str]]] = {
     "scope/telemetry": frozenset(
         {"telemetry", "metric", "metrics", "tracing", "trace", "loki", "jaeger", "prometheus"}
     ),
+    "scope/mcp": frozenset({"mcp", "fastmcp"}),
+    "scope/config": frozenset({"config", "settings", "keyring"}),
 }
 
 CONST_ROADMAP_PRIORITY_TAGS: Final[dict[str, tuple[str, ...]]] = {
@@ -727,3 +762,107 @@ CONST_ROADMAP_PRIORITY_TAGS: Final[dict[str, tuple[str, ...]]] = {
     "priority/p2-medium": ("p2", "medium"),
     "priority/p3-low": ("p3", "low"),
 }
+
+# ── Multi-Scale Semantic Outline & Inspection Scanner ────────────────────────
+CONST_MAX_INSPECT_FILE_SIZE_BYTES: Final[int] = 5 * 1024 * 1024
+CONST_DEFAULT_FOCAL_WINDOW_SIZE: Final[int] = 30
+CONST_HOTSPOT_COMPLEXITY_THRESHOLD: Final[int] = 5
+
+# ── File Classification & Review Context Taxonomy ─────────────────────────────
+CONST_DOC_EXTENSIONS: Final[frozenset[str]] = frozenset(
+    {
+        ".md",
+        ".markdown",
+        ".rst",
+        ".txt",
+        ".adoc",
+        ".asciidoc",
+        ".tex",
+    }
+)
+
+CONST_DOC_FILENAMES: Final[frozenset[str]] = frozenset(
+    {
+        "license",
+        "copying",
+        "notice",
+        "authors",
+        "contributors",
+        "changelog",
+        "readme",
+        "agents.md",
+        "claude.md",
+    }
+)
+
+CONST_CONFIG_EXTENSIONS: Final[frozenset[str]] = frozenset(
+    {
+        ".yaml",
+        ".yml",
+        ".json",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".conf",
+        ".env",
+        ".tf",
+        ".hcl",
+        ".xml",
+        ".properties",
+        ".plist",
+    }
+)
+
+CONST_CONFIG_FILENAMES: Final[frozenset[str]] = frozenset(
+    {
+        "dockerfile",
+        "containerfile",
+        ".dockerignore",
+        ".gitignore",
+        ".gitattributes",
+        ".editorconfig",
+        ".flake8",
+        ".pylintrc",
+        "helmfile.yaml",
+        "chart.yaml",
+        "values.yaml",
+        "kustomization.yaml",
+    }
+)
+
+CONST_CODE_EXTENSIONS: Final[frozenset[str]] = frozenset(
+    {
+        ".py",
+        ".pyi",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".go",
+        ".rs",
+        ".java",
+        ".c",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".cs",
+        ".rb",
+        ".php",
+        ".swift",
+        ".kt",
+        ".kts",
+        ".scala",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".sql",
+        ".lua",
+    }
+)
+
+CONST_AI_SPEND_TABLE_NAME: Final[str] = "ai_spend_records"
+
+CONST_RESEARCH_DIR_NAME: Final[str] = "research"
+CONST_DEFAULT_MAX_SYNTOPICAL_SOURCES: Final[int] = 20
+CONST_SYNTOPICAL_MIN_RELEVANCE: Final[float] = 0.2
+CONST_SYNTOPICAL_MAX_EXCERPT_CHARS: Final[int] = 1000

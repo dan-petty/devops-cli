@@ -9,6 +9,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_architecture`](#ai-architecture) | Analyze architectural module boundaries, dependency graphs, and cyclic imports. |
 | [`ai_ast_graph`](#ai-ast-graph) | Synthesize whole-repository code symbol and reference graph across polyglot languages. |
 | [`ai_ast_parse`](#ai-ast-parse) | Parse a polyglot source file (Python, TypeScript, Go, Rust, Java, HCL) into syntax symbols or execute S-expression query. |
+| [`ai_backend_probe`](#ai-backend-probe) | Directly probe health, latency, and registered models of an inference backend. |
 | [`ai_chaos_model`](#ai-chaos-model) | Execute model dependency chaos fault injection and verify automated fallback recovery. |
 | [`ai_constellation_status`](#ai-constellation-status) | Display constellation fleet status, active fallback routes, and suspended tasks. |
 | [`ai_diagram`](#ai-diagram) | Generate visual Mermaid architecture or threat modeling diagram. |
@@ -19,12 +20,15 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_harness_status`](#ai-harness-status) | Inspect AI agent harness slot configuration, active models, skills, and sandbox state. |
 | [`ai_ingest_library`](#ai-ingest-library) | Introspect an installed Python package and extract its public API contract into .data/libraries/. |
 | [`ai_inspect_symbol`](#ai-inspect-symbol) | Inspect exact symbol signature, parameter types, return type, and docstrings from library contracts. |
+| [`ai_lightllm_scale`](#ai-lightllm-scale) | Inspect or configure LightLLM high-throughput serving parameters. |
 | [`ai_pack_context`](#ai-pack-context) | Pack and prune source code context to fit token budget while preserving signatures and types. |
 | [`ai_prewarm_models`](#ai-prewarm-models) | Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes. |
 | [`ai_query_library`](#ai-query-library) | Search library contracts and documentation via semantic search or exact symbol lookup. |
 | [`ai_quiesce`](#ai-quiesce) | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
+| [`ai_read`](#ai-read) | Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window). |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
 | [`ai_resume`](#ai-resume) | Gracefully resume suspended constellation agent loops and task runners. |
+| [`ai_spend_report`](#ai-spend-report) | Report approximate AI spend per backend service, model, or provider over time. |
 | [`ai_subagent_offload`](#ai-subagent-offload) | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
 | [`ai_test_gen`](#ai-test-gen) | Synthesize isolated pytest unit test suite for a target Python file. |
 | [`ai_vllm_scale`](#ai-vllm-scale) | Inspect or configure vLLM Tensor Parallelism serving parameters. |
@@ -45,13 +49,15 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`docker_verify`](#docker-verify) | Verify container image signature or attestation using Sigstore Cosign. |
 | [`docs_compact`](#docs-compact) | Compact historical release series documentation (v0.2.x -> v0.3.x). |
 | [`gh_issue_create`](#gh-issue-create) | Create a new GitHub issue linking milestone and taxonomy labels. |
-| [`gh_issue_edit`](#gh-issue-edit) | Edit an existing GitHub issue title, body, or state. |
+| [`gh_issue_edit`](#gh-issue-edit) | Edit an existing GitHub issue title, body, state, or milestone. |
 | [`gh_issue_list`](#gh-issue-list) | List repository issues with milestone, taxonomy labels, and status. |
+| [`gh_issue_reconcile_roadmap`](#gh-issue-reconcile-roadmap) | Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations. |
 | [`gh_issue_status`](#gh-issue-status) | Display aggregated issue counts by priority, type, and milestone. |
 | [`gh_issue_triage`](#gh-issue-triage) | Audit open issues for mandatory taxonomy labels and milestone linkage. |
 | [`gh_label_list`](#gh-label-list) | List declarative repository labels and descriptions. |
 | [`gh_label_sync`](#gh-label-sync) | Synchronize repository labels against .github/labels.yml schema. |
 | [`gh_milestone_close`](#gh-milestone-close) | Close a repository milestone matching the given version or title. |
+| [`gh_milestone_edit`](#gh-milestone-edit) | Edit an existing milestone title, description, state, or due date. |
 | [`gh_milestone_list`](#gh-milestone-list) | List repository milestones and progress rates. |
 | [`gh_milestone_sync`](#gh-milestone-sync) | Synchronize repository milestones from docs/ROADMAP.md. |
 | [`gh_pages_build`](#gh-pages-build) | Trigger a new deployment build for GitHub Pages. |
@@ -102,6 +108,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`rag_drift`](#rag-drift) | Detect staleness and drift between the working tree and the Qdrant vector index. |
 | [`rag_index`](#rag-index) | Index workspace files into Qdrant vector database for semantic retrieval. |
 | [`rag_search`](#rag-search) | Perform semantic vector search across indexed workspace codebase and architecture docs. |
+| [`release_epic_sync`](#release-epic-sync) | Provision, correlate, and synchronize parent release tracking epics for milestones. |
 | [`release_status`](#release-status) | Check devops-cli release status, version consistency, tags, and docs state. |
 | [`repos_list`](#repos-list) | List local workspace repositories and active git branches. |
 | [`repos_status`](#repos-status) | Display uncommitted changes and branch drift across workspace repositories. |
@@ -190,6 +197,17 @@ Parse a polyglot source file (Python, TypeScript, Go, Rust, Java, HCL) into synt
 | `file_path` | `string` | Yes | - | - |
 | `query` | `string` | No | `` | - |
 
+### `ai_backend_probe`
+
+Directly probe health, latency, and registered models of an inference backend.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `backend` | `string` | Yes | - | - |
+| `backend_url` | `string` | No | `` | - |
+
 ### `ai_chaos_model`
 
 Execute model dependency chaos fault injection and verify automated fallback recovery.
@@ -251,6 +269,7 @@ List registered virtual models and target backend inference instances.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `gateway_url` | `string` | No | `` | - |
+| `provider` | `string` | No | `` | - |
 
 ### `ai_gateway_status`
 
@@ -261,6 +280,7 @@ Probe LLM Gateway health, latency, and circuit breaker metrics.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `gateway_url` | `string` | No | `` | - |
+| `provider` | `string` | No | `` | - |
 
 ### `ai_harness_status`
 
@@ -289,6 +309,17 @@ Inspect exact symbol signature, parameter types, return type, and docstrings fro
 |---|---|---|---|---|
 | `symbol` | `string` | Yes | - | - |
 | `package` | `string` | No | `` | - |
+
+### `ai_lightllm_scale`
+
+Inspect or configure LightLLM high-throughput serving parameters.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `replicas` | `integer` | No | `1` | - |
+| `tensor_parallel_size` | `integer` | No | `1` | - |
 
 ### `ai_pack_context`
 
@@ -341,6 +372,21 @@ Centralized emergency quiesce cleanly suspending active agent loops and backgrou
 | `reason` | `string` | No | `Operator requested emergency quiesce` | - |
 | `dry_run` | `boolean` | No | `False` | - |
 
+### `ai_read`
+
+Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target_path` | `string` | Yes | - | - |
+| `inspect` | `boolean` | No | `True` | - |
+| `level` | `integer` | No | `1` | - |
+| `lines` | `string` | No | `` | - |
+| `symbol` | `string` | No | `` | - |
+| `format` | `string` | No | `markdown` | - |
+
 ### `ai_repomap`
 
 Generate a compact whole-repository AST symbol map for AI context.
@@ -360,6 +406,17 @@ Gracefully resume suspended constellation agent loops and task runners.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `dry_run` | `boolean` | No | `False` | - |
+
+### `ai_spend_report`
+
+Report approximate AI spend per backend service, model, or provider over time.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `days` | `integer` | No | - | - |
+| `group_by` | `string` | No | `server` | - |
 
 ### `ai_subagent_offload`
 
@@ -591,7 +648,7 @@ Create a new GitHub issue linking milestone and taxonomy labels.
 
 ### `gh_issue_edit`
 
-Edit an existing GitHub issue title, body, or state.
+Edit an existing GitHub issue title, body, state, or milestone.
 
 **Parameters:**
 
@@ -601,6 +658,8 @@ Edit an existing GitHub issue title, body, or state.
 | `title` | `string` | No | - | - |
 | `body` | `string` | No | - | - |
 | `state` | `string` | No | - | - |
+| `milestone` | `string` | No | - | - |
+| `clear_milestone` | `boolean` | No | `False` | - |
 | `repo` | `string` | No | - | - |
 
 ### `gh_issue_list`
@@ -616,6 +675,17 @@ List repository issues with milestone, taxonomy labels, and status.
 | `milestone` | `string` | No | - | - |
 | `label` | `string` | No | - | - |
 | `limit` | `integer` | No | `30` | - |
+
+### `gh_issue_reconcile_roadmap`
+
+Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `dry_run` | `boolean` | No | `True` | - |
+| `repo` | `string` | No | - | - |
 
 ### `gh_issue_status`
 
@@ -669,6 +739,21 @@ Close a repository milestone matching the given version or title.
 | `version` | `string` | Yes | - | - |
 | `repo` | `string` | No | - | - |
 
+### `gh_milestone_edit`
+
+Edit an existing milestone title, description, state, or due date.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `version` | `string` | Yes | - | - |
+| `title` | `string` | No | - | - |
+| `description` | `string` | No | - | - |
+| `state` | `string` | No | - | - |
+| `due_on` | `string` | No | - | - |
+| `repo` | `string` | No | - | - |
+
 ### `gh_milestone_list`
 
 List repository milestones and progress rates.
@@ -689,6 +774,7 @@ Synchronize repository milestones from docs/ROADMAP.md.
 |---|---|---|---|---|
 | `repo` | `string` | No | - | - |
 | `dry_run` | `boolean` | No | `True` | - |
+| `create_release_epics` | `boolean` | No | `False` | - |
 
 ### `gh_pages_build`
 
@@ -1210,6 +1296,19 @@ Perform semantic vector search across indexed workspace codebase and architectur
 | `project` | `string` | No | - | - |
 | `language` | `string` | No | - | - |
 | `category` | `string` | No | - | - |
+
+### `release_epic_sync`
+
+Provision, correlate, and synchronize parent release tracking epics for milestones.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `version` | `string` | No | - | - |
+| `all_milestones` | `boolean` | No | `False` | - |
+| `dry_run` | `boolean` | No | `True` | - |
+| `repo` | `string` | No | - | - |
 
 ### `release_status`
 

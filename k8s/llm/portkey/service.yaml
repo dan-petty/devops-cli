@@ -1,0 +1,19 @@
+# Portkey AI Gateway Service.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portkey
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: portkey
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8787
+      targetPort: 8787
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: portkey

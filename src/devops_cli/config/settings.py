@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import operator
 import os
 import subprocess
@@ -32,6 +33,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_DURABLE_TASK_QUEUE,
     DEFAULT_AI_DURABLE_WORKFLOW_PREFIX,
     DEFAULT_AI_GATEWAY_ENABLED,
+    DEFAULT_AI_GATEWAY_PROVIDER,
     DEFAULT_AI_GATEWAY_URL,
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
@@ -46,6 +48,7 @@ from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_FEEDBACK_DATASET_PATH,
     DEFAULT_JAEGER_URL,
+    DEFAULT_LIGHTLLM_URL,
     DEFAULT_LLM_CACHE_DATA_DIR,
     DEFAULT_LLM_CACHE_ENABLED,
     DEFAULT_LLM_CACHE_MAX_ENTRIES,
@@ -55,6 +58,7 @@ from devops_cli.config.defaults import (
     DEFAULT_OLLAMA_MAX_PARALLEL,
     DEFAULT_OLLAMA_URLS,
     DEFAULT_OTEL_ENDPOINT,
+    DEFAULT_PORTKEY_GATEWAY_URL,
     DEFAULT_QDRANT_URL,
     DEFAULT_RAG_CHUNK_OVERLAP,
     DEFAULT_RAG_CHUNK_SIZE,
@@ -70,10 +74,13 @@ from devops_cli.config.defaults import (
     DEFAULT_SSH_ROTATION_DAYS,
     DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS,
     DEFAULT_TLS_DATA_DIR,
+    DEFAULT_VLLM_URL,
     DEFAULT_WORKSPACE_FILE,
 )
 from devops_cli.config.env import OPTION_TO_ENV_VAR
 from devops_cli.exceptions import ConfigurationError
+
+logger = logging.getLogger(__name__)
 
 _SECRET_FIELDS: frozenset[str] = opt.SECRET_CONFIG_OPTIONS
 _KEYRING_KEYS: dict[str, str] = opt.KEYRING_KEYS
@@ -315,8 +322,12 @@ class AIConfig(BaseModel):
     max_tokens: int | None = None
     ollama_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_OLLAMA_URLS))
     ollama_max_parallel: int = DEFAULT_OLLAMA_MAX_PARALLEL
+    gateway_provider: str = DEFAULT_AI_GATEWAY_PROVIDER
     gateway_url: str = DEFAULT_AI_GATEWAY_URL
     gateway_enabled: bool = DEFAULT_AI_GATEWAY_ENABLED
+    portkey_url: str = DEFAULT_PORTKEY_GATEWAY_URL
+    lightllm_url: str = DEFAULT_LIGHTLLM_URL
+    vllm_url: str = DEFAULT_VLLM_URL
     api_base_url: str | None = None
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES
@@ -491,7 +502,8 @@ def _keyring_get(key: str) -> str | None:
         return keyring.get_password(KEYRING_SERVICE, key)
     except NoKeyringError:
         return None
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to retrieve secret from OS Keyring: %s", type(exc).__name__)
         return None
 
 
@@ -509,7 +521,8 @@ def _keyring_has(key: str) -> bool:
     try:
         val = keyring.get_password(KEYRING_SERVICE, key)
         return bool(val is not None)
-    except NoKeyringError, Exception:
+    except (NoKeyringError, Exception) as exc:
+        logger.debug("Keyring check failed: %s", type(exc).__name__)
         return False
 
 
@@ -545,7 +558,8 @@ def set_keyring_secret(key: str, value: str) -> bool:
     try:
         _keyring_set(key, value)
         return True
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to set secret in OS Keyring: %s", type(exc).__name__)
         return False
 
 
@@ -666,6 +680,31 @@ def get_active_config_path(base_dir: Path | None = None) -> Path:
     return found if found is not None else CONFIG_PATH
 
 
+def _prune_default_data_config(dumped_data: dict[str, Any], settings: Settings) -> None:
+    """Omit default data configuration block to prevent polluting config.yaml."""
+    if "data" not in dumped_data:
+        return
+    data_cfg = settings.data
+    default_cfg = DataConfig()
+    if data_cfg == default_cfg:
+        dumped_data.pop("data", None)
+        return
+
+    clean_dict: dict[str, Any] = {}
+    if data_cfg.dir != default_cfg.dir:
+        clean_dict["dir"] = str(data_cfg.dir)
+    for field_name, _, rel_path in _DEFAULT_CHILD_DATA_PATHS:
+        val = getattr(data_cfg, field_name)
+        expected = data_cfg.dir / rel_path
+        if val != expected:
+            clean_dict[field_name] = str(val)
+
+    if clean_dict:
+        dumped_data["data"] = clean_dict
+    else:
+        dumped_data.pop("data", None)
+
+
 def save_settings(settings: Settings, target_path: Path | None = None) -> None:
     """Persist settings to config YAML (secrets stay in keyring only)."""
     dest_path = target_path or get_active_config_path()
@@ -681,6 +720,7 @@ def save_settings(settings: Settings, target_path: Path | None = None) -> None:
             )
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     data = settings.model_dump(mode="json", exclude_none=True)
+    _prune_default_data_config(data, settings)
     content = yaml.dump(data, default_flow_style=False, allow_unicode=True)
     tmp = dest_path.with_suffix(".yaml.tmp")
     tmp.write_text(content, encoding="utf-8")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from typing import Annotated, Any
 
@@ -34,6 +35,8 @@ from devops_cli.output import (
     print_success,
     print_table,
 )
+
+logger = logging.getLogger(__name__)
 
 VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "all")
 
@@ -89,8 +92,8 @@ def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | Non
                 node_ip = _extract_first_node_ip(item)
                 if node_ip:
                     return f"http://{node_ip}:{node_port}"
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to resolve k8s node port URL: %s", exc)
     return None
 
 
@@ -111,8 +114,8 @@ def _detect_minikube_service_url(
         )
         if res.returncode == 0 and res.stdout.strip():
             return _parse_minikube_service_url(res.stdout)
-    except OSError, subprocess.SubprocessError:
-        pass
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.debug("minikube service url query failed for %s: %s", service, exc)
     return None
 
 
@@ -157,8 +160,8 @@ def _detect_kubectl_service_url(
 
             svc_data = json.loads(svc_res.stdout)
             return _extract_service_ingress_or_nodeport(svc_data, ctx_args)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to detect kubectl service URL for %s: %s", service, exc)
     return None
 
 
@@ -183,7 +186,8 @@ def _verify_url_reachability(url: str, timeout: float = DEFAULT_HTTP_PROBE_TIMEO
             return False
         with socket.create_connection((host, port), timeout=timeout):
             return True
-    except Exception:
+    except Exception as exc:
+        logger.debug("URL %s reachability check failed: %s", url, exc)
         return False
 
 

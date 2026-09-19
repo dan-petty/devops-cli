@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import inspect
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -10,6 +10,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devops_cli.exceptions.git import GitHubOperationError
+
+logger = logging.getLogger(__name__)
 
 
 class MilestoneSpec(BaseModel):
@@ -38,9 +40,11 @@ class MilestoneSyncResult(BaseModel):
     """Summary of a milestone synchronization operation."""
 
     created_count: int = 0
+    updated_count: int = 0
     existing_count: int = 0
     dry_run: bool = False
     created: list[str] = Field(default_factory=list)
+    updated: list[str] = Field(default_factory=list)
 
 
 _ROADMAP_HEADING_PATTERN = re.compile(
@@ -61,7 +65,8 @@ def _is_safe_roadmap_path(roadmap_path: Path) -> bool:
         if roadmap_path.is_symlink():
             return False
         return True
-    except Exception:
+    except Exception as exc:
+        logger.debug("Roadmap path %s not safe: %s", roadmap_path, exc)
         return False
 
 
@@ -146,6 +151,7 @@ def _extract_milestones_from_raw(raw_milestones: Any) -> list[dict[str, Any]]:
             )
             results.append(
                 {
+                    "number": getattr(item, "number", None),
                     "title": item.title,
                     "state": getattr(item, "state", "open"),
                     "description": getattr(item, "description", "") or "",
@@ -177,6 +183,34 @@ def _apply_milestone_creation(client: Any, repo: str, spec: MilestoneSpec) -> No
         func(**kwargs)
 
 
+def _is_milestone_update_needed(curr: dict[str, Any], spec: MilestoneSpec) -> bool:
+    """Determine if an existing milestone requires description or state mutation."""
+    curr_desc = str(curr.get("description") or "").strip()
+    spec_desc = str(spec.description or "").strip()
+    curr_state = str(curr.get("state") or "open").lower()
+    spec_state = str(spec.state or "open").lower()
+    if spec_desc and curr_desc != spec_desc:
+        return True
+    return curr_state != spec_state
+
+
+def find_milestones_to_update(
+    desired: list[MilestoneSpec], existing: list[dict[str, Any]]
+) -> list[tuple[int, MilestoneSpec]]:
+    """Identify existing milestones whose description or state differs from desired spec."""
+    existing_map: dict[str, dict[str, Any]] = {
+        item.get("title", ""): item for item in existing if isinstance(item, dict)
+    }
+    to_update: list[tuple[int, MilestoneSpec]] = []
+    for spec in desired:
+        curr = existing_map.get(spec.title)
+        if not curr or "number" not in curr:
+            continue
+        if _is_milestone_update_needed(curr, spec):
+            to_update.append((int(curr["number"]), spec))
+    return to_update
+
+
 def sync_repository_milestones(
     client: Any, repo: str, desired: list[MilestoneSpec], dry_run: bool = False
 ) -> MilestoneSyncResult:
@@ -188,12 +222,15 @@ def sync_repository_milestones(
 
     existing = _extract_milestones_from_raw(raw_existing)
     to_create, existing_matches = diff_milestones(desired, existing)
+    to_update = find_milestones_to_update(desired, existing)
 
     result = MilestoneSyncResult(
         created_count=len(to_create),
+        updated_count=len(to_update),
         existing_count=len(existing_matches),
         dry_run=dry_run,
         created=[s.title for s in to_create],
+        updated=[spec.title for _, spec in to_update],
     )
 
     if dry_run:
@@ -201,6 +238,9 @@ def sync_repository_milestones(
 
     for spec in to_create:
         _apply_milestone_creation(client, repo, spec)
+
+    for num, spec in to_update:
+        edit_repository_milestone(client, repo, num, description=spec.description, state=spec.state)
 
     return result
 
@@ -233,26 +273,79 @@ def calculate_milestone_progress(milestone_data: dict[str, Any]) -> MilestonePro
     )
 
 
+def _resolve_milestone_target_number(
+    client: Any, repo: str, version_or_title_or_number: str | int
+) -> int | None:
+    """Resolve a version string, title, or integer into a milestone number."""
+    if isinstance(version_or_title_or_number, int):
+        return version_or_title_or_number
+    cleaned = str(version_or_title_or_number).strip()
+    if cleaned.isdigit():
+        return int(cleaned)
+
+    get_fn = getattr(client, "get_milestones", None)
+    raw = []
+    if callable(get_fn):
+        try:
+            raw = get_fn(repo, state="all")
+        except TypeError:
+            raw = get_fn(state="all")
+
+    existing = _extract_milestones_from_raw(raw)
+    candidates = {cleaned, cleaned.lstrip("v"), f"v{cleaned.lstrip('v')}"}
+    matched = next((m for m in existing if m.get("title") in candidates), None)
+    if matched and "number" in matched:
+        return int(matched["number"])
+    return None
+
+
+def edit_repository_milestone(
+    client: Any,
+    repo: str,
+    version_or_title_or_number: str | int,
+    title: str | None = None,
+    description: str | None = None,
+    state: str | None = None,
+    due_on: str | None = None,
+) -> bool:
+    """Edit an existing milestone's title, description, state, or due date."""
+    target_num = _resolve_milestone_target_number(client, repo, version_or_title_or_number)
+    if target_num is None:
+        return False
+
+    func = getattr(client, "edit_milestone", None)
+    if not callable(func):
+        return False
+
+    kwargs: dict[str, Any] = {}
+    if title is not None:
+        kwargs["title"] = title
+    if description is not None:
+        kwargs["description"] = description
+    if state is not None:
+        kwargs["state"] = state
+    if due_on is not None:
+        kwargs["due_on"] = due_on
+
+    try:
+        func(repo, target_num, **kwargs)
+        return True
+    except TypeError:
+        try:
+            func(target_num, **kwargs)
+            return True
+        except Exception:
+            return False
+
+
 def close_repository_milestone(client: Any, repo: str, version_or_title: str) -> bool:
     """Close a repository milestone matching the given version or title string."""
     func = getattr(client, "close_milestone", None)
     if callable(func):
         try:
-            sig = inspect.signature(func)
-            params = [
-                p
-                for p in sig.parameters.values()
-                if p.kind
-                in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-            ]
-            if len(params) == 1:
-                return bool(func(version_or_title))
             return bool(func(repo, version_or_title))
-        except ValueError, TypeError:
-            try:
-                return bool(func(repo, version_or_title))
-            except TypeError:
-                return bool(func(version_or_title))
+        except TypeError:
+            return bool(func(version_or_title))
 
     get_fn = getattr(client, "get_milestones", None)
     if callable(get_fn):
@@ -269,4 +362,4 @@ def close_repository_milestone(client: Any, repo: str, version_or_title: str) ->
             if callable(edit_fn):
                 edit_fn(repo, int(matched["number"]), state="closed")
                 return True
-    return False
+    return edit_repository_milestone(client, repo, version_or_title, state="closed")

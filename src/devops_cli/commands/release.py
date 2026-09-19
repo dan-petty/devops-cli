@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import logging
 import re
 import sys
 from datetime import UTC, datetime
@@ -31,6 +32,8 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP, MESSAGES
+
+logger = logging.getLogger(__name__)
 
 _LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
     "DocGenerator": ("devops_cli.docs.generator", "DocGenerator"),
@@ -674,30 +677,86 @@ def _commit_and_push_release_branch(
             )
 
 
+def _fetch_raw_milestone_issue_numbers(
+    run_gh_fn: Any, repo_root: Path, milestone_tag: str
+) -> set[int]:
+    """Fetch all open and closed issue numbers associated with milestone."""
+    proc = run_gh_fn(
+        [
+            "issue",
+            "list",
+            "--milestone",
+            milestone_tag,
+            "--state",
+            "all",
+            "--json",
+            "number",
+            "--limit",
+            "100",
+        ],
+        cwd=repo_root,
+        quiet=True,
+        use_cache=False,
+    )
+    if proc.returncode != 0 or not proc.stdout:
+        return set()
+    try:
+        raw_issues = json.loads(proc.stdout)
+        return {int(iss["number"]) for iss in raw_issues if iss.get("number")}
+    except Exception:
+        return set()
+
+
+def _fetch_raw_milestone_pr_numbers(
+    run_gh_fn: Any, repo_root: Path, milestone_tag: str, existing_issue_numbers: set[int]
+) -> set[int]:
+    """Fetch standalone PR numbers associated with milestone that don't close an existing issue."""
+    pr_proc = run_gh_fn(
+        [
+            "pr",
+            "list",
+            "--search",
+            f"milestone:{milestone_tag}",
+            "--state",
+            "all",
+            "--json",
+            "number,title",
+            "--limit",
+            "100",
+        ],
+        cwd=repo_root,
+        quiet=True,
+        use_cache=False,
+    )
+    if pr_proc.returncode != 0 or not pr_proc.stdout:
+        return set()
+    try:
+        raw_prs = json.loads(pr_proc.stdout)
+        standalone_prs = set()
+        for pr in raw_prs:
+            if not pr.get("number"):
+                continue
+            pr_num = int(pr["number"])
+            title = pr.get("title", "")
+            referenced = {int(m) for m in re.findall(r"#(\d+)", title)}
+            if not referenced.intersection(existing_issue_numbers):
+                standalone_prs.add(pr_num)
+        return standalone_prs
+    except Exception:
+        return set()
+
+
 def _query_gh_milestone_issues(repo_root: Path, milestone_tag: str) -> list[str]:
-    """Query GitHub milestone issues via rate-managed run_gh."""
+    """Query GitHub milestone issues and deliverables via rate-managed run_gh."""
     try:
         run_gh_fn = _get("run_gh")
-        proc = run_gh_fn(
-            [
-                "issue",
-                "list",
-                "--milestone",
-                milestone_tag,
-                "--json",
-                "number,title,labels,state",
-                "--limit",
-                "50",
-            ],
-            cwd=repo_root,
-            quiet=True,
-            use_cache=False,
-        )
-        if proc.returncode == 0 and proc.stdout:
-            raw_issues = json.loads(proc.stdout)
-            return [f"- #{iss['number']}" for iss in raw_issues if iss.get("number")]
-    except Exception:
-        pass
+        issue_nums = _fetch_raw_milestone_issue_numbers(run_gh_fn, repo_root, milestone_tag)
+        pr_nums = _fetch_raw_milestone_pr_numbers(run_gh_fn, repo_root, milestone_tag, issue_nums)
+        all_nums = issue_nums | pr_nums
+        if all_nums:
+            return [f"- #{num}" for num in sorted(all_nums)]
+    except Exception as exc:
+        logger.debug("Failed to query GitHub milestone issues for %s: %s", milestone_tag, exc)
     return []
 
 
@@ -711,8 +770,8 @@ def _query_branch_commit_deliverables(repo_root: Path, base: str, branch_name: s
         )
         if log_proc.returncode == 0 and log_proc.stdout:
             return [f"- {line}" for line in _extract_raw_commit_lines(log_proc.stdout)]
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to query branch commit deliverables for %s: %s", branch_name, exc)
     return []
 
 
@@ -761,8 +820,8 @@ def _extract_branch_release_notes(
             items = _extract_raw_commit_lines(log_proc.stdout)
             if items:
                 return _format_categorized_notes(items, cleaned_ver)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to extract branch release notes: %s", exc)
     return None
 
 
@@ -838,6 +897,7 @@ def _build_release_pr_command(
     branch_name: str,
     draft: bool,
     labels: str,
+    milestone: str | None = None,
 ) -> list[str]:
     """Construct command argument list for opening release pull request."""
     pr_cmd = [
@@ -855,6 +915,8 @@ def _build_release_pr_command(
     ]
     if draft:
         pr_cmd.append("--draft")
+    if milestone:
+        pr_cmd.extend(["--milestone", milestone])
     if labels:
         cleaned_labels = [lbl.strip() for lbl in labels.split(",") if lbl.strip()]
         for lbl in cleaned_labels:
@@ -865,33 +927,49 @@ def _build_release_pr_command(
     return pr_cmd
 
 
+def _strip_pr_cmd_flag(cmd: list[str], flag: str) -> list[str]:
+    """Strip a specified flag and its trailing argument from a command list."""
+    return [
+        arg for idx, arg in enumerate(cmd) if arg != flag and (idx == 0 or cmd[idx - 1] != flag)
+    ]
+
+
+def _build_pr_fallback_cmd(pr_cmd: list[str], err_msg: str, labels: str) -> list[str]:
+    """Build fallback PR creation command by removing rejected flags."""
+    cmd = list(pr_cmd)
+    if labels and "label" in err_msg:
+        cmd = _strip_pr_cmd_flag(cmd, "--label")
+    if "milestone" in err_msg:
+        cmd = _strip_pr_cmd_flag(cmd, "--milestone")
+    return cmd
+
+
 def _execute_release_pr(
     pr_cmd: list[str],
     branch_name: str,
     labels: str,
     repo_root: Path,
 ) -> None:
-    """Execute gh pr create with label fallback if labels fail."""
+    """Execute gh pr create with label and milestone fallback if creation fails."""
     run_gh_fn = _get("run_gh")
     pr_proc = run_gh_fn(pr_cmd, cwd=repo_root)
-    if pr_proc.returncode != 0 and labels and "label" in (pr_proc.stderr or "").lower():
-        fallback_cmd = [
-            arg
-            for idx, arg in enumerate(pr_cmd)
-            if arg != "--label" and (idx == 0 or pr_cmd[idx - 1] != "--label")
-        ]
-        pr_proc = run_gh_fn(fallback_cmd, cwd=repo_root)
+    if pr_proc.returncode != 0:
+        err_msg = (pr_proc.stderr or "").lower()
+        fallback_cmd = _build_pr_fallback_cmd(pr_cmd, err_msg, labels)
+        if fallback_cmd != pr_cmd:
+            pr_proc = run_gh_fn(fallback_cmd, cwd=repo_root)
 
     if pr_proc.returncode == 0:
         pr_url = str(pr_proc.stdout).strip()
         _get("print_success")(MESSAGES.release.pr_created.format(url=pr_url), prefix=False)
-    else:
-        err = str(pr_proc.stderr).strip() or str(pr_proc.stdout).strip()
-        _get("print_warning")(MESSAGES.release.pr_failed.format(error=err), prefix=False)
-        _get("print_info")(
-            f"Branch '{branch_name}' is ready. You can manually open the PR on GitHub.",
-            prefix=False,
-        )
+        return
+
+    err = str(pr_proc.stderr).strip() or str(pr_proc.stdout).strip()
+    _get("print_warning")(MESSAGES.release.pr_failed.format(error=err), prefix=False)
+    _get("print_info")(
+        f"Branch '{branch_name}' is ready. You can manually open the PR on GitHub.",
+        prefix=False,
+    )
 
 
 @app.command("pr")
@@ -985,6 +1063,7 @@ def release_pr(
         branch_name=branch_name,
         draft=draft,
         labels=labels,
+        milestone=f"v{target_ver.lstrip('v')}",
     )
     _execute_release_pr(
         pr_cmd=pr_cmd,
@@ -1385,3 +1464,71 @@ def _close_release_milestone_safe(repo_root: Path, version: str) -> None:
         _get("print_warning")(
             f"Note: Could not close milestone for v{version}: {exc}", prefix=False
         )
+
+
+def _display_release_epic_results(res: Any, mode_text: str, repo: str) -> None:
+    """Format and display release epic synchronization results."""
+    _get("print_success")(
+        f"{mode_text}Release Epics synchronized for {repo}: "
+        f"{res.created_count} created, {res.updated_count} updated, {res.unchanged_count} unchanged "
+        f"across {res.total_milestones} milestone(s)."
+    )
+    for ep in res.epics:
+        num_str = f"#{ep['issue_number']}" if ep.get("issue_number") else "new"
+        _get("print_info")(
+            f"  - {ep['version']}: {num_str} ({ep['action']}) — "
+            f"{ep['completed']}/{ep['deliverables']} deliverables ({ep['percent']}%)"
+        )
+
+
+@app.command("epic", help=HELP.release.epic)
+def release_epic_cmd(
+    version: Annotated[
+        str | None,
+        typer.Argument(
+            help="Target release milestone version (e.g. v0.2.21 or 0.2.21). Omit with --all."
+        ),
+    ] = None,
+    all_milestones: Annotated[
+        bool,
+        typer.Option("--all", "-a", help="Synchronize release epics for all roadmap milestones"),
+    ] = False,
+    roadmap: Annotated[
+        Path,
+        typer.Option("--roadmap", "-r", help="Path to docs/ROADMAP.md file"),
+    ] = Path("docs/ROADMAP.md"),
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run", help="Simulate release epic creation without modifying remote issues"
+        ),
+    ] = False,
+) -> None:
+    """Provision, correlate, and synchronize parent release tracking epics for milestones."""
+    from devops_cli.commands.gh import _resolve_repo
+    from devops_cli.github.release_epics import sync_all_release_epics
+
+    target_repo = repo or _resolve_repo()
+    if not target_repo or "/" not in target_repo:
+        _get("print_error")("Cannot resolve target repository.")
+        raise typer.Exit(1)
+
+    if not version and not all_milestones:
+        _get("print_error")("Specify a milestone version (e.g. v0.2.21) or use --all.")
+        raise typer.Exit(1)
+
+    target_ver = version if not all_milestones else None
+    mode_text = "[yellow][DRY RUN][/yellow] " if dry_run else ""
+
+    try:
+        res = sync_all_release_epics(
+            repo=target_repo,
+            roadmap_path=roadmap,
+            dry_run=dry_run,
+            version_filter=target_ver,
+        )
+        _display_release_epic_results(res, mode_text, target_repo)
+    except Exception as exc:
+        _get("print_error")(f"Failed to synchronize release epics: {exc}")
+        raise typer.Exit(1)

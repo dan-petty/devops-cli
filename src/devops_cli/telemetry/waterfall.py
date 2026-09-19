@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import re
 import socket
 import urllib.parse
@@ -12,6 +13,8 @@ import httpx2
 
 from devops_cli.core.validation import validate_url
 from devops_cli.telemetry.tracer import SpanWaterfallNode
+
+logger = logging.getLogger(__name__)
 
 _TRACE_ID_RE = re.compile(r"^[0-9a-fA-F]{16,32}$")
 
@@ -171,7 +174,8 @@ def query_jaeger_trace(
         is_blocked, vetted_ip = _resolve_safe_jaeger_target(parsed)
         if is_blocked or not vetted_ip:
             return []
-    except Exception:
+    except Exception as exc:
+        logger.debug("Jaeger URL validation failed for %s: %s", url, exc)
         return []
 
     target_host = f"[{vetted_ip}]" if ":" in vetted_ip else vetted_ip
@@ -186,7 +190,8 @@ def query_jaeger_trace(
             if resp.status_code != 200:
                 return []
             return normalize_jaeger_spans(resp.json())
-    except httpx2.RequestError, ValueError, OSError:
+    except (httpx2.RequestError, ValueError, OSError) as exc:
+        logger.warning("Failed to query Jaeger trace %s from %s: %s", clean_id, api_url, exc)
         return []
 
 

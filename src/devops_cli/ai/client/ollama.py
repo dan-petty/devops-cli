@@ -12,12 +12,13 @@ from urllib.parse import urlparse
 import httpx2
 
 from devops_cli.ai.client.base import BaseLLMProviderMixin
-from devops_cli.ai.client.models import AIClientError, LLMResponse
+from devops_cli.ai.client.models import AIClientError, LLMResponse, RequestPriority
 from devops_cli.ai.client.network import (
+    acquire_ollama_slot,
     active_ollama_requests,
     ollama_active_lock,
     read_limited_json,
-    track_ollama_url,
+    request_priority_scope,
 )
 from devops_cli.ai.client.streaming import (
     _consume_streaming_lines,
@@ -100,24 +101,25 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             return {}
 
         target_model = model or self._config.model
-        if not blocking:
-            import threading
+        with request_priority_scope(RequestPriority.AS_AVAILABLE):
+            if not blocking:
+                import threading
 
-            thread = threading.Thread(
-                target=self._execute_preload_all,
-                args=(target_urls, on_complete, target_model, keep_alive),
-                name=f"ollama-prewarm-{target_model}",
-                daemon=True,
+                thread = threading.Thread(
+                    target=self._execute_preload_all,
+                    args=(target_urls, on_complete, target_model, keep_alive),
+                    name=f"ollama-prewarm-{target_model}",
+                    daemon=True,
+                )
+                thread.start()
+                return {}
+
+            return self._execute_preload_all(
+                target_urls,
+                on_complete=on_complete,
+                model=target_model,
+                keep_alive=keep_alive,
             )
-            thread.start()
-            return {}
-
-        return self._execute_preload_all(
-            target_urls,
-            on_complete=on_complete,
-            model=target_model,
-            keep_alive=keep_alive,
-        )
 
     def prewarm_models(
         self,
@@ -203,17 +205,15 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         system: str,
         messages: list[ChatMessage],
         use_thinking: bool,
-        max_par: int,
+        max_par: int = 1,
     ) -> LLMResponse:
         """Attempt single Ollama request with fallback if thinking is unsupported."""
         try:
-            with track_ollama_url(candidate_url, max_parallel=max_par):
-                return self._ollama_request(base, system, messages, use_thinking)
+            return self._ollama_request(base, system, messages, use_thinking)
         except httpx2.HTTPStatusError as exc:
             if exc.response.status_code == 400 and "does not support thinking" in exc.response.text:
                 self._ollama_thinking_supported = False
-                with track_ollama_url(candidate_url, max_parallel=max_par):
-                    return self._ollama_request(base, system, messages, think=False)
+                return self._ollama_request(base, system, messages, think=False)
             if exc.response.status_code == 404 and "not found" in exc.response.text.lower():
                 raise httpx2.RequestError(
                     f"Model '{self._config.model}' not found on {candidate_url}: {exc.response.text.strip()}",
@@ -225,23 +225,33 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             ) from exc
 
     def _ollama_messages(
-        self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
+        self,
+        system: str,
+        messages: list[ChatMessage],
+        *,
+        enable_thinking: bool = True,
+        priority: RequestPriority | str | None = None,
     ) -> LLMResponse:
-        candidates = self._get_ollama_urls_loop()
+        candidates = [url for _idx, url in self._get_ollama_urls_loop()]
         max_par = getattr(self._config, "ollama_max_parallel", 2)
         last_exc: Exception | None = None
+        remaining_candidates = list(candidates)
 
-        for _idx, candidate_url in candidates:
+        while remaining_candidates:
+            leased_url: str | None = None
             try:
-                base = self._validate_base_url(
-                    candidate_url,
-                    purpose="Ollama",
-                    allow_loopback_for_local_tooling=True,
-                )
-                use_thinking = enable_thinking and self._ollama_thinking_supported is not False
-                return self._try_single_ollama_request(
-                    base, candidate_url, system, messages, use_thinking, max_par
-                )
+                with acquire_ollama_slot(
+                    remaining_candidates, max_parallel=max_par, priority=priority
+                ) as leased_url:
+                    base = self._validate_base_url(
+                        leased_url,
+                        purpose="Ollama",
+                        allow_loopback_for_local_tooling=True,
+                    )
+                    use_thinking = enable_thinking and self._ollama_thinking_supported is not False
+                    return self._try_single_ollama_request(
+                        base, leased_url, system, messages, use_thinking
+                    )
             except (
                 httpx2.ConnectError,
                 httpx2.ConnectTimeout,
@@ -254,6 +264,8 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 OSError,
             ) as exc:
                 last_exc = exc
+                if leased_url and leased_url in remaining_candidates:
+                    remaining_candidates.remove(leased_url)
                 continue
             except httpx2.HTTPError as exc:
                 raise AIClientError(
@@ -363,19 +375,17 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         system: str,
         messages: list[ChatMessage],
         use_thinking: bool,
-        max_par: int,
+        max_par: int = 1,
     ) -> Generator[str]:
         """Attempt single Ollama stream with fallback if thinking unsupported."""
         try:
-            with track_ollama_url(candidate_url, max_parallel=max_par):
-                yield from self._ollama_stream_request(base, system, messages, think=use_thinking)
-                return
+            yield from self._ollama_stream_request(base, system, messages, think=use_thinking)
+            return
         except httpx2.HTTPStatusError as exc:
             if exc.response.status_code == 400 and "does not support thinking" in exc.response.text:
                 self._ollama_thinking_supported = False
-                with track_ollama_url(candidate_url, max_parallel=max_par):
-                    yield from self._ollama_stream_request(base, system, messages, think=False)
-                    return
+                yield from self._ollama_stream_request(base, system, messages, think=False)
+                return
             if exc.response.status_code == 404 and "not found" in exc.response.text.lower():
                 raise httpx2.RequestError(
                     f"Model '{self._config.model}' not found on {candidate_url}: {exc.response.text.strip()}",
@@ -388,24 +398,34 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             ) from exc
 
     def _ollama_stream(
-        self, system: str, messages: list[ChatMessage], *, enable_thinking: bool = True
+        self,
+        system: str,
+        messages: list[ChatMessage],
+        *,
+        enable_thinking: bool = True,
+        priority: RequestPriority | str | None = None,
     ) -> Generator[str]:
-        candidates = self._get_ollama_urls_loop()
+        candidates = [url for _idx, url in self._get_ollama_urls_loop()]
         max_par = getattr(self._config, "ollama_max_parallel", 2)
         last_exc: Exception | None = None
+        remaining_candidates = list(candidates)
 
-        for _idx, candidate_url in candidates:
+        while remaining_candidates:
+            leased_url: str | None = None
             try:
-                base = self._validate_base_url(
-                    candidate_url,
-                    purpose="Ollama",
-                    allow_loopback_for_local_tooling=True,
-                )
-                use_thinking = enable_thinking and self._ollama_thinking_supported is not False
-                yield from self._try_single_ollama_stream(
-                    base, candidate_url, system, messages, use_thinking, max_par
-                )
-                return
+                with acquire_ollama_slot(
+                    remaining_candidates, max_parallel=max_par, priority=priority
+                ) as leased_url:
+                    base = self._validate_base_url(
+                        leased_url,
+                        purpose="Ollama",
+                        allow_loopback_for_local_tooling=True,
+                    )
+                    use_thinking = enable_thinking and self._ollama_thinking_supported is not False
+                    yield from self._try_single_ollama_stream(
+                        base, leased_url, system, messages, use_thinking
+                    )
+                    return
             except (
                 httpx2.ConnectError,
                 httpx2.ConnectTimeout,
@@ -418,6 +438,8 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 OSError,
             ) as exc:
                 last_exc = exc
+                if leased_url and leased_url in remaining_candidates:
+                    remaining_candidates.remove(leased_url)
                 continue
             except httpx2.HTTPError as exc:
                 raise AIClientError(f"Ollama streaming failed: {exc}") from exc

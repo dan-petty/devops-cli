@@ -593,6 +593,28 @@ def release_status() -> str:
 
 
 @mcp.tool()
+def release_epic_sync(
+    version: str | None = None,
+    all_milestones: bool = False,
+    dry_run: bool = True,
+    repo: str | None = None,
+) -> str:
+    """Provision, correlate, and synchronize parent release tracking epics for milestones."""
+    cmd = ["uv", "run", "devops", "release", "epic"]
+    if version:
+        _validate_mcp_arg("version", version)
+        cmd.append(version)
+    if all_milestones:
+        cmd.append("--all")
+    if dry_run:
+        cmd.append("--dry-run")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def docs_compact(
     series: str = "v0.2",
     dry_run: bool = True,
@@ -994,6 +1016,32 @@ def ai_pack_context(
         cmd.append("--no-strip-private")
     if not skeletonize:
         cmd.append("--no-skeletonize")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_read(
+    target_path: str,
+    inspect: bool = True,
+    level: int = 1,
+    lines: str = "",
+    symbol: str = "",
+    format: str = "markdown",
+) -> str:
+    """Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window)."""
+    _validate_mcp_arg("target_path", target_path)
+    cmd = ["uv", "run", "devops", "ai", "read", target_path]
+    if inspect:
+        cmd.extend(["--inspect", "--level", str(level)])
+    if lines:
+        _validate_mcp_arg("lines", lines)
+        cmd.extend(["--lines", lines])
+    if symbol:
+        _validate_mcp_arg("symbol", symbol)
+        cmd.extend(["--symbol", symbol])
+    if format:
+        _validate_mcp_arg("format", format)
+        cmd.extend(["--format", format])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
@@ -1458,11 +1506,17 @@ def gh_milestone_list(repo: str | None = None) -> str:
 
 
 @mcp.tool()
-def gh_milestone_sync(repo: str | None = None, dry_run: bool = True) -> str:
+def gh_milestone_sync(
+    repo: str | None = None,
+    dry_run: bool = True,
+    create_release_epics: bool = False,
+) -> str:
     """Synchronize repository milestones from docs/ROADMAP.md."""
     cmd = ["uv", "run", "devops", "gh", "milestones", "sync"]
     if dry_run:
         cmd.append("--dry-run")
+    if create_release_epics:
+        cmd.append("--create-release-epics")
     if repo:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])
@@ -1483,6 +1537,36 @@ def gh_milestone_close(version: str, repo: str | None = None) -> str:
     """Close a repository milestone matching the given version or title."""
     _validate_mcp_arg("version", version)
     cmd = ["uv", "run", "devops", "gh", "milestones", "close", version]
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_milestone_edit(
+    version: str,
+    title: str | None = None,
+    description: str | None = None,
+    state: str | None = None,
+    due_on: str | None = None,
+    repo: str | None = None,
+) -> str:
+    """Edit an existing milestone title, description, state, or due date."""
+    _validate_mcp_arg("version", version)
+    cmd = ["uv", "run", "devops", "gh", "milestones", "edit", version]
+    if title:
+        _validate_mcp_arg("title", title)
+        cmd.extend(["--title", title])
+    if description:
+        _validate_mcp_arg("description", description)
+        cmd.extend(["--description", description])
+    if state:
+        _validate_mcp_arg("state", state)
+        cmd.extend(["--state", state])
+    if due_on:
+        _validate_mcp_arg("due_on", due_on)
+        cmd.extend(["--due-date", due_on])
     if repo:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])
@@ -1640,6 +1724,21 @@ def gh_sync_roadmap(
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def gh_issue_reconcile_roadmap(
+    dry_run: bool = True,
+    repo: str | None = None,
+) -> str:
+    """Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations."""
+    cmd = ["uv", "run", "devops", "gh", "issues", "reconcile-roadmap"]
+    if dry_run:
+        cmd.append("--dry-run")
+    if repo:
+        _validate_mcp_arg("repo", repo)
+        cmd.extend(["--repo", repo])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
@@ -2294,9 +2393,11 @@ def gh_issue_edit(
     title: str | None = None,
     body: str | None = None,
     state: str | None = None,
+    milestone: str | None = None,
+    clear_milestone: bool = False,
     repo: str | None = None,
 ) -> str:
-    """Edit an existing GitHub issue title, body, or state."""
+    """Edit an existing GitHub issue title, body, state, or milestone."""
     _validate_mcp_int_bound("issue_number", issue_number, min_val=1)
     cmd = ["uv", "run", "devops", "gh", "issues", "edit", str(issue_number)]
     if title:
@@ -2308,6 +2409,11 @@ def gh_issue_edit(
     if state:
         _validate_mcp_arg("state", state)
         cmd.extend(["--state", state])
+    if milestone:
+        _validate_mcp_arg("milestone", milestone)
+        cmd.extend(["--milestone", milestone])
+    if clear_milestone:
+        cmd.append("--clear-milestone")
     if repo:
         _validate_mcp_arg("repo", repo)
         cmd.extend(["--repo", repo])
@@ -2565,24 +2671,32 @@ def ai_inspect_symbol(
 @mcp.tool()
 def ai_gateway_status(
     gateway_url: str = "",
+    provider: str = "",
 ) -> str:
     """Probe LLM Gateway health, latency, and circuit breaker metrics."""
     cmd = ["uv", "run", "devops", "ai", "gateway", "status", "--format", "json"]
     if gateway_url:
         _validate_mcp_arg("gateway_url", gateway_url)
         cmd.extend(["--gateway-url", gateway_url])
+    if provider:
+        _validate_mcp_arg("provider", provider)
+        cmd.extend(["--provider", provider])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
 def ai_gateway_routes(
     gateway_url: str = "",
+    provider: str = "",
 ) -> str:
     """List registered virtual models and target backend inference instances."""
     cmd = ["uv", "run", "devops", "ai", "gateway", "routes", "--format", "json"]
     if gateway_url:
         _validate_mcp_arg("gateway_url", gateway_url)
         cmd.extend(["--gateway-url", gateway_url])
+    if provider:
+        _validate_mcp_arg("provider", provider)
+        cmd.extend(["--provider", provider])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
@@ -2631,11 +2745,82 @@ def ai_vllm_scale(
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
+@mcp.tool()
+def ai_lightllm_scale(
+    replicas: int = 1,
+    tensor_parallel_size: int = 1,
+) -> str:
+    """Inspect or configure LightLLM high-throughput serving parameters."""
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "gateway",
+        "scale",
+        "--backend",
+        "lightllm",
+        "--replicas",
+        str(replicas),
+        "--tensor-parallel-size",
+        str(tensor_parallel_size),
+        "--format",
+        "json",
+    ]
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_backend_probe(
+    backend: str,
+    backend_url: str = "",
+) -> str:
+    """Directly probe health, latency, and registered models of an inference backend."""
+    _validate_mcp_arg("backend", backend)
+    cmd = ["uv", "run", "devops", "ai", "gateway", "probe-backend", backend, "--format", "json"]
+    if backend_url:
+        _validate_mcp_arg("backend_url", backend_url)
+        cmd.extend(["--backend-url", backend_url])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
 @mcp.resource("resource://ai/gateway")
 def get_ai_gateway_resource() -> str:
     """Return live LLM Gateway health and active virtual model routing table."""
     return _run_mcp_cmd(
         ["uv", "run", "devops", "ai", "gateway", "status", "--format", "json"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
+@mcp.tool()
+def ai_spend_report(
+    days: int | None = None,
+    group_by: str = "server",
+) -> str:
+    """Report approximate AI spend per backend service, model, or provider over time."""
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "cost",
+        "report",
+        "--group-by",
+        group_by,
+        "--format",
+        "json",
+    ]
+    if days is not None:
+        cmd.extend(["--days", str(days)])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.resource("resource://ai/spend")
+def get_ai_spend_resource() -> str:
+    """Return lifetime AI spend report aggregated by backend server in JSON format."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "cost", "report", "--group-by", "server", "--format", "json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 

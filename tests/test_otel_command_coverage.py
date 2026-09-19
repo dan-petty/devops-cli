@@ -87,7 +87,7 @@ def test_otel_typer_subcommand_error_span(
 
     attrs = {a["key"]: str(next(iter(a["value"].values()))) for a in span_data["attributes"]}
     assert attrs["cli.status"] == "error"
-    assert "Cluster unreachable" in attrs.get("cli.error", "")
+    assert "Cluster unreachable" in attrs.get("error.message", attrs.get("cli.error", ""))
 
 
 def test_cli_delegate_root_span_and_metrics(

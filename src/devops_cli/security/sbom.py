@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import logging
 import tomllib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.config.defaults import DEFAULT_PROJECT_NAME
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -57,8 +60,10 @@ def extract_workspace_components(workspace_dir: Path) -> list[SBOMComponent]:
                         )
                     )
             return sorted(components, key=lambda c: c.name.lower())
-        except Exception:
-            pass
+        except (tomllib.TOMLDecodeError, OSError, ValueError, KeyError) as exc:
+            logger.warning(
+                "Failed to parse %s: %s, falling back to runtime distributions", uv_lock, exc
+            )
 
     # Fallback to runtime installed distributions
     for dist in importlib.metadata.distributions():

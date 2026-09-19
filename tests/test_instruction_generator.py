@@ -117,8 +117,7 @@ def test_generate_agents_md_contains_required_sections() -> None:
     assert "uv run mypy src" in content
     assert "DevContainer Environment" in content
     assert "GitHub Projects, Issues & Views Governance" in content
-    assert "API Rate Limit Honor, Resilient Backoff & Quota Budgeting" in content
-    assert "gh api rate_limit" in content
+    assert "devops gh rate-limit" in content
     assert "Sequential Pull Request Processing (Oldest to Newest / FIFO)" in content
     assert "Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility Guarantee" in content
     assert "Clean Solutions Over Legacy Remnants (Zero Zombie Code)" in content
@@ -280,9 +279,11 @@ def test_generate_agents_md_enforces_draft_pull_requests() -> None:
         requires_python=">=3.14",
     )
     content = generate_agents_md(meta)
-    assert "Draft Pull Requests for In-Progress Work" in content
-    assert "gh pr create --draft" in content
-    assert "gh pr ready" in content
+    assert (
+        "Draft Pull Requests for In-Progress Work" in content,
+        "devops pr create --draft" in content,
+        "devops pr ready" in content,
+    ) == (True, True, True)
 
 
 def test_generate_agents_md_enforces_pr_monitor_and_concise_commits() -> None:
@@ -301,7 +302,7 @@ def test_generate_agents_md_enforces_pr_monitor_and_concise_commits() -> None:
     assert "Stage 2: Transition to Ready for Review" in content
     assert "Post-Ready Secondary Review & Copilot Monitoring Gate" in content
     assert "triggers automated GitHub Copilot review sessions" in content
-    assert "gh pr ready <pr_number>" in content
+    assert "devops pr ready <pr_number>" in content
     assert "5-Minute Completion Allowance & 60-Second Polling Interval" in content
     assert (
         "Allow at least 5 minutes (300 seconds) for pull request checks or reviews to complete"

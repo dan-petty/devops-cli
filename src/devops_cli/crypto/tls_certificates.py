@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import ipaddress
+import logging
 import os
 from datetime import UTC
 from pathlib import Path
@@ -35,6 +36,8 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.validation import validate_safe_directory_path, validate_safe_key_path
 from devops_cli.models.tls import CertificateInfo, TLSEnablementSummary
+
+logger = logging.getLogger(__name__)
 
 
 def _write_restricted_file(
@@ -483,5 +486,6 @@ def verify_certificate(
             )
             return True
         return False
-    except Exception:
+    except Exception as exc:
+        logger.debug("TLS certificate verification failed: %s", exc)
         return False

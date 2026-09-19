@@ -339,7 +339,8 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
         except Exception:
             pass
         return res
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed syntax error hallucination check for %s: %s", file_path, exc)
         return None
 
 
@@ -673,7 +674,7 @@ def _extract_location_line(location: str) -> int:
         line_part = location.split(":", 1)[1].strip()
         nums = [int(x) for x in line_part.replace("-", " ").split() if x.isdigit()]
         return nums[0] if nums else 0
-    except Exception:
+    except ValueError, IndexError:
         return 0
 
 
@@ -700,7 +701,8 @@ def _try_find_var_assignment(file_path: Path, var_name: str, target_line: int) -
         content = file_path.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(content, filename=str(file_path))
         return _find_enclosing_fn_assignment(tree, var_name, target_line)
-    except Exception:
+    except (SyntaxError, OSError) as exc:
+        logger.debug("Failed checking variable assignment in %s: %s", file_path, exc)
         return None
 
 

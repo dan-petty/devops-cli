@@ -19,6 +19,7 @@ from devops_cli.commands.ai_controller import (
     run_quiesce_cmd,
     run_resume_cmd,
 )
+from devops_cli.commands.ai_cost import app as cost_app
 from devops_cli.commands.ai_gateway import app as gateway_app
 from devops_cli.commands.ai_harness import app as harness_app
 from devops_cli.commands.ai_ingest import app as ingest_app
@@ -120,6 +121,16 @@ app.add_typer(
     gateway_app,
     name="gateway",
     help="LLM Gateway and distributed inference mesh management.",
+)
+app.add_typer(
+    cost_app,
+    name="cost",
+    help="Track approximate lifetime spend and manage model pricing.",
+)
+app.add_typer(
+    cost_app,
+    name="spend",
+    help="Alias for 'cost' command.",
 )
 
 
@@ -733,7 +744,7 @@ def prewarm(
     ] = False,
 ) -> None:
     """Prewarm local LLM models into GPU VRAM or proactively evict them to free memory."""
-    from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.client import LLMClient, RequestPriority, request_priority_scope
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
     settings = load_settings()
@@ -741,14 +752,17 @@ def prewarm(
     target_keep_alive: str | int = DEFAULT_AI_EVICT_KEEP_ALIVE if evict else keep_alive
     urls = _resolve_prewarm_urls(url, all_nodes, settings.ai.get_ollama_urls)
 
-    with trace_span(
-        "ai.prewarm",
-        attributes={
-            "ai.model": str(target_model),
-            "ai.evict": evict,
-            "ai.keep_alive": str(target_keep_alive),
-            "ai.all_nodes": all_nodes,
-        },
+    with (
+        request_priority_scope(RequestPriority.AS_AVAILABLE),
+        trace_span(
+            "ai.prewarm",
+            attributes={
+                "ai.model": str(target_model),
+                "ai.evict": evict,
+                "ai.keep_alive": str(target_keep_alive),
+                "ai.all_nodes": all_nodes,
+            },
+        ),
     ):
         client = LLMClient(settings.ai, api_key=get_ai_api_key(settings), cache_enabled=False)
         results = client.preload_models(
@@ -940,7 +954,7 @@ def chat(
     import sys
 
     from devops_cli.ai.agents import PydanticAgent
-    from devops_cli.ai.client import LLMClient
+    from devops_cli.ai.client import LLMClient, RequestPriority, current_request_priority
     from devops_cli.ai.tools import get_persona_tools
     from devops_cli.config.settings import get_ai_api_key, load_settings
 
@@ -989,62 +1003,66 @@ def chat(
         prefix=False,
     )
 
-    while True:
-        try:
-            user_input = get_console().input("[bold cyan]You:[/bold cyan] ").strip()
-        except EOFError, KeyboardInterrupt:
-            from devops_cli.lang import MESSAGES
+    p_token = current_request_priority.set(RequestPriority.HIGH)
+    try:
+        while True:
+            try:
+                user_input = get_console().input("[bold cyan]You:[/bold cyan] ").strip()
+            except EOFError, KeyboardInterrupt:
+                from devops_cli.lang import MESSAGES
 
-            print_info(f"\n[dim]{MESSAGES.messages.goodbye}[/dim]", prefix=False)
-            break
+                print_info(f"\n[dim]{MESSAGES.messages.goodbye}[/dim]", prefix=False)
+                break
 
-        if not user_input:
-            continue
-        if user_input.lower() in {"exit", "quit", "/exit", "/quit"}:
-            print_info("[dim]Goodbye.[/dim]", prefix=False)
-            break
+            if not user_input:
+                continue
+            if user_input.lower() in {"exit", "quit", "/exit", "/quit"}:
+                print_info("[dim]Goodbye.[/dim]", prefix=False)
+                break
 
-        effective_prompt = user_input
-        if rag:
-            rag_snippet = _try_retrieve_rag_context(user_input, persona=persona, top_k=3)
-            if rag_snippet:
-                effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
+            effective_prompt = user_input
+            if rag:
+                rag_snippet = _try_retrieve_rag_context(user_input, persona=persona, top_k=3)
+                if rag_snippet:
+                    effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
 
-        try:
-            get_console().print(
-                f"\n[bold dark_orange]{persona_def.title}:[/bold dark_orange] ", end=""
-            )
-            sys.stdout.flush()
-
-            from devops_cli.ai.thinking_stream import strip_think_blocks
-
-            if stream and not tools:
-                _stream_interactive_chat_turn(client, agent, thinking, effective_prompt)
-            else:
-                agent_res = agent.run(
-                    effective_prompt,
-                    enable_thinking=thinking,
-                    on_thought=_print_chat_thought if thinking else None,
-                    on_tool_call=_print_chat_tool,
+            try:
+                get_console().print(
+                    f"\n[bold dark_orange]{persona_def.title}:[/bold dark_orange] ", end=""
                 )
+                sys.stdout.flush()
 
-                reply = strip_think_blocks(agent_res.content)
-                if reply.strip():
-                    render_chat_response(reply.strip())
+                from devops_cli.ai.thinking_stream import strip_think_blocks
 
-        except KeyboardInterrupt:
-            print_info("\n[dim]Interrupted.[/dim]\n", prefix=False)
-        except Exception as exc:
-            print_error(f"\nError: {exc}\n", prefix=False)
-            if agent.memory.entries:
-                agent.memory.entries.pop()  # don't add failed turn to history
-            continue
+                if stream and not tools:
+                    _stream_interactive_chat_turn(client, agent, thinking, effective_prompt)
+                else:
+                    agent_res = agent.run(
+                        effective_prompt,
+                        enable_thinking=thinking,
+                        on_thought=_print_chat_thought if thinking else None,
+                        on_tool_call=_print_chat_tool,
+                    )
 
-        if agent.memory.auto_summarize_if_needed(llm_client=client):
-            print_info(
-                "[dim]⚡ Long conversation memory consolidated into context summary.[/dim]",
-                prefix=False,
-            )
+                    reply = strip_think_blocks(agent_res.content)
+                    if reply.strip():
+                        render_chat_response(reply.strip())
+
+            except KeyboardInterrupt:
+                print_info("\n[dim]Interrupted.[/dim]\n", prefix=False)
+            except Exception as exc:
+                print_error(f"\nError: {exc}\n", prefix=False)
+                if agent.memory.entries:
+                    agent.memory.entries.pop()  # don't add failed turn to history
+                continue
+
+            if agent.memory.auto_summarize_if_needed(llm_client=client):
+                print_info(
+                    "[dim]⚡ Long conversation memory consolidated into context summary.[/dim]",
+                    prefix=False,
+                )
+    finally:
+        current_request_priority.reset(p_token)
 
 
 # =============================================================================
@@ -1500,9 +1518,14 @@ def audit_library_usage_cmd(
         )
         return
 
+    from devops_cli.config.settings import load_settings
+
     auditor = LibraryDriftAuditor(contracts_dir=contracts_dir)
     ws_dir = target_dir or Path.cwd()
-    report = auditor.audit_workspace(ws_dir, package_filter=package)
+    default_report_path = load_settings().data.analysis_dir / "api_drift_report.json"
+    report = auditor.audit_workspace(
+        ws_dir, package_filter=package, save_report_path=default_report_path
+    )
     _render_drift_report(report, json_output)
 
     if fail_on_breaking and report.breaking_count > 0:
@@ -1584,6 +1607,146 @@ def pack_context_cmd(
             prefix=False,
         )
         write_stdout(packed.content + "\n")
+
+
+# =============================================================================
+# Command: devops ai read
+# =============================================================================
+
+
+def _handle_inspect_read(
+    target_path: Path,
+    level: int | None,
+    lines: str | None,
+    symbol: str | None,
+    format_type: str,
+    as_json: bool,
+    repo: Path | None = None,
+) -> None:
+    import json
+
+    from devops_cli.ai.inspection import FocalLevel, generate_semantic_outline
+
+    if level is not None:
+        focal_level = FocalLevel(level)
+    elif symbol or lines:
+        focal_level = FocalLevel.DEEP_FOCAL
+    else:
+        focal_level = FocalLevel.STRUCTURAL
+
+    outline = generate_semantic_outline(
+        target_path,
+        level=focal_level,
+        lines=lines or "",
+        symbol=symbol or "",
+        repo_root=repo,
+    )
+    if as_json or format_type.lower() == "json":
+        write_stdout(json.dumps(outline.model_dump(), indent=2) + "\n")
+    else:
+        write_stdout(outline.to_display_text() + "\n")
+
+
+def _handle_raw_read(
+    target_path: Path,
+    lines: str | None,
+    format_type: str,
+    as_json: bool,
+    repo: Path | None = None,
+) -> None:
+    import json
+
+    from devops_cli.ai.inspection import (
+        _parse_line_range_arg,
+        _validate_inspect_path,
+        estimate_tokens,
+    )
+
+    resolved, _ = _validate_inspect_path(target_path, repo_root=repo)
+    content = resolved.read_text(encoding="utf-8", errors="replace")
+    all_lines = content.splitlines()
+
+    if lines:
+        start, end = _parse_line_range_arg(lines, len(all_lines))
+        sliced = all_lines[start - 1 : end]
+        content = "\n".join(sliced) + "\n"
+
+    if as_json or format_type.lower() == "json":
+        data = {
+            "path": str(target_path),
+            "lines": len(content.splitlines()),
+            "tokens": estimate_tokens(content),
+            "content": content,
+        }
+        write_stdout(json.dumps(data, indent=2) + "\n")
+    else:
+        write_stdout(content + ("\n" if not content.endswith("\n") else ""))
+
+
+@app.command("read", help=HELP.ai.read_cmd)
+def read_cmd(
+    target_path: Annotated[
+        Path,
+        typer.Argument(help=HELP.ai.read_path),
+    ],
+    inspect: Annotated[
+        bool,
+        typer.Option("--inspect", "-i", help=HELP.ai.read_inspect),
+    ] = False,
+    level: Annotated[
+        int | None,
+        typer.Option("--level", "-l", help=HELP.ai.read_level),
+    ] = None,
+    lines: Annotated[
+        str | None,
+        typer.Option("--lines", "-L", help=HELP.ai.read_lines),
+    ] = None,
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", "-s", help=HELP.ai.read_symbol),
+    ] = None,
+    format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format: 'text', 'markdown', or 'json'."),
+    ] = "markdown",
+    repo: Annotated[
+        Path | None,
+        typer.Option("--repo", "-r", help="Repository or workspace root directory."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Inspect and read source code across 3 multi-scale focal zoom levels."""
+    from devops_cli.dry_run import is_dry_run, render_dry_run_result
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command=f"devops ai read {target_path}",
+            action="ai_read",
+            details={
+                "target_path": str(target_path),
+                "inspect": inspect,
+                "level": level,
+                "lines": lines,
+                "symbol": symbol,
+                "format": format,
+                "repo": str(repo) if repo else None,
+                "status": "READ_DRY_RUN",
+            },
+        )
+        return
+
+    is_inspect = inspect or (level is not None) or (symbol is not None)
+    if is_inspect:
+        _handle_inspect_read(target_path, level, lines, symbol, format, json_output, repo=repo)
+    else:
+        _handle_raw_read(target_path, lines, format, json_output, repo=repo)
 
 
 # =============================================================================

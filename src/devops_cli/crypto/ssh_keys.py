@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date, datetime
 from pathlib import Path
@@ -18,6 +19,8 @@ from devops_cli.config.constants import CONST_PERM_PRIVATE_KEY, CONST_PERM_PUBLI
 from devops_cli.core.validation import validate_safe_key_path
 from devops_cli.exceptions import ValidationError
 from devops_cli.models.ssh import ManagedSSHKey
+
+logger = logging.getLogger(__name__)
 
 # Matches [prefix-]id_ed25519-YYYYMMDD
 _KEY_RE = re.compile(r"^(?:(?P<prefix>[a-zA-Z0-9_-]+)-)?id_ed25519-(?P<date>\d{8})$")
@@ -45,7 +48,8 @@ def _extract_prefix_from_yaml(cfg_file: Path) -> str | None:
         elif data.get("key_prefix"):
             raw_prefix = data["key_prefix"]
         return _sanitize_prefix(str(raw_prefix)) if raw_prefix else None
-    except Exception:
+    except (yaml.YAMLError, OSError, UnicodeDecodeError) as exc:
+        logger.debug("Failed reading YAML key_prefix from %s: %s", cfg_file, exc)
         return None
 
 
@@ -100,7 +104,8 @@ def _resolve_prefix_from_devcontainer(target_dir: Path) -> str | None:
                 sanitized = _sanitize_prefix(str(data["name"]))
                 if sanitized:
                     return sanitized
-        except Exception:
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+            logger.debug("Failed extracting devcontainer name from %s: %s", dev_path, exc)
             continue
     return None
 
@@ -115,8 +120,8 @@ def _resolve_prefix_from_settings() -> str | None:
             sanitized = _sanitize_prefix(settings.ssh.key_prefix)
             if sanitized:
                 return sanitized
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed resolving ssh.key_prefix from settings: %s", exc)
     return None
 
 

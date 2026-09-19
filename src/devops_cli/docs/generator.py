@@ -19,6 +19,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.env import EnvVarSpec, get_all_env_var_specs
 from devops_cli.output import write_text_file
+from devops_cli.telemetry import trace_span
 
 _RICH_TAG_RE = re.compile(
     r"\[/?(?:bold|dim|green|cyan|yellow|red|magenta|blue|italic|underline)[^\]]*\]"
@@ -347,19 +348,21 @@ class DocGenerator:
         """Introspect all command groups declared in main._COMMAND_SPECS."""
         from devops_cli.main import _COMMAND_SPECS
 
-        groups: list[CommandGroupDoc] = []
-        for name, (module_path, summary) in _COMMAND_SPECS.items():
-            group_doc = self._introspect_single_group(name, module_path, summary)
-            if group_doc is not None:
-                groups.append(group_doc)
-        return groups
+        with trace_span("docs.introspect_groups") as span:
+            groups: list[CommandGroupDoc] = []
+            for name, (module_path, summary) in _COMMAND_SPECS.items():
+                group_doc = self._introspect_single_group(name, module_path, summary)
+                if group_doc is not None:
+                    groups.append(group_doc)
+            span.set_attributes({"group_count": len(groups)})
+            return groups
 
     def introspect_env_vars(self) -> list[EnvVarSpec]:
         """Collect all environment variable specifications."""
         return get_all_env_var_specs()
 
-    def introspect_mcp_tools(self) -> list[MCPToolDoc]:
-        """Collect all registered FastMCP tools."""
+    def _fetch_mcp_tools(self) -> list[MCPToolDoc]:
+        """Query running or dedicated loop for FastMCP tools."""
         try:
             from devops_cli.ai.mcp.server import mcp
 
@@ -382,6 +385,13 @@ class DocGenerator:
             return asyncio.run(_get_tools())
         except Exception:
             return []
+
+    def introspect_mcp_tools(self) -> list[MCPToolDoc]:
+        """Collect all registered FastMCP tools."""
+        with trace_span("docs.introspect_mcp_tools") as span:
+            tools = self._fetch_mcp_tools()
+            span.set_attributes({"tool_count": len(tools)})
+            return tools
 
     def render_cli_reference_markdown(self, groups: list[CommandGroupDoc]) -> str:
         """Render complete CLI Reference documentation in Markdown format."""
@@ -603,39 +613,40 @@ class DocGenerator:
         if not target.exists():
             return False
 
-        content = target.read_text(encoding="utf-8")
-        groups = self.introspect_all_groups()
-        matrix_table = self.render_readme_matrix(groups)
+        with trace_span("docs.sync_readme", attributes={"readme_path": str(target)}):
+            content = target.read_text(encoding="utf-8")
+            groups = self.introspect_all_groups()
+            matrix_table = self.render_readme_matrix(groups)
 
-        start_marker = "<!-- COMMAND_MATRIX_START -->"
-        end_marker = "<!-- COMMAND_MATRIX_END -->"
+            start_marker = "<!-- COMMAND_MATRIX_START -->"
+            end_marker = "<!-- COMMAND_MATRIX_END -->"
 
-        if start_marker in content and end_marker in content:
-            pattern = re.compile(
-                rf"{re.escape(start_marker)}.*?{re.escape(end_marker)}",
-                re.DOTALL,
-            )
-            new_content = pattern.sub(
-                f"{start_marker}\n\n{matrix_table}\n\n{end_marker}",
-                content,
-            )
-        else:
-            # Match existing Complete Command Matrix section
-            pattern = re.compile(
-                r"(## Complete Command Matrix\s*\n\n)"
-                r"(?:<!-- COMMAND_MATRIX_START -->\s*)?\|.*?(?=\n\n---|\n\n## |\Z)",
-                re.DOTALL,
-            )
-            if pattern.search(content):
+            if start_marker in content and end_marker in content:
+                pattern = re.compile(
+                    rf"{re.escape(start_marker)}.*?{re.escape(end_marker)}",
+                    re.DOTALL,
+                )
                 new_content = pattern.sub(
-                    rf"\g<1>{start_marker}\n\n{matrix_table}\n\n{end_marker}",
+                    f"{start_marker}\n\n{matrix_table}\n\n{end_marker}",
                     content,
                 )
             else:
-                return False
+                # Match existing Complete Command Matrix section
+                pattern = re.compile(
+                    r"(## Complete Command Matrix\s*\n\n)"
+                    r"(?:<!-- COMMAND_MATRIX_START -->\s*)?\|.*?(?=\n\n---|\n\n## |\Z)",
+                    re.DOTALL,
+                )
+                if pattern.search(content):
+                    new_content = pattern.sub(
+                        rf"\g<1>{start_marker}\n\n{matrix_table}\n\n{end_marker}",
+                        content,
+                    )
+                else:
+                    return False
 
-        write_text_file(target, new_content)
-        return True
+            write_text_file(target, new_content)
+            return True
 
     def check_readme(self, readme_path: Path | None = None) -> tuple[bool, str | None]:
         """Check if Complete Command Matrix table in README.md is in sync."""
@@ -958,56 +969,60 @@ class DocGenerator:
 
     def generate_all_docs(self, output_dir: Path) -> dict[str, str]:
         """Generate all documentation files and return a dict of {rel_path: content}."""
-        groups = self.introspect_all_groups()
-        env_specs = self.introspect_env_vars()
-        mcp_tools = self.introspect_mcp_tools()
+        with trace_span("docs.generate_all", attributes={"output_dir": str(output_dir)}) as span:
+            groups = self.introspect_all_groups()
+            env_specs = self.introspect_env_vars()
+            mcp_tools = self.introspect_mcp_tools()
 
-        results: dict[str, str] = {}
+            results: dict[str, str] = {}
 
-        # 1. Main CLI Reference
-        results["CLI_REFERENCE.md"] = self.render_cli_reference_markdown(groups)
+            # 1. Main CLI Reference
+            results["CLI_REFERENCE.md"] = self.render_cli_reference_markdown(groups)
 
-        # 2. Environment Variables
-        results["ENV_VARS.md"] = self.render_env_vars_markdown(env_specs)
+            # 2. Environment Variables
+            results["ENV_VARS.md"] = self.render_env_vars_markdown(env_specs)
 
-        # 3. FastMCP Tools
-        if mcp_tools:
-            results["MCP_TOOLS.md"] = self.render_mcp_tools_markdown(mcp_tools)
+            # 3. FastMCP Tools
+            if mcp_tools:
+                results["MCP_TOOLS.md"] = self.render_mcp_tools_markdown(mcp_tools)
 
-        # 4. Configuration Reference
-        results["CONFIGURATION.md"] = self.generate_configuration_docs()
+            # 4. Configuration Reference
+            results["CONFIGURATION.md"] = self.generate_configuration_docs()
 
-        # 5. Exit Code & Error Catalog
-        results["ERRORS.md"] = self.generate_error_catalog_docs()
+            # 5. Exit Code & Error Catalog
+            results["ERRORS.md"] = self.generate_error_catalog_docs()
 
-        # 6. Telemetry & Distributed Tracing Reference
-        results["TELEMETRY.md"] = self.generate_telemetry_docs()
+            # 6. Telemetry & Distributed Tracing Reference
+            results["TELEMETRY.md"] = self.generate_telemetry_docs()
 
-        # 7. Knowledge Base Catalog
-        results["KNOWLEDGE_BASE.md"] = self.generate_knowledge_base_index()
+            # 7. Knowledge Base Catalog
+            results["KNOWLEDGE_BASE.md"] = self.generate_knowledge_base_index()
 
-        # 8. Individual command group markdown files under commands/
-        for group in groups:
-            group_doc = self.render_command_group_markdown(group)
-            results[f"commands/{group.name}.md"] = group_doc
+            # 8. Individual command group markdown files under commands/
+            for group in groups:
+                group_doc = self.render_command_group_markdown(group)
+                results[f"commands/{group.name}.md"] = group_doc
 
-        return results
+            span.set_attributes({"file_count": len(results)})
+            return results
 
     def write_all_docs(self, output_dir: Path, sync_readme_table: bool = True) -> list[Path]:
         """Generate and write all documentation files to disk."""
-        docs = self.generate_all_docs(output_dir)
-        written: list[Path] = []
-        for rel_path, content in docs.items():
-            dest = output_dir / rel_path
-            write_text_file(dest, content)
-            written.append(dest)
+        with trace_span("docs.write_all", attributes={"output_dir": str(output_dir)}) as span:
+            docs = self.generate_all_docs(output_dir)
+            written: list[Path] = []
+            for rel_path, content in docs.items():
+                dest = output_dir / rel_path
+                write_text_file(dest, content)
+                written.append(dest)
 
-        if sync_readme_table:
-            readme_path = self._find_readme()
-            if self.sync_readme(readme_path):
-                written.append(readme_path)
+            if sync_readme_table:
+                readme_path = self._find_readme()
+                if self.sync_readme(readme_path):
+                    written.append(readme_path)
 
-        return written
+            span.set_attributes({"written_count": len(written)})
+            return written
 
     def check_docs(
         self, output_dir: Path, check_readme_table: bool = True

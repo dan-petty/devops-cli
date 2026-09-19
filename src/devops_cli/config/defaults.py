@@ -27,6 +27,7 @@ from devops_cli.config.constants import (
 # ── Data Directories & Artifact Default Paths ─────────────────────────────────
 DEFAULT_DATA_DIR = Path(".data")
 DEFAULT_ANALYSIS_DATA_DIR = DEFAULT_DATA_DIR / CONST_ANALYSIS_DIR_NAME
+DEFAULT_MAX_CACHED_ANALYSES: int = 15
 DEFAULT_REVIEWS_DATA_DIR = DEFAULT_DATA_DIR / CONST_REVIEWS_DIR_NAME
 DEFAULT_LOGS_DATA_DIR = DEFAULT_DATA_DIR / CONST_LOGS_DIR_NAME
 DEFAULT_MODELS_DATA_DIR = DEFAULT_DATA_DIR / CONST_MODELS_DIR_NAME
@@ -70,8 +71,15 @@ DEFAULT_OLLAMA_MAX_PARALLEL: int = 2
 DEFAULT_AI_PREWARM_KEEP_ALIVE: str = "1h"
 DEFAULT_AI_EVICT_KEEP_ALIVE: int = 0
 DEFAULT_AI_MAX_RETRIES: int = 2
+DEFAULT_AI_GATEWAY_PROVIDER: str = "litellm"
 DEFAULT_AI_GATEWAY_URL: str = "http://localhost:4000/v1"
 DEFAULT_AI_GATEWAY_CLUSTER_URL: str = "http://llm-gateway.llm.svc.cluster.local:4000/v1"
+DEFAULT_PORTKEY_GATEWAY_URL: str = "http://localhost:8787/v1"
+DEFAULT_PORTKEY_GATEWAY_CLUSTER_URL: str = "http://portkey.llm.svc.cluster.local:8787/v1"
+DEFAULT_LIGHTLLM_URL: str = "http://localhost:8000/v1"
+DEFAULT_LIGHTLLM_CLUSTER_URL: str = "http://lightllm.llm.svc.cluster.local:8000/v1"
+DEFAULT_VLLM_URL: str = "http://localhost:8000/v1"
+DEFAULT_VLLM_CLUSTER_URL: str = "http://vllm.llm.svc.cluster.local:8000/v1"
 DEFAULT_AI_GATEWAY_ENABLED: bool = False
 DEFAULT_AI_GATEWAY_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS: float = 5.0
@@ -296,6 +304,14 @@ DEFAULT_LLM_MAX_TOKENS: int = 8192
 DEFAULT_AI_TEST_PROMPT: str = "Hello, world!"
 DEFAULT_ESTIMATED_PROMPT_TOKENS: int = 1500
 DEFAULT_MAX_AST_FILE_SIZE_BYTES: int = 5 * 1024 * 1024  # 5MB DoS protection limit
+DEFAULT_OPEN_SOURCE_PRICING_URL: str = (
+    "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+)
+DEFAULT_AI_SPEND_DB_FILENAME: str = "spend.db"
+DEFAULT_AI_PRICING_CATALOG_FILENAME: str = "pricing_catalog.json"
+DEFAULT_AI_PRICING_OVERRIDES_FILENAME: str = "pricing_overrides.json"
+DEFAULT_AI_PRICING_CACHE_TTL_SECONDS: float = 7 * 86400.0  # 7 days
+
 
 # ── Code Review, Scanner & Tooling Defaults ───────────────────────────────────
 DEFAULT_BASE_BRANCH: str = "main"
@@ -588,3 +604,8 @@ DEFAULT_SECURITY_STREAM_TAIL_LINES: int = 100
 # ── Threat Intelligence Distributed Caching Defaults ─────────────────────────
 DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS: int = 86400  # 24 hours
 DEFAULT_THREAT_INTEL_BATCH_SIZE: int = 25
+
+# ── Cognitive Research & Syntopical Defaults ──────────────────────────────────
+DEFAULT_RESEARCH_DIR: str = "./.data/research"
+DEFAULT_SYNTOPICAL_TIMEOUT_SECONDS: float = 30.0
+DEFAULT_SYNTOPICAL_MAX_SOURCES: int = 20

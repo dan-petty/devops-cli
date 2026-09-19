@@ -18,6 +18,7 @@ from devops_cli.ai.client.claude import ClaudeProviderMixin
 from devops_cli.ai.client.models import (
     AIClientError,
     LLMResponse,
+    RequestPriority,
     _is_json_error_payload,
 )
 from devops_cli.ai.client.network import (
@@ -46,6 +47,56 @@ from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_server_from_backend_info(backend_info: str | None, default_host: str) -> str:
+    """Extract host/address from formatted backend_info string, e.g. 'ollama (localhost:11434)'."""
+    if not backend_info:
+        return default_host
+    if "(" in backend_info and ")" in backend_info:
+        return backend_info.split("(", 1)[1].split(")", 1)[0].strip()
+    return backend_info.strip()
+
+
+def _set_timing_span_attributes(span_handle: Any, res: LLMResponse) -> None:
+    """Set latency, duration, and token rate attributes on response span."""
+    if res.eval_duration_ms is not None:
+        span_handle.set_attribute("llm.eval_duration_ms", res.eval_duration_ms)
+        if res.completion_tokens and res.eval_duration_ms > 0:
+            tok_rate = res.completion_tokens / (res.eval_duration_ms / 1000.0)
+            span_handle.set_attribute("gen_ai.token_rate_tok_per_sec", round(tok_rate, 2))
+    if res.prompt_eval_duration_ms is not None:
+        span_handle.set_attribute("llm.prompt_eval_duration_ms", res.prompt_eval_duration_ms)
+    if res.processing_seconds is not None:
+        span_handle.set_attribute("llm.processing_seconds", res.processing_seconds)
+    if res.wall_seconds is not None:
+        span_handle.set_attribute("llm.wall_seconds", res.wall_seconds)
+
+
+def _set_response_span_attributes(span_handle: Any, res: LLMResponse, p: str) -> None:
+    """Set standard GenAI telemetry attributes on response span."""
+    if res.backend_info:
+        span_handle.set_attribute("gen_ai.server.address", res.backend_info)
+    if res.prompt_tokens is not None:
+        span_handle.set_attribute("gen_ai.usage.prompt_tokens", res.prompt_tokens)
+        span_handle.set_attribute("gen_ai.usage.input_tokens", res.prompt_tokens)
+    if res.completion_tokens is not None:
+        span_handle.set_attribute("gen_ai.usage.completion_tokens", res.completion_tokens)
+        span_handle.set_attribute("gen_ai.usage.output_tokens", res.completion_tokens)
+    if res.total_tokens is not None:
+        span_handle.set_attribute("gen_ai.usage.total_tokens", res.total_tokens)
+    _set_timing_span_attributes(span_handle, res)
+    span_handle.set_attribute("gen_ai.response.finish_reasons", ["stop"])
+    span_handle.set_attribute("gen_ai.response_preview", res.text[:200].replace("\n", " ").strip())
+    span_handle.set_attribute("gen_ai.thinking", bool(res.thinking))
+    span_handle.add_event(
+        "llm_response_received",
+        {
+            "total_tokens": res.total_tokens or 0,
+            "wall_seconds": res.wall_seconds or 0.0,
+            "backend": res.backend_info or p,
+        },
+    )
 
 
 class LLMClient(
@@ -290,6 +341,7 @@ class LLMClient(
         messages: list[ChatMessage],
         *,
         enable_thinking: bool = True,
+        priority: RequestPriority | str | None = None,
     ) -> LLMResponse:
         p = self._config.provider
         start = time.perf_counter()
@@ -298,6 +350,12 @@ class LLMClient(
             if m.role == "user":
                 prompt_preview = m.content[:200].replace("\n", " ").strip()
                 break
+
+        resolved_priority = (
+            RequestPriority(priority)
+            if isinstance(priority, str)
+            else (priority or network.current_request_priority.get())
+        )
 
         with trace_span(
             "ai.llm.dispatch",
@@ -308,62 +366,18 @@ class LLMClient(
                 "gen_ai.request.message_count": len(messages),
                 "gen_ai.request.system_prompt_length": len(system),
                 "gen_ai.request.enable_thinking": enable_thinking,
+                "gen_ai.request.priority": resolved_priority.value,
                 "gen_ai.prompt_preview": prompt_preview,
                 "provider": p,
                 "model": self._config.model,
             },
         ) as span_handle:
-            if p == "ollama":
-                res = self._ollama_messages(system, messages, enable_thinking=enable_thinking)
-            elif p == "claude":
-                res = self._claude_messages(system, messages, enable_thinking=enable_thinking)
-            elif p in ("copilot", "github_copilot", "openai", "gateway"):
-                res = self._openai_compat_messages(
-                    system, messages, enable_thinking=enable_thinking
-                )
-            else:
-                raise LLMInferenceError(
-                    f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai, gateway",
-                    provider=p,
-                )
-
-            if res.backend_info:
-                span_handle.set_attribute("gen_ai.server.address", res.backend_info)
-            if res.prompt_tokens is not None:
-                span_handle.set_attribute("gen_ai.usage.prompt_tokens", res.prompt_tokens)
-                span_handle.set_attribute("gen_ai.usage.input_tokens", res.prompt_tokens)
-            if res.completion_tokens is not None:
-                span_handle.set_attribute("gen_ai.usage.completion_tokens", res.completion_tokens)
-                span_handle.set_attribute("gen_ai.usage.output_tokens", res.completion_tokens)
-            if res.total_tokens is not None:
-                span_handle.set_attribute("gen_ai.usage.total_tokens", res.total_tokens)
-            if res.eval_duration_ms is not None:
-                span_handle.set_attribute("llm.eval_duration_ms", res.eval_duration_ms)
-                if res.completion_tokens and res.eval_duration_ms > 0:
-                    tok_rate = res.completion_tokens / (res.eval_duration_ms / 1000.0)
-                    span_handle.set_attribute("gen_ai.token_rate_tok_per_sec", round(tok_rate, 2))
-            if res.prompt_eval_duration_ms is not None:
-                span_handle.set_attribute(
-                    "llm.prompt_eval_duration_ms", res.prompt_eval_duration_ms
-                )
-            if res.processing_seconds is not None:
-                span_handle.set_attribute("llm.processing_seconds", res.processing_seconds)
-            if res.wall_seconds is not None:
-                span_handle.set_attribute("llm.wall_seconds", res.wall_seconds)
-
-            span_handle.set_attribute("gen_ai.response.finish_reasons", ["stop"])
-            span_handle.set_attribute(
-                "gen_ai.response_preview", res.text[:200].replace("\n", " ").strip()
+            res = self._invoke_provider_messages(
+                p, system, messages, enable_thinking, resolved_priority
             )
-            span_handle.set_attribute("gen_ai.thinking", bool(res.thinking))
-
-            span_handle.add_event(
-                "llm_response_received",
-                {
-                    "total_tokens": res.total_tokens or 0,
-                    "wall_seconds": res.wall_seconds or 0.0,
-                    "backend": res.backend_info or p,
-                },
+            duration = time.perf_counter() - start
+            self._record_response_telemetry_and_spend(
+                span_handle, res, p, messages, system, duration
             )
 
         duration = time.perf_counter() - start
@@ -374,6 +388,66 @@ class LLMClient(
             attributes={"provider": p, "model": self._config.model},
         )
         return res
+
+    def _invoke_provider_messages(
+        self,
+        p: str,
+        system: str,
+        messages: list[ChatMessage],
+        enable_thinking: bool,
+        resolved_priority: RequestPriority,
+    ) -> LLMResponse:
+        """Dispatch messages to configured provider driver."""
+        if p == "ollama":
+            return self._ollama_messages(
+                system, messages, enable_thinking=enable_thinking, priority=resolved_priority
+            )
+        if p == "claude":
+            return self._claude_messages(system, messages, enable_thinking=enable_thinking)
+        if p in ("copilot", "github_copilot", "openai", "gateway"):
+            return self._openai_compat_messages(system, messages, enable_thinking=enable_thinking)
+        raise LLMInferenceError(
+            f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai, gateway",
+            provider=p,
+        )
+
+    def _record_response_telemetry_and_spend(
+        self,
+        span_handle: Any,
+        res: LLMResponse,
+        p: str,
+        messages: list[ChatMessage],
+        system: str,
+        duration: float,
+    ) -> None:
+        """Record response attributes, spend calculation, and OpenTelemetry metrics."""
+        _set_response_span_attributes(span_handle, res, p)
+        srv = _extract_server_from_backend_info(res.backend_info, self.backend_host)
+        from devops_cli.ai.context_budget import count_tokens
+        from devops_cli.ai.spend import track_request_spend
+
+        p_tokens = (
+            res.prompt_tokens
+            if res.prompt_tokens is not None
+            else sum(count_tokens(m.content) for m in messages)
+            + (count_tokens(system) if system else 0)
+        )
+        c_tokens = (
+            res.completion_tokens if res.completion_tokens is not None else count_tokens(res.text)
+        )
+        rec = track_request_spend(
+            provider=p,
+            model=self._config.model,
+            server=srv,
+            backend_info=res.backend_info or self.backend_info,
+            prompt_tokens=p_tokens,
+            completion_tokens=c_tokens,
+            cached=res.cached,
+            request_type="chat_dispatch",
+            duration_seconds=res.wall_seconds or duration,
+        )
+        if rec is not None:
+            span_handle.set_attribute("gen_ai.usage.cost_usd", rec.cost_usd)
 
     def chat(
         self,
@@ -387,6 +461,7 @@ class LLMClient(
         starting_point: str | None = None,
         context_tag: str | None = None,
         append_cache: bool | None = None,
+        priority: RequestPriority | str | None = RequestPriority.HIGH,
     ) -> LLMResponse:
         """Send a single-turn chat message and return the assistant reply."""
         return self.chat_messages(
@@ -399,6 +474,7 @@ class LLMClient(
             starting_point=starting_point,
             context_tag=context_tag,
             append_cache=append_cache,
+            priority=priority,
         )
 
     def _record_chat_telemetry(self, span_h: Any, res: LLMResponse) -> None:
@@ -511,12 +587,18 @@ class LLMClient(
         enable_thinking: bool,
         context_tag: str | None,
         span_h: Any,
+        priority: RequestPriority | str | None = None,
     ) -> LLMResponse:
         """Execute chat dispatch across retries with validation and error tracking."""
         last_exc: Exception | None = None
         for attempt in range(1, attempts + 1):
             try:
-                res = self._dispatch_messages(system, out_messages, enable_thinking=enable_thinking)
+                res = self._dispatch_messages(
+                    system,
+                    out_messages,
+                    enable_thinking=enable_thinking,
+                    priority=priority,
+                )
                 if not self._validate_response_text(res, validator):
                     m = self._config.model
                     msg = f"Response validation failed for model '{m}' (attempt {attempt}/{attempts})."
@@ -553,12 +635,19 @@ class LLMClient(
         starting_point: str | None = None,
         context_tag: str | None = None,
         append_cache: bool | None = None,
+        priority: RequestPriority | str | None = None,
     ) -> LLMResponse:
         """Send a multi-turn chat request with response validation, caching, and retries."""
         eff_append = self._append_cache if append_cache is None else append_cache
         eff_start = starting_point
         if eff_start is None and context_tag:
             eff_start = self._cache.get_starting_point(context_tag=context_tag)
+
+        resolved_p = (
+            RequestPriority(priority)
+            if isinstance(priority, str)
+            else (priority or network.current_request_priority.get())
+        )
 
         if eff_append and eff_start is None and use_cache:
             unaugmented_key = self._cache.generate_key(
@@ -586,6 +675,7 @@ class LLMClient(
             attributes={
                 "gen_ai.system": self._config.provider,
                 "gen_ai.request.model": self._config.model,
+                "gen_ai.request.priority": resolved_p.value,
                 "gen_ai.enable_thinking": enable_thinking,
                 "use_cache": use_cache,
                 "append_cache": eff_append,
@@ -607,6 +697,7 @@ class LLMClient(
                 enable_thinking=enable_thinking,
                 context_tag=context_tag,
                 span_h=span_h,
+                priority=resolved_p,
             )
 
     def _dispatch_stream(
@@ -615,11 +706,14 @@ class LLMClient(
         messages: list[ChatMessage],
         *,
         enable_thinking: bool = True,
+        priority: RequestPriority | str | None = None,
     ) -> Generator[str]:
         """Dispatch streaming request to appropriate provider handler."""
         p = self._config.provider
         if p == "ollama":
-            return self._ollama_stream(system, messages, enable_thinking=enable_thinking)
+            return self._ollama_stream(
+                system, messages, enable_thinking=enable_thinking, priority=priority
+            )
         if p == "claude":
             return self._claude_stream(system, messages, enable_thinking=enable_thinking)
         if p in ("copilot", "github_copilot", "openai", "gateway"):
@@ -635,6 +729,7 @@ class LLMClient(
         *,
         enable_thinking: bool = True,
         sanitize: bool = False,
+        priority: RequestPriority | str | None = RequestPriority.HIGH,
     ) -> Generator[str]:
         """Send a single-turn chat message and yield streaming tokens as they arrive."""
         yield from self.chat_messages_stream(
@@ -642,6 +737,7 @@ class LLMClient(
             [ChatMessage(role="user", content=user)],
             enable_thinking=enable_thinking,
             sanitize=sanitize,
+            priority=priority,
         )
 
     def _record_first_token(
@@ -661,39 +757,85 @@ class LLMClient(
         *,
         enable_thinking: bool = True,
         sanitize: bool = False,
+        priority: RequestPriority | str | None = None,
     ) -> Generator[str]:
         """Send a multi-turn conversation and yield streaming tokens as they arrive."""
         p = self._config.provider
         t_start = time.perf_counter()
         first_token_time: float | None = None
         token_chunks_count = 0
+        resolved_p = (
+            RequestPriority(priority)
+            if isinstance(priority, str)
+            else (priority or network.current_request_priority.get())
+        )
 
         with trace_span(
             "gen_ai.stream",
             attributes={
                 "gen_ai.system": p,
                 "gen_ai.request.model": self._config.model,
+                "gen_ai.request.priority": resolved_p.value,
                 "gen_ai.enable_thinking": enable_thinking,
                 "gen_ai.sanitize": sanitize,
             },
         ) as span_h:
             try:
-                gen = self._dispatch_stream(system, messages, enable_thinking=enable_thinking)
+                gen = self._dispatch_stream(
+                    system, messages, enable_thinking=enable_thinking, priority=resolved_p
+                )
                 if sanitize:
                     from devops_cli.ai.client.streaming import StreamingTokenProcessor
 
                     gen = StreamingTokenProcessor().sanitize_stream(gen)
+                accumulated_chunks: list[str] = []
                 for chunk in gen:
                     first_token_time = self._record_first_token(span_h, t_start, first_token_time)
                     token_chunks_count += 1
+                    accumulated_chunks.append(chunk)
                     yield chunk
 
                 total_dur = time.perf_counter() - t_start
                 span_h.set_attribute("gen_ai.stream_chunks_count", token_chunks_count)
                 span_h.set_attribute("gen_ai.wall_seconds", total_dur)
+                self._record_stream_spend(
+                    span_h, p, messages, system, "".join(accumulated_chunks), total_dur
+                )
             except Exception as exc:
                 span_h.record_exception(exc)
                 raise
+
+    def _record_stream_spend(
+        self,
+        span_h: Any,
+        p: str,
+        messages: list[ChatMessage],
+        system: str,
+        accumulated_text: str,
+        total_dur: float,
+    ) -> None:
+        """Record streaming request spend to ledger and telemetry."""
+        from devops_cli.ai.context_budget import count_tokens
+        from devops_cli.ai.spend import track_request_spend
+
+        srv = _extract_server_from_backend_info(self.backend_info, self.backend_host)
+        p_tokens = sum(count_tokens(m.content) for m in messages) + (
+            count_tokens(system) if system else 0
+        )
+        c_tokens = count_tokens(accumulated_text)
+        rec = track_request_spend(
+            provider=p,
+            model=self._config.model,
+            server=srv,
+            backend_info=self.backend_info,
+            prompt_tokens=p_tokens,
+            completion_tokens=c_tokens,
+            cached=False,
+            request_type="stream",
+            duration_seconds=total_dur,
+        )
+        if rec is not None:
+            span_h.set_attribute("gen_ai.usage.cost_usd", rec.cost_usd)
 
     def list_models(self) -> list[str]:
         """List available models for the current provider."""

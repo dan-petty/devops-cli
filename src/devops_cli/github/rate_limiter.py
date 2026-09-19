@@ -637,9 +637,11 @@ class GitHubRateLimiter:
         self._is_refreshing: bool = False
         self._total_requests: int = 0
         self._last_request_epoch: float = 0.0
+        self._last_disk_prune_epoch: float = 0.0
         self._quotas: dict[str, QuotaState] = {}
         if persist_path:
             self._sync_from_disk_locked()
+            self.prune_expired_cache()
 
     def get_async_limiter(self, subcommand: str = "core") -> AsyncLimiter:
         """Retrieve or create an aiolimiter.AsyncLimiter instance for the resource."""
@@ -1049,6 +1051,8 @@ class GitHubRateLimiter:
             if self.persist_path:
                 cache_dir = self.persist_path.parent / "responses"
                 _save_disk_cache(cache_dir, key, entry)
+                if time.time() - self._last_disk_prune_epoch > DEFAULT_GH_CACHE_TTL_SECONDS:
+                    self.prune_expired_cache()
 
     def clear_cache(self) -> None:
         """Clear all in-memory and persistent cached responses."""
@@ -1057,6 +1061,45 @@ class GitHubRateLimiter:
             if self.persist_path:
                 cache_dir = self.persist_path.parent / "responses"
                 shutil.rmtree(cache_dir, ignore_errors=True)
+
+    def prune_expired_cache(self) -> int:
+        """Prune expired in-memory entries and disk response cache files."""
+        with self._lock:
+            now = time.time()
+            self._last_disk_prune_epoch = now
+            expired_keys = [k for k, v in self._cache.items() if now > v.expires_at]
+            for k in expired_keys:
+                del self._cache[k]
+            disk_pruned = 0
+            if self.persist_path:
+                cache_dir = self.persist_path.parent / "responses"
+                disk_pruned = _prune_disk_cache(cache_dir, now=now)
+            return len(expired_keys) + disk_pruned
+
+
+def _is_expired_or_corrupt(entry_file: Path, now: float) -> bool:
+    """Check if cache file is expired or corrupted."""
+    try:
+        data = json.loads(entry_file.read_text(encoding="utf-8"))
+        return now > float(data.get("expires_at", 0.0))
+    except OSError, ValueError, TypeError:
+        return True
+
+
+def _prune_disk_cache(cache_dir: Path, now: float | None = None) -> int:
+    """Prune expired cache files from response cache directory, returning count of removed files."""
+    if not cache_dir.is_dir():
+        return 0
+    removed = 0
+    current_time = time.time() if now is None else now
+    try:
+        for entry_file in cache_dir.glob("*.json"):
+            if _is_expired_or_corrupt(entry_file, current_time):
+                entry_file.unlink(missing_ok=True)
+                removed += 1
+    except OSError:
+        pass
+    return removed
 
 
 def _load_disk_cache(cache_dir: Path, key: str) -> _CacheEntry | None:

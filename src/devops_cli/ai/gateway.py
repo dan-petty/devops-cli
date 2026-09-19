@@ -20,7 +20,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.router import TaskComplexity
 from devops_cli.config.constants import (
+    CONST_AI_BACKEND_LIGHTLLM,
+    CONST_AI_BACKENDS,
     CONST_AI_GATEWAY_PROVIDER,
+    CONST_AI_GATEWAY_PROVIDER_LITELLM,
+    CONST_AI_GATEWAY_PROVIDER_PORTKEY,
+    CONST_AI_GATEWAY_PROVIDERS,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
     CONST_TASK_TAXONOMY_CODER,
     CONST_TASK_TAXONOMY_EMBEDDING,
@@ -29,6 +34,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
     DEFAULT_AI_GATEWAY_URL,
+    DEFAULT_PORTKEY_GATEWAY_URL,
 )
 from devops_cli.config.settings import AIConfig, load_settings
 from devops_cli.core.validation import validate_url_egress
@@ -49,6 +55,33 @@ DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
         "target_model": "qwen2.5-coder:14b",
         "backend_type": "ollama",
         "backend_url": "http://ollama.llm.svc.cluster.local:11434",
+    },
+    {
+        "virtual_model": "devops-reasoning",
+        "target_model": "llama-3.3-70b-instruct",
+        "backend_type": "vllm",
+        "backend_url": "http://vllm.llm.svc.cluster.local:8000/v1",
+    },
+    {
+        "virtual_model": "devops-embedding",
+        "target_model": "bge-m3",
+        "backend_type": "ollama",
+        "backend_url": "http://ollama.llm.svc.cluster.local:11434",
+    },
+)
+
+DEFAULT_PORTKEY_ROUTES: Final[tuple[dict[str, str], ...]] = (
+    {
+        "virtual_model": "devops-chat",
+        "target_model": "qwen2.5-coder:7b",
+        "backend_type": "ollama",
+        "backend_url": "http://ollama.llm.svc.cluster.local:11434",
+    },
+    {
+        "virtual_model": "devops-coder",
+        "target_model": "qwen2.5-coder:14b",
+        "backend_type": "lightllm",
+        "backend_url": "http://lightllm.llm.svc.cluster.local:8000/v1",
     },
     {
         "virtual_model": "devops-reasoning",
@@ -98,9 +131,16 @@ class GatewayStatus(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
-def _build_default_routes() -> list[GatewayRoute]:
-    """Construct default virtual model routes based on cluster specification."""
-    return [GatewayRoute(**route) for route in DEFAULT_GATEWAY_ROUTES]
+def _build_default_routes(
+    provider: str = CONST_AI_GATEWAY_PROVIDER_LITELLM,
+) -> list[GatewayRoute]:
+    """Construct default virtual model routes based on provider specification."""
+    routes_tuple = (
+        DEFAULT_PORTKEY_ROUTES
+        if provider == CONST_AI_GATEWAY_PROVIDER_PORTKEY
+        else DEFAULT_GATEWAY_ROUTES
+    )
+    return [GatewayRoute(**route) for route in routes_tuple]
 
 
 def _count_backends(routes: list[GatewayRoute]) -> dict[str, int]:
@@ -188,6 +228,24 @@ def _resolve_fallback_physical_route(
     return "qwen2.5-coder:7b", "ollama", "http://ollama.llm.svc.cluster.local:11434"
 
 
+def _parse_remote_model_items(data: list[dict[str, Any]], clean_url: str) -> list[GatewayRoute]:
+    """Parse list of remote model objects into GatewayRoutes."""
+    routes: list[GatewayRoute] = []
+    for item in data:
+        m_name = item.get("model_name") or item.get("id") or "unknown"
+        params = item.get("litellm_params", {})
+        routes.append(
+            GatewayRoute(
+                virtual_model=m_name,
+                target_model=params.get("model", m_name),
+                backend_type="remote",
+                backend_url=params.get("api_base", clean_url),
+                healthy=True,
+            )
+        )
+    return routes
+
+
 def _fetch_remote_routes(gateway_url: str, allow_private: bool) -> list[GatewayRoute] | None:
     """Attempt live query against LiteLLM models API to discover runtime routes."""
     try:
@@ -202,31 +260,41 @@ def _fetch_remote_routes(gateway_url: str, allow_private: bool) -> list[GatewayR
             data = resp.json().get("data", [])
             if not isinstance(data, list) or not data:
                 return None
-            routes: list[GatewayRoute] = []
-            for item in data:
-                m_name = item.get("model_name") or item.get("id") or "unknown"
-                params = item.get("litellm_params", {})
-                routes.append(
-                    GatewayRoute(
-                        virtual_model=m_name,
-                        target_model=params.get("model", m_name),
-                        backend_type="remote",
-                        backend_url=params.get("api_base", clean_url),
-                        healthy=True,
-                    )
-                )
+            routes = _parse_remote_model_items(data, clean_url)
             return routes or None
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed to query live models API at %s: %s", gateway_url, exc)
         return None
 
 
-def _execute_kubectl_scale(replicas: int, namespace: str) -> tuple[str, dict[str, Any]]:
+def _probe_gateway_http(
+    client: httpx2.Client, probe_base: str, provider: str
+) -> tuple[bool, int, str | None]:
+    """Execute HTTP health check against gateway provider endpoints."""
+    try:
+        if provider == CONST_AI_GATEWAY_PROVIDER_PORTKEY:
+            resp = client.get(f"{probe_base}/health")
+            if resp.status_code != 200:
+                resp = client.get(f"{probe_base}/v1/health")
+        else:
+            resp = client.get(f"{probe_base}/health/readiness")
+            if resp.status_code != 200:
+                resp = client.get(f"{probe_base}/health")
+        code = resp.status_code
+        return (code < 400, code, None)
+    except (httpx2.HTTPError, OSError) as exc:
+        return (False, 0, str(exc)[:256])
+
+
+def _execute_kubectl_scale(
+    deployment: str, replicas: int, namespace: str
+) -> tuple[str, dict[str, Any]]:
     """Execute kubectl scale deployment command with bounded timeout."""
     cmd = [
         "kubectl",
         "scale",
         "deployment",
-        "vllm",
+        deployment,
         f"--namespace={namespace}",
         f"--replicas={replicas}",
     ]
@@ -240,20 +308,28 @@ def _execute_kubectl_scale(replicas: int, namespace: str) -> tuple[str, dict[str
 
 
 class GatewayRouter:
-    """Manages OpenAI-compatible LiteLLM Gateway routing, health probing, and failovers."""
+    """Manages OpenAI-compatible AI Gateway routing, health probing, and failovers."""
 
     def __init__(
-        self, config: AIConfig | None = None, state_file: Path | str | None = None
+        self,
+        config: AIConfig | None = None,
+        state_file: Path | str | None = None,
+        provider: str | None = None,
     ) -> None:
         self.config = config or AIConfig()
+        self.provider: str = provider or self.config.gateway_provider
         self.state_file = Path(state_file) if state_file else _resolve_state_file()
         cb_active, loaded_routes = _load_gateway_state(self.state_file)
         self._circuit_breaker_active: bool = cb_active
-        self._active_routes: list[GatewayRoute] = loaded_routes or _build_default_routes()
+        self._active_routes: list[GatewayRoute] = loaded_routes or _build_default_routes(
+            self.provider
+        )
 
     @property
     def gateway_url(self) -> str:
-        """Resolve effective gateway base URL."""
+        """Resolve effective gateway base URL based on active provider."""
+        if self.provider == CONST_AI_GATEWAY_PROVIDER_PORTKEY:
+            return self.config.portkey_url or DEFAULT_PORTKEY_GATEWAY_URL
         return self.config.gateway_url or DEFAULT_AI_GATEWAY_URL
 
     def list_routes(self, gateway_url: str | None = None) -> list[GatewayRoute]:
@@ -268,28 +344,23 @@ class GatewayRouter:
         self,
         gateway_url: str | None = None,
         timeout: float = DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
+        provider: str | None = None,
     ) -> GatewayStatus:
         """Probe gateway health endpoint and latency with OpenTelemetry tracing."""
+        if provider and provider in CONST_AI_GATEWAY_PROVIDERS:
+            self.provider = provider
         raw_url = (gateway_url or self.gateway_url).rstrip("/")
         validate_url_egress(
             raw_url, purpose="AI gateway", allow_private=self.config.allow_private_network
         )
         probe_base = raw_url[:-3] if raw_url.endswith("/v1") else raw_url
 
-        with trace_span("ai.gateway.probe", {"gateway.url": raw_url}) as span_h:
+        with trace_span(
+            "ai.gateway.probe", {"gateway.url": raw_url, "gateway.provider": self.provider}
+        ) as span_h:
             start = time.perf_counter()
-            is_ok = False
-            status_code = 0
-            err_msg: str | None = None
-            try:
-                with httpx2.Client(timeout=timeout) as client:
-                    resp = client.get(f"{probe_base}/health/readiness")
-                    if resp.status_code != 200:
-                        resp = client.get(f"{probe_base}/health")
-                    status_code = resp.status_code
-                    is_ok = status_code < 400
-            except (httpx2.HTTPError, OSError) as exc:
-                err_msg = str(exc)[:256]
+            with httpx2.Client(timeout=timeout) as client:
+                is_ok, status_code, err_msg = _probe_gateway_http(client, probe_base, self.provider)
 
             latency = round((time.perf_counter() - start) * 1000, 2)
             self._circuit_breaker_active = not is_ok
@@ -433,7 +504,7 @@ class GatewayRouter:
         ):
             record_metric("ai.gateway.vllm_replicas", effective_replicas)
             if replicas is not None and apply:
-                status, details = _execute_kubectl_scale(effective_replicas, namespace)
+                status, details = _execute_kubectl_scale("vllm", effective_replicas, namespace)
             else:
                 status = "inspected" if replicas is None else "simulated"
                 details = {}
@@ -450,3 +521,137 @@ class GatewayRouter:
                 "status": status,
                 "details": details,
             }
+
+    def scale_lightllm(
+        self,
+        replicas: int | None = None,
+        tensor_parallel_size: int | None = None,
+        max_model_len: int | None = None,
+        apply: bool = False,
+        namespace: str = "llm",
+    ) -> dict[str, Any]:
+        """Inspect or scale LightLLM high-throughput serving parameters."""
+        effective_replicas = replicas if replicas is not None else 1
+        effective_tp = tensor_parallel_size if tensor_parallel_size is not None else 1
+        effective_max_len = max_model_len if max_model_len is not None else 8192
+        vram_per_replica = effective_tp * 24
+        total_vram_gb = effective_replicas * vram_per_replica
+
+        with trace_span(
+            "ai.gateway.scale_lightllm",
+            {
+                "replicas": effective_replicas,
+                "tensor_parallel_size": effective_tp,
+                "apply": apply,
+            },
+        ):
+            record_metric("ai.gateway.lightllm_replicas", effective_replicas)
+            if replicas is not None and apply:
+                status, details = _execute_kubectl_scale("lightllm", effective_replicas, namespace)
+            else:
+                status = "inspected" if replicas is None else "simulated"
+                details = {}
+
+            return {
+                "backend": "lightllm",
+                "model": "casperhansen/llama-3.3-70b-instruct-awq",
+                "served_model_name": "llama-3.3-70b-instruct",
+                "replicas": effective_replicas,
+                "tensor_parallel_size": effective_tp,
+                "max_model_len": effective_max_len,
+                "vram_per_replica_gb": vram_per_replica,
+                "total_vram_gb": total_vram_gb,
+                "status": status,
+                "details": details,
+            }
+
+    def probe_backend(
+        self,
+        backend_type: str,
+        backend_url: str | None = None,
+        timeout: float = DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
+    ) -> dict[str, Any]:
+        """Probe an individual inference backend (vllm, lightllm, ollama) directly."""
+        clean_type = backend_type.lower()
+        if clean_type not in CONST_AI_BACKENDS:
+            raise ValidationError(
+                f"Unknown backend type '{backend_type}'. Expected one of {CONST_AI_BACKENDS}.",
+                field="backend_type",
+            )
+
+        resolved_url = _resolve_backend_url(self.config, clean_type, backend_url)
+        raw_url = resolved_url.rstrip("/")
+        validate_url_egress(
+            raw_url,
+            purpose=f"AI backend {clean_type}",
+            allow_private=self.config.allow_private_network,
+        )
+        probe_base = raw_url[:-3] if raw_url.endswith("/v1") else raw_url
+
+        start = time.perf_counter()
+        is_ok, status_code, err_msg, models = _probe_backend_http(probe_base, clean_type, timeout)
+        latency = round((time.perf_counter() - start) * 1000, 2)
+
+        return {
+            "backend": clean_type,
+            "backend_type": clean_type,
+            "url": raw_url,
+            "healthy": is_ok,
+            "latency_ms": latency if is_ok else 0.0,
+            "status_code": status_code,
+            "error": err_msg,
+            "model_count": len(models),
+            "models": models,
+        }
+
+
+def _resolve_backend_url(config: AIConfig, clean_type: str, backend_url: str | None) -> str:
+    """Resolve backend target URL from override or AIConfig defaults."""
+    if backend_url:
+        return backend_url
+    if clean_type == CONST_AI_BACKEND_LIGHTLLM:
+        return config.lightllm_url
+    if clean_type == "ollama":
+        return config.get_ollama_urls[0]
+    return config.vllm_url
+
+
+def _probe_backend_http(
+    probe_base: str, clean_type: str, timeout: float
+) -> tuple[bool, int, str | None, list[str]]:
+    """Execute HTTP health and model queries against an inference backend."""
+    status_code = 0
+    err_msg: str | None = None
+    models: list[str] = []
+    try:
+        with httpx2.Client(timeout=timeout) as client:
+            resp = client.get(f"{probe_base}/health")
+            if resp.status_code != 200:
+                resp = client.get(f"{probe_base}/v1/models")
+            status_code = resp.status_code
+            is_ok = status_code < 400
+            if is_ok:
+                models = _fetch_backend_models(client, probe_base, clean_type)
+            return is_ok, status_code, None, models
+    except (httpx2.HTTPError, OSError) as exc:
+        err_msg = str(exc)[:256]
+        return False, status_code, err_msg, []
+
+
+def _fetch_backend_models(client: httpx2.Client, probe_base: str, backend_type: str) -> list[str]:
+    """Fetch registered models from inference backend endpoint."""
+    url = f"{probe_base}/api/tags" if backend_type == "ollama" else f"{probe_base}/v1/models"
+    try:
+        resp = client.get(url)
+        if resp.status_code >= 400:
+            return []
+        data = resp.json()
+        if "data" in data and isinstance(data["data"], list):
+            return [m.get("id", "") for m in data["data"] if isinstance(m, dict) and "id" in m]
+        if "models" in data and isinstance(data["models"], list):
+            return [
+                m.get("name", "") for m in data["models"] if isinstance(m, dict) and "name" in m
+            ]
+    except httpx2.HTTPError, OSError, ValueError:
+        return []
+    return []

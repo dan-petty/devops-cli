@@ -364,6 +364,25 @@ def _generate_pseudocode(
     return [first_line] if first_line else [f"{Path(rel_path).name} structural entry point"]
 
 
+def _extract_semantic_outline_meta(rel_path: str, repo_root: Path | None) -> dict[str, Any] | None:
+    """Safely extract Level 0 semantic outline metadata for pre-analysis when file exists on disk."""
+    if not repo_root:
+        return None
+    target_file = repo_root / rel_path
+    if not target_file.is_file():
+        return None
+    try:
+        from devops_cli.ai.inspection import FocalLevel, generate_semantic_outline
+
+        outline = generate_semantic_outline(
+            target_file, level=FocalLevel.TOPOLOGY, repo_root=repo_root
+        )
+        return outline.model_dump()
+    except Exception as exc:
+        logger.debug("Failed to generate semantic outline for %s: %s", rel_path, exc)
+        return None
+
+
 def analyze_single_file(
     rel_path: str,
     content: str,
@@ -424,6 +443,7 @@ def analyze_single_file(
         confidence_score = None
         quality_score = None
 
+    semantic_outline = _extract_semantic_outline_meta(rel_path, repo_root) if enhanced else None
     content_hash = hashlib.sha256(content.encode("utf-8"), usedforsecurity=False).hexdigest()
     return FileAnalysisMeta(
         path=rel_path,
@@ -442,4 +462,5 @@ def analyze_single_file(
         confidence_score=confidence_score,
         quality_score=quality_score,
         content_hash=content_hash,
+        semantic_outline=semantic_outline,
     )

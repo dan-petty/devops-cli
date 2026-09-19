@@ -1,0 +1,88 @@
+# Portkey AI Gateway Deployment.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portkey
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: portkey
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: portkey
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: portkey
+        app.kubernetes.io/part-of: devops-cli-stack
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: portkey
+          image: portkeyai/gateway:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PORT
+              value: "8787"
+            - name: CACHE_STORE
+              value: "redis"
+            - name: REDIS_URL
+              value: "redis://valkey.llm.svc.cluster.local:6379"
+            - name: HTTP_PROXY
+              value: "http://squid.squid.svc.cluster.local:3128"
+            - name: HTTPS_PROXY
+              value: "http://squid.squid.svc.cluster.local:3128"
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,portkey.llm.svc.cluster.local,llm-gateway.llm.svc.cluster.local,ollama.llm.svc.cluster.local,vllm.llm.svc.cluster.local,lightllm.llm.svc.cluster.local,valkey.llm.svc.cluster.local"
+          ports:
+            - name: http
+              containerPort: 8787
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config.json
+              subPath: config.json
+              readOnly: true
+            - name: tmp-volume
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8787
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8787
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+      volumes:
+        - name: config-volume
+          configMap:
+            name: portkey-config
+        - name: tmp-volume
+          emptyDir: {}

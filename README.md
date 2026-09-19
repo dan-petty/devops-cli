@@ -291,6 +291,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai repomap [OPTIONS]` | Generate compact whole-repository AST symbol and relationship map. |
 |  | `devops ai audit-library-usage [OPTIONS]` | Audit workspace code for library API drift and deprecated calls. |
 |  | `devops ai pack-context [OPTIONS] <target_path>` | Pack and prune source code context to fit token budget while preserving signatures. |
+|  | `devops ai read [OPTIONS] <target_path>` | Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window). |
 |  | `devops ai diagram [OPTIONS] <diagram_type>` | Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams. |
 |  | `devops ai prompt-eval [OPTIONS]` | Benchmark persona prompt variations against verified review feedback datasets. |
 |  | `devops ai test-gen [OPTIONS] <target_file>` | Synthesize isolated pytest unit test suites for functions or source files. |
@@ -308,6 +309,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai ingest COMMAND [ARGS]...` | Ingest library API contracts, type stubs, and documentation. |
 |  | `devops ai ast COMMAND [ARGS]...` | Tree-Sitter multilingual AST concrete syntax tree parsing and code graph synthesis. |
 |  | `devops ai gateway COMMAND [ARGS]...` | LLM Gateway and distributed inference mesh management. |
+|  | `devops ai cost [OPTIONS] COMMAND [ARGS]...` | Track approximate lifetime spend and manage model pricing. |
+|  | `devops ai spend [OPTIONS] COMMAND [ARGS]...` | Alias for 'cost' command. |
 | **review** | `devops review path [OPTIONS] <targets>` | Review source files directly (no git required). |
 |  | `devops review branch [OPTIONS] <branch_name>` | Review a git branch diff with one or all AI personas. |
 |  | `devops review pr [OPTIONS] <number>` | Review a GitHub pull request with one or all AI personas. |
@@ -331,6 +334,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops release notes [OPTIONS]` | Print markdown release notes for a specified or current release version. |
 |  | `devops release changelog [OPTIONS]` | Compile and generate changelog entries from git commits or PR deliverables. |
 |  | `devops release tag [OPTIONS]` | Create release commit and annotated git tag. |
+|  | `devops release epic [OPTIONS] <version>` | Provision, correlate, and synchronize parent release tracking epics for milestones. |
 | **pr** | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |

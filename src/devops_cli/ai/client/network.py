@@ -7,15 +7,17 @@ import logging
 import os
 import tempfile
 import threading
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx2
 
-from devops_cli.ai.client.models import AIClientError
+from devops_cli.ai.client.models import AIClientError, RequestPriority
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +26,28 @@ active_ollama_requests: dict[str, int] = {}
 ollama_active_lock = threading.Lock()
 ollama_semaphores: dict[str, threading.Semaphore] = {}
 ollama_sem_lock = threading.Lock()
+ollama_slot_condition = threading.Condition(threading.Lock())
+waiting_priority_requests: dict[RequestPriority, int] = {
+    RequestPriority.HIGH: 0,
+    RequestPriority.NORMAL: 0,
+    RequestPriority.AS_AVAILABLE: 0,
+}
+current_request_priority: ContextVar[RequestPriority] = ContextVar(
+    "current_request_priority", default=RequestPriority.NORMAL
+)
 global_ollama_url_index: int = 0
 global_ollama_url_lock = threading.Lock()
+
+
+@contextmanager
+def request_priority_scope(priority: RequestPriority | str) -> Generator[None]:
+    """Set the request priority for the current task or thread context."""
+    p = RequestPriority(priority) if isinstance(priority, str) else priority
+    token = current_request_priority.set(p)
+    try:
+        yield
+    finally:
+        current_request_priority.reset(token)
 
 
 def load_and_increment_rr_index(n: int) -> int:
@@ -63,19 +85,148 @@ def get_ollama_semaphore(url: str, max_parallel: int) -> threading.Semaphore:
         return ollama_semaphores[url]
 
 
+def _is_priority_eligible(priority: RequestPriority) -> bool:
+    """Check if priority tier is eligible without higher-priority starvation."""
+    if priority == RequestPriority.HIGH:
+        return True
+    if priority == RequestPriority.NORMAL:
+        return waiting_priority_requests.get(RequestPriority.HIGH, 0) == 0
+    return (
+        waiting_priority_requests.get(RequestPriority.HIGH, 0) == 0
+        and waiting_priority_requests.get(RequestPriority.NORMAL, 0) == 0
+    )
+
+
+def _find_available_slot(
+    candidates: list[str],
+    max_parallel: int,
+    priority: RequestPriority = RequestPriority.NORMAL,
+) -> str | None:
+    """Find candidate URL with active request count below limit and lowest load, respecting priority."""
+    if not _is_priority_eligible(priority):
+        return None
+
+    cap = max_parallel
+    if priority == RequestPriority.AS_AVAILABLE and max_parallel > 1:
+        cap = max(1, max_parallel - 1)
+
+    best_url: str | None = None
+    best_active = cap
+    for url in candidates:
+        active = active_ollama_requests.get(url, 0)
+        if active < best_active:
+            best_url = url
+            best_active = active
+    return best_url
+
+
+def _wait_for_slot(
+    candidates: list[str],
+    max_parallel: int,
+    priority: RequestPriority,
+    deadline: float,
+    eff_timeout: float,
+) -> str:
+    """Wait on condition until an eligible slot is acquired or deadline expires."""
+    while True:
+        best_url = _find_available_slot(candidates, max_parallel, priority)
+        if best_url is not None:
+            active_ollama_requests[best_url] = active_ollama_requests.get(best_url, 0) + 1
+            return best_url
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if priority == RequestPriority.AS_AVAILABLE:
+                raise AIClientError(
+                    f"No capacity available for as-available priority request across: {candidates}"
+                )
+            raise AIClientError(
+                f"Timed out after {eff_timeout}s waiting for available slot across Ollama nodes: {candidates}"
+            )
+        ollama_slot_condition.wait(timeout=min(remaining, 0.5))
+
+
+def _release_ollama_slot(leased_url: str | None) -> None:
+    """Release active slot lease and notify waiting requesters."""
+    with ollama_slot_condition:
+        if leased_url is not None:
+            active_ollama_requests[leased_url] = max(
+                0, active_ollama_requests.get(leased_url, 0) - 1
+            )
+        ollama_slot_condition.notify_all()
+
+
 @contextmanager
-def track_ollama_url(url: str, max_parallel: int = 2) -> Generator[None]:
-    """Acquire concurrency slot and track active in-flight requests per Ollama server node."""
-    sem = get_ollama_semaphore(url, max_parallel)
-    sem.acquire()
+def acquire_ollama_slot(
+    candidates: list[str],
+    max_parallel: int = 2,
+    timeout: float | None = None,
+    priority: RequestPriority | str | None = None,
+) -> Generator[str]:
+    """Dynamically lease an available Ollama slot across candidate nodes with priority scheduling."""
+    if not candidates:
+        raise AIClientError("No candidate Ollama servers provided for slot leasing.")
+
+    resolved_p = (
+        RequestPriority(priority)
+        if isinstance(priority, str)
+        else (priority or current_request_priority.get())
+    )
+
+    eff_timeout = (
+        0.0
+        if (timeout is None and resolved_p == RequestPriority.AS_AVAILABLE)
+        else (timeout if timeout is not None else 300.0)
+    )
+
+    deadline = time.monotonic() + eff_timeout
+    leased_url: str | None = None
+
+    with ollama_slot_condition:
+        waiting_priority_requests[resolved_p] = waiting_priority_requests.get(resolved_p, 0) + 1
+        try:
+            leased_url = _wait_for_slot(candidates, max_parallel, resolved_p, deadline, eff_timeout)
+        finally:
+            waiting_priority_requests[resolved_p] = max(
+                0, waiting_priority_requests.get(resolved_p, 0) - 1
+            )
+
     try:
-        with ollama_active_lock:
-            active_ollama_requests[url] = active_ollama_requests.get(url, 0) + 1
-        yield
+        yield leased_url
     finally:
-        with ollama_active_lock:
-            active_ollama_requests[url] = max(0, active_ollama_requests.get(url, 0) - 1)
-        sem.release()
+        _release_ollama_slot(leased_url)
+
+
+@contextmanager
+def track_ollama_url(
+    url: str,
+    max_parallel: int = 2,
+    priority: RequestPriority | str | None = None,
+) -> Generator[None]:
+    """Acquire concurrency slot and track active in-flight requests per Ollama server node."""
+    with acquire_ollama_slot([url], max_parallel=max_parallel, priority=priority):
+        yield
+
+
+def get_ollama_active_leases(url: str) -> int:
+    """Get count of active leased slots for an Ollama server node."""
+    with ollama_slot_condition:
+        return active_ollama_requests.get(url, 0)
+
+
+def get_ollama_waiting_counts() -> dict[str, int]:
+    """Get active waiting request counts grouped by priority name."""
+    with ollama_slot_condition:
+        return {p.value: waiting_priority_requests.get(p, 0) for p in RequestPriority}
+
+
+def reset_ollama_slots() -> None:
+    """Reset all active slot leases and waiting queues to zero (for testing)."""
+    with ollama_slot_condition:
+        active_ollama_requests.clear()
+        for p in RequestPriority:
+            waiting_priority_requests[p] = 0
+        ollama_slot_condition.notify_all()
 
 
 def read_limited_json(

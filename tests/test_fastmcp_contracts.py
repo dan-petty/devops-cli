@@ -111,6 +111,8 @@ def test_fastmcp_tools_registration() -> None:
         "ai_ast_parse",
         "ai_ast_graph",
         "ai_pack_context",
+        "ai_read",
+        "ai_spend_report",
         # HashiCorp Vault
         "vault_status",
         "vault_get",
@@ -176,6 +178,7 @@ def test_fastmcp_prompts_and_resources_registration() -> None:
         "resource://release/status",
         "resource://vault/status",
         "resource://ai/constellation",
+        "resource://ai/spend",
         "resource://mcp/tools",
         "resource://gh/pages/status",
         "resource://gh/issues/status",
@@ -428,6 +431,47 @@ def test_fastmcp_context_packing_tool() -> None:
             ],
             timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
         )
+
+
+def test_fastmcp_ai_read_tool() -> None:
+    """Verify ai_read FastMCP execution contract."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.mcp.server import ai_read
+    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
+        mock_cmd.return_value = "# Outline content"
+
+        res = ai_read(
+            target_path="src/main.py",
+            inspect=True,
+            level=0,
+            lines="10:50",
+            symbol="App",
+            format="markdown",
+        )
+        assert (res, mock_cmd.call_args[0][0]) == (
+            "# Outline content",
+            [
+                "uv",
+                "run",
+                "devops",
+                "ai",
+                "read",
+                "src/main.py",
+                "--inspect",
+                "--level",
+                "0",
+                "--lines",
+                "10:50",
+                "--symbol",
+                "App",
+                "--format",
+                "markdown",
+            ],
+        )
+        assert mock_cmd.call_args[1]["timeout"] == DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 
 
 def test_fastmcp_rag_drift_tool() -> None:

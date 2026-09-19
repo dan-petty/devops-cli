@@ -460,12 +460,14 @@ def test_core_repo_safe_paths_and_tracked_files(tmp_path: Path) -> None:
     # 4. get_repo_origin_name parsing
     from devops_cli.core.repo import get_repo_origin_name
 
+    get_repo_origin_name.cache_clear()
     mock_ssh_origin = subprocess.CompletedProcess(
         args=["git"], returncode=0, stdout="git@github.com:dan-petty/devops-cli.git\n", stderr=""
     )
     with patch("devops_cli.core.repo.run_subprocess", return_value=mock_ssh_origin):
-        assert get_repo_origin_name(base) == "dan-petty/devops-cli"
+        ssh_origin = get_repo_origin_name(base)
 
+    get_repo_origin_name.cache_clear()
     mock_https_origin = subprocess.CompletedProcess(
         args=["git"],
         returncode=0,
@@ -473,7 +475,9 @@ def test_core_repo_safe_paths_and_tracked_files(tmp_path: Path) -> None:
         stderr="",
     )
     with patch("devops_cli.core.repo.run_subprocess", return_value=mock_https_origin):
-        assert get_repo_origin_name(base) == "dan-petty/devops-cli"
+        https_origin = get_repo_origin_name(base)
+
+    assert (ssh_origin, https_origin) == ("dan-petty/devops-cli", "dan-petty/devops-cli")
 
 
 def test_repo_edge_cases(tmp_path: Path) -> None:
@@ -579,6 +583,21 @@ def test_repos_sync_and_status_dry_run() -> None:
     res_sync = runner.invoke(app, ["--dry-run", "repos", "sync"])
     assert res_sync.exit_code == 0
     assert "Would run delegated command" in res_sync.output
+
+
+def test_repo_origin_lru_caching(tmp_path: Path) -> None:
+    """Verify get_repo_origin_name caches subsequent lookups for the same repo root."""
+    from devops_cli.core.repo import get_repo_origin_name
+
+    (tmp_path / ".git").mkdir()
+    mock_proc = subprocess.CompletedProcess(
+        args=["git"], returncode=0, stdout="git@github.com:org/cached-repo.git\n", stderr=""
+    )
+    get_repo_origin_name.cache_clear()
+    with patch("devops_cli.core.repo.run_subprocess", return_value=mock_proc) as mock_sub:
+        res1 = get_repo_origin_name(tmp_path)
+        res2 = get_repo_origin_name(tmp_path)
+        assert (res1, res2, mock_sub.call_count) == ("org/cached-repo", "org/cached-repo", 1)
 
     res_status = runner.invoke(app, ["--dry-run", "repos", "status"])
     assert res_status.exit_code == 0

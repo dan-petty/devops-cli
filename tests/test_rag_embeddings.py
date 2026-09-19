@@ -581,7 +581,36 @@ def test_init_valkey_fast_probe_offline(monkeypatch: pytest.MonkeyPatch) -> None
         def ping(self) -> bool:
             return False
 
+    monkeypatch.setenv("DEVOPS_CLI_TEST_LIVE_VALKEY", "1")
     monkeypatch.setattr("devops_cli.valkey.client.ValkeyClient", _OfflineValkeyClient)
+    ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
+    assert engine._valkey is None
+
+
+def test_init_valkey_fast_probe_online(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _init_valkey returns client when Valkey ping succeeds."""
+    from devops_cli.ai.rag.embeddings import _DEFAULT_VALKEY
+
+    class _OnlineValkeyClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.timeout = kwargs.get("timeout", 0.1)
+            self._sock = None
+
+        def ping(self) -> bool:
+            return True
+
+    monkeypatch.setenv("DEVOPS_CLI_TEST_LIVE_VALKEY", "1")
+    monkeypatch.setattr("devops_cli.valkey.client.ValkeyClient", _OnlineValkeyClient)
+    ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
+    engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
+    assert engine._valkey is not None
+
+
+def test_init_valkey_skipped_during_pytest() -> None:
+    """Verify _init_valkey returns None during pytest by default to avoid live service leaks."""
+    from devops_cli.ai.rag.embeddings import _DEFAULT_VALKEY
+
     ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
     engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
     assert engine._valkey is None

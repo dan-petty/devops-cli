@@ -31,13 +31,18 @@ from devops_cli.ai.analyze.cache import load_cached_analysis
 from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.personas import PERSONAS
+from devops_cli.ai.review.classification import (
+    FileContextType,
+    build_context_review_prompt,
+    classify_file_context,
+    get_default_personas_for_context,
+)
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.review_environment import (
     _get_reviews_base_dir,
     _read_candidate_conventions_file,
 )
 from devops_cli.ai.review.sanitization import (
-    _escape_backticks,
     _sanitize_filename,
     balance_markdown_fences,
     escape_markdown_title,
@@ -58,6 +63,8 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.ai.thinking_stream import extract_think_blocks
 from devops_cli.config.constants import (
     CONST_MAX_FILE_SIZE_BYTES,
+    CONST_MAX_PROBE_FILE_SIZE_BYTES,
+    CONST_PROBE_MANIFEST_NAMES,
 )
 from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
 from devops_cli.models.ai import FileAnalysisMeta
@@ -78,10 +85,10 @@ from devops_cli.output import (
 from devops_cli.security.reference_extractor import (
     extract_dependencies_from_text,
     extract_network_references,
+    is_lockfile_or_ignore_file,
 )
 from devops_cli.security.sanitizer import (
     mask_secrets,
-    sanitize_prompt_boundary_tags,
 )
 from devops_cli.security.vulnerability_lookup import (
     CloudflareRadarClient,
@@ -376,16 +383,20 @@ def _build_page_review_prompt(
     symbols: str,
     rag_context_str: str,
     contract_context_str: str = "",
+    context_type: FileContextType | None = None,
 ) -> str:
     """Construct sanitized review prompt for a specific paginated slice of source code."""
-    masked = mask_secrets(page_content)
-    clean = sanitize_prompt_boundary_tags(_escape_backticks(masked))
-    prefix = (
-        f"Review File: {fpath} (Page {p_idx}/{total_pages})\n"
-        if total_pages > 1
-        else f"Review File: {fpath}\n"
+    c_type = context_type or classify_file_context(fpath, page_content)
+    return build_context_review_prompt(
+        context_type=c_type,
+        fpath=fpath,
+        p_idx=p_idx,
+        total_pages=total_pages,
+        page_content=page_content,
+        symbols=symbols,
+        rag_context_str=rag_context_str,
+        contract_context_str=contract_context_str,
     )
-    return f"{prefix}Key Symbols: {symbols}{rag_context_str}{contract_context_str}\n\nCode Content / Diff:\n{clean}"
 
 
 def _collect_linked_snippets(
@@ -409,6 +420,16 @@ def _collect_linked_snippets(
     return snippets
 
 
+def _is_manifest_candidate(p: Path) -> bool:
+    """Check if path is a candidate dependency manifest file."""
+    if not p.is_file() or p.is_symlink():
+        return False
+    name_lower = p.name.lower()
+    if name_lower in CONST_PROBE_MANIFEST_NAMES:
+        return True
+    return name_lower.startswith("requirements") and name_lower.endswith((".txt", ".in"))
+
+
 def _probe_single_dir_deps(
     p_dir: Path,
     raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
@@ -420,9 +441,11 @@ def _probe_single_dir_deps(
     except OSError:
         return False
     for candidate in candidates:
-        if not candidate.is_file() or candidate.is_symlink():
+        if not _is_manifest_candidate(candidate):
             continue
         try:
+            if candidate.stat().st_size > CONST_MAX_PROBE_FILE_SIZE_BYTES:
+                continue
             c_text = candidate.read_text(encoding="utf-8", errors="replace")
             c_rel = (
                 str(candidate.relative_to(Path.cwd()))
@@ -449,6 +472,13 @@ def _probe_manifest_deps_in_dirs(
             break
 
 
+def _is_network_candidate(p: Path) -> bool:
+    """Check if path is a candidate file for network reference scanning."""
+    if not p.is_file() or p.is_symlink() or p.name.startswith("."):
+        return False
+    return not is_lockfile_or_ignore_file(p.name)
+
+
 def _probe_single_dir_nets(
     p_dir: Path,
     raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
@@ -460,9 +490,11 @@ def _probe_single_dir_nets(
     except OSError:
         return False
     for candidate in candidates:
-        if not candidate.is_file() or candidate.is_symlink() or candidate.name.startswith("."):
+        if not _is_network_candidate(candidate):
             continue
         try:
+            if candidate.stat().st_size > CONST_MAX_PROBE_FILE_SIZE_BYTES:
+                continue
             c_text = candidate.read_text(encoding="utf-8", errors="replace")
             c_rel = (
                 str(candidate.relative_to(Path.cwd()))
@@ -546,7 +578,7 @@ def _fetch_ip_threat_intel(
 def _execute_pre_analysis_batch(
     paths_to_analyze: list[tuple[Path, str]],
     repo: Path,
-    ai_client: LLMClient,
+    ai_client: LLMClient | None,
     batch_capacity: int,
 ) -> list[FileAnalysisMeta]:
     """Execute parallel pre-analysis across batch of repository paths using ReviewWorkerPool."""
@@ -562,7 +594,7 @@ def _execute_pre_analysis_batch(
                 path_obj.stat().st_size,
                 enhanced=True,
                 repo_root=repo,
-                ai_client=ai_client,
+                ai_client=None,
             )
         except Exception:
             return None
@@ -1025,10 +1057,22 @@ class ReviewPipelineOrchestrator:
                     probe_dirs.append(p_base)
 
             if not all_unique_deps:
-                _probe_manifest_deps_in_dirs(probe_dirs, raw_file_data, all_unique_deps)
+                with trace_span(
+                    "security.probe_manifests", attributes={"dir_count": len(probe_dirs)}
+                ) as pm_span:
+                    _probe_manifest_deps_in_dirs(probe_dirs, raw_file_data, all_unique_deps)
+                    pm_span.set_attributes(
+                        {"probed_deps_count": len(all_unique_deps) - direct_deps_count}
+                    )
 
             if not all_unique_nets:
-                _probe_network_refs_in_dirs(probe_dirs, raw_file_data, all_unique_nets)
+                with trace_span(
+                    "security.probe_networks", attributes={"dir_count": len(probe_dirs)}
+                ) as pn_span:
+                    _probe_network_refs_in_dirs(probe_dirs, raw_file_data, all_unique_nets)
+                    pn_span.set_attributes(
+                        {"probed_nets_count": len(all_unique_nets) - direct_nets_count}
+                    )
 
             probed_deps_count = len(all_unique_deps) - direct_deps_count
             probed_nets_count = len(all_unique_nets) - direct_nets_count
@@ -1419,10 +1463,19 @@ class ReviewPipelineOrchestrator:
         *,
         pipeline: MultiAgentPipeline[ReviewResult] | None = None,
         persona_lookup: dict[str, tuple[str, str]] | None = None,
+        context_type: FileContextType | None = None,
     ) -> None:
         """Run multi-persona review for a single file across chunked diff pages."""
         fpath = payload.file_path
         ext = Path(fpath).suffix.lower()
+        content_or_diff = diff_text_by_file.get(fpath, "")
+        if not content_or_diff and Path(fpath).exists():
+            try:
+                content_or_diff = Path(fpath).read_text(encoding="utf-8", errors="replace")
+            except Exception as exc:
+                logger.debug("Failed reading file content for %s: %s", fpath, exc)
+
+        resolved_context = context_type or classify_file_context(fpath, content_or_diff)
         with trace_span(
             "review.file_review",
             attributes={
@@ -1432,16 +1485,10 @@ class ReviewPipelineOrchestrator:
                 "total_files": total_files,
                 "review.personas": active_personas,
                 "review.file_extension": ext,
+                "review.context_type": resolved_context.value,
                 "review.stage": "inspection",
             },
         ) as file_span:
-            content_or_diff = diff_text_by_file.get(fpath, "")
-            if not content_or_diff and Path(fpath).exists():
-                try:
-                    content_or_diff = Path(fpath).read_text(encoding="utf-8", errors="replace")
-                except Exception as exc:
-                    logger.debug("Failed reading file content for %s: %s", fpath, exc)
-
             if not content_or_diff:
                 print_info(
                     f"[dim]  [{idx}/{total_files}] Skipping empty/unreadable file: {fpath}[/dim]",
@@ -1539,6 +1586,7 @@ class ReviewPipelineOrchestrator:
                     symbols,
                     rag_context_str,
                     contract_context_str,
+                    context_type=resolved_context,
                 )
                 return _execute_page_review_steps(
                     pipeline,
@@ -1601,9 +1649,38 @@ class ReviewPipelineOrchestrator:
             else:
                 print_info(
                     f"[{idx}/{total_files}] Reviewed [bold]{fpath}[/bold] "
+                    f"[dim]({resolved_context.value})[/dim] "
                     f"({n_findings} finding(s)) [dim]handled by {handled_by} {sec_str}[/dim]",
                     prefix=False,
                 )
+
+    def _resolve_file_pipeline(
+        self,
+        fpath: str,
+        content_or_diff: str,
+        explicit_personas: list[str] | None,
+        target_conventions: str,
+        pipeline_cache: dict[
+            tuple[str, ...],
+            tuple[MultiAgentPipeline[ReviewResult], dict[str, tuple[str, str]]],
+        ],
+    ) -> tuple[
+        FileContextType, list[str], MultiAgentPipeline[ReviewResult], dict[str, tuple[str, str]]
+    ]:
+        """Resolve file context type, targeted personas, and cached MultiAgentPipeline."""
+        c_type = classify_file_context(fpath, content_or_diff)
+        file_personas = (
+            explicit_personas
+            if explicit_personas is not None
+            else get_default_personas_for_context(c_type)
+        )
+        cache_key = tuple(sorted(file_personas))
+        if cache_key not in pipeline_cache:
+            pipeline_cache[cache_key] = self._build_multi_persona_pipeline(
+                file_personas, target_conventions
+            )
+        pipeline, lookup = pipeline_cache[cache_key]
+        return c_type, file_personas, pipeline, lookup
 
     def _safe_review_file_payload(
         self,
@@ -1616,6 +1693,7 @@ class ReviewPipelineOrchestrator:
         *,
         pipeline: MultiAgentPipeline[ReviewResult] | None = None,
         persona_lookup: dict[str, tuple[str, str]] | None = None,
+        context_type: FileContextType | None = None,
     ) -> None:
         """Safely execute review on single file payload with error capture."""
         if payload.file_path in self.errored_files:
@@ -1630,6 +1708,7 @@ class ReviewPipelineOrchestrator:
                 server_info=server_info,
                 pipeline=pipeline,
                 persona_lookup=persona_lookup,
+                context_type=context_type,
             )
         except Exception as exc:
             logger.error("Error reviewing file %s: %s", payload.file_path, exc)
@@ -1672,19 +1751,21 @@ class ReviewPipelineOrchestrator:
         ) as stage_span:
             from devops_cli.ai.personas import Persona
 
-            persona_titles: list[str] = []
-            for p_key in active_personas:
-                try:
-                    p_enum = Persona(p_key) if isinstance(p_key, str) else p_key
-                    persona_titles.append(PERSONAS[p_enum].title)
-                except Exception:
-                    persona_titles.append(str(p_key))
-
-            persona_label = (
-                persona_titles[0]
-                if len(persona_titles) == 1
-                else f"Multi-persona ({', '.join(persona_titles)})"
-            )
+            if personas is not None:
+                persona_titles: list[str] = []
+                for p_key in personas:
+                    try:
+                        p_enum = Persona(p_key) if isinstance(p_key, str) else p_key
+                        persona_titles.append(PERSONAS[p_enum].title)
+                    except Exception:
+                        persona_titles.append(str(p_key))
+                persona_label = (
+                    persona_titles[0]
+                    if len(persona_titles) == 1
+                    else f"Multi-persona ({', '.join(persona_titles)})"
+                )
+            else:
+                persona_label = "Context-adaptive multi-persona"
 
             print_info(
                 f"[dim]{persona_label} review for {total_files} file(s) "
@@ -1719,21 +1800,37 @@ class ReviewPipelineOrchestrator:
             )
 
             target_conventions = self._read_target_conventions()
-            compiled_pipeline, persona_lookup = self._build_multi_persona_pipeline(
-                active_personas, target_conventions
-            )
+            pipeline_cache: dict[
+                tuple[str, ...],
+                tuple[MultiAgentPipeline[ReviewResult], dict[str, tuple[str, str]]],
+            ] = {}
 
             def _review_task(arg: tuple[int, FileReviewPayload]) -> None:
                 idx, payload = arg
+                fpath = payload.file_path
+                raw_content = diff_text_by_file.get(fpath, "")
+                if not raw_content and Path(fpath).exists():
+                    try:
+                        raw_content = Path(fpath).read_text(encoding="utf-8", errors="replace")
+                    except Exception:
+                        pass
+                c_type, file_personas, file_pipeline, file_lookup = self._resolve_file_pipeline(
+                    fpath,
+                    raw_content,
+                    personas,
+                    target_conventions,
+                    pipeline_cache,
+                )
                 self._safe_review_file_payload(
                     idx,
                     total_files,
                     payload,
                     diff_text_by_file,
-                    active_personas,
+                    file_personas,
                     server_info,
-                    pipeline=compiled_pipeline,
-                    persona_lookup=persona_lookup,
+                    pipeline=file_pipeline,
+                    persona_lookup=file_lookup,
+                    context_type=c_type,
                 )
 
             items = list(enumerate(file_payloads, 1))
