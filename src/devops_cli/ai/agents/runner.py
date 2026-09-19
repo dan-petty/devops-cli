@@ -5,6 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 import inspect
 import json
+import logging
 import re
 from collections.abc import Callable, Sequence
 from typing import Any, cast
@@ -32,6 +33,8 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.exceptions import ModelRetry
 from devops_cli.models.ai import ChatMessage
 
+logger = logging.getLogger(__name__)
+
 _TOOL_PROTOCOL_TEMPLATE = load_task_prompt("tool_execution_protocol.md")
 _TOOL_FEEDBACK_TEMPLATE = load_task_prompt("agent_tool_feedback.md")
 _TOOL_ALREADY_CALLED_PROMPT = load_task_prompt("agent_tool_already_called.md")
@@ -51,8 +54,8 @@ def _dispatch_before_tool_hooks(
     for h_bt in hooks.before_tool_execute:
         try:
             h_bt(ctx, tool_name, clean_args)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Error in before_tool_execute hook for %s: %s", tool_name, exc)
 
 
 def _dispatch_after_tool_hooks(
@@ -67,8 +70,8 @@ def _dispatch_after_tool_hooks(
     for h_at in hooks.after_tool_execute:
         try:
             h_at(ctx, tool_name, clean_args, tool_result)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Error in after_tool_execute hook for %s: %s", tool_name, exc)
 
 
 def _dispatch_tool_error_hooks(
@@ -79,8 +82,8 @@ def _dispatch_tool_error_hooks(
     for h_err in hooks.on_tool_error:
         try:
             h_err(ctx, tool_name, exc)
-        except Exception:
-            pass
+        except Exception as h_exc:
+            logger.warning("Error in on_tool_error hook for %s: %s", tool_name, h_exc)
 
 
 def _run_tool_with_timeout(

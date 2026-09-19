@@ -273,7 +273,8 @@ def _scan_single_file_for_indexing(
         content = file_path.read_text(encoding="utf-8", errors="replace")
         content_hash = SemanticChunker._hash_content(content)
         file_hashes[cache_key] = content_hash
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to read file %s for indexing: %s", file_path, exc)
         return None
 
     if not force and cache.get(cache_key) == content_hash:

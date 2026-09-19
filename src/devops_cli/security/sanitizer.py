@@ -154,7 +154,7 @@ def mask_uri_credentials(uri: str) -> str:
             port = f":{parts.port}" if parts.port else ""
             netloc = f"{user}:***@{host}{port}" if user else f"***@{host}{port}"
             return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
-    except Exception:
+    except ValueError, TypeError, AttributeError:
         pass
     # Regex fallback
     return re.sub(
@@ -219,7 +219,7 @@ def sanitize_telemetry_endpoint(endpoint: str) -> str:
 
         clean_netloc = f"{clean_host}{port}"
         return parsed._replace(netloc=clean_netloc).geturl()
-    except Exception:
+    except ValueError, TypeError, AttributeError:
         return "<internal-endpoint>"
 
 

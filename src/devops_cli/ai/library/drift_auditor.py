@@ -281,6 +281,7 @@ class LibraryDriftAuditor:
         self,
         workspace_dir: Path,
         package_filter: str | None = None,
+        save_report_path: Path | None = None,
     ) -> DriftReport:
         """Scan workspace Python files for library call sites and identify drift."""
         contracts = self._load_contracts(package_filter)
@@ -314,10 +315,10 @@ class LibraryDriftAuditor:
             warning_count=warning_count,
         )
 
-        default_out = Path(".data/analysis/api_drift_report.json")
-        try:
-            report.save(default_out)
-        except OSError:
-            pass
+        if save_report_path is not None:
+            try:
+                report.save(save_report_path)
+            except OSError:
+                pass
 
         return report

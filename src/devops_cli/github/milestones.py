@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devops_cli.exceptions.git import GitHubOperationError
+
+logger = logging.getLogger(__name__)
 
 
 class MilestoneSpec(BaseModel):
@@ -61,7 +64,8 @@ def _is_safe_roadmap_path(roadmap_path: Path) -> bool:
         if roadmap_path.is_symlink():
             return False
         return True
-    except Exception:
+    except Exception as exc:
+        logger.debug("Roadmap path %s not safe: %s", roadmap_path, exc)
         return False
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -11,8 +12,11 @@ from pydantic import BaseModel, Field
 
 from devops_cli.config.settings import load_settings
 from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.valkey.client import ValkeyClient
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Summary Data Models
@@ -83,7 +87,8 @@ def _get_k8s_client() -> Any:
 
     try:
         config.load_kube_config()
-    except Exception:
+    except Exception as exc:
+        logger.debug("Falling back to incluster k8s config: %s", exc)
         config.load_incluster_config()
     return client.CoreV1Api()
 
@@ -181,14 +186,16 @@ def _get_latest_review_session_dir() -> Path | None:
     if not raw_data_dir:
         try:
             raw_data_dir = str(load_settings().data.dir)
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed loading settings for data.dir: %s", exc)
             raw_data_dir = "./.data"
     try:
         validate_no_path_traversal(raw_data_dir, label="DEVOPS_CLI_DATA_DIR")
         data_path = Path(raw_data_dir).resolve()
         if is_forbidden_system_path(data_path):
             return None
-    except Exception:
+    except (DevOpsCLIError, OSError, ValueError) as exc:
+        logger.warning("Invalid review data directory %s: %s", raw_data_dir, exc)
         return None
     reviews_dir = data_path / "reviews"
     if not (reviews_dir.exists() and reviews_dir.is_dir()):
@@ -233,7 +240,8 @@ def fetch_review_status() -> ReviewSummary:
             severity_distribution=severities,
             findings=raw_findings[:50],
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to parse review summary from %s: %s", session_dir, exc)
         return ReviewSummary(has_session=True, session_name=session_dir.name)
 
 
@@ -258,7 +266,8 @@ def fetch_valkey_status() -> ValkeySummary:
 
         try:
             key_count = client.dbsize()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed to query Valkey dbsize: %s", exc)
             key_count = 0
 
         return ValkeySummary(
@@ -271,5 +280,6 @@ def fetch_valkey_status() -> ValkeySummary:
             total_commands=int(stats_dict.get("total_commands_processed", 0)),
             key_count=key_count,
         )
-    except Exception:
+    except Exception as exc:
+        logger.debug("Valkey server offline or unreachable: %s", exc)
         return ValkeySummary(connected=False, version="Offline")

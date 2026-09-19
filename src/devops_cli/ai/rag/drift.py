@@ -69,7 +69,8 @@ def _load_indexed_commit(cache_dir: Path) -> str | None:
     if marker.is_file():
         try:
             return marker.read_text(encoding="utf-8").strip() or None
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed reading commit marker %s: %s", marker, exc)
             return None
     return None
 
@@ -108,7 +109,8 @@ def _scan_file_drift(
     try:
         content = resolved_fpath.read_text(encoding="utf-8", errors="replace")
         cur_hash = SemanticChunker._hash_content(content)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed reading file %s: %s", resolved_fpath, exc)
         return
 
     cached_hash = cache.get(cache_key)

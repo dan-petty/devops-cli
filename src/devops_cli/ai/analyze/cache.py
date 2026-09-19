@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from pydantic import ValidationError
+
 from devops_cli.ai.analyze.scanner import sanitize_reference
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
+    DEFAULT_MAX_CACHED_ANALYSES,
 )
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.dry_run import is_dry_run
@@ -17,6 +21,28 @@ from devops_cli.exceptions import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta, ProjectAnalysisMeta
 from devops_cli.output import print_info, print_success, print_table
+
+logger = logging.getLogger(__name__)
+
+
+def _evict_excess_analysis_files(
+    analysis_dir: Path, max_files: int = DEFAULT_MAX_CACHED_ANALYSES
+) -> int:
+    """Prune oldest analysis metadata files when count exceeds max_files."""
+    if not analysis_dir.is_dir() or max_files <= 0:
+        return 0
+    analysis_files = sorted(analysis_dir.glob("*-metadata.json"), key=lambda p: p.stat().st_mtime)
+    excess = len(analysis_files) - max_files
+    if excess <= 0:
+        return 0
+    removed = 0
+    for p in analysis_files[:excess]:
+        try:
+            p.unlink(missing_ok=True)
+            removed += 1
+        except OSError:
+            pass
+    return removed
 
 
 def save_analysis_metadata(
@@ -107,6 +133,7 @@ def save_analysis_metadata(
         print_dry_run_result(payload)
     else:
         out_file.write_text(json.dumps(payload.model_dump(mode="json"), indent=2), encoding="utf-8")
+        _evict_excess_analysis_files(analysis_dir)
         print_success(MESSAGES.analyze.saved_metadata.format(path=out_file))
 
     return out_file
@@ -154,7 +181,8 @@ def load_cached_analysis(repo_root: Path = DEFAULT_CURRENT_PATH) -> AnalysisMeta
     try:
         data = json_files[0].read_text(encoding="utf-8")
         return AnalysisMetadata.model_validate_json(data)
-    except Exception:
+    except (json.JSONDecodeError, ValidationError, OSError) as err:
+        logger.warning("Corrupted or unreadable analysis metadata in %s: %s", json_files[0], err)
         return None
 
 

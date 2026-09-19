@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
+import subprocess
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -33,6 +35,8 @@ from devops_cli.telemetry.tracer import trace_span
 
 if TYPE_CHECKING:
     from devops_cli.output.models import TablePayload
+
+logger = logging.getLogger(__name__)
 
 _MANIFEST_EXTENSIONS = {".yaml", ".yml"}
 _MANIFEST_NAMES = {"chart.yaml", "kustomization.yaml", "values.yaml"}
@@ -188,7 +192,8 @@ def load_persisted_manifest_state(
         for p_str, (mtime, sha) in data.items():
             state[Path(p_str)] = (float(mtime), str(sha))
         return state
-    except Exception:
+    except (json.JSONDecodeError, OSError, ValueError, KeyError) as err:
+        logger.warning("Failed to load baseline manifest cache %s: %s", cache_file, err)
         return None
 
 
@@ -200,8 +205,8 @@ def save_persisted_manifest_state(
         cache_file = _get_baseline_cache_file(paths)
         data = {str(p): list(val) for p, val in state.items()}
         cache_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    except (OSError, TypeError, ValueError) as err:
+        logger.warning("Failed to save manifest cache %s: %s", cache_file, err)
 
 
 def inspect_git_manifest_drift(paths: Sequence[Path | str]) -> list[GitOpsDriftEvent]:
@@ -242,7 +247,8 @@ def inspect_git_manifest_drift(paths: Sequence[Path | str]) -> list[GitOpsDriftE
                 )
             )
         return events
-    except Exception:
+    except (subprocess.SubprocessError, OSError, ValueError, RuntimeError) as err:
+        logger.warning("Failed to inspect git manifest drift: %s", err)
         return []
 
 

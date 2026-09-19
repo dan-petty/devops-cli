@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,8 @@ from devops_cli.config.constants import (
     CONST_STATUS_INVALIDATED,
 )
 from devops_cli.exceptions import SecurityError
+
+logger = logging.getLogger(__name__)
 
 
 class FeedbackRecord(BaseModel):
@@ -64,7 +67,8 @@ def _extract_session_feedback_records(
         if not findings_file.is_file() or findings_file.stat().st_size > 50 * 1024 * 1024:
             return
         data: dict[str, Any] = json.loads(findings_file.read_text(encoding="utf-8"))
-    except Exception:
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Corrupted or unreadable findings file %s: %s", findings_file, exc)
         return
 
     session_id = data.get("session_id", s_dir.name)

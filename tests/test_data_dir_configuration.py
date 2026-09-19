@@ -239,3 +239,22 @@ def test_load_settings_defaults_when_data_section_omitted(
     assert settings.data.tls_dir == DEFAULT_TLS_DATA_DIR
     assert settings.data.audit_log_path == DEFAULT_AUDIT_LOG_PATH
     assert settings.data.feedback_dataset_path == DEFAULT_FEEDBACK_DATASET_PATH
+
+
+def test_save_settings_omits_default_data_section(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that save_settings does not pollute config.yaml with default data paths."""
+    from devops_cli.config.settings import load_settings, save_settings
+
+    custom_cfg = tmp_path / "config.yaml"
+    custom_cfg.write_text("repos:\n  base_dir: repos\n", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(custom_cfg))
+
+    import yaml
+
+    settings = load_settings()
+    save_settings(settings, target_path=custom_cfg)
+
+    parsed = yaml.safe_load(custom_cfg.read_text(encoding="utf-8"))
+    assert "data" not in parsed

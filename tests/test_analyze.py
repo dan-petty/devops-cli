@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -10,8 +11,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.commands.analyze import (
-    analyze_single_file,
+from devops_cli.ai.analyze.outlines import analyze_single_file
+from devops_cli.ai.analyze.scanner import (
     detect_language,
     sanitize_reference,
 )
@@ -549,3 +550,86 @@ def test_scan_directory_and_heuristics(tmp_path: Path) -> None:
     results = scan_directory(tmp_path)
     assert len(results) >= 1
     assert any(r.path == "mod.py" for r in results)
+
+
+def test_evict_excess_analysis_files(tmp_path: Path) -> None:
+    """Verify _evict_excess_analysis_files prunes oldest metadata files exceeding max_files."""
+    from devops_cli.ai.analyze.cache import _evict_excess_analysis_files
+
+    analysis_dir = tmp_path / "analysis"
+    analysis_dir.mkdir()
+
+    for i in range(5):
+        f = analysis_dir / f"branch-feat-{i}-metadata.json"
+        f.write_text("{}", encoding="utf-8")
+        os.utime(f, (1000.0 + i * 10, 1000.0 + i * 10))
+
+    pruned = _evict_excess_analysis_files(analysis_dir, max_files=3)
+    remaining = sorted(p.name for p in analysis_dir.glob("*-metadata.json"))
+
+    assert (pruned, remaining) == (
+        2,
+        [
+            "branch-feat-2-metadata.json",
+            "branch-feat-3-metadata.json",
+            "branch-feat-4-metadata.json",
+        ],
+    )
+
+
+def test_load_cached_analysis_and_file_metas(tmp_path: Path) -> None:
+    """Verify load_cached_analysis and _load_file_analysis_metas."""
+    from devops_cli.ai.analyze.cache import _load_file_analysis_metas, load_cached_analysis
+    from devops_cli.config.settings import Settings
+    from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta, ProjectAnalysisMeta
+
+    assert (load_cached_analysis(tmp_path), _load_file_analysis_metas(repo_root=tmp_path)) == (
+        None,
+        {},
+    )
+
+    analysis_dir = tmp_path / ".data" / "analysis"
+    analysis_dir.mkdir(parents=True)
+    custom_settings = Settings()
+    custom_settings.data.analysis_dir = analysis_dir
+    with patch("devops_cli.config.settings.load_settings", return_value=custom_settings):
+        assert load_cached_analysis(tmp_path) is None
+
+        bad_file = analysis_dir / "bad-metadata.json"
+        bad_file.write_text("not json", encoding="utf-8")
+        assert load_cached_analysis(tmp_path) is None
+        bad_file.unlink()
+
+        file_meta = FileAnalysisMeta(
+            path="src/main.py", language="python", line_count=10, char_count=100
+        )
+        proj_meta = ProjectAnalysisMeta(
+            title="Test",
+            target_type="path",
+            target_reference="src",
+            timestamp="2026-09-19T00:00:00Z",
+            total_files=1,
+            total_lines=10,
+            total_chars=100,
+            languages=["python"],
+            primary_purpose="Testing",
+            key_symbols=[],
+            dependencies=[],
+        )
+        payload = AnalysisMetadata(project=proj_meta, files=[file_meta])
+        good_file = analysis_dir / "path-src-metadata.json"
+        good_file.write_text(payload.model_dump_json(), encoding="utf-8")
+        os.utime(good_file, (2000.0, 2000.0))
+
+        loaded = load_cached_analysis(tmp_path)
+        all_metas = _load_file_analysis_metas(repo_root=tmp_path)
+        filtered_metas = _load_file_analysis_metas(
+            files=["src/main.py", "nonexistent.py"], repo_root=tmp_path
+        )
+
+        assert (
+            loaded is not None,
+            len(all_metas),
+            "src/main.py" in filtered_metas,
+            "nonexistent.py" in filtered_metas,
+        ) == (True, 1, True, False)

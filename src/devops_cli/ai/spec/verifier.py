@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import logging
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -11,6 +12,8 @@ from devops_cli.config.constants import CONST_SPECS_DIR_PATH
 from devops_cli.core.repo import find_repo_root, list_repo_files
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.telemetry.tracer import trace_span
+
+logger = logging.getLogger(__name__)
 
 
 class SpecContractRule(BaseModel):
@@ -74,7 +77,8 @@ def _verify_source_file(
     try:
         content = file_path.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(content, filename=rel_path)
-    except Exception:
+    except (SyntaxError, OSError) as exc:
+        logger.warning("Failed to parse %s for architectural verification: %s", rel_path, exc)
         return []
 
     rules: list[SpecContractRule] = []

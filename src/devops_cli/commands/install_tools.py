@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import io
+import logging
 import os
 import platform
 import re
@@ -50,6 +51,8 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
+
+logger = logging.getLogger(__name__)
 
 app = new_typer(help=HELP.install.app, no_args_is_help=True)
 
@@ -265,8 +268,15 @@ def _download_and_extract_tar_binary(
         try:
             expected = _parse_checksum_file(_download(checksums_url).decode(), tar_name)
             _verify_sha256(data, expected)
-        except Exception:
-            pass
+        except ChecksumMismatchError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "Failed to download or parse checksums for %s from %s: %s",
+                tar_name,
+                checksums_url,
+                exc,
+            )
     target_member = member_path or f"{bin_name}{_EXE}"
     _extract_tar_member(data, target_member, target_dir / f"{bin_name}{_EXE}")
 

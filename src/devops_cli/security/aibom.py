@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import logging
 import re
 import uuid
 from datetime import UTC, datetime
@@ -20,6 +21,8 @@ from devops_cli.config.defaults import (
     DEFAULT_QUANTIZATION_BITS,
 )
 from devops_cli.telemetry.tracer import trace_span
+
+logger = logging.getLogger(__name__)
 
 
 class ModelLicenseType(StrEnum):
@@ -134,8 +137,8 @@ def detect_trust_remote_code(target_dir: Path) -> bool:
                     return True
                 if "trust_remote_code" in data and bool(data["trust_remote_code"]):
                     return True
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError, ValueError) as exc:
+            logger.debug("Failed to inspect remote code config in %s: %s", config_file, exc)
 
     # 2. Inspect Python files for trust_remote_code keyword in AST or modeling definitions
     resolved_target = target_dir.resolve()
@@ -149,7 +152,8 @@ def detect_trust_remote_code(target_dir: Path) -> bool:
                 if isinstance(node, ast.keyword) and node.arg == "trust_remote_code":
                     if isinstance(node.value, ast.Constant) and bool(node.value.value):
                         return True
-        except Exception:
+        except (OSError, SyntaxError, UnicodeDecodeError) as exc:
+            logger.debug("Failed to parse AST for remote code in %s: %s", py_file, exc)
             continue
 
     return False
@@ -183,7 +187,8 @@ def _compute_sha256(path: Path) -> str:
             while chunk := f.read(65536):
                 h.update(chunk)
         return h.hexdigest()
-    except Exception:
+    except OSError as exc:
+        logger.warning("Failed to compute SHA-256 for %s: %s", path, exc)
         return ""
 
 
@@ -206,7 +211,8 @@ def _parse_model_config(parent_dir: Path) -> tuple[float, str, str]:
         license_str = str(cfg_data.get("license", "NOASSERTION"))
         publisher = str(cfg_data.get("_name_or_path", "local")).split("/")[0]
         return params, license_str, publisher
-    except Exception:
+    except (json.JSONDecodeError, OSError, ValueError) as exc:
+        logger.warning("Failed to parse model config in %s: %s", parent_dir, exc)
         return 0.0, "NOASSERTION", "local"
 
 
@@ -224,8 +230,8 @@ def _parse_modelfile_params(parent_dir: Path) -> tuple[str, float] | None:
             m = re.search(r":?(\d+)b", model_tag.lower())
             params = float(m.group(1)) if m else 0.0
             return model_tag, params
-    except Exception:
-        pass
+    except (OSError, ValueError) as exc:
+        logger.debug("Failed to parse Modelfile in %s: %s", parent_dir, exc)
     return None
 
 

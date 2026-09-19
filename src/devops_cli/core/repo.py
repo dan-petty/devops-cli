@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +14,8 @@ from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import SecurityError
+
+logger = logging.getLogger(__name__)
 
 
 @functools.lru_cache(maxsize=32)
@@ -68,7 +71,8 @@ def read_gitignore_patterns(repo_root: Path) -> list[str]:
             for line in gitignore_file.read_text(encoding="utf-8", errors="replace").splitlines()
             if line.strip() and not line.strip().startswith("#")
         ]
-    except Exception:
+    except OSError as err:
+        logger.warning("Failed to read .gitignore at %s: %s", gitignore_file, err)
         return []
 
 
@@ -116,8 +120,8 @@ def is_ignored_by_git(repo_root: Path, target_path: Path) -> bool:
             )
             if res.returncode == 0:
                 return True
-        except Exception:
-            pass
+        except Exception as err:
+            logger.debug("git check-ignore failed for %s: %s", target_path, err)
 
     return False
 
@@ -164,7 +168,8 @@ def _list_git_tracked_files(repo_root: Path, resolved_target: Path) -> list[Path
             if p.is_file() and p.suffix.lower() not in CONST_BINARY_EXTENSIONS:
                 files.append(p)
         return sorted(files)
-    except Exception:
+    except Exception as err:
+        logger.warning("git ls-files failed in %s: %s", repo_root, err)
         return None
 
 
@@ -199,18 +204,27 @@ def list_repo_files(target: Path | str = ".") -> list[Path]:
     return sorted(walked_files)
 
 
-def get_repo_origin_name(repo_root: Path | None = None) -> str | None:
-    """Extract owner/repo string from git remote origin URL (e.g. 'org/repo')."""
+@functools.lru_cache(maxsize=32)
+def _cached_repo_origin(resolved_root: Path) -> str | None:
+    """Execute git remote query and parse origin owner/repo with bounded caching."""
     import re
 
-    root = repo_root or find_repo_root()
-    if (root / ".git").exists():
-        proc = run_subprocess(["git", "remote", "get-url", "origin"], cwd=root, quiet=True)
+    if (resolved_root / ".git").exists():
+        proc = run_subprocess(["git", "remote", "get-url", "origin"], cwd=resolved_root, quiet=True)
         if proc.returncode == 0 and proc.stdout.strip():
             raw = proc.stdout.strip()
             match = re.search(r"[:/]([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+?)(?:\.git)?$", raw)
             if match:
                 return match.group(1)
+    return None
+
+
+def get_repo_origin_name(repo_root: Path | None = None) -> str | None:
+    """Extract owner/repo string from git remote origin URL (e.g. 'org/repo')."""
+    root = (repo_root or find_repo_root()).resolve()
+    origin = _cached_repo_origin(root)
+    if origin is not None:
+        return origin
 
     if repo_root is None:
         import os
@@ -220,6 +234,9 @@ def get_repo_origin_name(repo_root: Path | None = None) -> str | None:
             return env_repo
 
     return None
+
+
+get_repo_origin_name.cache_clear = _cached_repo_origin.cache_clear  # type: ignore[attr-defined]
 
 
 def is_safe_subpath(root: Path | str, target: Path | str) -> bool:

@@ -209,6 +209,19 @@ CONST_PERM_PUBLIC_KEY = 0o644
 CONST_PERM_EXEC = 0o755
 
 CONST_MAX_FILE_SIZE_BYTES = 200 * 1024 * 1024
+CONST_MAX_PROBE_FILE_SIZE_BYTES: Final[int] = (
+    512 * 1024
+)  # 512 KiB pre-flight file size cap for review probes
+CONST_PROBE_MANIFEST_NAMES: Final[tuple[str, ...]] = (
+    "pyproject.toml",
+    "package.json",
+    "cargo.toml",
+    "cargo.lock",
+    "go.mod",
+    "requirements.txt",
+    "requirements-dev.txt",
+    "requirements.in",
+)
 
 # ── Code Review & Analysis ────────────────────────────────────────────────────
 CONST_REVIEW_GENERATED_FILES = frozenset(

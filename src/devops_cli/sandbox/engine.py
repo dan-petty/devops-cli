@@ -102,10 +102,10 @@ def _is_internal_network_sdk(client: Any, net_name: str) -> bool:
             return True
         try:
             net.remove()
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except Exception as exc:
+            logger.debug("Failed to remove non-internal network %s: %s", net_name, exc)
+    except Exception as exc:
+        logger.debug("Failed to query network %s via SDK: %s", net_name, exc)
     return False
 
 
@@ -249,7 +249,8 @@ class WorkloadSandboxEngine:
                 from devops_cli.config import load_settings
 
                 self.exclude_home_dir = load_settings().sandbox.exclude_home_dir
-            except Exception:
+            except Exception as exc:
+                logger.debug("Failed loading settings for sandbox.exclude_home_dir: %s", exc)
                 self.exclude_home_dir = DEFAULT_SANDBOX_EXCLUDE_HOME
 
     def validate_workspace_dir(self, workspace_dir: Path) -> Path:
@@ -460,7 +461,8 @@ class WorkloadSandboxEngine:
             created_dt = datetime.datetime.fromisoformat(created_at)
             now_dt = datetime.datetime.now(datetime.UTC)
             return max(0.0, round((now_dt - created_dt).total_seconds(), 2))
-        except Exception:
+        except (ValueError, TypeError) as exc:
+            logger.debug("Failed computing uptime from %s: %s", created_at, exc)
             return 0.0
 
     def status(self, identifier: str | None = None) -> list[SandboxInstance]:

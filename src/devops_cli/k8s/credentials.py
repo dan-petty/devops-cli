@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import itertools
+import logging
 
 from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_NAMESPACE,
@@ -16,6 +18,8 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
 
+logger = logging.getLogger(__name__)
+
 
 def _decode_k8s_secret_field(raw_b64: str) -> str | None:
     """Safely decode base64 secret field into string."""
@@ -25,7 +29,8 @@ def _decode_k8s_secret_field(raw_b64: str) -> str | None:
     try:
         decoded_bytes = base64.b64decode(cleaned)
         return decoded_bytes.decode("utf-8").strip()
-    except Exception:
+    except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
+        logger.debug("Failed to decode k8s secret field as utf-8: %s", type(exc).__name__)
         return None
 
 
@@ -57,14 +62,28 @@ def fetch_secret_data(
         cmd.extend(["--context", context])
 
     res = run_subprocess(cmd, quiet=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
-    if res.returncode != 0 or not res.stdout.strip():
+    if res.returncode != 0:
+        stderr_msg = res.stderr.strip() if res.stderr else ""
+        if "NotFound" in stderr_msg or "not found" in stderr_msg.lower():
+            logger.debug("K8s secret resource not found in namespace %s", namespace)
+        else:
+            logger.warning(
+                "kubectl get secret failed in namespace %s (exit %d)",
+                namespace,
+                res.returncode,
+            )
+        return {}
+    if not res.stdout.strip():
         return {}
 
     try:
         payload = json.loads(res.stdout)
         data = payload.get("data", {})
         return {k: _decode_k8s_secret_field(v) or "" for k, v in data.items() if isinstance(v, str)}
-    except Exception:
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as err:
+        logger.warning(
+            "Failed to parse secret payload in namespace %s: %s", namespace, type(err).__name__
+        )
         return {}
 
 
