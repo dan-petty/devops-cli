@@ -5,6 +5,9 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      - id: no-commit-to-branch
+        args: [--branch, main, --pattern, '^release/.*']
+        stages: [pre-commit]
       - id: trailing-whitespace
         stages: [pre-commit]
       - id: end-of-file-fixer

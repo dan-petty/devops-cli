@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -945,3 +946,55 @@ def test_resolve_clean_release_notes_stale_duplicate_fallback(sample_project_dir
         )
         assert "Duplicate item from previous release" not in notes
         assert "add new oauth provider for 0.2.19" in notes
+
+
+def test_query_gh_milestone_issues_all_states_and_standalone_prs(sample_project_dir: Path) -> None:
+    """Verify _query_gh_milestone_issues queries with --state all and includes standalone PRs."""
+    from devops_cli.commands.release import _build_release_pr_command, _query_gh_milestone_issues
+
+    def mock_run_gh(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        import sys
+
+        sys.stderr.write(f"MOCK_RUN_GH: {cmd}\n")
+        if "issue" in cmd and "list" in cmd:
+            assert ("--state" in cmd, "--milestone" in cmd) == (True, True)
+            state_idx = cmd.index("--state")
+            assert cmd[state_idx + 1] == "all"
+            issues_json = json.dumps(
+                [
+                    {"number": 296, "title": "Epic: v0.2.21"},
+                    {"number": 272, "title": "feat(ai): inspectional scanner"},
+                    {"number": 280, "title": "fix(reliability): exception handling"},
+                ]
+            )
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout=issues_json, stderr=""
+            )
+        if "pr" in cmd and "list" in cmd:
+            prs_json = json.dumps(
+                [
+                    {"number": 281, "title": "fix(reliability): harden (#280)"},
+                    {"number": 292, "title": "feat(ai): routing services"},
+                ]
+            )
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=prs_json, stderr="")
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="[]", stderr="")
+
+    with (
+        patch("devops_cli.github.rate_limiter.run_gh", side_effect=mock_run_gh),
+        patch("devops_cli.commands.release.run_gh", side_effect=mock_run_gh),
+    ):
+        deliverables = _query_gh_milestone_issues(sample_project_dir, "v0.2.21")
+        assert deliverables == ["- #272", "- #280", "- #292", "- #296"]
+
+    # Verify _build_release_pr_command includes --milestone
+    pr_cmd = _build_release_pr_command(
+        pr_title="feat(release): v0.2.21",
+        pr_body="body",
+        base="main",
+        branch_name="release/v0.2.21",
+        draft=False,
+        labels="release",
+        milestone="v0.2.21",
+    )
+    assert ("--milestone" in pr_cmd, pr_cmd[pr_cmd.index("--milestone") + 1]) == (True, "v0.2.21")
