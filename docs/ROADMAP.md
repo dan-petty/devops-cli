@@ -31,7 +31,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Static SecOps & Kubernetes Auditing**: Static security scanner integrations (Aqua Trivy vulnerability & IaC scans, Red Hat Kube-linter manifest audits, Derailed Popeye cluster health sanitizer, Fairwinds Pluto API deprecations, and Kubernetes RBAC policy scanner).
 - [x] **Local Kubernetes & Minikube Infrastructure**: Multi-cluster Kubeconfig context switching, automated Minikube NodePort endpoint discovery (`devops k8s configure-urls`), and multi-stack lifecycle (`infra`, `llm`, `all`).
 - [x] **OpenTofu Multi-Cloud Infrastructure as Code**: Full IaC command suite (`devops tf`) with production OpenTofu modules for AWS (EKS), Azure (AKS), and GCP (GKE), and FastMCP IaC tools (`tf_plan`, `tf_apply`, `tf_output`).
-- [x] **Automated Quality Gates & Dynamic Documentation**: 7-gate CI quality suite (`test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`), dynamic Click/Typer docs introspection engine (`CLI_REFERENCE.md`, `ENV_VARS.md`, `MCP_TOOLS.md`), and automated release management suite (`devops release`).
+- [x] **Automated Quality Gates & Dynamic Documentation**: Gated CI quality suite (`test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`), dynamic Click/Typer docs introspection engine (`CLI_REFERENCE.md`, `ENV_VARS.md`, `MCP_TOOLS.md`), and automated release management suite (`devops release`).
 
 ### Distributed Observability, AI Agent Harness, Workload Sandboxing & Hardened SecOps (v0.2.0 – v0.2.19 - Completed)
 - [x] **Distributed Observability & Telemetry**: Prometheus client metrics, Jaeger distributed tracing waterfalls, Loki LogQL live log streaming, and OpenTelemetry traceparent propagation.

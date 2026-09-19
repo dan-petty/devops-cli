@@ -58,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Integrated pre-flight Valkey SHA-256 chunk cache checks before remote embedding dispatch, with automatic write-through caching and 7-day TTL.
 - **Automated Draft Release PR Description Generator (`devops release pr`)**:
   - Automatically queries and lists target milestone issues and deliverables under `### Target Milestone Deliverables`.
-  - Dynamically synthesizes 10-gate CI quality checklists, CodeQL, and PR readiness controls adapted for draft vs. ready pull requests.
+  - Dynamically synthesizes Gated CI quality checklists, CodeQL, and PR readiness controls adapted for draft vs. ready pull requests.
   - Resolves clean, non-duplicate release notes from git commits and changelog sources, preventing previous release note duplication.
 - **Git Squash Merge Commit Body Parsing & Categorization (`devops release changelog`)**:
   - Parses squash commit bodies (`%B`) to extract PR commit items into Keep-a-Changelog sections (`### Added`, `### Fixed & Hardened`, `### Changed & Improved`).

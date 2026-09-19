@@ -787,11 +787,11 @@ def _resolve_clean_release_notes(
 
 
 def _build_quality_checklist(branch_name: str, draft: bool) -> str:
-    """Build standardized 10-gate quality checklist for release PR."""
+    """Build standardized Gated quality checklist for release PR."""
     pr_checked = " " if draft else "x"
     return (
         "### Quality Gate Checklist\n"
-        f"- [{pr_checked}] 10-Gate CI Quality Gate passing (`devops ci`)\n"
+        f"- [{pr_checked}] Gated CI Quality Gate passing (`devops ci`)\n"
         f"- [{pr_checked}] Documentation and Command Matrix in `README.md` synchronized\n"
         f"- [{pr_checked}] Version matching across `pyproject.toml` and `src/devops_cli/__init__.py`\n"
         f"- [{pr_checked}] CodeQL & Static Analysis passing\n"

@@ -25,7 +25,7 @@ Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes cl
 - **Automated Release Management & Documentation (`devops release`, `devops docs`)**: Version bumping, changelog maintenance, pre-release checks, and dynamic Typer/Click markdown documentation generation with CI freshness gating.
 - **Native DevContainer Lifecycle Hooks (`devops devcontainer run-lifecycle`)**: Pure Python lifecycle execution (`--post-create`, `--post-start`) replacing shell scripts, with pre-built GHCR workstation containers.
 - **Static SecOps & Kubernetes Auditing**: Embedded Aqua Trivy vulnerability scanning, Red Hat Kube-linter static manifest analysis, Derailed Popeye cluster health audits, Fairwinds Pluto API deprecation checks, and Kubernetes RBAC audits.
-- **Minikube Auto-Configuration & 7-Gate CI**: Automated NodePort discovery (`configure-urls`), 18 core FastMCP tools, and 7-gate CI validation suite (`test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`).
+- **Minikube Auto-Configuration & Gated CI**: Automated NodePort discovery (`configure-urls`), 18 core FastMCP tools, and Gated CI validation suite (`test`, `coverage`, `lint`, `format`, `typecheck`, `audit`, `security`).
 - **AI Scratchpad & Prompt Defense**: Structured multi-turn reasoning buffers (`ScratchpadBuffer`), XML prompt boundary isolation, and human invalidation feedback dataset exporter (`export-feedback`).
 
 ---

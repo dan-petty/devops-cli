@@ -31,7 +31,7 @@ This fulfills the SDLC requirements defined in `AGENTS.md` (Section 3: *Mandator
    - Expose `docs_compact` tool in `src/devops_cli/ai/mcp/server.py`.
 5. **Test-First Verification (TDD)**:
    - Comprehensive test suite in `tests/test_docs_compactor.py`.
-   - 10-gate CI suite (`uv run devops ci`).
+   - Gated CI suite (`uv run devops ci`).
 
 ---
 
@@ -46,6 +46,6 @@ This fulfills the SDLC requirements defined in `AGENTS.md` (Section 3: *Mandator
 - [x] Update `src/devops_cli/lang/en/help.py` and `messages.py`.
 - [x] Implement `devops docs compact` command in `src/devops_cli/commands/docs.py`.
 - [x] Register `docs_compact` tool in `src/devops_cli/ai/mcp/server.py` and export schemas.
-- [x] Verify unit tests and 10-gate CI suite (`devops ci`).
+- [x] Verify unit tests and Gated CI suite (`devops ci`).
 - [x] Commit, push to `origin/feat/docs-compaction-engine`, and open PR targeting `release/v0.2.16`.
 - [x] Remediate Copilot code review comments on PR #138 and provide direct in-thread replies.

@@ -13,7 +13,7 @@ graph TD
     A[develop/topic branches] -->|PR merge| B[release/vX.Y.Z Branch]
     B --> C[devops release bump --minor / --patch]
     C --> D[devops docs generate --sync-readme]
-    D --> E[devops release check - 10 Gates]
+    D --> E[devops release check - Gated]
     E --> F[devops release create-pr]
     F -->|Maintainer Merge| G[main Branch]
     G --> H[GitHub Release Tag & GHCR Container Publish]
@@ -54,7 +54,7 @@ devops release create-pr --version 0.2.0
      - `MINOR (`X.Y.0`)`: Backwards-compatible new features, commands, or tools.
      - `PATCH (`X.Y.Z`)`: Backwards-compatible bug fixes and security patches.
 2. **Update Release Notes**: Document all notable additions, fixes, refactorings, and documentation updates under `docs/commands/release.md` under the corresponding version header.
-3. **Always Run `release check`**: Never push a release branch or open a release PR without verifying `devops release check` completes with 10/10 green gates.
+3. **Always Run `release check`**: Never push a release branch or open a release PR without verifying `devops release check` completes with Gated checks green.
 4. **Synchronize CLI Docs**: Always run `devops docs generate --sync-readme` when adding new commands or options before cutting a release.
 
 ---

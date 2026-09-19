@@ -33,7 +33,7 @@ flowchart LR
     A[Feature Spec / Issue] --> B[Branch Development]
     B --> C[Centralize Config & Literals]
     C --> D[Unit Tests & Mocking]
-    D --> E[7-Gate CI Quality Gate]
+    D --> E[Gated CI Quality Gate]
     E --> F[Automated Docs & README Sync]
     F --> G[PR Review & Merge]
     G --> H[Release Orchestration]

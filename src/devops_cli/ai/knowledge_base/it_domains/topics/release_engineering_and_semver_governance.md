@@ -2,14 +2,14 @@
 
 ## 1. Overview & Domain Architecture
 
-Release Engineering establishes repeatable, deterministic processes for version bumping, release gate verification, changelog generation, Git branch isolation, and automated pull request workflows. In `devops-cli`, release engineering enforces Semantic Versioning 2.0.0 (SemVer), Conventional Commits, 10-gate release validation (`devops release check`), and automated container publishing to GitHub Container Registry (GHCR).
+Release Engineering establishes repeatable, deterministic processes for version bumping, release gate verification, changelog generation, Git branch isolation, and automated pull request workflows. In `devops-cli`, release engineering enforces Semantic Versioning 2.0.0 (SemVer), Conventional Commits, Gated release validation (`devops release check`), and automated container publishing to GitHub Container Registry (GHCR).
 
 ```mermaid
 graph TD
     A[Topic Branches: feat/*, fix/*, refactor/*] -->|PR Review & CI Pass| B[release/vX.Y.Z Branch]
     B --> C[devops release bump --minor / --patch]
     C --> D[devops docs generate --sync-readme]
-    D --> E[devops release check: 10 Gates]
+    D --> E[devops release check: Gated]
     E --> F[devops release create-pr]
     F -->|Maintainer Merge Approval| G[main Branch]
     G --> H[GitHub Release & GHCR Container Build]
@@ -38,7 +38,7 @@ graph TD
 ### Release Subcommands (`src/devops_cli/commands/release.py`)
 - `devops release status`: Displays active branch, tag status, and version consistency.
 - `devops release bump`: Updates `pyproject.toml`, `src/devops_cli/__init__.py`, and initializes changelog headers.
-- `devops release check`: Executes comprehensive 10-gate quality check ensuring release readiness.
+- `devops release check`: Executes comprehensive Gated quality check ensuring release readiness.
 - `devops release create-pr`: Opens a release PR targeting `main` with formatted release notes.
 
 ### Common Commands
@@ -79,7 +79,7 @@ devops release create-pr --version 0.2.0
 
 - **Branch Naming**: `release/v<MAJOR>.<MINOR>.<PATCH>`.
 - **Release Tag Format**: `v<MAJOR>.<MINOR>.<PATCH>`.
-- **Quality Threshold**: 100% pass across all 10 release verification gates before PR creation.
+- **Quality Threshold**: 100% pass across all Gated release verification checks before PR creation.
 
 ---
 

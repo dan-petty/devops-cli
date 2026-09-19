@@ -79,7 +79,7 @@ devops ci
 
 ## 6. General Standards & Reference Guidelines
 
-- **Quality Threshold**: 100% pass requirement on all 10 gates before merging to release or main branches.
+- **Quality Threshold**: 100% pass requirement on all Gated verification checks before merging to release or main branches.
 - **Coverage Floor**: Minimum 90% branch and line coverage enforced across `src/devops_cli/`.
 
 ---

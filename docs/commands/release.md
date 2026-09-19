@@ -85,7 +85,7 @@ devops release check [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--skip-ci` | `boolean` | - | Skip running the 7-gate CI test suite. |
+| `--skip-ci` | `boolean` | - | Skip running the Gated CI test suite. |
 | `--allow-dirty` | `boolean` | - | Allow uncommitted changes in git repository. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
 
