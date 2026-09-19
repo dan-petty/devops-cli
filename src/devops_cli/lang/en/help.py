@@ -190,6 +190,19 @@ class AICommandHelp:
     )
     pack_target_file: str = "Path to source code file to pack and prune."
     max_tokens: str = "Maximum token budget for packed context output."
+    read_cmd: str = (
+        "Inspect and read source code across 3 multi-scale focal zoom levels "
+        "(Topology, Structural Outline, Deep Focal Window)."
+    )
+    read_path: str = "Target file path to read or inspect."
+    read_inspect: str = "Enable multi-scale semantic outline and inspection scanner."
+    read_level: str = (
+        "Focal zoom level: 0 (Topology: <200 tokens), "
+        "1 (Structural Outline: control flow & signatures), "
+        "2 (Deep Focal Window: line slice)."
+    )
+    read_lines: str = "Line range for Level 2 focal window (e.g. '40:80')."
+    read_symbol: str = "Target symbol name to inspect or focus on."
 
 
 @dataclass(frozen=True)

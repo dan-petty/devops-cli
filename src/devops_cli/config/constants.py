@@ -740,3 +740,8 @@ CONST_ROADMAP_PRIORITY_TAGS: Final[dict[str, tuple[str, ...]]] = {
     "priority/p2-medium": ("p2", "medium"),
     "priority/p3-low": ("p3", "low"),
 }
+
+# ── Multi-Scale Semantic Outline & Inspection Scanner ────────────────────────
+CONST_MAX_INSPECT_FILE_SIZE_BYTES: Final[int] = 5 * 1024 * 1024
+CONST_DEFAULT_FOCAL_WINDOW_SIZE: Final[int] = 30
+CONST_HOTSPOT_COMPLEXITY_THRESHOLD: Final[int] = 5

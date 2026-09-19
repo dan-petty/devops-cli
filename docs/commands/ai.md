@@ -308,6 +308,35 @@ devops ai pack-context [OPTIONS] <target_path>
 
 ---
 
+## `devops ai read`
+
+**Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window).**
+
+```bash
+devops ai read [OPTIONS] <target_path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target_path>` | `path` | Yes | Target file path to read or inspect. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--inspect`, `-i` | `boolean` | - | Enable multi-scale semantic outline and inspection scanner. |
+| `--level`, `-l` | `integer` | - | Focal zoom level: 0 (Topology: <200 tokens), 1 (Structural Outline: control flow & signatures), 2 (Deep Focal Window: line slice). |
+| `--lines`, `-L` | `string` | - | Line range for Level 2 focal window (e.g. '40:80'). |
+| `--symbol`, `-s` | `string` | - | Target symbol name to inspect or focus on. |
+| `--format`, `-f` | `string` | `markdown` | Output format: 'text', 'markdown', or 'json'. |
+| `--repo`, `-r` | `path` | - | Repository or workspace root directory. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops ai diagram`
 
 **Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams.**
