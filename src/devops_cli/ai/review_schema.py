@@ -81,13 +81,24 @@ def format_clean_text_field(val: Any) -> str:
     if val is None:
         return ""
     if isinstance(val, (list, tuple, set)):
-        return "\n".join(str(item).strip() for item in val if str(item).strip())
+        items = [
+            str(item).strip()
+            for item in val
+            if str(item).strip() and str(item).strip() not in ("**", "*", "---")
+        ]
+        return "\n".join(items)
     if isinstance(val, str):
         s = val.strip()
         coll = _parse_stringified_collection(s)
         if coll is not None:
-            return "\n".join(str(item).strip() for item in coll if str(item).strip())
-        return s
+            items = [
+                str(item).strip()
+                for item in coll
+                if str(item).strip() and str(item).strip() not in ("**", "*", "---")
+            ]
+            return "\n".join(items)
+        lines = [line for line in s.splitlines() if line.strip() not in ("**", "*", "---")]
+        return "\n".join(lines).strip()
     return str(val)
 
 
@@ -116,7 +127,7 @@ _PROMPT_CRITERIA_SPLIT_REGEX = re.compile(
 )
 
 _INSTRUCTION_HEADER_PREFIX_REGEX = re.compile(
-    r"^(?:Provide\s+(?:fix|remediation|patch|verification|invalidation)|Title|Issue|Defect|Finding|Problem|Observation):\s*",
+    r"^(?:\*\*)?(?:Provide\s+(?:fix|remediation|patch|verification|invalidation)|Title|Issue|Defect|Finding|Problem|Observation|Description|Fix|Location)(?:\*\*)?:\s*(?:\*\*)?\s*",
     re.IGNORECASE,
 )
 
@@ -146,6 +157,18 @@ _DEFECT_KEYWORD_REGEX = re.compile(
     r"\b(?:but|however|although|except|potential|issue|risk|bug|vulnerability|flaw|leak|fail|race|error|insecure|missing|unhandled|unvalidated)\b",
     re.IGNORECASE,
 )
+
+
+def strip_outer_markdown_bold(text: str) -> str:
+    """Strip paired outer markdown bold markers (**text**) while preserving legitimate prefixes like **kwargs."""
+    val = text.strip()
+    if val.startswith("**") and val.endswith("**") and len(val) >= 4:
+        inner = val[2:-2].strip()
+        # Verify outer bold is not prematurely closed by an un-backticked `**` inside
+        non_code = re.sub(r"`[^`]*`", "", inner)
+        if "**" not in non_code:
+            return inner
+    return val
 
 
 def sanitize_finding_text(text: str) -> str:
@@ -179,7 +202,10 @@ def sanitize_finding_text(text: str) -> str:
     ) and not _DEFECT_KEYWORD_REGEX.search(val):
         return ""
 
-    return val
+    # Strip paired outer markdown bold markers while preserving legitimate prefixes like **kwargs
+    val = strip_outer_markdown_bold(val)
+
+    return val.strip()
 
 
 def unique_items[T: Hashable](items: Iterable[T]) -> list[T]:

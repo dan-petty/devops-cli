@@ -14,7 +14,7 @@
 When creating release pull requests via `devops release pr`, the generator previously suffered from several issues:
 1. **Milestone Deliverable Grounding**: Release PRs lacked automated milestone issue queries and grounding under merge controls.
 2. **Stale Changelog Duplication**: When local git tags were missing or stale, commit extraction fell back to older tags, causing `CHANGELOG.md` to duplicate prior release deliverables under the new release heading. The PR description generator then copied these duplicated notes into PR descriptions.
-3. **Outdated Quality Checklist**: The release PR template referenced an obsolete `7-Gate CI Quality Gate passing (devops ci run)` instead of the authoritative 10-gate suite (`devops ci`), with static checked boxes even in draft mode.
+3. **Outdated Quality Checklist**: The release PR template referenced an obsolete `Gated CI Quality Gate passing (devops ci run)` instead of the authoritative Gated suite (`devops ci`), with static checked boxes even in draft mode.
 
 #### Key Deliverables:
 1. **Target Milestone Deliverables Resolution ([`src/devops_cli/commands/release.py`](file:///workspaces/devops-cli/src/devops_cli/commands/release.py))**:
@@ -23,7 +23,7 @@ When creating release pull requests via `devops release pr`, the generator previ
 2. **Stale Duplicate Changelog Detection**:
    - Added `_is_stale_duplicate_changelog` to compare extracted release notes against the preceding release section in `CHANGELOG.md` and discard duplicate entries.
    - Added `_resolve_clean_release_notes` to cleanly fall back to branch commit logs or standardized initial preparation text.
-3. **Authoritative 10-Gate CI Checklist**:
+3. **Authoritative Gated CI Checklist**:
    - Added `_build_quality_checklist` supporting dynamic draft checkbox states (`- [ ]` in draft mode vs. `- [x]` when ready).
 4. **Clean Changelog & Live PR Patch**:
    - Cleaned `CHANGELOG.md` for `v0.2.19` and updated live Draft PR [#217](https://github.com/dan-petty/devops-cli/pull/217) description on GitHub.

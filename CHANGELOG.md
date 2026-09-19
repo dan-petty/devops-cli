@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.20] - 2026-09-18
+
+### Added
+- **Forward-Looking Project Management & Automated Roadmap Synchronization (`devops_cli.github.projects`, `devops_cli.github.issues`)**:
+  - Implemented forward-looking project management principles in `AGENTS.md` and automated roadmap synchronization (`devops gh issues sync-roadmap`) converting uncompleted roadmap deliverables into GitHub Issues and per-task tracking files (`docs/agent/tasks/`).
+  - Hardened documentation compactor (`devops docs compact`) against truncating or removing scheduled milestones.
+- **Automated Pull Request Synchronization & Branch Update Integrations (`devops_cli.github.pr_update`)**:
+  - Implemented native CLI command `devops pr update` (with batch `--all`, optimistic concurrency `--expected-head-sha`, and `--dry-run`), FastMCP tool `pr_update_branch`, and GitHub Actions workflow `.github/workflows/update-prs.yml`.
+- **Fast CI Execution Caching & Git Pre-Commit File Change Tracking (`devops_cli.commands.ci`)**:
+  - Introduced input-addressed execution caching for `devops ci` quality gates, reducing unchanged verification from ~3 minutes to sub-second execution with Git working tree change tracking and `--no-cache`/`--force` overrides.
+- **Universal Subcommand Option Propagation (`devops_cli.core.command_options`)**:
+  - Ensured universal trailing `--dry-run` and `--explain` options across all CLI subcommands with declarative dry-run callbacks and option inheritance.
+
+### Performance & Optimization
+- **CI Performance Acceleration, Worker Auto-Scaling & Pathological Test Mocking (`devops_cli.commands.ci`)**:
+  - Accelerated `devops ci` quality gate pipeline latency by over 75% with dynamic Pytest worker auto-scaling (`min(os.cpu_count(), 8)`).
+  - Mocked unmocked socket probes in Kubernetes context bootstrapping, bounded `.venv` workspace traversal in repo map generation, and bypassed whole-tree git hashing in CI tests.
+  - Eliminated sequential blocking documentation passes with zero-blocking concurrent pipeline dispatch at timestamp 0.
+
+### Fixed & Hardened
+- **Review Findings Remediation & Defensive Boundary Hardening (`devops_cli.ai.rag`, `devops_cli.sandbox`, `devops_cli.core.audit`)**:
+  - Enforced path traversal guards (`validate_no_path_traversal`), forbidden system root blocks, symlink rejection, and pre-flight file size caps ($\le 5\text{MB}$) across RAG chunkers, drift analysis, benchmark chunkers, and prompt evaluation.
+  - Decomposed complex workspace directory validation in sandbox engine into single-responsibility helpers, enforcing cyclomatic complexity $M \le 4$.
+  - Enforced atomic serialized file exports (`write_serialized_file`) in Kubernetes diagnostics.
+  - Hardened None-safe severity handling in review reporting and pipeline stages.
+- **Review Verification Prompts & Closed-Loop Feedback Dataset Export (`devops_cli.ai.review`)**:
+  - Hardened verification prompts (`verify_finding_system.md`) with falsification rules distinguishing internal loopback services, CLI path logging, and local scope variable grounding from false-positive vulnerabilities.
+  - Updated DevSecOps persona instructions and expanded the anti-hallucination catalog (`common_hallucinations.json`).
+  - Closed the self-improvement loop with automated dataset export (`devops review export-feedback --status ALL`) to `.data/feedback_dataset.jsonl`.
+- **Review Markdown Code Block & Asterisk Formatting (`devops_cli.ai.review`)**:
+  - Implemented line-start fence delimiter detection in fix and description formatters to prevent inline backticks (e.g. `print("```")`) from creating malformed Markdown fences.
+  - Hardened title and heading rendering by escaping un-backticked asterisks (`\*`) to prevent Markdown bold collisions with Python unpacking syntax (`**kwargs`).
+  - Conditioned Markdown bold stripping on matched outer pairs (`^\s*\*\*(.+)\*\*\s*$`), preserving valid variable names like `**kwargs`.
+- **Dynamic Package Version Loader & Pyproject Single Source of Truth (`devops_cli.core.version`)**:
+  - Refactored `devops_cli.__version__` to read directly from `pyproject.toml` metadata as the single source of truth.
+  - Derived generator test fixtures dynamically from `devops_cli.__version__` to prevent stale version assertions.
+- **PR Copilot Timeline State Parser Robustness (`devops_cli.github.pr_monitor`)**:
+  - Safely handles JSON array timeline payloads and empty responses (`[]`) from `gh api .../timeline`, preventing `AttributeError: 'list' object has no attribute 'get'` during PR monitoring.
+
+### Changed & Improved
+- **Release v0.2.20 Branch Initialization**:
+  - Created `release/v0.2.20` tracking branch, bumped package version to `0.2.20`, and synchronized documentation across the repository.
+
 ## [0.2.19] - 2026-09-16
 
 ### Added
@@ -15,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Integrated pre-flight Valkey SHA-256 chunk cache checks before remote embedding dispatch, with automatic write-through caching and 7-day TTL.
 - **Automated Draft Release PR Description Generator (`devops release pr`)**:
   - Automatically queries and lists target milestone issues and deliverables under `### Target Milestone Deliverables`.
-  - Dynamically synthesizes 10-gate CI quality checklists, CodeQL, and PR readiness controls adapted for draft vs. ready pull requests.
+  - Dynamically synthesizes Gated CI quality checklists, CodeQL, and PR readiness controls adapted for draft vs. ready pull requests.
   - Resolves clean, non-duplicate release notes from git commits and changelog sources, preventing previous release note duplication.
 - **Git Squash Merge Commit Body Parsing & Categorization (`devops release changelog`)**:
   - Parses squash commit bodies (`%B`) to extract PR commit items into Keep-a-Changelog sections (`### Added`, `### Fixed & Hardened`, `### Changed & Improved`).

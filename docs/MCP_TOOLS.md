@@ -65,6 +65,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_rate_limit`](#gh-rate-limit) | Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 | [`gh_run_view`](#gh-run-view) | View details and diagnostic failure logs of a specific GitHub Actions workflow run. |
 | [`gh_runs_list`](#gh-runs-list) | List recent GitHub Actions CI/CD workflow runs. |
+| [`gh_sync_roadmap`](#gh-sync-roadmap) | Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files. |
 | [`gh_view_spec`](#gh-view-spec) | Return JSON specification for GitHub Projects v2 views. |
 | [`gh_views_audit`](#gh-views-audit) | Audit remote project views against standardized view template specifications. |
 | [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
@@ -96,6 +97,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_thread_reply`](#pr-thread-reply) | Post an in-thread reply directly to a pull request review discussion thread. |
 | [`pr_thread_resolve`](#pr-thread-resolve) | Programmatically mark a pull request review discussion thread as resolved. |
 | [`pr_threads_list`](#pr-threads-list) | List review discussion threads, file locations, and comments on a pull request. |
+| [`pr_update_branch`](#pr-update-branch) | Update a pull request branch with latest commits from its base branch. |
 | [`prometheus_query`](#prometheus-query) | Execute PromQL instant query against Prometheus endpoint. |
 | [`rag_drift`](#rag-drift) | Detect staleness and drift between the working tree and the Qdrant vector index. |
 | [`rag_index`](#rag-index) | Index workspace files into Qdrant vector database for semantic retrieval. |
@@ -797,6 +799,19 @@ List recent GitHub Actions CI/CD workflow runs.
 | `branch` | `string` | No | - | - |
 | `repo` | `string` | No | - | - |
 
+### `gh_sync_roadmap`
+
+Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `milestone` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `True` | - |
+| `limit` | `integer` | No | `20` | - |
+| `repo` | `string` | No | - | - |
+
 ### `gh_view_spec`
 
 Return JSON specification for GitHub Projects v2 views.
@@ -1134,6 +1149,19 @@ List review discussion threads, file locations, and comments on a pull request.
 |---|---|---|---|---|
 | `pr_number` | `integer` | Yes | - | - |
 | `unresolved_only` | `boolean` | No | `True` | - |
+
+### `pr_update_branch`
+
+Update a pull request branch with latest commits from its base branch.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `pr_number` | `integer` | Yes | - | - |
+| `repo` | `string` | No | - | - |
+| `expected_head_sha` | `string` | No | - | - |
+| `dry_run` | `boolean` | No | `False` | - |
 
 ### `prometheus_query`
 

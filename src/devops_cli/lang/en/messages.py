@@ -446,6 +446,19 @@ class PRMessages:
     checks_passed: str = "✓ All CI checks passed ({count}/{count} completed successfully)."
     copilot_review_active: str = "Copilot review session is currently active..."
     copilot_review_complete: str = "Copilot review session complete."
+    update_branch_success: str = (
+        "✓ Successfully updated branch for PR #{number} from base '{base}'."
+    )
+    update_branch_failed: str = "✗ Failed to update PR #{number}: {error}"
+    update_branch_dry_run: str = r"[yellow]\[dry-run][/yellow] Would update PR #{number} ({branch}) with latest commits from '{base}'"
+    update_branch_already_up_to_date: str = (
+        "PR #{number} branch is already up to date with base '{base}'."
+    )
+    update_branch_no_prs: str = "No open pull requests found to update."
+    update_branch_conflict: str = (
+        "✗ Merge conflict detected on PR #{number} with base '{base}'. Manual resolution required."
+    )
+    update_table_title: str = "Pull Request Branch Update Summary"
 
 
 @dataclass(frozen=True)
@@ -614,6 +627,9 @@ class CIMessages:
     col_check: str = "Check"
     col_result: str = "Result"
     python_version_fail: str = "Strict Python {required}+ requirement failed. Current: {current}"
+    cache_hit: str = (
+        "Codebase unchanged since last verification. Utilizing CI cache (all checks passed)."
+    )
 
 
 @dataclass(frozen=True)

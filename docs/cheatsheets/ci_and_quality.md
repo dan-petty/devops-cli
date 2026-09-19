@@ -12,7 +12,7 @@ Compare disparate linters, formatters, type checkers, and test runners with the 
 | **Format Codebase** | `ruff format .` | `devops ci format` | Formats all source files to project PEP 8 standards with strict 100-character line length. |
 | **Lint Codebase** | `ruff check . --fix` | `devops ci lint [--fix]` | Validates and auto-fixes lint errors, import ordering, and modernization rules. |
 | **Strict Type Checking** | `mypy src --strict` | `devops ci typecheck` | Runs Mypy strict type checking across all packages. |
-| **Unit & Integration Tests**| `pytest -n auto --maxprocesses=4` | `devops ci test` | Executes parallel pytest suite with auto-configured process pooling. |
+| **Unit & Integration Tests**| `pytest -n auto --maxprocesses=8` | `devops ci test` | Executes parallel pytest suite with auto-configured process pooling. |
 | **Coverage Measurement** | `pytest --cov=src --cov-report=html` | `devops ci coverage [--html]` | Computes coverage percentages and generates interactive HTML coverage reports in `.data/coverage/`. |
 | **GitHub Actions Linting** | `actionlint .github/workflows/*.yml` | `devops ci actionlint` | Validates YAML syntax, context expressions, and security permissions in GitHub Actions workflows. |
 | **Doc Freshness Check** | `python tools/check_docs.py` | `devops ci docs` | Asserts that CLI command reference and README command matrix match live Typer definitions. |

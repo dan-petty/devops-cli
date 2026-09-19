@@ -521,6 +521,23 @@ devops gh issues edit [OPTIONS] <number>
 | `--state`, `-s` | `string` | - | New state (open or closed). |
 | `--repo`, `-R` | `string` | - | Target repository |
 
+### `devops gh issues sync-roadmap`
+
+**Synchronize uncompleted roadmap deliverables into GitHub Issues and per-task tracking files.**
+
+```bash
+devops gh issues sync-roadmap [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--milestone`, `-m` | `string` | - | Filter by release milestone (e.g. v0.2.20) |
+| `--dry-run` | `boolean` | - | Preview issue and task creation without modifying remote state |
+| `--limit`, `-L` | `integer` | `20` | Maximum issues to create |
+| `--repo`, `-R` | `string` | - | Target repository |
+
 ---
 
 ## `devops gh runs`
@@ -895,6 +912,30 @@ devops gh pr check-readiness [OPTIONS] <number>
 | `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
 | `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+
+### `devops gh pr update`
+
+**Update pull request branch with latest commits from its base branch.**
+
+```bash
+devops gh pr update [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | No | Pull request number to update (optional if --all is specified). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--all`, `-a` | `boolean` | - | Update all open pull requests targeting the base branch. |
+| `--base`, `-B` | `string` | - | Filter open pull requests by base branch (e.g. main, release/v0.2.20). |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--expected-head-sha` | `string` | - | Expected SHA of the pull request's HEAD ref for optimistic locking. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops gh pr threads`
 

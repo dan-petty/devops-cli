@@ -41,30 +41,35 @@ def evaluate_persona_prompts(
     dataset_path: Path | None = None,
 ) -> PromptEvalBenchmarkResult:
     """Evaluate prompt fidelity against feedback datasets or baseline benchmarks."""
+    settings = load_settings()
     top_root = find_top_level_repo_root(Path.cwd())
     if dataset_path is None:
-        settings = load_settings()
         ds = settings.data.feedback_dataset_path
         target_path = ds if ds.is_absolute() else (top_root / ds)
     else:
+        from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+
+        validate_no_path_traversal(dataset_path, label="dataset_path")
         target_path = dataset_path if dataset_path.is_absolute() else (top_root / dataset_path)
 
     if target_path.is_symlink():
         raise SecurityError(f"dataset_path must not be a symbolic link: {target_path}")
 
     resolved_path = target_path.resolve()
-    if dataset_path is not None and not dataset_path.is_absolute():
-        if not resolved_path.is_relative_to(top_root) and not resolved_path.is_relative_to(
-            Path.cwd()
-        ):
-            raise SecurityError(f"dataset_path must not escape workspace root: {resolved_path}")
+    from devops_cli.core.paths import is_forbidden_system_path
+
+    if is_forbidden_system_path(resolved_path):
+        raise SecurityError(
+            f"dataset_path must not resolve to forbidden system path: {resolved_path}"
+        )
 
     records: list[dict[str, Any]] = []
-    if resolved_path.exists():
+    if resolved_path.is_file() and not target_path.is_symlink():
         try:
-            for line in resolved_path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    records.append(json.loads(line))
+            if resolved_path.stat().st_size <= 50 * 1024 * 1024:
+                for line in resolved_path.read_text(encoding="utf-8").splitlines():
+                    if line.strip():
+                        records.append(json.loads(line))
         except Exception:
             records = []
 

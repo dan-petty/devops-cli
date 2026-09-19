@@ -158,6 +158,78 @@ def _ensure_internal_network(client: Any | None = None) -> None:
         logger.debug("Subprocess internal network create check: %s", sub_exc)
 
 
+def _check_workspace_traversal_and_symlink(workspace_dir: Path) -> None:
+    """Validate workspace path for traversal sequences and symbolic link escapes."""
+    from devops_cli.core.paths import validate_no_path_traversal
+
+    try:
+        validate_no_path_traversal(workspace_dir, label="Workspace directory")
+    except Exception as exc:
+        raise SandboxValidationError(
+            f"Workspace directory traversal detected: {exc}",
+            path=str(workspace_dir),
+        ) from exc
+
+    if workspace_dir.is_symlink():
+        raise SandboxValidationError(
+            f"Workspace directory cannot be a symbolic link: {workspace_dir}",
+            path=str(workspace_dir),
+        )
+
+
+def _check_workspace_forbidden_roots(resolved: Path) -> None:
+    """Validate resolved workspace path against forbidden host system roots."""
+    from devops_cli.core.paths import is_forbidden_system_path
+
+    resolved_str = str(resolved)
+    if (
+        resolved_str in _FORBIDDEN_ROOTS
+        or resolved == Path(resolved.anchor)
+        or is_forbidden_system_path(resolved)
+    ):
+        raise SandboxValidationError(
+            f"Mounting sensitive root system directory into sandbox is forbidden: {resolved}",
+            path=resolved_str,
+        )
+
+
+def _check_workspace_home(resolved: Path, exclude_home_dir: bool) -> None:
+    """Ensure user home directory is excluded or prevented from mounting."""
+    resolved_str = str(resolved)
+    if exclude_home_dir and is_home_or_subpath(resolved):
+        raise SandboxValidationError(
+            f"Sandbox access to user home directory is excluded: {resolved}",
+            path=resolved_str,
+        )
+    if not exclude_home_dir:
+        try:
+            if resolved == Path.home().resolve():
+                raise SandboxValidationError(
+                    f"Mounting user home directory into sandbox is forbidden: {resolved}",
+                    path=resolved_str,
+                )
+        except RuntimeError:
+            pass
+
+
+def _check_workspace_sensitive_paths(resolved: Path) -> None:
+    """Block sensitive repository metadata directories and Docker sockets."""
+    resolved_str = str(resolved)
+    if resolved.name in CONST_SANDBOX_SENSITIVE_SUBPATHS or any(
+        part in CONST_SANDBOX_SENSITIVE_SUBPATHS for part in resolved.parts
+    ):
+        raise SandboxValidationError(
+            f"Mounting sensitive credential or repository metadata directory into sandbox is forbidden: {resolved}",
+            path=resolved_str,
+        )
+
+    if "docker.sock" in resolved_str:
+        raise SandboxValidationError(
+            f"Mounting Docker socket into sandbox is forbidden: {resolved}",
+            path=resolved_str,
+        )
+
+
 class WorkloadSandboxEngine:
     """Orchestrator for managing isolated background Docker container sandboxes."""
 
@@ -182,50 +254,11 @@ class WorkloadSandboxEngine:
 
     def validate_workspace_dir(self, workspace_dir: Path) -> Path:
         """Enforce strict security boundaries preventing host system root or secret mounts."""
-        if workspace_dir.is_symlink():
-            raise SandboxValidationError(
-                f"Workspace directory cannot be a symbolic link: {workspace_dir}",
-                path=str(workspace_dir),
-            )
-
+        _check_workspace_traversal_and_symlink(workspace_dir)
         resolved = workspace_dir.resolve()
-        resolved_str = str(resolved)
-
-        if resolved_str in _FORBIDDEN_ROOTS or resolved == Path(resolved.anchor):
-            raise SandboxValidationError(
-                f"Mounting sensitive root system directory into sandbox is forbidden: {resolved}",
-                path=resolved_str,
-            )
-
-        if self.exclude_home_dir and is_home_or_subpath(resolved):
-            raise SandboxValidationError(
-                f"Sandbox access to user home directory is excluded: {resolved}",
-                path=resolved_str,
-            )
-        if not self.exclude_home_dir:
-            try:
-                if resolved == Path.home().resolve():
-                    raise SandboxValidationError(
-                        f"Mounting user home directory into sandbox is forbidden: {resolved}",
-                        path=resolved_str,
-                    )
-            except RuntimeError:
-                pass
-
-        if resolved.name in CONST_SANDBOX_SENSITIVE_SUBPATHS or any(
-            part in CONST_SANDBOX_SENSITIVE_SUBPATHS for part in resolved.parts
-        ):
-            raise SandboxValidationError(
-                f"Mounting sensitive credential or repository metadata directory into sandbox is forbidden: {resolved}",
-                path=resolved_str,
-            )
-
-        if "docker.sock" in resolved_str:
-            raise SandboxValidationError(
-                f"Mounting Docker socket into sandbox is forbidden: {resolved}",
-                path=resolved_str,
-            )
-
+        _check_workspace_forbidden_roots(resolved)
+        _check_workspace_home(resolved, self.exclude_home_dir)
+        _check_workspace_sensitive_paths(resolved)
         return resolved
 
     def _generate_instance_id(self, name: str) -> str:

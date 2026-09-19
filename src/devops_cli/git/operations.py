@@ -135,8 +135,19 @@ def _ensure_known_host(hostname: str = CONST_GITHUB_HOST) -> None:
 
 def _validate_clone_dest(dest: Path) -> None:
     """Validate that repository destination path does not attempt path traversal."""
-    if ".." in dest.parts:
-        raise GitOperationError(f"Path traversal detected in destination path: {dest}")
+    from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+    from devops_cli.exceptions import SecurityError
+
+    try:
+        validate_no_path_traversal(dest, label="Clone destination")
+    except SecurityError as exc:
+        raise GitOperationError(str(exc)) from exc
+
+    resolved = dest.resolve()
+    if is_forbidden_system_path(resolved):
+        raise GitOperationError(f"Clone destination resolves to forbidden system path: {resolved}")
+    if dest.is_symlink():
+        raise GitOperationError(f"Clone destination must not be a symlink: {dest}")
 
 
 def _prepare_clone_url(url: str) -> str:

@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import time
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
@@ -38,6 +39,8 @@ from devops_cli.ai.review.review_environment import (
 from devops_cli.ai.review.sanitization import (
     _escape_backticks,
     _sanitize_filename,
+    balance_markdown_fences,
+    escape_markdown_title,
 )
 from devops_cli.ai.review.verification import _validate_segment_findings
 from devops_cli.ai.review_schema import (
@@ -49,6 +52,7 @@ from devops_cli.ai.review_schema import (
     consolidate_duplicate_findings,
     format_clean_text_field,
     parse_review_response,
+    strip_outer_markdown_bold,
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.ai.thinking_stream import extract_think_blocks
@@ -2093,6 +2097,154 @@ class ReviewPipelineOrchestrator:
         all_nets = sort_network_references(deduplicate_network_references(raw_nets))
         return all_deps, all_nets
 
+    @staticmethod
+    def _format_markdown_fix(fix: str) -> str:
+        """Format fix recommendation safely into Markdown without unbalancing code fences."""
+        clean_fix = strip_outer_markdown_bold(fix.strip())
+        if not clean_fix:
+            return ""
+
+        balanced_fix, has_fences = balance_markdown_fences(clean_fix)
+        if has_fences:
+            return f"- **Fix Recommendation**:\n\n{balanced_fix}"
+
+        max_backticks = max((len(m) for m in re.findall(r"`+", clean_fix)), default=0)
+        fence = "`" * max(3, max_backticks + 1)
+        return f"- **Fix Recommendation**:\n{fence}\n{clean_fix}\n{fence}"
+
+    @staticmethod
+    def _format_markdown_description(description: str) -> str:
+        """Format finding description into indented Markdown list item preserving paragraphs."""
+        clean_desc = strip_outer_markdown_bold(description.strip())
+        if not clean_desc:
+            return ""
+        balanced_desc, _ = balance_markdown_fences(clean_desc)
+        lines = balanced_desc.splitlines()
+        if len(lines) <= 1:
+            return f"- **Description**: {balanced_desc}"
+        indented = (
+            lines[0] + "\n" + "\n".join(f"  {line}" if line.strip() else "" for line in lines[1:])
+        )
+        return f"- **Description**: {indented}"
+
+    @staticmethod
+    def _build_findings_table(reportable_findings: list[SavedFinding]) -> list[str]:
+        """Render summary table of reportable findings."""
+        if not reportable_findings:
+            return ["✅ **No critical issues found during review.**"]
+
+        lines = [
+            "| Severity | Location | Title | Status | Persona |",
+            "|---|---|---|---|---|",
+        ]
+        for f in reportable_findings:
+            clean_sev = (
+                (f.severity or "INFORMATIONAL").replace("|", "\\|").replace("\n", " ").strip()
+            )
+            clean_loc = f.location.strip("`").replace("|", "\\|").replace("\n", " ").strip()
+            clean_title = escape_markdown_title(f.title, is_table=True)
+            clean_status = f.status.replace("|", "\\|").replace("\n", " ").strip()
+            clean_persona = f.persona_title.replace("|", "\\|").replace("\n", " ").strip()
+            lines.append(
+                f"| **{clean_sev}** | `{clean_loc}` | {clean_title} | {clean_status} | {clean_persona} |"
+            )
+        return lines
+
+    @staticmethod
+    def _build_detailed_findings_section(reportable_findings: list[SavedFinding]) -> list[str]:
+        """Render detailed findings section with balanced code blocks and clean formatting."""
+        if not reportable_findings:
+            return []
+
+        lines = ["", "## Detailed Findings"]
+        for idx, f in enumerate(reportable_findings, 1):
+            clean_title = escape_markdown_title(f.title, is_table=False)
+            clean_loc = f.location.strip("`").strip()
+            lines.append(f"### {idx}. [{(f.severity or 'INFORMATIONAL').upper()}] {clean_title}")
+            lines.append(f"- **Location**: `{clean_loc}`")
+            lines.append(f"- **Persona**: {f.persona_title}")
+            lines.append(f"- **Status**: {f.status}")
+            desc_line = ReviewPipelineOrchestrator._format_markdown_description(f.description)
+            if desc_line:
+                lines.append(desc_line)
+            if f.fix:
+                fix_md = ReviewPipelineOrchestrator._format_markdown_fix(f.fix)
+                if fix_md:
+                    lines.append(fix_md)
+            lines.append("")
+        return lines
+
+    @staticmethod
+    def _build_dependencies_table(all_deps: list[DependencySpec]) -> list[str]:
+        """Render external dependencies audit table."""
+        lines = ["## External Dependencies (OSV.dev & NVD)"]
+        if not all_deps:
+            lines.extend(["✅ **No external dependencies declared in review scope.**", ""])
+            return lines
+
+        lines.extend(
+            [
+                "| Severity | Dependency | Version Range | Ecosystem | Security Status | Location |",
+                "|---|---|---|---|---|---|",
+            ]
+        )
+        for dep in all_deps:
+            sev_badge = (
+                f"**{dep.severity}**"
+                if dep.severity.upper() not in ("CLEAN", "NONE", "INFO")
+                else dep.severity
+            )
+            loc_str = f"`{dep.location}`" if dep.location else "—"
+            lines.append(
+                f"| {sev_badge} | `{dep.name}` | `{dep.version_range}` | {dep.ecosystem} | "
+                f"{dep.security_status} | {loc_str} |"
+            )
+        lines.append("")
+        return lines
+
+    @staticmethod
+    def _build_network_table(all_nets: list[NetworkReference]) -> list[str]:
+        """Render network endpoints and references audit table."""
+        from devops_cli.security.reference_extractor import (
+            deduplicate_network_references,
+            is_example_or_invalid_network_target,
+            sort_network_references,
+        )
+
+        filtered_md_nets = [
+            n
+            for n in all_nets
+            if not getattr(n, "is_example", False)
+            and not is_example_or_invalid_network_target(getattr(n, "target", ""))
+        ]
+        sorted_md_nets = sort_network_references(deduplicate_network_references(filtered_md_nets))
+
+        lines = ["## Network References & Endpoints (Shodan InternetDB & Cloudflare Radar)"]
+        if not sorted_md_nets:
+            lines.extend(
+                [
+                    "✅ **No network endpoints or remote addresses referenced in review scope.**",
+                    "",
+                ]
+            )
+            return lines
+
+        lines.extend(
+            [
+                "| Target | Type | Scope | Security Status | Location |",
+                "|---|---|---|---|---|",
+            ]
+        )
+        for net in sorted_md_nets:
+            scope_str = "Local" if net.is_local else "External"
+            loc_str = f"`{net.location}`" if net.location else "—"
+            lines.append(
+                f"| `{net.target}` | {net.reference_type} | {scope_str} | "
+                f"{net.security_status} | {loc_str} |"
+            )
+        lines.append("")
+        return lines
+
     def _build_consolidated_markdown_report(
         self,
         session_id: str,
@@ -2123,87 +2275,10 @@ class ReviewPipelineOrchestrator:
                 "",
             ]
         )
-
-        if not reportable_findings:
-            lines.append("✅ **No critical issues found during review.**")
-        else:
-            lines.append("| Severity | Location | Title | Status | Persona |")
-            lines.append("|---|---|---|---|---|")
-            for f in reportable_findings:
-                clean_sev = f.severity.replace("|", "\\|").replace("\n", " ").strip()
-                clean_loc = f.location.replace("|", "\\|").replace("\n", " ").strip()
-                clean_title = f.title.replace("|", "\\|").replace("\n", " ").strip()
-                clean_status = f.status.replace("|", "\\|").replace("\n", " ").strip()
-                clean_persona = f.persona_title.replace("|", "\\|").replace("\n", " ").strip()
-                row = (
-                    f"| **{clean_sev}** | `{clean_loc}` | {clean_title} | "
-                    f"{clean_status} | {clean_persona} |"
-                )
-                lines.append(row)
-
-            lines.append("")
-            lines.append("## Detailed Findings")
-            for idx, f in enumerate(reportable_findings, 1):
-                clean_title = f.title.replace("\n", " ").strip()
-                lines.append(f"### {idx}. [{f.severity}] {clean_title}")
-                lines.append(f"- **Location**: `{f.location}`")
-                lines.append(f"- **Persona**: {f.persona_title}")
-                lines.append(f"- **Status**: {f.status}")
-                lines.append(f"- **Description**: {f.description}")
-                if f.fix:
-                    lines.append(f"- **Fix Recommendation**:\n```\n{f.fix}\n```")
-                lines.append("")
-
-        lines.append("## External Dependencies (OSV.dev & NVD)")
-        if all_deps:
-            lines.append(
-                "| Severity | Dependency | Version Range | Ecosystem | Security Status | Location |"
-            )
-            lines.append("|---|---|---|---|---|---|")
-            for dep in all_deps:
-                sev_badge = (
-                    f"**{dep.severity}**"
-                    if dep.severity.upper() not in ("CLEAN", "NONE", "INFO")
-                    else dep.severity
-                )
-                loc_str = f"`{dep.location}`" if dep.location else "—"
-                lines.append(
-                    f"| {sev_badge} | `{dep.name}` | `{dep.version_range}` | {dep.ecosystem} | "
-                    f"{dep.security_status} | {loc_str} |"
-                )
-        else:
-            lines.append("✅ **No external dependencies declared in review scope.**")
-        lines.append("")
-
-        lines.append("## Network References & Endpoints (Shodan InternetDB & Cloudflare Radar)")
-        from devops_cli.security.reference_extractor import (
-            deduplicate_network_references,
-            is_example_or_invalid_network_target,
-            sort_network_references,
-        )
-
-        filtered_md_nets = [
-            n
-            for n in all_nets
-            if not getattr(n, "is_example", False)
-            and not is_example_or_invalid_network_target(getattr(n, "target", ""))
-        ]
-        sorted_md_nets = sort_network_references(deduplicate_network_references(filtered_md_nets))
-        if sorted_md_nets:
-            lines.append("| Target | Type | Scope | Security Status | Location |")
-            lines.append("|---|---|---|---|---|")
-            for net in sorted_md_nets:
-                scope_str = "Local" if net.is_local else "External"
-                loc_str = f"`{net.location}`" if net.location else "—"
-                lines.append(
-                    f"| `{net.target}` | {net.reference_type} | {scope_str} | "
-                    f"{net.security_status} | {loc_str} |"
-                )
-        else:
-            lines.append(
-                "✅ **No network endpoints or remote addresses referenced in review scope.**"
-            )
-        lines.append("")
+        lines.extend(self._build_findings_table(reportable_findings))
+        lines.extend(self._build_detailed_findings_section(reportable_findings))
+        lines.extend(self._build_dependencies_table(all_deps))
+        lines.extend(self._build_network_table(all_nets))
 
         if self.errored_files:
             lines.append("## Skipped / Errored Files")
@@ -2250,7 +2325,8 @@ class ReviewPipelineOrchestrator:
         }
 
         for finding_index, finding in enumerate(reportable_findings, 1):
-            sev_str = sev_badges.get(finding.severity.upper(), f"[white]{finding.severity}[/white]")
+            sev_upper = (finding.severity or "INFORMATIONAL").upper()
+            sev_str = sev_badges.get(sev_upper, f"[white]{sev_upper}[/white]")
             st_str = st_badges.get(finding.status.upper(), f"[dim]{finding.status}[/dim]")
             conf_str = (
                 f"{int(finding.confidence_score * 100)}%"
@@ -2280,7 +2356,7 @@ class ReviewPipelineOrchestrator:
         """Render a single finding detail panel with remediation and references."""
         from devops_cli.output import SEV_COLOR_MAP
 
-        sev_upper = finding.severity.upper()
+        sev_upper = (finding.severity or "INFORMATIONAL").upper()
         sev_color = SEV_COLOR_MAP.get(sev_upper, "white")
         st_badge = _get_finding_status_badge(finding.status)
         title_header = f"[{sev_color} bold]Finding #{finding_index}: [{sev_upper}] {escape_text(finding.title)}[/{sev_color} bold]  {st_badge}"
@@ -2416,14 +2492,24 @@ class ReviewPipelineOrchestrator:
 
         counts = {
             "CRITICAL": sum(
-                1 for finding in reportable_findings if finding.severity.upper() == "CRITICAL"
+                1
+                for finding in reportable_findings
+                if (finding.severity or "").upper() == "CRITICAL"
             ),
-            "HIGH": sum(1 for finding in reportable_findings if finding.severity.upper() == "HIGH"),
+            "HIGH": sum(
+                1 for finding in reportable_findings if (finding.severity or "").upper() == "HIGH"
+            ),
             "MEDIUM": sum(
-                1 for finding in reportable_findings if finding.severity.upper() == "MEDIUM"
+                1 for finding in reportable_findings if (finding.severity or "").upper() == "MEDIUM"
             ),
-            "LOW": sum(1 for finding in reportable_findings if finding.severity.upper() == "LOW"),
-            "INFO": sum(1 for finding in reportable_findings if finding.severity.upper() == "INFO"),
+            "LOW": sum(
+                1 for finding in reportable_findings if (finding.severity or "").upper() == "LOW"
+            ),
+            "INFO": sum(
+                1
+                for finding in reportable_findings
+                if (finding.severity or "").upper() in ("INFO", "INFORMATIONAL")
+            ),
         }
         styles = {
             "CRITICAL": "[bold red]{cnt} Critical[/bold red]",
@@ -2437,7 +2523,7 @@ class ReviewPipelineOrchestrator:
         findings_str = f"{len(reportable_findings)} ({sev_breakdown})"
 
         ver_count = sum(
-            1 for finding in reportable_findings if finding.status.upper() == "VERIFIED"
+            1 for finding in reportable_findings if (finding.status or "").upper() == "VERIFIED"
         )
         ver_pct = ver_count / len(reportable_findings)
         ver_rate_str = f"{ver_count}/{len(reportable_findings)} verified ({ver_pct:.0%})"
@@ -2448,7 +2534,7 @@ class ReviewPipelineOrchestrator:
         if not all_deps:
             return "0 scanned"
         vuln_count = sum(
-            1 for dep in all_deps if dep.severity.upper() not in ("CLEAN", "NONE", "INFO")
+            1 for dep in all_deps if (dep.severity or "").upper() not in ("CLEAN", "NONE", "INFO")
         )
         vuln_note = (
             f" ([red]{vuln_count} vulnerable[/red])" if vuln_count else " ([green]clean[/green])"
@@ -2578,3 +2664,6 @@ class ReviewPipelineOrchestrator:
             f"([bold]{len(all_findings)}[/bold] finding(s) saved to [dim]{self.session_dir}[/dim])"
         )
         return payload_out.model_dump(), report_md
+
+
+format_markdown_fix = ReviewPipelineOrchestrator._format_markdown_fix

@@ -20,7 +20,22 @@ def test_global_dry_run_skips_delegated_proxy(monkeypatch) -> None:
 
     result = runner.invoke(main_module.app, ["--dry-run", "repos", "--unknown-option"])
 
-    assert result.exit_code == 0
-    assert not called
-    assert "Would run delegated command" in result.output
-    assert "devops repos --unknown-option" in result.output
+    assert (
+        result.exit_code,
+        not called,
+        "Would run delegated command" in result.output,
+        "devops repos --unknown-option" in result.output,
+    ) == (0, True, True, True)
+
+
+def test_trailing_dry_run_delegates_to_subcommand(monkeypatch) -> None:
+    delegated_args: list[str] = []
+
+    def _fake_delegate(module_path: str, command_name: str, args: list[str]) -> None:
+        delegated_args.extend(args)
+
+    monkeypatch.setattr(main_module, "_delegate", _fake_delegate)
+
+    result = runner.invoke(main_module.app, ["repos", "sync", "--dry-run"])
+
+    assert (result.exit_code, delegated_args) == (0, ["sync", "--dry-run"])

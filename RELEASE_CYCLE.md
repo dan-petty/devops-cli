@@ -33,7 +33,7 @@ flowchart LR
     A[Feature Spec / Issue] --> B[Branch Development]
     B --> C[Centralize Config & Literals]
     C --> D[Unit Tests & Mocking]
-    D --> E[7-Gate CI Quality Gate]
+    D --> E[Gated CI Quality Gate]
     E --> F[Automated Docs & README Sync]
     F --> G[PR Review & Merge]
     G --> H[Release Orchestration]
@@ -113,7 +113,7 @@ uv run devops ci
 
 ### Core Validation Checks
 1. **Python Version Check**: Strictly enforces Python 3.14+ runtime.
-2. **Unit Tests (`pytest -n auto --maxprocesses=4`)**: Parallel unit test execution with full mock isolation.
+2. **Unit Tests (`pytest -n auto --maxprocesses=8`)**: Parallel unit test execution with dynamic worker auto-scaling and full mock isolation.
 3. **Code Coverage (`pytest-cov`)**: Enforces branch and line coverage thresholds.
 4. **Linting (`ruff check .`)**: Strict PEP 8 linting, import sorting, and unused symbol elimination.
 5. **Formatting (`ruff format --check .`)**: Enforces 100-character line length standards.
@@ -217,7 +217,7 @@ uv run devops devcontainer run-lifecycle --all
 
 For active release milestones, architectural technical specifications, and the portfolio prioritization matrix, consult the canonical [Strategic Roadmap](docs/ROADMAP.md).
 
-- **Current Active Development**: Milestone `v0.2.15` (*GitOps Fleet, FinOps, Centralized Logging & Production Security Mesh*).
-- **Completed Milestones**: `v0.2.14` (*Multilingual Code Intelligence & Library Ingestion Engine*), `v0.2.13` (*Advanced Agentic Harness, Sub-Agent Local Offloading & Terminal UX*).
-- **Scheduled Milestones**: `v0.2.16` (*Ephemeral Workload Sandboxing, Dynamic Probing & Runtime Observability*) and `v0.2.17` (*Dynamic API Fuzzing, Runtime Security DAST & Autonomous Remediation Iteration*).
+- **Current Active Development**: Milestone `v0.2.20`.
+- **Completed Milestones**: `v0.2.19` (*Autonomous Trial-and-Error Solution Discovery, MCTS Exploration & Delta-Debugging Engine*), `v0.2.18` (*Sigstore Cosign Container Provenance & Automated Keyless Signing*), `v0.2.17` (*Protocol-Agnostic Endpoint Readiness & Health Probing*).
+- **Scheduled Milestones**: `v0.2.21` and `v0.2.22`.
 - **Roadmap Governance**: Follow test-first progressive verification, active GitHub Projects v2 issue population, and automated milestone closure on release merge.

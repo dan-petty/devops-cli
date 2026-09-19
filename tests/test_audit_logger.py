@@ -48,6 +48,14 @@ def test_resolve_audit_log_dest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.delenv("DEVOPS_CLI_AUDIT_LOG_DEST", raising=False)
     assert _resolve_audit_log_dest(None) is not None
 
+    # Symlink rejection
+    real_audit = tmp_path / ".data" / "real_audit.jsonl"
+    real_audit.touch()
+    symlink_audit = tmp_path / ".data" / "symlink_audit.jsonl"
+    symlink_audit.symlink_to(real_audit)
+    with pytest.raises(SecurityError, match="must not be a symlink"):
+        _resolve_audit_log_dest(symlink_audit)
+
 
 def test_stream_audit_records(tmp_path: Path) -> None:
     """Verify stream_audit_records counts."""

@@ -384,7 +384,7 @@ def web_fetch_tool(
                 return md_text[:max_content_length] + "... (truncated)"
             return md_text
         except Exception as exc:
-            return f"Error fetching web page {url}: {exc}"
+            return f"Error fetching web page {url[:256]}: {str(exc)[:256]}"
 
     from devops_cli.ai.agents.tools import Tool
 
@@ -432,7 +432,7 @@ def duckduckgo_search_tool(
                 else f"No DuckDuckGo results found for '{query}'."
             )
         except Exception as exc:
-            return f"DuckDuckGo search error: {exc}"
+            return f"DuckDuckGo search error: {str(exc)[:256]}"
 
     from devops_cli.ai.agents.tools import Tool
 
@@ -482,7 +482,7 @@ def tavily_search_tool(
                 formatted.append(f"- **{title}** ({url}): {content}")
             return "\n".join(formatted)
         except Exception as exc:
-            return f"Tavily search error: {exc}"
+            return f"Tavily search error: {str(exc)[:256]}"
 
     from devops_cli.ai.agents.tools import Tool
 

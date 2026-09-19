@@ -1558,7 +1558,7 @@ def _resolve_branch_targets(
     # When target branch equals effective base (e.g. both are 'main')
     if target_branch == effective_base:
         if current_branch and current_branch != target_branch:
-            # User passed base branch while on another branch (e.g. 'devops review branch main' from release/v0.2.19)
+            # User passed base branch while on another branch (e.g. 'devops review branch main' from release/v0.2.20)
             return current_branch, effective_base, False
 
         # User is reviewing main branch directly

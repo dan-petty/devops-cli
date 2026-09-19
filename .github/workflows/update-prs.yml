@@ -1,0 +1,111 @@
+name: Keep Pull Requests Up to Date
+
+on:
+  push:
+    branches:
+      - main
+      - "release/**"
+  workflow_dispatch:
+    inputs:
+      base_branch:
+        description: "Base branch to synchronize pull requests against"
+        required: false
+        type: string
+        default: ""
+      pr_number:
+        description: "Specific pull request number to update (optional, blank for all)"
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Simulate branch updates without modifying remote branches"
+        required: false
+        type: boolean
+        default: false
+  issue_comment:
+    types:
+      - created
+
+concurrency:
+  group: update-prs-${{ github.repository }}-${{ github.ref_name || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  update-pull-requests:
+    name: Synchronize Pull Requests
+    # Only run on push, workflow_dispatch, or PR comments containing /update or /sync
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       (startsWith(github.event.comment.body, '/update') || startsWith(github.event.comment.body, '/sync')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+          cache-python: "true"
+          prune-cache: "true"
+          version: "latest"
+          python-version: "3.14"
+
+      - name: Synchronize CLI dependencies
+        run: uv sync --no-dev
+
+      - name: Acknowledge comment trigger
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN || secrets.GH_PROJECT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          COMMENT_ID="${{ github.event.comment.id }}"
+          REPO="${{ github.repository }}"
+          gh api --silent -X POST "repos/${REPO}/issues/comments/${COMMENT_ID}/reactions" -f content="rocket" || true
+
+      - name: Execute Pull Request Update
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN || secrets.GH_PROJECT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          EVENT_NAME="${{ github.event_name }}"
+          REPO="${{ github.repository }}"
+
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            PR_NUM="${{ github.event.issue.number }}"
+            echo "Updating PR #${PR_NUM} triggered by comment..."
+            uv run devops pr update "$PR_NUM" --repo "$REPO"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ARGS=()
+            if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+              ARGS+=("--dry-run")
+            fi
+            PR_INPUT="${{ github.event.inputs.pr_number }}"
+            BASE_INPUT="${{ github.event.inputs.base_branch }}"
+            if [ -n "$PR_INPUT" ]; then
+              echo "Updating specific PR #${PR_INPUT} via workflow dispatch..."
+              uv run devops pr update "$PR_INPUT" --repo "$REPO" "${ARGS[@]}"
+            else
+              if [ -n "$BASE_INPUT" ]; then
+                ARGS+=("--base" "$BASE_INPUT")
+              fi
+              echo "Updating all open PRs targeting base '${BASE_INPUT:-auto}'..."
+              uv run devops pr update --all --repo "$REPO" "${ARGS[@]}"
+            fi
+          else
+            # Push to base branch (main or release/**)
+            TARGET_BASE="${{ github.ref_name }}"
+            echo "Push detected on base branch '${TARGET_BASE}'. Synchronizing open PRs..."
+            uv run devops pr update --all --base "$TARGET_BASE" --repo "$REPO"
+          fi

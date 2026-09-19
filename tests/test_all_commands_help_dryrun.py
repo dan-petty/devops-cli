@@ -9,6 +9,7 @@ from devops_cli.commands.ai import app as ai_app
 from devops_cli.commands.argo import app as argo_app
 from devops_cli.commands.ci import app as ci_app
 from devops_cli.commands.config import app as config_app
+from devops_cli.commands.gh import app as gh_app
 from devops_cli.commands.k8s import app as k8s_app
 from devops_cli.commands.mcp import app as mcp_app
 from devops_cli.commands.repos import app as repos_app
@@ -60,6 +61,10 @@ COMMAND_SPECS = [
     (ci_app, ["--help"]),
     (ci_app, ["format", "--help"]),
     (ci_app, ["lint", "--help"]),
+    (main_app, ["repos", "sync", "--dry-run"]),
+    (repos_app, ["sync", "--dry-run"]),
+    (main_app, ["branches", "clean", "--dry-run"]),
+    (gh_app, ["issues", "sync-roadmap", "--help"]),
 ]
 
 
@@ -74,3 +79,26 @@ def test_subcommand_apps_help_and_dryrun(app_instance, args: list[str]) -> None:
     """Validate that every subcommand app accepts --help or --dry-run with exit code 0."""
     result = runner.invoke(app_instance, args)
     assert result.exit_code == 0, f"Command {' '.join(args)} failed with output:\n{result.output}"
+
+
+def test_all_registered_subcommands_have_help() -> None:
+    """Ensure all subcommands registered across _COMMAND_SPECS have help option enabled."""
+    from importlib import import_module
+
+    import typer
+
+    from devops_cli.main import _COMMAND_SPECS
+
+    all_have_help = True
+    for name, (module_path, _) in _COMMAND_SPECS.items():
+        mod = import_module(module_path)
+        app = getattr(mod, "app", None)
+        if app is None:
+            continue
+        click_cmd = typer.main.get_command(app)
+        has_help = getattr(click_cmd, "add_help_option", True)
+        if not has_help:
+            all_have_help = False
+            break
+
+    assert all_have_help is True

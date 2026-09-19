@@ -32,13 +32,19 @@ def test_repomap_generation(tmp_path: Path) -> None:
     assert "def helper" in text
 
 
-def test_repomap_cli() -> None:
+def test_repomap_cli(tmp_path: Path) -> None:
     """Verify devops ai repomap CLI command."""
     res = runner.invoke(ai_app, ["repomap", "--dry-run"])
-    assert res.exit_code == 0
-    assert "DRY_RUN_MAPPED" in res.output or "generate_symbol_map" in res.output
+    assert (res.exit_code == 0) and (
+        "DRY_RUN_MAPPED" in res.output or "generate_symbol_map" in res.output
+    )
 
-    res_json = runner.invoke(ai_app, ["repomap", "--max-files", "5", "--json"])
+    sample = tmp_path / "sample.py"
+    sample.write_text("def hello() -> None:\n    pass\n", encoding="utf-8")
+
+    res_json = runner.invoke(
+        ai_app, ["repomap", "--target", str(tmp_path), "--max-files", "5", "--json"]
+    )
     assert res_json.exit_code == 0
     data = json.loads(res_json.output)
-    assert "files_count" in data
+    assert (data.get("files_count") == 1, len(data.get("files", [])) == 1) == (True, True)

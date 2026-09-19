@@ -132,6 +132,7 @@ def test_fastmcp_tools_registration() -> None:
         "gh_rate_limit",
         "gh_runs_list",
         "gh_run_view",
+        "gh_sync_roadmap",
         "pr_ready",
         "pr_diff",
         "pr_close",

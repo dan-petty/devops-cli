@@ -454,6 +454,11 @@ class CICommandHelp:
     uv_check: str = "Run uv check for fast static type checking and project validation."
     lockfile: str = "Verify lockfile consistency and freshness via uv lock --check."
     outdated: str = "Display outdated dependencies and packages via uv tree --outdated."
+    cache: str = "Enable or disable execution caching when codebase is unchanged."
+    force: str = "Bypass CI execution cache and force re-execution of all quality gates."
+    files: str = (
+        "Explicit list of file paths to verify (e.g. from pre-commit file change tracking)."
+    )
 
 
 @dataclass(frozen=True)
@@ -637,6 +642,13 @@ class PRCommandHelp:
     ready_monitor: str = (
         "Automatically transition to monitoring checks and reviews after marking ready."
     )
+    update: str = "Update pull request branch with latest changes from its base branch."
+    update_number: str = "Pull request number to update (optional if --all is specified)."
+    update_all: str = "Update all open pull requests targeting the base branch."
+    update_base: str = "Filter open pull requests by base branch (e.g. main, release/v0.2.20)."
+    update_expected_head_sha: str = (
+        "Expected SHA of the pull request's HEAD ref for optimistic locking."
+    )
 
 
 @dataclass(frozen=True)
@@ -730,7 +742,7 @@ class ReleaseCommandHelp:
     auto_pr: str = "Create release branch, commit changes, and open a GitHub Release PR."
     prefix: str = "Conventional commit prefix (feat or fix)."
     breaking: str = "Flag release as containing breaking changes (!)."
-    skip_ci: str = "Skip running the 7-gate CI test suite."
+    skip_ci: str = "Skip running the Gated CI test suite."
     allow_dirty: str = "Allow uncommitted changes in git repository."
     tag_message: str = "Custom tag annotation message."
     changelog: str = "Compile and generate changelog entries from commits or PRs."
