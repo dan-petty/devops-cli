@@ -58,6 +58,8 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.ai.thinking_stream import extract_think_blocks
 from devops_cli.config.constants import (
     CONST_MAX_FILE_SIZE_BYTES,
+    CONST_MAX_PROBE_FILE_SIZE_BYTES,
+    CONST_PROBE_MANIFEST_NAMES,
 )
 from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
 from devops_cli.models.ai import FileAnalysisMeta
@@ -78,6 +80,7 @@ from devops_cli.output import (
 from devops_cli.security.reference_extractor import (
     extract_dependencies_from_text,
     extract_network_references,
+    is_lockfile_or_ignore_file,
 )
 from devops_cli.security.sanitizer import (
     mask_secrets,
@@ -409,6 +412,16 @@ def _collect_linked_snippets(
     return snippets
 
 
+def _is_manifest_candidate(p: Path) -> bool:
+    """Check if path is a candidate dependency manifest file."""
+    if not p.is_file() or p.is_symlink():
+        return False
+    name_lower = p.name.lower()
+    if name_lower in CONST_PROBE_MANIFEST_NAMES:
+        return True
+    return name_lower.startswith("requirements") and name_lower.endswith((".txt", ".in"))
+
+
 def _probe_single_dir_deps(
     p_dir: Path,
     raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
@@ -420,9 +433,11 @@ def _probe_single_dir_deps(
     except OSError:
         return False
     for candidate in candidates:
-        if not candidate.is_file() or candidate.is_symlink():
+        if not _is_manifest_candidate(candidate):
             continue
         try:
+            if candidate.stat().st_size > CONST_MAX_PROBE_FILE_SIZE_BYTES:
+                continue
             c_text = candidate.read_text(encoding="utf-8", errors="replace")
             c_rel = (
                 str(candidate.relative_to(Path.cwd()))
@@ -449,6 +464,13 @@ def _probe_manifest_deps_in_dirs(
             break
 
 
+def _is_network_candidate(p: Path) -> bool:
+    """Check if path is a candidate file for network reference scanning."""
+    if not p.is_file() or p.is_symlink() or p.name.startswith("."):
+        return False
+    return not is_lockfile_or_ignore_file(p.name)
+
+
 def _probe_single_dir_nets(
     p_dir: Path,
     raw_file_data: dict[str, tuple[list[DependencySpec], list[NetworkReference]]],
@@ -460,9 +482,11 @@ def _probe_single_dir_nets(
     except OSError:
         return False
     for candidate in candidates:
-        if not candidate.is_file() or candidate.is_symlink() or candidate.name.startswith("."):
+        if not _is_network_candidate(candidate):
             continue
         try:
+            if candidate.stat().st_size > CONST_MAX_PROBE_FILE_SIZE_BYTES:
+                continue
             c_text = candidate.read_text(encoding="utf-8", errors="replace")
             c_rel = (
                 str(candidate.relative_to(Path.cwd()))
@@ -1025,10 +1049,22 @@ class ReviewPipelineOrchestrator:
                     probe_dirs.append(p_base)
 
             if not all_unique_deps:
-                _probe_manifest_deps_in_dirs(probe_dirs, raw_file_data, all_unique_deps)
+                with trace_span(
+                    "security.probe_manifests", attributes={"dir_count": len(probe_dirs)}
+                ) as pm_span:
+                    _probe_manifest_deps_in_dirs(probe_dirs, raw_file_data, all_unique_deps)
+                    pm_span.set_attributes(
+                        {"probed_deps_count": len(all_unique_deps) - direct_deps_count}
+                    )
 
             if not all_unique_nets:
-                _probe_network_refs_in_dirs(probe_dirs, raw_file_data, all_unique_nets)
+                with trace_span(
+                    "security.probe_networks", attributes={"dir_count": len(probe_dirs)}
+                ) as pn_span:
+                    _probe_network_refs_in_dirs(probe_dirs, raw_file_data, all_unique_nets)
+                    pn_span.set_attributes(
+                        {"probed_nets_count": len(all_unique_nets) - direct_nets_count}
+                    )
 
             probed_deps_count = len(all_unique_deps) - direct_deps_count
             probed_nets_count = len(all_unique_nets) - direct_nets_count

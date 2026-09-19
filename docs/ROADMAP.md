@@ -268,6 +268,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **Universal `--json` CLI Output Flag Alias Pipeline (`devops * --json`)**: First-class `--json` alias for `--format json` across all inspection and diagnostic subcommands.
 - [ ] **Mutation-Driven GitHub Cache Invalidation Hooks**: Automatic invalidation of cached GitHub REST and GraphQL responses on edit, patch, and reconcile operations.
 - [ ] **Proportional API Rate Budgeting & GraphQL Circuit Breaker Guard**: Proportional budget allocation per CLI command and automated circuit breaking when external API quota drops below 20%, preventing rapid quota exhaustion.
+- [ ] **Native Process Hierarchy Inspector & POSIX Process Group Terminator (`devops ps`)**: Active inspection and cleanup of orphaned background subprocesses and container workers via POSIX process groups (`os.killpg`), eliminating zombie leaks adopted by PID 1 (derived from empirical shell history telemetry).
+- [ ] **Automated Pre-Rebase Merge Conflict Dry-Runner (`devops pr check-readiness --dry-rebase`)**: In-memory git three-way tree merge analysis (`git merge-tree`) to proactively detect conflicting hunks before initiating PR rebases or merges.
+- [ ] **Ephemeral Sandboxed Evaluation Harness (`devops scratch eval`)**: Secure, isolated in-memory Python runtime evaluator replacing repetitive one-line ad-hoc terminal probing with structured telemetry and complexity enforcement.
+- [ ] **IDE Host Health & Submodule Scan Boundary Auditor (`devops ide audit`)**: Automated diagnostic inspection of Antigravity/VS Code server extensions, language servers, and repository ignore boundaries (`git.repositoryScanIgnoredFolders`) to prevent memory exhaustion in deep monorepo workspaces.
 
 ---
 
@@ -284,6 +288,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | JIT Python 3.14 Bytecode Optimization Benchmarking | `pytest-benchmark` / JIT | Medium | Low | v0.3.0 | 💡 Future Vision |
 |  | Universal `--json` CLI Output Flag Alias Pipeline | Typer / Rich | Medium | Low | v0.3.0 | 💡 Future Vision |
 |  | Mutation-Driven GitHub Cache Invalidation Hooks | Disk Cache / SQLite | High | Low | v0.3.0 | 💡 Future Vision |
+|  | Native Process Group Inspector & Terminator | POSIX / `os.killpg` | High | Low | v0.3.0 | 💡 Future Vision |
+|  | Automated Pre-Rebase Merge Conflict Dry-Runner | `git merge-tree` / libgit2 | High | Low | v0.3.0 | 💡 Future Vision |
+|  | Ephemeral Sandboxed Evaluation Harness | Python AST / Safe Eval | Medium | Low | v0.3.0 | 💡 Future Vision |
+|  | IDE Host Health & Submodule Scan Auditor | VS Code Server / JSON | Medium | Low | v0.3.0 | 💡 Future Vision |
 | **Major Projects** | MCTS & Tree-of-Thought Solution Exploration Engine (`devops ai explore`) | MCTS / UCT / Beam Search | High | High | v0.2.20 | 📋 Scheduled (P0) |
 |  | Ephemeral Shadow Worktrees & CoW State Snapshots | Git / CoW / Docker | High | High | v0.2.20 | 📋 Scheduled (P0) |
 |  | Syntopical Dialectical Synthesis Engine (`devops ai research syntopical`) | PydanticAI / Multi-Source | High | High | v0.2.21 | 📋 Scheduled (P0) |

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import subprocess
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ import httpx2
 
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.validation import validate_url_egress
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.sandbox.models import (
     CgroupV2Metrics,
     PrometheusMetric,
@@ -21,6 +23,8 @@ from devops_cli.sandbox.models import (
     SandboxMetricsSnapshot,
 )
 from devops_cli.security.sanitizer import mask_uri_credentials, redact_text
+
+logger = logging.getLogger(__name__)
 
 _MAX_ERROR_LEN = 256
 _METRIC_LINE_REGEX = re.compile(
@@ -119,7 +123,8 @@ def parse_cgroup_v2_directory(
         base = Path(cgroup_dir).resolve()
         if _is_forbidden_cgroup_path(base):
             return None
-    except Exception:
+    except (DevOpsCLIError, OSError, ValueError, RuntimeError) as exc:
+        logger.debug("Failed validating cgroup_dir %s: %s", cgroup_dir, exc)
         return None
 
     if not base.is_dir():

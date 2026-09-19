@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import urllib.parse
 from pathlib import Path
 from typing import Annotated, Any
@@ -71,6 +72,8 @@ from devops_cli.output import (
     print_warning,
 )
 
+logger = logging.getLogger(__name__)
+
 app = new_typer(help=HELP.gh.app, no_args_is_help=True)
 labels_app = new_typer(help=HELP.gh.labels_app, no_args_is_help=True)
 milestones_app = new_typer(help=HELP.gh.milestones_app, no_args_is_help=True)
@@ -125,7 +128,8 @@ def _get_github_client() -> GitHubClient | None:
         return None
     try:
         return GitHubClient(token)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to initialize GitHubClient: %s", exc)
         return None
 
 
@@ -139,15 +143,15 @@ def _get_repo_labels(repo: str | None = None) -> list[dict[str, Any]]:
     if res.returncode == 0 and res.stdout.strip():
         try:
             return json.loads(res.stdout)  # type: ignore[no-any-return]
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as exc:
+            logger.debug("Failed to decode JSON from gh label list: %s", exc)
 
     client = _get_github_client()
     if client and target_repo != "unknown/repo":
         try:
             return client.get_labels(target_repo)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to fetch labels via GitHubClient for %s: %s", target_repo, exc)
     return []
 
 
@@ -158,8 +162,10 @@ def _get_repo_milestones(repo: str | None = None, state: str = "all") -> list[di
     if client and target_repo != "unknown/repo":
         try:
             return client.get_milestones(target_repo, state=state)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Failed to fetch milestones via GitHubClient for %s: %s", target_repo, exc
+            )
 
     cmd = [
         "api",

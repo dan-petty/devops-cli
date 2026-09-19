@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import socket
 from typing import Any
 
@@ -21,6 +22,8 @@ from devops_cli.exceptions.valkey import (
     ValkeyTimeoutError,
 )
 from devops_cli.valkey.protocol import encode_command, parse_resp
+
+logger = logging.getLogger(__name__)
 
 
 def parse_info_response(info_text: str) -> dict[str, str]:
@@ -300,15 +303,15 @@ class ValkeyClient:
         if self._reader is not None:
             try:
                 self._reader.close()
-            except Exception:
-                pass
+            except (OSError, RuntimeError) as exc:
+                logger.debug("Error closing Valkey reader: %s", exc)
             self._reader = None
 
         if self._sock is not None:
             try:
                 self._sock.close()
-            except Exception:
-                pass
+            except (OSError, RuntimeError) as exc:
+                logger.debug("Error closing Valkey socket: %s", exc)
             self._sock = None
 
     def __enter__(self) -> ValkeyClient:

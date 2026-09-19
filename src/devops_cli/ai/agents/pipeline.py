@@ -16,8 +16,9 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field
 
@@ -31,6 +32,8 @@ from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.exceptions import ValidationError
 from devops_cli.models.ai import ScratchpadBuffer
+
+logger = logging.getLogger(__name__)
 
 
 class PipelineStepResult(BaseModel):
@@ -55,6 +58,19 @@ class MultiAgentPipelineResult[T](BaseModel):
     all_tool_calls: list[ToolCall] = Field(default_factory=list)
     scratchpad: ScratchpadBuffer = Field(default_factory=ScratchpadBuffer)
     memory: AgentMemory = Field(default_factory=AgentMemory)
+
+
+def _parse_pipeline_output[T](schema: type[T] | None, content: str) -> T | None:
+    """Safely extract and validate JSON content against pipeline output schema."""
+    if schema is None or not content:
+        return None
+    try:
+        json_data = extract_json_block(content)
+        if isinstance(json_data, dict):
+            return cast(T, schema.model_validate(json_data))  # type: ignore[attr-defined]
+    except Exception as exc:
+        logger.warning("Failed to validate pipeline output schema: %s", exc)
+    return None
 
 
 class MultiAgentPipeline[T]:
@@ -183,15 +199,7 @@ class MultiAgentPipeline[T]:
             )
 
         final_content = steps[-1].content if steps else ""
-        parsed_data: T | None = None
-
-        if self.output_schema is not None and final_content:
-            try:
-                json_data = extract_json_block(final_content)
-                if isinstance(json_data, dict):
-                    parsed_data = self.output_schema.model_validate(json_data)  # type: ignore[attr-defined]
-            except Exception:
-                pass
+        parsed_data = _parse_pipeline_output(self.output_schema, final_content)
 
         return MultiAgentPipelineResult[T](
             final_content=final_content,
@@ -260,14 +268,7 @@ class MultiAgentPipeline[T]:
             )
 
         final_content = steps[-1].content if steps else ""
-        parsed_data: T | None = None
-        if self.output_schema is not None and final_content:
-            try:
-                json_data = extract_json_block(final_content)
-                if isinstance(json_data, dict):
-                    parsed_data = self.output_schema.model_validate(json_data)  # type: ignore[attr-defined]
-            except Exception:
-                pass
+        parsed_data = _parse_pipeline_output(self.output_schema, final_content)
 
         return MultiAgentPipelineResult[T](
             final_content=final_content,
@@ -363,14 +364,7 @@ class MultiAgentPipeline[T]:
             )
 
         final_content = steps[-1].content if steps else ""
-        parsed_data: T | None = None
-        if self.output_schema is not None and final_content:
-            try:
-                json_data = extract_json_block(final_content)
-                if isinstance(json_data, dict):
-                    parsed_data = self.output_schema.model_validate(json_data)  # type: ignore[attr-defined]
-            except Exception:
-                pass
+        parsed_data = _parse_pipeline_output(self.output_schema, final_content)
 
         return MultiAgentPipelineResult[T](
             final_content=final_content,

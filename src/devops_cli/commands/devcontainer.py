@@ -37,6 +37,7 @@ from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.git.operations import iter_workspace_repos
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
@@ -407,7 +408,8 @@ def _parse_mount_spec(mount: str | dict[str, str], workspace_dir: Path) -> tuple
 
     try:
         validate_no_path_traversal(raw_target, label="mount target")
-    except Exception:
+    except DevOpsCLIError as exc:
+        logger.warning("Invalid devcontainer mount target %s: %s", raw_target, exc)
         return None
 
     resolved = (

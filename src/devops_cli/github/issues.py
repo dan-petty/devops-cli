@@ -219,8 +219,8 @@ def _parse_created_issue(
             data = json.loads(cleaned)
             if data and "number" in data:
                 return _parse_single_issue(data)
-        except Exception:
-            pass
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            logger.debug("Failed to parse JSON issue payload: %s", exc)
     return GitHubIssue(
         number=_extract_issue_number(cleaned),
         title=title,

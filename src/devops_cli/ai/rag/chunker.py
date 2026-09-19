@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import logging
 import mimetypes
 import re
 from pathlib import Path
@@ -12,6 +13,8 @@ from devops_cli.ai.analyze.scanner import detect_language
 from devops_cli.ai.rag.metadata import extract_code_metadata, extract_doc_metadata
 from devops_cli.ai.rag.models import CodeChunk
 from devops_cli.config.defaults import DEFAULT_RAG_CHUNK_OVERLAP, DEFAULT_RAG_CHUNK_SIZE
+
+logger = logging.getLogger(__name__)
 
 MAX_CHUNK_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20 MiB safety cap
 
@@ -197,7 +200,8 @@ class SemanticChunker:
             ):
                 return []
             content = file_path.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        except (OSError, UnicodeDecodeError) as exc:
+            logger.debug("Failed to read %s for chunking: %s", file_path, exc)
             return []
 
         rel_path = str(file_path.relative_to(relative_to)) if relative_to else str(file_path)

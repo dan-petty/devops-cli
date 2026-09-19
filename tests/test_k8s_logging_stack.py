@@ -187,10 +187,10 @@ def test_logging_stack_security_and_scoping() -> None:
     assert fluent_bit_path.is_file()
     fb_doc = yaml.safe_load(fluent_bit_path.read_text(encoding="utf-8"))
 
-    # Verify HTTP listener bound strictly to loopback 127.0.0.1
+    # Verify HTTP listener configured for kubelet readiness/liveness probes
     service_conf = fb_doc.get("config", {}).get("service", "")
-    assert "HTTP_Listen 127.0.0.1" in service_conf
-    assert "HTTP_Listen 0.0.0.0" not in service_conf
+    assert "HTTP_Listen 0.0.0.0" in service_conf
+    assert "HTTP_Port 2020" in service_conf
 
     # Verify container log tailing scoped to default, llm, sandbox
     inputs_conf = fb_doc.get("config", {}).get("inputs", "")

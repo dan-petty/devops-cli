@@ -216,7 +216,8 @@ def _fetch_remote_routes(gateway_url: str, allow_private: bool) -> list[GatewayR
                     )
                 )
             return routes or None
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed to query live models API at %s: %s", gateway_url, exc)
         return None
 
 

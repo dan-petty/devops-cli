@@ -324,8 +324,8 @@ def _get_workspace_filenames(root_dir_str: str = "") -> tuple[set[str], tuple[st
                     all_paths.append(rel)
                 except ValueError:
                     pass
-    except Exception:
-        pass
+    except OSError as exc:
+        logger.debug("Failed to list workspace filenames in %s: %s", root, exc)
     return exact_names, tuple(all_paths)
 
 
@@ -466,7 +466,8 @@ def _parse_python_file_symbols(source_file: str) -> PythonSymbolContext:
             metric_keys=visitor.metric_keys,
             dict_keys=visitor.dict_keys,
         )
-    except Exception:
+    except (OSError, SyntaxError, UnicodeDecodeError) as exc:
+        logger.debug("Failed to parse symbols from %s: %s", p, exc)
         return PythonSymbolContext()
 
 
@@ -767,7 +768,7 @@ def _parse_python_token_string(tok_string: str) -> str | None:
         val = ast.literal_eval(tok_string)
         if isinstance(val, str):
             return val
-    except Exception:
+    except ValueError, SyntaxError:
         pass
     clean_str = tok_string.strip("\"'")
     return clean_str if clean_str else None
@@ -876,8 +877,14 @@ def _extract_structured_strings(
         else:
             return strings
         _collect_scalar_strings(data, strings, is_yaml=is_yaml)
-    except Exception:
-        pass
+    except (
+        json.JSONDecodeError,
+        tomllib.TOMLDecodeError,
+        yaml.YAMLError,
+        ValueError,
+        TypeError,
+    ) as exc:
+        logger.debug("Failed to parse %s structured content: %s", fmt, exc)
     return strings
 
 
@@ -1400,7 +1407,8 @@ def _extract_pyproject_dependencies(
     """Parse dependencies from pyproject.toml format."""
     try:
         data = tomllib.loads(content)
-    except Exception:
+    except (tomllib.TOMLDecodeError, ValueError) as exc:
+        logger.warning("Failed to parse pyproject.toml %s: %s", file_name, exc)
         return []
 
     req_strings: list[str] = []
@@ -1450,7 +1458,8 @@ def _extract_package_json_dependencies(
     """Parse dependencies from package.json format."""
     try:
         data = json.loads(content)
-    except Exception:
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.warning("Failed to parse package.json %s: %s", file_name, exc)
         return []
 
     all_deps: dict[str, str] = {}
@@ -1486,7 +1495,8 @@ def _extract_cargo_dependencies(
     """Parse dependencies from Cargo.toml or Cargo.lock format."""
     try:
         data = tomllib.loads(content)
-    except Exception:
+    except (tomllib.TOMLDecodeError, ValueError) as exc:
+        logger.warning("Failed to parse Cargo file %s: %s", file_name, exc)
         return []
 
     cargo_deps = data.get("dependencies", {})

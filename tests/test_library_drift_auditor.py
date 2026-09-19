@@ -224,3 +224,27 @@ def run():
     assert report.total_calls_checked >= 2
     assert report.warning_count >= 1
     assert any(f.symbol == "legacy_calc" for f in report.findings)
+
+
+def test_drift_auditor_save_report_and_unparseable_file(tmp_path: Path) -> None:
+    """Verify drift auditor saves report to save_report_path and gracefully handles unparseable files."""
+    contracts_dir = tmp_path / "libraries"
+    _create_mock_contract(contracts_dir, "demolib")
+
+    ws_dir = tmp_path / "workspace"
+    ws_dir.mkdir()
+    (ws_dir / "valid.py").write_text("import demolib\ndemolib.compute(x=1)\n")
+    (ws_dir / "syntax_error.py").write_text("def broken_syntax(:\n")
+
+    report_path = tmp_path / "reports" / "drift.json"
+    auditor = LibraryDriftAuditor(contracts_dir=contracts_dir)
+    report = auditor.audit_workspace(ws_dir, save_report_path=report_path)
+
+    bad_report_path = Path("/invalid/nonexistent/path/drift.json")
+    auditor.audit_workspace(ws_dir, save_report_path=bad_report_path)
+
+    assert (
+        report_path.is_file(),
+        report.files_scanned,
+        report.total_calls_checked >= 1,
+    ) == (True, 2, True)

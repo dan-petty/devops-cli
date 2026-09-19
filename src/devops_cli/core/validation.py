@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import ipaddress
+import logging
 import os
 import re
 import socket
@@ -26,6 +27,8 @@ from devops_cli.exceptions import (
 )
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_error
+
+logger = logging.getLogger(__name__)
 
 _ALLOW_PRIVATE_NETWORK_ENV = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
 
@@ -55,7 +58,14 @@ def _resolve_host_ips(
                 socket.getaddrinfo, host, effective_port, type=socket.SOCK_STREAM
             )
             addrinfos = future.result(timeout=timeout)
-    except Exception:
+    except (
+        socket.gaierror,
+        socket.herror,
+        TimeoutError,
+        OSError,
+        concurrent.futures.TimeoutError,
+    ) as exc:
+        logger.debug("DNS resolution failed for %s: %s", host, exc)
         return []
 
     resolved: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []

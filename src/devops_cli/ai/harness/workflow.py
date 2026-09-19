@@ -39,8 +39,8 @@ def _extract_agent_md_meta(text: str, default_name: str) -> tuple[str, str, str]
                     name = str(fm.get("name") or default_name)
                     description = str(fm.get("description") or "")
                 instructions = parts[2].strip()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to parse YAML frontmatter in sub-agent markdown: %s", exc)
     return name, description, instructions
 
 
@@ -168,7 +168,8 @@ def _try_load_disk_agent(md_file: Path, seen_names: set[str]) -> SubAgent | None
             client=None, name=name, system_prompt=instructions
         )
         return SubAgent(agent=child, name=name, description=description or f"Sub-agent {name}")
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to load subagent from %s: %s", md_file, exc)
         return None
 
 

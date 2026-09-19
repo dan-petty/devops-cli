@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import random
 import threading
 import time
@@ -237,6 +238,8 @@ class EmbeddingsEngine:
         """Initialize or assign Valkey client with fast connectivity probe."""
         if valkey_client is not _DEFAULT_VALKEY:
             return valkey_client
+        if os.getenv("PYTEST_CURRENT_TEST") and os.getenv("DEVOPS_CLI_TEST_LIVE_VALKEY") != "1":
+            return None
         try:
             from devops_cli.config.settings import get_valkey_password, load_settings
             from devops_cli.valkey.client import ValkeyClient

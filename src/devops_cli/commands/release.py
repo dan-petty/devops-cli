@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import logging
 import re
 import sys
 from datetime import UTC, datetime
@@ -31,6 +32,8 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP, MESSAGES
+
+logger = logging.getLogger(__name__)
 
 _LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
     "DocGenerator": ("devops_cli.docs.generator", "DocGenerator"),
@@ -696,8 +699,8 @@ def _query_gh_milestone_issues(repo_root: Path, milestone_tag: str) -> list[str]
         if proc.returncode == 0 and proc.stdout:
             raw_issues = json.loads(proc.stdout)
             return [f"- #{iss['number']}" for iss in raw_issues if iss.get("number")]
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to query GitHub milestone issues for %s: %s", milestone_tag, exc)
     return []
 
 
@@ -711,8 +714,8 @@ def _query_branch_commit_deliverables(repo_root: Path, base: str, branch_name: s
         )
         if log_proc.returncode == 0 and log_proc.stdout:
             return [f"- {line}" for line in _extract_raw_commit_lines(log_proc.stdout)]
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to query branch commit deliverables for %s: %s", branch_name, exc)
     return []
 
 
@@ -761,8 +764,8 @@ def _extract_branch_release_notes(
             items = _extract_raw_commit_lines(log_proc.stdout)
             if items:
                 return _format_categorized_notes(items, cleaned_ver)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to extract branch release notes: %s", exc)
     return None
 
 

@@ -106,13 +106,15 @@ def parse_file_symbols(file_path: Path, relative_to: Path) -> FileMapNode | None
             )
             return None
         content = file_path.read_text(encoding="utf-8", errors="replace")
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to read file %s for repomap: %s", file_path, exc)
         return None
 
     line_count = len(content.splitlines())
     try:
         tree = ast.parse(content, filename=str(file_path))
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed to parse AST for %s in repomap: %s", file_path, exc)
         return None
 
     rel_path = str(file_path.relative_to(relative_to))

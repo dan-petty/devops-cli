@@ -9,11 +9,14 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import inspect
+import logging
 import pkgutil
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Any
+
+from pydantic import ValidationError
 
 from devops_cli.exceptions.ai import LibraryNotFoundError
 from devops_cli.models.library import (
@@ -23,6 +26,8 @@ from devops_cli.models.library import (
     ModuleContract,
     ParameterSignature,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _format_annotation(ann: Any) -> str:
@@ -321,5 +326,6 @@ class PackageIntrospector:
             return None
         try:
             return LibraryContract.model_validate_json(file_path.read_text(encoding="utf-8"))
-        except Exception:
+        except (ValidationError, OSError, ValueError) as err:
+            logger.warning("Failed to load or validate LibraryContract from %s: %s", file_path, err)
             return None

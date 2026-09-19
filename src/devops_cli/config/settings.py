@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import operator
 import os
 import subprocess
@@ -74,6 +75,8 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.env import OPTION_TO_ENV_VAR
 from devops_cli.exceptions import ConfigurationError
+
+logger = logging.getLogger(__name__)
 
 _SECRET_FIELDS: frozenset[str] = opt.SECRET_CONFIG_OPTIONS
 _KEYRING_KEYS: dict[str, str] = opt.KEYRING_KEYS
@@ -491,7 +494,8 @@ def _keyring_get(key: str) -> str | None:
         return keyring.get_password(KEYRING_SERVICE, key)
     except NoKeyringError:
         return None
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to retrieve secret %r from OS Keyring: %s", key, exc)
         return None
 
 
@@ -509,7 +513,8 @@ def _keyring_has(key: str) -> bool:
     try:
         val = keyring.get_password(KEYRING_SERVICE, key)
         return bool(val is not None)
-    except NoKeyringError, Exception:
+    except (NoKeyringError, Exception) as exc:
+        logger.debug("Keyring check failed for %r: %s", key, exc)
         return False
 
 
@@ -545,7 +550,8 @@ def set_keyring_secret(key: str, value: str) -> bool:
     try:
         _keyring_set(key, value)
         return True
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to set secret %r in OS Keyring: %s", key, exc)
         return False
 
 
@@ -666,6 +672,31 @@ def get_active_config_path(base_dir: Path | None = None) -> Path:
     return found if found is not None else CONFIG_PATH
 
 
+def _prune_default_data_config(dumped_data: dict[str, Any], settings: Settings) -> None:
+    """Omit default data configuration block to prevent polluting config.yaml."""
+    if "data" not in dumped_data:
+        return
+    data_cfg = settings.data
+    default_cfg = DataConfig()
+    if data_cfg == default_cfg:
+        dumped_data.pop("data", None)
+        return
+
+    clean_dict: dict[str, Any] = {}
+    if data_cfg.dir != default_cfg.dir:
+        clean_dict["dir"] = str(data_cfg.dir)
+    for field_name, _, rel_path in _DEFAULT_CHILD_DATA_PATHS:
+        val = getattr(data_cfg, field_name)
+        expected = data_cfg.dir / rel_path
+        if val != expected:
+            clean_dict[field_name] = str(val)
+
+    if clean_dict:
+        dumped_data["data"] = clean_dict
+    else:
+        dumped_data.pop("data", None)
+
+
 def save_settings(settings: Settings, target_path: Path | None = None) -> None:
     """Persist settings to config YAML (secrets stay in keyring only)."""
     dest_path = target_path or get_active_config_path()
@@ -681,6 +712,7 @@ def save_settings(settings: Settings, target_path: Path | None = None) -> None:
             )
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     data = settings.model_dump(mode="json", exclude_none=True)
+    _prune_default_data_config(data, settings)
     content = yaml.dump(data, default_flow_style=False, allow_unicode=True)
     tmp = dest_path.with_suffix(".yaml.tmp")
     tmp.write_text(content, encoding="utf-8")

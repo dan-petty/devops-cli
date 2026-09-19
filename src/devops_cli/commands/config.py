@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -38,6 +39,8 @@ from devops_cli.output import (
     print_warning,
     write_stdout,
 )
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(help=HELP.config.app, no_args_is_help=True)
 
@@ -499,7 +502,8 @@ def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str]:
                 if composite in KEYRING_KEYS and bool(section_dict.get(opt_name)):
                     leaks.append(f"{cfg_file.name}:{composite}")
         return leaks
-    except Exception:
+    except (yaml.YAMLError, OSError, UnicodeDecodeError) as err:
+        logger.warning("Failed to parse config file %s for secrets audit: %s", cfg_file, err)
         return []
 
 

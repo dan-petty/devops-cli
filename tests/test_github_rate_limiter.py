@@ -356,11 +356,13 @@ def test_run_gh_passively_updates_graphql_quota() -> None:
             stderr="",
         )
         res = run_gh(["api", "graphql", "-f", "query={ viewer { login } }"])
-        assert res.returncode == 0
         quota = limiter.get_quota("graphql")
-        assert quota.remaining == 3200
-        assert quota.limit == 5000
-        assert quota.reset_epoch > 0
+        assert (
+            res.returncode,
+            quota.remaining,
+            quota.limit,
+            quota.reset_epoch is not None and quota.reset_epoch > 0,
+        ) == (0, 3200, 5000, True)
 
 
 def test_run_gh_passively_updates_header_quota() -> None:
@@ -993,3 +995,44 @@ def test_extract_rate_limit_endpoint_response_malformed_metric_raises() -> None:
     with pytest.raises(GitHubRateLimitError) as exc_info:
         _extract_rate_limit_endpoint_response(bad_payload, limiter)
     assert "Malformed rate limit metric" in str(exc_info.value)
+
+
+def test_rate_limiter_prune_expired_cache_ephemeral_and_disk(tmp_path: Path) -> None:
+    """Verify prune_expired_cache purges expired entries from both memory and disk."""
+    quota_file = tmp_path / "gh_quota.json"
+    limiter = GitHubRateLimiter(persist_path=quota_file)
+    limiter.set_cached("valid_key", "valid_data", ttl=3600.0)
+    limiter.set_cached("expired_key", "expired_data", ttl=0.01)
+    time.sleep(0.05)
+
+    pruned = limiter.prune_expired_cache()
+    valid_res = limiter.get_cached("valid_key")
+    expired_res = limiter.get_cached("expired_key")
+
+    assert (pruned >= 1, valid_res, expired_res) == (True, "valid_data", None)
+
+
+def test_rate_limiter_init_prunes_expired_disk_cache(tmp_path: Path) -> None:
+    """Verify rate limiter initialization prunes stale and corrupt response files on disk."""
+    quota_file = tmp_path / "gh_quota.json"
+    responses_dir = tmp_path / "responses"
+    responses_dir.mkdir(parents=True, exist_ok=True)
+
+    expired_file = responses_dir / "expired.json"
+    expired_file.write_text(
+        json.dumps({"expires_at": time.time() - 100.0, "data": "old"}), encoding="utf-8"
+    )
+    valid_file = responses_dir / "valid.json"
+    valid_file.write_text(
+        json.dumps({"expires_at": time.time() + 3600.0, "data": "fresh"}), encoding="utf-8"
+    )
+    corrupt_file = responses_dir / "corrupt.json"
+    corrupt_file.write_text("invalid json payload", encoding="utf-8")
+
+    _limiter = GitHubRateLimiter(persist_path=quota_file)
+
+    assert (expired_file.exists(), valid_file.exists(), corrupt_file.exists()) == (
+        False,
+        True,
+        False,
+    )

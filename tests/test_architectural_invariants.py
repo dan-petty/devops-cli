@@ -334,3 +334,16 @@ def test_task_md_is_decommissioned() -> None:
         "docs/agent/task.md has been decommissioned in favor of modular per-task files "
         "in docs/agent/tasks/ and native GitHub Projects v2 boards. Do not re-introduce it."
     )
+
+
+def test_no_stray_scripts_in_project_root() -> None:
+    """Ensure no ad-hoc scratch scripts (*.py, *.sh) are left in the repository root directory."""
+    root = Path(__file__).resolve().parents[1]
+    stray_files = sorted(
+        f.name for f in root.iterdir() if f.is_file() and f.suffix in {".py", ".sh"}
+    )
+    assert stray_files == [], (
+        f"Found stray script(s) in repository root: {stray_files}. Ad-hoc scratch/debug scripts "
+        "are strictly prohibited in the project root. Use the designated scratch directory "
+        "(<appDataDir>/brain/<conversation-id>/scratch/ or .data/agent/scratch/) instead."
+    )
