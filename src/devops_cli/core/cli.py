@@ -83,9 +83,12 @@ def _execute_traced_cli_command(
     span_name = f"cli.{cmd_name}"
     start_time = time.perf_counter()
     kwargs_summary = ", ".join(f_kwargs.keys()) if f_kwargs else ""
+    func_name = getattr(f, "__qualname__", getattr(f, "__name__", str(f)))
+    module_name = getattr(f, "__module__", "")
     attrs = {
         "cli.command": cmd_name,
-        "cli.function": getattr(f, "__qualname__", str(f)),
+        "code.function": func_name,
+        "code.namespace": module_name,
         "cli.args_count": len(f_args),
         "cli.kwargs_keys": kwargs_summary,
     }
@@ -135,7 +138,7 @@ class OTelTyper(typer.Typer):
                 mod_path, _, _ = target.partition(":")
                 _delegate(mod_path, cmd_name, list(ctx.args))
 
-            self.command(
+            super().command(
                 name=cmd_name,
                 help=help_text,
                 add_help_option=False,

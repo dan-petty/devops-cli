@@ -7,6 +7,7 @@ import time
 from importlib import import_module
 from typing import Final
 
+import click
 import typer
 
 from devops_cli import __version__
@@ -102,6 +103,8 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
         f"cli.{command_name}",
         attributes={
             "cli.command": command_name,
+            "code.function": command_name,
+            "code.namespace": module_path,
             "cli.args": args_summary,
             "cli.args_count": len(effective_args),
             "cli.module": module_path,
@@ -141,6 +144,31 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
             )
             if exit_code != 0:
                 raise typer.Exit(exit_code)
+        except click.ClickException as exc:
+            dur = time.perf_counter() - start_time
+            code = getattr(exc, "exit_code", 1)
+            span_h.set_attribute("cli.exit_code", code)
+            span_h.set_attribute("cli.duration_seconds", dur)
+            span_h.set_attribute("cli.status", "error")
+            span_h.set_attribute("error.message", str(exc))
+            span_h.set_attribute("error.type", exc.__class__.__name__)
+            span_h.add_event(
+                "command_failed",
+                {"command": command_name, "error": str(exc), "exit_code": code},
+            )
+            record_metric(
+                "devops_cli_command_total",
+                1.0,
+                attributes={"command": command_name, "status": "error"},
+            )
+            record_metric(
+                "devops_cli_command_duration_seconds",
+                dur,
+                unit="s",
+                attributes={"command": command_name},
+            )
+            exc.show()
+            raise typer.Exit(code) from exc
         except SystemExit as exc:  # pragma: no cover - defensive for wrapped click exits
             dur = time.perf_counter() - start_time
             code = exc.code if isinstance(exc.code, int) else 1
