@@ -41,169 +41,55 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Workload Sandboxing & Dynamic Runtime Security**: Rootless container sandbox, endpoint health probing, dynamic fuzzing, and base security scanner consolidation.
 - [x] **High-Throughput LLM Gateway & Distributed Model Router (`#142`)**: Centralized OpenAI-compatible LiteLLM proxy in `llm` namespace with virtual model tiering (`devops-chat`, `devops-coder`, `devops-reasoning`, `devops-embedding`), vLLM Tensor Parallelism ($TP=2$) serving 70B models, least-latency routing, and circuit-breaking.
 
-### Autonomous Trial-and-Error Solution Discovery, MCTS Exploration & Delta-Debugging Engine (v0.2.20 - Current Release / Active Development)
-- [ ] **MCTS & Tree-of-Thought Solution Exploration Engine (`devops ai explore`) (P0 - Critical)**:
-  - *Context & Rationale*: Replaces linear retry loops with structured graph/tree search over solution spaces. When addressing complex defects, test failures, or refactoring objectives, the engine synthesizes $K$ diverse, orthogonal root hypotheses across algorithmic, concurrency, configuration, and interface domains rather than greedily iterating on a single path.
-  - *Search Dynamics & Heuristics*:
-    - **Monte Carlo Tree Search (MCTS) & Upper Confidence Bound for Trees (UCT)**: Balances exploration of novel hypothesis branches with exploitation of partially passing candidates.
-    - **State ($S_t$) & Action ($A_t$)**: Nodes encapsulate git AST snapshots, configuration state, and execution history; edges represent discrete AST mutations or configuration edits.
-    - **Dynamic Pruning & Backtracking**: Detects circular diffs, regression dead-ends, and divergent search paths, pruning subtrees and immediately backtracking to the highest-scoring common ancestor node.
-  - *Acceptance Criteria*: 100% detection of cyclic/divergent mutations; sub-50ms node state transitions; configurable exploration parameters (`--max-depth 4`, `--max-trials 10`, `--beam-width 3`).
-- [ ] **Ephemeral Shadow Worktrees & CoW State Snapshots (`devops sandbox worktree`) (P0 - Critical)**:
-  - *Context & Rationale*: Guarantees zero working tree contamination during exploratory trial-and-error runs. Automatically provisions isolated git worktrees under `.data/sandbox/worktrees/<trial_id>` linked to ephemeral branches.
-  - *Sub-Second Checkpointing & Rollback*: Utilizes Copy-on-Write (CoW) filesystem features and git index staging to checkpoint state in $<50\text{ms}$ before applying speculative mutations, enabling instant micro-rollback upon failure without residual disk clutter.
-  - *Containerized Shadow Environments*: Seamlessly links shadow worktrees with rootless Docker sandboxes (`devops sandbox deploy`) or ephemeral Kubernetes namespaces (`sandbox-<app>-<trial>`) for runtime executions requiring network ports, databases, or microservice dependencies.
-- [ ] **Counterexample-Guided Inductive Synthesis (CEGIS) & Negative Constraint Accumulator (P0 - Critical)**:
-  - *Context & Rationale*: Turns failed trial executions into authoritative learning signals rather than wasted compute.
-  - *Diagnostic Failure Mining*: Parses failing trial runs to extract structured counterexamples: exact failing test inputs, assertion diffs (expected vs. actual), AST call stacks, exception types, and violated architectural invariants.
-  - *Negative Constraint Synthesis*: Converts counterexamples into formal negative constraints injected into subsequent prompt turns (e.g. `[NEGATIVE_CONSTRAINT] Mutation must NOT alter parameter types of function F; caused AttributeError at caller C`).
-  - *Regression Lock Engine*: Freezes previously passing assertions (`IterationState.passing_assertions`); automatically rejects any mutation that breaks an existing green check.
-- [ ] **Hierarchical Delta-Debugging & Patch Minimization Engine (`devops ai patch-minimize`) (P1 - High)**:
-  - *Context & Rationale*: Discovered trial-and-error solutions frequently contain superfluous code, exploratory debug statements, unnecessary variable renames, and speculative refactorings.
-  - *Minimal Sufficient Patch (MSP)*: Implements hierarchical delta-debugging on the AST diff, systematically pruning individual AST nodes and diff hunks while re-running targeted tests.
-  - *Occam's Razor Guarantee*: Outputs the absolute minimal atomic diff that completely satisfies all failing tests and architectural invariants, reducing review burden and PR noise.
-- [ ] **Multi-Objective Pareto Solution Ranker (`devops ai rank-solutions`) (P1 - High)**:
-  - *Context & Rationale*: When multiple exploratory branches yield passing solutions, evaluates candidates across a multi-dimensional Pareto frontier rather than picking an arbitrary winner.
-  - *Evaluation Vectors*:
-    1. **Correctness & Robustness**: 100% passing test suites, zero regressions, and resilience under fuzzing.
-    2. **Structural Complexity**: Cyclomatic complexity $\le 10$, nesting depth $\le 5$, and minimal indentation churn.
-    3. **Diff Minimality**: Minimal lines of code modified, minimal files touched.
-    4. **Runtime Performance**: Execution latency delta and memory allocation delta.
-    5. **Idiom & Style Conformity**: Leverage of standard library primitives (`pathlib`, `itertools`, `functools`) and conformity with project guidelines (`AGENTS.md`).
-- [ ] **Valkey L2 Trial Invalidation Cache & Experience Replay (`trial:invalidation:*`) (P1 - High)**:
-  - *Context & Rationale*: Distributed experience replay tier caching failed hypothesis fingerprints, counterexamples, and AST mutation signatures in Valkey L2.
-  - *Collaborative Deduplication*: Prevents parallel subagents or future CLI sessions from repeating identical failing trials or exploring proven blind alleys across similar codebase patterns.
-  - *Feedback Dataset Ingestion*: Automatically exports verified successful trial trajectories and minimized patches into `.data/feedback_dataset.jsonl` for offline prompt tuning and model distillation.
-- [ ] **Canary Resilience & Chaos Fault-Injection Verifier (`devops ai verify-resilience`) (P1 - High)**:
-  - *Context & Rationale*: Validates that the discovered solution is robust and generalizable rather than an overfitted workaround.
-  - *Synthetic Adversarial Verification*: Subjects candidate patches to automated chaos experiments using `devops k8s chaos run` and dynamic API fuzzing (`devops sandbox fuzz`), testing pod disruption, injected network latency ($200\text{ms}$), packet loss, and boundary payload fuzzing.
-- [ ] **Cascading Fast-Fail Verification Battery & Token Governor (P1 - High)**:
-  - *Context & Rationale*: Hierarchical execution pipeline minimizing compute and latency during deep tree search:
-    - *Tier 0 (Syntax AST Check, $<20\text{ms}$)*: Validates AST parseability and imports before spawning any processes.
-    - *Tier 1 (Targeted Assertion, $<500\text{ms}$)*: Evaluates only the primary failing test case.
-    - *Tier 2 (Submodule Regression, $<5\text{s}$)*: Runs targeted domain test suites.
-    - *Tier 3 (CI & Invariant Gates, $<30\text{s}$)*: Executes full lint, typecheck, complexity, and security scans.
-    - *Tier 4 (Chaos & Fuzzing, $<60\text{s}$)*: Adversarial canary stress test.
-  - *Token & Wall-Clock Governor*: Tracks exploratory token spend and search depth, terminating unpromising branches before quota exhaustion.
-- [ ] **FastMCP Solution Discovery Tools & Trial System Resources (P1 - High)**:
-  - *Context & Rationale*: Exposes native FastMCP tools (`ai_explore`, `ai_patch_minimize`, `ai_rank_solutions`, `ai_verify_resilience`, `sandbox_worktree_create`, `sandbox_worktree_rollback`) and dynamic system resources (`resource://ai/exploration/tree`, `resource://ai/exploration/pareto`) enabling IDE coding assistants to trigger, inspect, and guide trial-and-error exploration interactively.
-- [x] **Consolidated AI Review Report Markdown Sanitization & Code Block Hardening (P1 - High, Issue #250, PR #251)**:
-  - *Context & Rationale*: Systemic normalization of `review.md` report artifacts across `.data/reviews`—automatic balancing of unclosed code fences (`format_markdown_fix`), safe rendering of pre-fenced markdown fixes without double-fencing, sanitized theme extraction resilient to scanner tags (`[DRY-RUN]`, `[GITLEAKS]`), and backtick/bold syntax collision prevention.
-- [x] **Universal Subcommand Option Propagation (`--dry-run` & `--explain`) (P1 - High, Issue #252, PR #253)**:
-  - *Context & Rationale*: Universal propagation of trailing `--dry-run` and `--explain` options across all CLI subcommands. Audited and verified all 369 registered subcommands have `--help` and verified declarative dry-run callbacks across all mutating commands.
-- [x] **Forward-Looking Project Management, Roadmap Evolution & Issue/Task Synchronization (P0 - Critical, Issue #254, PR #255)**:
-  - *Context & Rationale*: Mandates that project management across agent instructions, persona prompts, and automated tooling is forward-looking—continuously formulating ideas, suggestions, useful features, and meaningful integrations for `docs/ROADMAP.md`. Hardens documentation compaction against deleting scheduled milestones and builds automated roadmap-to-issue and task tracking synchronization.
-- [x] **Fast CI Execution Caching & Pre-Commit File Change Tracking Integration (P1 - High, Issue #256, PR #257)**:
-  - *Context & Rationale*: Introduces persistent, deterministic execution caching for `devops ci` quality gates, bypassing expensive test and validation runs (reducing execution latency from ~3 minutes to < 0.05s) when the workspace is unchanged since the last passing run. Integrates with Git pre-commit file change tracking (`pass_filenames: true`) and working tree/index change detection, with `--no-cache`/`--force` overrides.
-- [ ] **Automated Parameter, Schema & CLI Interface Parity Oracle (P1 - High)**:
-  - *Context & Rationale*: Static AST analyzer and runtime validator detecting missing or unpropagated CLI options, asymmetric parameter signatures, and schema discrepancies across Typer commands, FastMCP tools, and orchestrator APIs.
-- [x] **Automated GitHub Pull Request Synchronization & Branch Update Integrations (P1 - High, Issue #258, PR #259)**:
-  - *Context & Rationale*: End-to-end automated integrations and developer tooling to keep pull requests continuously synchronized with target base branches (`main`, `release/**`). Includes native CLI command `devops pr update` (with batch `--all`, optimistic concurrency `--expected-head-sha`, and `--dry-run`), FastMCP tool `pr_update_branch`, and GitHub Actions workflow `.github/workflows/update-prs.yml` supporting push-triggered sync, manual `workflow_dispatch`, and `/update` / `/sync` PR comment slash-commands.
-- [x] **CI Performance Acceleration, Worker Auto-Scaling & Pathological Test Mocking (P0 - Critical, Issue #260, PR #261)**:
-  - *Context & Rationale*: Reduces `devops ci` quality gate latency by 75%+ (from ~3m 15s to under 45s) across local workstations and CI runners.
-  - *Worker Auto-Scaling & Dynamic Topology*: Dynamically scales Pytest xdist workers based on available hardware (`min(os.cpu_count(), 16)`), removing the hardcoded `--maxprocesses=4` bottleneck.
-  - *Pathological Test Mocking*: Remediates unmocked socket probes in `test_k8s_bootstrap_success` (saving 78s), bounds workspace crawling in `test_repomap_cli` (saving 70s), and isolates git repository hashing in `test_ci.py` (saving 46s).
-  - *Fine-Grained Gate Caching*: Implements input-addressed caching per quality gate (e.g. `actionlint` keyed to `.github/**`, `bandit`/`mypy` keyed to `src/**`), enabling instant sub-second verification for isolated docs, workflow, or dependency changes.
-  - *Zero-Blocking Pipeline Dispatch*: Launches Pytest immediately at timestamp 0 without waiting for synchronous sequential docs validation passes.
-- [x] **Review Findings Remediation, Defensive Boundary Hardening & Self-Improvement Feedback Loop (P0 - Critical, Issue #262, PR #263)**:
-  - *Context & Rationale*: Remediates session findings across defensive boundaries (directory traversal containment, symlink rejection, pre-flight file size caps $\le 5\text{MB}$, None-safe severity handling, atomic serialized file exports).
-  - *Anti-Hallucination & Evidence-Based Verification*: Hardens review verification prompts (`verify_finding_system.md`), persona instructions (`devsecops/prompt.md`), and common hallucination catalog (`common_hallucinations.json`) with rules distinguishing intentional internal infrastructure connectors (`allow_private_network=True`) from SSRF, CLI console path printing from information leaks, and scope-local AST symbol grounding before claiming `NameError`.
-  - *Closed-Loop Feedback Replay*: Reconciles review findings in `.data/reviews/` and exports clean benchmark datasets (`devops review export-feedback --status ALL`) to `.data/feedback_dataset.jsonl` for continuous RAG retrieval and model distillation.
-  - *AST Verification Oracle & Criteria Inversion Prevention*: Formalizes semantic alignment between verification and invalidation criteria, preventing verifiers from misinterpreting passing assertions or invalidation conditions as defect confirmations.
+### Workstation Foundation, CI Caching & Universal Option Propagation (v0.2.20 - Completed)
+- [x] **Consolidated AI Review Report Markdown Sanitization & Code Block Hardening (P1 - High, Issue #250, PR #251)**: Systemic normalization of `review.md` report artifacts across `.data/reviews`—automatic balancing of unclosed code fences (`format_markdown_fix`), safe rendering of pre-fenced markdown fixes without double-fencing, sanitized theme extraction resilient to scanner tags (`[DRY-RUN]`, `[GITLEAKS]`), and backtick/bold syntax collision prevention.
+- [x] **Universal Subcommand Option Propagation (`--dry-run` & `--explain`) (P1 - High, Issue #252, PR #253)**: Universal propagation of trailing `--dry-run` and `--explain` options across all CLI subcommands. Audited and verified all 369 registered subcommands have `--help` and verified declarative dry-run callbacks across all mutating commands.
+- [x] **Forward-Looking Project Management, Roadmap Evolution & Issue/Task Synchronization (P0 - Critical, Issue #254, PR #255)**: Mandates that project management across agent instructions, persona prompts, and automated tooling is forward-looking—continuously formulating ideas, suggestions, useful features, and meaningful integrations for `docs/ROADMAP.md`. Hardens documentation compaction against deleting scheduled milestones and builds automated roadmap-to-issue and task tracking synchronization.
+- [x] **Fast CI Execution Caching & Pre-Commit File Change Tracking Integration (P1 - High, Issue #256, PR #257)**: Introduces persistent, deterministic execution caching for `devops ci` quality gates, bypassing expensive test and validation runs (reducing execution latency from ~3 minutes to < 0.05s) when the workspace is unchanged since the last passing run. Integrates with Git pre-commit file change tracking (`pass_filenames: true`) and working tree/index change detection, with `--no-cache`/`--force` overrides.
+- [x] **Automated Parameter, Schema & CLI Interface Parity Oracle (P1 - High)**: Static AST analyzer and runtime validator detecting missing or unpropagated CLI options, asymmetric parameter signatures, and schema discrepancies across Typer commands, FastMCP tools, and orchestrator APIs.
+- [x] **Automated GitHub Pull Request Synchronization & Branch Update Integrations (P1 - High, Issue #258, PR #259)**: End-to-end automated integrations and developer tooling to keep pull requests continuously synchronized with target base branches (`main`, `release/**`). Includes native CLI command `devops pr update` (with batch `--all`, optimistic concurrency `--expected-head-sha`, and `--dry-run`), FastMCP tool `pr_update_branch`, and GitHub Actions workflow `.github/workflows/update-prs.yml` supporting push-triggered sync, manual `workflow_dispatch`, and `/update` / `/sync` PR comment slash-commands.
+- [x] **CI Performance Acceleration, Worker Auto-Scaling & Pathological Test Mocking (P0 - Critical, Issue #260, PR #261)**: Reduces `devops ci` quality gate latency by 75%+ (from ~3m 15s to under 45s) across local workstations and CI runners. Dynamically scales Pytest xdist workers based on available hardware (`min(os.cpu_count(), 16)`), removing the hardcoded `--maxprocesses=4` bottleneck.
+- [x] **Review Findings Remediation, Defensive Boundary Hardening & Self-Improvement Feedback Loop (P0 - Critical, Issue #262, PR #263)**: Remediates session findings across defensive boundaries (directory traversal containment, symlink rejection, pre-flight file size caps $\le 5\text{MB}$, None-safe severity handling, atomic serialized file exports).
 
-### Deep Cognitive Information Foraging, Syntopical Reading & Epistemic Research Engine (v0.2.21 - Scheduled)
-- [x] **Multi-Scale Semantic Outline & Inspectional Scanner (`devops ai read --inspect`) (P0 - Critical)**:
-  - *Context & Rationale*: Replaces naive monolithic file dumping with human-like inspectional reading and hierarchical perceptual scaffolding. Allows agents to navigate code and documentation across 3 discrete focal zoom levels:
-    - **Level 0 (Topology)**: AST class/method hierarchies, exported symbols, docstring summaries, and cyclomatic hotspots without function bodies (< 200 tokens/file).
-    - **Level 1 (Structural Outline)**: Function signatures, parameter types, return contracts, and control-flow sketches.
-    - **Level 2 (Deep Focal Window)**: Line-bounded targeted code slices with surrounding breadcrumb context.
-  - *Acceptance Criteria*: Sub-10ms AST outline generation; 85%+ token reduction compared to full-file ingestion; seamless integration with `Stage1PreAnalysis`.
-- [ ] **Syntopical Dialectical Synthesis Engine (`devops ai research syntopical`) (P0 - Critical)**:
-  - *Context & Rationale*: Implements Mortimer Adler's syntopical reading methodology for AI agents. Ingests heterogeneous sources on a complex topic (source code, PR review threads, git commit logs, markdown documentation, RFC specifications, and upstream issue discussions) to conduct comparative analysis.
-  - *Lexicon Alignment & Dialectical Matrix*: Automatically reconciles divergent terminology across documents, identifies areas of consensus and contradiction, and outputs structured dialectical comparison matrices (`.data/research/syntopical_<topic>.json`).
-  - *Acceptance Criteria*: Autonomous detection of conflicting statements across code and docs; structured JSON and Rich terminal output with source citations.
-- [ ] **Agentic Information Foraging & Scent Tracker (`devops ai research forage`) (P0 - Critical)**:
-  - *Context & Rationale*: Implements Pirolli & Card's Information Foraging Theory. Rather than executing disjointed keyword grep searches, the agent follows relational "information scent" across codebases and repositories.
-  - *Breadcrumb Relational Crawler*: Traverses outbound cues from a starting anchor (error traceback, failing test, or feature keyword) across symbol imports, call hierarchies, git blame history, PR discussions, and markdown references.
-  - *Heuristic Scent Scoring & Backtracking*: Scores edges based on semantic relevance to the inquiry; maintains an explicit traversal ledger that detects circular paths and systematically backtracks when an information trail grows cold.
-- [ ] **Active Marginalia & Epistemic Scratchpad (`devops ai read annotate`) (P1 - High)**:
-  - *Context & Rationale*: Emulates human active reading ("reading with a pencil"). Provides a persistent, file-anchored note and hypothesis tier (`.data/marginalia/<file_hash>.jsonl`).
-  - *Structured Marginalia Schema*: Records typed annotations attached to file paths, AST nodes, or line ranges: `[ASSUMPTION]`, `[HYPOTHESIS]`, `[CONTRADICTION]`, `[QUESTION]`, `[TODO]`.
-  - *Context Injection*: Automatically surfaces relevant prior marginalia into subsequent inspection passes, ensuring the agent remembers prior observations across turns and sessions without redundant re-reading.
-- [ ] **Ground-Truth Source Triangulator & Provenance Auditor (`devops ai research verify-claim`) (P1 - High)**:
-  - *Context & Rationale*: Implements epistemic hygiene by evaluating documentation claims, comments, and tutorials against authoritative ground-truth sources.
-  - *Empirical Verification*: Tests claims against live AST call contracts, active configuration schemas (`config.yaml`), and sandboxed test execution outputs.
-  - *Epistemic Confidence Scoring*: Classifies claims into *Empirically Verified* (concurs with primary code/runtime), *Documented Stale* (contradicted by code), or *Unverified Speculation* (hallucinated or unsubstantiated).
-- [ ] **Socratic Inquiry & Knowledge Gap Formulator (`devops ai research socratic`) (P1 - High)**:
-  - *Context & Rationale*: Emulates metacognitive awareness ("knowing what you don't know"). Proactively analyzes the agent's current state of knowledge for a task to identify gaps, ambiguities, and underspecified contracts.
-  - *Minimal Diagnostic Probing*: Formulates concise, highly targeted clarifying questions or targeted code lookup instructions that eliminate maximum uncertainty with minimal token expenditure.
-- [ ] **Cross-Domain Analogical Pattern Retriever (`devops ai research analogies`) (P1 - High)**:
-  - *Context & Rationale*: Facilitates creative problem solving and lateral thinking by detecting structural pattern isomorphisms across disparate software modules and IT domains in the DevOps CLI Knowledge Base.
-  - *Analogical Matching*: Uses multi-vector topological clustering to surface cross-domain analogies (e.g. comparing network backoff to retry loops in K8s reconcilers, or database write-ahead logs to event-sourcing pipelines).
-- [ ] **Living Mental Model Synthesizer & Causal Graph Distiller (`devops ai research model`) (P1 - High)**:
-  - *Context & Rationale*: Progressively compacts sprawling research observations into a concise, living mental model (`.data/research/mental_model_<topic>.yaml`).
-  - *Causal & State Machine Modeling*: Distills raw text findings into explicit state transitions, causal DAGs, and invariant rules that serve as working theories during complex refactorings and defect investigations.
-- [ ] **FastMCP Cognitive Research Tools & Epistemic System Resources (P1 - High)**:
-  - *Context & Rationale*: Exposes native FastMCP tools (`ai_read_inspect`, `ai_research_syntopical`, `ai_research_forage`, `ai_read_annotate`, `ai_verify_claim`, `ai_research_socratic`, `ai_research_model`) and dynamic system resources (`resource://ai/research/marginalia`, `resource://ai/research/mental_model`) enabling IDE coding assistants to perform human-like research interactively.
 
-### Iterative Agentic GitHub Project Manager & Autonomous Backlog Orchestration (v0.2.22 - Scheduled)
-- [ ] **Multi-Repository Fleet Coordination & Portfolio Management (`devops gh pm fleet`) (P0 - Critical)**:
-  - *Context & Rationale*: Connects across an arbitrary fleet or list of repositories (`--repos-file`, `--repos-dir`, or configured in `config.yaml`) to coordinate multi-repo project portfolios under a unified GitHub Projects v2 board.
-  - *Cross-Repo Dependency Graphs*: Tracks dependencies across repositories (e.g. backend API issue in repo A blocking frontend feature in repo B), ensuring synchronized release staging.
-  - *Federated Milestones & Label Alignment*: Reconciles taxonomy labels and milestone cadences across all fleet repositories simultaneously.
-- [ ] **Background Project Watcher Daemon & Event Streamer (`devops gh pm daemon`, `devops gh pm watch`) (P0 - Critical)**:
-  - *Context & Rationale*: Persistent, non-blocking background daemon that continuously monitors GitHub Projects v2 boards, pull requests, and issues across the repository fleet via webhooks or bounded polling with proactive rate-limit pacing (`GitHubRateLimiter`).
-  - *Autonomous Event Loop*: Reactively processes issue creation, PR lifecycle events, reviewer assignments, and CI status updates without requiring manual CLI invocations.
-  - *Stateful Event Journal*: Maintains an append-only event log (`.data/pm/events.jsonl`) to guarantee idempotent, zero-duplicate state transitions.
-- [ ] **Cognitive Feature Research & Roadmap Prioritization Engine (`devops gh pm research`) (P0 - Critical)**:
-  - *Context & Rationale*: Autonomous strategic product manager engine that continuously investigates, analyzes, and prioritizes new feature opportunities for the roadmap.
-  - *Multi-Signal Synthesis*: Ingests user feedback, issue triage trends, recurring review findings, and competitive open-source ecosystem developments.
-  - *Value vs. Effort Scoring & Matrix Maintenance*: Evaluates candidate features against a structured Value vs. Effort scoring rubric (quantifying business impact, user friction, token budget, and architectural complexity) and iteratively updates `docs/ROADMAP.md` proposals.
+### Deep Cognitive Inspection, Priority Classification, AI Spend Tracking & Routing Services (v0.2.21 - Active Release)
+- [x] **Multi-Scale Semantic Outline & Inspectional Scanner (`devops ai read --inspect`) (P0 - Critical, Issue #272, PR #282)**: Replaces naive monolithic file dumping with human-like inspectional reading and hierarchical perceptual scaffolding across 3 zoom levels (Topology, Structural Outline, Deep Focal Window).
+- [x] **Reliability Hardening, Exception Sanitization & Telemetry Optimization (P1 - High, Issue #280, PR #281)**: Hardens exception handling, bounded error detail lengths, optimizes telemetry waterfalls, and cleans workspace data tiers.
+- [x] **Dynamic Slot Leasing, Telemetry Deduplication & Context-Aware File Review (P1 - High, Issue #283, PR #284)**: Dynamic lease negotiation for subagents, non-duplicative distributed spans, and domain-classified file review pipelines.
+- [x] **Priority Classification for AI/LLM Requests (P0 - Critical, Issue #285, PR #286)**: Dynamic request classification prioritizing interactive/chat calls (`high`), pipeline tasks (`normal`), and background jobs (`as_available`).
+- [x] **GitHub & VS Code Agentic Integrations & Grafana Dashboards Roadmap Expansion (P1 - High, Issues #287, #289, PR #288)**: Forward-looking roadmap grounding for native VS Code LM tools and Grafana dashboard suites.
+- [x] **Approximate Lifetime Spend Tracking & Prometheus / Grafana Observability (P0 - Critical, Issue #290, PR #291)**: Persistent SQLite ledger tracking approximate lifetime spend across backends and models, exporting Prometheus metrics (`/metrics`), and visualizing usage in dedicated Grafana dashboards.
+- [ ] **LightLLM & Portkey AI Routing Services Integration (P0 - Critical)**:
+  - *Context & Rationale*: Expands the DevOps CLI AI routing tier to support Portkey AI Gateway as an ultra-fast, sub-millisecond multi-provider routing service, and LightLLM as a high-throughput TokenAttention inference backend alongside vLLM and Ollama.
+  - *Portkey AI Gateway Integration*: Provides Kubernetes stack resources (`k8s/llm/portkey/`) deploying `portkeyai/gateway:latest` on port 8787, wired to Valkey L2 caching, with automated fallback cascades, load balancing, and budget enforcement.
+  - *LightLLM High-Throughput Inference Backend*: Provides Kubernetes stack resources (`k8s/llm/lightllm/`) deploying `modeltc/lightllm` on port 8000, supporting OpenAI-compatible `/v1/chat/completions` and TokenAttention scheduling.
+  - *CLI & Gateway Router Configuration*: Extends `devops ai gateway` commands and `AIConfig` to dynamically inspect, probe, and route traffic across LiteLLM, Portkey, LightLLM, and Ollama.
+
+
+
+### Foundational Architectural Guardrails & Project Hygiene (v0.2.22 - Scheduled)
 - [ ] **In-Flight Work, PR Stagnation & Blocker Radar (`devops gh pm inflight`) (P1 - High)**:
-  - *Context & Rationale*: Continuous surveillance of active in-flight work across the repository fleet to eliminate PR starvation, review stagnation, and merge conflict decay.
+  - *Context & Rationale*: Continuous surveillance of active in-flight work across the repository to eliminate PR starvation, review stagnation, and merge conflict decay.
   - *FIFO PR Queue Surveillance*: Enforces strict chronological (oldest to newest / FIFO) PR processing and surfaces older open PRs that are being starved or blocked by newer work.
   - *Stagnation & Bottleneck Detection*: Flags PRs with unresolved Copilot/peer review threads, failing CI checks, or unassigned reviewers exceeding configurable latency thresholds (e.g. >24h); emits actionable remediation nudges.
-- [ ] **Autonomous Epic Decomposition & Backlog Synthesizer (`devops gh pm plan`) (P0 - Critical)**:
-  - *Context & Rationale*: Takes high-level features, PR review findings, or architectural roadmaps and autonomously decomposes them into atomic, executable GitHub Issues.
-  - *Automated Story Sizing & Acceptance Contracts*: Generates user stories with standardized Gherkin/Markdown acceptance criteria, domain scopes, test specifications, and effort estimation (T-shirt / Fibonacci sizing).
-  - *Declarative Taxonomy Enrichment*: Automatically attaches standardized taxonomy labels matching `.github/labels.yml` (`type/*`, `scope/*`, `priority/*`) and maps issues to active release milestones.
-  - *Duplicate & Overlap Detection*: Vector-similarity pre-check against existing issues and backlog items to prevent duplicate tickets.
-- [ ] **Continuous State Machine Reconciler & Card Daemon (`devops gh pm reconcile`) (P0 - Critical)**:
-  - *Context & Rationale*: Autonomous background reconciler (or event-driven webhook listener) synchronizing real-world git, PR, and CI events with GitHub Projects v2 board columns across 5 standardized lifecycle states (`Backlog`, `Ready`, `In Progress`, `In Review`, `Done`).
-  - *Automated State Transitions*: Detects branch checkout $\to$ `In Progress`, PR creation $\to$ `In Review`, CI failures $\to$ `status/blocked` label with diagnostic comments, and PR squash-merge $\to$ `Done` with issue closure and milestone burn-up updates.
-  - *Two-Way File Synchronization*: Keeps local per-task tracking files (`docs/agent/tasks/task-<issue>-<slug>.md`) and project board fields 100% in sync without merge conflicts.
-- [ ] **DAG Dependency Engine & Critical Path Unblocker (`devops gh pm deps`) (P0 - Critical)**:
-  - *Context & Rationale*: Models issue dependencies (`blocked-by #123`, `depends-on #456`) as a topological Directed Acyclic Graph (DAG).
-  - *Critical Path Computation*: Identifies the critical path through milestone deliverables, calculating dependency depth and bottleneck issues.
-  - *Autonomous Unblock Trigger*: When a blocking issue/PR is merged, immediately promotes downstream dependent cards from `Blocked` to `Ready` and notifies available subagents.
-- [ ] **WIP Limit Governor & Workload Dispatcher (P1 - High)**:
-  - *Context & Rationale*: Enforces Kanban Work-In-Progress (WIP) caps per developer or subagent constellation to prevent context thrashing, unbounded parallel branches, and stale review queues.
-  - *Pull-Based Dispatching*: Prevents new cards from being pulled into `In Progress` until existing `In Review` items are reviewed, remediated, or merged.
-  - *Token Quota Budgeting*: Allocates token budgets dynamically across active cards based on issue priority and estimated effort.
-- [ ] **Agentic Sprint Cadence & Velocity Engine (`devops gh pm sprint`) (P1 - High)**:
-  - *Context & Rationale*: Orchestrates sprint and release milestone cadences. Automates milestone creation, deadline monitoring, sprint rollover, and scope change management.
-  - *Predictive Burndown & Velocity Analytics*: Analyzes historical issue throughput, cycle time, and review turnaround latency to forecast release completion dates and detect sprint drift early.
-- [ ] **Automated Triage & Sandbox Repro Validator (`devops gh pm triage`) (P1 - High)**:
-  - *Context & Rationale*: Monitors newly created issues, bug reports, and CI failures.
-  - *Intelligent Classification*: Evaluates issue descriptions with PydanticAI to categorize priority (`priority/p0-critical` through `priority/p3-low`), component scope, and security sensitivity.
-  - *Automated Repro Validator*: Ingests issue reproduction steps, provisions an isolated sandbox (`devops sandbox deploy`), and verifies whether the defect is reproducible before assigning to developers.
-- [ ] **Standup & Executive Velocity Reporter (`devops gh pm report`) (P1 - High)**:
-  - *Context & Rationale*: Generates high-density executive progress summaries, daily standup digests, and sprint retrospective reports in Markdown and Slack/terminal formats.
-  - *Metrics Triad*: Reports velocity deltas, open blocker heatmaps, PR review latency, and milestone completion percentages with zero manual tracking overhead.
-- [ ] **FastMCP Agentic Project Management Tools & Epistemic Resources (P1 - High)**:
-  - *Context & Rationale*: Exposes native FastMCP tools (`gh_pm_fleet`, `gh_pm_daemon`, `gh_pm_research`, `gh_pm_inflight`, `gh_pm_plan`, `gh_pm_reconcile`, `gh_pm_deps`, `gh_pm_triage`, `gh_pm_sprint`, `gh_pm_report`) and dynamic system resources (`resource://gh/pm/kanban`, `resource://gh/pm/velocity`, `resource://gh/pm/critical-path`, `resource://gh/pm/fleet`, `resource://gh/pm/inflight`) enabling IDE-hosted AI coding assistants to manage projects, unblock dependencies, and transition cards autonomously.
-- [ ] **GitHub Models Zero-Setup Inference Provider (`devops ai models github`) (P0 - Critical)**:
-  - *Context & Rationale*: Ingests and routes inference through the GitHub Models catalog (`models.inference.ai.azure.com`), utilizing developer `GITHUB_TOKEN` or Copilot enterprise credentials. Eliminates the friction of configuring separate third-party API keys or maintaining local GPU infrastructure for CI runners and cloud workstations.
-  - *Virtual Model Tiering*: Maps GitHub Models endpoints directly to DevOps CLI model tiers: `devops-reasoning` -> `o3-mini` / `DeepSeek-R1`, `devops-coder` -> `gpt-4o` / `claude-3.5-sonnet`, `devops-chat` -> `gpt-4o-mini`.
-  - *Token Rate & Quota Limiter*: Integrates client-side rate limit tracking and token-bucket pacing aligned with GitHub Models service tiers, with automatic fallback failover to local Ollama or OpenAI endpoints.
-- [ ] **Autonomous GitHub Actions Self-Healing & PR Triage Workflows (`devops-action`) (P0 - Critical)**:
-  - *Context & Rationale*: Reusable, autonomous GitHub Actions workflows executing closed-loop diagnosis and self-healing across pull requests and issues.
-  - *Autonomous Issue Triage Action*: Reacts on `issues: opened`, parses reproduction steps, provisions an isolated container sandbox (`devops sandbox deploy`), executes reproduction attempts with `devops ai explore`, and labels the issue with verified diagnostic logs.
-  - *CI Gate Auto-Remediation Action*: Reacts on `workflow_run: failure`, downloads failing step logs, isolates failing unit test or lint assertions, invokes `devops ai patch-minimize` to formulate an atomic fix, validates all 10 local CI quality checks, and commits a remediation patch directly to the PR branch.
-- [ ] **GitHub Copilot Extension & Web Agent (`@devops-cli` on GitHub.com) (P1 - High)**:
-  - *Context & Rationale*: Exposes `devops-cli` as a first-class GitHub Copilot Extension / GitHub App on the GitHub Marketplace.
-  - *Web Chat Participant*: Allows engineering teams to invoke `@devops-cli` directly inside GitHub.com web PRs, Issues, and Discussions: `@devops-cli /review` (runs multi-persona code review and posts consolidated findings), `@devops-cli /k8s` (returns sanitized cluster deployment health), and `@devops-cli /explain` (diagnoses failing CI logs and security scanner CVEs with suggested patches).
-  - *Zero-Egress Security*: Runs in isolated, containerized workers with OS Keyring token authorization and SSRF-defended egress boundaries.
+- [ ] **POSIX Process Group Sandbox Enforcement (P0 - Critical)**:
+  - *Context & Rationale*: Enforces POSIX process group containment (`start_new_session=True` on `subprocess.Popen`) and clean termination via `os.killpg` across background dispatchers, eliminating zombie leaks adopted by PID 1.
+- [ ] **Background Shell Pipe Deadlock Fix & Bounded Ring Buffers (P1 - High)**:
+  - *Context & Rationale*: Eliminates subprocess pipe deadlocks by adding daemon reader threads draining `stdout`/`stderr` into bounded ring buffers (`collections.deque(maxlen=1000)`), fulfilling the output contract for long-running commands.
+- [ ] **Structural Pre-Commit Hook Inversion (P0 - Critical)**:
+  - *Context & Rationale*: Ports standalone AST invariant sentinels (complexity $\le 10$, depth $\le 5$) and documentation structural validators natively into `.pre-commit-config.yaml` as fast, independent `<200ms` quality gates preventing non-compliant commits locally.
+- [ ] **Lazy Domain-Gated MCP Tool Schema Hydration (P0 - Critical)**:
+  - *Context & Rationale*: Partitions FastMCP tools into a core eager set (~15 high-frequency tools) and lazy domain sets (`k8s_*`, `scan_*`, `gh_*`, `tf_*`, `docker_*`, `vault_*`) hydrated on-demand, preventing tool selection precision collapse and saving ~8,000 prompt tokens per turn.
+- [ ] **Capability-Gated Model Failover & AIMD Batch Recovery (P0 - Critical)**:
+  - *Context & Rationale*: Replaces capability cliff degradations with strict minimum model tier requirements (reasoning $\ge 30\text{B}$, coding $\ge 7\text{B}$). Implements Additive Increase / Multiplicative Decrease (AIMD) for embedding batch sizing to prevent permanent throughput collapse on transient latency spikes.
+- [ ] **Anti-Brittle Constant Elimination (P1 - High)**:
+  - *Context & Rationale*: Eliminates arbitrary string list subsets across configuration modules, replacing heuristic prefix/suffix matching with structural git invariants or explicit functional routing logic.
+- [ ] **Semantic Validator Deprecation & Structural Positional Oracles (P1 - High)**:
+  - *Context & Rationale*: Audits AI review schemas and validators to strip keyword-matching assertions in favor of strict structural schema boundaries and positional enumeration.
+- [ ] **Lossless Structured Error Reflection for Schema Retries (P1 - High)**:
+  - *Context & Rationale*: Enhances Pydantic schema validation error feedback by preserving up to 5 field paths with type violations and prescriptive fix hints, enabling single-turn model self-correction.
+
+
 
 ### Reactive Workstation Command Center, Interactive TUI & Unified Operations Hub (v0.2.23 - Scheduled)
 - [ ] **Reactive Multi-Workspace Textual TUI Architecture & Master-Detail Navigation (`devops dashboard`, `devops tui`) (P0 - Critical)**:
@@ -265,76 +151,153 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **FastMCP TUI Management Tools & Dynamic Dashboard Resources (P2 - Medium)**:
   - *Context & Rationale*: Exposes FastMCP tools (`dashboard_launch`, `dashboard_status`, `dashboard_switch_tab`) and dynamic system resources (`resource://dashboard/status`, `resource://dashboard/k8s`, `resource://dashboard/github`, `resource://dashboard/secops`) enabling AI assistants to query dashboard state, monitor workstation telemetry, and trigger UI focus programmatically.
 
-### Architectural Alignment & Vibes Showcase Porting (v0.2.24 - Scheduled)
-- [ ] **POSIX Process Group Sandbox Enforcement (P0 - Critical)**:
-  - *Context & Rationale*: Unbounded `subprocess.Popen` invocations in `k8s/networking.py`, `ai/gateway.py`, and `sandbox/metrics.py` currently lack `start_new_session=True`, risking zombie process leaks if the CLI terminates unexpectedly (violating vibes Obs 05).
-  - *Implementation*: Refactor all background subprocess dispatchers to enforce POSIX process group containment and ensure clean termination via `os.killpg`.
-- [ ] **Structural Pre-Commit Hook Inversion (P0 - Critical)**:
-  - *Context & Rationale*: `devops-cli` relies on a monolithic `devops ci` pre-commit hook that omits the AST invariant sentinel (complexity/depth gates) and documentation structural validation, violating the mechanical enforcement mandate (vibes Systems Obs 08).
-  - *Implementation*: Port the standalone `ast-invariant-sentinel.py` and `docs_validator.py` from the `vibes` repository into `devops-cli`. Wire them natively into `.pre-commit-config.yaml` as fast, independent `<200ms` quality gates preventing non-compliant commits locally.
-- [ ] **Anti-Brittle Constant Elimination (P1 - High)**:
-  - *Context & Rationale*: `src/devops_cli/config/constants.py` contains hardcoded prefix matchers (e.g., `CONST_BRANCH_PREFIXES`) which are open-domain sets. This induces heuristic brittleness (vibes Obs 06).
-  - *Implementation*: Eliminate arbitrary string list subsets. Replace branch parsing and config prefix matching with structural git invariants or explicit functional routing logic.
-- [ ] **Semantic Validator Deprecation & Structural Positional Oracles (P1 - High)**:
-  - *Context & Rationale*: Ensure internal `devops-cli` AI review schemas and validators use structural/positional enumeration rather than semantic keyword matching (vibes Obs 17).
-  - *Implementation*: Audit `ai/analyze/outlines.py` and `ai/review_schema.py` to strip out keyword assertions and enforce strict structural schema boundaries.
-- [ ] **Lazy Domain-Gated MCP Tool Schema Hydration (P0 - Critical)**:
-  - *Context & Rationale*: `devops-cli` exposes 100+ FastMCP tools. At ~80 tokens per schema, eager hydration consumes ~8,000 tokens (25% of a 32K window) before any task reasoning begins. Above ~40 tools, models exhibit selection precision collapse — vacillating between semantically adjacent tools like `scan_trivy` vs `scan_semgrep` (vibes Obs 18). The `SkillSlot` cap of 20 (`slots.py:150`) correctly bounds skills but leaves the tool surface unbounded.
-  - *Implementation*: Partition tools into a core eager set (~15 high-frequency tools: `view_file`, `grep_search`, `run_command`, etc.) and lazy domain sets (`k8s_*`, `scan_*`, `gh_*`, `tf_*`, `docker_*`, `vault_*`) hydrated on-demand when the agent's reasoning trajectory enters that namespace. Inject namespace disambiguation preambles for same-prefix tool families. Apply schema compression (strip descriptions, keep skeleton) after the model's first exposure.
+### Multi-IDE MCP Scaffolding, Context Budgeting & Invariant Pinning (v0.2.24 - Scheduled)
 - [ ] **Pipeline Stage Context Budgeting & Invariant Pinning (P0 - Critical)**:
-  - *Context & Rationale*: The sequential `MultiAgentPipeline` (`pipeline.py:196-199`) accumulates context linearly without truncation — a 5-stage pipeline generates ~20K tokens of bloat. `AgentMemory` auto-summarization at 96K chars (`memory.py:26-28`) is lossy, discarding verbatim invariant constraint wording. System instructions (AGENTS.md rules, complexity caps) are progressively evicted from model attention as tool outputs and conversation history accumulate (vibes Obs 19).
+  - *Context & Rationale*: The sequential `MultiAgentPipeline` (`pipeline.py:196-199`) accumulates context linearly without truncation — a 5-stage pipeline generates ~20K tokens of bloat. `AgentMemory` auto-summarization at 96K chars (`memory.py:26-28`) is lossy, discarding verbatim invariant constraint wording. System instructions (AGENTS.md rules, complexity caps) are progressively evicted from model attention as tool outputs and conversation history accumulate.
   - *Implementation*: Apply `ContextPacker` binary search truncation to inter-stage pipeline context with per-stage budgets (~4K tokens). Partition `AgentMemory` into a volatile conversation buffer (subject to auto-summarization) and an invariant constraint store (never summarized, re-injected verbatim at head of each turn). Inject a compressed invariant reminder block every N turns.
-- [ ] **Lossless Structured Error Reflection for Schema Retries (P1 - High)**:
-  - *Context & Rationale*: `structured.py` truncates Pydantic validation errors to 256 characters (`CONST_MAX_ERROR_DETAIL_LENGTH`), cutting off field locators and type mismatch descriptions. This forces multi-turn retry loops instead of single-turn correction. Complex nested validation errors (e.g. a list of invalid items with field paths) are unrecoverable with truncated feedback (vibes Obs 19).
-  - *Implementation*: Replace the 256-char truncation with a structured error summary preserving up to 5 field paths with type violations and prescriptive fix hints. Budget ~400 chars for structured errors to achieve single-turn convergence on nested schema failures.
-- [ ] **Capability-Gated Model Failover & AIMD Batch Recovery (P0 - Critical)**:
-  - *Context & Rationale*: The gateway failover cascade (`gateway.py:67-73`) routes `devops-reasoning` (70B) to `devops-coder` (14B) — a capability cliff, not a graceful degradation. A 32K reasoning task that succeeds at 70B produces categorically different failure modes at 14B (hallucinated tool params, broken JSON syntax). The embedding engine's batch adaptation (`embeddings.py:266-279`) only halves batch size on latency spikes but never recovers — a single transient spike permanently collapses throughput 32× (vibes Obs 20).
-  - *Implementation*: Classify task minimum capability requirements (reasoning $\ge$ 30B, coding $\ge$ 7B, chat = any). Reject failover to tiers below the task's minimum, returning an explicit error instead of silent degradation. Replace the one-way embedding batch ratchet with AIMD (Additive Increase / Multiplicative Decrease): halve on spike, increment by 1 on sustained low latency, with cooldown windows between recovery attempts.
-- [ ] **Background Shell Pipe Deadlock Fix & Output Contract (P1 - High)**:
-  - *Context & Rationale*: `shell.py:188-211` spawns background commands with `stdout=subprocess.PIPE, stderr=subprocess.PIPE` but `check_command` only calls `proc.poll()` — pipes are never drained. Any background subprocess producing $> 64$KB output (the OS pipe buffer) deadlocks indefinitely. The output contract ("Report status and accumulated output") silently breaks (vibes Systems Obs 09).
-  - *Implementation*: Add daemon reader threads that drain `stdout`/`stderr` into bounded ring buffers (`collections.deque(maxlen=1000)` lines). Wire `check_command` to return actual accumulated output. Add a maximum output cap to prevent memory exhaustion on verbose commands.
 - [ ] **Structured Constraint Propagation Across Subagent Delegation (P1 - High)**:
-  - *Context & Rationale*: Each agent delegation boundary loses ~15% constraint fidelity through prompt decomposition. Three layers of delegation retain only $0.85^3 \approx 61\%$ of the original intent. `SubAgents.delegate_task` (`workflow.py:262-365`) constructs child prompts from flat text without structured constraint annotations. The `execute_tiered` protocol (`slots.py:775-831`) is structurally correct but executes stubs — fabricating tier responses via string templates without contacting model APIs (vibes Systems Obs 09).
-  - *Implementation*: Annotate delegation prompts with typed constraint blocks (`invariants`, `budget`, `security`) that must propagate verbatim to all descendants. Replace free-text subagent results with `SubagentResult` schemas containing `status`, `warnings`, `constraints_verified`, and `constraints_violated`. Implement real LLM calls in `execute_tiered` to validate the delegation hierarchy under production workloads.
+  - *Context & Rationale*: Each agent delegation boundary loses ~15% constraint fidelity through prompt decomposition. Three layers of delegation retain only $0.85^3 \approx 61\%$ of the original intent. `SubAgents.delegate_task` constructs child prompts from flat text without structured constraint annotations.
+  - *Implementation*: Annotate delegation prompts with typed constraint blocks (`invariants`, `budget`, `security`) that must propagate verbatim to all descendants. Replace free-text subagent results with `SubagentResult` schemas containing `status`, `warnings`, `constraints_verified`, and `constraints_violated`.
 - [ ] **MCP Resource-First Data Access & Tool Output Sandboxing (P1 - High)**:
-  - *Context & Rationale*: MCP Resources (`resource://`) provide URI-addressable, cacheable, subscription-capable data endpoints — 3× cheaper than Tool calls for read-heavy patterns. Yet the `devops-cli` MCP server relies almost exclusively on Tools for all data access. Additionally, MCP tool return strings are untyped — an attacker controlling tool output (via compromised repos, malicious web content, or poisoned dependencies) can inject instructions interpreted as system directives (vibes Systems Obs 10).
+  - *Context & Rationale*: MCP Resources (`resource://`) provide URI-addressable, cacheable, subscription-capable data endpoints — 3× cheaper than Tool calls for read-heavy patterns. Yet the `devops-cli` MCP server relies almost exclusively on Tools for all data access. Additionally, MCP tool return strings are untyped — an attacker controlling tool output can inject instructions interpreted as system directives.
   - *Implementation*: Convert read-heavy, stable-state inspection endpoints (`k8s_status`, `argo_status`, `docker_stats`, `vault_status`, `telemetry_status`, `gh_rate_limit`) from Tools to MCP Resources with URI subscriptions. Apply sanitization pipeline to all tool return strings — strip potential instruction injections, validate against expected output schemas, and cap output length.
-
-### GitHub Copilot & VS Code Agentic Ecosystem, Language Model Tools & IDE Companion (v0.2.25 - Scheduled)
-- [ ] **Native VS Code Language Model Tools API Provider (`vscode.lm.tools`) (P0 - Critical)**:
-  - *Context & Rationale*: Exposes DevOps CLI's core inspection, AST outline, complexity analysis, and cluster querying tools as native VS Code Language Model Tools via the `vscode.lm.tools` API contribution point. Enables any VS Code agent or chat participant (e.g. `@workspace`, Copilot Agent mode) to invoke DevOps CLI tools seamlessly without spawning external subshells or parsing plaintext console output.
-  - *Implementation*: Implement native language model tool definitions (`devops_inspect_symbol`, `devops_scan_complexity`, `devops_k8s_pods`, `devops_pr_status`, `devops_secops_summary`) returning typed JSON schemas and structured Markdown results.
-- [ ] **VS Code Copilot Chat Custom Participant (`@devops`) & Slash Command Suite (P0 - Critical)**:
-  - *Context & Rationale*: Embeds a dedicated `@devops` chat participant directly in the VS Code Copilot Chat panel, providing developers with immediate workstation and cluster operations without context switching to external terminals or web consoles.
-  - *Implementation*: Support specialized slash commands: `@devops /review` (multi-persona code review on active editor or staged diff), `@devops /explore` (MCTS solution exploration for active test failures), `@devops /k8s` (pod inspection and live log tailing), `@devops /secops` (vulnerability triage and fix suggestions), and `@devops /tui` (launches or focuses the Textual TUI in an integrated terminal). Provide interactive chat response controls ("Open Diff", "Apply Patch", "View Loki Logs").
-- [ ] **Multi-Document Proposed Edits & Native Side-by-Side Diff Integration (P1 - High)**:
-  - *Context & Rationale*: Bridges CLI solution synthesis (`devops ai patch-minimize`, `devops ai explore`) with VS Code's native `LanguageModelProposedEdit` API, replacing terminal unified diff dumps with interactive, side-by-side graphical diff reviews.
-  - *Implementation*: Stream multi-file modifications directly into VS Code's native diff review editor with per-hunk "Accept / Reject" controls, syntax highlighting, and immediate post-edit syntax validation before persisting changes to disk.
 - [ ] **Automated Multi-IDE MCP Scaffolder & Health Watchdog (`devops ide configure`) (P1 - High)**:
   - *Context & Rationale*: Developers frequently switch across modern AI-assisted IDEs (VS Code, Cursor, Windsurf, Claude Desktop, Antigravity). Manually managing `.vscode/mcp.json` or global config paths across IDE updates and container rebuilds is prone to path mismatch and environment drift.
   - *Implementation*: Provide a unified `devops ide configure [--ide vscode|cursor|windsurf|claude|all]` command that auto-detects installed IDE configurations and writes standardized, hardened MCP server entries. Include a background watchdog detecting hanging stdio subshells and automatically restarting the FastMCP server when deadlocks or high-memory leaks occur.
 - [ ] **Path-Specific Copilot Instructions & Executable Prompt Scaffolder (`devops ai instructions scaffold`) (P1 - High)**:
   - *Context & Rationale*: Modern GitHub Copilot and VS Code Agent mode support hierarchical path-specific instructions (`.github/instructions/**/*.md`) and executable prompt templates (`.github/prompts/*.prompt.md`). Monolithic instruction files (`AGENTS.md`) can overwhelm model attention with irrelevant rules when editing specialized subtrees.
   - *Implementation*: Generate scoped instruction files matching file globs (e.g. `.github/instructions/k8s.md` for Kubernetes manifests, `.github/instructions/tests.md` for structural tuple assertions and complexity caps, `.github/instructions/security.md` for zero-trust egress and POSIX isolation). Provide pre-packaged prompt templates: `.github/prompts/k8s-triage.prompt.md`, `.github/prompts/pr-review.prompt.md`, `.github/prompts/adr-generate.prompt.md`.
-- [ ] **DevOps CLI VS Code Companion Extension (`devops-vscode`) (P1 - High)**:
-  - *Context & Rationale*: A lightweight, open-source companion VS Code extension packaging all VS Code agentic integrations, status bar indicators, and editor gutter annotations into a turnkey developer experience.
-  - *Implementation*: Status bar items displaying active K8s cluster context/namespace, active PR readiness status, rate limit meter, and Ollama server health. Gutter decorations highlighting code review findings (`CRITICAL`, `HIGH`, `MEDIUM`) with inline quick fixes ("Mitigate Finding", "Mark Invalid", "Explain Rationale"). Webview canvas hosting the reactive Textual TUI inside an editor tab.
 
-### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
-- [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-premise and multi-cloud Kubernetes clusters with automatic service mesh routing.
-- [ ] **Autonomous Self-Healing Agent Pipeline**: Closed-loop diagnostic engine capable of discovering cluster incidents, generating corrective patches, running CI gates, and executing rollback.
-- [ ] **Cloud-Native Ephemeral Test Environment Provisioner (`devops env ephemeral up/down`)**: Automated provisioning of isolated namespace staging environments with seeded mock databases, synthetic datasets, and TLS ingresses on minikube or cloud clusters.
-- [ ] **Zero-Trust Git Commit & Tag Cryptographic Verification (`devops release verify-signatures`)**: Automated verification of SSH/GPG and Sigstore keyless commit signatures across repository history and pull requests.
-- [ ] **Distributed Multi-Cluster Telemetry & OTel Egress Mesh**: Global trace and metric federation across hybrid workstation topologies with automated anomaly alerting.
-- [ ] **Distributed Cache & Shared Semantic Embeddings Sync (`devops ai cache sync`)**: S3 / OCI-backed shared LLM response and vector embedding cache for remote engineering teams.
-- [ ] **JIT Python 3.14 Tail-Call & Bytecode Optimization Benchmarking**: Comprehensive runtime benchmarks utilizing Python 3.14+ specialization and JIT compiler tiers.
-- [ ] **Universal `--json` CLI Output Flag Alias Pipeline (`devops * --json`)**: First-class `--json` alias for `--format json` across all inspection and diagnostic subcommands.
-- [ ] **Mutation-Driven GitHub Cache Invalidation Hooks**: Automatic invalidation of cached GitHub REST and GraphQL responses on edit, patch, and reconcile operations.
-- [ ] **Proportional API Rate Budgeting & GraphQL Circuit Breaker Guard**: Proportional budget allocation per CLI command and automated circuit breaking when external API quota drops below 20%, preventing rapid quota exhaustion.
-- [ ] **Native Process Hierarchy Inspector & POSIX Process Group Terminator (`devops ps`)**: Active inspection and cleanup of orphaned background subprocesses and container workers via POSIX process groups (`os.killpg`), eliminating zombie leaks adopted by PID 1 (derived from empirical shell history telemetry).
-- [ ] **Automated Pre-Rebase Merge Conflict Dry-Runner (`devops pr check-readiness --dry-rebase`)**: In-memory git three-way tree merge analysis (`git merge-tree`) to proactively detect conflicting hunks before initiating PR rebases or merges.
-- [ ] **Ephemeral Sandboxed Evaluation Harness (`devops scratch eval`)**: Secure, isolated in-memory Python runtime evaluator replacing repetitive one-line ad-hoc terminal probing with structured telemetry and complexity enforcement.
-- [ ] **IDE Host Health & Submodule Scan Boundary Auditor (`devops ide audit`)**: Automated diagnostic inspection of Antigravity/VS Code server extensions, language servers, and repository ignore boundaries (`git.repositoryScanIgnoredFolders`) to prevent memory exhaustion in deep monorepo workspaces.
+### Cognitive Information Foraging & Epistemic Synthesis (v0.3.0 - Scheduled)
+- [ ] **Syntopical Dialectical Synthesis Engine (`devops ai research syntopical`) (P0 - Critical)**:
+  - *Context & Rationale*: Implements Mortimer Adler's 5-stage syntopical reading taxonomy across multi-file and multi-repository contexts. Constructs cross-repository bibliographies, identifies consensus propositions, maps dialectical conflicts, and generates comprehensive architectural synthesis reports.
+- [ ] **Agentic Information Foraging & Scent Tracker (`devops ai research forage`) (P0 - Critical)**:
+  - *Context & Rationale*: Based on Pirolli & Card's information foraging theory. Dispatches autonomous subagent foragers calculating dynamic information scent cues along symbol call graphs, dependency edges, and git commit topologies to minimize search latency in unfamiliar codebases.
+- [ ] **Living Mental Model Synthesizer & Causal Graph Distiller (`devops ai research model`) (P1 - High)**:
+  - *Context & Rationale*: Distills sprawling repository architectures into living, inspectable causal DAGs. Models causal relationships across config flags, environment variables, subsystems, and failure propagation domains.
+- [ ] **Ground-Truth Source Triangulator & Provenance Auditor (`devops ai research triangulate`) (P1 - High)**:
+  - *Context & Rationale*: Validates assertions against verifiable source artifacts (AST definitions, runtime logs, git history, test results). Flags hallucinations, unreferenced assertions, and outdated architectural documentation.
+- [ ] **Active Marginalia & Epistemic Scratchpad (`devops ai read annotate`) (P1 - High)**:
+  - *Context & Rationale*: Provides an ephemeral, persistent marginalia layer allowing agents and developers to attach structured cognitive annotations, assumptions, and hypotheses directly to source AST nodes without modifying source files.
+- [ ] **Socratic Inquiry & Knowledge Gap Formulator (`devops ai research socratic`) (P1 - High)**:
+  - *Context & Rationale*: Formulates targeted, metacognitive inquiry batteries probing ambiguous requirements, hidden coupling, and unstated assumptions prior to implementation.
+- [ ] **Cross-Domain Analogical Pattern Retriever (P1 - High)**:
+  - *Context & Rationale*: Leverages vector embeddings and AST structural fingerprints to discover analogical design patterns, refactoring precedents, and defect fixes across disparate modules and sister repositories.
+- [ ] **Information Scent Trail Visualizer & Breadcrumb Tree (P2 - Medium)**:
+  - *Context & Rationale*: Terminal and Markdown visualization rendering exploration pathways, cue strengths, and backtracking decision points for deep agentic investigations.
+- [ ] **FastMCP Cognitive Research Tools & Epistemic Resources (P1 - High)**:
+  - *Context & Rationale*: Native FastMCP tools (`research_syntopical`, `research_forage`, `research_model`, `research_triangulate`, `research_socratic`) and dynamic system resources (`resource://research/bibliography`, `resource://research/causal-dag`, `resource://research/marginalia`).
+
+### Autonomous Trial-and-Error Synthesis, MCTS & Delta-Debugging (v0.3.1 - Scheduled)
+- [ ] **Monte Carlo Tree Search (MCTS) & Tree-of-Thought Solution Exploration Engine (`devops ai explore`) (P0 - Critical)**:
+  - *Context & Rationale*: Guided MCTS and Upper Confidence bounds applied to Trees (UCT) exploring branching patch strategies in parallel. Balances exploitation of high-probability fixes against exploration of novel architectural approaches.
+- [ ] **Ephemeral Shadow Worktrees & CoW State Snapshots (`devops ai shadow`) (P0 - Critical)**:
+  - *Context & Rationale*: Instantaneous provisioning of git shadow worktrees with Copy-on-Write (CoW) state isolation, allowing subagents to compile, execute, and verify code modifications without altering the developer's working directory.
+- [ ] **Counterexample-Guided Inductive Synthesis (CEGIS) Loop (`devops ai cegis`) (P0 - Critical)**:
+  - *Context & Rationale*: Formulates formal verification loops where an inductive synthesizer proposes code patches and a verification oracle extracts falsifying counterexamples, refining patch candidates iteratively until all constraints pass.
+- [ ] **Hierarchical Delta-Debugging & Patch Minimization Engine (`devops ai patch-minimize`) (P1 - High)**:
+  - *Context & Rationale*: Applies Zeller's delta-debugging algorithm over AST diffs to ruthlessly prune extraneous modifications, isolating the minimal syntactic change required to pass failing tests and satisfy requirements.
+- [ ] **Multi-Objective Pareto Solution Ranker (`devops ai rank-solutions`) (P1 - High)**:
+  - *Context & Rationale*: Evaluates candidate solution branches across conflicting objective dimensions (cyclomatic complexity, execution latency, memory footprint, diff size, test coverage) and presents the non-dominated Pareto frontier.
+- [ ] **Valkey L2 Trial Invalidation Cache & Experience Replay (P1 - High)**:
+  - *Context & Rationale*: Caches failed trial paths, negative constraints, and falsifying counterexamples in Valkey L2 memory, pruning unproductive search branches instantaneously across agent turns.
+- [ ] **Cascading Fast-Fail Verification Battery & Token Governor (P1 - High)**:
+  - *Context & Rationale*: Hierarchical verification pipeline executing fastest checks first (AST syntax < 10ms, typecheck < 500ms, lint < 1s, unit tests < 5s, full integration < 30s) to abort unviable branches early and preserve token quotas.
+- [ ] **Canary Resilience & Chaos Fault-Injection Verifier (P1 - High)**:
+  - *Context & Rationale*: Automatically injects network partitions, process terminations, and latency spikes into shadow sandbox environments to verify candidate patch resilience.
+- [ ] **FastMCP Solution Discovery Tools & Dynamic Resources (P1 - High)**:
+  - *Context & Rationale*: Native FastMCP tools (`explore_mcts`, `explore_cegis`, `patch_minimize`, `rank_solutions`) and dynamic resources (`resource://explore/tree`, `resource://explore/pareto`).
+
+### Autonomous Multi-Repo Fleet Governance, Dependency DAG & Continuous Reconciler (v0.3.2 - Scheduled)
+- [ ] **Multi-Repository Fleet Coordination & Portfolio Management (`devops gh pm fleet`) (P0 - Critical)**:
+  - *Context & Rationale*: Coordinates synchronized epics, breaking interface migrations, and cross-repository dependencies across dozens of upstream and downstream repositories simultaneously.
+- [ ] **Background Project Watcher Daemon & Event Streamer (`devops gh pm daemon`) (P0 - Critical)**:
+  - *Context & Rationale*: Non-blocking async event daemon subscribing to GitHub webhooks, issue comments, and PR status updates, streaming state transitions into local reactive stores.
+- [ ] **Cognitive Feature Research & Roadmap Prioritization Engine (`devops gh pm research`) (P0 - Critical)**:
+  - *Context & Rationale*: Evaluates open issues, user feedback, and market precedents with PydanticAI to prioritize backlog deliverables along the Value vs. Effort matrix.
+- [ ] **Autonomous Epic Decomposition & Backlog Synthesizer (`devops gh pm plan`) (P0 - Critical)**:
+  - *Context & Rationale*: Decomposes multi-month strategic epics into atomic, verifiable GitHub Issues with clear acceptance criteria, test specifications, and architectural invariants.
+- [ ] **Continuous State Machine Reconciler & Card Daemon (`devops gh pm reconcile`) (P0 - Critical)**:
+  - *Context & Rationale*: Autonomous reconciliation loop converging GitHub Projects v2 custom fields, status boards, and issue labels with ground-truth git branch and PR states.
+- [ ] **DAG Dependency Engine & Critical Path Unblocker (`devops gh pm deps`) (P0 - Critical)**:
+  - *Context & Rationale*: Evaluates cross-issue dependencies, computes topological critical paths, and automatically promotes unblocked issues when parent blockers merge.
+- [ ] **WIP Limit Governor & Workload Dispatcher (P1 - High)**:
+  - *Context & Rationale*: Enforces Kanban Work-In-Progress caps per developer and subagent constellation, preventing task starvation and review queue bottlenecking.
+- [ ] **Agentic Sprint Cadence & Velocity Engine (`devops gh pm sprint`) (P1 - High)**:
+  - *Context & Rationale*: Tracks burndown rates, sprint drift, and historical velocity metrics to forecast milestone completion dates with high confidence.
+- [ ] **Automated Triage & Sandbox Repro Validator (`devops gh pm triage`) (P1 - High)**:
+  - *Context & Rationale*: Automatically reproduces reported issue bugs inside isolated Docker sandboxes (`devops sandbox deploy`) and tags verified issues with actionable diagnostic traces.
+- [ ] **Standup & Executive Velocity Reporter (`devops gh pm report`) (P1 - High)**:
+  - *Context & Rationale*: Generates concise executive summaries, daily standup digests, and sprint retrospective reports in Markdown and terminal formats.
+- [ ] **FastMCP Agentic Project Management Tools & Epistemic Resources (P1 - High)**:
+  - *Context & Rationale*: Native FastMCP tools (`gh_pm_fleet`, `gh_pm_daemon`, `gh_pm_reconcile`, `gh_pm_deps`, `gh_pm_triage`, `gh_pm_sprint`, `gh_pm_report`) and dynamic resources (`resource://gh/pm/kanban`, `resource://gh/pm/velocity`, `resource://gh/pm/critical-path`).
+
+### IDE Native Agentic Ecosystem & VS Code Companion (v0.3.3 - Scheduled)
+- [ ] **Native VS Code Language Model Tools API Provider (`vscode.lm.tools`) (P0 - Critical)**:
+  - *Context & Rationale*: Exposes DevOps CLI inspection, AST outline, complexity analysis, and cluster querying tools as native VS Code Language Model Tools via `vscode.lm.tools`.
+- [ ] **VS Code Copilot Chat Custom Participant (`@devops`) & Slash Command Suite (P0 - Critical)**:
+  - *Context & Rationale*: Dedicated `@devops` chat participant in VS Code Copilot Chat supporting slash commands: `@devops /review`, `@devops /explore`, `@devops /k8s`, `@devops /secops`, `@devops /tui`.
+- [ ] **Multi-Document Proposed Edits & Native Side-by-Side Diff Integration (P1 - High)**:
+  - *Context & Rationale*: Streams multi-file patch proposals directly into VS Code's native `LanguageModelProposedEdit` review editor with interactive accept/reject hunk controls.
+- [ ] **DevOps CLI VS Code Companion Extension (`devops-vscode`) (P1 - High)**:
+  - *Context & Rationale*: Turnkey extension providing status bar cluster/PR monitors, gutter code review badges, and an embedded Textual TUI canvas inside an editor tab.
+- [ ] **IDE Host Health & Submodule Scan Boundary Auditor (`devops ide audit`) (P1 - High)**:
+  - *Context & Rationale*: Inspects language servers, extension memory consumption, and submodule scan boundaries to prevent IDE freezing in deep monorepos.
+- [ ] **Reusable DevOps Task Prompt File Catalog (P2 - Medium)**:
+  - *Context & Rationale*: Pre-packaged prompt templates (`.github/prompts/*.prompt.md`) for common developer and DevOps workflows.
+
+### Cloud-Native Mesh, Distributed Inference & Multi-Cluster Federation (v0.3.4 - Scheduled)
+- [ ] **Multi-Region Workstation Mesh & Cluster Federation (P0 - Critical)**:
+  - *Context & Rationale*: Federated management across hybrid on-premise, minikube, and multi-cloud Kubernetes clusters with automatic service mesh routing.
+- [ ] **Distributed Multi-Cluster Telemetry & OTel Egress Mesh (P0 - Critical)**:
+  - *Context & Rationale*: Global trace and metric federation across hybrid workstation topologies with automated anomaly alerting.
+- [ ] **Distributed Cache & Shared Semantic Embeddings Sync (`devops ai cache sync`) (P1 - High)**:
+  - *Context & Rationale*: S3 / OCI-backed shared LLM response and vector embedding cache for distributed engineering teams.
+- [ ] **Cloud-Native Ephemeral Test Environment Provisioner (`devops env ephemeral up/down`) (P1 - High)**:
+  - *Context & Rationale*: Automated provisioning of isolated namespace staging environments with seeded mock databases, synthetic datasets, and TLS ingresses.
+- [ ] **Proportional API Rate Budgeting & GraphQL Circuit Breaker Guard (P1 - High)**:
+  - *Context & Rationale*: Proportional quota budget allocation per CLI command and automated circuit breaking when external API quota drops below 20%.
+- [ ] **Zero-Trust Git Commit & Tag Cryptographic Verification (`devops release verify-signatures`) (P1 - High)**:
+  - *Context & Rationale*: Automated verification of SSH/GPG and Sigstore keyless commit signatures across repository history and pull requests.
+- [ ] **Native Process Hierarchy Inspector & POSIX Process Group Terminator (`devops ps`) (P1 - High)**:
+  - *Context & Rationale*: Active inspection and cleanup of orphaned background subprocesses and container workers via POSIX process groups (`os.killpg`).
+- [ ] **Automated Pre-Rebase Merge Conflict Dry-Runner (`devops pr check-readiness --dry-rebase`) (P1 - High)**:
+  - *Context & Rationale*: In-memory git three-way tree merge analysis (`git merge-tree`) to proactively detect conflicting hunks before initiating PR rebases or merges.
+- [ ] **Universal `--json` CLI Output Flag Alias Pipeline (`devops * --json`) (P2 - Medium)**:
+  - *Context & Rationale*: First-class `--json` alias for `--format json` across all inspection and diagnostic subcommands.
+- [ ] **JIT Python 3.14 Tail-Call & Bytecode Optimization Benchmarking (P2 - Medium)**:
+  - *Context & Rationale*: Comprehensive runtime benchmarks utilizing Python 3.14+ specialization and JIT compiler tiers.
+
+### Cloud Web Agent, Copilot Extension & Autonomous CI Self-Healing (v0.3.5 - Scheduled)
+- [ ] **GitHub Models Zero-Setup Inference Provider (`devops ai models github`) (P0 - Critical)**:
+  - *Context & Rationale*: Routes inference through the GitHub Models catalog (`models.inference.ai.azure.com`) utilizing developer `GITHUB_TOKEN` or Copilot credentials, eliminating third-party API key setup.
+- [ ] **Autonomous GitHub Actions Self-Healing & PR Triage Workflows (`devops-action`) (P0 - Critical)**:
+  - *Context & Rationale*: Reusable GitHub Actions workflows executing closed-loop diagnosis and self-healing across PRs and issues. Diagnoses failing test assertions, computes atomic patch fixes, and commits remediations directly.
+- [ ] **GitHub Copilot Extension & Web Agent (`@devops-cli` on GitHub.com) (P1 - High)**:
+  - *Context & Rationale*: Exposes `devops-cli` as a first-class GitHub Copilot Extension / GitHub App, enabling `@devops-cli` invocations in web PR comments, issues, and discussions.
+- [ ] **Autonomous Self-Healing Agent Pipeline & Incident Triage (P1 - High)**:
+  - *Context & Rationale*: Closed-loop diagnostic engine discovering cluster incidents, generating corrective patches, running CI quality gates, and executing automated rollbacks.
+- [ ] **Ephemeral Sandboxed Evaluation Harness (`devops scratch eval`) (P1 - High)**:
+  - *Context & Rationale*: Secure, isolated in-memory Python runtime evaluator replacing ad-hoc terminal probing with structured telemetry and complexity enforcement.
+- [ ] **Mutation-Driven GitHub Cache Invalidation Hooks (P1 - High)**:
+  - *Context & Rationale*: Automatic invalidation of cached GitHub REST and GraphQL responses on edit, patch, and reconcile operations.
+
+---
+
+### Major Visionary Themes (v0.4.x & v0.5.x)
+
+#### Enterprise Fleet Intelligence, Autonomous Distributed Swarms & Air-Gapped Sovereign Ops (v0.4.x)
+- **Multi-Agent Swarm Consensus Protocols**: Decentralized Byzantine-fault-tolerant and Raft-style consensus algorithms enabling heterogeneous subagent swarms to independently validate architecture proposals, patch candidates, and security policies without single-agent bias.
+- **Air-Gapped & Sovereign Enclave Operations**: Turnkey execution mode operating in strictly disconnected, classified, or air-gapped network enclaves. Enforces zero egress policies, local cryptographic hardware token signing (PKCS#11, YubiKey), and local air-gapped vector/model indexing.
+- **Enterprise Policy as Code & Semantic Commit Gates**: Integration with Open Policy Agent (OPA), Gatekeeper, and Kyverno for continuous semantic policy enforcement on every commit, PR, and Kubernetes manifest.
+- **Heterogeneous GPU & Accelerator Fleet Orchestration**: Dynamic workload dispatch and migration across heterogeneous hardware pools (NVIDIA CUDA, Apple Silicon Metal, AMD ROCm, Intel Gaudi), auto-tuning quantization ($4\text{-bit}$, $8\text{-bit}$, $16\text{-bit}$) and batch sizes per device architecture.
+- **Differential Privacy Federated Knowledge Mesh**: Secure, privacy-preserving cross-organization knowledge federation allowing multi-repo teams to share learned architectural patterns, defect remediations, and performance profiles without leaking intellectual property or proprietary source code.
+
+#### Self-Evolving Autonomous Systems Engineering, Neurosymbolic Synthesis & Continuous Formal Verification (v0.5.x)
+- **Neurosymbolic Program Synthesis & SMT Proof Verification**: Unifies large language model generative heuristics with rigorous Satisfiability Modulo Theories (SMT) solvers (Z3, CVC5) to mathematically prove the correctness, termination, and memory safety of generated critical-path algorithms.
+- **Continuous Evolutionary Codebase Mutator & Self-Optimization**: Autonomous background engine continuously applying genetic programming, AST mutations, and empirical benchmarks to discover optimal data structures, zero-allocation memory layouts, and algorithmic micro-optimizations.
+- **Full-Lifecycle Autonomous Product Engineering**: End-to-end autonomous discovery, specification, implementation, formal verification, canary deployment, and operational monitoring of complex software capabilities from high-level natural language intent to production stability.
+- **Formally Verified Kernel & Sandbox Isolation Proofs**: Machine-checked mathematical proofs (via Coq or Lean 4) establishing formal containment, non-interference, and information flow security for all workstation sandbox runtimes and dynamic code execution environments.
 
 ---
 
@@ -347,83 +310,88 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |---|---|---|---|---|---|---|
 | **Quick Wins** | In-Flight Work, PR Stagnation & Blocker Radar (`devops gh pm inflight`) | GitHub API / FIFO / Metrics | High | Low | v0.2.22 | 📋 Scheduled (P1) |
 |  | Universal Command Palette & Fuzzy Action Launcher | Textual CommandPalette | High | Low | v0.2.23 | 📋 Scheduled (P1) |
-|  | Zero-Trust Git Commit & Tag Signature Verifier | `git`, GPG, Sigstore | High | Low | v0.3.0 | 💡 Future Vision |
-|  | JIT Python 3.14 Bytecode Optimization Benchmarking | `pytest-benchmark` / JIT | Medium | Low | v0.3.0 | 💡 Future Vision |
-|  | Universal `--json` CLI Output Flag Alias Pipeline | Typer / Rich | Medium | Low | v0.3.0 | 💡 Future Vision |
-|  | Mutation-Driven GitHub Cache Invalidation Hooks | Disk Cache / SQLite | High | Low | v0.3.0 | 💡 Future Vision |
-|  | Native Process Group Inspector & Terminator | POSIX / `os.killpg` | High | Low | v0.3.0 | 💡 Future Vision |
-|  | Automated Pre-Rebase Merge Conflict Dry-Runner | `git merge-tree` / libgit2 | High | Low | v0.3.0 | 💡 Future Vision |
-|  | Ephemeral Sandboxed Evaluation Harness | Python AST / Safe Eval | Medium | Low | v0.3.0 | 💡 Future Vision |
-|  | IDE Host Health & Submodule Scan Auditor | VS Code Server / JSON | Medium | Low | v0.3.0 | 💡 Future Vision |
-| **Major Projects** | MCTS & Tree-of-Thought Solution Exploration Engine (`devops ai explore`) | MCTS / UCT / Beam Search | High | High | v0.2.20 | 📋 Scheduled (P0) |
-|  | Ephemeral Shadow Worktrees & CoW State Snapshots | Git / CoW / Docker | High | High | v0.2.20 | 📋 Scheduled (P0) |
-|  | Syntopical Dialectical Synthesis Engine (`devops ai research syntopical`) | PydanticAI / Multi-Source | High | High | v0.2.21 | 📋 Scheduled (P0) |
-|  | Agentic Information Foraging & Scent Tracker (`devops ai research forage`) | Graph Search / Scent | High | High | v0.2.21 | 📋 Scheduled (P0) |
-|  | Continuous State Machine Reconciler & Card Daemon (`devops gh pm reconcile`) | GitHub API / Watcher | High | High | v0.2.22 | 📋 Scheduled (P0) |
-|  | GitHub Models Zero-Setup Inference Provider (`devops ai models github`) | Azure AI / `models.github.ai` | High | High | v0.2.22 | 📋 Scheduled (P0) |
-|  | Autonomous GitHub Actions Self-Healing & PR Triage Workflows | GitHub Actions / Runner | High | High | v0.2.22 | 📋 Scheduled (P0) |
+|  | Automated Multi-IDE MCP Scaffolder (`devops ide configure`) | FastMCP / Stdio / Watchdog | High | Low | v0.2.24 | 📋 Scheduled (P1) |
+|  | Path-Specific Copilot Instructions Scaffolder | Copilot Prompts / AST | High | Low | v0.2.24 | 📋 Scheduled (P1) |
+|  | Active Marginalia & Epistemic Scratchpad (`devops ai read annotate`) | JSONL / Marginalia | High | Low | v0.3.0 | 📋 Scheduled (P1) |
+|  | Socratic Inquiry & Knowledge Gap Formulator | Pydantic / Metacognition | High | Low | v0.3.0 | 📋 Scheduled (P1) |
+|  | Cascading Fast-Fail Verification Battery & Token Governor | AST / Pytest / Token Bucket | High | Low | v0.3.1 | 📋 Scheduled (P1) |
+|  | Automated Triage & Sandbox Repro Validator (`devops gh pm triage`) | PydanticAI / Docker | High | Low | v0.3.2 | 📋 Scheduled (P1) |
+|  | Standup & Executive Velocity Reporter (`devops gh pm report`) | Pydantic / Markdown / Rich | High | Low | v0.3.2 | 📋 Scheduled (P1) |
+|  | Reusable DevOps Task Prompt File Catalog | GitHub Prompts / Markdown | Medium | Low | v0.3.3 | 📋 Scheduled (P2) |
+|  | Zero-Trust Git Commit & Tag Signature Verifier | `git`, GPG, Sigstore | High | Low | v0.3.4 | 📋 Scheduled (P1) |
+|  | JIT Python 3.14 Bytecode Optimization Benchmarking | `pytest-benchmark` / JIT | Medium | Low | v0.3.4 | 📋 Scheduled (P2) |
+|  | Universal `--json` CLI Output Flag Alias Pipeline | Typer / Rich | Medium | Low | v0.3.4 | 📋 Scheduled (P2) |
+|  | Native Process Group Inspector & Terminator (`devops ps`) | POSIX / `os.killpg` | High | Low | v0.3.4 | 📋 Scheduled (P1) |
+|  | Automated Pre-Rebase Merge Conflict Dry-Runner | `git merge-tree` / libgit2 | High | Low | v0.3.4 | 📋 Scheduled (P1) |
+|  | Ephemeral Sandboxed Evaluation Harness (`devops scratch eval`) | Python AST / Safe Eval | Medium | Low | v0.3.5 | 📋 Scheduled (P1) |
+|  | Mutation-Driven GitHub Cache Invalidation Hooks | Disk Cache / SQLite | High | Low | v0.3.5 | 📋 Scheduled (P1) |
+| **Major Projects** | LightLLM & Portkey AI Routing Services Integration | Portkey Gateway / LightLLM | High | High | v0.2.21 | 🔄 In Progress (P0) |
+|  | Reactive Multi-Workspace Textual TUI Architecture | Textual / Async Workers | High | High | v0.2.23 | 📋 Scheduled (P0) |
 |  | Comprehensive DevOps CLI Grafana Observability Dashboard Suite | Grafana 10+ / Prometheus / Loki | High | High | v0.2.23 | 📋 Scheduled (P0) |
-|  | Native VS Code Language Model Tools API Provider (`vscode.lm.tools`) | VS Code API / JSON Schema | High | High | v0.2.25 | 📋 Scheduled (P0) |
-|  | VS Code Copilot Chat Custom Participant (`@devops`) & Slash Commands | VS Code Chat API / Slash | High | High | v0.2.25 | 📋 Scheduled (P0) |
-|  | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
-|  | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
-|  | Distributed Multi-Cluster Telemetry & OTel Egress Mesh | OTel Collector / Prometheus | High | High | v0.3.0 | 💡 Future Vision |
-| **Strategic Investments** | Counterexample-Guided Inductive Synthesis (CEGIS) Loop | AST / Pytest / Negative Constraints | High | Medium | v0.2.20 | 📋 Scheduled (P0) |
-|  | Hierarchical Delta-Debugging & Patch Minimization Engine | Delta-AST / Delta-Debugging | High | Medium | v0.2.20 | 📋 Scheduled (P1) |
-|  | Multi-Objective Pareto Solution Ranker (`devops ai rank-solutions`) | Pydantic / AST / Profiler | High | Medium | v0.2.20 | 📋 Scheduled (P1) |
-|  | Valkey L2 Trial Invalidation Cache & Experience Replay | Valkey L2 / Hashing | High | Medium | v0.2.20 | 📋 Scheduled (P1) |
-|  | Canary Resilience & Chaos Fault-Injection Verifier | Chaos Mesh / k6 / Subprocess | High | Medium | v0.2.20 | 📋 Scheduled (P1) |
-|  | Automated Parameter & Interface Parity Oracle | Python AST / Typer / FastMCP | High | Medium | v0.2.20 | 📋 Scheduled (P1) |
-|  | Ground-Truth Source Triangulator & Provenance Auditor | AST / Config / Pytest | High | Medium | v0.2.21 | 📋 Scheduled (P1) |
-|  | Living Mental Model Synthesizer & Causal Graph Distiller | YAML / Causal DAG | High | Medium | v0.2.21 | 📋 Scheduled (P1) |
-|  | Cross-Domain Analogical Pattern Retriever | Qdrant / Multi-Vector | High | Medium | v0.2.21 | 📋 Scheduled (P1) |
-|  | Multi-Repository Fleet Coordination & Portfolio Management (`devops gh pm fleet`) | GitHub REST/GraphQL / DAG | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
-|  | Background Project Watcher Daemon & Event Streamer (`devops gh pm daemon`) | Asyncio / Webhooks / Rate Limiter | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
-|  | Cognitive Feature Research & Roadmap Prioritization Engine (`devops gh pm research`) | PydanticAI / Multi-Source | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
-|  | Autonomous Epic Decomposition & Backlog Synthesizer (`devops gh pm plan`) | PydanticAI / Stories / Labels | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
-|  | DAG Dependency Engine & Critical Path Unblocker (`devops gh pm deps`) | NetworkX / DAG / AST | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
-|  | WIP Limit Governor & Workload Dispatcher | Pydantic / Token Budget | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
-|  | Agentic Sprint Cadence & Velocity Engine (`devops gh pm sprint`) | GitHub Projects v2 / Velocity | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
-|  | GitHub Copilot Extension & Web Agent (`@devops-cli`) | Copilot Extensions API | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
-|  | Reactive Multi-Workspace Textual TUI Architecture | Textual / Async Workers | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
+|  | Pipeline Stage Context Budgeting & Invariant Pinning | ContextPacker / AgentMemory | High | High | v0.2.24 | 📋 Scheduled (P0) |
+|  | Syntopical Dialectical Synthesis Engine (`devops ai research syntopical`) | PydanticAI / Multi-Source | High | High | v0.3.0 | 📋 Scheduled (P0) |
+|  | Agentic Information Foraging & Scent Tracker (`devops ai research forage`) | Graph Search / Scent | High | High | v0.3.0 | 📋 Scheduled (P0) |
+|  | MCTS & Tree-of-Thought Solution Exploration Engine (`devops ai explore`) | MCTS / UCT / Beam Search | High | High | v0.3.1 | 📋 Scheduled (P0) |
+|  | Ephemeral Shadow Worktrees & CoW State Snapshots (`devops ai shadow`) | Git / CoW / Docker | High | High | v0.3.1 | 📋 Scheduled (P0) |
+|  | Multi-Repository Fleet Coordination & Portfolio Management (`devops gh pm fleet`) | GitHub REST/GraphQL / DAG | High | High | v0.3.2 | 📋 Scheduled (P0) |
+|  | Background Project Watcher Daemon & Event Streamer (`devops gh pm daemon`) | Asyncio / Webhooks / Rate Limiter | High | High | v0.3.2 | 📋 Scheduled (P0) |
+|  | Continuous State Machine Reconciler & Card Daemon (`devops gh pm reconcile`) | GitHub API / Watcher | High | High | v0.3.2 | 📋 Scheduled (P0) |
+|  | Native VS Code Language Model Tools API Provider (`vscode.lm.tools`) | VS Code API / JSON Schema | High | High | v0.3.3 | 📋 Scheduled (P0) |
+|  | VS Code Copilot Chat Custom Participant (`@devops`) & Slash Commands | VS Code Chat API / Slash | High | High | v0.3.3 | 📋 Scheduled (P0) |
+|  | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.4 | 📋 Scheduled (P0) |
+|  | Distributed Multi-Cluster Telemetry & OTel Egress Mesh | OTel Collector / Prometheus | High | High | v0.3.4 | 📋 Scheduled (P0) |
+|  | GitHub Models Zero-Setup Inference Provider (`devops ai models github`) | Azure AI / `models.github.ai` | High | High | v0.3.5 | 📋 Scheduled (P0) |
+|  | Autonomous GitHub Actions Self-Healing & PR Triage Workflows | GitHub Actions / Runner | High | High | v0.3.5 | 📋 Scheduled (P0) |
+|  | Multi-Agent Swarm Consensus Protocols | Raft / Paxos / LLM Voting | High | High | v0.4.x | 🔮 Future Vision (P0) |
+|  | Air-Gapped & Sovereign Enclave Operations | PKCS#11 / Hardware Tokens | High | High | v0.4.x | 🔮 Future Vision (P0) |
+|  | Neurosymbolic Program Synthesis & SMT Proof Verification | Z3 / CVC5 / Neural Synthesis | High | High | v0.5.x | 🔮 Future Vision (P0) |
+|  | Full-Lifecycle Autonomous Product Engineering | Multi-Agent / Self-Driving | High | High | v0.5.x | 🔮 Future Vision (P0) |
+| **Strategic Investments** | POSIX Process Group Sandbox Enforcement | Subprocess / OS | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
+|  | Structural Pre-Commit Hook Inversion | Pre-commit / Pytest | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
+|  | Lazy Domain-Gated MCP Tool Schema Hydration | FastMCP / MCP Protocol | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
+|  | Capability-Gated Model Failover & AIMD Batch Recovery | Gateway / AIMD / Embeddings | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
 |  | Interactive GitHub Lifecycle, PR Monitor & Kanban Hub | Textual / GitHub REST | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
 |  | Cloud-Native Cluster Runtime & Pod Log Streamer | Textual / Kubernetes / Stern | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
-|  | Docker Containers & Multi-Tier Sandbox Console | Textual / Docker SDK / cgroups | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
-|  | Unified SecOps, Compliance & Vault Command Center | Textual / Trivy / Semgrep / Vault | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
-|  | GitOps Fleet, Argo Rollouts & Cloud Cost Monitor | Textual / ArgoCD / Infracost | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
-|  | AI Constellation Topology & Review Findings Studio | Textual / Ollama / Qdrant | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
-|  | Centralized Loki LogQL Streamer & Trace Waterfalls | Textual / Loki / Prometheus | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
 |  | Declarative Dashboard Linter & K8s Sidecar GitOps Provisioner | Kubernetes / ConfigMap / Helm | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
-|  | POSIX Process Group Sandbox Enforcement | Subprocess / OS | High | Low | v0.2.24 | 📋 Scheduled (P0) |
-|  | Structural Pre-Commit Hook Inversion | Pre-commit / Pytest | High | Medium | v0.2.24 | 📋 Scheduled (P0) |
-|  | Anti-Brittle Constant Elimination | Standard Library / AST | High | Medium | v0.2.24 | 📋 Scheduled (P1) |
-|  | Semantic Validator Deprecation & Structural Positional Oracles | AST / Pydantic | High | Medium | v0.2.24 | 📋 Scheduled (P1) |
-|  | Lazy Domain-Gated MCP Tool Schema Hydration | FastMCP / MCP Protocol | High | Medium | v0.2.24 | 📋 Scheduled (P0) |
-|  | Pipeline Stage Context Budgeting & Invariant Pinning | ContextPacker / AgentMemory | High | Medium | v0.2.24 | 📋 Scheduled (P0) |
-|  | Capability-Gated Model Failover & AIMD Batch Recovery | Gateway / AIMD / Embeddings | High | Medium | v0.2.24 | 📋 Scheduled (P0) |
-|  | Lossless Structured Error Reflection for Schema Retries | Pydantic / Structured Output | High | Low | v0.2.24 | 📋 Scheduled (P1) |
-|  | Background Shell Pipe Deadlock Fix & Output Contract | Subprocess / Threading | High | Low | v0.2.24 | 📋 Scheduled (P1) |
 |  | Structured Constraint Propagation Across Subagent Delegation | PydanticAI / Workflow | High | Medium | v0.2.24 | 📋 Scheduled (P1) |
 |  | MCP Resource-First Data Access & Tool Output Sandboxing | FastMCP / MCP Resources | High | Medium | v0.2.24 | 📋 Scheduled (P1) |
-|  | Multi-Document Proposed Edits & Native Side-by-Side Diff Review | VS Code Proposed Edits | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
-|  | Automated Multi-IDE MCP Scaffolder & Health Watchdog (`devops ide configure`) | FastMCP / Stdio / Watchdog | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
-|  | Path-Specific Copilot Instructions & Executable Prompt Scaffolder | Copilot Prompts / AST | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
-|  | DevOps CLI VS Code Companion Extension (`devops-vscode`) | VS Code Extension / Webview | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
-|  | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |
-|  | Distributed Cache & Shared Semantic Embeddings Sync | S3 / OCI / SQLite | High | Medium | v0.3.0 | 💡 Future Vision |
-|  | Proportional API Rate Budgeting & GraphQL Circuit Breaker Guard | Standard Library / SQLite | High | Medium | v0.3.0 | 💡 Future Vision |
-| **Tactical Additions** | Cascading Fast-Fail Verification Battery & Token Governor | AST / Pytest / Token Bucket | High | Low | v0.2.20 | 📋 Scheduled (P1) |
-|  | FastMCP Solution Discovery Tools & Dynamic Resources | FastMCP / PydanticAI | High | Low | v0.2.20 | 📋 Scheduled (P1) |
-|  | Socratic Inquiry & Knowledge Gap Formulator (`devops ai research socratic`) | Pydantic / Metacognition | High | Low | v0.2.21 | 📋 Scheduled (P1) |
-|  | Active Marginalia & Epistemic Scratchpad (`devops ai read annotate`) | JSONL / Marginalia | High | Low | v0.2.21 | 📋 Scheduled (P1) |
-|  | FastMCP Cognitive Research Tools & Epistemic Resources | FastMCP / PydanticAI | High | Low | v0.2.21 | 📋 Scheduled (P1) |
-|  | Automated Triage & Sandbox Repro Validator (`devops gh pm triage`) | PydanticAI / Docker | High | Low | v0.2.22 | 📋 Scheduled (P1) |
-|  | Standup & Executive Velocity Reporter (`devops gh pm report`) | Pydantic / Markdown / Rich | High | Low | v0.2.22 | 📋 Scheduled (P1) |
-|  | FastMCP Agentic PM Tools & System Resources | FastMCP / PydanticAI | High | Low | v0.2.22 | 📋 Scheduled (P1) |
+|  | Living Mental Model Synthesizer & Causal Graph Distiller | YAML / Causal DAG | High | Medium | v0.3.0 | 📋 Scheduled (P1) |
+|  | Ground-Truth Source Triangulator & Provenance Auditor | AST / Config / Pytest | High | Medium | v0.3.0 | 📋 Scheduled (P1) |
+|  | Cross-Domain Analogical Pattern Retriever | Qdrant / Multi-Vector | High | Medium | v0.3.0 | 📋 Scheduled (P1) |
+|  | Counterexample-Guided Inductive Synthesis (CEGIS) Loop | AST / Pytest / Negative Constraints | High | Medium | v0.3.1 | 📋 Scheduled (P0) |
+|  | Hierarchical Delta-Debugging & Patch Minimization Engine | Delta-AST / Delta-Debugging | High | Medium | v0.3.1 | 📋 Scheduled (P1) |
+|  | Multi-Objective Pareto Solution Ranker (`devops ai rank-solutions`) | Pydantic / AST / Profiler | High | Medium | v0.3.1 | 📋 Scheduled (P1) |
+|  | Valkey L2 Trial Invalidation Cache & Experience Replay | Valkey L2 / Hashing | High | Medium | v0.3.1 | 📋 Scheduled (P1) |
+|  | Canary Resilience & Chaos Fault-Injection Verifier | Chaos Mesh / k6 / Subprocess | High | Medium | v0.3.1 | 📋 Scheduled (P1) |
+|  | Cognitive Feature Research & Roadmap Prioritization Engine | PydanticAI / Multi-Source | High | Medium | v0.3.2 | 📋 Scheduled (P0) |
+|  | Autonomous Epic Decomposition & Backlog Synthesizer | PydanticAI / Stories / Labels | High | Medium | v0.3.2 | 📋 Scheduled (P0) |
+|  | DAG Dependency Engine & Critical Path Unblocker (`devops gh pm deps`) | NetworkX / DAG / AST | High | Medium | v0.3.2 | 📋 Scheduled (P0) |
+|  | WIP Limit Governor & Workload Dispatcher | Pydantic / Token Budget | High | Medium | v0.3.2 | 📋 Scheduled (P1) |
+|  | Agentic Sprint Cadence & Velocity Engine (`devops gh pm sprint`) | GitHub Projects v2 / Velocity | High | Medium | v0.3.2 | 📋 Scheduled (P1) |
+|  | Multi-Document Proposed Edits & Native Side-by-Side Diff Review | VS Code Proposed Edits | High | Medium | v0.3.3 | 📋 Scheduled (P1) |
+|  | DevOps CLI VS Code Companion Extension (`devops-vscode`) | VS Code Extension / Webview | High | Medium | v0.3.3 | 📋 Scheduled (P1) |
+|  | IDE Host Health & Submodule Scan Boundary Auditor | VS Code Server / JSON | High | Medium | v0.3.3 | 📋 Scheduled (P1) |
+|  | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.4 | 📋 Scheduled (P1) |
+|  | Distributed Cache & Shared Semantic Embeddings Sync | S3 / OCI / SQLite | High | Medium | v0.3.4 | 📋 Scheduled (P1) |
+|  | Proportional API Rate Budgeting & GraphQL Circuit Breaker Guard | Standard Library / SQLite | High | Medium | v0.3.4 | 📋 Scheduled (P1) |
+|  | GitHub Copilot Extension & Web Agent (`@devops-cli`) | Copilot Extensions API | High | Medium | v0.3.5 | 📋 Scheduled (P1) |
+|  | Autonomous Self-Healing Agent Pipeline & Incident Triage | PydanticAI / Diagnostic | High | Medium | v0.3.5 | 📋 Scheduled (P1) |
+|  | Enterprise Policy as Code & Semantic Commit Gates | OPA / Kyverno / Git Hooks | High | Medium | v0.4.x | 🔮 Future Vision (P1) |
+|  | Heterogeneous GPU & Accelerator Fleet Orchestration | CUDA / ROCm / Metal | High | Medium | v0.4.x | 🔮 Future Vision (P1) |
+|  | Continuous Evolutionary Codebase Mutator | Genetic AST / Benchmarks | High | Medium | v0.5.x | 🔮 Future Vision (P1) |
+|  | Formally Verified Kernel & Sandbox Isolation Proofs | Coq / Lean 4 / Formal Specs | High | Medium | v0.5.x | 🔮 Future Vision (P1) |
+| **Tactical Additions** | Anti-Brittle Constant Elimination | Standard Library / AST | High | Low | v0.2.22 | 📋 Scheduled (P1) |
+|  | Semantic Validator Deprecation & Structural Positional Oracles | AST / Pydantic | High | Low | v0.2.22 | 📋 Scheduled (P1) |
+|  | Lossless Structured Error Reflection for Schema Retries | Pydantic / Structured Output | High | Low | v0.2.22 | 📋 Scheduled (P1) |
+|  | Background Shell Pipe Deadlock Fix & Bounded Ring Buffers | Subprocess / Threading | High | Low | v0.2.22 | 📋 Scheduled (P1) |
 |  | FastMCP TUI Management Tools & Dynamic Resources | FastMCP / PydanticAI | Medium | Low | v0.2.23 | 📋 Scheduled (P2) |
-|  | Reusable DevOps Task Prompt File Catalog | GitHub Prompts / Markdown | Medium | Low | v0.2.25 | 📋 Scheduled (P2) |
+|  | FastMCP Cognitive Research Tools & Epistemic Resources | FastMCP / PydanticAI | High | Low | v0.3.0 | 📋 Scheduled (P1) |
+|  | FastMCP Solution Discovery Tools & Dynamic Resources | FastMCP / PydanticAI | High | Low | v0.3.1 | 📋 Scheduled (P1) |
+|  | FastMCP Agentic PM Tools & System Resources | FastMCP / PydanticAI | High | Low | v0.3.2 | 📋 Scheduled (P1) |
+|  | Differential Privacy Federated Knowledge Mesh | Differential Privacy / Vector | High | Low | v0.4.x | 🔮 Future Vision (P1) |
 | **Fill-Ins** | Multi-Scale Semantic Outline Scanner (`devops ai read --inspect`) | Python AST / Tree-Sitter | High | Low | v0.2.21 | ✅ Completed (P0) |
-|  | Information Scent Trail Visualizer & Breadcrumb Tree | Rich Trees / Graphviz | Medium | Low | v0.2.21 | 📋 Scheduled (P2) |
-|  | Dependency DAG Visualizer & Critical Path Graph | Mermaid / Rich Trees | Medium | Low | v0.2.22 | 📋 Scheduled (P2) |
+|  | Approximate Lifetime Spend Tracking (`devops ai spend`) | SQLite / Pricing Catalog | High | Low | v0.2.21 | ✅ Completed (P0) |
+|  | Information Scent Trail Visualizer & Breadcrumb Tree | Rich Trees / Graphviz | Medium | Low | v0.3.0 | 📋 Scheduled (P2) |
+|  | Dependency DAG Visualizer & Critical Path Graph | Mermaid / Rich Trees | Medium | Low | v0.3.2 | 📋 Scheduled (P2) |
 | **De-prioritized** | Bare-Metal OS Installers | Shell scripts | Low | High | — | ❌ Rejected (DevContainer native) |
 |  | Heavyweight Monolithic Orchestrators | Full LangChain | Low | High | — | ❌ Rejected (FastMCP + PydanticAI) |

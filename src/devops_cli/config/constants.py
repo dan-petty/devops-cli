@@ -675,7 +675,14 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
     "devops-embedding",
 )
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
+CONST_AI_GATEWAY_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey")
+CONST_AI_GATEWAY_PROVIDER_LITELLM: Final[str] = "litellm"
+CONST_AI_GATEWAY_PROVIDER_PORTKEY: Final[str] = "portkey"
 CONST_AI_GATEWAY_DEFAULT_PORT: Final[int] = 4000
+CONST_AI_PORTKEY_DEFAULT_PORT: Final[int] = 8787
+CONST_AI_LIGHTLLM_DEFAULT_PORT: Final[int] = 8000
+CONST_AI_BACKEND_LIGHTLLM: Final[str] = "lightllm"
+CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama", "vllm", "lightllm")
 CONST_TASK_TAXONOMY_EMBEDDING: Final[frozenset[str]] = frozenset(
     {"embedding", "embed_documents", "vector_index", "rag_index", "semantic_search"}
 )

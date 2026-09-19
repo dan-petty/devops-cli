@@ -1,0 +1,19 @@
+# LightLLM High-Throughput Inference Service.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lightllm
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: lightllm
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: lightllm
