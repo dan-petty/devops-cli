@@ -677,28 +677,84 @@ def _commit_and_push_release_branch(
             )
 
 
+def _fetch_raw_milestone_issue_numbers(
+    run_gh_fn: Any, repo_root: Path, milestone_tag: str
+) -> set[int]:
+    """Fetch all open and closed issue numbers associated with milestone."""
+    proc = run_gh_fn(
+        [
+            "issue",
+            "list",
+            "--milestone",
+            milestone_tag,
+            "--state",
+            "all",
+            "--json",
+            "number",
+            "--limit",
+            "100",
+        ],
+        cwd=repo_root,
+        quiet=True,
+        use_cache=False,
+    )
+    if proc.returncode != 0 or not proc.stdout:
+        return set()
+    try:
+        raw_issues = json.loads(proc.stdout)
+        return {int(iss["number"]) for iss in raw_issues if iss.get("number")}
+    except Exception:
+        return set()
+
+
+def _fetch_raw_milestone_pr_numbers(
+    run_gh_fn: Any, repo_root: Path, milestone_tag: str, existing_issue_numbers: set[int]
+) -> set[int]:
+    """Fetch standalone PR numbers associated with milestone that don't close an existing issue."""
+    pr_proc = run_gh_fn(
+        [
+            "pr",
+            "list",
+            "--search",
+            f"milestone:{milestone_tag}",
+            "--state",
+            "all",
+            "--json",
+            "number,title",
+            "--limit",
+            "100",
+        ],
+        cwd=repo_root,
+        quiet=True,
+        use_cache=False,
+    )
+    if pr_proc.returncode != 0 or not pr_proc.stdout:
+        return set()
+    try:
+        raw_prs = json.loads(pr_proc.stdout)
+        standalone_prs = set()
+        for pr in raw_prs:
+            if not pr.get("number"):
+                continue
+            pr_num = int(pr["number"])
+            title = pr.get("title", "")
+            referenced = {int(m) for m in re.findall(r"#(\d+)", title)}
+            if not referenced.intersection(existing_issue_numbers):
+                standalone_prs.add(pr_num)
+        return standalone_prs
+    except Exception:
+        return set()
+
+
 def _query_gh_milestone_issues(repo_root: Path, milestone_tag: str) -> list[str]:
-    """Query GitHub milestone issues via rate-managed run_gh."""
+    """Query GitHub milestone issues and deliverables via rate-managed run_gh."""
     try:
         run_gh_fn = _get("run_gh")
-        proc = run_gh_fn(
-            [
-                "issue",
-                "list",
-                "--milestone",
-                milestone_tag,
-                "--json",
-                "number,title,labels,state",
-                "--limit",
-                "50",
-            ],
-            cwd=repo_root,
-            quiet=True,
-            use_cache=False,
-        )
-        if proc.returncode == 0 and proc.stdout:
-            raw_issues = json.loads(proc.stdout)
-            return [f"- #{iss['number']}" for iss in raw_issues if iss.get("number")]
+        issue_nums = _fetch_raw_milestone_issue_numbers(run_gh_fn, repo_root, milestone_tag)
+        pr_nums = _fetch_raw_milestone_pr_numbers(run_gh_fn, repo_root, milestone_tag, issue_nums)
+        all_nums = issue_nums | pr_nums
+        if all_nums:
+            return [f"- #{num}" for num in sorted(all_nums)]
     except Exception as exc:
         logger.debug("Failed to query GitHub milestone issues for %s: %s", milestone_tag, exc)
     return []
@@ -841,6 +897,7 @@ def _build_release_pr_command(
     branch_name: str,
     draft: bool,
     labels: str,
+    milestone: str | None = None,
 ) -> list[str]:
     """Construct command argument list for opening release pull request."""
     pr_cmd = [
@@ -858,6 +915,8 @@ def _build_release_pr_command(
     ]
     if draft:
         pr_cmd.append("--draft")
+    if milestone:
+        pr_cmd.extend(["--milestone", milestone])
     if labels:
         cleaned_labels = [lbl.strip() for lbl in labels.split(",") if lbl.strip()]
         for lbl in cleaned_labels:
@@ -868,33 +927,49 @@ def _build_release_pr_command(
     return pr_cmd
 
 
+def _strip_pr_cmd_flag(cmd: list[str], flag: str) -> list[str]:
+    """Strip a specified flag and its trailing argument from a command list."""
+    return [
+        arg for idx, arg in enumerate(cmd) if arg != flag and (idx == 0 or cmd[idx - 1] != flag)
+    ]
+
+
+def _build_pr_fallback_cmd(pr_cmd: list[str], err_msg: str, labels: str) -> list[str]:
+    """Build fallback PR creation command by removing rejected flags."""
+    cmd = list(pr_cmd)
+    if labels and "label" in err_msg:
+        cmd = _strip_pr_cmd_flag(cmd, "--label")
+    if "milestone" in err_msg:
+        cmd = _strip_pr_cmd_flag(cmd, "--milestone")
+    return cmd
+
+
 def _execute_release_pr(
     pr_cmd: list[str],
     branch_name: str,
     labels: str,
     repo_root: Path,
 ) -> None:
-    """Execute gh pr create with label fallback if labels fail."""
+    """Execute gh pr create with label and milestone fallback if creation fails."""
     run_gh_fn = _get("run_gh")
     pr_proc = run_gh_fn(pr_cmd, cwd=repo_root)
-    if pr_proc.returncode != 0 and labels and "label" in (pr_proc.stderr or "").lower():
-        fallback_cmd = [
-            arg
-            for idx, arg in enumerate(pr_cmd)
-            if arg != "--label" and (idx == 0 or pr_cmd[idx - 1] != "--label")
-        ]
-        pr_proc = run_gh_fn(fallback_cmd, cwd=repo_root)
+    if pr_proc.returncode != 0:
+        err_msg = (pr_proc.stderr or "").lower()
+        fallback_cmd = _build_pr_fallback_cmd(pr_cmd, err_msg, labels)
+        if fallback_cmd != pr_cmd:
+            pr_proc = run_gh_fn(fallback_cmd, cwd=repo_root)
 
     if pr_proc.returncode == 0:
         pr_url = str(pr_proc.stdout).strip()
         _get("print_success")(MESSAGES.release.pr_created.format(url=pr_url), prefix=False)
-    else:
-        err = str(pr_proc.stderr).strip() or str(pr_proc.stdout).strip()
-        _get("print_warning")(MESSAGES.release.pr_failed.format(error=err), prefix=False)
-        _get("print_info")(
-            f"Branch '{branch_name}' is ready. You can manually open the PR on GitHub.",
-            prefix=False,
-        )
+        return
+
+    err = str(pr_proc.stderr).strip() or str(pr_proc.stdout).strip()
+    _get("print_warning")(MESSAGES.release.pr_failed.format(error=err), prefix=False)
+    _get("print_info")(
+        f"Branch '{branch_name}' is ready. You can manually open the PR on GitHub.",
+        prefix=False,
+    )
 
 
 @app.command("pr")
@@ -988,6 +1063,7 @@ def release_pr(
         branch_name=branch_name,
         draft=draft,
         labels=labels,
+        milestone=f"v{target_ver.lstrip('v')}",
     )
     _execute_release_pr(
         pr_cmd=pr_cmd,

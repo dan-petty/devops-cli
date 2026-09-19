@@ -1,10 +1,13 @@
-default_install_hook_types: [pre-commit]
+default_install_hook_types: [pre-commit, pre-push]
 default_stages: [pre-commit]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      - id: no-commit-to-branch
+        args: [--branch, main, --pattern, '^release/.*']
+        stages: [pre-commit]
       - id: trailing-whitespace
         stages: [pre-commit]
       - id: end-of-file-fixer
@@ -31,11 +34,11 @@ repos:
 
   - repo: local
     hooks:
-      - id: devops-ci-pre-commit
-        name: devops ci (pre-commit quality gate)
+      - id: devops-ci-pre-push
+        name: devops ci (pre-push quality gate)
         entry: uv run devops ci
         language: system
-        stages: [pre-commit]
-        pass_filenames: true
+        stages: [pre-push]
+        pass_filenames: false
         require_serial: true
         always_run: true
