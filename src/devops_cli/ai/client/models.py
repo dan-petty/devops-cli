@@ -3,11 +3,50 @@
 from __future__ import annotations
 
 import json
+from enum import StrEnum
 from typing import Any
 
 from devops_cli.exceptions import LLMInferenceError
 
 MAX_STREAM_BYTES = 50 * 1024 * 1024  # 50MB maximum streamed response size
+
+
+class RequestPriority(StrEnum):
+    """Priority classification for AI / LLM requests."""
+
+    HIGH = "high"
+    NORMAL = "normal"
+    AS_AVAILABLE = "as_available"
+
+    @property
+    def weight(self) -> int:
+        """Integer priority weight for comparison and ordering."""
+        weights = {
+            RequestPriority.HIGH: 30,
+            RequestPriority.NORMAL: 20,
+            RequestPriority.AS_AVAILABLE: 10,
+        }
+        return weights.get(self, 20)
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, RequestPriority):
+            return NotImplemented
+        return self.weight < other.weight
+
+    def __le__(self, other: object) -> bool:
+        if not isinstance(other, RequestPriority):
+            return NotImplemented
+        return self.weight <= other.weight
+
+    def __gt__(self, other: object) -> bool:
+        if not isinstance(other, RequestPriority):
+            return NotImplemented
+        return self.weight > other.weight
+
+    def __ge__(self, other: object) -> bool:
+        if not isinstance(other, RequestPriority):
+            return NotImplemented
+        return self.weight >= other.weight
 
 
 class AIClientError(LLMInferenceError, RuntimeError):
