@@ -113,3 +113,45 @@ class GitHubRateLimitError(GitHubOperationError, ValueError):
             error_code="GITHUB_RATE_LIMIT_UNKNOWN",
             details=err_details,
         )
+
+
+class GitHubGraphQLError(GitHubOperationError):
+    """Exception raised when GitHub GraphQL queries or mutations fail."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str = "graphql_query",
+        errors: list[dict[str, Any]] | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details: dict[str, Any] = {}
+        if errors:
+            err_details["graphql_errors"] = str(errors)[:256]
+        if details:
+            err_details.update({k: str(v)[:256] for k, v in details.items()})
+        super().__init__(
+            message,
+            operation=operation,
+            error_code="GITHUB_GRAPHQL_ERROR",
+            details=err_details,
+        )
+
+
+class GitHubWebhookVerificationError(GitHubOperationError):
+    """Exception raised when GitHub webhook signature verification fails."""
+
+    def __init__(
+        self,
+        message: str = "GitHub webhook HMAC signature verification failed",
+        *,
+        operation: str = "webhook_verification",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            operation=operation,
+            error_code="GITHUB_WEBHOOK_VERIFICATION_FAILED",
+            details=details,
+        )

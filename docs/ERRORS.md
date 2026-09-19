@@ -41,8 +41,10 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `DOCKER_SANDBOX_ERROR` | `1` | Docker | Raised when docker sandbox execution, container creation, or termination fails. |
 | `DOCS_INGESTION_ERROR` | `1` | Ai | Base exception for documentation ingestion errors. |
 | `LLM_INFERENCE_ERROR` | `1` | Devops_cli.ai.rag.embeddings | Raised when embeddings generation fails across all endpoints. |
+| `GITHUB_GRAPHQL_ERROR` | `1` | Git | Exception raised when GitHub GraphQL queries or mutations fail. |
 | `GITHUB_OPERATION_FAILED` | `1` | Git | Exception raised for GitHub API or CLI automation failures. |
 | `GITHUB_RATE_LIMIT_UNKNOWN` | `1` | Git | Exception raised when GitHub rate limit quota state is broken or unknown and cannot be resolved. |
+| `GITHUB_WEBHOOK_VERIFICATION_FAILED` | `1` | Git | Exception raised when GitHub webhook signature verification fails. |
 | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
 | `GITOPS_SYNC_ERROR` | `1` | K8s | Raised when GitOps synchronization trigger or reconciliation fails. |
 | `VALIDATION_ERROR` | `1` | Devops_cli.http.client | Raised when an invalid timeout parameter type is provided. |

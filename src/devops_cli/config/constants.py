@@ -177,6 +177,7 @@ CONST_URL_ANTHROPIC_API_BASE = "https://api.anthropic.com"
 CONST_URL_GITHUB_COPILOT_API_BASE = "https://api.githubcopilot.com"
 CONST_URL_OPENAI_API_BASE = "https://api.openai.com"
 CONST_URL_GITHUB_API_BASE = "https://api.github.com"
+CONST_URL_GITHUB_GRAPHQL = "https://api.github.com/graphql"
 CONST_URL_K8S_DOWNLOAD_BASE = "https://dl.k8s.io"
 CONST_URL_HELM_DOWNLOAD_BASE = "https://get.helm.sh"
 CONST_URL_GITHUB_KUSTOMIZE_RELEASES_BASE = (
@@ -294,6 +295,11 @@ CONST_RECOMMENDATION_BLOCK = "BLOCK"
 # ── GitHub CLI & Pull Requests ────────────────────────────────────────────────
 CONST_GH_CLI = "gh"
 CONST_GH_QUOTA_CACHE_FILENAME = "gh_quota.json"
+CONST_GH_ETAG_CACHE_FILENAME = "gh_etag_cache.json"
+CONST_GH_HEADER_ETAG = "ETag"
+CONST_GH_HEADER_IF_NONE_MATCH = "If-None-Match"
+CONST_GH_HEADER_USER_AGENT = "devops-cli"
+CONST_GH_WEBHOOK_SIGNATURE_HEADER = "X-Hub-Signature-256"
 CONST_GH_NON_API_COMMANDS: Final[frozenset[str]] = frozenset(
     {
         "auth",
