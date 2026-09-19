@@ -6,7 +6,6 @@ import contextlib
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from devops_cli.ai.spend.models import (
     LifetimeSpendReport,
@@ -15,13 +14,109 @@ from devops_cli.ai.spend.models import (
     ServerSpendSummary,
     SpendRecord,
 )
-from devops_cli.config.constants import CONST_AI_SPEND_TABLE_NAME
 from devops_cli.config.defaults import DEFAULT_AI_SPEND_DB_FILENAME
 from devops_cli.config.settings import load_settings
 
+_QUERY_CREATE_TABLE = """
+CREATE TABLE IF NOT EXISTS ai_spend_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    server TEXT NOT NULL,
+    backend_info TEXT,
+    model TEXT NOT NULL,
+    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL DEFAULT 0.0,
+    cached INTEGER NOT NULL DEFAULT 0,
+    request_type TEXT NOT NULL DEFAULT 'chat',
+    duration_seconds REAL NOT NULL DEFAULT 0.0
+);
+"""
+_QUERY_IDX_TIMESTAMP = (
+    "CREATE INDEX IF NOT EXISTS idx_spend_timestamp ON ai_spend_records(timestamp);"
+)
+_QUERY_IDX_SERVER = "CREATE INDEX IF NOT EXISTS idx_spend_server ON ai_spend_records(server);"
+_QUERY_IDX_MODEL = "CREATE INDEX IF NOT EXISTS idx_spend_model ON ai_spend_records(model);"
+_QUERY_IDX_PROVIDER = "CREATE INDEX IF NOT EXISTS idx_spend_provider ON ai_spend_records(provider);"
+
+_QUERY_INSERT_RECORD = """
+INSERT INTO ai_spend_records (
+    timestamp, provider, server, backend_info, model,
+    prompt_tokens, completion_tokens, total_tokens,
+    cost_usd, cached, request_type, duration_seconds
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+"""
+
+_QUERY_OVERALL_SUMMARY = """
+SELECT
+    COUNT(*) as total_requests,
+    COALESCE(SUM(prompt_tokens), 0) as total_prompt,
+    COALESCE(SUM(completion_tokens), 0) as total_comp,
+    COALESCE(SUM(total_tokens), 0) as total_tok,
+    COALESCE(SUM(cost_usd), 0.0) as total_spend,
+    COALESCE(SUM(CASE WHEN cached=1 THEN 1 ELSE 0 END), 0) as total_cached,
+    COUNT(DISTINCT server) as srv_count,
+    COUNT(DISTINCT model) as mdl_count,
+    MIN(timestamp) as first_ts,
+    MAX(timestamp) as last_ts
+FROM ai_spend_records
+WHERE (? IS NULL OR timestamp >= datetime('now', ?));
+"""
+
+_QUERY_SERVER_BREAKDOWN = """
+SELECT
+    server,
+    provider,
+    COUNT(*) as req_count,
+    COALESCE(SUM(prompt_tokens), 0) as p_tokens,
+    COALESCE(SUM(completion_tokens), 0) as c_tokens,
+    COALESCE(SUM(total_tokens), 0) as t_tokens,
+    COALESCE(SUM(cost_usd), 0.0) as s_cost,
+    GROUP_CONCAT(DISTINCT model) as model_list,
+    MIN(timestamp) as f_seen,
+    MAX(timestamp) as l_seen
+FROM ai_spend_records
+WHERE (? IS NULL OR timestamp >= datetime('now', ?))
+GROUP BY server, provider
+ORDER BY s_cost DESC, t_tokens DESC;
+"""
+
+_QUERY_MODEL_BREAKDOWN = """
+SELECT
+    model,
+    provider,
+    COUNT(*) as req_count,
+    COALESCE(SUM(prompt_tokens), 0) as p_tokens,
+    COALESCE(SUM(completion_tokens), 0) as c_tokens,
+    COALESCE(SUM(total_tokens), 0) as t_tokens,
+    COALESCE(SUM(cost_usd), 0.0) as m_cost
+FROM ai_spend_records
+WHERE (? IS NULL OR timestamp >= datetime('now', ?))
+GROUP BY model, provider
+ORDER BY m_cost DESC, t_tokens DESC;
+"""
+
+_QUERY_PROVIDER_BREAKDOWN = """
+SELECT
+    provider,
+    COUNT(*) as req_count,
+    COALESCE(SUM(total_tokens), 0) as t_tokens,
+    COALESCE(SUM(cost_usd), 0.0) as p_cost,
+    COUNT(DISTINCT server) as s_count
+FROM ai_spend_records
+WHERE (? IS NULL OR timestamp >= datetime('now', ?))
+GROUP BY provider
+ORDER BY p_cost DESC;
+"""
+
+_QUERY_COUNT_RECORDS = "SELECT COUNT(*) FROM ai_spend_records;"
+_QUERY_DELETE_RECORDS = "DELETE FROM ai_spend_records;"
+
 
 class SpendLedger:
-    """Persistent SQLite ledger tracking lifetime AI requests, token usage, and costs."""
+    """Persistent thread-safe SQLite ledger recording AI token spend across backends."""
 
     def __init__(self, db_path: Path | str | None = None) -> None:
         if db_path is not None:
@@ -29,6 +124,7 @@ class SpendLedger:
         else:
             settings = load_settings()
             self.db_path = settings.data.dir / "ai" / DEFAULT_AI_SPEND_DB_FILENAME
+
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
@@ -43,37 +139,11 @@ class SpendLedger:
     def _init_db(self) -> None:
         """Initialize spend table schema and indexes if not already present."""
         with contextlib.closing(self._get_connection()) as conn, conn:
-            conn.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS {CONST_AI_SPEND_TABLE_NAME} (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    provider TEXT NOT NULL,
-                    server TEXT NOT NULL,
-                    backend_info TEXT,
-                    model TEXT NOT NULL,
-                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
-                    completion_tokens INTEGER NOT NULL DEFAULT 0,
-                    total_tokens INTEGER NOT NULL DEFAULT 0,
-                    cost_usd REAL NOT NULL DEFAULT 0.0,
-                    cached INTEGER NOT NULL DEFAULT 0,
-                    request_type TEXT NOT NULL DEFAULT 'chat',
-                    duration_seconds REAL NOT NULL DEFAULT 0.0
-                );
-                """
-            )
-            conn.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_spend_timestamp ON {CONST_AI_SPEND_TABLE_NAME}(timestamp);"
-            )
-            conn.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_spend_server ON {CONST_AI_SPEND_TABLE_NAME}(server);"
-            )
-            conn.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_spend_model ON {CONST_AI_SPEND_TABLE_NAME}(model);"
-            )
-            conn.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_spend_provider ON {CONST_AI_SPEND_TABLE_NAME}(provider);"
-            )
+            conn.execute(_QUERY_CREATE_TABLE)
+            conn.execute(_QUERY_IDX_TIMESTAMP)
+            conn.execute(_QUERY_IDX_SERVER)
+            conn.execute(_QUERY_IDX_MODEL)
+            conn.execute(_QUERY_IDX_PROVIDER)
 
     def record_request(
         self,
@@ -84,13 +154,13 @@ class SpendLedger:
         prompt_tokens: int,
         completion_tokens: int,
         cost_usd: float,
-        backend_info: str | None = None,
         cached: bool = False,
         request_type: str = "chat",
+        backend_info: str | None = None,
         duration_seconds: float = 0.0,
         timestamp: str | None = None,
     ) -> SpendRecord | None:
-        """Record an individual AI request execution in the lifetime ledger."""
+        """Record an inference request in the persistent SQLite ledger."""
         ts = timestamp or datetime.now(UTC).isoformat()
         total_tokens = prompt_tokens + completion_tokens
         round_cost = round(cost_usd, 6)
@@ -98,13 +168,7 @@ class SpendLedger:
         try:
             with contextlib.closing(self._get_connection()) as conn, conn:
                 cursor = conn.execute(
-                    f"""
-                    INSERT INTO {CONST_AI_SPEND_TABLE_NAME} (
-                        timestamp, provider, server, backend_info, model,
-                        prompt_tokens, completion_tokens, total_tokens,
-                        cost_usd, cached, request_type, duration_seconds
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-                    """,
+                    _QUERY_INSERT_RECORD,
                     (
                         ts,
                         provider,
@@ -140,22 +204,23 @@ class SpendLedger:
             # Defensive logging: database failure must never crash user workflows
             return None
 
-    def _build_where_clause(self, days: int | None) -> tuple[str, list[Any]]:
-        """Construct parameterized WHERE filter for date range."""
+    def _build_where_params(self, days: int | None) -> tuple[str | None, str | None]:
+        """Construct parameterized filter values for date range."""
         if days is None or days <= 0:
-            return "", []
-        return "WHERE timestamp >= datetime('now', ?)", [f"-{days} days"]
+            return (None, None)
+        offset = f"-{days} days"
+        return (offset, offset)
 
     def get_lifetime_report(
         self, days: int | None = None, group_by: str = "server"
     ) -> LifetimeSpendReport:
         """Aggregate lifetime spend metrics grouped by server, model, and provider."""
-        where_clause, params = self._build_where_clause(days)
+        params = self._build_where_params(days)
         with contextlib.closing(self._get_connection()) as conn:
-            summary = self._query_overall_summary(conn, where_clause, params)
-            servers = self._query_server_breakdown(conn, where_clause, params)
-            models = self._query_model_breakdown(conn, where_clause, params)
-            providers = self._query_provider_breakdown(conn, where_clause, params)
+            summary = self._query_overall_summary(conn, params)
+            servers = self._query_server_breakdown(conn, params)
+            models = self._query_model_breakdown(conn, params)
+            providers = self._query_provider_breakdown(conn, params)
 
         summary.servers = servers
         summary.models = models
@@ -163,25 +228,10 @@ class SpendLedger:
         return summary
 
     def _query_overall_summary(
-        self, conn: sqlite3.Connection, where_sql: str, params: list[Any]
+        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
     ) -> LifetimeSpendReport:
         """Fetch high-level aggregate summary across all records."""
-        query = f"""
-            SELECT
-                COUNT(*) as total_requests,
-                COALESCE(SUM(prompt_tokens), 0) as total_prompt,
-                COALESCE(SUM(completion_tokens), 0) as total_comp,
-                COALESCE(SUM(total_tokens), 0) as total_tok,
-                COALESCE(SUM(cost_usd), 0.0) as total_spend,
-                COALESCE(SUM(CASE WHEN cached=1 THEN 1 ELSE 0 END), 0) as total_cached,
-                COUNT(DISTINCT server) as srv_count,
-                COUNT(DISTINCT model) as mdl_count,
-                MIN(timestamp) as first_ts,
-                MAX(timestamp) as last_ts
-            FROM {CONST_AI_SPEND_TABLE_NAME}
-            {where_sql};
-        """
-        row = conn.execute(query, params).fetchone()
+        row = conn.execute(_QUERY_OVERALL_SUMMARY, params).fetchone()
         if not row:
             return LifetimeSpendReport()
 
@@ -199,28 +249,11 @@ class SpendLedger:
         )
 
     def _query_server_breakdown(
-        self, conn: sqlite3.Connection, where_sql: str, params: list[Any]
+        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
     ) -> list[ServerSpendSummary]:
         """Aggregate spend records grouped by backend service/server."""
-        query = f"""
-            SELECT
-                server,
-                provider,
-                COUNT(*) as req_count,
-                COALESCE(SUM(prompt_tokens), 0) as p_tokens,
-                COALESCE(SUM(completion_tokens), 0) as c_tokens,
-                COALESCE(SUM(total_tokens), 0) as t_tokens,
-                COALESCE(SUM(cost_usd), 0.0) as s_cost,
-                GROUP_CONCAT(DISTINCT model) as model_list,
-                MIN(timestamp) as f_seen,
-                MAX(timestamp) as l_seen
-            FROM {CONST_AI_SPEND_TABLE_NAME}
-            {where_sql}
-            GROUP BY server, provider
-            ORDER BY s_cost DESC, t_tokens DESC;
-        """
         results: list[ServerSpendSummary] = []
-        for r in conn.execute(query, params).fetchall():
+        for r in conn.execute(_QUERY_SERVER_BREAKDOWN, params).fetchall():
             m_list = [m.strip() for m in (r["model_list"] or "").split(",") if m.strip()]
             results.append(
                 ServerSpendSummary(
@@ -239,25 +272,11 @@ class SpendLedger:
         return results
 
     def _query_model_breakdown(
-        self, conn: sqlite3.Connection, where_sql: str, params: list[Any]
+        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
     ) -> list[ModelSpendSummary]:
         """Aggregate spend records grouped by model."""
-        query = f"""
-            SELECT
-                model,
-                provider,
-                COUNT(*) as req_count,
-                COALESCE(SUM(prompt_tokens), 0) as p_tokens,
-                COALESCE(SUM(completion_tokens), 0) as c_tokens,
-                COALESCE(SUM(total_tokens), 0) as t_tokens,
-                COALESCE(SUM(cost_usd), 0.0) as m_cost
-            FROM {CONST_AI_SPEND_TABLE_NAME}
-            {where_sql}
-            GROUP BY model, provider
-            ORDER BY m_cost DESC, t_tokens DESC;
-        """
         results: list[ModelSpendSummary] = []
-        for r in conn.execute(query, params).fetchall():
+        for r in conn.execute(_QUERY_MODEL_BREAKDOWN, params).fetchall():
             results.append(
                 ModelSpendSummary(
                     model=r["model"],
@@ -272,23 +291,11 @@ class SpendLedger:
         return results
 
     def _query_provider_breakdown(
-        self, conn: sqlite3.Connection, where_sql: str, params: list[Any]
+        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
     ) -> list[ProviderSpendSummary]:
         """Aggregate spend records grouped by provider."""
-        query = f"""
-            SELECT
-                provider,
-                COUNT(*) as req_count,
-                COALESCE(SUM(total_tokens), 0) as t_tokens,
-                COALESCE(SUM(cost_usd), 0.0) as p_cost,
-                COUNT(DISTINCT server) as s_count
-            FROM {CONST_AI_SPEND_TABLE_NAME}
-            {where_sql}
-            GROUP BY provider
-            ORDER BY p_cost DESC;
-        """
         results: list[ProviderSpendSummary] = []
-        for r in conn.execute(query, params).fetchall():
+        for r in conn.execute(_QUERY_PROVIDER_BREAKDOWN, params).fetchall():
             results.append(
                 ProviderSpendSummary(
                     provider=r["provider"],
@@ -304,9 +311,9 @@ class SpendLedger:
         """Truncate all spend records in the ledger and return count of removed items."""
         with contextlib.closing(self._get_connection()) as conn:
             with conn:
-                row = conn.execute(f"SELECT COUNT(*) FROM {CONST_AI_SPEND_TABLE_NAME};").fetchone()
+                row = conn.execute(_QUERY_COUNT_RECORDS).fetchone()
                 count = int(row[0]) if row else 0
-                conn.execute(f"DELETE FROM {CONST_AI_SPEND_TABLE_NAME};")
+                conn.execute(_QUERY_DELETE_RECORDS)
             conn.isolation_level = None
             conn.execute("VACUUM;")
             return count
