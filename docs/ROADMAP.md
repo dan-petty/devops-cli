@@ -192,6 +192,18 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Metrics Triad*: Reports velocity deltas, open blocker heatmaps, PR review latency, and milestone completion percentages with zero manual tracking overhead.
 - [ ] **FastMCP Agentic Project Management Tools & Epistemic Resources (P1 - High)**:
   - *Context & Rationale*: Exposes native FastMCP tools (`gh_pm_fleet`, `gh_pm_daemon`, `gh_pm_research`, `gh_pm_inflight`, `gh_pm_plan`, `gh_pm_reconcile`, `gh_pm_deps`, `gh_pm_triage`, `gh_pm_sprint`, `gh_pm_report`) and dynamic system resources (`resource://gh/pm/kanban`, `resource://gh/pm/velocity`, `resource://gh/pm/critical-path`, `resource://gh/pm/fleet`, `resource://gh/pm/inflight`) enabling IDE-hosted AI coding assistants to manage projects, unblock dependencies, and transition cards autonomously.
+- [ ] **GitHub Models Zero-Setup Inference Provider (`devops ai models github`) (P0 - Critical)**:
+  - *Context & Rationale*: Ingests and routes inference through the GitHub Models catalog (`models.inference.ai.azure.com`), utilizing developer `GITHUB_TOKEN` or Copilot enterprise credentials. Eliminates the friction of configuring separate third-party API keys or maintaining local GPU infrastructure for CI runners and cloud workstations.
+  - *Virtual Model Tiering*: Maps GitHub Models endpoints directly to DevOps CLI model tiers: `devops-reasoning` -> `o3-mini` / `DeepSeek-R1`, `devops-coder` -> `gpt-4o` / `claude-3.5-sonnet`, `devops-chat` -> `gpt-4o-mini`.
+  - *Token Rate & Quota Limiter*: Integrates client-side rate limit tracking and token-bucket pacing aligned with GitHub Models service tiers, with automatic fallback failover to local Ollama or OpenAI endpoints.
+- [ ] **Autonomous GitHub Actions Self-Healing & PR Triage Workflows (`devops-action`) (P0 - Critical)**:
+  - *Context & Rationale*: Reusable, autonomous GitHub Actions workflows executing closed-loop diagnosis and self-healing across pull requests and issues.
+  - *Autonomous Issue Triage Action*: Reacts on `issues: opened`, parses reproduction steps, provisions an isolated container sandbox (`devops sandbox deploy`), executes reproduction attempts with `devops ai explore`, and labels the issue with verified diagnostic logs.
+  - *CI Gate Auto-Remediation Action*: Reacts on `workflow_run: failure`, downloads failing step logs, isolates failing unit test or lint assertions, invokes `devops ai patch-minimize` to formulate an atomic fix, validates all 10 local CI quality checks, and commits a remediation patch directly to the PR branch.
+- [ ] **GitHub Copilot Extension & Web Agent (`@devops-cli` on GitHub.com) (P1 - High)**:
+  - *Context & Rationale*: Exposes `devops-cli` as a first-class GitHub Copilot Extension / GitHub App on the GitHub Marketplace.
+  - *Web Chat Participant*: Allows engineering teams to invoke `@devops-cli` directly inside GitHub.com web PRs, Issues, and Discussions: `@devops-cli /review` (runs multi-persona code review and posts consolidated findings), `@devops-cli /k8s` (returns sanitized cluster deployment health), and `@devops-cli /explain` (diagnoses failing CI logs and security scanner CVEs with suggested patches).
+  - *Zero-Egress Security*: Runs in isolated, containerized workers with OS Keyring token authorization and SSRF-defended egress boundaries.
 
 ### Reactive Workstation Command Center, Interactive TUI & Unified Operations Hub (v0.2.23 - Scheduled)
 - [ ] **Reactive Multi-Workspace Textual TUI Architecture & Master-Detail Navigation (`devops dashboard`, `devops tui`) (P0 - Critical)**:
@@ -236,6 +248,16 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Loki Centralized LogQL Query Console*: Embedded LogQL query input bar with syntax highlighting and live streaming log console, querying cluster-wide Fluent Bit / Loki logs without leaving the TUI.
   - *Prometheus Performance Sparklines*: Terminal ASCII sparklines and gauges rendering real-time command execution latencies, LLM token throughput (tokens/sec), and cache hit ratios.
   - *Trace Waterfall Modal*: Visual breakdown of recent OpenTelemetry distributed traces and multi-persona review spans with service latency waterfalls.
+- [ ] **Comprehensive DevOps CLI Grafana Observability Dashboard Suite & GitOps Provisioner (`devops grafana dashboards sync`) (P0 - Critical)**:
+  - *Context & Rationale*: While the Textual TUI provides immediate interactive terminal visibility, long-term trend analysis, multi-workstation telemetry aggregation, and cluster-wide observability require enterprise-grade Grafana dashboards backed by Prometheus, Loki, and Tempo/Jaeger.
+  - *Unified Observability Dashboard Portfolio*:
+    - **DevOps Workstation CLI & Agent Telemetry (`dashboards/devops-cli.json`)**: Subcommand invocation frequency, p50/p95/p99 execution latency histograms, exit code distributions, subagent task durations, and OpenTelemetry span waterfalls.
+    - **AI Constellation & Priority Slot Leasing (`dashboards/ai-constellation.json`)**: Multi-node Ollama slot leasing concurrency, active leases vs. parallel limits, token generation throughput (tokens/sec), time-to-first-token (TTFT), vector cache hit ratios, and priority queue lengths (`high`, `normal`, `as_available`).
+    - **Multi-Persona Code Review & Findings Quality (`dashboards/ai-review.json`)**: Review volume segmented by classification context (`documentation`, `configuration`, `code`), persona finding distributions (`devsecops`, `architect`, `qa`, `pm`, `auditor`), severity heatmaps, finding mitigation latency, and false-positive invalidation rates.
+    - **GitHub Projects v2, PR Queue & API Quota (`dashboards/github-agentic.json`)**: FIFO pull request queue depth, PR readiness turnaround, Copilot review settling latency, and real-time REST/GraphQL token-bucket consumption gauges.
+    - **Centralized Logging & Incident Triage (`dashboards/loki-incident-triage.json`)**: Loki LogQL error stream panels, trace-to-log correlation via trace ID exemplars, and SIEM audit logs.
+  - *Automated K8s Sidecar & ConfigMap GitOps Provisioning*: Packages bundled dashboards into Kubernetes ConfigMaps labeled with `grafana_dashboard: "1"`, enabling automatic, zero-restart discovery and live reloads via the Grafana dashboard sidecar (`k8s/monitoring/prometheus-values.yaml`).
+  - *Declarative Dashboard Linter & Exporter (`devops grafana dashboards validate`) (P1 - High)*: Automated schema validator and exporter verifying Grafana 10+ panel schema compliance, datasource parameterization (`${DS_PROMETHEUS}`, `${DS_LOKI}`), and uid idempotency across all committed dashboard definitions.
 - [ ] **Universal Terminal Command Palette & Fuzzy Action Launcher (P1 - High)**:
   - *Context & Rationale*: High-velocity keyboard workflow allowing developers to execute any DevOps CLI command without exiting the TUI.
   - *Modal Launcher (`Ctrl+P` / `:`)*: Fast fuzzy-search command palette listing all CLI subcommands (`ci run`, `scan trivy`, `release status`, `argo sync`, `vault sync`, `sandbox iterate`).
@@ -278,6 +300,26 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: MCP Resources (`resource://`) provide URI-addressable, cacheable, subscription-capable data endpoints — 3× cheaper than Tool calls for read-heavy patterns. Yet the `devops-cli` MCP server relies almost exclusively on Tools for all data access. Additionally, MCP tool return strings are untyped — an attacker controlling tool output (via compromised repos, malicious web content, or poisoned dependencies) can inject instructions interpreted as system directives (vibes Systems Obs 10).
   - *Implementation*: Convert read-heavy, stable-state inspection endpoints (`k8s_status`, `argo_status`, `docker_stats`, `vault_status`, `telemetry_status`, `gh_rate_limit`) from Tools to MCP Resources with URI subscriptions. Apply sanitization pipeline to all tool return strings — strip potential instruction injections, validate against expected output schemas, and cap output length.
 
+### GitHub Copilot & VS Code Agentic Ecosystem, Language Model Tools & IDE Companion (v0.2.25 - Scheduled)
+- [ ] **Native VS Code Language Model Tools API Provider (`vscode.lm.tools`) (P0 - Critical)**:
+  - *Context & Rationale*: Exposes DevOps CLI's core inspection, AST outline, complexity analysis, and cluster querying tools as native VS Code Language Model Tools via the `vscode.lm.tools` API contribution point. Enables any VS Code agent or chat participant (e.g. `@workspace`, Copilot Agent mode) to invoke DevOps CLI tools seamlessly without spawning external subshells or parsing plaintext console output.
+  - *Implementation*: Implement native language model tool definitions (`devops_inspect_symbol`, `devops_scan_complexity`, `devops_k8s_pods`, `devops_pr_status`, `devops_secops_summary`) returning typed JSON schemas and structured Markdown results.
+- [ ] **VS Code Copilot Chat Custom Participant (`@devops`) & Slash Command Suite (P0 - Critical)**:
+  - *Context & Rationale*: Embeds a dedicated `@devops` chat participant directly in the VS Code Copilot Chat panel, providing developers with immediate workstation and cluster operations without context switching to external terminals or web consoles.
+  - *Implementation*: Support specialized slash commands: `@devops /review` (multi-persona code review on active editor or staged diff), `@devops /explore` (MCTS solution exploration for active test failures), `@devops /k8s` (pod inspection and live log tailing), `@devops /secops` (vulnerability triage and fix suggestions), and `@devops /tui` (launches or focuses the Textual TUI in an integrated terminal). Provide interactive chat response controls ("Open Diff", "Apply Patch", "View Loki Logs").
+- [ ] **Multi-Document Proposed Edits & Native Side-by-Side Diff Integration (P1 - High)**:
+  - *Context & Rationale*: Bridges CLI solution synthesis (`devops ai patch-minimize`, `devops ai explore`) with VS Code's native `LanguageModelProposedEdit` API, replacing terminal unified diff dumps with interactive, side-by-side graphical diff reviews.
+  - *Implementation*: Stream multi-file modifications directly into VS Code's native diff review editor with per-hunk "Accept / Reject" controls, syntax highlighting, and immediate post-edit syntax validation before persisting changes to disk.
+- [ ] **Automated Multi-IDE MCP Scaffolder & Health Watchdog (`devops ide configure`) (P1 - High)**:
+  - *Context & Rationale*: Developers frequently switch across modern AI-assisted IDEs (VS Code, Cursor, Windsurf, Claude Desktop, Antigravity). Manually managing `.vscode/mcp.json` or global config paths across IDE updates and container rebuilds is prone to path mismatch and environment drift.
+  - *Implementation*: Provide a unified `devops ide configure [--ide vscode|cursor|windsurf|claude|all]` command that auto-detects installed IDE configurations and writes standardized, hardened MCP server entries. Include a background watchdog detecting hanging stdio subshells and automatically restarting the FastMCP server when deadlocks or high-memory leaks occur.
+- [ ] **Path-Specific Copilot Instructions & Executable Prompt Scaffolder (`devops ai instructions scaffold`) (P1 - High)**:
+  - *Context & Rationale*: Modern GitHub Copilot and VS Code Agent mode support hierarchical path-specific instructions (`.github/instructions/**/*.md`) and executable prompt templates (`.github/prompts/*.prompt.md`). Monolithic instruction files (`AGENTS.md`) can overwhelm model attention with irrelevant rules when editing specialized subtrees.
+  - *Implementation*: Generate scoped instruction files matching file globs (e.g. `.github/instructions/k8s.md` for Kubernetes manifests, `.github/instructions/tests.md` for structural tuple assertions and complexity caps, `.github/instructions/security.md` for zero-trust egress and POSIX isolation). Provide pre-packaged prompt templates: `.github/prompts/k8s-triage.prompt.md`, `.github/prompts/pr-review.prompt.md`, `.github/prompts/adr-generate.prompt.md`.
+- [ ] **DevOps CLI VS Code Companion Extension (`devops-vscode`) (P1 - High)**:
+  - *Context & Rationale*: A lightweight, open-source companion VS Code extension packaging all VS Code agentic integrations, status bar indicators, and editor gutter annotations into a turnkey developer experience.
+  - *Implementation*: Status bar items displaying active K8s cluster context/namespace, active PR readiness status, rate limit meter, and Ollama server health. Gutter decorations highlighting code review findings (`CRITICAL`, `HIGH`, `MEDIUM`) with inline quick fixes ("Mitigate Finding", "Mark Invalid", "Explain Rationale"). Webview canvas hosting the reactive Textual TUI inside an editor tab.
+
 ### Multi-Cloud Mesh & Production Ecosystem (v0.3.0 - Future Vision)
 - [ ] **Multi-Region Workstation Mesh & Cluster Federation**: Distributed cluster management across hybrid on-premise and multi-cloud Kubernetes clusters with automatic service mesh routing.
 - [ ] **Autonomous Self-Healing Agent Pipeline**: Closed-loop diagnostic engine capable of discovering cluster incidents, generating corrective patches, running CI gates, and executing rollback.
@@ -318,6 +360,11 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Syntopical Dialectical Synthesis Engine (`devops ai research syntopical`) | PydanticAI / Multi-Source | High | High | v0.2.21 | 📋 Scheduled (P0) |
 |  | Agentic Information Foraging & Scent Tracker (`devops ai research forage`) | Graph Search / Scent | High | High | v0.2.21 | 📋 Scheduled (P0) |
 |  | Continuous State Machine Reconciler & Card Daemon (`devops gh pm reconcile`) | GitHub API / Watcher | High | High | v0.2.22 | 📋 Scheduled (P0) |
+|  | GitHub Models Zero-Setup Inference Provider (`devops ai models github`) | Azure AI / `models.github.ai` | High | High | v0.2.22 | 📋 Scheduled (P0) |
+|  | Autonomous GitHub Actions Self-Healing & PR Triage Workflows | GitHub Actions / Runner | High | High | v0.2.22 | 📋 Scheduled (P0) |
+|  | Comprehensive DevOps CLI Grafana Observability Dashboard Suite | Grafana 10+ / Prometheus / Loki | High | High | v0.2.23 | 📋 Scheduled (P0) |
+|  | Native VS Code Language Model Tools API Provider (`vscode.lm.tools`) | VS Code API / JSON Schema | High | High | v0.2.25 | 📋 Scheduled (P0) |
+|  | VS Code Copilot Chat Custom Participant (`@devops`) & Slash Commands | VS Code Chat API / Slash | High | High | v0.2.25 | 📋 Scheduled (P0) |
 |  | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
 |  | Autonomous Self-Healing Agent Pipeline | PydanticAI / Diagnostic | High | High | v0.3.0 | 💡 Future Vision |
 |  | Distributed Multi-Cluster Telemetry & OTel Egress Mesh | OTel Collector / Prometheus | High | High | v0.3.0 | 💡 Future Vision |
@@ -337,6 +384,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | DAG Dependency Engine & Critical Path Unblocker (`devops gh pm deps`) | NetworkX / DAG / AST | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
 |  | WIP Limit Governor & Workload Dispatcher | Pydantic / Token Budget | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 |  | Agentic Sprint Cadence & Velocity Engine (`devops gh pm sprint`) | GitHub Projects v2 / Velocity | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | GitHub Copilot Extension & Web Agent (`@devops-cli`) | Copilot Extensions API | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 |  | Reactive Multi-Workspace Textual TUI Architecture | Textual / Async Workers | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
 |  | Interactive GitHub Lifecycle, PR Monitor & Kanban Hub | Textual / GitHub REST | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
 |  | Cloud-Native Cluster Runtime & Pod Log Streamer | Textual / Kubernetes / Stern | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
@@ -345,6 +393,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | GitOps Fleet, Argo Rollouts & Cloud Cost Monitor | Textual / ArgoCD / Infracost | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
 |  | AI Constellation Topology & Review Findings Studio | Textual / Ollama / Qdrant | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
 |  | Centralized Loki LogQL Streamer & Trace Waterfalls | Textual / Loki / Prometheus | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
+|  | Declarative Dashboard Linter & K8s Sidecar GitOps Provisioner | Kubernetes / ConfigMap / Helm | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
 |  | POSIX Process Group Sandbox Enforcement | Subprocess / OS | High | Low | v0.2.24 | 📋 Scheduled (P0) |
 |  | Structural Pre-Commit Hook Inversion | Pre-commit / Pytest | High | Medium | v0.2.24 | 📋 Scheduled (P0) |
 |  | Anti-Brittle Constant Elimination | Standard Library / AST | High | Medium | v0.2.24 | 📋 Scheduled (P1) |
@@ -356,6 +405,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Background Shell Pipe Deadlock Fix & Output Contract | Subprocess / Threading | High | Low | v0.2.24 | 📋 Scheduled (P1) |
 |  | Structured Constraint Propagation Across Subagent Delegation | PydanticAI / Workflow | High | Medium | v0.2.24 | 📋 Scheduled (P1) |
 |  | MCP Resource-First Data Access & Tool Output Sandboxing | FastMCP / MCP Resources | High | Medium | v0.2.24 | 📋 Scheduled (P1) |
+|  | Multi-Document Proposed Edits & Native Side-by-Side Diff Review | VS Code Proposed Edits | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
+|  | Automated Multi-IDE MCP Scaffolder & Health Watchdog (`devops ide configure`) | FastMCP / Stdio / Watchdog | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
+|  | Path-Specific Copilot Instructions & Executable Prompt Scaffolder | Copilot Prompts / AST | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
+|  | DevOps CLI VS Code Companion Extension (`devops-vscode`) | VS Code Extension / Webview | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
 |  | Cloud-Native Ephemeral Test Environment Engine | Minikube / Helm / Ingress | High | Medium | v0.3.0 | 💡 Future Vision |
 |  | Distributed Cache & Shared Semantic Embeddings Sync | S3 / OCI / SQLite | High | Medium | v0.3.0 | 💡 Future Vision |
 |  | Proportional API Rate Budgeting & GraphQL Circuit Breaker Guard | Standard Library / SQLite | High | Medium | v0.3.0 | 💡 Future Vision |
@@ -368,6 +421,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Standup & Executive Velocity Reporter (`devops gh pm report`) | Pydantic / Markdown / Rich | High | Low | v0.2.22 | 📋 Scheduled (P1) |
 |  | FastMCP Agentic PM Tools & System Resources | FastMCP / PydanticAI | High | Low | v0.2.22 | 📋 Scheduled (P1) |
 |  | FastMCP TUI Management Tools & Dynamic Resources | FastMCP / PydanticAI | Medium | Low | v0.2.23 | 📋 Scheduled (P2) |
+|  | Reusable DevOps Task Prompt File Catalog | GitHub Prompts / Markdown | Medium | Low | v0.2.25 | 📋 Scheduled (P2) |
 | **Fill-Ins** | Multi-Scale Semantic Outline Scanner (`devops ai read --inspect`) | Python AST / Tree-Sitter | High | Low | v0.2.21 | ✅ Completed (P0) |
 |  | Information Scent Trail Visualizer & Breadcrumb Tree | Rich Trees / Graphviz | Medium | Low | v0.2.21 | 📋 Scheduled (P2) |
 |  | Dependency DAG Visualizer & Critical Path Graph | Mermaid / Rich Trees | Medium | Low | v0.2.22 | 📋 Scheduled (P2) |
