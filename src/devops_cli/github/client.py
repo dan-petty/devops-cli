@@ -289,6 +289,36 @@ class GitHubClient:
         )
         return issue.model_dump()
 
+    def edit_issue(
+        self,
+        repo: str,
+        number: int,
+        title: str | None = None,
+        body: str | None = None,
+        state: str | None = None,
+        milestone: str | int | None = None,
+        clear_milestone: bool = False,
+        labels: list[str] | None = None,
+        add_labels: list[str] | None = None,
+        remove_labels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Update an existing issue in the specified repository."""
+        from devops_cli.github.issues import edit_repository_issue
+
+        issue = edit_repository_issue(
+            repo=repo,
+            number=number,
+            title=title,
+            body=body,
+            state=state,
+            milestone=milestone,
+            clear_milestone=clear_milestone,
+            labels=labels,
+            add_labels=add_labels,
+            remove_labels=remove_labels,
+        )
+        return issue.model_dump()
+
     # ── GitHub Pages ──────────────────────────────────────────────────────────
 
     def get_pages_info(self, repo: str) -> dict[str, Any] | None:
@@ -451,3 +481,36 @@ class GhCliClient:
         if due_on is not None:
             cmd.extend(["-f", f"due_on={due_on}"])
         run_gh(cmd, check=False)
+
+    def edit_issue(
+        self,
+        repo: str,
+        number: int,
+        title: str | None = None,
+        body: str | None = None,
+        state: str | None = None,
+        milestone: str | int | None = None,
+        clear_milestone: bool = False,
+        labels: list[str] | None = None,
+        add_labels: list[str] | None = None,
+        remove_labels: list[str] | None = None,
+    ) -> bool:
+        """Update an existing issue using gh CLI."""
+        from devops_cli.github.issues import edit_repository_issue
+
+        try:
+            edit_repository_issue(
+                repo=repo or self.default_repo or "",
+                number=number,
+                title=title,
+                body=body,
+                state=state,
+                milestone=milestone,
+                clear_milestone=clear_milestone,
+                labels=labels,
+                add_labels=add_labels,
+                remove_labels=remove_labels,
+            )
+            return True
+        except Exception:
+            return False

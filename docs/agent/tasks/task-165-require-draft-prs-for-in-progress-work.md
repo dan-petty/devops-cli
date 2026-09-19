@@ -11,14 +11,14 @@
 
 ## 1. Description & Architectural Objectives
 
-Establish an explicit policy and agent instruction mandating that whenever AI agents or contributors open pull requests that are not yet fully implemented, tested, and ready for review, they must be opened as **Draft Pull Requests** (`gh pr create --draft` or passing `draft: true`).
+Establish an explicit policy and agent instruction mandating that whenever AI agents or contributors open pull requests that are not yet fully implemented, tested, and ready for review, they must be opened as **Draft Pull Requests** (`devops pr create --draft` or passing `draft: true`).
 
 ### Key Objectives
 1. **Mandatory Draft PRs for In-Progress Deliverables**:
    - Prevent premature review cycles and unready CI review notifications.
    - Avoid false merge-readiness assumptions while maintaining compliance with the zero orphan remote branches requirement.
 2. **Clear Lifecycle Transition Protocol**:
-   - Explicitly define the transition from draft to ready for review (`gh pr ready <number>` or GraphQL mutation `markPullRequestReadyForReview`) once all implementation code, tests ($\ge 90\%$ coverage), and documentation are complete.
+   - Explicitly define the transition from draft to ready for review (`devops pr ready <number>` or GraphQL mutation `markPullRequestReadyForReview`) once all implementation code, tests ($\ge 90\%$ coverage), and documentation are complete.
 3. **Repository Instruction Alignment**:
    - Update canonical [`AGENTS.md`](../../../AGENTS.md).
    - Update instruction generator template in [`src/devops_cli/ai/instruction_generator.py`](../../../src/devops_cli/ai/instruction_generator.py).

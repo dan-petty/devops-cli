@@ -686,6 +686,7 @@ class GHCommandHelp:
     milestones_sync: str = "Extract milestones from ROADMAP.md and sync to repository."
     milestones_status: str = "Inspect progress and health for a specific milestone."
     milestones_close: str = "Close a repository release milestone by title or version."
+    milestones_edit: str = "Edit an existing milestone title, description, state, or due date."
     project_app: str = "Manage GitHub Projects v2 templates and task item synchronization."
     project_list: str = "List available GitHub Projects v2 boards for user or organization."
     project_status: str = "Inspect project template structure and configured views."
@@ -720,7 +721,10 @@ class GHCommandHelp:
     issues_create: str = "Create a new issue linking milestone and taxonomy labels."
     issues_triage: str = "Audit open issues for mandatory taxonomy labels and milestone linkage."
     issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
-    issues_edit: str = "Edit an existing issue title, body, or state."
+    issues_edit: str = "Edit an existing issue title, body, state, milestone, or taxonomy labels."
+    issues_reconcile_roadmap: str = (
+        "Reconcile existing issue milestones to match docs/ROADMAP.md specifications."
+    )
     branch_protection_app: str = "Manage declarative branch protection rulesets and policies."
     branch_protection_audit: str = (
         "Audit repository branch protection rulesets against declarative policy specification."
@@ -762,6 +766,9 @@ class ReleaseCommandHelp:
     changelog_update: str = "Update CHANGELOG.md in-place with generated release notes."
     changelog_from_tag: str = "Starting git tag or ref for changelog compilation."
     changelog_to_tag: str = "Ending git tag or ref for changelog compilation."
+    epic: str = (
+        "Provision, correlate, and synchronize parent release tracking epics for milestones."
+    )
 
 
 @dataclass(frozen=True)

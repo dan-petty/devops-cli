@@ -149,3 +149,28 @@ devops release tag [OPTIONS]
 | `--root`, `-r` | `path` | - | Project repository root directory. |
 
 ---
+
+## `devops release epic`
+
+**Provision, correlate, and synchronize parent release tracking epics for milestones.**
+
+```bash
+devops release epic [OPTIONS] <version>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<version>` | `string` | No | Target release milestone version (e.g. v0.2.21 or 0.2.21). Omit with --all. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--all`, `-a` | `boolean` | - | Synchronize release epics for all roadmap milestones |
+| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Simulate release epic creation without modifying remote issues |
+
+---

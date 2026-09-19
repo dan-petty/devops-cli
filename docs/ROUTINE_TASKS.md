@@ -35,19 +35,19 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Final Pre-Commit / Pre-PR** | Full CI Validation Suite | Step 3 | `uv run devops ci` | Runs full automated verification suite | All checks show `✓ pass` |
 | **Final Pre-Commit / Pre-PR** | Observability, Log & Trace Audit | Step 4 | `devops telemetry status` / `.data/logs/` | Audit CLI command outputs, application logs, metrics, and OpenTelemetry tracing data for performance issues and misconfigurations | Zero unhandled exceptions or warnings in logs/spans |
 | **Feature / PR Lifecycle** | Branch Creation | Step 1 | `git checkout -b <type>/<name> origin/release/vX.Y.Z` | Dedicated topic branch branching off active release branch | Clean branch tracking origin release branch |
-| **Feature / PR Lifecycle** | PR Submission | Step 2 | `gh pr create --base release/vX.Y.Z` | Opens PR targeting active release branch | PR opened with Conventional Commit title |
+| **Feature / PR Lifecycle** | PR Submission | Step 2 | `devops pr create --base release/vX.Y.Z` | Opens PR targeting active release branch | PR opened with Conventional Commit title |
 | **Feature / PR Lifecycle** | Taxonomy & Milestone Linking | Step 3 | `devops gh labels audit` | Audits PR for mandatory `type/*` and `scope/*` labels & milestone link | Zero taxonomy audit findings |
 | **Feature / PR Lifecycle** | Project Item Linkage & Field Sync | Step 4 | `devops gh project sync` | Links PR to project board, reconciles custom fields from taxonomy labels, moves card to In Review | PR card created, fields populated, status set to In Review |
 | **Feature / PR Lifecycle** | PR Monitoring & Review Resolution | Step 5 | `devops pr monitor <pr_number>` | Actively monitors checks, waits for Copilot reviews, remediates in-thread | All checks green, Copilot review settled, 0 unresolved threads |
 | **Feature / PR Lifecycle** | AI Code Review | Step 6 | `devops ai review branch <name> --dry-run` | Multi-persona analysis (`devsecops`, `architect`, `qa`) | Findings inspected in `.data/reviews/` |
-| **Feature / PR Lifecycle** | Human Squash Merge | Step 7 | `gh pr merge <id> --squash` | Maintainer merges approved PR into release branch | PR merged and topic branch deleted |
+| **Feature / PR Lifecycle** | Human Squash Merge | Step 7 | `devops pr merge <id> --squash` | Maintainer merges approved PR into release branch | PR merged and topic branch deleted |
 | **Feature / PR Lifecycle** | Remote Branch Audit & Pruning | Step 8 | `git fetch --prune origin` | Prunes merged, closed, or superseded remote tracking branches | Zero orphan remote branches on origin |
 | **Release Lifecycle** | Release Status Assessment | Step 1 | `uv run devops release status` | Checks version consistency, git tags, and docs state | Clean working tree and version clarity |
 | **Release Lifecycle** | Release Preparation | Step 2 | `uv run devops release prepare <version> --create-pr` | Bumps version, updates changelog, syncs docs, opens PR | Release PR opened targeting `main` |
 | **Release Lifecycle** | Authoritative Release Check | Step 3 | `uv run devops release check` | Validates git tree, version matching, CI validation | All checks green |
-| **Release Lifecycle** | Maintainer Release PR Merge | Step 4 | `gh pr merge <id> --squash` | Human maintainer squash-merges release PR into `main` | Push event on `main` branch |
+| **Release Lifecycle** | Maintainer Release PR Merge | Step 4 | `devops pr merge <id> --squash` | Human maintainer squash-merges release PR into `main` | Push event on `main` branch |
 | **Release Lifecycle** | Automated Tagging & Publish | Step 5 | Automated (`release.yml`) | Cuts annotated git tag `vX.Y.Z`, generates notes, publishes GH Release | GitHub Release published with assets |
-| **Release Lifecycle** | Milestone Issue Population | Step 6 | `gh issue create` / `devops gh project sync` | Proactively creates GitHub issues for active milestone deliverables | Open issues populated with zero empty state |
+| **Release Lifecycle** | Milestone Issue Population | Step 6 | `devops gh issues create` / `devops gh project sync` | Proactively creates GitHub issues for active milestone deliverables | Open issues populated with zero empty state |
 | **Release Lifecycle** | Historical Documentation Compaction | Step 7 | Automated / Manual | Compacts historical milestone docs in `docs/ROADMAP.md` and `RELEASE_NOTES.md` on major/minor releases | Expressive, token-efficient docs with zero bloat |
 | **Security & Audits** | Dependency Security Audit | Weekly / Pre-Release | `uv run devops ci audit` (`uv audit`) | Scans installed packages for known vulnerabilities | 0 known vulnerabilities |
 | **Security & Audits** | Static Security Scan (SAST) | Weekly / Pre-Release | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 high/medium issues identified |
@@ -88,7 +88,7 @@ flowchart TD
    - **Inspect Project Status**: Query active board and views via `devops gh project status` (or FastMCP `gh_project_status`) and triage queue via `devops gh issues triage` (or FastMCP `gh_issue_triage`).
    - **Ground Requirement in GitHub Issue Card**: Every feature, bug fix, or refactor must map to an active tracking issue and project item.
      - If a matching issue card exists: link task to it, verify milestone and taxonomy labels, and transition its card to `In Progress` (`devops gh project sync`).
-     - If no issue exists: **IMMEDIATELY CREATE THE TRACKING ISSUE** (`gh issue create` or FastMCP `gh_issue_create`), assign active milestone (`--milestone "v<version>"`), assign taxonomy labels (`type/*`, `scope/*`, `priority/*`, `status/in-progress`), and sync to project board (`devops gh project sync`).
+     - If no issue exists: **IMMEDIATELY CREATE THE TRACKING ISSUE** (`devops gh issues create` or FastMCP `gh_issue_create`), assign active milestone (`--milestone "v<version>"`), assign taxonomy labels (`type/*`, `scope/*`, `priority/*`, `status/in-progress`), and sync to project board (`devops gh project sync`).
    - For multi-step or architectural work, author an implementation plan (`implementation_plan.md`, `docs/agent/tasks/task-<issue>-<slug>.md`, or update [`docs/ROADMAP.md`](ROADMAP.md)).
    - Explicitly track task progression across five lifecycle states:
      - **Backlog**: Queued items awaiting milestone assignment.
@@ -177,11 +177,11 @@ sequenceDiagram
     Dev->>Git: git checkout -b feat/my-feature origin/release/vX.Y.Z
     Dev->>Git: Code, Test, Format, devops ci
     Dev->>Hub: git push -u origin feat/my-feature
-    Dev->>Hub: gh pr create --base release/vX.Y.Z
+    Dev->>Hub: devops pr create --base release/vX.Y.Z
     Hub->>CI: Trigger CI Validation
     CI-->>Hub: CI Checks Pass (Green)
     Dev->>Hub: Push additional fixes if needed (git push)
-    Maintainer->>Hub: Review & gh pr merge --squash
+    Maintainer->>Hub: Review & devops pr merge --squash
 ```
 
 #### Rules & Methodology:
@@ -192,7 +192,7 @@ sequenceDiagram
   - Chores/Refactors: `chore/<name>` or `refactor/<name>`
 - **Base Branch Targeting**: PRs must target the active release branch (`--base release/vX.Y.Z`). Only release branches target `main`.
 - **Strict Remote Branch Lifecycle & PR Governance (Zero Orphan Remote Branches)**:
-  - Every remote topic or feature branch on `origin` MUST have an associated, open Pull Request targeting the active release branch (`--base release/vX.Y.Z`) or `main` (for official release PRs). If work is actively in progress or not yet fully implemented and ready for review, open the PR as a draft (`gh pr create --draft` or `draft: true`).
+  - Every remote topic or feature branch on `origin` MUST have an associated, open Pull Request targeting the active release branch (`--base release/vX.Y.Z`) or `main` (for official release PRs). If work is actively in progress or not yet fully implemented and ready for review, open the PR as a draft (`devops pr create --draft` or `draft: true`).
   - **Immediate Deletion of Merged or Superseded Branches**: Once a PR is merged into its target branch, or if a branch's changes have been incorporated or superseded, the remote branch MUST be deleted immediately (`git push origin --delete <branch>`) and local tracking references pruned (`git fetch --prune origin`).
   - **No Orphan Remote Branches**: Remote branches without an active PR or active development purpose are strictly prohibited. If updates from an old or dormant branch are still required, apply or cherry-pick them to the active release branch / active PR, and delete the obsolete remote branch immediately.
 - **Sequential Pull Request Processing Queue (Strict Oldest-to-Newest / FIFO Execution)**:
@@ -200,9 +200,9 @@ sequenceDiagram
   - Addressing review feedback, fixing CI check failures, resolving merge conflicts, and verifying merge readiness on older PRs **strictly takes precedence** over authoring, advancing, or reviewing newer PRs.
   - When a PR is squash-merged into the base release branch, agents MUST immediately prioritize updating, rebasing, and verifying the next oldest open pull request to prevent cascading merge conflicts and branch divergence.
 - **Mandatory Draft PRs for In-Progress Work & Two-Stage Review Lifecycle**:
-  - Whenever opening a pull request for work that is not yet fully implemented, tested, and ready for review, agents MUST create it as a draft PR (`gh pr create --draft`).
-  - **Transition to Ready for Review**: Once all implementation logic, tests (>= 90% coverage), docs synchronization (`devops docs generate --sync-readme`), and CI quality gates pass cleanly, and initial review comments are addressed, agents MUST convert the draft pull request to ready for review (`gh pr ready <pr_number>`).
-- **Agent Non-Merge Rule**: AI agents must push commits and create/update PRs, but never execute `gh pr merge`.
+  - Whenever opening a pull request for work that is not yet fully implemented, tested, and ready for review, agents MUST create it as a draft PR (`devops pr create --draft`).
+  - **Transition to Ready for Review**: Once all implementation logic, tests (>= 90% coverage), docs synchronization (`devops docs generate --sync-readme`), and CI quality gates pass cleanly, and initial review comments are addressed, agents MUST convert the draft pull request to ready for review (`devops pr ready <pr_number>`).
+- **Agent Non-Merge Rule**: AI agents must push commits and create/update PRs, but never execute `devops pr merge`.
 - **Post-Ready Secondary Review & Copilot Monitoring Gate**:
   - Marking a pull request as ready for review transitions it to public review and triggers automated GitHub Copilot review sessions, CodeQL scans, and reviewer notifications.
   - Agents are strictly prohibited from concluding a task immediately after marking a PR ready.
@@ -215,7 +215,7 @@ sequenceDiagram
   - After opening or pushing updates to a PR, agents and developers **MUST ALWAYS** actively monitor remote GitHub Actions status and code reviews via `devops pr monitor <pr_number>` (or `devops pr wait <pr_number>`).
   - **Strict Prohibition of Premature Completion**: Never conclude a turn or declare a task done while CI checks are pending/failing, or while automated code review sessions (e.g. GitHub Copilot code review) are in progress or unresolved.
   - **Wait for Copilot Review Sessions to Settle**: Automated code review bots submit reviews asynchronously (typically 1–3 minutes after code push). `devops pr monitor` automatically enforces settling windows and checks timeline activity. Agents must wait for this review session to complete.
-  - **Remediate Check Failures Immediately**: If any check fails (exit code 1), immediately inspect failed logs (`gh run view --log-failed`), apply remediation commits directly to the PR source branch with concise effect-driven commit messages, push to origin, and re-run `devops pr monitor <pr_number>`.
+  - **Remediate Check Failures Immediately**: If any check fails (exit code 1), immediately inspect failed logs (`devops gh runs view <run_id> --log-failed`), apply remediation commits directly to the PR source branch with concise effect-driven commit messages, push to origin, and re-run `devops pr monitor <pr_number>`.
   - **Review Comment Remediation & Direct In-Thread Reply Mandate**: If Copilot or reviewers leave comments (exit code 2):
     1. Inspect all open threads: `devops pr threads list <pr_number> --unresolved-only`.
     2. Author test-first fixes in `src/` and `tests/`.
@@ -391,4 +391,4 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
 | `devops ci` fails at `docs` | CLI commands or flags changed without updating docs | Run `uv run devops docs generate --sync-readme` and verify with `devops docs check`. |
 | `pytest` intermittent test failures | Non-deterministic test ordering in multi-threaded code | Ensure assertions use order-independent checks (`any(...)` or sets) rather than fixed array indices. |
 | `uv audit` reports vulnerability | A dependency has a known security advisory | Run `uv lock --upgrade-package <name>` and verify compatibility. |
-| Agent PR targeting error | Topic branch opened against `main` instead of release branch | Update PR base branch via `gh pr edit <id> --base release/vX.Y.Z`. |
+| Agent PR targeting error | Topic branch opened against `main` instead of release branch | Update PR base branch via `devops pr edit <id> --base release/vX.Y.Z`. |

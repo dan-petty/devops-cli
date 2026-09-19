@@ -38,19 +38,18 @@ echo "$GITHUB_TOKEN" | gh auth login --with-token
 gh auth status
 
 # Create a pull request targeting a specific base branch
-gh pr create --title "feat(serve): FastAPI service engine" \
+devops pr create --title "feat(serve): FastAPI service engine" \
   --body "Implements FastAPI service engine with OpenAPI docs." \
-  --base release/v0.2.0 \
-  --head feat/serve-engine
+  --base release/v0.2.0
 
 # Watch GitHub Actions CI checks for a pull request in real-time
-gh pr checks 17 --watch
+devops pr monitor 17
 
 # List recent workflow runs on a specific branch
-gh run list --branch release/v0.2.0 -L 5
+devops gh runs list --branch release/v0.2.0 -L 5
 
 # View failure logs for a specific GitHub Actions workflow run
-gh run view <run_id> --log-failed
+devops gh runs view <run_id> --log-failed
 
 # Download release assets
 gh release download v0.2.0 --pattern "*.tar.gz"
@@ -61,7 +60,7 @@ gh release download v0.2.0 --pattern "*.tar.gz"
 ## 4. Best Practice Guidance
 
 1. **Target Base Branch Explicitly**: When creating PRs for features or bug fixes, always target active release branches (`--base release/v<version>`). Release PRs target `main`.
-2. **Monitor Remote CI to Green**: Never submit a PR without actively monitoring remote CI checks (`gh pr checks <pr> --watch`) until all checks pass.
+2. **Monitor Remote CI to Green**: Never submit a PR without actively monitoring remote CI checks (`devops pr monitor <pr>`) until all checks pass.
 3. **Structured PR Titles**: Follow Conventional Commits format in PR titles (`feat(scope): ...`, `fix(scope): ...`).
 4. **Fine-Grained Permissions**: Use fine-grained GitHub Personal Access Tokens scoped to specific repositories with minimal required permissions (`Contents: Read/Write`, `Pull Requests: Read/Write`, `Workflows: Read`).
 

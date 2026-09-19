@@ -435,7 +435,7 @@
     - [x] `src/devops_cli/core/paths.py`: Clarified docstring and enforced strict symlink rejection when `allow_symlinks=False`, internal symlinks when `True`, and zero path escapes
   - [x] Authored and pushed atomic commit `4feb91c` to `origin/release/v0.2.11`
   - [x] Replied to all 4 Copilot discussion threads on PR #38
-  - [x] Monitored remote CI quality gates on `4feb91c` until 100% green (`gh pr checks 38` — 4/4 checks passed)
+  - [x] Monitored remote CI quality gates on `4feb91c` until 100% green (`devops pr checks 38` — 4/4 checks passed)
   - [x] PR #38 squash-merged into `main` by maintainer Daniel Petty (commit `22bba04`)
   - [x] Release Orchestrator workflow run completed successfully (`v0.2.11` release tag and release published)
 

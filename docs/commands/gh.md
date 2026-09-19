@@ -134,6 +134,7 @@ devops gh milestones sync [OPTIONS]
 |---|---|---|---|
 | `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--create-release-epics` | `boolean` | - | Provision or synchronize release tracking epics for each milestone |
 | `--dry-run` | `boolean` | - | Simulate milestone extraction without creating remote records |
 
 ### `devops gh milestones status`
@@ -174,6 +175,30 @@ devops gh milestones close [OPTIONS] <name>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository |
+
+### `devops gh milestones edit`
+
+**Edit an existing milestone title, description, state, or due date.**
+
+```bash
+devops gh milestones edit [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | Milestone version, title, or number (e.g. v0.2.21 or 34) |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--title`, `-t` | `string` | - | New milestone title |
+| `--description`, `-d` | `string` | - | New milestone description |
+| `--state`, `-s` | `string` | - | New state (open or closed) |
+| `--due-date` | `string` | - | ISO due date (YYYY-MM-DD) |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 ---
@@ -229,6 +254,7 @@ devops gh project reconcile [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--project-number`, `-n` | `integer` | - | GitHub Projects v2 board number |
+| `--state`, `-s` | `string` | `all` | Filter issue/PR states (open, closed, all) |
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run` | `boolean` | - | Preview field reconciliation without mutations |
 
@@ -500,7 +526,7 @@ devops gh issues status [OPTIONS]
 
 ### `devops gh issues edit`
 
-**Edit an existing issue title, body, or state.**
+**Edit an existing issue title, body, state, milestone, or taxonomy labels.**
 
 ```bash
 devops gh issues edit [OPTIONS] <number>
@@ -519,7 +545,28 @@ devops gh issues edit [OPTIONS] <number>
 | `--title`, `-t` | `string` | - | New issue title. |
 | `--body`, `-b` | `string` | - | New issue body text. |
 | `--state`, `-s` | `string` | - | New state (open or closed). |
+| `--milestone`, `-m` | `string` | - | New milestone version, title, or number (e.g. v0.2.21). |
+| `--clear-milestone` | `boolean` | - | Remove milestone linkage from the issue. |
+| `--add-label` | `string` | - | Taxonomy label to attach (repeatable). |
+| `--remove-label` | `string` | - | Taxonomy label to detach (repeatable). |
 | `--repo`, `-R` | `string` | - | Target repository |
+
+### `devops gh issues reconcile-roadmap`
+
+**Reconcile existing issue milestones to match docs/ROADMAP.md specifications.**
+
+```bash
+devops gh issues reconcile-roadmap [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--roadmap`, `-r` | `path` | `docs/ROADMAP.md` | Path to docs/ROADMAP.md file |
+| `--tasks-dir`, `-t` | `path` | `docs/agent/tasks` | Directory for local per-task tracking files |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--dry-run` | `boolean` | - | Preview issue milestone reconciliation without mutations |
 
 ### `devops gh issues sync-roadmap`
 

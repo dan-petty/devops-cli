@@ -3,7 +3,7 @@
 **Issue**: [#273](https://github.com/dan-petty/devops-cli/issues/273)
 **PR**: None (Draft)
 **Status**: Backlog
-**Milestone**: `v0.2.21`
+**Milestone**: `v0.3.2`
 **Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/ai`, `priority/p0-critical`
 
