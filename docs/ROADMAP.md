@@ -52,7 +52,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Review Findings Remediation, Defensive Boundary Hardening & Self-Improvement Feedback Loop (P0 - Critical, Issue #262, PR #263)**: Remediates session findings across defensive boundaries (directory traversal containment, symlink rejection, pre-flight file size caps $\le 5\text{MB}$, None-safe severity handling, atomic serialized file exports).
 
 
-### Deep Cognitive Inspection, Priority Classification, AI Spend Tracking & Routing Services (v0.2.21 - Active Release)
+### Deep Cognitive Inspection, Priority Classification, AI Spend Tracking & Routing Services (v0.2.21 - Completed)
 - [x] **Multi-Scale Semantic Outline & Inspectional Scanner (`devops ai read --inspect`) (P0 - Critical, Issue #272, PR #282)**: Replaces naive monolithic file dumping with human-like inspectional reading and hierarchical perceptual scaffolding across 3 zoom levels (Topology, Structural Outline, Deep Focal Window).
 - [x] **Reliability Hardening, Exception Sanitization & Telemetry Optimization (P1 - High, Issue #280, PR #281)**: Hardens exception handling, bounded error detail lengths, optimizes telemetry waterfalls, and cleans workspace data tiers.
 - [x] **Dynamic Slot Leasing, Telemetry Deduplication & Context-Aware File Review (P1 - High, Issue #283, PR #284)**: Dynamic lease negotiation for subagents, non-duplicative distributed spans, and domain-classified file review pipelines.
@@ -63,7 +63,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 
 
 
-### Deep Subsystem Integration, Architectural Optimization & Extensible Refactoring (v0.2.22 - Scheduled)
+### Deep Subsystem Integration, Architectural Optimization & Extensible Refactoring (v0.2.22 - Active Release)
 - [ ] **Kubernetes Dynamic Informer Architecture, Event Streaming & Subprocess Elimination Research (P0 - Critical, Issue #307)**:
   - *Context & Rationale*: Existing Kubernetes subcommands rely heavily on CLI `kubectl` subprocess invocations and fragmented synchronous calls, incurring high process spawning overhead and rigid error handling.
   - *Deep Integration & Functional Extension*: Integrate the official Python `kubernetes` client's asynchronous dynamic client, Informer watchers, and WebSocket streaming protocols to stream cluster events, pod status transitions, and container logs directly into in-memory queues without spawning external binaries.
@@ -186,6 +186,11 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: Audits AI review schemas and validators to strip keyword-matching assertions in favor of strict structural schema boundaries and positional enumeration.
 - [ ] **Lossless Structured Error Reflection for Schema Retries (P1 - High)**:
   - *Context & Rationale*: Enhances Pydantic schema validation error feedback by preserving up to 5 field paths with type violations and prescriptive fix hints, enabling single-turn model self-correction.
+- [ ] **OCI Container Image Packaging, Standardized Metadata & GHCR Package Integration (P1 - High)**:
+  - *Context & Rationale*: Container images built and published to GitHub Container Registry (GHCR) (such as workstation devcontainers and standalone CLI runner images) lack standardized Open Container Initiative (OCI) image annotations and build metadata, preventing GitHub from automatically connecting packages to the repository, displaying package details, and managing repository-level access permissions.
+  - *OCI Metadata & GHCR Specification Alignment*: Adopt standard [OCI Image Spec labels](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#labelling-container-images) (`org.opencontainers.image.source=https://github.com/dan-petty/devops-cli`, `org.opencontainers.image.description`, `org.opencontainers.image.licenses=MIT`, `org.opencontainers.image.title`, `org.opencontainers.image.revision`, `org.opencontainers.image.version`, `org.opencontainers.image.created`, `org.opencontainers.image.documentation`) across all `Dockerfile` manifests and GitHub Actions container build workflows (`docker/metadata-action`, `.devcontainer/devcontainer.json`, and `.github/workflows/release.yml`), automatically linking published GHCR packages directly with `https://github.com/dan-petty/devops-cli`.
+  - *Multi-Architecture Packaging & Provenance*: Integrate Buildx multi-platform compilation (`linux/amd64`, `linux/arm64`) for both the devcontainer base image and standalone `devops` CLI container; generate cryptographic SLSA provenance attestations and CycloneDX/SPDX SBOMs during package publication; enable layer caching via GitHub Actions cache backend.
+  - *Refactoring Potential & Automated Verification*: Consolidate container build definitions in `.devcontainer/` and `.github/workflows/release.yml`; add automated pre-publish validation (`devops devcontainer validate` / OCI label inspection) ensuring `org.opencontainers.image.source` matches the canonical repository URL before any push to `ghcr.io`.
 
 ### Reactive Workstation Command Center, Interactive TUI & Unified Operations Hub (v0.2.24 - Scheduled)
 - [ ] **Reactive Multi-Workspace Textual TUI Architecture & Master-Detail Navigation (`devops dashboard`, `devops tui`) (P0 - Critical)**:
