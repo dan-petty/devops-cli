@@ -7,6 +7,7 @@ import logging
 import os
 import tempfile
 import threading
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -24,6 +25,7 @@ active_ollama_requests: dict[str, int] = {}
 ollama_active_lock = threading.Lock()
 ollama_semaphores: dict[str, threading.Semaphore] = {}
 ollama_sem_lock = threading.Lock()
+ollama_slot_condition = threading.Condition(threading.Lock())
 global_ollama_url_index: int = 0
 global_ollama_url_lock = threading.Lock()
 
@@ -63,19 +65,75 @@ def get_ollama_semaphore(url: str, max_parallel: int) -> threading.Semaphore:
         return ollama_semaphores[url]
 
 
+def _find_available_slot(candidates: list[str], max_parallel: int) -> str | None:
+    """Find candidate URL with active request count below max_parallel and lowest load."""
+    best_url: str | None = None
+    best_active = max_parallel
+    for url in candidates:
+        active = active_ollama_requests.get(url, 0)
+        if active < best_active:
+            best_url = url
+            best_active = active
+    return best_url
+
+
+@contextmanager
+def acquire_ollama_slot(
+    candidates: list[str],
+    max_parallel: int = 2,
+    timeout: float = 300.0,
+) -> Generator[str]:
+    """Dynamically lease an available Ollama slot across candidate nodes without HoL blocking."""
+    if not candidates:
+        raise AIClientError("No candidate Ollama servers provided for slot leasing.")
+
+    deadline = time.monotonic() + timeout
+    leased_url: str | None = None
+
+    with ollama_slot_condition:
+        while leased_url is None:
+            best_url = _find_available_slot(candidates, max_parallel)
+            if best_url is not None:
+                leased_url = best_url
+                active_ollama_requests[leased_url] = active_ollama_requests.get(leased_url, 0) + 1
+                break
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AIClientError(
+                    f"Timed out after {timeout}s waiting for available slot across Ollama nodes: {candidates}"
+                )
+            ollama_slot_condition.wait(timeout=min(remaining, 0.5))
+
+    try:
+        yield leased_url
+    finally:
+        with ollama_slot_condition:
+            if leased_url is not None:
+                active_ollama_requests[leased_url] = max(
+                    0, active_ollama_requests.get(leased_url, 0) - 1
+                )
+            ollama_slot_condition.notify_all()
+
+
 @contextmanager
 def track_ollama_url(url: str, max_parallel: int = 2) -> Generator[None]:
     """Acquire concurrency slot and track active in-flight requests per Ollama server node."""
-    sem = get_ollama_semaphore(url, max_parallel)
-    sem.acquire()
-    try:
-        with ollama_active_lock:
-            active_ollama_requests[url] = active_ollama_requests.get(url, 0) + 1
+    with acquire_ollama_slot([url], max_parallel=max_parallel):
         yield
-    finally:
-        with ollama_active_lock:
-            active_ollama_requests[url] = max(0, active_ollama_requests.get(url, 0) - 1)
-        sem.release()
+
+
+def get_ollama_active_leases(url: str) -> int:
+    """Get count of active leased slots for an Ollama server node."""
+    with ollama_slot_condition:
+        return active_ollama_requests.get(url, 0)
+
+
+def reset_ollama_slots() -> None:
+    """Reset all active slot leases to zero (for testing)."""
+    with ollama_slot_condition:
+        active_ollama_requests.clear()
+        ollama_slot_condition.notify_all()
 
 
 def read_limited_json(

@@ -413,6 +413,7 @@ class SpanHandle(str):
 _ATTRIBUTE_NORMALIZATION: dict[str, str] = {
     "cli.command": "process.command_line",
     "cli.function": "code.function",
+    "cli.error": "error.message",
     "file_path": "code.filepath",
     "file.path": "code.filepath",
     "subprocess.bin": "process.executable.name",
@@ -431,6 +432,21 @@ _ATTRIBUTE_NORMALIZATION: dict[str, str] = {
     "k8s.deployment": "k8s.deployment.name",
     "argo.app": "argo.application.name",
 }
+
+
+def _normalize_and_deduplicate_attributes(attrs: dict[str, Any]) -> None:
+    """Normalize legacy attribute names to OTel semantic conventions and eliminate duplicate tags."""
+    for legacy_k, otel_k in _ATTRIBUTE_NORMALIZATION.items():
+        if legacy_k in attrs:
+            if otel_k not in attrs:
+                attrs[otel_k] = attrs[legacy_k]
+            if legacy_k in ("cli.function", "cli.error"):
+                del attrs[legacy_k]
+
+    if "code.function" in attrs and "cli.function" in attrs:
+        del attrs["cli.function"]
+    if "error.message" in attrs and "cli.error" in attrs:
+        del attrs["cli.error"]
 
 
 _current_trace_id_ctx: ContextVar[str | None] = ContextVar("otel_current_trace_id", default=None)
@@ -610,14 +626,17 @@ class OTelTelemetryClient:
         exit_code: int | None,
     ) -> str:
         """Populate span attributes for an exception and return a descriptive error message."""
-        error_msg = str(exc) or exc.__class__.__name__
+        from devops_cli.security.sanitizer import mask_secrets
+
+        clean_msg = mask_secrets(str(exc))
+        error_msg = clean_msg or exc.__class__.__name__
         if isinstance(exc, KeyboardInterrupt):
             attrs["error.type"] = "KeyboardInterrupt"
             attrs["cli.interrupted"] = True
             return "Command cancelled by user (SIGINT / KeyboardInterrupt)"
 
         attrs["error.type"] = exc.__class__.__name__
-        attrs["error.message"] = str(exc)
+        attrs["error.message"] = clean_msg
         if exit_code is not None:
             attrs["cli.exit_code"] = exit_code
             attrs["process.exit.code"] = exit_code
@@ -667,10 +686,7 @@ class OTelTelemetryClient:
         token_span = _current_span_id_ctx.set(span_id)
 
         attrs = dict(attributes or {})
-        # Auto-normalize legacy attribute names to OTel semantic conventions
-        for legacy_k, otel_k in _ATTRIBUTE_NORMALIZATION.items():
-            if legacy_k in attrs and otel_k not in attrs:
-                attrs[otel_k] = attrs[legacy_k]
+        _normalize_and_deduplicate_attributes(attrs)
 
         handle = SpanHandle(span_id, attrs)
         status_code = "STATUS_CODE_OK"
@@ -699,6 +715,8 @@ class OTelTelemetryClient:
             end_nano = int(time.time() * 1e9)
             _current_trace_id_ctx.reset(token_trace)
             _current_span_id_ctx.reset(token_span)
+
+            _normalize_and_deduplicate_attributes(attrs)
 
             span_data: dict[str, Any] = {
                 "traceId": trace_id,

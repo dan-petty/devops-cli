@@ -745,3 +745,95 @@ CONST_ROADMAP_PRIORITY_TAGS: Final[dict[str, tuple[str, ...]]] = {
 CONST_MAX_INSPECT_FILE_SIZE_BYTES: Final[int] = 5 * 1024 * 1024
 CONST_DEFAULT_FOCAL_WINDOW_SIZE: Final[int] = 30
 CONST_HOTSPOT_COMPLEXITY_THRESHOLD: Final[int] = 5
+
+# ── File Classification & Review Context Taxonomy ─────────────────────────────
+CONST_DOC_EXTENSIONS: Final[frozenset[str]] = frozenset(
+    {
+        ".md",
+        ".markdown",
+        ".rst",
+        ".txt",
+        ".adoc",
+        ".asciidoc",
+        ".tex",
+    }
+)
+
+CONST_DOC_FILENAMES: Final[frozenset[str]] = frozenset(
+    {
+        "license",
+        "copying",
+        "notice",
+        "authors",
+        "contributors",
+        "changelog",
+        "readme",
+        "agents.md",
+        "claude.md",
+    }
+)
+
+CONST_CONFIG_EXTENSIONS: Final[frozenset[str]] = frozenset(
+    {
+        ".yaml",
+        ".yml",
+        ".json",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".conf",
+        ".env",
+        ".tf",
+        ".hcl",
+        ".xml",
+        ".properties",
+        ".plist",
+    }
+)
+
+CONST_CONFIG_FILENAMES: Final[frozenset[str]] = frozenset(
+    {
+        "dockerfile",
+        "containerfile",
+        ".dockerignore",
+        ".gitignore",
+        ".gitattributes",
+        ".editorconfig",
+        ".flake8",
+        ".pylintrc",
+        "helmfile.yaml",
+        "chart.yaml",
+        "values.yaml",
+        "kustomization.yaml",
+    }
+)
+
+CONST_CODE_EXTENSIONS: Final[frozenset[str]] = frozenset(
+    {
+        ".py",
+        ".pyi",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".go",
+        ".rs",
+        ".java",
+        ".c",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".cs",
+        ".rb",
+        ".php",
+        ".swift",
+        ".kt",
+        ".kts",
+        ".scala",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".sql",
+        ".lua",
+    }
+)
