@@ -240,21 +240,21 @@ Code promotion follows a structured branch hierarchy, automated dependency manag
 
 ```mermaid
 gitGraph
-    commit id: "release-v0.2.11"
+    commit id: "v0.2.20" tag: "v0.2.20"
+    branch release/v0.2.21
+    checkout release/v0.2.21
+    commit id: "feat(core): prepare release line"
     branch feat/sdlc
     checkout feat/sdlc
     commit id: "feat(sdlc): add templates"
     commit id: "docs(sdlc): add manual"
-    checkout release/v0.2.11
-    merge feat/sdlc id: "squash-merge PR #36"
-    branch release/v0.2.12
-    checkout release/v0.2.12
-    commit id: "chore(release): v0.2.12"
+    checkout release/v0.2.21
+    merge feat/sdlc id: "squash-merge PR #292"
     checkout main
-    merge release/v0.2.12 id: "release PR merge"
-    commit id: "tag: v0.2.12"
-    branch release/v0.2.13
-    checkout release/v0.2.13
+    merge release/v0.2.21 id: "release PR merge" tag: "v0.2.21"
+    branch release/v0.2.22
+    checkout release/v0.2.22
+    commit id: "chore(release): v0.2.22"
 ```
 
 #### Branch Governance & Hierarchy
