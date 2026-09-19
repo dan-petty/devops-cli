@@ -64,7 +64,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 
 
 ### Deep Subsystem Integration, Architectural Optimization & Extensible Refactoring (v0.2.22 - Active Release)
-- [ ] **Kubernetes Dynamic Informer Architecture, Event Streaming & Subprocess Elimination Research (P0 - Critical, Issue #307)**:
+- [x] **Kubernetes Dynamic Informer Architecture, Event Streaming & Subprocess Elimination Research (P0 - Critical, Issue #307)**:
   - *Context & Rationale*: Existing Kubernetes subcommands rely heavily on CLI `kubectl` subprocess invocations and fragmented synchronous calls, incurring high process spawning overhead and rigid error handling.
   - *Deep Integration & Functional Extension*: Integrate the official Python `kubernetes` client's asynchronous dynamic client, Informer watchers, and WebSocket streaming protocols to stream cluster events, pod status transitions, and container logs directly into in-memory queues without spawning external binaries.
   - *Code Optimization & Performance Acceleration*: Reduce Kubernetes status and pod polling latency from ~250ms per invocation to <10ms in-memory async I/O; implement client-side typed response caching with bounded TTLs; eliminate redundant JSON parsing of `kubectl get -o json` outputs.

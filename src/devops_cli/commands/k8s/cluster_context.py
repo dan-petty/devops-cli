@@ -93,6 +93,13 @@ def switch_context(
     cmd = ["kubectl", "config", "use-context", name]
     runtime._run_cmd(cmd, check=True)
 
+    try:
+        from devops_cli.k8s.service import KubernetesService
+
+        KubernetesService.get_instance().switch_context(name)
+    except Exception:
+        pass
+
     _sync_configured_k8s_context(name)
 
     msg = MESSAGES.k8s.switched_context.format(context=name)
@@ -245,6 +252,26 @@ def _execute_legacy_kubectl_logs(
             details={"cmd": " ".join(cmd), "pod": pod, "tail": bounded_tail},
         )
         return
+
+    try:
+        from devops_cli.k8s.service import KubernetesService
+
+        log_output = KubernetesService.get_instance().read_pod_logs(
+            pod=pod,
+            namespace=namespace or "default",
+            container=container,
+            tail_lines=bounded_tail,
+            follow=follow,
+        )
+        if follow and not isinstance(log_output, str):
+            for line in log_output:
+                print(line, end="")
+        else:
+            print(str(log_output))
+        return
+    except Exception:
+        pass
+
     if follow:
         runtime.run_subprocess(
             cmd,
