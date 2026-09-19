@@ -26,6 +26,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_read`](#ai-read) | Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window). |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
 | [`ai_resume`](#ai-resume) | Gracefully resume suspended constellation agent loops and task runners. |
+| [`ai_spend_report`](#ai-spend-report) | Report approximate AI spend per backend service, model, or provider over time. |
 | [`ai_subagent_offload`](#ai-subagent-offload) | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
 | [`ai_test_gen`](#ai-test-gen) | Synthesize isolated pytest unit test suite for a target Python file. |
 | [`ai_vllm_scale`](#ai-vllm-scale) | Inspect or configure vLLM Tensor Parallelism serving parameters. |
@@ -376,6 +377,17 @@ Gracefully resume suspended constellation agent loops and task runners.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `dry_run` | `boolean` | No | `False` | - |
+
+### `ai_spend_report`
+
+Report approximate AI spend per backend service, model, or provider over time.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `days` | `integer` | No | - | - |
+| `group_by` | `string` | No | `server` | - |
 
 ### `ai_subagent_offload`
 

@@ -837,3 +837,5 @@ CONST_CODE_EXTENSIONS: Final[frozenset[str]] = frozenset(
         ".lua",
     }
 )
+
+CONST_AI_SPEND_TABLE_NAME: Final[str] = "ai_spend_records"

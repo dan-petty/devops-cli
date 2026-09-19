@@ -103,13 +103,25 @@ def direct_model_request_sync(
         "pydantic_ai.direct.model_request_sync",
         attributes={"gen_ai.request.model": model_repr, "gen_ai.messages_count": len(msgs)},
     ):
-        return model_request_sync(
+        resp = model_request_sync(
             resolved_model,
             msgs,
             model_settings=model_settings,
             model_request_parameters=model_request_parameters,
             instrument=instrument,
         )
+        if resp.usage:
+            from devops_cli.ai.spend import track_request_spend
+
+            track_request_spend(
+                provider="pydantic_ai_direct",
+                model=model_repr,
+                server="direct",
+                prompt_tokens=resp.usage.input_tokens or 0,
+                completion_tokens=resp.usage.output_tokens or 0,
+                request_type="direct_sync",
+            )
+        return resp
 
 
 async def direct_model_request(
@@ -133,13 +145,25 @@ async def direct_model_request(
         "pydantic_ai.direct.model_request",
         attributes={"gen_ai.request.model": model_repr, "gen_ai.messages_count": len(msgs)},
     ):
-        return await model_request(
+        resp = await model_request(
             resolved_model,
             msgs,
             model_settings=model_settings,
             model_request_parameters=model_request_parameters,
             instrument=instrument,
         )
+        if resp.usage:
+            from devops_cli.ai.spend import track_request_spend
+
+            track_request_spend(
+                provider="pydantic_ai_direct",
+                model=model_repr,
+                server="direct",
+                prompt_tokens=resp.usage.input_tokens or 0,
+                completion_tokens=resp.usage.output_tokens or 0,
+                request_type="direct_async",
+            )
+        return resp
 
 
 def direct_model_request_stream_sync(

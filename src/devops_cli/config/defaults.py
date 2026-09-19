@@ -297,6 +297,14 @@ DEFAULT_LLM_MAX_TOKENS: int = 8192
 DEFAULT_AI_TEST_PROMPT: str = "Hello, world!"
 DEFAULT_ESTIMATED_PROMPT_TOKENS: int = 1500
 DEFAULT_MAX_AST_FILE_SIZE_BYTES: int = 5 * 1024 * 1024  # 5MB DoS protection limit
+DEFAULT_OPEN_SOURCE_PRICING_URL: str = (
+    "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+)
+DEFAULT_AI_SPEND_DB_FILENAME: str = "spend.db"
+DEFAULT_AI_PRICING_CATALOG_FILENAME: str = "pricing_catalog.json"
+DEFAULT_AI_PRICING_OVERRIDES_FILENAME: str = "pricing_overrides.json"
+DEFAULT_AI_PRICING_CACHE_TTL_SECONDS: float = 7 * 86400.0  # 7 days
+
 
 # ── Code Review, Scanner & Tooling Defaults ───────────────────────────────────
 DEFAULT_BASE_BRANCH: str = "main"
