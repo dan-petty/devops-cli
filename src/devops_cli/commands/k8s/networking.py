@@ -166,8 +166,19 @@ def _detect_kubectl_service_url(
 
 
 def _detect_service_url(service: str, namespace: str, context: str | None = None) -> str | None:
-    """Query service URL via minikube service or kubectl nodePort/cluster info."""
+    """Query service URL via native KubernetesService, minikube service, or kubectl fallback."""
     effective_ctx = runtime.resolve_effective_context(context)
+    try:
+        from devops_cli.k8s.service import KubernetesService
+
+        native_url = KubernetesService.get_instance().resolve_service_endpoint(
+            service=service, namespace=namespace, context=effective_ctx
+        )
+        if native_url:
+            return native_url
+    except Exception as exc:
+        logger.debug("Native service endpoint resolution failed: %s", exc)
+
     return _detect_minikube_service_url(
         service, namespace, effective_ctx
     ) or _detect_kubectl_service_url(service, namespace, effective_ctx)

@@ -866,3 +866,15 @@ CONST_RESEARCH_DIR_NAME: Final[str] = "research"
 CONST_DEFAULT_MAX_SYNTOPICAL_SOURCES: Final[int] = 20
 CONST_SYNTOPICAL_MIN_RELEVANCE: Final[float] = 0.2
 CONST_SYNTOPICAL_MAX_EXCERPT_CHARS: Final[int] = 1000
+
+# ── Kubernetes Informer & Service Constants ──────────────────────────────────
+CONST_K8S_EVENT_ADDED: Final[str] = "ADDED"
+CONST_K8S_EVENT_MODIFIED: Final[str] = "MODIFIED"
+CONST_K8S_EVENT_DELETED: Final[str] = "DELETED"
+CONST_K8S_EVENT_ERROR: Final[str] = "ERROR"
+CONST_K8S_INFORMER_EVENTS: Final[tuple[str, ...]] = (
+    CONST_K8S_EVENT_ADDED,
+    CONST_K8S_EVENT_MODIFIED,
+    CONST_K8S_EVENT_DELETED,
+    CONST_K8S_EVENT_ERROR,
+)
