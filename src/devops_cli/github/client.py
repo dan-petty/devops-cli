@@ -18,6 +18,8 @@ from devops_cli.models.ssh import SSHKeyInfo
 if TYPE_CHECKING:
     from github.PullRequest import PullRequest
 
+    from devops_cli.github.graphql import GitHubGraphQLClient
+
 
 class RepoInfo(BaseModel):
     name: str
@@ -33,8 +35,37 @@ class GitHubClient:
     def __init__(self, token: str) -> None:
         from github import Auth, Github
 
+        from devops_cli.github.graphql import GitHubGraphQLClient
+
         self._token = token
         self._gh = Github(auth=Auth.Token(token))
+        self._graphql = GitHubGraphQLClient(token=token)
+
+    @property
+    def graphql(self) -> GitHubGraphQLClient:
+        """Access high-performance GraphQL client with batching and ETag caching."""
+        return self._graphql
+
+    def get_repo_overview(
+        self,
+        repo: str,
+        issues_limit: int = 50,
+        prs_limit: int = 50,
+        milestones_limit: int = 20,
+    ) -> Any:
+        """Fetch repository overview (issues, PRs, milestones, rate limit) in a single GraphQL call."""
+        if "/" in repo:
+            owner, name = repo.split("/", 1)
+        else:
+            owner = self._gh.get_user().login
+            name = repo
+        return self._graphql.fetch_repo_overview(
+            owner=owner,
+            repo=name,
+            issues_limit=issues_limit,
+            prs_limit=prs_limit,
+            milestones_limit=milestones_limit,
+        )
 
     def get_org_repos(
         self,
