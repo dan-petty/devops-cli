@@ -112,6 +112,7 @@ def test_fastmcp_tools_registration() -> None:
         "ai_ast_graph",
         "ai_pack_context",
         "ai_read",
+        "ai_spend_report",
         # HashiCorp Vault
         "vault_status",
         "vault_get",
@@ -177,6 +178,7 @@ def test_fastmcp_prompts_and_resources_registration() -> None:
         "resource://release/status",
         "resource://vault/status",
         "resource://ai/constellation",
+        "resource://ai/spend",
         "resource://mcp/tools",
         "resource://gh/pages/status",
         "resource://gh/issues/status",

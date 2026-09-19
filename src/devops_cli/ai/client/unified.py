@@ -49,6 +49,56 @@ from devops_cli.telemetry import record_metric, trace_span
 logger = logging.getLogger(__name__)
 
 
+def _extract_server_from_backend_info(backend_info: str | None, default_host: str) -> str:
+    """Extract host/address from formatted backend_info string, e.g. 'ollama (localhost:11434)'."""
+    if not backend_info:
+        return default_host
+    if "(" in backend_info and ")" in backend_info:
+        return backend_info.split("(", 1)[1].split(")", 1)[0].strip()
+    return backend_info.strip()
+
+
+def _set_timing_span_attributes(span_handle: Any, res: LLMResponse) -> None:
+    """Set latency, duration, and token rate attributes on response span."""
+    if res.eval_duration_ms is not None:
+        span_handle.set_attribute("llm.eval_duration_ms", res.eval_duration_ms)
+        if res.completion_tokens and res.eval_duration_ms > 0:
+            tok_rate = res.completion_tokens / (res.eval_duration_ms / 1000.0)
+            span_handle.set_attribute("gen_ai.token_rate_tok_per_sec", round(tok_rate, 2))
+    if res.prompt_eval_duration_ms is not None:
+        span_handle.set_attribute("llm.prompt_eval_duration_ms", res.prompt_eval_duration_ms)
+    if res.processing_seconds is not None:
+        span_handle.set_attribute("llm.processing_seconds", res.processing_seconds)
+    if res.wall_seconds is not None:
+        span_handle.set_attribute("llm.wall_seconds", res.wall_seconds)
+
+
+def _set_response_span_attributes(span_handle: Any, res: LLMResponse, p: str) -> None:
+    """Set standard GenAI telemetry attributes on response span."""
+    if res.backend_info:
+        span_handle.set_attribute("gen_ai.server.address", res.backend_info)
+    if res.prompt_tokens is not None:
+        span_handle.set_attribute("gen_ai.usage.prompt_tokens", res.prompt_tokens)
+        span_handle.set_attribute("gen_ai.usage.input_tokens", res.prompt_tokens)
+    if res.completion_tokens is not None:
+        span_handle.set_attribute("gen_ai.usage.completion_tokens", res.completion_tokens)
+        span_handle.set_attribute("gen_ai.usage.output_tokens", res.completion_tokens)
+    if res.total_tokens is not None:
+        span_handle.set_attribute("gen_ai.usage.total_tokens", res.total_tokens)
+    _set_timing_span_attributes(span_handle, res)
+    span_handle.set_attribute("gen_ai.response.finish_reasons", ["stop"])
+    span_handle.set_attribute("gen_ai.response_preview", res.text[:200].replace("\n", " ").strip())
+    span_handle.set_attribute("gen_ai.thinking", bool(res.thinking))
+    span_handle.add_event(
+        "llm_response_received",
+        {
+            "total_tokens": res.total_tokens or 0,
+            "wall_seconds": res.wall_seconds or 0.0,
+            "backend": res.backend_info or p,
+        },
+    )
+
+
 class LLMClient(
     OllamaProviderMixin,
     ClaudeProviderMixin,
@@ -322,59 +372,12 @@ class LLMClient(
                 "model": self._config.model,
             },
         ) as span_handle:
-            if p == "ollama":
-                res = self._ollama_messages(
-                    system, messages, enable_thinking=enable_thinking, priority=resolved_priority
-                )
-            elif p == "claude":
-                res = self._claude_messages(system, messages, enable_thinking=enable_thinking)
-            elif p in ("copilot", "github_copilot", "openai", "gateway"):
-                res = self._openai_compat_messages(
-                    system, messages, enable_thinking=enable_thinking
-                )
-            else:
-                raise LLMInferenceError(
-                    f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai, gateway",
-                    provider=p,
-                )
-
-            if res.backend_info:
-                span_handle.set_attribute("gen_ai.server.address", res.backend_info)
-            if res.prompt_tokens is not None:
-                span_handle.set_attribute("gen_ai.usage.prompt_tokens", res.prompt_tokens)
-                span_handle.set_attribute("gen_ai.usage.input_tokens", res.prompt_tokens)
-            if res.completion_tokens is not None:
-                span_handle.set_attribute("gen_ai.usage.completion_tokens", res.completion_tokens)
-                span_handle.set_attribute("gen_ai.usage.output_tokens", res.completion_tokens)
-            if res.total_tokens is not None:
-                span_handle.set_attribute("gen_ai.usage.total_tokens", res.total_tokens)
-            if res.eval_duration_ms is not None:
-                span_handle.set_attribute("llm.eval_duration_ms", res.eval_duration_ms)
-                if res.completion_tokens and res.eval_duration_ms > 0:
-                    tok_rate = res.completion_tokens / (res.eval_duration_ms / 1000.0)
-                    span_handle.set_attribute("gen_ai.token_rate_tok_per_sec", round(tok_rate, 2))
-            if res.prompt_eval_duration_ms is not None:
-                span_handle.set_attribute(
-                    "llm.prompt_eval_duration_ms", res.prompt_eval_duration_ms
-                )
-            if res.processing_seconds is not None:
-                span_handle.set_attribute("llm.processing_seconds", res.processing_seconds)
-            if res.wall_seconds is not None:
-                span_handle.set_attribute("llm.wall_seconds", res.wall_seconds)
-
-            span_handle.set_attribute("gen_ai.response.finish_reasons", ["stop"])
-            span_handle.set_attribute(
-                "gen_ai.response_preview", res.text[:200].replace("\n", " ").strip()
+            res = self._invoke_provider_messages(
+                p, system, messages, enable_thinking, resolved_priority
             )
-            span_handle.set_attribute("gen_ai.thinking", bool(res.thinking))
-
-            span_handle.add_event(
-                "llm_response_received",
-                {
-                    "total_tokens": res.total_tokens or 0,
-                    "wall_seconds": res.wall_seconds or 0.0,
-                    "backend": res.backend_info or p,
-                },
+            duration = time.perf_counter() - start
+            self._record_response_telemetry_and_spend(
+                span_handle, res, p, messages, system, duration
             )
 
         duration = time.perf_counter() - start
@@ -385,6 +388,66 @@ class LLMClient(
             attributes={"provider": p, "model": self._config.model},
         )
         return res
+
+    def _invoke_provider_messages(
+        self,
+        p: str,
+        system: str,
+        messages: list[ChatMessage],
+        enable_thinking: bool,
+        resolved_priority: RequestPriority,
+    ) -> LLMResponse:
+        """Dispatch messages to configured provider driver."""
+        if p == "ollama":
+            return self._ollama_messages(
+                system, messages, enable_thinking=enable_thinking, priority=resolved_priority
+            )
+        if p == "claude":
+            return self._claude_messages(system, messages, enable_thinking=enable_thinking)
+        if p in ("copilot", "github_copilot", "openai", "gateway"):
+            return self._openai_compat_messages(system, messages, enable_thinking=enable_thinking)
+        raise LLMInferenceError(
+            f"Unknown provider: {p!r}. Choose: ollama, claude, copilot, openai, gateway",
+            provider=p,
+        )
+
+    def _record_response_telemetry_and_spend(
+        self,
+        span_handle: Any,
+        res: LLMResponse,
+        p: str,
+        messages: list[ChatMessage],
+        system: str,
+        duration: float,
+    ) -> None:
+        """Record response attributes, spend calculation, and OpenTelemetry metrics."""
+        _set_response_span_attributes(span_handle, res, p)
+        srv = _extract_server_from_backend_info(res.backend_info, self.backend_host)
+        from devops_cli.ai.context_budget import count_tokens
+        from devops_cli.ai.spend import track_request_spend
+
+        p_tokens = (
+            res.prompt_tokens
+            if res.prompt_tokens is not None
+            else sum(count_tokens(m.content) for m in messages)
+            + (count_tokens(system) if system else 0)
+        )
+        c_tokens = (
+            res.completion_tokens if res.completion_tokens is not None else count_tokens(res.text)
+        )
+        rec = track_request_spend(
+            provider=p,
+            model=self._config.model,
+            server=srv,
+            backend_info=res.backend_info or self.backend_info,
+            prompt_tokens=p_tokens,
+            completion_tokens=c_tokens,
+            cached=res.cached,
+            request_type="chat_dispatch",
+            duration_seconds=res.wall_seconds or duration,
+        )
+        if rec is not None:
+            span_handle.set_attribute("gen_ai.usage.cost_usd", rec.cost_usd)
 
     def chat(
         self,
@@ -725,17 +788,54 @@ class LLMClient(
                     from devops_cli.ai.client.streaming import StreamingTokenProcessor
 
                     gen = StreamingTokenProcessor().sanitize_stream(gen)
+                accumulated_chunks: list[str] = []
                 for chunk in gen:
                     first_token_time = self._record_first_token(span_h, t_start, first_token_time)
                     token_chunks_count += 1
+                    accumulated_chunks.append(chunk)
                     yield chunk
 
                 total_dur = time.perf_counter() - t_start
                 span_h.set_attribute("gen_ai.stream_chunks_count", token_chunks_count)
                 span_h.set_attribute("gen_ai.wall_seconds", total_dur)
+                self._record_stream_spend(
+                    span_h, p, messages, system, "".join(accumulated_chunks), total_dur
+                )
             except Exception as exc:
                 span_h.record_exception(exc)
                 raise
+
+    def _record_stream_spend(
+        self,
+        span_h: Any,
+        p: str,
+        messages: list[ChatMessage],
+        system: str,
+        accumulated_text: str,
+        total_dur: float,
+    ) -> None:
+        """Record streaming request spend to ledger and telemetry."""
+        from devops_cli.ai.context_budget import count_tokens
+        from devops_cli.ai.spend import track_request_spend
+
+        srv = _extract_server_from_backend_info(self.backend_info, self.backend_host)
+        p_tokens = sum(count_tokens(m.content) for m in messages) + (
+            count_tokens(system) if system else 0
+        )
+        c_tokens = count_tokens(accumulated_text)
+        rec = track_request_spend(
+            provider=p,
+            model=self._config.model,
+            server=srv,
+            backend_info=self.backend_info,
+            prompt_tokens=p_tokens,
+            completion_tokens=c_tokens,
+            cached=False,
+            request_type="stream",
+            duration_seconds=total_dur,
+        )
+        if rec is not None:
+            span_h.set_attribute("gen_ai.usage.cost_usd", rec.cost_usd)
 
     def list_models(self) -> list[str]:
         """List available models for the current provider."""

@@ -2666,6 +2666,38 @@ def get_ai_gateway_resource() -> str:
     )
 
 
+@mcp.tool()
+def ai_spend_report(
+    days: int | None = None,
+    group_by: str = "server",
+) -> str:
+    """Report approximate AI spend per backend service, model, or provider over time."""
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "cost",
+        "report",
+        "--group-by",
+        group_by,
+        "--format",
+        "json",
+    ]
+    if days is not None:
+        cmd.extend(["--days", str(days)])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.resource("resource://ai/spend")
+def get_ai_spend_resource() -> str:
+    """Return lifetime AI spend report aggregated by backend server in JSON format."""
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "ai", "cost", "report", "--group-by", "server", "--format", "json"],
+        timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+    )
+
+
 @mcp.resource("resource://libraries/indexed")
 def get_indexed_libraries_resource() -> str:
     """Return JSON metadata of all indexed library contracts, module counts, and symbol counts."""

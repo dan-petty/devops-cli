@@ -19,6 +19,7 @@ from devops_cli.commands.ai_controller import (
     run_quiesce_cmd,
     run_resume_cmd,
 )
+from devops_cli.commands.ai_cost import app as cost_app
 from devops_cli.commands.ai_gateway import app as gateway_app
 from devops_cli.commands.ai_harness import app as harness_app
 from devops_cli.commands.ai_ingest import app as ingest_app
@@ -120,6 +121,16 @@ app.add_typer(
     gateway_app,
     name="gateway",
     help="LLM Gateway and distributed inference mesh management.",
+)
+app.add_typer(
+    cost_app,
+    name="cost",
+    help="Track approximate lifetime spend and manage model pricing.",
+)
+app.add_typer(
+    cost_app,
+    name="spend",
+    help="Alias for 'cost' command.",
 )
 
 

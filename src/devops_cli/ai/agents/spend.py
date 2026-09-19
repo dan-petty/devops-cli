@@ -8,6 +8,15 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.agents.capabilities import BaseCapability
 from devops_cli.ai.agents.context import AgentHooks, RunContext
+from devops_cli.ai.spend import (
+    DEFAULT_INDUSTRIAL_MODEL_PRICING as DEFAULT_INDUSTRIAL_MODEL_PRICING,
+)
+from devops_cli.ai.spend import (
+    ModelPricing as ModelPricing,
+)
+from devops_cli.ai.spend import (
+    get_pricing_registry as get_pricing_registry,
+)
 from devops_cli.exceptions import DevOpsCLIError
 
 
@@ -18,39 +27,7 @@ class BudgetExceededError(DevOpsCLIError):
         super().__init__(message=message, error_code="BUDGET_EXCEEDED", **kwargs)
 
 
-class ModelPricing(BaseModel):
-    """Token pricing in USD per 1,000,000 tokens."""
-
-    prompt_usd_per_million: float = 0.0
-    completion_usd_per_million: float = 0.0
-
-    def calculate_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
-        """Calculate total USD cost for the given token counts."""
-        prompt_cost = (prompt_tokens / 1_000_000.0) * self.prompt_usd_per_million
-        completion_cost = (completion_tokens / 1_000_000.0) * self.completion_usd_per_million
-        return round(prompt_cost + completion_cost, 6)
-
-
-DEFAULT_MODEL_PRICING: dict[str, ModelPricing] = {
-    # OpenAI
-    "gpt-4o": ModelPricing(prompt_usd_per_million=2.50, completion_usd_per_million=10.00),
-    "gpt-4o-mini": ModelPricing(prompt_usd_per_million=0.15, completion_usd_per_million=0.60),
-    "gpt-4-turbo": ModelPricing(prompt_usd_per_million=10.00, completion_usd_per_million=30.00),
-    "o1": ModelPricing(prompt_usd_per_million=15.00, completion_usd_per_million=60.00),
-    "o3-mini": ModelPricing(prompt_usd_per_million=1.10, completion_usd_per_million=4.40),
-    # Anthropic Claude
-    "claude-3-5-sonnet-20241022": ModelPricing(
-        prompt_usd_per_million=3.00, completion_usd_per_million=15.00
-    ),
-    "claude-3-5-sonnet": ModelPricing(
-        prompt_usd_per_million=3.00, completion_usd_per_million=15.00
-    ),
-    "claude-3-5-haiku": ModelPricing(prompt_usd_per_million=0.80, completion_usd_per_million=4.00),
-    "claude-3-opus": ModelPricing(prompt_usd_per_million=15.00, completion_usd_per_million=75.00),
-    # Local Ollama / Free
-    "ollama": ModelPricing(prompt_usd_per_million=0.0, completion_usd_per_million=0.0),
-    "default": ModelPricing(prompt_usd_per_million=1.00, completion_usd_per_million=2.00),
-}
+DEFAULT_MODEL_PRICING: dict[str, ModelPricing] = dict(DEFAULT_INDUSTRIAL_MODEL_PRICING)
 
 
 class SpendUsage(BaseModel):
@@ -84,7 +61,7 @@ class SpendGuard(BaseCapability):
     def record_usage(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
         """Calculate, record, and check spend limits for a model request."""
         pricing_rule = self.pricing.get(model) or self.pricing.get(
-            model.split(":")[0], self.pricing.get("default", ModelPricing())
+            model.split(":")[0], get_pricing_registry().get_pricing(model)
         )
         cost = pricing_rule.calculate_cost(prompt_tokens, completion_tokens)
         self.usage.add(prompt_tokens, completion_tokens, cost)

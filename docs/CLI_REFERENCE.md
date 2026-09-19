@@ -3891,6 +3891,212 @@ devops ai gateway scale [OPTIONS]
 | `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
+### `devops ai cost`
+
+**Track approximate lifetime spend and manage model pricing.**
+
+```bash
+devops ai cost [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, all. |
+| `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai cost report`
+
+**Generate detailed spend and token report across backend services and servers.**
+
+```bash
+devops ai cost report [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, all. |
+| `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai cost prometheus`
+
+**Export AI spend and usage metrics in Prometheus exposition format.**
+
+```bash
+devops ai cost prometheus
+```
+
+#### `devops ai cost update-pricing`
+
+**Synchronize open-source industrial average pricing catalog from remote registry.**
+
+```bash
+devops ai cost update-pricing [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--source`, `-s` | `string` | - | Custom URL or file path for open-source model pricing dataset. |
+| `--timeout`, `-t` | `float` | `15.0` | Request timeout in seconds. |
+
+#### `devops ai cost list-pricing`
+
+**List active token pricing rates per model and backend server.**
+
+```bash
+devops ai cost list-pricing [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--search`, `-s` | `string` | - | Substring or pattern filter for model/endpoint names. |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai cost set-price`
+
+**Set custom token pricing override for a model or backend server.**
+
+```bash
+devops ai cost set-price <target> <prompt_rate> <completion_rate>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `string` | Yes | Target model identifier or backend server address (e.g. 'qwen2.5-coder:14b', 'localhost:11434'). |
+| `<prompt_rate>` | `float` | Yes | Prompt token cost in USD per 1,000,000 tokens. |
+| `<completion_rate>` | `float` | Yes | Completion token cost in USD per 1,000,000 tokens. |
+
+#### `devops ai cost reset`
+
+**Reset the lifetime AI spend ledger records.**
+
+```bash
+devops ai cost reset [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--yes`, `-y` | `boolean` | - | Confirm deletion of lifetime spend ledger records. |
+
+### `devops ai spend`
+
+**Alias for 'cost' command.**
+
+```bash
+devops ai spend [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, all. |
+| `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai spend report`
+
+**Generate detailed spend and token report across backend services and servers.**
+
+```bash
+devops ai spend report [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, all. |
+| `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai spend prometheus`
+
+**Export AI spend and usage metrics in Prometheus exposition format.**
+
+```bash
+devops ai spend prometheus
+```
+
+#### `devops ai spend update-pricing`
+
+**Synchronize open-source industrial average pricing catalog from remote registry.**
+
+```bash
+devops ai spend update-pricing [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--source`, `-s` | `string` | - | Custom URL or file path for open-source model pricing dataset. |
+| `--timeout`, `-t` | `float` | `15.0` | Request timeout in seconds. |
+
+#### `devops ai spend list-pricing`
+
+**List active token pricing rates per model and backend server.**
+
+```bash
+devops ai spend list-pricing [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--search`, `-s` | `string` | - | Substring or pattern filter for model/endpoint names. |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai spend set-price`
+
+**Set custom token pricing override for a model or backend server.**
+
+```bash
+devops ai spend set-price <target> <prompt_rate> <completion_rate>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `string` | Yes | Target model identifier or backend server address (e.g. 'qwen2.5-coder:14b', 'localhost:11434'). |
+| `<prompt_rate>` | `float` | Yes | Prompt token cost in USD per 1,000,000 tokens. |
+| `<completion_rate>` | `float` | Yes | Completion token cost in USD per 1,000,000 tokens. |
+
+#### `devops ai spend reset`
+
+**Reset the lifetime AI spend ledger records.**
+
+```bash
+devops ai spend reset [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--yes`, `-y` | `boolean` | - | Confirm deletion of lifetime spend ledger records. |
+
 ---
 
 ## devops review
