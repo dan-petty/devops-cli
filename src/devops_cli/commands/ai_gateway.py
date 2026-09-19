@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -42,11 +42,36 @@ def _render_routes_table(routes: list[GatewayRoute]) -> None:
     print_table(columns=headers, rows=rows, title="LLM Gateway Virtual Model Routes")
 
 
+def _render_scale_table(outcome: dict[str, Any]) -> None:
+    """Render scale parameters for inference backend."""
+    b_name = "LightLLM" if outcome.get("backend") == "lightllm" else "vLLM"
+    print_section(f"{b_name} Inference Scaling Configuration")
+    rows = [
+        ["Model", str(outcome.get("model", ""))],
+        ["Replicas", str(outcome.get("replicas", 1))],
+        ["Total VRAM (GB)", str(outcome.get("total_vram_gb", 0))],
+        ["Serving Status", str(outcome.get("status", ""))],
+    ]
+    if "tensor_parallel_size" in outcome:
+        rows.insert(2, ["Tensor Parallel Size", str(outcome["tensor_parallel_size"])])
+    if "max_model_len" in outcome:
+        rows.insert(3, ["Max Model Length", str(outcome["max_model_len"])])
+    print_table(
+        columns=["Property", "Configured Value"],
+        rows=rows,
+        title=f"{b_name} Scale Parameters",
+    )
+
+
 @app.command("status")
 def status_cmd(
     gateway_url: Annotated[
         str | None,
         typer.Option("--gateway-url", "-u", help="Optional gateway base URL override."),
+    ] = None,
+    provider: Annotated[
+        str | None,
+        typer.Option("--provider", "-p", help="Gateway provider: litellm or portkey."),
     ] = None,
     output_format: Annotated[
         str,
@@ -55,8 +80,8 @@ def status_cmd(
 ) -> None:
     """Probe LLM Gateway health, latency, and circuit breaker metrics."""
     settings = load_settings()
-    router = GatewayRouter(settings.ai)
-    result = router.probe_gateway(gateway_url)
+    router = GatewayRouter(settings.ai, provider=provider)
+    result = router.probe_gateway(gateway_url, provider=provider)
 
     if output_format.lower() == "json":
         write_stdout(format_json(result.model_dump()))
@@ -79,6 +104,10 @@ def routes_cmd(
         str | None,
         typer.Option("--gateway-url", "-u", help="Optional gateway base URL override."),
     ] = None,
+    provider: Annotated[
+        str | None,
+        typer.Option("--provider", "-p", help="Gateway provider: litellm or portkey."),
+    ] = None,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
@@ -86,7 +115,7 @@ def routes_cmd(
 ) -> None:
     """List registered virtual models and target backend inference instances."""
     settings = load_settings()
-    router = GatewayRouter(settings.ai)
+    router = GatewayRouter(settings.ai, provider=provider)
     routes = router.list_routes(gateway_url)
 
     if output_format.lower() == "json":
@@ -141,13 +170,19 @@ def failover_cmd(
 
 @app.command("scale")
 def scale_cmd(
+    backend: Annotated[
+        str,
+        typer.Option("--backend", "-b", help="Inference backend to scale: vllm or lightllm."),
+    ] = "vllm",
     replicas: Annotated[
         int | None,
-        typer.Option("--replicas", "-r", help="Replica count for vLLM Tensor-Parallel deployment."),
+        typer.Option("--replicas", "-r", help="Replica count for backend deployment."),
     ] = None,
     tensor_parallel_size: Annotated[
         int | None,
-        typer.Option("--tensor-parallel-size", "-tp", help="Tensor Parallelism degree (e.g. 2)."),
+        typer.Option(
+            "--tensor-parallel-size", "-tp", help="Tensor Parallelism degree for vLLM (e.g. 2)."
+        ),
     ] = None,
     apply: Annotated[
         bool,
@@ -161,26 +196,51 @@ def scale_cmd(
         typer.Option("--format", "-f", help="Output format: table or json."),
     ] = "table",
 ) -> None:
-    """Inspect or scale vLLM Tensor Parallelism serving configurations."""
+    """Inspect or scale inference backend (vLLM, LightLLM) serving configurations."""
     settings = load_settings()
     router = GatewayRouter(settings.ai)
-    outcome = router.scale_vllm(
-        replicas=replicas, tensor_parallel_size=tensor_parallel_size, apply=apply
-    )
+    clean_backend = backend.lower()
+    if clean_backend == "lightllm":
+        outcome = router.scale_lightllm(replicas=replicas, apply=apply)
+    else:
+        outcome = router.scale_vllm(
+            replicas=replicas, tensor_parallel_size=tensor_parallel_size, apply=apply
+        )
 
     if output_format.lower() == "json":
         write_stdout(format_json(outcome))
         return
 
-    print_section("vLLM Tensor Parallelism Configuration")
-    print_table(
-        columns=["Property", "Configured Value"],
-        rows=[
-            ["Model", outcome["model"]],
-            ["Replicas", str(outcome["replicas"])],
-            ["Tensor Parallel Size", str(outcome["tensor_parallel_size"])],
-            ["Total VRAM (GB)", str(outcome["total_vram_gb"])],
-            ["Serving Status", outcome["status"]],
-        ],
-        title="vLLM Scale Parameters",
-    )
+    _render_scale_table(outcome)
+
+
+@app.command("probe-backend")
+def probe_backend_cmd(
+    backend: Annotated[
+        str,
+        typer.Argument(help="Backend to probe: vllm, lightllm, or ollama."),
+    ],
+    backend_url: Annotated[
+        str | None,
+        typer.Option("--backend-url", "-u", help="Optional backend base URL override."),
+    ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format: table or json."),
+    ] = "table",
+) -> None:
+    """Directly probe health and latency of an inference backend."""
+    settings = load_settings()
+    router = GatewayRouter(settings.ai)
+    result = router.probe_backend(backend, backend_url=backend_url)
+
+    if output_format.lower() == "json":
+        write_stdout(format_json(result))
+        return
+
+    print_section(f"Inference Backend Health: {result['backend_type']}")
+    msg = f"URL: {result['url']}\nHealthy: {result['healthy']}\nLatency: {result['latency_ms']}ms"
+    if result["healthy"]:
+        print_success(msg)
+    else:
+        print_error(msg)

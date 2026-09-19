@@ -1,0 +1,87 @@
+# LightLLM TokenAttention high-throughput inference engine.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lightllm
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: lightllm
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lightllm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lightllm
+        app.kubernetes.io/part-of: devops-cli-stack
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: lightllm
+          image: ghcr.io/modeltc/lightllm:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - "-m"
+            - "lightllm.server.api_server"
+            - "--model_dir"
+            - "casperhansen/llama-3.3-70b-instruct-awq"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+            - "--tp"
+            - "1"
+            - "--max_total_token_num"
+            - "32768"
+          env:
+            - name: HF_HOME
+              value: "/root/.cache/huggingface"
+            - name: HTTP_PROXY
+              value: "http://squid.squid.svc.cluster.local:3128"
+            - name: HTTPS_PROXY
+              value: "http://squid.squid.svc.cluster.local:3128"
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,lightllm.llm.svc.cluster.local,llm-gateway.llm.svc.cluster.local,portkey.llm.svc.cluster.local,ollama.llm.svc.cluster.local,vllm.llm.svc.cluster.local"
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "4"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "16"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: model-cache
+              mountPath: /root/.cache/huggingface
+            - name: shm
+              mountPath: /dev/shm
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: model-cache
+          emptyDir: {}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi

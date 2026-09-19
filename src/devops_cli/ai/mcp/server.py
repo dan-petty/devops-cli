@@ -2591,24 +2591,32 @@ def ai_inspect_symbol(
 @mcp.tool()
 def ai_gateway_status(
     gateway_url: str = "",
+    provider: str = "",
 ) -> str:
     """Probe LLM Gateway health, latency, and circuit breaker metrics."""
     cmd = ["uv", "run", "devops", "ai", "gateway", "status", "--format", "json"]
     if gateway_url:
         _validate_mcp_arg("gateway_url", gateway_url)
         cmd.extend(["--gateway-url", gateway_url])
+    if provider:
+        _validate_mcp_arg("provider", provider)
+        cmd.extend(["--provider", provider])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
 def ai_gateway_routes(
     gateway_url: str = "",
+    provider: str = "",
 ) -> str:
     """List registered virtual models and target backend inference instances."""
     cmd = ["uv", "run", "devops", "ai", "gateway", "routes", "--format", "json"]
     if gateway_url:
         _validate_mcp_arg("gateway_url", gateway_url)
         cmd.extend(["--gateway-url", gateway_url])
+    if provider:
+        _validate_mcp_arg("provider", provider)
+        cmd.extend(["--provider", provider])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
@@ -2654,6 +2662,45 @@ def ai_vllm_scale(
         "--format",
         "json",
     ]
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_lightllm_scale(
+    replicas: int = 1,
+    tensor_parallel_size: int = 1,
+) -> str:
+    """Inspect or configure LightLLM high-throughput serving parameters."""
+    cmd = [
+        "uv",
+        "run",
+        "devops",
+        "ai",
+        "gateway",
+        "scale",
+        "--backend",
+        "lightllm",
+        "--replicas",
+        str(replicas),
+        "--tensor-parallel-size",
+        str(tensor_parallel_size),
+        "--format",
+        "json",
+    ]
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
+def ai_backend_probe(
+    backend: str,
+    backend_url: str = "",
+) -> str:
+    """Directly probe health, latency, and registered models of an inference backend."""
+    _validate_mcp_arg("backend", backend)
+    cmd = ["uv", "run", "devops", "ai", "gateway", "probe-backend", backend, "--format", "json"]
+    if backend_url:
+        _validate_mcp_arg("backend_url", backend_url)
+        cmd.extend(["--backend-url", backend_url])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 

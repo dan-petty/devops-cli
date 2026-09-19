@@ -1305,6 +1305,7 @@ devops ai gateway status [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--provider`, `-p` | `string` | - | Gateway provider: litellm or portkey. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops ai gateway routes`
@@ -1320,6 +1321,7 @@ devops ai gateway routes [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--provider`, `-p` | `string` | - | Gateway provider: litellm or portkey. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops ai gateway failover`
@@ -1345,7 +1347,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 
 ### `devops ai gateway scale`
 
-**Inspect or scale vLLM Tensor Parallelism serving configurations.**
+**Inspect or scale inference backend (vLLM, LightLLM) serving configurations.**
 
 ```bash
 devops ai gateway scale [OPTIONS]
@@ -1355,9 +1357,31 @@ devops ai gateway scale [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--replicas`, `-r` | `integer` | - | Replica count for vLLM Tensor-Parallel deployment. |
-| `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree (e.g. 2). |
+| `--backend`, `-b` | `string` | `vllm` | Inference backend to scale: vllm or lightllm. |
+| `--replicas`, `-r` | `integer` | - | Replica count for backend deployment. |
+| `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree for vLLM (e.g. 2). |
 | `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai gateway probe-backend`
+
+**Directly probe health and latency of an inference backend.**
+
+```bash
+devops ai gateway probe-backend [OPTIONS] <backend>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<backend>` | `string` | Yes | Backend to probe: vllm, lightllm, or ollama. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--backend-url`, `-u` | `string` | - | Optional backend base URL override. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ---

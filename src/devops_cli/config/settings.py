@@ -33,6 +33,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_DURABLE_TASK_QUEUE,
     DEFAULT_AI_DURABLE_WORKFLOW_PREFIX,
     DEFAULT_AI_GATEWAY_ENABLED,
+    DEFAULT_AI_GATEWAY_PROVIDER,
     DEFAULT_AI_GATEWAY_URL,
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
@@ -47,6 +48,7 @@ from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_FEEDBACK_DATASET_PATH,
     DEFAULT_JAEGER_URL,
+    DEFAULT_LIGHTLLM_URL,
     DEFAULT_LLM_CACHE_DATA_DIR,
     DEFAULT_LLM_CACHE_ENABLED,
     DEFAULT_LLM_CACHE_MAX_ENTRIES,
@@ -56,6 +58,7 @@ from devops_cli.config.defaults import (
     DEFAULT_OLLAMA_MAX_PARALLEL,
     DEFAULT_OLLAMA_URLS,
     DEFAULT_OTEL_ENDPOINT,
+    DEFAULT_PORTKEY_GATEWAY_URL,
     DEFAULT_QDRANT_URL,
     DEFAULT_RAG_CHUNK_OVERLAP,
     DEFAULT_RAG_CHUNK_SIZE,
@@ -71,6 +74,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SSH_ROTATION_DAYS,
     DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS,
     DEFAULT_TLS_DATA_DIR,
+    DEFAULT_VLLM_URL,
     DEFAULT_WORKSPACE_FILE,
 )
 from devops_cli.config.env import OPTION_TO_ENV_VAR
@@ -318,8 +322,12 @@ class AIConfig(BaseModel):
     max_tokens: int | None = None
     ollama_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_OLLAMA_URLS))
     ollama_max_parallel: int = DEFAULT_OLLAMA_MAX_PARALLEL
+    gateway_provider: str = DEFAULT_AI_GATEWAY_PROVIDER
     gateway_url: str = DEFAULT_AI_GATEWAY_URL
     gateway_enabled: bool = DEFAULT_AI_GATEWAY_ENABLED
+    portkey_url: str = DEFAULT_PORTKEY_GATEWAY_URL
+    lightllm_url: str = DEFAULT_LIGHTLLM_URL
+    vllm_url: str = DEFAULT_VLLM_URL
     api_base_url: str | None = None
     allow_private_network: bool = False
     max_retries: int = DEFAULT_AI_MAX_RETRIES
