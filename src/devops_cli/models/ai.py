@@ -39,6 +39,7 @@ class FileAnalysisMeta(BaseModel):
     confidence_score: float | None = None
     quality_score: float | None = None
     content_hash: str | None = None
+    semantic_outline: dict[str, Any] | None = None
 
 
 class ProjectAnalysisMeta(BaseModel):

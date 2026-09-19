@@ -998,6 +998,32 @@ def ai_pack_context(
 
 
 @mcp.tool()
+def ai_read(
+    target_path: str,
+    inspect: bool = True,
+    level: int = 1,
+    lines: str = "",
+    symbol: str = "",
+    format: str = "markdown",
+) -> str:
+    """Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window)."""
+    _validate_mcp_arg("target_path", target_path)
+    cmd = ["uv", "run", "devops", "ai", "read", target_path]
+    if inspect:
+        cmd.extend(["--inspect", "--level", str(level)])
+    if lines:
+        _validate_mcp_arg("lines", lines)
+        cmd.extend(["--lines", lines])
+    if symbol:
+        _validate_mcp_arg("symbol", symbol)
+        cmd.extend(["--symbol", symbol])
+    if format:
+        _validate_mcp_arg("format", format)
+        cmd.extend(["--format", format])
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
+
+
+@mcp.tool()
 def ai_diagram(diagram_type: str = "arch", target_dir: str = ".") -> str:
     """Generate visual Mermaid architecture or threat modeling diagram."""
     _validate_mcp_arg("diagram_type", diagram_type)

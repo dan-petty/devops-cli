@@ -23,6 +23,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_prewarm_models`](#ai-prewarm-models) | Prewarm local LLM models into GPU VRAM or proactively evict them across candidate cluster nodes. |
 | [`ai_query_library`](#ai-query-library) | Search library contracts and documentation via semantic search or exact symbol lookup. |
 | [`ai_quiesce`](#ai-quiesce) | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
+| [`ai_read`](#ai-read) | Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window). |
 | [`ai_repomap`](#ai-repomap) | Generate a compact whole-repository AST symbol map for AI context. |
 | [`ai_resume`](#ai-resume) | Gracefully resume suspended constellation agent loops and task runners. |
 | [`ai_subagent_offload`](#ai-subagent-offload) | Offload AST exploration, symbol cataloging, or file scouting to local sub-agent slot. |
@@ -340,6 +341,21 @@ Centralized emergency quiesce cleanly suspending active agent loops and backgrou
 |---|---|---|---|---|
 | `reason` | `string` | No | `Operator requested emergency quiesce` | - |
 | `dry_run` | `boolean` | No | `False` | - |
+
+### `ai_read`
+
+Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `target_path` | `string` | Yes | - | - |
+| `inspect` | `boolean` | No | `True` | - |
+| `level` | `integer` | No | `1` | - |
+| `lines` | `string` | No | `` | - |
+| `symbol` | `string` | No | `` | - |
+| `format` | `string` | No | `markdown` | - |
 
 ### `ai_repomap`
 

@@ -1592,6 +1592,146 @@ def pack_context_cmd(
 
 
 # =============================================================================
+# Command: devops ai read
+# =============================================================================
+
+
+def _handle_inspect_read(
+    target_path: Path,
+    level: int | None,
+    lines: str | None,
+    symbol: str | None,
+    format_type: str,
+    as_json: bool,
+    repo: Path | None = None,
+) -> None:
+    import json
+
+    from devops_cli.ai.inspection import FocalLevel, generate_semantic_outline
+
+    if level is not None:
+        focal_level = FocalLevel(level)
+    elif symbol or lines:
+        focal_level = FocalLevel.DEEP_FOCAL
+    else:
+        focal_level = FocalLevel.STRUCTURAL
+
+    outline = generate_semantic_outline(
+        target_path,
+        level=focal_level,
+        lines=lines or "",
+        symbol=symbol or "",
+        repo_root=repo,
+    )
+    if as_json or format_type.lower() == "json":
+        write_stdout(json.dumps(outline.model_dump(), indent=2) + "\n")
+    else:
+        write_stdout(outline.to_display_text() + "\n")
+
+
+def _handle_raw_read(
+    target_path: Path,
+    lines: str | None,
+    format_type: str,
+    as_json: bool,
+    repo: Path | None = None,
+) -> None:
+    import json
+
+    from devops_cli.ai.inspection import (
+        _parse_line_range_arg,
+        _validate_inspect_path,
+        estimate_tokens,
+    )
+
+    resolved, _ = _validate_inspect_path(target_path, repo_root=repo)
+    content = resolved.read_text(encoding="utf-8", errors="replace")
+    all_lines = content.splitlines()
+
+    if lines:
+        start, end = _parse_line_range_arg(lines, len(all_lines))
+        sliced = all_lines[start - 1 : end]
+        content = "\n".join(sliced) + "\n"
+
+    if as_json or format_type.lower() == "json":
+        data = {
+            "path": str(target_path),
+            "lines": len(content.splitlines()),
+            "tokens": estimate_tokens(content),
+            "content": content,
+        }
+        write_stdout(json.dumps(data, indent=2) + "\n")
+    else:
+        write_stdout(content + ("\n" if not content.endswith("\n") else ""))
+
+
+@app.command("read", help=HELP.ai.read_cmd)
+def read_cmd(
+    target_path: Annotated[
+        Path,
+        typer.Argument(help=HELP.ai.read_path),
+    ],
+    inspect: Annotated[
+        bool,
+        typer.Option("--inspect", "-i", help=HELP.ai.read_inspect),
+    ] = False,
+    level: Annotated[
+        int | None,
+        typer.Option("--level", "-l", help=HELP.ai.read_level),
+    ] = None,
+    lines: Annotated[
+        str | None,
+        typer.Option("--lines", "-L", help=HELP.ai.read_lines),
+    ] = None,
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", "-s", help=HELP.ai.read_symbol),
+    ] = None,
+    format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format: 'text', 'markdown', or 'json'."),
+    ] = "markdown",
+    repo: Annotated[
+        Path | None,
+        typer.Option("--repo", "-r", help="Repository or workspace root directory."),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Inspect and read source code across 3 multi-scale focal zoom levels."""
+    from devops_cli.dry_run import is_dry_run, render_dry_run_result
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command=f"devops ai read {target_path}",
+            action="ai_read",
+            details={
+                "target_path": str(target_path),
+                "inspect": inspect,
+                "level": level,
+                "lines": lines,
+                "symbol": symbol,
+                "format": format,
+                "repo": str(repo) if repo else None,
+                "status": "READ_DRY_RUN",
+            },
+        )
+        return
+
+    is_inspect = inspect or (level is not None) or (symbol is not None)
+    if is_inspect:
+        _handle_inspect_read(target_path, level, lines, symbol, format, json_output, repo=repo)
+    else:
+        _handle_raw_read(target_path, lines, format, json_output, repo=repo)
+
+
+# =============================================================================
 # Command: devops ai diagram
 # =============================================================================
 
