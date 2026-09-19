@@ -220,20 +220,24 @@ def extract_roadmap_items(
 
 def _is_issue_matching_item(issue: GitHubIssue, item: RoadmapItem) -> bool:
     """Predicate determining if an existing issue corresponds to a roadmap item."""
+    if issue.title.startswith("Release Epic:") or "type/epic" in issue.labels:
+        return False
+
     if item.existing_issue_number and issue.number == item.existing_issue_number:
         return True
 
-    clean_issue = re.sub(
-        r"^(?:feat|fix|refactor|docs)\([^)]*\):\s*", "", issue.title, flags=re.IGNORECASE
-    ).lower()
-    clean_item = item.title.lower()
-    if clean_item in clean_issue or clean_issue in clean_item:
-        return True
-
-    issue_words = set(re.findall(r"[a-z0-9]{4,}", clean_issue))
-    item_words = set(re.findall(r"[a-z0-9]{4,}", clean_item))
-    overlap = issue_words & item_words
-    return len(overlap) >= 3
+    clean_issue = (
+        re.sub(
+            r"^(?:feat|fix|refactor|docs|perf|chore)\([^)]*\):\s*",
+            "",
+            issue.title,
+            flags=re.IGNORECASE,
+        )
+        .lower()
+        .strip()
+    )
+    clean_item = item.title.lower().strip()
+    return bool(clean_issue and clean_item and clean_issue == clean_item)
 
 
 def _find_task_file_for_item(tasks_dir: Path, item: RoadmapItem) -> Path | None:
@@ -285,7 +289,7 @@ def _generate_task_file_content(
         f"{deliverables_md}\n"
         f"- Unit and integration test coverage with structural tuple equality assertions.\n"
         f"- Maintain cyclomatic complexity $M \\le 10$ and nesting depth $\\le 5$.\n"
-        f"- 100% passing across all 10 CI quality gates (`uv run devops ci`).\n"
+        f"- 100% passing across Gated CI validation suite (`uv run devops ci`).\n"
     )
 
 
@@ -307,12 +311,36 @@ def _generate_issue_body(item: RoadmapItem, repo: str) -> str:
     )
 
 
+def _update_roadmap_file_with_issue(
+    roadmap_path: Path,
+    raw_title: str,
+    issue_number: int,
+) -> None:
+    """Inject newly created issue number into roadmap item header in docs/ROADMAP.md."""
+    if not roadmap_path.is_file():
+        return
+    content = roadmap_path.read_text(encoding="utf-8")
+    if f"Issue #{issue_number}" in content or f"#{issue_number}" in content:
+        return
+    old_target = f"**{raw_title}**"
+    if old_target not in content:
+        return
+    if raw_title.endswith(")"):
+        new_title = raw_title[:-1] + f", Issue #{issue_number})"
+    else:
+        new_title = f"{raw_title} (Issue #{issue_number})"
+    new_target = f"**{new_title}**"
+    updated_content = content.replace(old_target, new_target, 1)
+    write_text_file(roadmap_path, updated_content)
+
+
 def _process_sync_item(
     repo: str,
     item: RoadmapItem,
     tasks_dir: Path,
     dry_run: bool,
     result: RoadmapSyncResult,
+    roadmap_path: Path | None = None,
 ) -> None:
     """Create GitHub Issue and task file for a single roadmap item."""
     scope_tag = item.scope.replace("scope/", "")
@@ -361,6 +389,8 @@ def _process_sync_item(
         content = _generate_task_file_content(created.number, item, repo)
         write_text_file(task_path, content)
         result.task_files_created.append(str(task_path))
+        if roadmap_path is not None:
+            _update_roadmap_file_with_issue(roadmap_path, item.raw_title, created.number)
 
 
 def sync_roadmap_to_issues(
@@ -400,6 +430,125 @@ def sync_roadmap_to_issues(
             result.already_tracked += 1
             continue
 
-        _process_sync_item(repo, item, tasks_dir, dry_run, result)
+        _process_sync_item(repo, item, tasks_dir, dry_run, result, roadmap_path=roadmap_path)
+
+    return result
+
+
+class IssueMilestoneReconcileResult(BaseModel):
+    """Summary of issue milestone reconciliation against roadmap."""
+
+    total_roadmap_items: int = 0
+    total_issues_checked: int = 0
+    reconciled_count: int = 0
+    dry_run: bool = False
+    reconciled_issues: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def _build_task_file_issue_map(tasks_dir: Path) -> dict[int, Path]:
+    """Map issue numbers to local task tracking file paths."""
+    mapping: dict[int, Path] = {}
+    if not tasks_dir.is_dir():
+        return mapping
+    for p in tasks_dir.glob("task-*.md"):
+        m = re.match(r"^task-(\d+)-", p.name)
+        if m:
+            mapping[int(m.group(1))] = p
+    return mapping
+
+
+def _update_task_file_milestone(task_path: Path, new_milestone: str) -> None:
+    """Update milestone tag inside local task tracking file."""
+    try:
+        content = task_path.read_text(encoding="utf-8")
+        updated = re.sub(
+            r"(\*\*Milestone\*\*:\s*`)[^`]+(`)",
+            rf"\g<1>{new_milestone}\g<2>",
+            content,
+        )
+        updated = re.sub(
+            r"^(milestone:\s*)[^\n]+$",
+            rf"\g<1>{new_milestone}",
+            updated,
+            flags=re.MULTILINE,
+        )
+        if updated != content:
+            task_path.write_text(updated, encoding="utf-8")
+    except Exception as exc:
+        logger.debug("Failed to update task file %s: %s", task_path, exc)
+
+
+def _record_and_apply_issue_reconciliation(
+    repo: str,
+    issue: GitHubIssue,
+    target_milestone: str,
+    task_file_map: dict[int, Path],
+    dry_run: bool,
+    result: IssueMilestoneReconcileResult,
+) -> None:
+    """Apply and record milestone update for an issue."""
+    result.reconciled_count += 1
+    result.reconciled_issues.append(
+        {
+            "number": issue.number,
+            "title": issue.title,
+            "old_milestone": issue.milestone or "none",
+            "new_milestone": target_milestone,
+        }
+    )
+    if dry_run:
+        return
+
+    from devops_cli.github.issues import edit_repository_issue
+
+    try:
+        edit_repository_issue(repo, issue.number, milestone=target_milestone)
+        task_path = task_file_map.get(issue.number)
+        if task_path:
+            _update_task_file_milestone(task_path, target_milestone)
+    except Exception as exc:
+        logger.warning(
+            "Failed to reconcile issue #%d to milestone %s: %s",
+            issue.number,
+            target_milestone,
+            exc,
+        )
+
+
+def reconcile_issue_milestones_from_roadmap(
+    repo: str,
+    roadmap_path: Path = Path("docs/ROADMAP.md"),
+    tasks_dir: Path = Path("docs/agent/tasks"),
+    dry_run: bool = False,
+) -> IssueMilestoneReconcileResult:
+    """Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations."""
+    all_items = extract_roadmap_items(roadmap_path)
+    try:
+        existing_issues = get_repository_issues(repo, state="all", limit=200)
+    except Exception as exc:
+        logger.warning("Failed to retrieve existing GitHub issues: %s", exc)
+        existing_issues = []
+
+    result = IssueMilestoneReconcileResult(
+        total_roadmap_items=len(all_items),
+        total_issues_checked=len(existing_issues),
+        dry_run=dry_run,
+    )
+
+    task_file_map = _build_task_file_issue_map(tasks_dir)
+
+    for item in all_items:
+        matching_issue = next(
+            (iss for iss in existing_issues if _is_issue_matching_item(iss, item)), None
+        )
+        if not matching_issue or matching_issue.state == "closed":
+            continue
+
+        curr_m = str(matching_issue.milestone or "").strip()
+        target_m = str(item.milestone or "").strip()
+        if curr_m and target_m and curr_m != target_m:
+            _record_and_apply_issue_reconciliation(
+                repo, matching_issue, target_m, task_file_map, dry_run, result
+            )
 
     return result

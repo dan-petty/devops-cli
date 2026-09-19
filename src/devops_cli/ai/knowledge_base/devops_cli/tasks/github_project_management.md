@@ -139,7 +139,7 @@ devops gh milestones close v0.2.14
    - At the beginning of every session or upon receiving any user task, AI agents must inspect board status via `devops gh project status` (or FastMCP `gh_project_status`) and triage health via `devops gh issues triage` (or FastMCP `gh_issue_triage`).
    - Ground every user task to a corresponding GitHub Issue and Project Item.
    - If an open issue exists: verify milestone and taxonomy labels, and transition its project card to `In Progress` prior to authoring code edits.
-   - If no issue exists: immediately author a formal tracking issue (`gh issue create` or FastMCP `gh_issue_create`), apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`, `status/in-progress`), link the active milestone, and synchronize into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`).
+    - If no issue exists: immediately author a formal tracking issue (`devops gh issues create` or FastMCP `gh_issue_create`), apply declarative taxonomy labels (`type/*`, `scope/*`, `priority/*`, `status/in-progress`), link the active milestone, and synchronize into GitHub Projects v2 (`devops gh project sync` or FastMCP `gh_project_sync`).
 4. **Projects v2 Board Linkage & Real-Time Card Lifecycle Transitions**:
    - Ensure the project board is linked to the repository via `devops gh project link <number>`, surfacing the project board under `https://github.com/dan-petty/devops-cli/projects` and its 4 canonical views under `https://github.com/dan-petty/devops-cli/issues/views`.
    - Maintain bidirectional synchronization between `docs/agent/tasks/` and GitHub Projects v2 across the 5 canonical lifecycle states:
@@ -163,7 +163,7 @@ devops gh milestones close v0.2.14
    - Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`).
    - Orphan remote branches are strictly prohibited.
 8. **Mandatory Defect & Incident Tracking on CLI Errors/Warnings**:
-   - Whenever an AI agent or developer encounters an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior while executing `devops` CLI commands, they must immediately file a formal bug issue via `gh issue create` (using `.github/ISSUE_TEMPLATE/bug_report.yml`).
+   - Whenever an AI agent or developer encounters an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior while executing `devops` CLI commands, they must immediately file a formal bug issue via `devops gh issues create` (using `.github/ISSUE_TEMPLATE/bug_report.yml`).
    - Title follows Conventional Commits: `fix(<scope>): <concise description>`.
    - Apply mandatory taxonomy labels: `type/bug`, appropriate `scope/*`, `priority/*`, and `status/triage` (or `status/in-progress`).
    - Link the active release milestone (`--milestone "v<version>"`).

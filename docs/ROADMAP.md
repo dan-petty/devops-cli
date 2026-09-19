@@ -59,15 +59,113 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Priority Classification for AI/LLM Requests (P0 - Critical, Issue #285, PR #286)**: Dynamic request classification prioritizing interactive/chat calls (`high`), pipeline tasks (`normal`), and background jobs (`as_available`).
 - [x] **GitHub & VS Code Agentic Integrations & Grafana Dashboards Roadmap Expansion (P1 - High, Issues #287, #289, PR #288)**: Forward-looking roadmap grounding for native VS Code LM tools and Grafana dashboard suites.
 - [x] **Approximate Lifetime Spend Tracking & Prometheus / Grafana Observability (P0 - Critical, Issue #290, PR #291)**: Persistent SQLite ledger tracking approximate lifetime spend across backends and models, exporting Prometheus metrics (`/metrics`), and visualizing usage in dedicated Grafana dashboards.
-- [ ] **LightLLM & Portkey AI Routing Services Integration (P0 - Critical)**:
-  - *Context & Rationale*: Expands the DevOps CLI AI routing tier to support Portkey AI Gateway as an ultra-fast, sub-millisecond multi-provider routing service, and LightLLM as a high-throughput TokenAttention inference backend alongside vLLM and Ollama.
-  - *Portkey AI Gateway Integration*: Provides Kubernetes stack resources (`k8s/llm/portkey/`) deploying `portkeyai/gateway:latest` on port 8787, wired to Valkey L2 caching, with automated fallback cascades, load balancing, and budget enforcement.
-  - *LightLLM High-Throughput Inference Backend*: Provides Kubernetes stack resources (`k8s/llm/lightllm/`) deploying `modeltc/lightllm` on port 8000, supporting OpenAI-compatible `/v1/chat/completions` and TokenAttention scheduling.
-  - *CLI & Gateway Router Configuration*: Extends `devops ai gateway` commands and `AIConfig` to dynamically inspect, probe, and route traffic across LiteLLM, Portkey, LightLLM, and Ollama.
+- [x] **LightLLM & Portkey AI Routing Services Integration (P0 - Critical, PR #292)**: Expands the DevOps CLI AI routing tier to support Portkey AI Gateway on port 8787 and LightLLM TokenAttention inference engine on port 8000 with zero-trust perimeter policies, dynamic model route discovery, and direct backend probing.
 
 
 
-### Foundational Architectural Guardrails & Project Hygiene (v0.2.22 - Scheduled)
+### Deep Subsystem Integration, Architectural Optimization & Extensible Refactoring (v0.2.22 - Scheduled)
+- [ ] **Kubernetes Dynamic Informer Architecture, Event Streaming & Subprocess Elimination Research (P0 - Critical, Issue #307)**:
+  - *Context & Rationale*: Existing Kubernetes subcommands rely heavily on CLI `kubectl` subprocess invocations and fragmented synchronous calls, incurring high process spawning overhead and rigid error handling.
+  - *Deep Integration & Functional Extension*: Integrate the official Python `kubernetes` client's asynchronous dynamic client, Informer watchers, and WebSocket streaming protocols to stream cluster events, pod status transitions, and container logs directly into in-memory queues without spawning external binaries.
+  - *Code Optimization & Performance Acceleration*: Reduce Kubernetes status and pod polling latency from ~250ms per invocation to <10ms in-memory async I/O; implement client-side typed response caching with bounded TTLs; eliminate redundant JSON parsing of `kubectl get -o json` outputs.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/commands/k8s/` and runtime modules into a consolidated `KubernetesService` protocol; deprecate bespoke regex output scrubbers and procedural subprocess wrappers; ensure full POSIX process group isolation across any remaining external tools.
+- [ ] **Docker Engine Socket API, Layer Caching Introspection & Container Sandbox Optimization Research (P1 - High, Issue #308)**:
+  - *Context & Rationale*: Workstation container management and dynamic sandbox execution currently execute shallow shell commands (`docker run`, `docker inspect`, `docker stats`) via subprocesses, leading to process churn and fragile string scraping.
+  - *Deep Integration & Functional Extension*: Establish direct asynchronous communication over the local Docker daemon Unix domain socket (`/var/run/docker.sock`) using engine APIs; introspect BuildKit multi-stage layer caching; stream real-time container resource metrics and cgroup telemetry directly into reactive streams.
+  - *Code Optimization & Performance Acceleration*: Eliminate subshell latency when provisioning sandboxes; streamline ephemeral image builds via BuildKit cache mounts; implement zero-overhead container health probing via socket pings.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/commands/docker.py` and `src/devops_cli/core/sandbox.py` to share a unified container engine client; replace unstructured stdout scraping with typed Pydantic container state models; eliminate legacy fallback shims.
+- [ ] **ArgoCD Server API, CRD Reconciliation & Automated Canary Metric Verification Research (P1 - High, Issue #309)**:
+  - *Context & Rationale*: GitOps fleet synchronization currently depends on external `argocd` and `kubectl-argo-rollouts` binary installations, creating environment friction and shallow subprocess orchestration.
+  - *Deep Integration & Functional Extension*: Native gRPC and REST client integration directly with the ArgoCD API server; direct Kubernetes Custom Resource Definition (`Application`, `ApplicationSet`, `Rollout`) manipulation; automated Canary rollout analysis verifying Prometheus SLO thresholds during progressive delivery.
+  - *Code Optimization & Performance Acceleration*: Eliminate external CLI binary prerequisites across CI runners and developer workstations; execute multi-application fleet synchronization queries in parallel over a single multiplexed HTTP/2 connection.
+  - *Refactoring Potential & Legacy Elimination*: Consolidate `src/devops_cli/commands/argo.py` into a declarative GitOps engine; replace shell returncode checks with typed gRPC status exceptions; eliminate procedural sync polling loops.
+- [ ] **Terraform & OpenTofu HCL AST Analysis, State Introspection & Drift Optimization Research (P1 - High, Issue #310)**:
+  - *Context & Rationale*: Infrastructure as Code commands execute full `tofu` / `terraform` binary runs for static checks, incurring substantial startup latency and disk I/O for simple plan and drift inspections.
+  - *Deep Integration & Functional Extension*: In-process HCL AST parsing (`python-hcl2`) and state file JSON schema introspection (`terraform.tfstate`) to inspect resource graphs, analyze attribute references, detect configuration drift, and calculate cost estimations without spawning binary CLI processes for read-only queries.
+  - *Code Optimization & Performance Acceleration*: Accelerate IaC drift detection and configuration linting by 90%+ by bypassing CLI binary initialization; construct direct topological resource DAGs in memory for instant blast-radius visualization.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/commands/tf.py` into a declarative IaC analysis service; remove repetitive CLI argument list builders; replace ad-hoc regex cost estimation with a typed Infracost schema parser.
+- [ ] **HashiCorp Vault Native Client, Dynamic Secret Leasing & OS Keyring Envelope Encryption Research (P1 - High, Issue #311)**:
+  - *Context & Rationale*: Workstation secret management uses disparate mechanisms across OS Keyring, environment variables, and shallow Vault CLI invocations, lacking automated lease lifecycle management.
+  - *Deep Integration & Functional Extension*: Native asynchronous Vault client integration (`hvac` / async HTTP) with Kubernetes service account and AppRole authentication; background daemon for proactive secret lease renewal; Vault Transit engine integration for zero-knowledge envelope encryption of local workstation credentials.
+  - *Code Optimization & Performance Acceleration*: Eliminate expired credential failures in long-running CI/CD runs via automated token lease renewal; eliminate plaintext secret staging in memory buffers; unify local and remote credential resolution into a single-pass lookup.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/commands/vault.py` and security modules to implement a unified `SecretProvider` protocol; eliminate fragmented keyring vs. env fallback ladders; centralize audit logging of credential accesses.
+- [ ] **Valkey & Redis RESP3 Connection Pooling, Pipeline Batching & Tiered L1/L2 Cache Architecture Research (P1 - High, Issue #312)**:
+  - *Context & Rationale*: Valkey caching currently operates via basic socket calls and shallow key-value operations without connection pooling, transaction pipelining, or unified invalidation semantics across agent tiers.
+  - *Deep Integration & Functional Extension*: Native asynchronous RESP3 wire protocol connection pooling; pipelined batch transactions for mass embedding and AST symbol lookups; Lua atomic scripts for distributed locking (`Redlock`) and deduplication; real-time memory eviction and cache hit telemetry.
+  - *Code Optimization & Performance Acceleration*: Reduce cache round-trip latency from ~5ms to <0.5ms; eliminate redundant serialization overhead via binary msgpack encoding; implement tiered L1 (in-memory LRU) / L2 (Valkey) caching for AI prompt contexts.
+  - *Refactoring Potential & Legacy Elimination*: Consolidate fragmented cache helper functions across AI, RAG, and review modules into a single, type-safe `@cached(tier="l1_l2")` decorator; eliminate ad-hoc key prefix formatting and desynchronized cache invalidation logic.
+- [ ] **Qdrant Vector Engine Async Connection Pooling, Hybrid Lexical-Dense Search & Payload Quantization Research (P1 - High, Issue #313)**:
+  - *Context & Rationale*: RAG knowledge base search uses basic synchronous vector inserts and pure dense cosine similarity, which can miss exact keyword symbol matches and consumes unnecessary workstation RAM.
+  - *Deep Integration & Functional Extension*: Asynchronous Qdrant client connection pooling; hybrid search combining dense neural vector embeddings with sparse BM25 lexical indices; memory-mapped on-disk scalar/product payload quantization; background collection snapshotting and hot-reload during repository re-indexing.
+  - *Code Optimization & Performance Acceleration*: Slash vector retrieval latency by 60%+ through async batched queries; reduce vector index memory footprint by up to 75% via scalar quantization; eliminate blocking during repository re-indexing.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/ai/rag/` to decouple embedding generation, vector storage, and query filtering into distinct pipeline stages; replace procedural file chunking loops with functional generator pipelines; remove legacy file staging.
+- [ ] **Prometheus PromQL AST Validation, Client-Side Anomaly Detection & Alertmanager Engine Research (P1 - High, Issue #314)**:
+  - *Context & Rationale*: Metric monitoring currently forwards raw PromQL strings to `/api/v1/query` with minimal client-side validation and no automated anomaly analysis.
+  - *Deep Integration & Functional Extension*: In-process PromQL AST parser to validate query syntax before network dispatch; client-side anomaly detection (z-score, EWMA trend forecasting) on metric vectors; native Alertmanager alert dispatch and silence management; pre-flight rule file syntax verification.
+  - *Code Optimization & Performance Acceleration*: Prevent invalid PromQL queries from hitting Prometheus servers; compute instant trend projections locally in Python without server-side subqueries; aggregate multi-target scrape metrics without redundant JSON decoding.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/commands/prometheus.py` into a strongly-typed metric analysis library; unify metric representations across CLI, TUI, and Grafana provisioners; eliminate ad-hoc dictionary parsing.
+- [ ] **Grafana Declarative Dashboard Schema Models & Bi-Directional GitOps Provisioning Research (P1 - High, Issue #315)**:
+  - *Context & Rationale*: Grafana integration manages large, static JSON dashboard templates that are cumbersome to maintain, diff, and parameterize across multi-cluster environments.
+  - *Deep Integration & Functional Extension*: Declarative dashboard generation using Pydantic schema models to programmatically synthesize Grafana 10+ JSON models; bi-directional folder and permission reconciliation; automated datasource health probing; synthetic alerting rule generation.
+  - *Code Optimization & Performance Acceleration*: Eliminate thousands of lines of duplicated JSON boilerplate across repository templates; enable compile-time linting of panel layouts, query targets, and datasource bindings; streamline live reloads via Kubernetes ConfigMap sidecars.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/commands/grafana.py` and `k8s/monitoring/dashboards/` to utilize declarative Python dashboard builders; eliminate bespoke JSON string replacement shims; extract reusable panel component libraries.
+- [ ] **GitHub API GraphQL Batch Consolidation, ETag Caching & Token-Bucket Rate Optimization Research (P0 - Critical, Issue #316)**:
+  - *Context & Rationale*: GitHub management is split between PyGithub and CLI `gh` subprocess calls, consuming excessive REST API quota through serial round-trips for issues, milestones, and pull requests.
+  - *Deep Integration & Functional Extension*: Migrate high-frequency issue, pull request, milestone, and project board queries to pure GraphQL API operations; implement local RFC 7234 ETag caching (`If-None-Match`); native GitHub webhook signature verification and event dispatching.
+  - *Code Optimization & Performance Acceleration*: Slash GitHub API quota consumption by 80%+ while reducing multi-item query latency from multiple seconds to a single round-trip; prevent rate-limit exhaustion during automated multi-repo reviews.
+  - *Refactoring Potential & Legacy Elimination*: Consolidate the dual `PyGithub` and `run_gh` architectures into a single unified `GitHubClient` with integrated client-side token-bucket rate limiting; eliminate redundant issue/PR mapping helpers across `gh.py`, `pr.py`, and `projects.py`.
+- [ ] **Textual TUI Reactive Architecture, Virtualized Log Streamers & Component Decoupling Research (P1 - High, Issue #317)**:
+  - *Context & Rationale*: The workstation dashboard currently displays static multi-tab tables with limited real-time interactivity, procedural layout updates, and potential UI freeze on heavy data loading.
+  - *Deep Integration & Functional Extension*: Refactor into a message-driven Textual architecture using asynchronous workers (`@work`), reactive data attributes (`reactive`), virtualized log tailing widgets, and custom CSS layout hierarchies; bi-directional integration with terminal command palettes.
+  - *Code Optimization & Performance Acceleration*: Eliminate main-thread UI blocking during heavy cluster or AI telemetry queries; virtualize terminal log streaming to handle 100K+ log lines at 60 FPS without memory leaks or frame drops.
+  - *Refactoring Potential & Legacy Elimination*: Deconstruct monolithic dashboard classes into modular, domain-isolated widget classes (`K8sTab`, `PRTab`, `SecOpsTab`, `AITab`); extract a centralized, thread-safe application state store; replace procedural layout mutations with declarative CSS styling.
+- [ ] **FastMCP In-Process Execution, In-Memory Tool Dispatch & Schema Caching Acceleration Research (P0 - Critical, Issue #318)**:
+  - *Context & Rationale*: FastMCP tool handlers currently invoke `uv run devops <subcommand>` external subshells, incurring ~1.5s subshell initialization latency per tool invocation and causing agent response lag.
+  - *Deep Integration & Functional Extension*: Direct in-process execution of CLI tools via Python functional APIs, completely eliminating subshell spawning; lazy domain-gated tool schema hydration; dynamic MCP resource subscriptions (`resource://`) for streaming state changes directly to IDE clients.
+  - *Code Optimization & Performance Acceleration*: Slash FastMCP tool execution latency from ~1,500ms down to <5ms (a 300x acceleration across multi-turn agent sessions); dramatically reduce process churn and CPU consumption during autonomous workflows.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/ai/mcp/server.py` to decouple MCP tool signatures from CLI command line strings; eliminate repetitive `_run_mcp_cmd` wrappers; establish direct invocation bindings to core library functions.
+- [ ] **OpenTelemetry W3C Traceparent Context Propagation, Metric SDK & Span Waterfall Optimization Research (P1 - High, Issue #319)**:
+  - *Context & Rationale*: Distributed tracing currently initializes basic trace providers with single-span exports, lacking automated trace context propagation across background workers, subagent tasks, and CLI child processes.
+  - *Deep Integration & Functional Extension*: Automated W3C Trace Context propagation across all background tasks, subagent delegations, and external CLI subprocesses; in-process metric stream aggregation via OpenTelemetry Metrics SDK; baggage propagation for multi-persona review sessions.
+  - *Code Optimization & Performance Acceleration*: Replace ad-hoc timing and stopwatch counters with standardized, low-overhead in-memory span processors; eliminate unhandled span export exceptions during offline operations via bounded ring-buffered exporters.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/telemetry/` into an unobtrusive decorator and context manager pattern; remove redundant manual span creation boilerplate; eliminate orphaned span traces.
+- [ ] **Pydantic AI Structured Workflows, Prompt Caching & Client-Side Token Governance Research (P0 - Critical, Issue #320)**:
+  - *Context & Rationale*: AI inference routing and agent execution rely on bespoke HTTP callers, manual function call parsers, and custom retry loops that are prone to schema divergence and latency spikes.
+  - *Deep Integration & Functional Extension*: Native PydanticAI Agent workflows with dependency injection and typed tool definitions; prompt caching optimizations for Anthropic/OpenAI; client-side token-bucket rate governance; dynamic fallback cascades across LiteLLM, Portkey, LightLLM, and Ollama.
+  - *Code Optimization & Performance Acceleration*: Reduce prompt token billing and processing latency by up to 80% through prompt caching; eliminate JSON schema parsing failures via Pydantic v2 runtime validation; optimize streaming time-to-first-token.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/ai/agent.py`, `controller.py`, and `gateway.py` to eliminate custom function calling parsers and fragile manual retry loops; adopt standardized PydanticAI streaming agents with typed tool registries.
+- [ ] **Security Scanners Unified SARIF Engine, Cross-Tool Deduplication & AST Autofix Synthesis Research (P1 - High, Issue #321)**:
+  - *Context & Rationale*: Security scanning executes Trivy, Semgrep, Gitleaks, Checkov, and Bandit independently via separate subprocesses, each with custom regex/JSON parsers and disparate finding schemas.
+  - *Deep Integration & Functional Extension*: Unified SARIF (Static Analysis Results Interchange Format) ingestion and normalization engine that correlates, deduplicates, and ranks findings across all scanners; intelligent AST-based auto-remediation synthesis (`devops scan fix`); suppression policy inheritance across repositories.
+  - *Code Optimization & Performance Acceleration*: Eliminate redundant scanner runs across overlapping file subsets; replace 5 disparate output format parsers with a single, high-performance streaming SARIF parser; generate minimal AST-level autofix patches.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/commands/scan.py` using a strategy pattern with a unified `BaseSecurityScanner` interface; eliminate duplicate subprocess runners and custom regex parsers; standardize finding taxonomy and severity models.
+- [ ] **Cryptography Pure-Python Asymmetric Key Management & Hardware Token Authentication Research (P2 - Medium, Issue #322)**:
+  - *Context & Rationale*: SSH key generation and TLS certificate management currently shell out to external `ssh-keygen`, `ssh-keyscan`, and `openssl` binaries, creating cross-platform portability and error handling issues.
+  - *Deep Integration & Functional Extension*: Pure Python cryptographic operations using `cryptography` for Ed25519/RSA key generation, X.509 certificate authority creation, and TLS cert validation with zero OpenSSL subprocess dependency; native SSH agent client integration via async SSH sockets; hardware token (FIDO2/PKCS#11) inspection.
+  - *Code Optimization & Performance Acceleration*: Eliminate external OpenSSL / OpenSSH binary dependencies for key generation and certificate verification; eliminate subprocess spawn overhead during batch key validation; improve cryptographic auditability.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/ssh/` and `src/devops_cli/tls/` into a consolidated, audited cryptographic service layer; remove legacy subprocess wrappers and temporary file staging.
+- [ ] **Git Low-Level Plumbing Optimization, PathSpec In-Memory Tree Caching & Parallel Worktree Research (P1 - High, Issue #323)**:
+  - *Context & Rationale*: Repository operations mix high-level GitPython object traversals and raw `git` subprocess executions, leading to slow performance on large monorepos and memory leaks during branch comparisons.
+  - *Deep Integration & Functional Extension*: High-performance Git plumbing operations using optimized streaming (`git rev-list`, `git cat-file --batch`, `git merge-tree`) or `pygit2` bindings; parallel multi-repository fetch and rebase pipelines; persistent in-memory `PathSpec` caching for rapid `.gitignore` evaluation.
+  - *Code Optimization & Performance Acceleration*: Accelerate repository status inspection and branch synchronization by 5x-10x in large monorepos; eliminate memory bloat from traversing deep commit histories; enable instant shadow worktree provisioning.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/git/operations.py` to eliminate procedural Git command wrappers in favor of functional plumbing pipelines; unify repository and branch management into clean, immutable value objects.
+- [ ] **Asynchronous HTTP/2 Connection Multiplexing, Lifespan Handlers & OpenAPI 3.1 Synchronization Research (P2 - Medium, Issue #324)**:
+  - *Context & Rationale*: FastAPI server and outbound HTTP clients use basic connection pooling and synchronous request paths that can exhaust socket descriptors under heavy agent workloads.
+  - *Deep Integration & Functional Extension*: Full asynchronous lifespan management; connection pooling with HTTP/2 multiplexing and keep-alive optimization across all AI inference and cloud endpoints; automatic OpenAPI 3.1 schema synchronization and client SDK generation.
+  - *Code Optimization & Performance Acceleration*: Eliminate socket connection churn across repeated AI gateway and cloud provider calls through persistent connection keep-alives; reduce server memory overhead during webhook streaming.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/commands/serve.py` and all outbound HTTP utilities to share a single, well-configured async HTTP client session with bounded timeouts, retries with exponential backoff, and circuit breaking; eliminate synchronous blocking requests.
+- [ ] **Template Rendering Engine Sandboxing, Pre-Compiled AST Caching & Variable Validation Research (P2 - Medium, Issue #325)**:
+  - *Context & Rationale*: Manifest generation and task tracking file generation use fragmented Jinja2 and string concatenation logic scattered across multiple modules without unified sandboxing.
+  - *Deep Integration & Functional Extension*: Unify all Kubernetes manifest, Dockerfile, and task documentation rendering under a single `jinja2.SandboxedEnvironment` with pre-compiled AST caching and compile-time variable schema validation.
+  - *Code Optimization & Performance Acceleration*: Eliminate runtime template re-parsing by pre-compiling templates into bytecode; prevent template injection vulnerabilities (CWE-1336) through strict sandboxing; validate all required parameters prior to rendering.
+  - *Refactoring Potential & Legacy Elimination*: Consolidate fragmented template logic across `k8s/`, `docker/`, and `github/` into a centralized `TemplateEngine` service; eliminate ad-hoc string concatenation and brittle regex replacements.
+- [ ] **Rich Renderables Architecture, Terminal Capability Negotiation & Universal Output Serialization Research (P1 - High, Issue #326)**:
+  - *Context & Rationale*: CLI terminal formatting mixes procedural `rich.print` calls, Typer echoes, and custom table formatters, creating inconsistent visual styles and hindering machine-readable automation.
+  - *Deep Integration & Functional Extension*: Standardized Renderables pipeline with dynamic terminal capability negotiation (detecting NO_COLOR, TTY, CI, and color depths) and universal `--json` / `--yaml` output serialization across 100% of CLI subcommands.
+  - *Code Optimization & Performance Acceleration*: Streamline terminal output generation by replacing custom string formatting with native Rich Console protocols; eliminate redundant serialization logic across CLI commands; ensure predictable machine-readable output in CI automation.
+  - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/output.py` to replace procedural table formatting loops with declarative Pydantic-to-table mappers; standardize log levels, error alerts, and progress bars across all command modules.
+
+### Foundational Architectural Guardrails & Project Hygiene (v0.2.23 - Scheduled)
 - [ ] **In-Flight Work, PR Stagnation & Blocker Radar (`devops gh pm inflight`) (P1 - High)**:
   - *Context & Rationale*: Continuous surveillance of active in-flight work across the repository to eliminate PR starvation, review stagnation, and merge conflict decay.
   - *FIFO PR Queue Surveillance*: Enforces strict chronological (oldest to newest / FIFO) PR processing and surfaces older open PRs that are being starved or blocked by newer work.
@@ -89,9 +187,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **Lossless Structured Error Reflection for Schema Retries (P1 - High)**:
   - *Context & Rationale*: Enhances Pydantic schema validation error feedback by preserving up to 5 field paths with type violations and prescriptive fix hints, enabling single-turn model self-correction.
 
-
-
-### Reactive Workstation Command Center, Interactive TUI & Unified Operations Hub (v0.2.23 - Scheduled)
+### Reactive Workstation Command Center, Interactive TUI & Unified Operations Hub (v0.2.24 - Scheduled)
 - [ ] **Reactive Multi-Workspace Textual TUI Architecture & Master-Detail Navigation (`devops dashboard`, `devops tui`) (P0 - Critical)**:
   - *Context & Rationale*: Modernizes the basic Textual dashboard from static read-only tables into a reactive, multi-workspace workstation command center with non-blocking async workers (`work()`), real-time push events, and master-detail ergonomic split screens (navigation tree/list on left, contextual detail inspector with YAML/logs/markdown on right).
   - *Unified Workspaces*: Seamlessly tabs between 7 domain workspaces: (1) `PR & Git Lifecycle`, (2) `K8s & Minikube`, (3) `Docker & Sandboxes`, (4) `SecOps & Vault`, (5) `GitOps & ArgoCD`, (6) `AI Constellation & Memory`, and (7) `Telemetry & Loki Logs`.
@@ -165,7 +261,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [ ] **FastMCP TUI Management Tools & Dynamic Dashboard Resources (P2 - Medium)**:
   - *Context & Rationale*: Exposes FastMCP tools (`dashboard_launch`, `dashboard_status`, `dashboard_switch_tab`) and dynamic system resources (`resource://dashboard/status`, `resource://dashboard/k8s`, `resource://dashboard/github`, `resource://dashboard/secops`) enabling AI assistants to query dashboard state, monitor workstation telemetry, and trigger UI focus programmatically.
 
-### Multi-IDE MCP Scaffolding, Context Budgeting & Invariant Pinning (v0.2.24 - Scheduled)
+### Multi-IDE MCP Scaffolding, Context Budgeting & Invariant Pinning (v0.2.25 - Scheduled)
 - [ ] **Pipeline Stage Context Budgeting & Invariant Pinning (P0 - Critical)**:
   - *Context & Rationale*: The sequential `MultiAgentPipeline` (`pipeline.py:196-199`) accumulates context linearly without truncation — a 5-stage pipeline generates ~20K tokens of bloat. `AgentMemory` auto-summarization at 96K chars (`memory.py:26-28`) is lossy, discarding verbatim invariant constraint wording. System instructions (AGENTS.md rules, complexity caps) are progressively evicted from model attention as tool outputs and conversation history accumulate.
   - *Implementation*: Apply `ContextPacker` binary search truncation to inter-stage pipeline context with per-stage budgets (~4K tokens). Partition `AgentMemory` into a volatile conversation buffer (subject to auto-summarization) and an invariant constraint store (never summarized, re-injected verbatim at head of each turn). Inject a compressed invariant reminder block every N turns.
@@ -322,10 +418,15 @@ High-density product roadmap, engineering milestones, and open-source integratio
 
 | Priority Category | Feature / Focus | Primary Open Source Resource | Value | Effort | Target Release | Status |
 |---|---|---|---|---|---|---|
-| **Quick Wins** | In-Flight Work, PR Stagnation & Blocker Radar (`devops gh pm inflight`) | GitHub API / FIFO / Metrics | High | Low | v0.2.22 | 📋 Scheduled (P1) |
-|  | Universal Command Palette & Fuzzy Action Launcher | Textual CommandPalette | High | Low | v0.2.23 | 📋 Scheduled (P1) |
-|  | Automated Multi-IDE MCP Scaffolder (`devops ide configure`) | FastMCP / Stdio / Watchdog | High | Low | v0.2.24 | 📋 Scheduled (P1) |
-|  | Path-Specific Copilot Instructions Scaffolder | Copilot Prompts / AST | High | Low | v0.2.24 | 📋 Scheduled (P1) |
+| **Quick Wins** | In-Flight Work, PR Stagnation & Blocker Radar (`devops gh pm inflight`) | GitHub API / FIFO / Metrics | High | Low | v0.2.23 | 📋 Scheduled (P1) |
+|  | Universal Command Palette & Fuzzy Action Launcher | Textual CommandPalette | High | Low | v0.2.24 | 📋 Scheduled (P1) |
+|  | Automated Multi-IDE MCP Scaffolder (`devops ide configure`) | FastMCP / Stdio / Watchdog | High | Low | v0.2.25 | 📋 Scheduled (P1) |
+|  | Path-Specific Copilot Instructions Scaffolder | Copilot Prompts / AST | High | Low | v0.2.25 | 📋 Scheduled (P1) |
+|  | Prometheus PromQL AST Validation & Anomaly Detection Research | Prometheus / PromQL AST | High | Low | v0.2.22 | 📋 Scheduled (P1) |
+|  | Rich Renderables Architecture & Universal Output Serialization Research | Rich / Typer / Console | High | Low | v0.2.22 | 📋 Scheduled (P1) |
+|  | Cryptography Pure-Python Asymmetric Key Management Research | cryptography / OpenSSH | Medium | Low | v0.2.22 | 📋 Scheduled (P2) |
+|  | Template Rendering Engine Sandboxing & Pre-Compiled AST Caching Research | Jinja2 / Sandbox | Medium | Low | v0.2.22 | 📋 Scheduled (P2) |
+|  | Asynchronous HTTP/2 Connection Multiplexing & Lifespan Handlers Research | FastAPI / HTTPX2 | Medium | Low | v0.2.22 | 📋 Scheduled (P2) |
 |  | Active Marginalia & Epistemic Scratchpad (`devops ai read annotate`) | JSONL / Marginalia | High | Low | v0.3.0 | 📋 Scheduled (P1) |
 |  | Socratic Inquiry & Knowledge Gap Formulator | Pydantic / Metacognition | High | Low | v0.3.0 | 📋 Scheduled (P1) |
 |  | Cascading Fast-Fail Verification Battery & Token Governor | AST / Pytest / Token Bucket | High | Low | v0.3.1 | 📋 Scheduled (P1) |
@@ -339,11 +440,15 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Automated Pre-Rebase Merge Conflict Dry-Runner | `git merge-tree` / libgit2 | High | Low | v0.3.4 | 📋 Scheduled (P1) |
 |  | Ephemeral Sandboxed Evaluation Harness (`devops scratch eval`) | Python AST / Safe Eval | Medium | Low | v0.3.5 | 📋 Scheduled (P1) |
 |  | Mutation-Driven GitHub Cache Invalidation Hooks | Disk Cache / SQLite | High | Low | v0.3.5 | 📋 Scheduled (P1) |
-| **Major Projects** | LightLLM & Portkey AI Routing Services Integration | Portkey Gateway / LightLLM | High | High | v0.2.21 | 🔄 In Progress (P0) |
-|  | Reactive Multi-Workspace Textual TUI Architecture | Textual / Async Workers | High | High | v0.2.23 | 📋 Scheduled (P0) |
-|  | Comprehensive DevOps CLI Grafana Observability Dashboard Suite | Grafana 10+ / Prometheus / Loki | High | High | v0.2.23 | 📋 Scheduled (P0) |
-|  | Turnkey Kubernetes Stacks Grafana Observability Dashboard Suite | Grafana 10+ / Prometheus / Loki / K8s | High | High | v0.2.23 | 📋 Scheduled (P0) |
-|  | Pipeline Stage Context Budgeting & Invariant Pinning | ContextPacker / AgentMemory | High | High | v0.2.24 | 📋 Scheduled (P0) |
+| **Major Projects** | LightLLM & Portkey AI Routing Services Integration | Portkey Gateway / LightLLM | High | High | v0.2.21 | ✅ Completed (P0) |
+|  | Reactive Multi-Workspace Textual TUI Architecture | Textual / Async Workers | High | High | v0.2.24 | 📋 Scheduled (P0) |
+|  | Comprehensive DevOps CLI Grafana Observability Dashboard Suite | Grafana 10+ / Prometheus / Loki | High | High | v0.2.24 | 📋 Scheduled (P0) |
+|  | Turnkey Kubernetes Stacks Grafana Observability Dashboard Suite | Grafana 10+ / Prometheus / Loki / K8s | High | High | v0.2.24 | 📋 Scheduled (P0) |
+|  | Pipeline Stage Context Budgeting & Invariant Pinning | ContextPacker / AgentMemory | High | High | v0.2.25 | 📋 Scheduled (P0) |
+|  | Kubernetes Dynamic Informer Architecture & Subprocess Elimination Research | Kubernetes Python SDK | High | High | v0.2.22 | 📋 Scheduled (P0) |
+|  | GitHub API GraphQL Batch Consolidation & Token-Bucket Rate Optimization Research | GitHub GraphQL / ETag | High | High | v0.2.22 | 📋 Scheduled (P0) |
+|  | FastMCP In-Process Execution & Direct Library Invocation Acceleration Research | FastMCP / In-Process | High | High | v0.2.22 | 📋 Scheduled (P0) |
+|  | Pydantic AI Structured Workflows, Prompt Caching & Client-Side Token Governance Research | PydanticAI / Gateway | High | High | v0.2.22 | 📋 Scheduled (P0) |
 |  | Syntopical Dialectical Synthesis Engine (`devops ai research syntopical`) | PydanticAI / Multi-Source | High | High | v0.3.0 | 📋 Scheduled (P0) |
 |  | Agentic Information Foraging & Scent Tracker (`devops ai research forage`) | Graph Search / Scent | High | High | v0.3.0 | 📋 Scheduled (P0) |
 |  | MCTS & Tree-of-Thought Solution Exploration Engine (`devops ai explore`) | MCTS / UCT / Beam Search | High | High | v0.3.1 | 📋 Scheduled (P0) |
@@ -361,15 +466,26 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Air-Gapped & Sovereign Enclave Operations | PKCS#11 / Hardware Tokens | High | High | v0.4.x | 🔮 Future Vision (P0) |
 |  | Neurosymbolic Program Synthesis & SMT Proof Verification | Z3 / CVC5 / Neural Synthesis | High | High | v0.5.x | 🔮 Future Vision (P0) |
 |  | Full-Lifecycle Autonomous Product Engineering | Multi-Agent / Self-Driving | High | High | v0.5.x | 🔮 Future Vision (P0) |
-| **Strategic Investments** | POSIX Process Group Sandbox Enforcement | Subprocess / OS | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
-|  | Structural Pre-Commit Hook Inversion | Pre-commit / Pytest | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
-|  | Lazy Domain-Gated MCP Tool Schema Hydration | FastMCP / MCP Protocol | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
-|  | Capability-Gated Model Failover & AIMD Batch Recovery | Gateway / AIMD / Embeddings | High | Medium | v0.2.22 | 📋 Scheduled (P0) |
-|  | Interactive GitHub Lifecycle, PR Monitor & Kanban Hub | Textual / GitHub REST | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
-|  | Cloud-Native Cluster Runtime & Pod Log Streamer | Textual / Kubernetes / Stern | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
-|  | Declarative Dashboard Linter & K8s Sidecar GitOps Provisioner | Kubernetes / ConfigMap / Helm | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
-|  | Structured Constraint Propagation Across Subagent Delegation | PydanticAI / Workflow | High | Medium | v0.2.24 | 📋 Scheduled (P1) |
-|  | MCP Resource-First Data Access & Tool Output Sandboxing | FastMCP / MCP Resources | High | Medium | v0.2.24 | 📋 Scheduled (P1) |
+| **Strategic Investments** | POSIX Process Group Sandbox Enforcement | Subprocess / OS | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
+|  | Structural Pre-Commit Hook Inversion | Pre-commit / Pytest | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
+|  | Lazy Domain-Gated MCP Tool Schema Hydration | FastMCP / MCP Protocol | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
+|  | Capability-Gated Model Failover & AIMD Batch Recovery | Gateway / AIMD / Embeddings | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
+|  | Interactive GitHub Lifecycle, PR Monitor & Kanban Hub | Textual / GitHub REST | High | Medium | v0.2.24 | 📋 Scheduled (P0) |
+|  | Cloud-Native Cluster Runtime & Pod Log Streamer | Textual / Kubernetes / Stern | High | Medium | v0.2.24 | 📋 Scheduled (P0) |
+|  | Declarative Dashboard Linter & K8s Sidecar GitOps Provisioner | Kubernetes / ConfigMap / Helm | High | Medium | v0.2.24 | 📋 Scheduled (P1) |
+|  | Structured Constraint Propagation Across Subagent Delegation | PydanticAI / Workflow | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
+|  | MCP Resource-First Data Access & Tool Output Sandboxing | FastMCP / MCP Resources | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
+|  | Docker Engine Socket API & Layer Caching Introspection Research | Docker Engine / BuildKit | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | ArgoCD Server API, CRD Reconciliation & Canary Verification Research | ArgoCD / Rollouts | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | Terraform & OpenTofu HCL AST Analysis & Drift Optimization Research | OpenTofu / HCL AST | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | HashiCorp Vault Native Client, Dynamic Leases & Envelope Encryption Research | Vault / HVAC / Keyring | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | Valkey & Redis RESP3 Connection Pooling & Tiered L1/L2 Cache Research | Valkey / RESP3 / Redis | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | Qdrant Vector Engine Async Connection Pooling & Quantization Research | Qdrant / Hybrid Search | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | Grafana Declarative Dashboard Schema Models & GitOps Sync Research | Grafana / Pydantic Models | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | Textual TUI Reactive Architecture & Virtualized Log Streamers Research | Textual / Reactive | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | OpenTelemetry W3C Traceparent Context Propagation & Metric SDK Research | OpenTelemetry / OTLP | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | Security Scanners Unified SARIF Engine & AST Autofix Synthesis Research | SARIF / AST Autofix | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | Git Low-Level Plumbing Optimization & In-Memory Tree Caching Research | Git Plumbing / PathSpec | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 |  | Living Mental Model Synthesizer & Causal Graph Distiller | YAML / Causal DAG | High | Medium | v0.3.0 | 📋 Scheduled (P1) |
 |  | Ground-Truth Source Triangulator & Provenance Auditor | AST / Config / Pytest | High | Medium | v0.3.0 | 📋 Scheduled (P1) |
 |  | Cross-Domain Analogical Pattern Retriever | Qdrant / Multi-Vector | High | Medium | v0.3.0 | 📋 Scheduled (P1) |
@@ -395,11 +511,11 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Heterogeneous GPU & Accelerator Fleet Orchestration | CUDA / ROCm / Metal | High | Medium | v0.4.x | 🔮 Future Vision (P1) |
 |  | Continuous Evolutionary Codebase Mutator | Genetic AST / Benchmarks | High | Medium | v0.5.x | 🔮 Future Vision (P1) |
 |  | Formally Verified Kernel & Sandbox Isolation Proofs | Coq / Lean 4 / Formal Specs | High | Medium | v0.5.x | 🔮 Future Vision (P1) |
-| **Tactical Additions** | Anti-Brittle Constant Elimination | Standard Library / AST | High | Low | v0.2.22 | 📋 Scheduled (P1) |
-|  | Semantic Validator Deprecation & Structural Positional Oracles | AST / Pydantic | High | Low | v0.2.22 | 📋 Scheduled (P1) |
-|  | Lossless Structured Error Reflection for Schema Retries | Pydantic / Structured Output | High | Low | v0.2.22 | 📋 Scheduled (P1) |
-|  | Background Shell Pipe Deadlock Fix & Bounded Ring Buffers | Subprocess / Threading | High | Low | v0.2.22 | 📋 Scheduled (P1) |
-|  | FastMCP TUI Management Tools & Dynamic Resources | FastMCP / PydanticAI | Medium | Low | v0.2.23 | 📋 Scheduled (P2) |
+| **Tactical Additions** | Anti-Brittle Constant Elimination | Standard Library / AST | High | Low | v0.2.23 | 📋 Scheduled (P1) |
+|  | Semantic Validator Deprecation & Structural Positional Oracles | AST / Pydantic | High | Low | v0.2.23 | 📋 Scheduled (P1) |
+|  | Lossless Structured Error Reflection for Schema Retries | Pydantic / Structured Output | High | Low | v0.2.23 | 📋 Scheduled (P1) |
+|  | Background Shell Pipe Deadlock Fix & Bounded Ring Buffers | Subprocess / Threading | High | Low | v0.2.23 | 📋 Scheduled (P1) |
+|  | FastMCP TUI Management Tools & Dynamic Resources | FastMCP / PydanticAI | Medium | Low | v0.2.24 | 📋 Scheduled (P2) |
 |  | FastMCP Cognitive Research Tools & Epistemic Resources | FastMCP / PydanticAI | High | Low | v0.3.0 | 📋 Scheduled (P1) |
 |  | FastMCP Solution Discovery Tools & Dynamic Resources | FastMCP / PydanticAI | High | Low | v0.3.1 | 📋 Scheduled (P1) |
 |  | FastMCP Agentic PM Tools & System Resources | FastMCP / PydanticAI | High | Low | v0.3.2 | 📋 Scheduled (P1) |

@@ -21,6 +21,7 @@ class GitHubIssue(BaseModel):
 
     number: int
     title: str
+    body: str = ""
     state: str = "open"
     milestone: str | None = None
     labels: list[str] = Field(default_factory=list)
@@ -86,6 +87,7 @@ def _parse_single_issue(item: dict[str, Any]) -> GitHubIssue:
     return GitHubIssue(
         number=int(item.get("number", 0)),
         title=str(item.get("title", "")),
+        body=str(item.get("body", "") or ""),
         state=str(item.get("state", "open")).lower(),
         milestone=milestone_title,
         labels=_parse_issue_labels(item.get("labels")),
@@ -94,6 +96,23 @@ def _parse_single_issue(item: dict[str, Any]) -> GitHubIssue:
         updated_at=str(item.get("updatedAt") or item.get("updated_at") or ""),
         url=str(item.get("url") or item.get("html_url") or ""),
     )
+
+
+def _filter_rest_issues(
+    raw_list: list[Any], milestone: str | None, limit: int
+) -> list[GitHubIssue]:
+    """Filter raw REST issue dictionaries into typed GitHubIssue objects."""
+    issues: list[GitHubIssue] = []
+    for item in raw_list:
+        if not isinstance(item, dict) or "pull_request" in item:
+            continue
+        parsed = _parse_single_issue(item)
+        if milestone and parsed.milestone != milestone:
+            continue
+        issues.append(parsed)
+        if len(issues) >= limit:
+            break
+    return issues
 
 
 def _fetch_issues_rest(
@@ -115,17 +134,7 @@ def _fetch_issues_rest(
         raw_list = json.loads(res.stdout)
         if not isinstance(raw_list, list):
             return []
-        issues: list[GitHubIssue] = []
-        for item in raw_list:
-            if not isinstance(item, dict) or "pull_request" in item:
-                continue
-            parsed = _parse_single_issue(item)
-            if milestone and parsed.milestone != milestone:
-                continue
-            issues.append(parsed)
-            if len(issues) >= limit:
-                break
-        return issues
+        return _filter_rest_issues(raw_list, milestone, limit)
     except Exception as exc:
         logger.debug("Failed to parse REST issues: %s", exc)
         return []
@@ -209,8 +218,9 @@ def _extract_issue_number(url_or_text: str) -> int:
 def _parse_created_issue(
     stdout: str,
     title: str,
-    milestone: str | None,
-    labels: list[str] | None,
+    body: str = "",
+    milestone: str | None = None,
+    labels: list[str] | None = None,
 ) -> GitHubIssue:
     """Parse output from issue creation command into a typed GitHubIssue."""
     cleaned = stdout.strip()
@@ -224,6 +234,7 @@ def _parse_created_issue(
     return GitHubIssue(
         number=_extract_issue_number(cleaned),
         title=title,
+        body=body,
         state="open",
         milestone=milestone,
         labels=labels or [],
@@ -241,13 +252,37 @@ def create_repository_issue(
     """Create a new GitHub issue with taxonomy labels and milestone linkage."""
     cmd = _build_create_issue_cmd(repo, title, body, milestone, labels)
     res = run_gh(cmd, check=False, quiet=True)
+    assigned_milestone = milestone
+    if (
+        res.returncode != 0
+        and milestone
+        and "could not add to milestone" in (res.stderr or res.stdout)
+    ):
+        fallback_cmd = _build_create_issue_cmd(repo, title, body, None, labels)
+        res = run_gh(fallback_cmd, check=False, quiet=True)
+        if res.returncode == 0:
+            m_num = _resolve_milestone_number(repo, milestone)
+            created_num = _extract_issue_number(res.stdout)
+            if m_num and created_num:
+                patch_cmd = [
+                    CONST_GH_CLI,
+                    "api",
+                    "-X",
+                    "PATCH",
+                    f"repos/{repo}/issues/{created_num}",
+                    "-F",
+                    f"milestone={m_num}",
+                ]
+                run_gh(patch_cmd, check=False, quiet=True)
+            else:
+                assigned_milestone = None
     if res.returncode != 0:
         raise GitHubOperationError(
             f"Failed to create GitHub issue: {res.stderr or res.stdout}",
             operation="create_issue",
             details={"repo": repo, "title": title[:256]},
         )
-    return _parse_created_issue(res.stdout, title, milestone, labels)
+    return _parse_created_issue(res.stdout, title, body, assigned_milestone, labels)
 
 
 def audit_issues_triage(repo: str) -> IssueTriageAudit:
@@ -305,3 +340,189 @@ def get_issues_summary(repo: str) -> dict[str, Any]:
         "by_type": dict(type_counter),
         "by_milestone": dict(milestone_counter),
     }
+
+
+def _is_trivial_milestone(milestone: str | int | None) -> bool:
+    """Check if milestone parameter is empty or explicitly clearing."""
+    if milestone is None:
+        return True
+    if isinstance(milestone, int):
+        return False
+    cleaned = str(milestone).strip().lower()
+    return not cleaned or cleaned in ("none", "null", "clear", "0")
+
+
+def _parse_milestones_response(stdout: str) -> list[dict[str, Any]]:
+    """Parse JSON milestone list from paginated or standard response."""
+    try:
+        from devops_cli.github.client import parse_paginated_json
+
+        return parse_paginated_json(stdout)
+    except Exception:
+        return json.loads(stdout) if stdout.startswith("[") else []
+
+
+def _find_milestone_match(items: list[dict[str, Any]], cleaned: str) -> int | None:
+    """Find matching milestone integer number from parsed API items."""
+    candidates = {cleaned, cleaned.lstrip("v"), f"v{cleaned.lstrip('v')}"}
+    for m in items:
+        if isinstance(m, dict) and m.get("title") in candidates and "number" in m:
+            return int(m["number"])
+    return None
+
+
+def _resolve_milestone_number(repo: str, milestone: str | int | None) -> int | None:
+    """Resolve a milestone title or identifier into its GitHub milestone integer number."""
+    if _is_trivial_milestone(milestone):
+        return None
+    if isinstance(milestone, int):
+        return milestone
+    cleaned = str(milestone).strip()
+    if cleaned.isdigit():
+        return int(cleaned)
+
+    cmd = [
+        CONST_GH_CLI,
+        "api",
+        "--paginate",
+        f"repos/{repo}/milestones?state=all&per_page=100",
+    ]
+    res = run_gh(cmd, check=False, quiet=True)
+    if res.returncode != 0 or not res.stdout:
+        raise GitHubOperationError(
+            f"Failed to query milestones for repository {repo}",
+            operation="resolve_milestone",
+            details={"repo": repo, "milestone": cleaned[:256]},
+        )
+
+    items = _parse_milestones_response(res.stdout)
+    matched = _find_milestone_match(items, cleaned)
+    if matched is not None:
+        return matched
+
+    raise GitHubOperationError(
+        f"Milestone '{cleaned}' was not found in repository {repo}.",
+        operation="resolve_milestone",
+        details={"repo": repo, "milestone": cleaned[:256]},
+    )
+
+
+def _resolve_updated_labels(
+    repo: str,
+    number: int,
+    labels: list[str] | None,
+    add_labels: list[str] | None,
+    remove_labels: list[str] | None,
+) -> list[str] | None:
+    """Resolve new complete label list when adding or removing taxonomy labels."""
+    if labels is not None:
+        return labels
+    if not add_labels and not remove_labels:
+        return None
+
+    cmd = [CONST_GH_CLI, "api", f"repos/{repo}/issues/{number}"]
+    res = run_gh(cmd, check=False, quiet=True)
+    curr_labels: set[str] = set()
+    if res.returncode == 0 and res.stdout:
+        try:
+            data = json.loads(res.stdout)
+            curr_labels = set(_parse_issue_labels(data.get("labels", [])))
+        except json.JSONDecodeError, TypeError:
+            pass
+
+    if add_labels:
+        curr_labels.update(add_labels)
+    if remove_labels:
+        curr_labels.difference_update(remove_labels)
+
+    return sorted(curr_labels)
+
+
+def _build_issue_patch_payload(
+    repo: str,
+    number: int,
+    title: str | None,
+    body: str | None,
+    state: str | None,
+    milestone: str | int | None,
+    clear_milestone: bool,
+    labels: list[str] | None,
+    add_labels: list[str] | None,
+    remove_labels: list[str] | None,
+) -> dict[str, Any]:
+    """Construct PATCH payload dictionary for issue field updates."""
+    payload: dict[str, Any] = {}
+    if title is not None:
+        payload["title"] = title
+    if body is not None:
+        payload["body"] = body
+    if state is not None:
+        payload["state"] = state.lower()
+    if clear_milestone:
+        payload["milestone"] = None
+    elif milestone is not None:
+        payload["milestone"] = _resolve_milestone_number(repo, milestone)
+
+    new_labels = _resolve_updated_labels(repo, number, labels, add_labels, remove_labels)
+    if new_labels is not None:
+        payload["labels"] = new_labels
+
+    return payload
+
+
+def edit_repository_issue(
+    repo: str,
+    number: int,
+    title: str | None = None,
+    body: str | None = None,
+    state: str | None = None,
+    milestone: str | int | None = None,
+    clear_milestone: bool = False,
+    labels: list[str] | None = None,
+    add_labels: list[str] | None = None,
+    remove_labels: list[str] | None = None,
+) -> GitHubIssue:
+    """Edit an existing GitHub issue: title, body, state, milestone, or taxonomy labels."""
+    payload = _build_issue_patch_payload(
+        repo,
+        number,
+        title,
+        body,
+        state,
+        milestone,
+        clear_milestone,
+        labels,
+        add_labels,
+        remove_labels,
+    )
+    if not payload:
+        raise GitHubOperationError(
+            "No issue fields specified for update.",
+            operation="edit_issue",
+            details={"repo": repo, "issue": number},
+        )
+
+    cmd = [
+        CONST_GH_CLI,
+        "api",
+        "--method",
+        "PATCH",
+        f"repos/{repo}/issues/{number}",
+        "--input",
+        "-",
+    ]
+    res = run_gh(cmd, input=json.dumps(payload), check=False, quiet=True)
+    if res.returncode != 0:
+        raise GitHubOperationError(
+            f"Failed to edit issue #{number}: {res.stderr or res.stdout}",
+            operation="edit_issue",
+            details={"repo": repo, "issue": number},
+        )
+
+    data = json.loads(res.stdout) if res.stdout else {}
+    return _parse_single_issue(data)
+
+
+def close_repository_issue(repo: str, number: int) -> GitHubIssue:
+    """Close an existing GitHub issue."""
+    return edit_repository_issue(repo, number, state="closed")

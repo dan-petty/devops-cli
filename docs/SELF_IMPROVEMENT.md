@@ -123,7 +123,7 @@ Read `.data/reviews/<session-id>/findings.json` and `review.md`. Group findings 
 
 ### Step 2: Ground in GitHub Projects & Issues
 Every review remediation task must have an active GitHub Issue and Project Item:
-- Author a formal issue (e.g. `gh issue create --title "fix(security): remediate verified review findings" --label "type/security,scope/review,priority/p1-high"`).
+- Author a formal issue (e.g. `devops gh issues create --title "fix(security): remediate verified review findings" --label "type/security,scope/review,priority/p1-high"`).
 - Move the Project card to `In Progress` via `devops gh project sync`.
 - Create a dedicated task file under `docs/agent/tasks/task-<issue>-<slug>.md`.
 

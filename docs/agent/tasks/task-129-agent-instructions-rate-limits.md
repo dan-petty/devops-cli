@@ -17,7 +17,7 @@ AI agents (Claude, GitHub Copilot, Cursor, Codex) interacting with external APIs
 1. **Canonical Agent Instructions Update (`AGENTS.md`)**:
    - Add explicit core engineering principle in Section 1: *API Rate Limit Honor & Resilient Backoff*.
    - Add detailed operational guidance in Section 3 under *GitHub Projects, Issues, Views, Milestones & Label Governance*:
-     - Proactive inspection of GitHub rate limits via `gh api rate_limit` and `x-ratelimit-*` headers.
+     - Proactive inspection of GitHub rate limits via `devops gh rate-limit` and `x-ratelimit-*` headers.
      - Adaptive fallback from GraphQL rate-limiting to REST endpoints (`gh api repos/...`).
      - Exponential backoff with jitter and honoring `Retry-After` reset windows.
      - Client-side caching and avoidance of aggressive polling loops.

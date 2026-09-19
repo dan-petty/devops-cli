@@ -730,7 +730,20 @@ CONST_ROADMAP_SCOPE_KEYWORDS: Final[dict[str, frozenset[str]]] = {
             "rag",
         }
     ),
-    "scope/k8s": frozenset({"k8s", "kubernetes", "pod", "pods", "cluster", "minikube", "helm"}),
+    "scope/k8s": frozenset(
+        {
+            "k8s",
+            "kubernetes",
+            "pod",
+            "pods",
+            "cluster",
+            "minikube",
+            "helm",
+            "argo",
+            "argocd",
+            "rollout",
+        }
+    ),
     "scope/security": frozenset(
         {"sec", "vault", "security", "fuzz", "cve", "trivy", "gitleaks", "semgrep"}
     ),
@@ -739,6 +752,8 @@ CONST_ROADMAP_SCOPE_KEYWORDS: Final[dict[str, frozenset[str]]] = {
     "scope/telemetry": frozenset(
         {"telemetry", "metric", "metrics", "tracing", "trace", "loki", "jaeger", "prometheus"}
     ),
+    "scope/mcp": frozenset({"mcp", "fastmcp"}),
+    "scope/config": frozenset({"config", "settings", "keyring"}),
 }
 
 CONST_ROADMAP_PRIORITY_TAGS: Final[dict[str, tuple[str, ...]]] = {
@@ -846,3 +861,8 @@ CONST_CODE_EXTENSIONS: Final[frozenset[str]] = frozenset(
 )
 
 CONST_AI_SPEND_TABLE_NAME: Final[str] = "ai_spend_records"
+
+CONST_RESEARCH_DIR_NAME: Final[str] = "research"
+CONST_DEFAULT_MAX_SYNTOPICAL_SOURCES: Final[int] = 20
+CONST_SYNTOPICAL_MIN_RELEVANCE: Final[float] = 0.2
+CONST_SYNTOPICAL_MAX_EXCERPT_CHARS: Final[int] = 1000

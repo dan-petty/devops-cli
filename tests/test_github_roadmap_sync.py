@@ -186,7 +186,7 @@ def test_extract_roadmap_items_live_file() -> None:
 
 
 def test_is_issue_matching_item() -> None:
-    """Issue matching predicates identify exact numbers, substrings, and word sets."""
+    """Issue matching predicates identify exact numbers and exact normalized titles."""
     item = RoadmapItem(
         milestone="v0.2.20",
         milestone_title="Release",
@@ -203,7 +203,7 @@ def test_is_issue_matching_item() -> None:
     )
     issue_title_match = GitHubIssue(
         number=300,
-        title="feat(pm): forward-looking pm engine implementation",
+        title="feat(pm): forward-looking pm engine",
         state="open",
         url="https://example.com/issues/300",
     )
@@ -225,7 +225,7 @@ def test_is_issue_matching_item() -> None:
         _is_issue_matching_item(issue_title_match, item),
         _is_issue_matching_item(issue_word_match, item),
         _is_issue_matching_item(issue_unrelated, item),
-    ) == (True, True, True, False)
+    ) == (True, True, False, False)
 
 
 def test_find_task_file_for_item(tmp_path: Path) -> None:

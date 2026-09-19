@@ -49,13 +49,15 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`docker_verify`](#docker-verify) | Verify container image signature or attestation using Sigstore Cosign. |
 | [`docs_compact`](#docs-compact) | Compact historical release series documentation (v0.2.x -> v0.3.x). |
 | [`gh_issue_create`](#gh-issue-create) | Create a new GitHub issue linking milestone and taxonomy labels. |
-| [`gh_issue_edit`](#gh-issue-edit) | Edit an existing GitHub issue title, body, or state. |
+| [`gh_issue_edit`](#gh-issue-edit) | Edit an existing GitHub issue title, body, state, or milestone. |
 | [`gh_issue_list`](#gh-issue-list) | List repository issues with milestone, taxonomy labels, and status. |
+| [`gh_issue_reconcile_roadmap`](#gh-issue-reconcile-roadmap) | Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations. |
 | [`gh_issue_status`](#gh-issue-status) | Display aggregated issue counts by priority, type, and milestone. |
 | [`gh_issue_triage`](#gh-issue-triage) | Audit open issues for mandatory taxonomy labels and milestone linkage. |
 | [`gh_label_list`](#gh-label-list) | List declarative repository labels and descriptions. |
 | [`gh_label_sync`](#gh-label-sync) | Synchronize repository labels against .github/labels.yml schema. |
 | [`gh_milestone_close`](#gh-milestone-close) | Close a repository milestone matching the given version or title. |
+| [`gh_milestone_edit`](#gh-milestone-edit) | Edit an existing milestone title, description, state, or due date. |
 | [`gh_milestone_list`](#gh-milestone-list) | List repository milestones and progress rates. |
 | [`gh_milestone_sync`](#gh-milestone-sync) | Synchronize repository milestones from docs/ROADMAP.md. |
 | [`gh_pages_build`](#gh-pages-build) | Trigger a new deployment build for GitHub Pages. |
@@ -106,6 +108,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`rag_drift`](#rag-drift) | Detect staleness and drift between the working tree and the Qdrant vector index. |
 | [`rag_index`](#rag-index) | Index workspace files into Qdrant vector database for semantic retrieval. |
 | [`rag_search`](#rag-search) | Perform semantic vector search across indexed workspace codebase and architecture docs. |
+| [`release_epic_sync`](#release-epic-sync) | Provision, correlate, and synchronize parent release tracking epics for milestones. |
 | [`release_status`](#release-status) | Check devops-cli release status, version consistency, tags, and docs state. |
 | [`repos_list`](#repos-list) | List local workspace repositories and active git branches. |
 | [`repos_status`](#repos-status) | Display uncommitted changes and branch drift across workspace repositories. |
@@ -645,7 +648,7 @@ Create a new GitHub issue linking milestone and taxonomy labels.
 
 ### `gh_issue_edit`
 
-Edit an existing GitHub issue title, body, or state.
+Edit an existing GitHub issue title, body, state, or milestone.
 
 **Parameters:**
 
@@ -655,6 +658,8 @@ Edit an existing GitHub issue title, body, or state.
 | `title` | `string` | No | - | - |
 | `body` | `string` | No | - | - |
 | `state` | `string` | No | - | - |
+| `milestone` | `string` | No | - | - |
+| `clear_milestone` | `boolean` | No | `False` | - |
 | `repo` | `string` | No | - | - |
 
 ### `gh_issue_list`
@@ -670,6 +675,17 @@ List repository issues with milestone, taxonomy labels, and status.
 | `milestone` | `string` | No | - | - |
 | `label` | `string` | No | - | - |
 | `limit` | `integer` | No | `30` | - |
+
+### `gh_issue_reconcile_roadmap`
+
+Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `dry_run` | `boolean` | No | `True` | - |
+| `repo` | `string` | No | - | - |
 
 ### `gh_issue_status`
 
@@ -723,6 +739,21 @@ Close a repository milestone matching the given version or title.
 | `version` | `string` | Yes | - | - |
 | `repo` | `string` | No | - | - |
 
+### `gh_milestone_edit`
+
+Edit an existing milestone title, description, state, or due date.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `version` | `string` | Yes | - | - |
+| `title` | `string` | No | - | - |
+| `description` | `string` | No | - | - |
+| `state` | `string` | No | - | - |
+| `due_on` | `string` | No | - | - |
+| `repo` | `string` | No | - | - |
+
 ### `gh_milestone_list`
 
 List repository milestones and progress rates.
@@ -743,6 +774,7 @@ Synchronize repository milestones from docs/ROADMAP.md.
 |---|---|---|---|---|
 | `repo` | `string` | No | - | - |
 | `dry_run` | `boolean` | No | `True` | - |
+| `create_release_epics` | `boolean` | No | `False` | - |
 
 ### `gh_pages_build`
 
@@ -1264,6 +1296,19 @@ Perform semantic vector search across indexed workspace codebase and architectur
 | `project` | `string` | No | - | - |
 | `language` | `string` | No | - | - |
 | `category` | `string` | No | - | - |
+
+### `release_epic_sync`
+
+Provision, correlate, and synchronize parent release tracking epics for milestones.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `version` | `string` | No | - | - |
+| `all_milestones` | `boolean` | No | `False` | - |
+| `dry_run` | `boolean` | No | `True` | - |
+| `repo` | `string` | No | - | - |
 
 ### `release_status`
 

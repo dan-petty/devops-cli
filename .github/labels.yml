@@ -34,6 +34,10 @@
   color: "CFD3D7"
   description: "Dependency upgrades, tooling adjustments, or maintenance"
 
+- name: "type/epic"
+  color: "3E4B9E"
+  description: "High-level tracking epic or release parent issue coordinating deliverables"
+
 # ── Scope Labels ────────────────────────────────────────────────────────────
 - name: "scope/ai"
   color: "6F42C1"
@@ -70,6 +74,10 @@
 - name: "scope/github"
   color: "24292E"
   description: "GitHub Projects v2, Views, Milestones, Labels, and PR automation"
+
+- name: "scope/release"
+  color: "1D76DB"
+  description: "Release coordination, changelog generation, and milestone epics"
 
 # ── Priority Labels ─────────────────────────────────────────────────────────
 - name: "priority/p0-critical"

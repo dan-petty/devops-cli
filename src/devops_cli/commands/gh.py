@@ -327,6 +327,13 @@ def sync_milestones(
         typer.Option("--roadmap", "-r", help="Path to docs/ROADMAP.md file"),
     ] = Path("docs/ROADMAP.md"),
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    create_release_epics: Annotated[
+        bool,
+        typer.Option(
+            "--create-release-epics",
+            help="Provision or synchronize release tracking epics for each milestone",
+        ),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -347,8 +354,17 @@ def sync_milestones(
     mode_text = "[yellow][DRY RUN][/yellow] " if result.dry_run else ""
     print_success(
         f"{mode_text}Milestone synchronization for {target_repo}: "
-        f"{result.created_count} to create, {result.existing_count} existing."
+        f"{result.created_count} created, {result.updated_count} updated, {result.existing_count} existing."
     )
+    if create_release_epics:
+        from devops_cli.github.release_epics import sync_all_release_epics
+
+        epic_res = sync_all_release_epics(target_repo, roadmap_path=roadmap, dry_run=dry_run)
+        print_success(
+            f"{mode_text}Release Epics synchronized: "
+            f"{epic_res.created_count} created, {epic_res.updated_count} updated, "
+            f"{epic_res.unchanged_count} unchanged across {epic_res.total_milestones} milestone(s)."
+        )
 
 
 @milestones_app.command("status")
@@ -417,6 +433,56 @@ def close_milestone(
         print_error(
             f"Failed to close milestone '{name}' in {target_repo} (not found or permission denied)."
         )
+        raise typer.Exit(1)
+
+
+@milestones_app.command("edit", help=HELP.gh.milestones_edit)
+def edit_milestone_cmd(
+    name: Annotated[
+        str,
+        typer.Argument(help="Milestone version, title, or number (e.g. v0.2.21 or 34)"),
+    ],
+    title: Annotated[
+        str | None,
+        typer.Option("--title", "-t", help="New milestone title"),
+    ] = None,
+    description: Annotated[
+        str | None,
+        typer.Option("--description", "-d", help="New milestone description"),
+    ] = None,
+    state: Annotated[
+        str | None,
+        typer.Option("--state", "-s", help="New state (open or closed)"),
+    ] = None,
+    due_on: Annotated[
+        str | None,
+        typer.Option("--due-date", help="ISO due date (YYYY-MM-DD)"),
+    ] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+) -> None:
+    """Edit an existing repository milestone title, description, state, or due date."""
+    from devops_cli.github.milestones import edit_repository_milestone
+
+    target_repo = repo or _resolve_repo()
+    client = _get_github_client() or GhCliClient(target_repo)
+
+    if not any([title, description, state, due_on]):
+        print_warning("No changes specified.")
+        return
+
+    ok = edit_repository_milestone(
+        client=client,
+        repo=target_repo,
+        version_or_title_or_number=name,
+        title=title,
+        description=description,
+        state=state,
+        due_on=due_on,
+    )
+    if ok:
+        print_success(f"Milestone '{name}' updated successfully in {target_repo}.")
+    else:
+        print_error(f"Failed to update milestone '{name}' in {target_repo}.")
         raise typer.Exit(1)
 
 
@@ -510,13 +576,17 @@ def reconcile_project_cmd(
         int | None,
         typer.Option("--project-number", "-n", help="GitHub Projects v2 board number"),
     ] = None,
+    state: Annotated[
+        str,
+        typer.Option("--state", "-s", help="Filter issue/PR states (open, closed, all)"),
+    ] = "all",
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Preview field reconciliation without mutations"),
     ] = False,
 ) -> None:
-    """Reconcile custom fields (Status, Priority, Category, Value, Effort) on project items."""
+    """Reconcile custom fields (Status, Priority, Category, Value, Effort, Milestone) on project items."""
     from devops_cli.github.projects import (
         find_remote_project,
         load_project_template,
@@ -540,6 +610,7 @@ def reconcile_project_cmd(
             repo=target_repo,
             project_number=proj_num,
             dry_run=dry_run,
+            state=state,
         )
         print_success(
             f"{mode_text}Reconciled project #{proj_num} custom fields: "
@@ -980,18 +1051,38 @@ def edit_issue_cmd(
         str | None,
         typer.Option("--state", "-s", help="New state (open or closed)."),
     ] = None,
+    milestone: Annotated[
+        str | None,
+        typer.Option(
+            "--milestone",
+            "-m",
+            help="New milestone version, title, or number (e.g. v0.2.21).",
+        ),
+    ] = None,
+    clear_milestone: Annotated[
+        bool,
+        typer.Option("--clear-milestone", help="Remove milestone linkage from the issue."),
+    ] = False,
+    add_label: Annotated[
+        list[str] | None,
+        typer.Option("--add-label", help="Taxonomy label to attach (repeatable)."),
+    ] = None,
+    remove_label: Annotated[
+        list[str] | None,
+        typer.Option("--remove-label", help="Taxonomy label to detach (repeatable)."),
+    ] = None,
     repo: Annotated[
         str | None,
         typer.Option("--repo", "-R", help="Target repository"),
     ] = None,
 ) -> None:
-    """Edit an existing GitHub issue title, body, or state."""
+    """Edit an existing GitHub issue title, body, state, milestone, or taxonomy labels."""
     target_repo = repo or _resolve_repo()
     if not target_repo or "/" not in target_repo:
         print_error("Cannot resolve target repository.")
         raise typer.Exit(1)
-    if not any([title, body, state]):
-        print_warning("No changes specified. Use --title, --body, or --state.")
+    if not any([title, body, state, milestone, clear_milestone, add_label, remove_label]):
+        print_warning("No changes specified.")
         return
 
     owner, repo_name = target_repo.split("/", 1)
@@ -1002,6 +1093,18 @@ def edit_issue_cmd(
         payload["body"] = body
     if state is not None:
         payload["state"] = state
+    if clear_milestone:
+        payload["milestone"] = None
+    elif milestone is not None:
+        from devops_cli.github.issues import _resolve_milestone_number
+
+        payload["milestone"] = _resolve_milestone_number(target_repo, milestone)
+    if add_label or remove_label:
+        from devops_cli.github.issues import _resolve_updated_labels
+
+        new_labels = _resolve_updated_labels(target_repo, number, None, add_label, remove_label)
+        if new_labels is not None:
+            payload["labels"] = new_labels
 
     cmd = [
         "api",
@@ -1015,10 +1118,66 @@ def edit_issue_cmd(
     if res.returncode != 0:
         from devops_cli.security.sanitizer import mask_secrets
 
-        clean_err = mask_secrets(res.stderr.strip()[:256])
+        clean_err = mask_secrets((res.stderr or res.stdout or "").strip()[:256])
         print_error(f"Failed to edit issue #{number}: {clean_err}", safe=True)
-        raise typer.Exit(res.returncode)
+        raise typer.Exit(res.returncode or 1)
     print_success(f"Issue #{number} updated successfully.")
+
+
+def _display_reconciled_issues(res: Any, mode_text: str) -> None:
+    """Format and print issue milestone reconciliation results."""
+    if res.reconciled_count == 0:
+        print_info(
+            f"{mode_text}All {res.total_issues_checked} checked issues are correctly aligned with roadmap milestones."
+        )
+        return
+
+    print_success(
+        f"{mode_text}Reconciled {res.reconciled_count} issue milestone(s) to match docs/ROADMAP.md."
+    )
+    for item in res.reconciled_issues:
+        print_info(
+            f"  - #{item['number']}: {item['title'][:50]} "
+            f"({item['old_milestone']} -> {item['new_milestone']})"
+        )
+
+
+@issues_app.command("reconcile-roadmap", help=HELP.gh.issues_reconcile_roadmap)
+def reconcile_issues_roadmap_cmd(
+    roadmap_path: Annotated[
+        Path,
+        typer.Option("--roadmap", "-r", help="Path to docs/ROADMAP.md file"),
+    ] = Path("docs/ROADMAP.md"),
+    tasks_dir: Annotated[
+        Path,
+        typer.Option("--tasks-dir", "-t", help="Directory for local per-task tracking files"),
+    ] = Path("docs/agent/tasks"),
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Preview issue milestone reconciliation without mutations"),
+    ] = False,
+) -> None:
+    """Reconcile repository issue milestones and local task files to match docs/ROADMAP.md declarations."""
+    from devops_cli.github.roadmap_sync import reconcile_issue_milestones_from_roadmap
+
+    target_repo = repo or _resolve_repo()
+    if not target_repo or "/" not in target_repo:
+        print_error("Cannot resolve target repository.")
+        raise typer.Exit(1)
+
+    mode_text = "[yellow][DRY RUN][/yellow] " if dry_run else ""
+    try:
+        res = reconcile_issue_milestones_from_roadmap(
+            repo=target_repo,
+            roadmap_path=roadmap_path,
+            tasks_dir=tasks_dir,
+            dry_run=dry_run,
+        )
+        _display_reconciled_issues(res, mode_text)
+    except Exception as exc:
+        print_error(f"Failed to reconcile issue milestones: {exc}", safe=True)
+        raise typer.Exit(1)
 
 
 def _format_issues_table_rows(created_issues: list[dict[str, Any]]) -> list[list[str]]:

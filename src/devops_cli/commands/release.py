@@ -1388,3 +1388,71 @@ def _close_release_milestone_safe(repo_root: Path, version: str) -> None:
         _get("print_warning")(
             f"Note: Could not close milestone for v{version}: {exc}", prefix=False
         )
+
+
+def _display_release_epic_results(res: Any, mode_text: str, repo: str) -> None:
+    """Format and display release epic synchronization results."""
+    _get("print_success")(
+        f"{mode_text}Release Epics synchronized for {repo}: "
+        f"{res.created_count} created, {res.updated_count} updated, {res.unchanged_count} unchanged "
+        f"across {res.total_milestones} milestone(s)."
+    )
+    for ep in res.epics:
+        num_str = f"#{ep['issue_number']}" if ep.get("issue_number") else "new"
+        _get("print_info")(
+            f"  - {ep['version']}: {num_str} ({ep['action']}) — "
+            f"{ep['completed']}/{ep['deliverables']} deliverables ({ep['percent']}%)"
+        )
+
+
+@app.command("epic", help=HELP.release.epic)
+def release_epic_cmd(
+    version: Annotated[
+        str | None,
+        typer.Argument(
+            help="Target release milestone version (e.g. v0.2.21 or 0.2.21). Omit with --all."
+        ),
+    ] = None,
+    all_milestones: Annotated[
+        bool,
+        typer.Option("--all", "-a", help="Synchronize release epics for all roadmap milestones"),
+    ] = False,
+    roadmap: Annotated[
+        Path,
+        typer.Option("--roadmap", "-r", help="Path to docs/ROADMAP.md file"),
+    ] = Path("docs/ROADMAP.md"),
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run", help="Simulate release epic creation without modifying remote issues"
+        ),
+    ] = False,
+) -> None:
+    """Provision, correlate, and synchronize parent release tracking epics for milestones."""
+    from devops_cli.commands.gh import _resolve_repo
+    from devops_cli.github.release_epics import sync_all_release_epics
+
+    target_repo = repo or _resolve_repo()
+    if not target_repo or "/" not in target_repo:
+        _get("print_error")("Cannot resolve target repository.")
+        raise typer.Exit(1)
+
+    if not version and not all_milestones:
+        _get("print_error")("Specify a milestone version (e.g. v0.2.21) or use --all.")
+        raise typer.Exit(1)
+
+    target_ver = version if not all_milestones else None
+    mode_text = "[yellow][DRY RUN][/yellow] " if dry_run else ""
+
+    try:
+        res = sync_all_release_epics(
+            repo=target_repo,
+            roadmap_path=roadmap,
+            dry_run=dry_run,
+            version_filter=target_ver,
+        )
+        _display_release_epic_results(res, mode_text, target_repo)
+    except Exception as exc:
+        _get("print_error")(f"Failed to synchronize release epics: {exc}")
+        raise typer.Exit(1)
