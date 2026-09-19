@@ -1,4 +1,4 @@
-default_install_hook_types: [pre-commit]
+default_install_hook_types: [pre-commit, pre-push]
 default_stages: [pre-commit]
 
 repos:
@@ -34,11 +34,11 @@ repos:
 
   - repo: local
     hooks:
-      - id: devops-ci-pre-commit
-        name: devops ci (pre-commit quality gate)
+      - id: devops-ci-pre-push
+        name: devops ci (pre-push quality gate)
         entry: uv run devops ci
         language: system
-        stages: [pre-commit]
-        pass_filenames: true
+        stages: [pre-push]
+        pass_filenames: false
         require_serial: true
         always_run: true
