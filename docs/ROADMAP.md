@@ -248,6 +248,16 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Loki Centralized LogQL Query Console*: Embedded LogQL query input bar with syntax highlighting and live streaming log console, querying cluster-wide Fluent Bit / Loki logs without leaving the TUI.
   - *Prometheus Performance Sparklines*: Terminal ASCII sparklines and gauges rendering real-time command execution latencies, LLM token throughput (tokens/sec), and cache hit ratios.
   - *Trace Waterfall Modal*: Visual breakdown of recent OpenTelemetry distributed traces and multi-persona review spans with service latency waterfalls.
+- [ ] **Comprehensive DevOps CLI Grafana Observability Dashboard Suite & GitOps Provisioner (`devops grafana dashboards sync`) (P0 - Critical)**:
+  - *Context & Rationale*: While the Textual TUI provides immediate interactive terminal visibility, long-term trend analysis, multi-workstation telemetry aggregation, and cluster-wide observability require enterprise-grade Grafana dashboards backed by Prometheus, Loki, and Tempo/Jaeger.
+  - *Unified Observability Dashboard Portfolio*:
+    - **DevOps Workstation CLI & Agent Telemetry (`dashboards/devops-cli.json`)**: Subcommand invocation frequency, p50/p95/p99 execution latency histograms, exit code distributions, subagent task durations, and OpenTelemetry span waterfalls.
+    - **AI Constellation & Priority Slot Leasing (`dashboards/ai-constellation.json`)**: Multi-node Ollama slot leasing concurrency, active leases vs. parallel limits, token generation throughput (tokens/sec), time-to-first-token (TTFT), vector cache hit ratios, and priority queue lengths (`high`, `normal`, `as_available`).
+    - **Multi-Persona Code Review & Findings Quality (`dashboards/ai-review.json`)**: Review volume segmented by classification context (`documentation`, `configuration`, `code`), persona finding distributions (`devsecops`, `architect`, `qa`, `pm`, `auditor`), severity heatmaps, finding mitigation latency, and false-positive invalidation rates.
+    - **GitHub Projects v2, PR Queue & API Quota (`dashboards/github-agentic.json`)**: FIFO pull request queue depth, PR readiness turnaround, Copilot review settling latency, and real-time REST/GraphQL token-bucket consumption gauges.
+    - **Centralized Logging & Incident Triage (`dashboards/loki-incident-triage.json`)**: Loki LogQL error stream panels, trace-to-log correlation via trace ID exemplars, and SIEM audit logs.
+  - *Automated K8s Sidecar & ConfigMap GitOps Provisioning*: Packages bundled dashboards into Kubernetes ConfigMaps labeled with `grafana_dashboard: "1"`, enabling automatic, zero-restart discovery and live reloads via the Grafana dashboard sidecar (`k8s/monitoring/prometheus-values.yaml`).
+  - *Declarative Dashboard Linter & Exporter (`devops grafana dashboards validate`) (P1 - High)*: Automated schema validator and exporter verifying Grafana 10+ panel schema compliance, datasource parameterization (`${DS_PROMETHEUS}`, `${DS_LOKI}`), and uid idempotency across all committed dashboard definitions.
 - [ ] **Universal Terminal Command Palette & Fuzzy Action Launcher (P1 - High)**:
   - *Context & Rationale*: High-velocity keyboard workflow allowing developers to execute any DevOps CLI command without exiting the TUI.
   - *Modal Launcher (`Ctrl+P` / `:`)*: Fast fuzzy-search command palette listing all CLI subcommands (`ci run`, `scan trivy`, `release status`, `argo sync`, `vault sync`, `sandbox iterate`).
@@ -352,6 +362,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Continuous State Machine Reconciler & Card Daemon (`devops gh pm reconcile`) | GitHub API / Watcher | High | High | v0.2.22 | 📋 Scheduled (P0) |
 |  | GitHub Models Zero-Setup Inference Provider (`devops ai models github`) | Azure AI / `models.github.ai` | High | High | v0.2.22 | 📋 Scheduled (P0) |
 |  | Autonomous GitHub Actions Self-Healing & PR Triage Workflows | GitHub Actions / Runner | High | High | v0.2.22 | 📋 Scheduled (P0) |
+|  | Comprehensive DevOps CLI Grafana Observability Dashboard Suite | Grafana 10+ / Prometheus / Loki | High | High | v0.2.23 | 📋 Scheduled (P0) |
 |  | Native VS Code Language Model Tools API Provider (`vscode.lm.tools`) | VS Code API / JSON Schema | High | High | v0.2.25 | 📋 Scheduled (P0) |
 |  | VS Code Copilot Chat Custom Participant (`@devops`) & Slash Commands | VS Code Chat API / Slash | High | High | v0.2.25 | 📋 Scheduled (P0) |
 |  | Multi-Region Workstation Mesh & Cluster Federation | Kubernetes / Fleet | High | High | v0.3.0 | 💡 Future Vision |
@@ -382,6 +393,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | GitOps Fleet, Argo Rollouts & Cloud Cost Monitor | Textual / ArgoCD / Infracost | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
 |  | AI Constellation Topology & Review Findings Studio | Textual / Ollama / Qdrant | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
 |  | Centralized Loki LogQL Streamer & Trace Waterfalls | Textual / Loki / Prometheus | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
+|  | Declarative Dashboard Linter & K8s Sidecar GitOps Provisioner | Kubernetes / ConfigMap / Helm | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
 |  | POSIX Process Group Sandbox Enforcement | Subprocess / OS | High | Low | v0.2.24 | 📋 Scheduled (P0) |
 |  | Structural Pre-Commit Hook Inversion | Pre-commit / Pytest | High | Medium | v0.2.24 | 📋 Scheduled (P0) |
 |  | Anti-Brittle Constant Elimination | Standard Library / AST | High | Medium | v0.2.24 | 📋 Scheduled (P1) |
