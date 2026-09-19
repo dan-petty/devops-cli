@@ -1,0 +1,48 @@
+# NetworkPolicy for LightLLM in llm namespace.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lightllm-perimeter
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: lightllm
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: lightllm
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow incoming API requests from LiteLLM and Portkey AI Gateways on port 8000
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: llm-gateway
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: portkey
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    # DNS queries to kube-system
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Squid forward proxy in squid namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: squid
+      ports:
+        - protocol: TCP
+          port: 3128

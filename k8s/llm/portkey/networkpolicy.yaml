@@ -1,22 +1,22 @@
-# NetworkPolicy for LiteLLM Gateway in llm namespace.
+# NetworkPolicy for Portkey AI Gateway in llm namespace.
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: llm-gateway-perimeter
+  name: portkey-perimeter
   namespace: llm
   labels:
-    app.kubernetes.io/name: llm-gateway
+    app.kubernetes.io/name: portkey
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: llm-gateway
+      app.kubernetes.io/name: portkey
   policyTypes:
     - Ingress
     - Egress
   ingress:
-    # Allow incoming API requests to port 4000 from devops-cli stack workloads and monitoring
+    # Allow incoming API requests to port 8787 from devops-cli stack workloads and monitoring
     - from:
         - namespaceSelector:
             matchLabels:
@@ -29,9 +29,9 @@ spec:
               kubernetes.io/metadata.name: monitoring
       ports:
         - protocol: TCP
-          port: 4000
+          port: 8787
   egress:
-    # Allow communication to backend inference pods (Ollama, vLLM) and Valkey cache
+    # Allow communication to backend inference pods (Ollama, vLLM, LightLLM) and Valkey cache
     - to:
         - podSelector:
             matchLabels:

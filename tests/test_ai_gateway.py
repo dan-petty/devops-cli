@@ -292,9 +292,11 @@ class TestFastMCPGatewayTools:
     def test_fastmcp_gateway_tools_registered(self) -> None:
         """Verify FastMCP server exports gateway tools and resources."""
         from devops_cli.ai.mcp.server import (
+            ai_backend_probe,
             ai_gateway_failover,
             ai_gateway_routes,
             ai_gateway_status,
+            ai_lightllm_scale,
             ai_vllm_scale,
             get_ai_gateway_resource,
         )
@@ -304,9 +306,11 @@ class TestFastMCPGatewayTools:
             ai_gateway_routes()
             ai_gateway_failover("devops-coder", simulate=True)
             ai_vllm_scale(replicas=2, tensor_parallel_size=2)
+            ai_lightllm_scale(replicas=2, tensor_parallel_size=1)
+            ai_backend_probe("lightllm")
             get_ai_gateway_resource()
 
-        assert mock_run.call_count == 5
+        assert mock_run.call_count == 7
 
 
 class TestRouterAndClientGatewayIntegration:
