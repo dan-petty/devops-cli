@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import Field
 
 from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, RunContext, Tool
+from devops_cli.config.defaults import DEFAULT_MAX_AST_FILE_SIZE_BYTES
 
 DEFAULT_PYAI_DOCS_TOPICS: tuple[str, ...] = (
     "agent",
@@ -97,7 +98,7 @@ class PydanticAIDocs(BaseCapability):
         try:
             if local_file.is_symlink():
                 return None
-            if local_file.stat().st_size > 5 * 1024 * 1024:
+            if local_file.stat().st_size > DEFAULT_MAX_AST_FILE_SIZE_BYTES:
                 return None
             return local_file.read_text(encoding="utf-8", errors="replace")
         except Exception as e:

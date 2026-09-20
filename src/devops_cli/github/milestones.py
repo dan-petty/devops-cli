@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.config.defaults import DEFAULT_MAX_AST_FILE_SIZE_BYTES
 from devops_cli.exceptions.git import GitHubOperationError
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ def extract_roadmap_milestones(
 ) -> list[MilestoneSpec]:
     """Parse markdown headings from ROADMAP.md into MilestoneSpec objects."""
     valid_path = _validate_roadmap_path(roadmap_path)
-    if valid_path.stat().st_size > 10 * 1024 * 1024:
+    if valid_path.stat().st_size > DEFAULT_MAX_AST_FILE_SIZE_BYTES:
         raise GitHubOperationError(
             f"Roadmap file exceeds size limit: {valid_path}",
             operation="extract_roadmap_milestones",

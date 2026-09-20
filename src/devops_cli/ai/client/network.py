@@ -18,10 +18,17 @@ from urllib.parse import urlparse
 import httpx2
 
 from devops_cli.ai.client.models import AIClientError, RequestPriority
+from devops_cli.config.constants import CONST_AI_ALLOW_PRIVATE_NETWORK_ENV
+from devops_cli.config.defaults import (
+    DEFAULT_AI_MAX_RESPONSE_BYTES,
+    DEFAULT_OLLAMA_MAX_PARALLEL,
+    DEFAULT_OLLAMA_SLOT_POLL_INTERVAL_SECONDS,
+    DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS,
+)
 
 logger = logging.getLogger(__name__)
 
-ALLOW_PRIVATE_NETWORK_ENV = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
+ALLOW_PRIVATE_NETWORK_ENV = CONST_AI_ALLOW_PRIVATE_NETWORK_ENV
 active_ollama_requests: dict[str, int] = {}
 ollama_active_lock = threading.Lock()
 ollama_semaphores: dict[str, threading.Semaphore] = {}
@@ -143,7 +150,9 @@ def _wait_for_slot(
             raise AIClientError(
                 f"Timed out after {eff_timeout}s waiting for available slot across Ollama nodes: {candidates}"
             )
-        ollama_slot_condition.wait(timeout=min(remaining, 0.5))
+        ollama_slot_condition.wait(
+            timeout=min(remaining, DEFAULT_OLLAMA_SLOT_POLL_INTERVAL_SECONDS)
+        )
 
 
 def _release_ollama_slot(leased_url: str | None) -> None:
@@ -159,7 +168,7 @@ def _release_ollama_slot(leased_url: str | None) -> None:
 @contextmanager
 def acquire_ollama_slot(
     candidates: list[str],
-    max_parallel: int = 2,
+    max_parallel: int = DEFAULT_OLLAMA_MAX_PARALLEL,
     timeout: float | None = None,
     priority: RequestPriority | str | None = None,
 ) -> Generator[str]:
@@ -176,7 +185,7 @@ def acquire_ollama_slot(
     eff_timeout = (
         0.0
         if (timeout is None and resolved_p == RequestPriority.AS_AVAILABLE)
-        else (timeout if timeout is not None else 300.0)
+        else (timeout if timeout is not None else DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS)
     )
 
     deadline = time.monotonic() + eff_timeout
@@ -200,7 +209,7 @@ def acquire_ollama_slot(
 @contextmanager
 def track_ollama_url(
     url: str,
-    max_parallel: int = 2,
+    max_parallel: int = DEFAULT_OLLAMA_MAX_PARALLEL,
     priority: RequestPriority | str | None = None,
 ) -> Generator[None]:
     """Acquire concurrency slot and track active in-flight requests per Ollama server node."""
@@ -230,7 +239,7 @@ def reset_ollama_slots() -> None:
 
 
 def read_limited_json(
-    response: httpx2.Response, limit_bytes: int = 20 * 1024 * 1024
+    response: httpx2.Response, limit_bytes: int = DEFAULT_AI_MAX_RESPONSE_BYTES
 ) -> dict[str, Any]:
     """Parse JSON response while enforcing a maximum response body size limit."""
     headers = getattr(response, "headers", {})

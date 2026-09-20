@@ -13,6 +13,7 @@ import typer
 from devops_cli.config.constants import CONST_VSCODE_CLI
 from devops_cli.config.defaults import (
     DEFAULT_CLEAN_WORKSPACE_DAYS,
+    DEFAULT_MAX_AST_FILE_SIZE_BYTES,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
@@ -104,7 +105,7 @@ def _workspace_data_from_repos(root: Path) -> dict[str, Any]:
 def _load(ws_file: Path) -> dict[str, Any]:
     if ws_file.exists():
         try:
-            if ws_file.stat().st_size > 10 * 1024 * 1024:  # 10 MiB guard
+            if ws_file.stat().st_size > DEFAULT_MAX_AST_FILE_SIZE_BYTES:  # 50 MiB guard
                 _get("print_warning")(ERRORS.workspace.file_too_large.format(ws_file=str(ws_file)))
                 return {"folders": [], "settings": {}}
             data = json.loads(ws_file.read_text(encoding="utf-8"))

@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 
 from devops_cli.ai.kb import get_knowledge_base_dir, list_knowledge_base_articles
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.defaults import DEFAULT_MAX_AST_FILE_SIZE_BYTES
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +177,7 @@ def _read_architecture_extra_docs(repo_root: Path) -> list[str]:
             resolved = p_extra.resolve()
             if not resolved.is_relative_to(root_resolved) or p_extra.is_symlink():
                 continue
-            if resolved.is_file() and resolved.stat().st_size <= 5 * 1024 * 1024:
+            if resolved.is_file() and resolved.stat().st_size <= DEFAULT_MAX_AST_FILE_SIZE_BYTES:
                 extras.append(resolved.read_text(encoding="utf-8", errors="replace"))
         except OSError, RuntimeError:
             continue
@@ -193,7 +194,7 @@ def _read_kb_topic_docs(kb_dir: Path, rel_paths: Sequence[str]) -> list[str]:
             resolved = path.resolve()
             if not resolved.is_relative_to(kb_resolved) or path.is_symlink():
                 continue
-            if resolved.is_file() and resolved.stat().st_size <= 5 * 1024 * 1024:
+            if resolved.is_file() and resolved.stat().st_size <= DEFAULT_MAX_AST_FILE_SIZE_BYTES:
                 doc_texts.append(resolved.read_text(encoding="utf-8", errors="replace"))
         except OSError, RuntimeError:
             continue

@@ -16,7 +16,7 @@ from devops_cli.config.defaults import DEFAULT_RAG_CHUNK_OVERLAP, DEFAULT_RAG_CH
 
 logger = logging.getLogger(__name__)
 
-MAX_CHUNK_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20 MiB safety cap
+MAX_CHUNK_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MiB safety cap
 
 _LANGUAGE_PATTERNS: dict[str, tuple[re.Pattern[str], str]] = {
     "go": (
@@ -196,7 +196,7 @@ class SemanticChunker:
             if (
                 file_path.is_symlink()
                 or not file_path.is_file()
-                or file_path.stat().st_size > 5 * 1024 * 1024
+                or file_path.stat().st_size > MAX_CHUNK_FILE_SIZE_BYTES
             ):
                 return []
             content = file_path.read_text(encoding="utf-8", errors="replace")
