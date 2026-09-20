@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from devops_cli.ai.mcp.dispatcher import (
+    DomainSchemaHydrator,
+    InProcessDispatcher,
+    ResourceSubscriptionManager,
+    get_mcp_dispatcher,
+    resolve_tool_domain,
+)
 from devops_cli.ai.mcp.server import (
     ai_architecture,
     ai_ast_graph,
@@ -126,8 +133,10 @@ from devops_cli.ai.mcp.toolset import (
 __all__ = [
     "CallToolFunc",
     "ContentBlock",
+    "DomainSchemaHydrator",
     "EmbeddedResource",
     "Icon",
+    "InProcessDispatcher",
     "MCPError",
     "MCPToolset",
     "MCPToolsetClient",
@@ -140,6 +149,7 @@ __all__ = [
     "Resource",
     "ResourceAnnotations",
     "ResourceLink",
+    "ResourceSubscriptionManager",
     "ResourceTemplate",
     "ServerCapabilities",
     "ToolResult",
@@ -171,6 +181,7 @@ __all__ = [
     "get_telemetry_resource",
     "get_vault_resource",
     "get_workspace_resource",
+    "get_mcp_dispatcher",
     "gh_issue_edit",
     "gh_issue_reconcile_roadmap",
     "gh_milestone_edit",
@@ -203,6 +214,7 @@ __all__ = [
     "repos_list",
     "repos_status",
     "repos_sync",
+    "resolve_tool_domain",
     "review_branch",
     "review_export_feedback",
     "review_findings",
