@@ -437,8 +437,47 @@ def _find_project_via_cli(owner: str, name_or_short: str) -> dict[str, Any] | No
     return _find_project_in_list(projects, name_or_short)
 
 
-def find_remote_project(owner: str, name_or_short: str) -> dict[str, Any] | None:
-    """Locate an existing remote project by title or short name."""
+def _find_project_via_repo(owner: str, repo: str, name_or_short: str) -> dict[str, Any] | None:
+    """Locate an existing remote project linked to the target repository."""
+    clean_repo = repo.split("/")[-1] if "/" in repo else repo
+    clean_owner = owner.split("/")[0] if "/" in owner else owner
+    query = (
+        "query($owner: String!, $repo: String!) { "
+        "repository(owner: $owner, name: $repo) { "
+        "projectsV2(first: 20) { nodes { number title id url } } } }"
+    )
+    proc = run_gh(
+        [
+            CONST_GH_CLI,
+            "api",
+            "graphql",
+            "-f",
+            f"query={query}",
+            "-F",
+            f"owner={clean_owner}",
+            "-F",
+            f"repo={clean_repo}",
+        ],
+        check=False,
+        quiet=True,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    data = extract_json_payload(proc.stdout)
+    if not isinstance(data, dict):
+        return None
+    nodes = data.get("data", {}).get("repository", {}).get("projectsV2", {}).get("nodes", [])
+    return _find_project_in_list(nodes, name_or_short) if isinstance(nodes, list) else None
+
+
+def find_remote_project(
+    owner: str, name_or_short: str, repo: str | None = None
+) -> dict[str, Any] | None:
+    """Locate an existing remote project by title or short name, checking linked repository first."""
+    if repo:
+        matched = _find_project_via_repo(owner, repo, name_or_short)
+        if matched:
+            return matched
     return _find_project_via_rest(owner, name_or_short) or _find_project_via_cli(
         owner, name_or_short
     )
@@ -446,6 +485,15 @@ def find_remote_project(owner: str, name_or_short: str) -> dict[str, Any] | None
 
 def create_remote_project(owner: str, title: str) -> dict[str, Any]:
     """Create a new remote GitHub Projects v2 board."""
+    current_user = _get_authenticated_user()
+    if current_user and "github-actions" in current_user:
+        raise GitHubOperationError(
+            f"GitHub Actions runner ('{current_user}') does not have permission to create user-owned Projects v2 "
+            f"boards for '{owner}'. Please link the project to the repository or configure repository secret "
+            "'PROJECT_TOKEN' with a Personal Access Token having 'project' and 'repo' scopes.",
+            operation="create_remote_project",
+            details={"owner": owner, "title": title},
+        )
     owner_arg = _resolve_project_owner_arg(owner)
     proc = _run_project_cli(
         [
@@ -473,21 +521,89 @@ def create_remote_project(owner: str, title: str) -> dict[str, Any]:
 
 def link_project_to_repository(project_number: int, owner: str, repo: str) -> bool:
     """Link a GitHub Projects v2 board to a target repository."""
-    owner_arg = _resolve_project_owner_arg(owner)
-    proc = _run_project_cli(
+    clean_owner = owner.strip()
+    if clean_owner == "@me":
+        current_user = _get_authenticated_user()
+        clean_owner = current_user or "@me"
+    clean_repo_name = repo.split("/")[-1] if "/" in repo else repo
+    full_repo = f"{clean_owner}/{clean_repo_name}"
+    proc = run_gh(
         [
             CONST_GH_CLI,
             "project",
             "link",
             str(project_number),
             "--owner",
-            owner_arg,
+            clean_owner,
             "--repo",
-            repo,
+            full_repo,
         ],
-        owner_arg=owner_arg,
+        check=False,
+        quiet=True,
     )
     return proc.returncode == 0
+
+
+def _fetch_project_workflow_nodes(proj_id: str) -> list[dict[str, Any]]:
+    """Query raw ProjectV2 workflow nodes via GraphQL."""
+    query = (
+        "query($id: ID!) { "
+        "node(id: $id) { "
+        "... on ProjectV2 { "
+        "workflows(first: 20) { "
+        "nodes { id name number enabled } } } } }"
+    )
+    proc = run_gh(
+        [
+            CONST_GH_CLI,
+            "api",
+            "graphql",
+            "-f",
+            f"query={query}",
+            "-F",
+            f"id={proj_id}",
+        ],
+        check=False,
+        quiet=True,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return []
+    data = extract_json_payload(proc.stdout)
+    if not isinstance(data, dict):
+        return []
+    nodes = data.get("data", {}).get("node", {}).get("workflows", {}).get("nodes", [])
+    return [w for w in nodes if isinstance(w, dict)] if isinstance(nodes, list) else []
+
+
+def get_project_workflows(
+    project_number: int,
+    owner: str,
+    repo: str | None = None,
+) -> list[dict[str, Any]]:
+    """Retrieve built-in ProjectV2 workflows and automation states."""
+    proj = find_remote_project(owner, str(project_number), repo=repo)
+    if not proj:
+        proj_list = list_remote_projects(owner)
+        proj = next((p for p in proj_list if p.get("number") == project_number), None)
+    if not proj:
+        return []
+    proj_id = proj.get("id") or proj.get("node_id")
+    if not proj_id:
+        return []
+
+    nodes = _fetch_project_workflow_nodes(str(proj_id))
+    clean_owner = owner.split("/")[0] if "/" in owner else owner
+    base_url = f"https://github.com/users/{clean_owner}/projects/{project_number}/workflows"
+    return [
+        {
+            "id": w.get("id", ""),
+            "name": w.get("name", ""),
+            "number": w.get("number", 0),
+            "enabled": bool(w.get("enabled", False)),
+            "url": f"{base_url}/{w.get('number')}" if w.get("number") else base_url,
+        }
+        for w in nodes
+    ]
 
 
 def _provision_single_field(owner: str, project_number: int, field: ProjectField) -> bool:
@@ -1339,9 +1455,9 @@ def sync_remote_project(
 
     verify_project_auth_scopes()
 
-    matched = find_remote_project(owner, template.name)
+    matched = find_remote_project(owner, template.name, repo=repo)
     if not matched and template.short_name:
-        matched = find_remote_project(owner, template.short_name)
+        matched = find_remote_project(owner, template.short_name, repo=repo)
 
     if not matched:
         matched = create_remote_project(owner, template.name)
@@ -1558,9 +1674,9 @@ def audit_remote_project_views(owner: str, repo: str, template: ProjectTemplate)
 def audit_project_drift(owner: str, repo: str, template: ProjectTemplate) -> dict[str, Any]:
     """Audit project board health, field presence, and view alignment."""
     views_audit = audit_remote_project_views(owner, repo, template)
-    matched = find_remote_project(owner, template.name)
+    matched = find_remote_project(owner, template.name, repo=repo)
     if not matched and template.short_name:
-        matched = find_remote_project(owner, template.short_name)
+        matched = find_remote_project(owner, template.short_name, repo=repo)
 
     proj_num = matched.get("number") if matched else views_audit.get("project_number")
     return {

@@ -321,6 +321,28 @@ devops gh project template [OPTIONS]
 |---|---|---|---|
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 
+### `devops gh project workflows`
+
+```bash
+devops gh project workflows COMMAND [ARGS]...
+```
+
+#### `devops gh project workflows list`
+
+**List built-in project workflows, enabled statuses, and configuration links.**
+
+```bash
+devops gh project workflows list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--project-number`, `-n` | `integer` | - | GitHub Projects v2 board number |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ---
 
 ## `devops gh views`
