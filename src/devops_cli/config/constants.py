@@ -714,6 +714,11 @@ CONST_AI_PORTKEY_DEFAULT_PORT: Final[int] = 8787
 CONST_AI_LIGHTLLM_DEFAULT_PORT: Final[int] = 8000
 CONST_AI_BACKEND_LIGHTLLM: Final[str] = "lightllm"
 CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama", "vllm", "lightllm")
+CONST_AI_PROMPT_CACHE_TTL_5M: Final[str] = "5m"
+CONST_AI_PROMPT_CACHE_TTL_1H: Final[str] = "1h"
+CONST_AI_PROMPT_CACHE_TTLS: Final[tuple[str, ...]] = ("5m", "1h")
+CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "lightllm", "ollama")
+CONST_AI_DEFAULT_CACHE_MARKER_KIND: Final[str] = "cache-point"
 CONST_TASK_TAXONOMY_EMBEDDING: Final[frozenset[str]] = frozenset(
     {"embedding", "embed_documents", "vector_index", "rag_index", "semantic_search"}
 )
