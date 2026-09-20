@@ -604,6 +604,22 @@ class GatewayRouter:
             "models": models,
         }
 
+    def build_pydantic_cascade_model(
+        self,
+        virtual_model: str = "devops-chat",
+        settings: Any = None,
+        model_concurrency: Any = None,
+    ) -> Any:
+        """Construct a PydanticAI FallbackModel chaining the primary route to its failover target."""
+        from devops_cli.ai.pydantic_ai_bridge import build_fallback_cascade_model
+
+        fallback_target = MODEL_FAILOVER_PAIRS.get(virtual_model, "devops-chat")
+        return build_fallback_cascade_model(
+            [virtual_model, fallback_target, "ollama"],
+            settings=settings,
+            model_concurrency=model_concurrency,
+        )
+
 
 def _resolve_backend_url(config: AIConfig, clean_type: str, backend_url: str | None) -> str:
     """Resolve backend target URL from override or AIConfig defaults."""

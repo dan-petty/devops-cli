@@ -55,6 +55,28 @@ def __getattr__(name: str) -> Any:
 
         return getattr(devops_cli.ai.durable, name)
     if name in {
+        "TokenBudgetConfig",
+        "TokenBucketGovernance",
+    }:
+        import devops_cli.ai.governance
+
+        return getattr(devops_cli.ai.governance, name)
+    if name in {
+        "DevOpsAgentContext",
+        "build_fallback_cascade_model",
+        "create_cached_user_prompt",
+        "create_pydantic_ai_agent",
+        "execute_structured_workflow",
+        "execute_structured_workflow_sync",
+        "get_persona_pydantic_agent",
+        "inject_prompt_cache_points",
+        "is_pydantic_ai_available",
+        "resolve_pydantic_ai_model",
+    }:
+        import devops_cli.ai.pydantic_ai_bridge
+
+        return getattr(devops_cli.ai.pydantic_ai_bridge, name)
+    if name in {
         "AgentRunError",
         "ApprovalRequired",
         "CallDeferred",
