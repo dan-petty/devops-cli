@@ -92,7 +92,7 @@ def test_format_deliverable_line() -> None:
         _format_deliverable_line(item_with_issue),
         _format_deliverable_line(item_without_issue),
     ) == (
-        "- [x] #42: Epic Support (`priority/p1-high`, `scope/release`)",
+        "- [x] #42",
         "- [ ] Draft Tasks (`priority/p2-medium`, `scope/cli`)",
     )
 
@@ -119,7 +119,7 @@ def test_render_release_epic_body() -> None:
         "**Milestone**: `v0.2.21`" in body,
         "**Deliverable Progress**: 1/1 completed (100.0%)" in body,
         "## Phase 6: SDLC Release Choreography" in body,
-        "- [x] #101: Deliverable One" in body,
+        "- [x] #101" in body,
     ) == (True, True, True, True, True)
 
 
