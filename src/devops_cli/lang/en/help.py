@@ -702,6 +702,12 @@ class GHCommandHelp:
     project_link: str = "Link a GitHub Project v2 board to the repository."
     project_audit: str = "Audit project board items and fields against local tasks and template."
     project_template: str = "Display the declarative GitHub Projects v2 JSON template."
+    project_workflows_app: str = (
+        "Inspect and audit GitHub Projects v2 built-in workflows and automations."
+    )
+    project_workflows_list: str = (
+        "List built-in project workflows, enabled statuses, and configuration links."
+    )
     views_app: str = "Inspect standardized GitHub Projects v2 views."
     views_list: str = "List all 4 standardized project views."
     views_spec: str = "Output JSON schema specification for project views."

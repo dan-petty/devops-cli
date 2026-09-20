@@ -48,6 +48,7 @@ from devops_cli.github.pages import (
 from devops_cli.github.projects import (
     audit_project_drift,
     audit_remote_project_views,
+    get_project_workflows,
     link_project_to_repository,
     list_remote_projects,
     load_project_template,
@@ -598,10 +599,10 @@ def reconcile_project_cmd(
     proj_num = project_number
     if not proj_num:
         template = load_project_template()
-        matched = find_remote_project(owner, template.name)
+        matched = find_remote_project(owner, template.name, repo=target_repo)
         if not matched and template.short_name:
-            matched = find_remote_project(owner, template.short_name)
-        proj_num = int(matched.get("number", 1)) if matched else 1
+            matched = find_remote_project(owner, template.short_name, repo=target_repo)
+        proj_num = int(matched.get("number", 2)) if matched else 2
 
     mode_text = "[yellow][DRY RUN][/yellow] " if dry_run else ""
     try:
@@ -636,6 +637,58 @@ def link_project(
     else:
         print_error(f"Failed to link project #{project_number} to {target_repo}.")
         raise typer.Exit(1)
+
+
+workflows_app = new_typer(help=HELP.gh.project_workflows_app, no_args_is_help=True)
+project_app.add_typer(workflows_app, name="workflows")
+
+
+@workflows_app.command("list", help=HELP.gh.project_workflows_list)
+def list_project_workflows(
+    project_number: Annotated[
+        int | None,
+        typer.Option("--project-number", "-n", help="GitHub Projects v2 board number"),
+    ] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+) -> None:
+    """List built-in project workflows, enabled statuses, and configuration links."""
+    from devops_cli.github.projects import (
+        find_remote_project,
+        load_project_template,
+    )
+    from devops_cli.output import write_stream
+
+    target_repo = repo or _resolve_repo()
+    owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
+    proj_num = project_number
+    if not proj_num:
+        template = load_project_template()
+        matched = find_remote_project(owner, template.name, repo=target_repo)
+        if not matched and template.short_name:
+            matched = find_remote_project(owner, template.short_name, repo=target_repo)
+        proj_num = int(matched.get("number", 2)) if matched else 2
+
+    workflows = get_project_workflows(proj_num, owner, repo=target_repo)
+    if json_output:
+        write_stream(json.dumps(workflows, indent=2) + "\n")
+        return
+
+    if not workflows:
+        print_info(f"No built-in workflows found for project #{proj_num} ({owner}).")
+        return
+
+    columns = ["#", "Workflow Name", "Status", "Configuration URL"]
+    rows = [
+        [
+            str(w["number"]),
+            w["name"],
+            "[green]✓ Enabled[/green]" if w["enabled"] else "[yellow]○ Disabled[/yellow]",
+            w["url"],
+        ]
+        for w in workflows
+    ]
+    print_table(f"Built-In Automations (Project #{proj_num})", columns, rows)
 
 
 @project_app.command("list", help=HELP.gh.project_list)
