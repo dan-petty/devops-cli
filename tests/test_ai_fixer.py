@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from pydantic import BaseModel
 
 from devops_cli.ai.response_repair import (
@@ -140,7 +141,9 @@ def test_fix_llm_response_schema_validation() -> None:
     assert fixed.parsed_model.active is True
 
 
-def test_repair_json_string_rejects_oversized_payload() -> None:
+def test_repair_json_string_rejects_oversized_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify repair_json_string returns None when input exceeds max length."""
-    oversized = "{" + (" " * (6 * 1024 * 1024)) + "}"
-    assert repair_json_string(oversized) is None
+    assert repair_json_string('{"key": "value"}', max_length=5) is None
+
+    monkeypatch.setattr("devops_cli.ai.response_repair.DEFAULT_JSON_REPAIR_MAX_LENGTH", 20)
+    assert repair_json_string("{" + (" " * 30) + "}") is None

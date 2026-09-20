@@ -16,7 +16,10 @@ from pydantic import BaseModel, Field
 
 from devops_cli.ai.rag.chunker import SemanticChunker
 from devops_cli.ai.rag.indexer import WorkspaceIndexer, detect_project_name
-from devops_cli.config.defaults import DEFAULT_RAG_CACHE_DIR
+from devops_cli.config.defaults import (
+    DEFAULT_MAX_AST_FILE_SIZE_BYTES,
+    DEFAULT_RAG_CACHE_DIR,
+)
 from devops_cli.telemetry import record_metric, trace_span
 
 logger = logging.getLogger(__name__)
@@ -99,7 +102,10 @@ def _scan_file_drift(
         resolved_fpath = fpath.resolve()
         if fpath.is_symlink() or not resolved_fpath.is_relative_to(resolved_root):
             return
-        if not resolved_fpath.is_file() or resolved_fpath.stat().st_size > 5 * 1024 * 1024:
+        if (
+            not resolved_fpath.is_file()
+            or resolved_fpath.stat().st_size > DEFAULT_MAX_AST_FILE_SIZE_BYTES
+        ):
             return
         rel_str = str(fpath.relative_to(root_dir))
     except ValueError, OSError, RuntimeError:

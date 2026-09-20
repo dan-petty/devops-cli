@@ -9,7 +9,10 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
+from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_MAX_AST_FILE_SIZE_BYTES,
+)
 
 if TYPE_CHECKING:
     from devops_cli.models.ai import FileAnalysisMeta
@@ -378,7 +381,7 @@ def scan_directory(target_dir: Path = DEFAULT_CURRENT_PATH) -> list[FileAnalysis
         if file_path.is_file():
             try:
                 size_bytes = file_path.stat().st_size
-                if size_bytes <= 5 * 1024 * 1024:
+                if size_bytes <= DEFAULT_MAX_AST_FILE_SIZE_BYTES:
                     content = file_path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 pass

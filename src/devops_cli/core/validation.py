@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 import typer
 
 from devops_cli.config.constants import (
+    CONST_AI_ALLOW_PRIVATE_NETWORK_ENV,
     CONST_K8S_LABEL_RE,
     CONST_K8S_SUBDOMAIN_RE,
 )
@@ -30,7 +31,7 @@ from devops_cli.output import print_error
 
 logger = logging.getLogger(__name__)
 
-_ALLOW_PRIVATE_NETWORK_ENV = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
+_ALLOW_PRIVATE_NETWORK_ENV = CONST_AI_ALLOW_PRIVATE_NETWORK_ENV
 
 
 PathKind = Literal["any", "dir", "file", "key"]

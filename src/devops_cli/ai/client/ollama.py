@@ -24,7 +24,11 @@ from devops_cli.ai.client.streaming import (
     _consume_streaming_lines,
     _extract_ollama_stream_tuple,
 )
-from devops_cli.config.defaults import DEFAULT_AI_EVICT_KEEP_ALIVE
+from devops_cli.config.defaults import (
+    DEFAULT_AI_EVICT_KEEP_ALIVE,
+    DEFAULT_AI_PREWARM_KEEP_ALIVE,
+    DEFAULT_OLLAMA_MAX_PARALLEL,
+)
 from devops_cli.models.ai import ChatMessage
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
@@ -40,7 +44,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         self,
         url: str,
         model: str | None = None,
-        keep_alive: str | int = "1h",
+        keep_alive: str | int = DEFAULT_AI_PREWARM_KEEP_ALIVE,
     ) -> tuple[str, bool]:
         """Prewarm or evict model on a single Ollama endpoint."""
         target_model = model or self._config.model
@@ -233,7 +237,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         priority: RequestPriority | str | None = None,
     ) -> LLMResponse:
         candidates = [url for _idx, url in self._get_ollama_urls_loop()]
-        max_par = getattr(self._config, "ollama_max_parallel", 2)
+        max_par = getattr(self._config, "ollama_max_parallel", DEFAULT_OLLAMA_MAX_PARALLEL)
         last_exc: Exception | None = None
         remaining_candidates = list(candidates)
 
@@ -406,7 +410,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         priority: RequestPriority | str | None = None,
     ) -> Generator[str]:
         candidates = [url for _idx, url in self._get_ollama_urls_loop()]
-        max_par = getattr(self._config, "ollama_max_parallel", 2)
+        max_par = getattr(self._config, "ollama_max_parallel", DEFAULT_OLLAMA_MAX_PARALLEL)
         last_exc: Exception | None = None
         remaining_candidates = list(candidates)
 

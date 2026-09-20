@@ -11,6 +11,7 @@ from typing import Any
 
 from devops_cli.ai.ast.fallback import FallbackASTParser
 from devops_cli.ai.ast.models import CodeSpan, PolyglotFileMap, PolyglotSymbol, SymbolKind
+from devops_cli.config.defaults import DEFAULT_MAX_AST_FILE_SIZE_BYTES
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ def _extract_node_name(node: Any) -> str:
 class TreeSitterEngine:
     """Multilingual syntax tree parser supporting Tree-Sitter grammars and AST fallback."""
 
-    def __init__(self, max_file_size_bytes: int = 5 * 1024 * 1024) -> None:
+    def __init__(self, max_file_size_bytes: int = DEFAULT_MAX_AST_FILE_SIZE_BYTES) -> None:
         self.max_file_size_bytes = max_file_size_bytes
         self._fallback = FallbackASTParser()
         self._parsers: dict[str, Any] = {}

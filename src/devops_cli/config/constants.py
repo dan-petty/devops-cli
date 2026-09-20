@@ -719,6 +719,7 @@ CONST_AI_PROMPT_CACHE_TTL_1H: Final[str] = "1h"
 CONST_AI_PROMPT_CACHE_TTLS: Final[tuple[str, ...]] = ("5m", "1h")
 CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "lightllm", "ollama")
 CONST_AI_DEFAULT_CACHE_MARKER_KIND: Final[str] = "cache-point"
+CONST_AI_ALLOW_PRIVATE_NETWORK_ENV: Final[str] = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
 CONST_TASK_TAXONOMY_EMBEDDING: Final[frozenset[str]] = frozenset(
     {"embedding", "embed_documents", "vector_index", "rag_index", "semantic_search"}
 )
@@ -800,7 +801,7 @@ CONST_ROADMAP_PRIORITY_TAGS: Final[dict[str, tuple[str, ...]]] = {
 }
 
 # ── Multi-Scale Semantic Outline & Inspection Scanner ────────────────────────
-CONST_MAX_INSPECT_FILE_SIZE_BYTES: Final[int] = 5 * 1024 * 1024
+CONST_MAX_INSPECT_FILE_SIZE_BYTES: Final[int] = 50 * 1024 * 1024  # 50 MiB limit
 CONST_DEFAULT_FOCAL_WINDOW_SIZE: Final[int] = 30
 CONST_HOTSPOT_COMPLEXITY_THRESHOLD: Final[int] = 5
 
