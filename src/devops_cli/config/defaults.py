@@ -221,6 +221,14 @@ DEFAULT_MCP_SCHEMA_CACHE_MAX_ENTRIES: int = 256
 DEFAULT_DOCKER_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_COSIGN_TIMEOUT_SECONDS: float = 60.0
 
+# ── Argo GitOps & Progressive Delivery Defaults ──────────────────────────────
+# (DEFAULT_ARGOCD_NAMESPACE is defined with the Kubernetes namespace defaults below.)
+# Refresh cadence for the live `devops argo rollouts status --watch` view.
+DEFAULT_ROLLOUT_WATCH_INTERVAL_SECONDS: float = 2.0
+# Poll cadence and wall-clock budget for `devops argo workflows submit --wait`.
+DEFAULT_WORKFLOW_POLL_INTERVAL_SECONDS: float = 3.0
+DEFAULT_WORKFLOW_WAIT_TIMEOUT_SECONDS: float = 1800.0
+
 # Engine API socket handshake budget. Short by design: the daemon socket is local,
 # so a slow ping means the daemon is down rather than merely busy.
 DEFAULT_DOCKER_PING_TIMEOUT_SECONDS: float = 2.0

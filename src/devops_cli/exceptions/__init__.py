@@ -33,6 +33,7 @@ from devops_cli.exceptions.ai import (
     UsageLimitExceeded,
     UserError,
 )
+from devops_cli.exceptions.argo import ArgoError, ArgoResourceNotFoundError
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.docker import (
@@ -106,6 +107,8 @@ from devops_cli.exceptions.vault import (
 __all__ = [
     "AgentRunError",
     "ApprovalRequired",
+    "ArgoError",
+    "ArgoResourceNotFoundError",
     "BranchAlreadyExistsError",
     "CallDeferred",
     "ChaosExecutionError",

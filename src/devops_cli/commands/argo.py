@@ -1,9 +1,9 @@
-"""Argo command group: cd (ArgoCD REST), workflows (argo CLI), rollouts (argo-rollouts CLI).
+"""Argo command group: cd (ArgoCD REST), workflows and rollouts (native Argo CRDs).
 
 Security & Input Validation:
 - ArgoCD REST calls validate target server URL via `validate_service_url()`.
-- Workflows and Rollouts arguments (`name`, `namespace`) are strictly validated against RFC 1123
-  label regex before subprocess execution to eliminate command injection risk.
+- Workflow and Rollout arguments (`name`, `namespace`) are strictly validated against the RFC 1123
+  label regex before reaching the Kubernetes API.
 """
 
 from __future__ import annotations
@@ -15,18 +15,27 @@ from typing import Annotated, Any
 import httpx2
 import typer
 
+from devops_cli.argo.crd import ArgoCRDService, get_argo_crd_service
 from devops_cli.config import load_settings
+from devops_cli.config.constants import (
+    CONST_ARGO_WORKFLOW_FAILURE_PHASES,
+    CONST_ARGO_WORKFLOW_TERMINAL_PHASES,
+)
 from devops_cli.config.defaults import (
+    DEFAULT_ARGOCD_NAMESPACE,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    DEFAULT_K8S_NAMESPACE,
+    DEFAULT_ROLLOUT_WATCH_INTERVAL_SECONDS,
+    DEFAULT_WORKFLOW_POLL_INTERVAL_SECONDS,
+    DEFAULT_WORKFLOW_WAIT_TIMEOUT_SECONDS,
 )
 from devops_cli.core.cli import new_typer
-from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.dry_run import dry_run_command, is_dry_run
+from devops_cli.exceptions.argo import ArgoError
 from devops_cli.http.validation import validate_service_url
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.models.argo import ArgoCDApp
+from devops_cli.models.argo import ArgoCDApp, ArgoRolloutState, ArgoWorkflowState
 from devops_cli.output import (
     PanelPayload,
     TablePayload,
@@ -34,7 +43,10 @@ from devops_cli.output import (
     format_argo_apps_table,
     print,
     print_error,
+    print_info,
     print_success,
+    print_table,
+    write_stdout,
 )
 
 app = new_typer(help=HELP.argo.app, no_args_is_help=True)
@@ -66,6 +78,87 @@ cd_app.add_typer(cd_apps_app, name="apps")
 def _validate_k8s_name(value: str, label: str, *, namespace: bool = False) -> None:
     """Raise typer.Exit if value is not a valid Kubernetes name."""
     validate_k8s_name(value, label, namespace=namespace)
+
+
+def _namespace(namespace: str | None) -> str:
+    """Resolve the effective namespace, validating any caller-supplied override."""
+    if namespace is None:
+        return DEFAULT_K8S_NAMESPACE
+    _validate_k8s_name(namespace, "namespace", namespace=True)
+    return namespace
+
+
+def _crd(context: str | None = None) -> ArgoCRDService:
+    """Construct the native Argo custom resource service for a kubeconfig context."""
+    return get_argo_crd_service(context=context)
+
+
+def _load_manifest(path: Path) -> dict[str, Any]:
+    """Load and validate a single-document Argo custom resource manifest."""
+    import yaml
+
+    if not path.exists() or not path.is_file():
+        print_error(f"Manifest not found or not a file: {path}", prefix=False)
+        raise typer.Exit(1)
+    if path.suffix.lower() not in (".yaml", ".yml"):
+        print_error(f"Invalid manifest format '{path}'; expected .yaml or .yml", prefix=False)
+        raise typer.Exit(1)
+
+    try:
+        manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        print_error(f"Failed parsing manifest '{path}': {exc}", prefix=False)
+        raise typer.Exit(1)
+
+    if not isinstance(manifest, dict):
+        print_error(f"Manifest '{path}' must contain a single resource document", prefix=False)
+        raise typer.Exit(1)
+    return manifest
+
+
+def _await_workflow(service: ArgoCRDService, name: str, namespace: str) -> ArgoWorkflowState:
+    """Poll a Workflow until it reaches a terminal phase or the wait budget expires."""
+    import time
+
+    deadline = time.monotonic() + DEFAULT_WORKFLOW_WAIT_TIMEOUT_SECONDS
+    state = service.get_workflow(name, namespace)
+    while state.phase not in CONST_ARGO_WORKFLOW_TERMINAL_PHASES:
+        if time.monotonic() >= deadline:
+            print_error(
+                MESSAGES.argo.workflow_wait_timeout.format(
+                    name=name, seconds=DEFAULT_WORKFLOW_WAIT_TIMEOUT_SECONDS
+                ),
+                prefix=False,
+            )
+            raise typer.Exit(1)
+        time.sleep(DEFAULT_WORKFLOW_POLL_INTERVAL_SECONDS)
+        state = service.get_workflow(name, namespace)
+    return state
+
+
+def _rollout_status_table(state: ArgoRolloutState) -> TablePayload:
+    """Render a single Rollout's progressive delivery state as a Rich table."""
+    rows: list[list[Any]] = [
+        ["Name", state.name],
+        ["Namespace", state.namespace],
+        ["Strategy", state.strategy or "—"],
+        ["Phase", state.phase],
+        [
+            "Step",
+            "—" if state.current_step is None else f"{state.current_step}/{state.total_steps}",
+        ],
+        ["Replicas (ready/desired)", f"{state.ready_replicas}/{state.desired_replicas}"],
+        ["Updated", str(state.updated_replicas)],
+        ["Available", str(state.available_replicas)],
+        ["Paused", "yes" if state.paused else "no"],
+        ["Aborted", "yes" if state.aborted else "no"],
+        ["Message", state.message or "—"],
+    ]
+    return TablePayload(
+        title=MESSAGES.argo.table_title_rollout_status.format(name=state.name),
+        columns=[("Field", "cyan"), "Value"],
+        rows=rows,
+    )
 
 
 def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
@@ -281,21 +374,20 @@ def cd_apps_bootstrap_gitops(
         )
         raise typer.Exit(1)
 
-    cmd = ["kubectl", "apply", "-f", str(resolved_manifest)]
-    if context:
-        cmd.extend(["--context", context])
-
-    res = run_subprocess(
-        cmd,
-        check=False,
-        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        capture_output=True,
+    manifest = _load_manifest(resolved_manifest)
+    namespace = str(
+        (manifest.get("metadata") or {}).get("namespace", "") or DEFAULT_ARGOCD_NAMESPACE
     )
-    if res.returncode != 0:
-        print_error(f"Failed to bootstrap GitOps root app: {res.stderr}", prefix=False)
-        raise typer.Exit(res.returncode)
 
-    print_success(f"GitOps root Application applied from {root_app_path}")
+    try:
+        applied = get_argo_crd_service(context=context).apply_application(
+            manifest, namespace=namespace
+        )
+    except ArgoError as exc:
+        print_error(f"Failed to bootstrap GitOps root app: {exc}", prefix=False)
+        raise typer.Exit(1)
+
+    print_success(f"GitOps root Application '{applied.name}' applied from {root_app_path}")
 
 
 # =============================================================================
@@ -310,13 +402,14 @@ def workflows_list(
     ] = None,
 ) -> None:
     """List Argo Workflows."""
-    if namespace:
-        _validate_k8s_name(namespace, "namespace", namespace=True)
-    cmd = ["argo", "list", "--output", "wide"]
-    if namespace:
-        cmd += ["--namespace", namespace]
-    run_subprocess(
-        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    workflows = _crd(namespace).list_workflows(namespace=_namespace(namespace))
+    print_table(
+        title=MESSAGES.argo.table_title_workflows,
+        columns=[("Name", "cyan"), "Phase", "Progress", "Started", "Finished"],
+        rows=[
+            [wf.name, wf.phase, wf.progress or "—", wf.started_at or "—", wf.finished_at or "—"]
+            for wf in workflows
+        ],
     )
 
 
@@ -329,16 +422,16 @@ def workflows_submit(
     wait: Annotated[bool, typer.Option("--wait", "-w", help=HELP.argo.wait)] = False,
 ) -> None:
     """Submit an Argo Workflow from a YAML file."""
-    if namespace:
-        _validate_k8s_name(namespace, "namespace", namespace=True)
-    cmd = ["argo", "submit", str(file)]
-    if namespace:
-        cmd += ["--namespace", namespace]
-    if wait:
-        cmd.append("--wait")
-    run_subprocess(
-        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    target_ns = _namespace(namespace)
+    submitted = _crd(namespace).submit_workflow(_load_manifest(file.resolve()), namespace=target_ns)
+    print_success(
+        MESSAGES.argo.workflow_submitted.format(name=submitted.name, phase=submitted.phase)
     )
+    if wait:
+        final = _await_workflow(_crd(namespace), submitted.name, target_ns)
+        print_info(MESSAGES.argo.workflow_finished.format(name=final.name, phase=final.phase))
+        if final.phase in CONST_ARGO_WORKFLOW_FAILURE_PHASES:
+            raise typer.Exit(1)
 
 
 @workflows_app.command("logs")
@@ -350,22 +443,31 @@ def workflows_logs(
     follow: Annotated[bool, typer.Option("--follow", "-f", help=HELP.argo.follow)] = False,
 ) -> None:
     """Stream logs for an Argo Workflow."""
-    _validate_k8s_name(name, "workflow name")
-    if namespace:
-        _validate_k8s_name(namespace, "namespace", namespace=True)
-    cmd = ["argo", "logs", name]
-    if namespace:
-        cmd += ["--namespace", namespace]
-    if follow:
-        cmd.append("--follow")
-    run_subprocess(
-        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
-    )
+    from devops_cli.k8s.service import KubernetesService
+
+    target_ns = _namespace(namespace)
+    pods = _crd(namespace).workflow_pod_names(name, namespace=target_ns)
+    if not pods:
+        print_info(MESSAGES.argo.workflow_no_pods.format(name=name), prefix=False)
+        return
+
+    service = KubernetesService.get_instance()
+    for pod in pods:
+        print_info(f"── {pod} ──", prefix=False)
+        for line in service.read_pod_logs(pod, namespace=target_ns, follow=follow):
+            write_stdout(line if line.endswith("\n") else f"{line}\n")
 
 
 # =============================================================================
 # Command: devops argo rollouts (list, status)
 # =============================================================================
+
+
+def _rollout_step(state: ArgoRolloutState) -> str:
+    """Render a Rollout's canary step position for terminal display."""
+    if state.current_step is None:
+        return "—"
+    return f"{state.current_step}/{state.total_steps}"
 
 
 @rollouts_app.command("list")
@@ -375,13 +477,21 @@ def rollouts_list(
     ] = None,
 ) -> None:
     """List Argo Rollouts."""
-    if namespace:
-        _validate_k8s_name(namespace, "namespace", namespace=True)
-    cmd = ["kubectl", "argo", "rollouts", "list"]
-    if namespace:
-        cmd += ["--namespace", namespace]
-    run_subprocess(
-        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
+    rollouts = _crd(namespace).list_rollouts(namespace=_namespace(namespace))
+    print_table(
+        title=MESSAGES.argo.table_title_rollouts,
+        columns=[("Name", "cyan"), "Strategy", "Phase", "Step", "Ready", "Updated"],
+        rows=[
+            [
+                state.name,
+                state.strategy or "—",
+                state.phase,
+                _rollout_step(state),
+                f"{state.ready_replicas}/{state.desired_replicas}",
+                str(state.updated_replicas),
+            ]
+            for state in rollouts
+        ],
     )
 
 
@@ -394,17 +504,22 @@ def rollouts_status(
     watch: Annotated[bool, typer.Option("--watch", "-w", help=HELP.argo.watch)] = False,
 ) -> None:
     """Show status for an Argo Rollout."""
-    _validate_k8s_name(name, "rollout name")
-    if namespace:
-        _validate_k8s_name(namespace, "namespace", namespace=True)
-    cmd = ["kubectl", "argo", "rollouts", "status", name]
-    if namespace:
-        cmd += ["--namespace", namespace]
+    target_ns = _namespace(namespace)
+    service = _crd(namespace)
+
     if watch:
-        cmd.append("--watch")
-    run_subprocess(
-        cmd, check=True, timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, capture_output=False
-    )
+        from devops_cli.watchers.live_resource import LiveResourceWatcher
+
+        LiveResourceWatcher(
+            lambda: _rollout_status_table(service.get_rollout(name, target_ns)).render(),
+            interval_seconds=DEFAULT_ROLLOUT_WATCH_INTERVAL_SECONDS,
+            name="argo_rollout_status",
+        ).watch()
+        return
+
+    from devops_cli.output import print as print_renderable
+
+    print_renderable(_rollout_status_table(service.get_rollout(name, target_ns)))
 
 
 @fleet_app.command("sync")

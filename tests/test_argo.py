@@ -179,16 +179,30 @@ def test_argo_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         return resp
 
     sample_wf = tmp_path / "workflow.yaml"
-    sample_wf.write_text("apiVersion: argoproj.io/v1alpha1\nkind: Workflow\n", encoding="utf-8")
+    sample_wf.write_text(
+        "apiVersion: argoproj.io/v1alpha1\nkind: Workflow\nmetadata:\n  name: my-wf\n",
+        encoding="utf-8",
+    )
+
+    # Argo custom resources are read and mutated in-process via CustomObjectsApi.
+    mock_crd_api = MagicMock()
+    mock_crd_api.list_namespaced_custom_object.return_value = {"items": []}
+    mock_crd_api.get_namespaced_custom_object.return_value = {
+        "metadata": {"name": "my-wf", "namespace": "argocd"},
+        "status": {"phase": "Succeeded", "nodes": {}},
+    }
+    mock_crd_api.create_namespaced_custom_object.return_value = {
+        "metadata": {"name": "my-wf", "namespace": "argocd"},
+        "status": {"phase": "Running"},
+    }
 
     with (
         patch("devops_cli.commands.argo.httpx2.Client.get", side_effect=mock_get),
         patch("devops_cli.commands.argo.httpx2.Client.post", side_effect=mock_post),
         patch("devops_cli.commands.argo.load_settings", return_value=mock_settings),
-        patch("devops_cli.commands.argo.run_subprocess") as mock_subproc,
+        patch("devops_cli.argo.crd.ArgoCRDService._api", return_value=mock_crd_api),
+        patch("devops_cli.watchers.live_resource.LiveResourceWatcher.watch"),
     ):
-        mock_subproc.return_value = MagicMock(returncode=0)
-
         res_dry_main = runner.invoke(main_app, ["--dry-run", "argo", "cd", "apps", "list"])
         assert res_dry_main.exit_code == 0
 

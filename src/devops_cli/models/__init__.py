@@ -39,7 +39,12 @@ from devops_cli.models.ai import (
     VerifyFindingRequest,
     VerifyFindingResult,
 )
-from devops_cli.models.argo import ArgoCDApp
+from devops_cli.models.argo import (
+    ArgoCDApp,
+    ArgoResourceState,
+    ArgoRolloutState,
+    ArgoWorkflowState,
+)
 from devops_cli.models.benchmark import (
     BenchmarkCategory,
     BenchmarkReport,
@@ -163,6 +168,9 @@ from devops_cli.models.workspace import (
 __all__ = [
     "AnalysisMetadata",
     "ArgoCDApp",
+    "ArgoResourceState",
+    "ArgoRolloutState",
+    "ArgoWorkflowState",
     "BenchmarkCategory",
     "BenchmarkReport",
     "BenchmarkTask",
