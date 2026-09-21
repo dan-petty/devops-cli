@@ -261,7 +261,7 @@ def run_subprocess(
         },
     ) as span_h:
         # Inject active subprocess span as parent trace context for child process
-        get_tracer().inject_trace_context(sub_env)
+        get_tracer().inject_trace_env(sub_env)
         try:
             proc = subprocess.run(
                 cmd,
@@ -401,7 +401,7 @@ async def run_subprocess_async(
             "process.working_directory": str(cwd or ""),
         },
     ) as span_h:
-        get_tracer().inject_trace_context(sub_env)
+        get_tracer().inject_trace_env(sub_env)
         stdout_pipe = asyncio.subprocess.PIPE if capture_output else None
         stderr_pipe = asyncio.subprocess.PIPE if capture_output else None
 
