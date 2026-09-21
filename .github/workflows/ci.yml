@@ -125,7 +125,9 @@ jobs:
             uv.lock
             README.md
         run: |
-          git fetch --no-tags --depth=0 origin "$BASE_REF"
+          # The checkout above already fetched full history; this only ensures the base
+          # branch ref exists locally, since a PR checkout resolves the merge ref instead.
+          git fetch --no-tags origin "$BASE_REF"
           readarray -t WATCHED < <(printf '%s\n' "$IMAGE_CONTENT_PATHS" | sed '/^[[:space:]]*$/d')
           CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD" -- "${WATCHED[@]}")
           if [ -n "$CHANGED" ]; then
