@@ -34,6 +34,17 @@ repos:
 
   - repo: local
     hooks:
+      # Runs only the tests covering the staged sources, so committing stays fast while
+      # still verifying the change. Falls back to the full suite when a staged source has
+      # no covering test, rather than passing without running anything.
+      - id: devops-ci-test-changed
+        name: devops ci test (covering tests for staged files)
+        entry: uv run devops ci test
+        language: system
+        stages: [pre-commit]
+        types: [python]
+        require_serial: true
+
       - id: devops-ci-pre-push
         name: devops ci (pre-push quality gate)
         entry: uv run devops ci

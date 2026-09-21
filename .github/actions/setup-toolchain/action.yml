@@ -1,0 +1,47 @@
+name: Set up uv toolchain
+description: >-
+  Install the pinned uv-managed Python environment and restore incremental tooling caches.
+  Shared by every quality-gate job so their setup cannot drift apart.
+
+inputs:
+  cache-suffix:
+    description: >-
+      Distinguishes the tooling cache between concurrent jobs, so two jobs finishing at the
+      same time do not race to save the same cache key.
+    required: false
+    default: shared
+  tooling-cache-paths:
+    description: Newline-separated incremental tool cache directories to restore and save.
+    required: false
+    default: |
+      .mypy_cache
+      .ruff_cache
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv and Python
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      with:
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
+        cache-python: "true"
+        prune-cache: "true"
+        version: "latest"
+        python-version: "3.14"
+
+    - name: Restore tooling caches
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ inputs.tooling-cache-paths }}
+        key: tooling-${{ inputs.cache-suffix }}-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+        restore-keys: |
+          tooling-${{ inputs.cache-suffix }}-${{ runner.os }}-
+
+    - name: Synchronize dependencies
+      shell: bash
+      run: uv sync --all-groups --all-extras
+
+    - name: Initialize workspace directories
+      shell: bash
+      run: mkdir -p .data/reviews .data/analysis .data/logs

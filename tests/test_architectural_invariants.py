@@ -347,3 +347,62 @@ def test_no_stray_scripts_in_project_root() -> None:
         "are strictly prohibited in the project root. Use the designated scratch directory "
         "(<appDataDir>/brain/<conversation-id>/scratch/ or .data/agent/scratch/) instead."
     )
+
+
+def _dockerfile_build_context_sources(dockerfile: Path) -> set[str]:
+    """Extract the repository paths a Dockerfile copies out of its build context.
+
+    Only local sources count: `COPY --from=<image>` pulls from another image, not from
+    this repository, so it cannot make the published image stale.
+    """
+    sources: set[str] = set()
+    for raw_line in dockerfile.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line.upper().startswith("COPY "):
+            continue
+        tokens = line.split()[1:]
+        if any(token.startswith("--from=") for token in tokens):
+            continue
+        # The final token is the destination; everything before it is a source.
+        sources.update(token.rstrip("/") for token in tokens[:-1] if not token.startswith("--"))
+    return sources
+
+
+def _ci_image_content_paths(workflow: Path) -> set[str]:
+    """Read the IMAGE_CONTENT_PATHS list the CI workflow watches for image changes."""
+    import yaml
+
+    document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    for step in document["jobs"]["devcontainer"]["steps"]:
+        declared = (step.get("env") or {}).get("IMAGE_CONTENT_PATHS")
+        if declared:
+            return {line.strip() for line in declared.splitlines() if line.strip()}
+    raise AssertionError("CI devcontainer job declares no IMAGE_CONTENT_PATHS")
+
+
+def test_devcontainer_image_path_filter_covers_dockerfile_sources() -> None:
+    """The CI image-change filter must cover every path baked into the container image.
+
+    The published devcontainer image packages devops-cli itself. If a new `COPY` starts
+    pulling a path the workflow's change detection does not watch, CI would skip the
+    rebuild and publish a stale image while still reporting success.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    watched = _ci_image_content_paths(repo_root / ".github" / "workflows" / "ci.yml")
+    sources = _dockerfile_build_context_sources(repo_root / ".devcontainer" / "Dockerfile")
+
+    def _covered(path: str) -> bool:
+        return any(path == w or path.startswith(f"{w}/") for w in watched)
+
+    uncovered = sorted(source for source in sources if not _covered(source))
+    assert not uncovered, (
+        f"The Dockerfile copies {uncovered} into the image, but the CI 'Detect Image "
+        f"Content Changes' filter watches only {sorted(watched)}. Changes to those paths "
+        f"would skip the rebuild and publish a stale image."
+    )
+
+    # The build definition itself must be watched, not just the copied build context.
+    assert _covered(".devcontainer/Dockerfile"), (
+        "The CI image-change filter must watch .devcontainer/Dockerfile; a change to the "
+        "build recipe alters the image even when no copied source file changes."
+    )

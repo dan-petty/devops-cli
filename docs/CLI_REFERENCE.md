@@ -2154,11 +2154,22 @@ Run tests, linting, formatting, and type-checks.
 
 ### `devops ci test`
 
-**Run the pytest test suite in parallel leveraging all CPU cores.**
+**Run the test suite, or only the tests covering the given source files.**
+
+Run the test suite, or only the tests covering the given source files.
+
+Passing paths narrows the run to the tests that import or conventionally cover them,
+which is what makes this usable as a pre-commit hook on staged files.
 
 ```bash
-devops ci test [OPTIONS]
+devops ci test [OPTIONS] <paths>
 ```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<paths>` | `path` | No | Source or test files to verify. Narrows the run to covering tests; omit to run the full suite. |
 
 **Options:**
 
@@ -2168,6 +2179,7 @@ devops ci test [OPTIONS]
 | `-k` | `string` | - | Filter tests by keyword expression. |
 | `-x` | `boolean` | - | Stop after first failure. |
 | `-n`, `--numprocesses` | `string` | `auto` | Number of parallel worker processes. |
+| `--fallback`, `--no-fallback` | `boolean` | `True` | Run the full suite when a changed source has no covering tests, rather than reporting success without verifying it. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci coverage`

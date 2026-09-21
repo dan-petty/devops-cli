@@ -557,27 +557,73 @@ def test_github_workflows_caching_configuration() -> None:
 
 
 def test_ci_workflow_has_tooling_cache_step() -> None:
-    """Validate that ci.yml includes tooling cache for mypy, ruff, and pytest with stable key."""
+    """Validate the shared toolchain action caches incremental tool state with a stable key.
+
+    Caching moved out of a single monolithic job into the composite setup action once the
+    quality gate was split into parallel jobs, so every job restores the same tool state.
+    """
     import yaml
 
-    ci_file = Path(".github/workflows/ci.yml")
-    assert ci_file.is_file()
-    content = yaml.safe_load(ci_file.read_text(encoding="utf-8")) or {}
-    steps = content["jobs"]["validate"]["steps"]
+    action_file = Path(".github/actions/setup-toolchain/action.yml")
+    assert action_file.is_file()
+    action = yaml.safe_load(action_file.read_text(encoding="utf-8")) or {}
+
     cache_steps = [
-        s for s in steps if isinstance(s, dict) and "actions/cache" in str(s.get("uses", ""))
+        s
+        for s in action["runs"]["steps"]
+        if isinstance(s, dict) and "actions/cache" in str(s.get("uses", ""))
     ]
     assert len(cache_steps) >= 1
+
     cache_with = cache_steps[0].get("with", {})
-    assert isinstance(cache_with, dict)
-    cache_paths = str(cache_with.get("path", ""))
-    assert ".mypy_cache" in cache_paths
-    assert ".ruff_cache" in cache_paths
-    assert ".pytest_cache" in cache_paths
     cache_key = str(cache_with.get("key", ""))
-    assert "tooling-cache-" in cache_key
+    assert isinstance(cache_with, dict)
+    assert "tooling-" in cache_key
     assert "hashFiles" in cache_key
+    # A commit-scoped key would miss on every run, defeating the cache entirely.
     assert "github.sha" not in cache_key
+
+    # Default paths cover the incremental type and lint caches; the test job overrides
+    # them to cache pytest state instead.
+    default_paths = str(action["inputs"]["tooling-cache-paths"]["default"])
+    assert ".mypy_cache" in default_paths
+    assert ".ruff_cache" in default_paths
+
+    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
+    test_steps = ci["jobs"]["test"]["steps"]
+    setup = next(s for s in test_steps if "setup-toolchain" in str(s.get("uses", "")))
+    assert ".pytest_cache" in str(setup.get("with", {}).get("tooling-cache-paths", ""))
+
+
+def test_ci_workflow_parallelizes_quality_gates() -> None:
+    """Static analysis, tests, and the image build run as independent parallel jobs.
+
+    The image build is roughly half the wall clock but is not a quality gate, so keeping
+    it off the critical path is what lets merge feedback arrive quickly.
+    """
+    import yaml
+
+    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
+    jobs = ci["jobs"]
+
+    assert {"static", "test", "devcontainer"}.issubset(jobs.keys())
+    # No `needs:` between them, so they start concurrently rather than in sequence.
+    assert all(not jobs[name].get("needs") for name in ("static", "test", "devcontainer"))
+
+
+def test_devcontainer_image_publishes_only_for_main_targeted_pull_requests() -> None:
+    """The PR image is built only for pull requests targeting main.
+
+    Release branches are what merge into main, so this confines image publishing to the
+    release path instead of rebuilding an identical image on every feature pull request.
+    """
+    import yaml
+
+    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
+    condition = str(ci["jobs"]["devcontainer"].get("if", ""))
+
+    assert "github.base_ref == 'main'" in condition
+    assert "github.event_name == 'pull_request'" in condition
 
 
 def test_resolve_pytest_worker_count() -> None:
