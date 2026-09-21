@@ -50,9 +50,13 @@ class SecretRef:
 
 @dataclass(frozen=True)
 class SecretAccess:
-    """One recorded credential lookup. Never contains the secret value itself."""
+    """One recorded credential lookup.
 
-    secret_name: str
+    `credential_id` is the credential's *identifier* (for example ``github.token``), not
+    its value. The value is never carried by this record, logged, or rendered.
+    """
+
+    credential_id: str
     provider: str | None
     resolved: bool
     timestamp: str
@@ -70,10 +74,14 @@ class SecretAuditLog:
         self._entries: list[SecretAccess] = []
         self._max_entries = max_entries
 
-    def record(self, secret_name: str, provider: str | None, resolved: bool) -> SecretAccess:
-        """Append an access record, evicting the oldest entry beyond the cap."""
+    def record(self, credential_id: str, provider: str | None, resolved: bool) -> SecretAccess:
+        """Append an access record, evicting the oldest entry beyond the cap.
+
+        `credential_id` identifies which credential was requested (``github.token``); the
+        credential's value is never passed to, stored by, or logged from this method.
+        """
         entry = SecretAccess(
-            secret_name=secret_name,
+            credential_id=credential_id,
             provider=provider,
             resolved=resolved,
             timestamp=datetime.now(UTC).isoformat(),
@@ -83,7 +91,10 @@ class SecretAuditLog:
             del self._entries[: len(self._entries) - self._max_entries]
 
         logger.debug(
-            "Secret %r resolved=%s via provider=%s", secret_name, resolved, provider or "none"
+            "Credential %r resolved=%s via provider=%s",
+            credential_id,
+            resolved,
+            provider or "none",
         )
         return entry
 

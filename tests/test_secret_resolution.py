@@ -260,7 +260,7 @@ def test_audit_records_which_provider_answered() -> None:
     resolver.resolve(_ref())
     entry = resolver.audit.entries()[-1]
 
-    assert (entry.secret_name, entry.provider, entry.resolved) == (
+    assert (entry.credential_id, entry.provider, entry.resolved) == (
         "test.secret",
         "environment",
         True,
@@ -286,6 +286,25 @@ def test_audit_never_stores_the_secret_value() -> None:
     assert not hasattr(entry, "value")
 
 
+def test_audit_debug_log_carries_only_the_credential_identifier(
+    caplog: Any,
+) -> None:
+    """The debug log line records which credential was requested, never its value.
+
+    CodeQL flagged the previous parameter name as clear-text logging of a secret. The
+    parameter holds an identifier such as `github.token`; this pins that the emitted log
+    record cannot contain the credential value.
+    """
+    import logging
+
+    resolver = SecretResolver(providers=[_StubProvider("keyring", "super-secret-value")])
+    with caplog.at_level(logging.DEBUG, logger="devops_cli.security.secrets"):
+        resolver.resolve(_ref())
+
+    assert "test.secret" in caplog.text
+    assert "super-secret-value" not in caplog.text
+
+
 def test_audit_log_is_bounded() -> None:
     """The trail evicts oldest entries so long sessions cannot grow without bound."""
     audit = SecretAuditLog(max_entries=3)
@@ -293,7 +312,7 @@ def test_audit_log_is_bounded() -> None:
         audit.record(f"secret-{index}", "keyring", resolved=True)
 
     entries = audit.entries()
-    assert (len(entries), entries[0].secret_name, entries[-1].secret_name) == (
+    assert (len(entries), entries[0].credential_id, entries[-1].credential_id) == (
         3,
         "secret-7",
         "secret-9",

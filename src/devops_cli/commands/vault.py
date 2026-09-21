@@ -410,10 +410,10 @@ def vault_audit(
 
     print_table(
         title="Credential Access Audit",
-        columns=[("Secret", "cyan"), "Provider", "Resolved", "Timestamp"],
+        columns=[("Credential", "cyan"), "Provider", "Resolved", "Timestamp"],
         rows=[
             [
-                entry.secret_name,
+                entry.credential_id,
                 entry.provider or "—",
                 "yes" if entry.resolved else "no",
                 entry.timestamp,

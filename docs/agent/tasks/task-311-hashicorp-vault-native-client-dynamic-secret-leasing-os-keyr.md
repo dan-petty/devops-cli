@@ -56,6 +56,17 @@ Unifying the ladders changed one credential's observable precedence. `get_logfir
 
 The first iteration cached a settings-bound `SettingsProvider` inside the process-wide resolver, so any later lookup with different settings would silently read a stale configuration snapshot. `SettingsProvider` now resolves settings through a callable, and `SecretResolver.resolve` accepts a per-call `settings_source` that rebinds it. Pinned by `test_cached_resolver_never_serves_a_stale_settings_snapshot`.
 
+## CodeQL Finding Remediated
+
+CodeQL raised `py/clear-text-logging-sensitive-data` (high, CWE-312/532) against the audit
+trail's debug log line. The flagged expression carried a credential *identifier* such as
+`github.token`, never a value, so the alert was a naming heuristic rather than a leak —
+but on a security-scoped module the right response is to make the code unambiguous rather
+than suppress the alert. The parameter and record field were renamed `secret_name` →
+`credential_id`, which is both more accurate and clears the heuristic, and
+`test_audit_debug_log_carries_only_the_credential_identifier` now pins that a credential
+value can never reach the emitted log record.
+
 ## Scope Note
 
 `hvac` was **not** added as a dependency. The existing `VaultSecretBroker` already speaks the Vault HTTP API through the project's shared, egress-validated HTTP broker, and the auth, lease, and transit endpoints are a handful of documented POST calls. Introducing `hvac` would have added a second HTTP stack that bypasses that egress validation — the wrong trade for a security-scoped module. The native client requirement is satisfied by extending the existing broker path.
