@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from devops_cli.commands.docker import app as docker_app
@@ -26,7 +28,7 @@ def _mock_proc(
     )
 
 
-def test_docker_commands(tmp_path: Path) -> None:
+def test_docker_commands(tmp_path: Path, docker_engine: Any) -> None:
     """Verify docker images, build, push, prune, and analyze-layers subcommands."""
     mock_client = MagicMock()
     mock_img = MagicMock()
@@ -38,7 +40,7 @@ def test_docker_commands(tmp_path: Path) -> None:
     mock_client.images.push.return_value = [{"status": "Pushing layer 1"}]
     mock_client.system.prune.return_value = {"SpaceReclaimed": 10485760}
 
-    with patch("devops_cli.commands.docker._client", return_value=mock_client):
+    with docker_engine(mock_client):
         res_images = runner.invoke(docker_app, ["images"])
         assert res_images.exit_code == 0
 
@@ -68,13 +70,19 @@ def test_docker_stats_dry_run() -> None:
         set_dry_run(False)
 
 
-def test_docker_stats_sdk_table() -> None:
-    """Verify docker stats table is built from Docker SDK container data."""
+def test_docker_stats_sdk_table(docker_engine: Any) -> None:
+    """Verify docker stats table is built from typed Engine API container samples."""
     from devops_cli.commands.docker import _build_docker_stats_table, _format_bytes
 
     mock_client = MagicMock()
     mock_container = MagicMock()
     mock_container.name = "web"
+    mock_container.attrs = {
+        "Id": "c0ffee",
+        "Name": "/web",
+        "State": {"Status": "running", "Running": True},
+        "Config": {"Image": "nginx:latest"},
+    }
     mock_container.stats.return_value = {
         "cpu_stats": {
             "cpu_usage": {"total_usage": 200_000_000, "percpu_usage": [100_000_000, 100_000_000]},
@@ -93,8 +101,9 @@ def test_docker_stats_sdk_table() -> None:
         "networks": {"eth0": {"rx_bytes": 1_024, "tx_bytes": 512}},
     }
     mock_client.containers.list.return_value = [mock_container]
+    mock_client.containers.get.return_value = mock_container
 
-    with patch("devops_cli.commands.docker._client", return_value=mock_client):
+    with docker_engine(mock_client):
         table = _build_docker_stats_table(None)
 
     assert table.row_count == 1
@@ -133,24 +142,15 @@ def test_docker_analyze_layers() -> None:
         assert res_dry.exit_code == 0
 
 
-def test_docker_client_and_error_branches(tmp_path: Path) -> None:
+def test_docker_client_and_error_branches(tmp_path: Path, docker_engine: Any) -> None:
     """Verify docker _client connection, push errors, and dry-run branches."""
-    from devops_cli.commands.docker import _client
+    from devops_cli.commands.docker import _engine
     from devops_cli.dry_run import set_dry_run
 
-    # 1. _client connection failure
+    # 1. An unreachable daemon is surfaced as a clean CLI exit rather than a traceback.
     with patch("docker.from_env", side_effect=Exception("Daemon not running")):
-        with pytest.raises(Exception):
-            _client()
-
-    # 2. _client with DOCKER_HOST validation
-    with (
-        patch.dict("os.environ", {"DOCKER_HOST": "tcp://localhost:2375"}),
-        patch("devops_cli.core.validation.validate_service_url"),
-        patch("docker.from_env") as mock_env,
-    ):
-        _client()
-        mock_env.assert_called_once()
+        with pytest.raises(typer.Exit):
+            _engine()
 
     # 3. Dry run branches for build, push, prune, images
     set_dry_run(True)
@@ -183,21 +183,21 @@ def test_docker_client_and_error_branches(tmp_path: Path) -> None:
     # 5. Push stream error
     mock_client = MagicMock()
     mock_client.images.push.return_value = [{"error": "denied: access forbidden"}]
-    with patch("devops_cli.commands.docker._client", return_value=mock_client):
+    with docker_engine(mock_client):
         res_push_err = runner.invoke(docker_app, ["push", "org/repo:tag"])
         assert res_push_err.exit_code == 1
         assert "access forbidden" in res_push_err.output
 
     # 6. Prune with tuple return value and without force
     mock_client.system.prune.return_value = (None, {"containers": 5242880, "images": 5242880})
-    with patch("devops_cli.commands.docker._client", return_value=mock_client):
+    with docker_engine(mock_client):
         with patch("typer.confirm", return_value=True):
             res_prune_tuple = runner.invoke(docker_app, ["prune"])
             assert res_prune_tuple.exit_code == 0
             assert "10 MB" in res_prune_tuple.output
 
 
-def test_docker_images_and_build_formatting(tmp_path: Path) -> None:
+def test_docker_images_and_build_formatting(tmp_path: Path, docker_engine: Any) -> None:
     """Verify docker images tag formatting and build stream logging."""
     mock_client = MagicMock()
     mock_img_unnamed = MagicMock()
@@ -208,7 +208,7 @@ def test_docker_images_and_build_formatting(tmp_path: Path) -> None:
     mock_client.images.list.return_value = [mock_img_unnamed]
     mock_client.images.build.return_value = (mock_img_unnamed, [{"stream": "Step 1 : Building\n"}])
 
-    with patch("devops_cli.commands.docker._client", return_value=mock_client):
+    with docker_engine(mock_client):
         res_images = runner.invoke(docker_app, ["images"])
         assert res_images.exit_code == 0
         assert "<none>" in res_images.output

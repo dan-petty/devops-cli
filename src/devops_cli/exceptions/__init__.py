@@ -38,6 +38,8 @@ from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.docker import (
     CosignError,
     CosignVerificationError,
+    DockerDaemonUnavailableError,
+    DockerEngineError,
     DockerError,
     DockerSandboxError,
 )
@@ -118,6 +120,8 @@ __all__ = [
     "CosignError",
     "CosignVerificationError",
     "DevOpsCLIError",
+    "DockerDaemonUnavailableError",
+    "DockerEngineError",
     "DockerError",
     "DockerSandboxError",
     "DocCompactionError",

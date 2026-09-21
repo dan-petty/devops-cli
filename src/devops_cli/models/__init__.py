@@ -61,6 +61,9 @@ from devops_cli.models.config import (
     ConfigShowResult,
 )
 from devops_cli.models.docker import (
+    BuildCacheRecord,
+    BuildCacheReport,
+    ContainerState,
     ContainerStatEntry,
     DockerLayerAnalysisRequest,
     DockerLayerAnalysisResult,
@@ -165,6 +168,8 @@ __all__ = [
     "BenchmarkTask",
     "BranchListing",
     "BranchesListRequest",
+    "BuildCacheRecord",
+    "BuildCacheReport",
     "CAGenerationRequest",
     "CICheckResult",
     "CIRunRequest",
@@ -178,6 +183,7 @@ __all__ = [
     "ConfigOutputResult",
     "ConfigShowRequest",
     "ConfigShowResult",
+    "ContainerState",
     "ContainerStatEntry",
     "DependencySpec",
     "DockerLayerAnalysisRequest",

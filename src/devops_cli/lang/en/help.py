@@ -517,6 +517,8 @@ class DockerCommandHelp:
     prune: str = "Remove unused containers, images, and networks."
     stats: str = "Display live container CPU, memory, and network I/O statistics."
     analyze_layers: str = "Analyze container image layer efficiency and wasted space using Dive."
+    cache: str = "Introspect BuildKit multi-stage layer cache occupancy and reuse."
+    prune_cache: str = "Reclaim unused BuildKit build cache records after reporting."
     filter_name: str = "Filter by name."
     context_dir: str = "Build context directory."
     image_tag: str = "Image name[:tag] to push."

@@ -157,7 +157,7 @@ def test_parse_cgroup_v2_directory_missing_dir(tmp_path: Path) -> None:
 def test_read_cgroup_v2_metrics_fallback_to_docker_stats() -> None:
     """Test read_cgroup_v2_metrics falling back to docker stats inspection."""
     with patch("devops_cli.sandbox.metrics.parse_cgroup_v2_directory", return_value=None):
-        with patch("devops_cli.sandbox.metrics._read_container_stats_fallback") as mock_fallback:
+        with patch("devops_cli.sandbox.metrics._read_container_stats_via_engine") as mock_fallback:
             mock_fallback.return_value = CgroupV2Metrics(
                 cpu_percent=15.5,
                 memory_current_bytes=104857600,
@@ -541,21 +541,6 @@ def test_cli_sandbox_metrics_not_found(mock_engine_cls: MagicMock) -> None:
     assert result.exit_code != 0
 
 
-def test_parse_size_bytes_all_units() -> None:
-    """Test _parse_size_bytes helper across all common byte and binary units."""
-    from devops_cli.sandbox.metrics import _parse_size_bytes
-
-    assert _parse_size_bytes("500B") == 500
-    assert _parse_size_bytes("10KB") == 10000
-    assert _parse_size_bytes("10KiB") == 10240
-    assert _parse_size_bytes("5MB") == 5000000
-    assert _parse_size_bytes("5MiB") == 5 * 1024 * 1024
-    assert _parse_size_bytes("1GB") == 1000000000
-    assert _parse_size_bytes("1GiB") == 1024 * 1024 * 1024
-    assert _parse_size_bytes("invalid") == 0
-    assert _parse_size_bytes("") == 0
-
-
 def test_read_int_and_str_file_helpers(tmp_path: Path) -> None:
     """Test file reader error handling on missing or malformed content."""
     from devops_cli.sandbox.metrics import _read_int_file, _read_str_file
@@ -569,32 +554,46 @@ def test_read_int_and_str_file_helpers(tmp_path: Path) -> None:
     assert _read_int_file(bad_int) is None
 
 
-def test_read_container_stats_fallback_subprocesses() -> None:
-    """Test _read_container_stats_fallback handling success and process failures."""
-    from devops_cli.sandbox.metrics import _read_container_stats_fallback
+def test_read_container_stats_via_engine(docker_engine: Any) -> None:
+    """Engine API resource samples project into cgroup metrics, and failures return None."""
+    from devops_cli.sandbox.metrics import _read_container_stats_via_engine
 
-    # Success case
-    mock_success = MagicMock(
-        returncode=0,
-        stdout=json.dumps(
-            {
-                "CPUPerc": "25.0%",
-                "MemUsage": "50MiB / 200MiB",
-                "MemPerc": "25.0%",
-                "PIDs": "4",
-            }
-        ),
-    )
-    with patch("subprocess.run", return_value=mock_success):
-        res = _read_container_stats_fallback("cont-valid")
-        assert res is not None
-        assert res.cpu_percent == 25.0
-        assert res.pids_current == 4
+    mock_container = MagicMock()
+    mock_container.name = "cont-valid"
+    mock_container.stats.return_value = {
+        "cpu_stats": {
+            "cpu_usage": {"total_usage": 500_000_000},
+            "system_cpu_usage": 2_000_000_000,
+            "online_cpus": 1,
+        },
+        "precpu_stats": {
+            "cpu_usage": {"total_usage": 0},
+            "system_cpu_usage": 0,
+        },
+        "memory_stats": {"usage": 52_428_800, "limit": 209_715_200, "stats": {"cache": 0}},
+        "pids_stats": {"current": 4},
+        "networks": {"eth0": {"rx_bytes": 1_500_000, "tx_bytes": 3_200_000}},
+    }
+    mock_client = MagicMock()
+    mock_client.containers.get.return_value = mock_container
 
-    # Failure case
-    mock_fail = MagicMock(returncode=1, stdout="", stderr="Error")
-    with patch("subprocess.run", return_value=mock_fail):
-        assert _read_container_stats_fallback("cont-failed") is None
+    with docker_engine(mock_client):
+        res = _read_container_stats_via_engine("cont-valid")
+
+    assert res is not None
+    assert (
+        res.cpu_percent,
+        res.memory_current_bytes,
+        res.memory_limit_bytes,
+        res.pids_current,
+        res.network_rx_bytes,
+        res.network_tx_bytes,
+    ) == (25.0, 52_428_800, 209_715_200, 4, 1_500_000, 3_200_000)
+
+    # An unreachable daemon degrades to None rather than propagating.
+    mock_client.containers.get.side_effect = RuntimeError("daemon offline")
+    with docker_engine(mock_client):
+        assert _read_container_stats_via_engine("cont-failed") is None
 
 
 def test_read_cgroup_v2_metrics_standard_paths() -> None:
@@ -856,9 +855,10 @@ def test_evaluate_threshold_warnings_histogram_latency_degradation() -> None:
     assert "1200.0ms >= 500.0ms" in warnings[0]
 
 
-def test_parse_cgroup_v2_network_stat_and_docker_net_io(tmp_path: Path) -> None:
-    """Test parsing network stats from cgroup directory and docker stats dict."""
-    from devops_cli.sandbox.metrics import _build_metrics_from_docker_dict
+def test_parse_cgroup_v2_network_stat_and_engine_net_io(tmp_path: Path) -> None:
+    """Test parsing network stats from a cgroup directory and a typed Engine API sample."""
+    from devops_cli.models.docker import ContainerStatEntry
+    from devops_cli.sandbox.metrics import _build_metrics_from_stat_entry
 
     # From cgroup network.stat file
     cgroup_dir = tmp_path / "cgroup" / "net-test"
@@ -869,16 +869,22 @@ def test_parse_cgroup_v2_network_stat_and_docker_net_io(tmp_path: Path) -> None:
     assert cgroup_metrics.network_rx_bytes == 10485760
     assert cgroup_metrics.network_tx_bytes == 20971520
 
-    # From docker stats dictionary
-    docker_data = {
-        "CPUPerc": "12.0%",
-        "MemUsage": "100MiB / 500MiB",
-        "NetIO": "1.5MB / 3.2MB",
-        "PIDs": "6",
-    }
-    docker_metrics = _build_metrics_from_docker_dict(docker_data)
-    assert docker_metrics.network_rx_bytes == 1500000
-    assert docker_metrics.network_tx_bytes == 3200000
+    # From a typed Engine API resource sample
+    sample = ContainerStatEntry(
+        container_id="cid-net",
+        name="net-test",
+        cpu_percentage=12.0,
+        memory_usage_bytes=104_857_600,
+        memory_limit_bytes=524_288_000,
+        pids_count=6,
+        net_io_in_bytes=1_500_000,
+        net_io_out_bytes=3_200_000,
+    )
+    engine_metrics = _build_metrics_from_stat_entry(sample)
+    assert (engine_metrics.network_rx_bytes, engine_metrics.network_tx_bytes) == (
+        1_500_000,
+        3_200_000,
+    )
 
 
 def test_evaluate_threshold_warnings_status_label_5xx() -> None:
@@ -922,9 +928,9 @@ def test_scrape_prometheus_metrics_sanitizes_credentials_and_errors() -> None:
     assert "admin:***@" in res.error
 
 
-def test_parse_open_fds_cgroup_and_docker(tmp_path: Path) -> None:
-    """Test parsing open file descriptors count from cgroup stat files and docker stats."""
-    from devops_cli.sandbox.metrics import _build_metrics_from_docker_dict, _parse_open_fds
+def test_parse_open_fds_cgroup(tmp_path: Path) -> None:
+    """Test parsing open file descriptor counts from cgroup stat files."""
+    from devops_cli.sandbox.metrics import _parse_open_fds
 
     cgroup_dir = tmp_path / "cgroup" / "fds-test"
     cgroup_dir.mkdir(parents=True)
@@ -934,11 +940,6 @@ def test_parse_open_fds_cgroup_and_docker(tmp_path: Path) -> None:
     parsed = parse_cgroup_v2_directory(cgroup_dir)
     assert parsed is not None
     assert parsed.open_fds_count == 38
-
-    # From docker dict
-    data = {"PIDs": "4", "FDs": "64"}
-    metrics = _build_metrics_from_docker_dict(data)
-    assert metrics.open_fds_count == 64
 
 
 def test_evaluate_threshold_warnings_optional_latency_sla() -> None:
@@ -1024,7 +1025,9 @@ def test_cli_sandbox_metrics_latency_sla_option(
 def test_read_cgroup_v2_metrics_fallback_when_path_invalid(tmp_path: Path) -> None:
     """Test read_cgroup_v2_metrics falls back to container_id when cgroup_path is invalid."""
     # When cgroup_path does not exist, it should not abort but check container_id
-    with patch("devops_cli.sandbox.metrics._read_container_stats_fallback") as mock_docker_fallback:
+    with patch(
+        "devops_cli.sandbox.metrics._read_container_stats_via_engine"
+    ) as mock_docker_fallback:
         mock_docker_fallback.return_value = CgroupV2Metrics(cpu_percent=55.0)
         res = read_cgroup_v2_metrics(
             container_id="cont-fallback-1",

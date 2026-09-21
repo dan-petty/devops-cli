@@ -372,6 +372,8 @@ CONST_ERROR_CODE_VALIDATION = "VALIDATION_ERROR"
 CONST_ERROR_CODE_VAULT = "VAULT_ERROR"
 CONST_ERROR_CODE_VALKEY = "VALKEY_ERROR"
 CONST_ERROR_CODE_DOCKER_SANDBOX = "DOCKER_SANDBOX_ERROR"
+CONST_ERROR_CODE_DOCKER_ENGINE = "DOCKER_ENGINE_ERROR"
+CONST_ERROR_CODE_DOCKER_DAEMON_UNAVAILABLE = "DOCKER_DAEMON_UNAVAILABLE"
 CONST_ERROR_CODE_K8S = "K8S_ERROR"
 CONST_ERROR_CODE_MODEL_BUNDLE = "MODEL_BUNDLE_ERROR"
 CONST_ERROR_CODE_HARNESS = "HARNESS_ERROR"
@@ -597,6 +599,41 @@ CONST_TELEMETRY_CALL_NAMES: frozenset[str] = frozenset(
     }
 )
 
+# ── Docker Engine Socket API & BuildKit Cache Introspection ──────────────────
+# Container CPU utilisation severity thresholds for live stats rendering.
+CONST_DOCKER_CPU_WARNING_PERCENT: Final[float] = 50.0
+CONST_DOCKER_CPU_CRITICAL_PERCENT: Final[float] = 80.0
+
+# Default rootful and rootless Docker daemon Unix domain socket endpoints. The
+# Engine API is spoken directly over these sockets, eliminating `docker` CLI churn.
+CONST_DOCKER_UNIX_SOCKET_PATH: Final[str] = "/var/run/docker.sock"
+CONST_DOCKER_UNIX_SOCKET_URL: Final[str] = "unix:///var/run/docker.sock"
+CONST_DOCKER_HOST_ENV_VAR: Final[str] = "DOCKER_HOST"
+
+# DOCKER_HOST schemes that address a network endpoint and therefore require SSRF
+# validation before the Engine API client is constructed. Closed, exhaustive set
+# defined by the Docker Engine daemon socket grammar (`dockerd -H`).
+CONST_DOCKER_NETWORK_HOST_SCHEMES: Final[tuple[str, ...]] = ("tcp://", "http://", "https://")
+
+# `GET /system/df` object types returned by the Engine API disk-usage endpoint.
+CONST_DOCKER_DF_BUILD_CACHE_KEY: Final[str] = "BuildCache"
+CONST_DOCKER_DF_IMAGES_KEY: Final[str] = "Images"
+CONST_DOCKER_DF_CONTAINERS_KEY: Final[str] = "Containers"
+CONST_DOCKER_DF_VOLUMES_KEY: Final[str] = "Volumes"
+
+# BuildKit build-cache record types emitted by `GET /system/df` (buildkit solver
+# vertex classes). Exhaustive per the BuildKit cache record schema.
+CONST_DOCKER_BUILD_CACHE_TYPES: Final[frozenset[str]] = frozenset(
+    {
+        "internal",
+        "frontend",
+        "source.local",
+        "source.git.checkout",
+        "exec.cachemount",
+        "regular",
+    }
+)
+
 # Sensitive host configuration and credential directories forbidden from container sandbox mounts
 CONST_SANDBOX_SENSITIVE_SUBPATHS: Final[frozenset[str]] = frozenset(
     {
@@ -616,6 +653,10 @@ CONST_SANDBOX_NETWORK_BRIDGE: Final[str] = "bridge"
 
 CONST_SANDBOX_DEFAULT_NAMESPACE: Final[str] = "sandbox"
 CONST_SANDBOX_DOCKER_INTERNAL_NET: Final[str] = "devops-sandbox-net"
+
+# Exit status reported when a sandbox workload exceeds its wall-clock budget,
+# matching the conventional GNU coreutils `timeout` termination code.
+CONST_SANDBOX_TIMEOUT_EXIT_CODE: Final[int] = 124
 
 CONST_SANDBOX_NETWORK_MODES: Final[frozenset[str]] = frozenset(
     {

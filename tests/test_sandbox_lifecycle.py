@@ -6,11 +6,13 @@ import datetime
 import json
 import socket
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.exceptions.docker import DockerEngineError
 from devops_cli.exceptions.sandbox import (
     SandboxError,
     SandboxNotFoundError,
@@ -276,7 +278,7 @@ def test_engine_deploy_dry_run(tmp_path: Path) -> None:
     assert reg.list_instances() == []
 
 
-def test_engine_deploy_docker_sdk(tmp_path: Path) -> None:
+def test_engine_deploy_docker_sdk(tmp_path: Path, docker_engine: Any) -> None:
     """Engine deploy provisions container with security opts and records to registry."""
     ws = tmp_path / "workspace"
     ws.mkdir()
@@ -288,7 +290,7 @@ def test_engine_deploy_docker_sdk(tmp_path: Path) -> None:
     mock_client = MagicMock()
     mock_client.containers.create.return_value = mock_container
 
-    with patch("devops_cli.sandbox.engine._get_docker_client", return_value=mock_client):
+    with docker_engine(mock_client):
         cfg = SandboxDeployConfig(
             image="nginx:alpine",
             name="web-svc",
@@ -320,7 +322,7 @@ def test_engine_deploy_docker_sdk(tmp_path: Path) -> None:
         assert stored.status == SandboxStatus.RUNNING
 
 
-def test_engine_status_reconciliation(tmp_path: Path) -> None:
+def test_engine_status_reconciliation(tmp_path: Path, docker_engine: Any) -> None:
     """Engine status reconciles live container state against Docker daemon."""
     reg = SandboxRegistry(tmp_path / "reg.json")
     engine = WorkloadSandboxEngine(registry=reg)
@@ -337,23 +339,22 @@ def test_engine_status_reconciliation(tmp_path: Path) -> None:
     reg.register_instance(inst)
 
     mock_container = MagicMock()
-    mock_container.status = "running"
+    mock_container.attrs = {"Id": "cid-live-1", "State": {"Status": "running", "Running": True}}
     mock_client = MagicMock()
     mock_client.containers.get.return_value = mock_container
 
-    with patch("devops_cli.sandbox.engine._get_docker_client", return_value=mock_client):
+    with docker_engine(mock_client):
         statuses = engine.status("sb-live-1")
-        assert len(statuses) == 1
-        assert statuses[0].status == SandboxStatus.RUNNING
+        assert (len(statuses), statuses[0].status) == (1, SandboxStatus.RUNNING)
 
-    # When container is exited
-    mock_container.status = "exited"
-    with patch("devops_cli.sandbox.engine._get_docker_client", return_value=mock_client):
+    # When the container has exited
+    mock_container.attrs = {"Id": "cid-live-1", "State": {"Status": "exited", "Running": False}}
+    with docker_engine(mock_client):
         statuses = engine.status("sb-live-1")
         assert statuses[0].status == SandboxStatus.STOPPED
 
 
-def test_engine_stop(tmp_path: Path) -> None:
+def test_engine_stop(tmp_path: Path, docker_engine: Any) -> None:
     """Engine stop gracefully terminates container and updates status."""
     reg = SandboxRegistry(tmp_path / "reg.json")
     engine = WorkloadSandboxEngine(registry=reg)
@@ -373,18 +374,18 @@ def test_engine_stop(tmp_path: Path) -> None:
     mock_client = MagicMock()
     mock_client.containers.get.return_value = mock_container
 
-    with patch("devops_cli.sandbox.engine._get_docker_client", return_value=mock_client):
+    with docker_engine(mock_client):
         stopped = engine.stop("sb-stop-1", timeout=5)
         assert stopped.status == SandboxStatus.STOPPED
-        mock_container.stop.assert_called_once_with(timeout=5)
-        mock_container.remove.assert_called_once_with(force=True)
+        mock_client.api.stop.assert_called_once_with("cid-stop-1", timeout=5)
+        mock_client.api.remove_container.assert_called_once_with("cid-stop-1", force=True)
 
     # Stop non-existent instance raises SandboxNotFoundError
     with pytest.raises(SandboxNotFoundError):
         engine.stop("non-existent-instance")
 
 
-def test_engine_exec(tmp_path: Path) -> None:
+def test_engine_exec(tmp_path: Path, docker_engine: Any) -> None:
     """Engine exec executes commands inside running container."""
     reg = SandboxRegistry(tmp_path / "reg.json")
     engine = WorkloadSandboxEngine(registry=reg)
@@ -405,7 +406,7 @@ def test_engine_exec(tmp_path: Path) -> None:
     mock_client = MagicMock()
     mock_client.containers.get.return_value = mock_container
 
-    with patch("devops_cli.sandbox.engine._get_docker_client", return_value=mock_client):
+    with docker_engine(mock_client):
         res = engine.exec("sb-exec-1", ["echo", "hello"])
         assert res.exit_code == 0
         assert "hello from sandbox" in res.stdout
@@ -648,10 +649,8 @@ def test_ports_boundary_check() -> None:
     assert is_port_available(70000) is False
 
 
-def test_engine_deploy_subprocess_fallback(tmp_path: Path) -> None:
-    """Engine deploy falls back to docker run subprocess when SDK fails."""
-    import subprocess
-
+def test_engine_deploy_surfaces_engine_failure(tmp_path: Path, docker_engine: Any) -> None:
+    """Engine deploy surfaces daemon creation failures instead of degrading to the CLI."""
     ws = tmp_path / "workspace"
     ws.mkdir()
     reg = SandboxRegistry(tmp_path / "reg.json")
@@ -664,24 +663,14 @@ def test_engine_deploy_subprocess_fallback(tmp_path: Path) -> None:
         workspace_dir=ws,
     )
 
-    mock_proc = subprocess.CompletedProcess(
-        args=["docker", "run"],
-        returncode=0,
-        stdout="cid-subp-123\n",
-        stderr="",
-    )
+    mock_client = MagicMock()
+    mock_client.containers.create.side_effect = RuntimeError("daemon offline")
 
-    with (
-        patch(
-            "devops_cli.sandbox.engine._get_docker_client", side_effect=RuntimeError("SDK offline")
-        ),
-        patch("devops_cli.sandbox.engine.run_subprocess", return_value=mock_proc) as mock_subp,
-    ):
-        inst = engine.deploy(cfg)
-        assert inst.container_id == "cid-subp-123"
-        assert inst.status == SandboxStatus.RUNNING
-        cmd = mock_subp.call_args[0][0]
-        assert any(arg.startswith("127.0.0.1:") for arg in cmd)
+    with docker_engine(mock_client):
+        with pytest.raises(SandboxError, match="Failed deploying sandbox container"):
+            engine.deploy(cfg)
+
+    assert reg.list_instances() == []
 
 
 def test_registry_reserve_and_register_pending(tmp_path: Path) -> None:
@@ -713,8 +702,8 @@ def test_registry_reserve_and_register_pending(tmp_path: Path) -> None:
     assert reg.get_allocated_host_ports() == {port1, port2}
 
 
-def test_engine_status_not_found_and_client_error(tmp_path: Path) -> None:
-    """Engine status raises SandboxNotFoundError for missing instance, handles SDK failure."""
+def test_engine_status_not_found_and_client_error(tmp_path: Path, docker_engine: Any) -> None:
+    """Engine status raises SandboxNotFoundError for a missing instance and tolerates an unreachable daemon."""
     reg = SandboxRegistry(tmp_path / "reg.json")
     engine = WorkloadSandboxEngine(registry=reg)
 
@@ -732,16 +721,18 @@ def test_engine_status_not_found_and_client_error(tmp_path: Path) -> None:
     )
     reg.register_instance(inst)
 
-    with patch(
-        "devops_cli.sandbox.engine._get_docker_client", side_effect=RuntimeError("Docker dead")
-    ):
+    mock_client = MagicMock()
+    mock_client.ping.side_effect = RuntimeError("Docker dead")
+
+    with docker_engine(mock_client):
         statuses = engine.status()
-        assert len(statuses) == 1
-        assert statuses[0].status == SandboxStatus.RUNNING
+        assert (len(statuses), statuses[0].status) == (1, SandboxStatus.RUNNING)
 
 
-def test_engine_stop_subprocess_fallback(tmp_path: Path) -> None:
-    """Engine stop falls back to docker stop/rm subprocess when SDK fails."""
+def test_engine_stop_forces_removal_when_graceful_stop_fails(
+    tmp_path: Path, docker_engine: Any
+) -> None:
+    """A rejected graceful stop escalates to a forced Engine API container removal."""
     reg = SandboxRegistry(tmp_path / "reg.json")
     engine = WorkloadSandboxEngine(registry=reg)
 
@@ -756,19 +747,18 @@ def test_engine_stop_subprocess_fallback(tmp_path: Path) -> None:
     )
     reg.register_instance(inst)
 
-    with (
-        patch("devops_cli.sandbox.engine._get_docker_client", side_effect=RuntimeError("SDK fail")),
-        patch("devops_cli.sandbox.engine.run_subprocess") as mock_subp,
-    ):
+    mock_client = MagicMock()
+    mock_client.api.stop.side_effect = RuntimeError("container unresponsive")
+
+    with docker_engine(mock_client):
         stopped = engine.stop("sb-stop-subp", timeout=5)
-        assert stopped.status == SandboxStatus.STOPPED
-        assert mock_subp.call_count == 2
+
+    assert stopped.status == SandboxStatus.STOPPED
+    mock_client.api.remove_container.assert_called_once_with("cid-stop-subp", force=True)
 
 
-def test_engine_exec_non_running_and_fallback(tmp_path: Path) -> None:
-    """Engine exec checks instance state and handles subprocess fallback."""
-    import subprocess
-
+def test_engine_exec_non_running_and_engine_failure(tmp_path: Path, docker_engine: Any) -> None:
+    """Engine exec rejects non-running sandboxes and propagates Engine API failures."""
     reg = SandboxRegistry(tmp_path / "reg.json")
     engine = WorkloadSandboxEngine(registry=reg)
 
@@ -783,28 +773,21 @@ def test_engine_exec_non_running_and_fallback(tmp_path: Path) -> None:
     )
     reg.register_instance(inst)
 
-    # Calling exec on non-running sandbox raises SandboxError
+    # Calling exec on a non-running sandbox raises SandboxError.
     with pytest.raises(SandboxError, match="status is"):
         engine.exec("sb-exec-subp", ["ls"])
 
-    # Set status to RUNNING and test subprocess fallback
     inst.status = SandboxStatus.RUNNING
     reg.register_instance(inst)
 
-    mock_proc = subprocess.CompletedProcess(
-        args=["docker", "exec"],
-        returncode=0,
-        stdout="fallback output\n",
-        stderr="",
-    )
+    mock_container = MagicMock()
+    mock_container.exec_run.side_effect = RuntimeError("exec rejected")
+    mock_client = MagicMock()
+    mock_client.containers.get.return_value = mock_container
 
-    with (
-        patch("devops_cli.sandbox.engine._get_docker_client", side_effect=RuntimeError("SDK fail")),
-        patch("devops_cli.sandbox.engine.run_subprocess", return_value=mock_proc),
-    ):
-        res = engine.exec("sb-exec-subp", ["echo", "test"], workdir="/workspace")
-        assert res.exit_code == 0
-        assert "fallback output" in res.stdout
+    with docker_engine(mock_client):
+        with pytest.raises(DockerEngineError, match="Container exec failed"):
+            engine.exec("sb-exec-subp", ["echo", "test"], workdir="/workspace")
 
 
 def test_sandbox_models_validation_rules() -> None:
@@ -844,43 +827,26 @@ def test_generate_instance_id_uniqueness() -> None:
     assert id2.startswith("sandbox-test-")
 
 
-def test_engine_spawn_cleans_created_container_on_start_failure(tmp_path: Path) -> None:
-    """When SDK container.start() fails, container is removed before fallback."""
+def test_engine_spawn_cleans_created_container_on_start_failure(
+    tmp_path: Path, docker_engine: Any
+) -> None:
+    """A failed container start removes the created container and raises SandboxError."""
     ws = tmp_path / "ws"
     ws.mkdir()
     engine = WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json"))
 
     mock_container = MagicMock()
+    mock_container.id = "cid-start-failed"
     mock_container.start.side_effect = RuntimeError("Failed starting container")
     mock_client = MagicMock()
     mock_client.containers.create.return_value = mock_container
 
-    mock_proc = MagicMock()
-    mock_proc.returncode = 0
-    mock_proc.stdout = "cid-fallback-subprocess\n"
-
-    with (
-        patch("devops_cli.sandbox.engine._get_docker_client", return_value=mock_client),
-        patch("devops_cli.sandbox.engine.run_subprocess", return_value=mock_proc),
-    ):
+    with docker_engine(mock_client):
         cfg = SandboxDeployConfig(image="alpine", workspace_dir=ws)
-        cid = engine._spawn_container(cfg, ws, [])
-        assert cid == "cid-fallback-subprocess"
-        mock_container.remove.assert_called_once_with(force=True)
+        with pytest.raises(SandboxError, match="Failed starting sandbox container"):
+            engine._spawn_container(cfg, ws, [])
 
-
-def test_engine_spawn_via_subprocess_error_translation(tmp_path: Path) -> None:
-    """Subprocess failure in _spawn_via_subprocess raises normalized SandboxError."""
-    ws = tmp_path / "ws"
-    ws.mkdir()
-    engine = WorkloadSandboxEngine()
-
-    with patch(
-        "devops_cli.sandbox.engine.run_subprocess", side_effect=RuntimeError("Subprocess failed")
-    ):
-        cfg = SandboxDeployConfig(image="alpine", workspace_dir=ws)
-        with pytest.raises(SandboxError, match="Docker run CLI failed to spawn container"):
-            engine._spawn_via_subprocess(cfg, ws, [])
+    mock_client.api.remove_container.assert_called_once_with("cid-start-failed", force=True)
 
 
 def test_engine_deploy_rollback_on_failure(tmp_path: Path) -> None:
@@ -899,7 +865,7 @@ def test_engine_deploy_rollback_on_failure(tmp_path: Path) -> None:
     assert len(reg.list_instances()) == 0
 
 
-def test_engine_uptime_calculation_and_stop_persistence(tmp_path: Path) -> None:
+def test_engine_uptime_calculation_and_stop_persistence(tmp_path: Path, docker_engine: Any) -> None:
     """Reconciliation computes uptime_seconds and stop persists final uptime."""
     reg = SandboxRegistry(tmp_path / "reg.json")
     engine = WorkloadSandboxEngine(registry=reg)
@@ -918,11 +884,14 @@ def test_engine_uptime_calculation_and_stop_persistence(tmp_path: Path) -> None:
     reg.register_instance(inst)
 
     mock_container = MagicMock()
-    mock_container.status = "running"
+    mock_container.attrs = {
+        "Id": "cid-uptime-test",
+        "State": {"Status": "running", "Running": True},
+    }
     mock_client = MagicMock()
     mock_client.containers.get.return_value = mock_container
 
-    with patch("devops_cli.sandbox.engine._get_docker_client", return_value=mock_client):
+    with docker_engine(mock_client):
         statuses = engine.status("sb-uptime-test")
         assert len(statuses) == 1
         assert statuses[0].uptime_seconds >= 59.0

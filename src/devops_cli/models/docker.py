@@ -182,3 +182,58 @@ class DockerVerifyResult(BaseModel):
         default=0.0, description="Duration of verification operation in seconds"
     )
     details: str | None = Field(default=None, description="Diagnostic output from cosign CLI")
+
+
+class ContainerState(BaseModel):
+    """Typed container state projected from the Docker Engine API inspect payload.
+
+    Replaces unstructured `docker inspect` stdout scraping with a strongly typed
+    projection so callers never parse Go template output or raw JSON dictionaries.
+    """
+
+    container_id: str = Field(..., description="Full container ID hash")
+    name: str = Field(default="", description="Container name without leading slash")
+    image: str = Field(default="", description="Image reference the container was created from")
+    status: str = Field(default="", description="Engine lifecycle state (running, exited, ...)")
+    running: bool = Field(default=False, description="Whether the container is currently running")
+    exit_code: int | None = Field(default=None, description="Exit status code once terminated")
+    health: str | None = Field(default=None, description="Healthcheck status when configured")
+    created_at: str = Field(default="", description="RFC 3339 container creation timestamp")
+    started_at: str | None = Field(default=None, description="RFC 3339 container start timestamp")
+    network_mode: str = Field(default="", description="Effective container network mode")
+    labels: dict[str, str] = Field(default_factory=dict, description="Container metadata labels")
+    ports: dict[str, list[dict[str, str]]] = Field(
+        default_factory=dict, description="Published port bindings keyed by container port"
+    )
+
+
+class BuildCacheRecord(BaseModel):
+    """A single BuildKit build-cache record reported by the Engine disk-usage endpoint."""
+
+    cache_id: str = Field(..., description="BuildKit cache record ID")
+    parent: str | None = Field(default=None, description="Parent cache record ID")
+    cache_type: str = Field(default="", description="BuildKit solver vertex class")
+    description: str = Field(default="", description="Human-readable build step description")
+    in_use: bool = Field(default=False, description="Whether the record backs a live build")
+    shared: bool = Field(default=False, description="Whether the record is shared across builds")
+    size_bytes: int = Field(default=0, description="On-disk size of the cache record in bytes")
+    usage_count: int = Field(default=0, description="Number of builds that reused this record")
+    created_at: str = Field(default="", description="RFC 3339 cache record creation timestamp")
+    last_used_at: str | None = Field(default=None, description="RFC 3339 last reuse timestamp")
+
+
+class BuildCacheReport(BaseModel):
+    """Aggregated BuildKit multi-stage layer cache introspection report."""
+
+    records: list[BuildCacheRecord] = Field(
+        default_factory=list, description="Individual build-cache records"
+    )
+    total_bytes: int = Field(default=0, description="Total size of all build-cache records")
+    reclaimable_bytes: int = Field(
+        default=0, description="Size of cache records not currently in use"
+    )
+    in_use_count: int = Field(default=0, description="Number of records backing live builds")
+    shared_count: int = Field(default=0, description="Number of records shared across builds")
+    reuse_ratio: float = Field(
+        default=0.0, description="Fraction of cache bytes reused by at least one build (0.0 - 1.0)"
+    )

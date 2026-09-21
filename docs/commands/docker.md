@@ -96,6 +96,24 @@ devops docker stats [OPTIONS]
 
 ---
 
+## `devops docker cache`
+
+**Introspect BuildKit multi-stage layer cache occupancy, reuse, and reclaimable space.**
+
+```bash
+devops docker cache [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--prune` | `boolean` | - | Reclaim unused BuildKit build cache records after reporting. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops docker analyze-layers`
 
 **Analyze container image layer efficiency and wasted space using Dive.**

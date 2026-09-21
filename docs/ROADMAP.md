@@ -69,7 +69,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Deep Integration & Functional Extension*: Integrate the official Python `kubernetes` client's asynchronous dynamic client, Informer watchers, and WebSocket streaming protocols to stream cluster events, pod status transitions, and container logs directly into in-memory queues without spawning external binaries.
   - *Code Optimization & Performance Acceleration*: Reduce Kubernetes status and pod polling latency from ~250ms per invocation to <10ms in-memory async I/O; implement client-side typed response caching with bounded TTLs; eliminate redundant JSON parsing of `kubectl get -o json` outputs.
   - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/commands/k8s/` and runtime modules into a consolidated `KubernetesService` protocol; deprecate bespoke regex output scrubbers and procedural subprocess wrappers; ensure full POSIX process group isolation across any remaining external tools.
-- [ ] **Docker Engine Socket API, Layer Caching Introspection & Container Sandbox Optimization Research (P1 - High, Issue #308)**:
+- [x] **Docker Engine Socket API, Layer Caching Introspection & Container Sandbox Optimization Research (P1 - High, Issue #308)**:
   - *Context & Rationale*: Workstation container management and dynamic sandbox execution currently execute shallow shell commands (`docker run`, `docker inspect`, `docker stats`) via subprocesses, leading to process churn and fragile string scraping.
   - *Deep Integration & Functional Extension*: Establish direct asynchronous communication over the local Docker daemon Unix domain socket (`/var/run/docker.sock`) using engine APIs; introspect BuildKit multi-stage layer caching; stream real-time container resource metrics and cgroup telemetry directly into reactive streams.
   - *Code Optimization & Performance Acceleration*: Eliminate subshell latency when provisioning sandboxes; streamline ephemeral image builds via BuildKit cache mounts; implement zero-overhead container health probing via socket pings.
@@ -480,7 +480,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Declarative Dashboard Linter & K8s Sidecar GitOps Provisioner | Kubernetes / ConfigMap / Helm | High | Medium | v0.2.24 | 📋 Scheduled (P1) |
 |  | Structured Constraint Propagation Across Subagent Delegation | PydanticAI / Workflow | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
 |  | MCP Resource-First Data Access & Tool Output Sandboxing | FastMCP / MCP Resources | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
-|  | Docker Engine Socket API & Layer Caching Introspection Research | Docker Engine / BuildKit | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | Docker Engine Socket API & Layer Caching Introspection Research | Docker Engine / BuildKit | High | Medium | v0.2.22 | ✅ Completed (P1) |
 |  | ArgoCD Server API, CRD Reconciliation & Canary Verification Research | ArgoCD / Rollouts | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 |  | Terraform & OpenTofu HCL AST Analysis & Drift Optimization Research | OpenTofu / HCL AST | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 |  | HashiCorp Vault Native Client, Dynamic Leases & Envelope Encryption Research | Vault / HVAC / Keyring | High | Medium | v0.2.22 | 📋 Scheduled (P1) |

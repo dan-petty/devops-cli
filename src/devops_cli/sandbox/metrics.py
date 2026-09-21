@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
@@ -16,6 +14,7 @@ import httpx2
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.validation import validate_url_egress
 from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.models.docker import ContainerStatEntry
 from devops_cli.sandbox.models import (
     CgroupV2Metrics,
     PrometheusMetric,
@@ -230,89 +229,34 @@ def _safe_int(val: str) -> int:
         return 0
 
 
-def _parse_size_bytes(size_str: str) -> int:
-    """Parse human readable size string (e.g. '100MiB', '1.2MB') to bytes."""
-    clean = size_str.strip().replace(" ", "")
-    units = {
-        "b": 1,
-        "k": 1000,
-        "kb": 1000,
-        "kib": 1024,
-        "m": 1000 * 1000,
-        "mb": 1000 * 1000,
-        "mib": 1024 * 1024,
-        "g": 1000 * 1000 * 1000,
-        "gb": 1000 * 1000 * 1000,
-        "gib": 1024 * 1024 * 1024,
-    }
-    match = re.match(r"^([0-9.]+)([a-zA-Z]*)$", clean)
-    if not match:
-        return 0
-    num, unit = match.groups()
-    multiplier = units.get(unit.lower(), 1)
-    try:
-        return int(float(num) * multiplier)
-    except ValueError:
-        return 0
+def _read_container_stats_via_engine(container_id: str) -> CgroupV2Metrics | None:
+    """Read live container resource metrics over the Docker Engine API stats socket.
 
+    Used when the container's cgroup v2 hierarchy is not visible from this process
+    (rootless daemons, remote hosts, or nested runtimes), so utilisation is sourced
+    from typed Engine API counters rather than scraped `docker stats` output.
+    """
+    from devops_cli.docker.engine import get_engine
 
-def _read_container_stats_fallback(container_id: str) -> CgroupV2Metrics | None:
-    """Read container stats via docker stats command as cgroup fallback."""
-    cmd = ["docker", "stats", "--no-stream", "--format", "{{json .}}", container_id]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5.0, check=False)
-        if res.returncode != 0 or not res.stdout.strip():
-            return None
-        data = json.loads(res.stdout.strip().splitlines()[0])
-        return _build_metrics_from_docker_dict(data)
-    except subprocess.SubprocessError, json.JSONDecodeError, OSError:
+        sample = get_engine().container_stats(container_id)
+    except DevOpsCLIError as exc:
+        logger.debug("Engine API stats unavailable for container %s: %s", container_id, exc)
         return None
+    return _build_metrics_from_stat_entry(sample)
 
 
-def _parse_docker_net_io(net_io_str: str) -> tuple[int, int]:
-    """Parse docker stats NetIO string (e.g. '1.2MB / 3.4MB') into rx and tx bytes."""
-    if "/" in net_io_str:
-        parts = net_io_str.split("/", 1)
-        return _parse_size_bytes(parts[0]), _parse_size_bytes(parts[1])
-    return 0, 0
-
-
-def _build_metrics_from_docker_dict(data: dict[str, Any]) -> CgroupV2Metrics:
-    """Convert docker stats JSON dictionary into CgroupV2Metrics model."""
-    cpu_str = str(data.get("CPUPerc", "0.0%")).replace("%", "").strip()
-    cpu_val = float(cpu_str) if cpu_str.replace(".", "", 1).isdigit() else 0.0
-
-    mem_usage_str = str(data.get("MemUsage", ""))
-    mem_curr, mem_lim = 0, None
-    if "/" in mem_usage_str:
-        used_part, lim_part = mem_usage_str.split("/", 1)
-        mem_curr = _parse_size_bytes(used_part)
-        mem_lim = _parse_size_bytes(lim_part)
-
-    mem_pct_str = str(data.get("MemPerc", "0.0%")).replace("%", "").strip()
-    mem_pct = float(mem_pct_str) if mem_pct_str.replace(".", "", 1).isdigit() else None
-
-    pids_str = str(data.get("PIDs", "0")).strip()
-    pids_val = int(pids_str) if pids_str.isdigit() else 0
-
-    net_io_str = str(data.get("NetIO", ""))
-    rx_bytes, tx_bytes = _parse_docker_net_io(net_io_str)
-
-    open_fds: int | None = None
-    for fd_key in ("FDs", "OpenFDs", "FileDescriptors"):
-        if fd_key in data:
-            open_fds = _safe_int(str(data[fd_key]))
-            break
-
+def _build_metrics_from_stat_entry(sample: ContainerStatEntry) -> CgroupV2Metrics:
+    """Convert a typed Engine API resource sample into a cgroup v2 metrics model."""
     return CgroupV2Metrics(
-        cpu_percent=cpu_val,
-        memory_current_bytes=mem_curr,
-        memory_limit_bytes=mem_lim,
-        memory_usage_percent=mem_pct,
-        pids_current=pids_val,
-        open_fds_count=open_fds,
-        network_rx_bytes=rx_bytes,
-        network_tx_bytes=tx_bytes,
+        cpu_percent=sample.cpu_percentage,
+        memory_current_bytes=sample.memory_usage_bytes,
+        memory_limit_bytes=sample.memory_limit_bytes or None,
+        memory_usage_percent=sample.memory_percentage,
+        pids_current=sample.pids_count,
+        open_fds_count=None,
+        network_rx_bytes=sample.net_io_in_bytes,
+        network_tx_bytes=sample.net_io_out_bytes,
     )
 
 
@@ -357,7 +301,7 @@ def read_cgroup_v2_metrics(
             if metrics is not None:
                 return metrics
 
-        return _read_container_stats_fallback(container_id)
+        return _read_container_stats_via_engine(container_id)
 
     return None
 

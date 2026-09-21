@@ -671,6 +671,12 @@ class DockerMessages:
         "Efficiency: {eff:.1f}% | Size: {size:.1f} MB | Wasted: {wasted:.1f} MB"
     )
     table_title_layers: str = "Container Layer Efficiency: {image}"
+    table_title_build_cache: str = "BuildKit Layer Cache"
+    build_cache_summary: str = (
+        "Cache: {total} total | {reclaimable} reclaimable | {reuse:.1f}% reused "
+        "| {in_use} in use | {shared} shared"
+    )
+    build_cache_pruned: str = "Pruned BuildKit cache. Space reclaimed: {reclaimed}"
 
 
 @dataclass(frozen=True)

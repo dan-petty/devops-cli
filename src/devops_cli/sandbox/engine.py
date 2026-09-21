@@ -16,11 +16,9 @@ from devops_cli.config.constants import (
     CONST_SANDBOX_DOCKER_INTERNAL_NET,
     CONST_SANDBOX_SENSITIVE_SUBPATHS,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_DOCKER_TIMEOUT_SECONDS,
-    DEFAULT_SANDBOX_EXCLUDE_HOME,
-)
-from devops_cli.core.process import run_subprocess
+from devops_cli.config.defaults import DEFAULT_SANDBOX_EXCLUDE_HOME
+from devops_cli.docker.engine import DockerEngineService, get_engine
+from devops_cli.exceptions.docker import DockerError
 from devops_cli.exceptions.sandbox import (
     SandboxError,
     SandboxNotFoundError,
@@ -79,13 +77,6 @@ def is_home_or_subpath(target_path: Path) -> bool:
     return False
 
 
-def _get_docker_client() -> Any:
-    """Connect to local or remote Docker daemon via Docker SDK."""
-    import docker  # type: ignore[import-untyped]
-
-    return docker.from_env(timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS))
-
-
 def _resolve_user_string(rootless: bool) -> str | None:
     """Resolve container user string for rootless container execution."""
     if rootless and hasattr(os, "getuid"):
@@ -93,69 +84,13 @@ def _resolve_user_string(rootless: bool) -> str | None:
     return None
 
 
-def _is_internal_network_sdk(client: Any, net_name: str) -> bool:
-    """Check if existing Docker network via SDK is an internal bridge."""
-    try:
-        net = client.networks.get(net_name)
-        attrs = getattr(net, "attrs", {}) or {}
-        if attrs.get("Internal") is True:
-            return True
-        try:
-            net.remove()
-        except Exception as exc:
-            logger.debug("Failed to remove non-internal network %s: %s", net_name, exc)
-    except Exception as exc:
-        logger.debug("Failed to query network %s via SDK: %s", net_name, exc)
-    return False
-
-
-def _create_internal_network_sdk(client: Any, net_name: str) -> bool:
-    """Create Docker internal bridge network via SDK."""
-    try:
-        client.networks.create(net_name, driver="bridge", internal=True, check_duplicate=True)
-        return True
-    except Exception as exc:
-        logger.debug("Docker SDK network creation fallback: %s", exc)
-        return False
-
-
-def _ensure_internal_network(client: Any | None = None) -> None:
-    """Lazily ensure Docker internal bridge network exists for intra-namespace communication."""
-    if client is not None:
-        if _is_internal_network_sdk(client, CONST_SANDBOX_DOCKER_INTERNAL_NET):
-            return
-        if _create_internal_network_sdk(client, CONST_SANDBOX_DOCKER_INTERNAL_NET):
-            return
-
-    try:
-        inspect_res = run_subprocess(
-            [
-                "docker",
-                "network",
-                "inspect",
-                CONST_SANDBOX_DOCKER_INTERNAL_NET,
-                "--format",
-                "{{.Internal}}",
-            ],
-            check=False,
-            timeout=10,
+def _ensure_internal_network() -> None:
+    """Ensure the egress-denied internal bridge network backing namespaced sandboxes exists."""
+    if not get_engine().ensure_internal_network(CONST_SANDBOX_DOCKER_INTERNAL_NET):
+        raise SandboxError(
+            f"Cannot provision internal sandbox network '{CONST_SANDBOX_DOCKER_INTERNAL_NET}'; "
+            "the Docker daemon is unreachable or refused the request."
         )
-        if inspect_res.returncode == 0:
-            if inspect_res.stdout.strip().lower() == "true":
-                return
-            run_subprocess(
-                ["docker", "network", "rm", CONST_SANDBOX_DOCKER_INTERNAL_NET],
-                check=False,
-                timeout=10,
-            )
-
-        run_subprocess(
-            ["docker", "network", "create", "--internal", CONST_SANDBOX_DOCKER_INTERNAL_NET],
-            check=False,
-            timeout=10,
-        )
-    except Exception as sub_exc:
-        logger.debug("Subprocess internal network create check: %s", sub_exc)
 
 
 def _check_workspace_traversal_and_symlink(workspace_dir: Path) -> None:
@@ -382,78 +317,21 @@ class WorkloadSandboxEngine:
         ws_resolved: Path,
         port_bindings: list[PortBinding],
     ) -> str:
-        """Create and start container via Docker SDK or fallback subprocess."""
+        """Create and start a sandbox container over the Docker Engine API socket."""
         if config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
             _ensure_internal_network()
         create_kwargs = self._build_create_kwargs(config, ws_resolved, port_bindings)
-        container = None
+        engine = get_engine()
+        container = engine.create_container(**create_kwargs)
         try:
-            client = _get_docker_client()
-            if config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
-                _ensure_internal_network(client)
-            container = client.containers.create(**create_kwargs)
             container.start()
-            return str(container.id)
         except Exception as exc:
-            if container is not None:
-                try:
-                    container.remove(force=True)
-                except Exception as cleanup_err:
-                    logger.debug(
-                        "Container removal failed during fallback cleanup: %s", cleanup_err
-                    )
-            logger.debug("Docker SDK create/start failed (%s); falling back to CLI subprocess", exc)
-            return self._spawn_via_subprocess(config, ws_resolved, port_bindings)
-
-    def _spawn_via_subprocess(
-        self,
-        config: SandboxDeployConfig,
-        ws_resolved: Path,
-        port_bindings: list[PortBinding],
-    ) -> str:
-        """Spawn container using `docker run -d` via subprocess."""
-        if config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
-            _ensure_internal_network()
-        mount_mode = "ro" if config.read_only else "rw"
-        cmd = [
-            "docker",
-            "run",
-            "-d",
-            "--cap-drop=ALL",
-            "--security-opt=no-new-privileges",
-            "--pids-limit=256",
-            "-v",
-            f"{ws_resolved}:/workspace:{mount_mode}",
-            "-w",
-            "/workspace",
-            "-m",
-            config.memory_limit,
-            f"--cpus={config.cpu_limit}",
-        ]
-        cmd.extend(config.network_config.to_docker_args())
-        if config.read_only:
-            cmd.extend(["--read-only", "--tmpfs=/tmp:size=64m,noexec"])
-        for b in port_bindings:
-            cmd.extend(["-p", f"127.0.0.1:{b.host_port}:{b.container_port}/{b.protocol}"])
-        for k, v in config.env.items():
-            cmd.extend(["-e", f"{k}={v}"])
-        user_str = _resolve_user_string(config.rootless)
-        if user_str:
-            cmd.extend(["--user", user_str])
-        cmd.append(config.image)
-        cmd.extend(config.command)
-
-        try:
-            proc = run_subprocess(cmd, check=True, timeout=int(config.timeout))
-            cid = proc.stdout.strip()
-            if not cid:
-                raise SandboxError("Docker run CLI returned empty container ID")
-            return cid
-        except Exception as exc:
+            engine.remove_container(str(container.id), force=True)
             raise SandboxError(
-                f"Docker run CLI failed to spawn container: {exc}",
+                f"Failed starting sandbox container: {exc}",
                 details={"image": config.image},
             ) from exc
+        return str(container.id)
 
     def _compute_uptime(self, created_at: str) -> float:
         """Calculate elapsed uptime seconds from creation timestamp."""
@@ -479,27 +357,25 @@ class WorkloadSandboxEngine:
                 identifier=identifier,
             )
 
-        client = None
-        try:
-            client = _get_docker_client()
-        except Exception as exc:
-            logger.debug("Could not initialize Docker SDK for status check: %s", exc)
+        engine = get_engine()
+        daemon_reachable = engine.ping()
 
         for inst in resolved:
-            self._reconcile_single_instance(inst, client)
+            self._reconcile_single_instance(inst, engine if daemon_reachable else None)
 
         return resolved
 
-    def _reconcile_single_instance(self, inst: SandboxInstance, client: Any) -> None:
+    def _reconcile_single_instance(
+        self, inst: SandboxInstance, engine: DockerEngineService | None
+    ) -> None:
         """Reconcile a single instance's state against the running Docker daemon."""
-        if not client:
+        if engine is None:
             if inst.status == SandboxStatus.RUNNING:
                 inst.uptime_seconds = self._compute_uptime(inst.created_at)
             return
         try:
-            container = client.containers.get(inst.container_id)
-            status_str = str(container.status).lower()
-            new_status = SandboxStatus.RUNNING if status_str == "running" else SandboxStatus.STOPPED
+            state = engine.inspect_container(inst.container_id)
+            new_status = SandboxStatus.RUNNING if state.running else SandboxStatus.STOPPED
             if new_status == SandboxStatus.RUNNING:
                 inst.uptime_seconds = self._compute_uptime(inst.created_at)
             if new_status != inst.status:
@@ -540,16 +416,13 @@ class WorkloadSandboxEngine:
             )
 
     def _terminate_container(self, container_id: str, timeout: int) -> None:
-        """Terminate and remove container via SDK or subprocess fallback."""
+        """Terminate and remove a sandbox container through the Docker Engine API."""
+        engine = get_engine()
         try:
-            client = _get_docker_client()
-            container = client.containers.get(container_id)
-            container.stop(timeout=timeout)
-            container.remove(force=True)
-        except Exception as exc:
-            logger.debug("Docker SDK container stop failed (%s); trying subprocess", exc)
-            run_subprocess(["docker", "stop", "-t", str(timeout), container_id], check=False)
-            run_subprocess(["docker", "rm", "-f", container_id], check=False)
+            engine.stop_container(container_id, timeout=timeout)
+        except DockerError as exc:
+            logger.debug("Graceful container stop failed (%s); forcing removal", exc)
+            engine.remove_container(container_id, force=True)
 
     def exec(
         self,
@@ -571,51 +444,16 @@ class WorkloadSandboxEngine:
             )
 
         start_time = time.monotonic()
-        try:
-            client = _get_docker_client()
-            container = client.containers.get(inst.container_id)
-            exit_code, output = container.exec_run(command, workdir=workdir)
-            stdout = (
-                output.decode("utf-8", errors="replace")
-                if isinstance(output, bytes)
-                else str(output)
-            )
-            duration = round(time.monotonic() - start_time, 2)
-            return SandboxExecResult(
-                instance_id=inst.instance_id,
-                command=command,
-                exit_code=exit_code,
-                stdout=stdout,
-                stderr="",
-                duration_seconds=duration,
-            )
-        except Exception as exc:
-            logger.debug("Docker SDK exec failed (%s); fallback to subprocess", exc)
-            return self._exec_via_subprocess(inst, command, workdir, start_time)
-
-    def _exec_via_subprocess(
-        self,
-        inst: SandboxInstance,
-        command: list[str],
-        workdir: str | None,
-        start_time: float,
-    ) -> SandboxExecResult:
-        """Fallback to docker exec via subprocess."""
-        cmd = ["docker", "exec"]
-        if workdir:
-            cmd.extend(["-w", workdir])
-        cmd.append(inst.container_id)
-        cmd.extend(command)
-
-        proc = run_subprocess(cmd, check=False)
-        duration = round(time.monotonic() - start_time, 2)
+        exit_code, stdout = get_engine().exec_in_container(
+            inst.container_id, command, workdir=workdir
+        )
         return SandboxExecResult(
             instance_id=inst.instance_id,
             command=command,
-            exit_code=proc.returncode,
-            stdout=proc.stdout,
-            stderr=proc.stderr,
-            duration_seconds=duration,
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr="",
+            duration_seconds=round(time.monotonic() - start_time, 2),
         )
 
     def probe(
@@ -815,52 +653,16 @@ def _normalize_log_chunk(chunk: Any) -> list[tuple[str, str]]:
     return [(line, "stdout") for line in text.splitlines()]
 
 
-def _fetch_logs_via_subprocess(
-    container_id: str,
-    tail: int | str,
-    timestamps: bool,
-    follow: bool = False,
-) -> tuple[bytes | None, bytes | None]:
-    """Fallback to docker logs via CLI subprocess with stream preservation and error checking."""
-    cmd = ["docker", "logs"]
-    if follow:
-        cmd.append("--follow")
-    if timestamps:
-        cmd.append("--timestamps")
-    if tail != "all":
-        cmd.extend(["--tail", str(tail)])
-    cmd.append(container_id)
-    proc = run_subprocess(cmd, check=False)
-    if proc.returncode != 0:
-        err_msg = proc.stderr.strip() if proc.stderr else f"process exited with {proc.returncode}"
-        raise SandboxError(f"docker logs failed for container '{container_id}': {err_msg}")
-    out_bytes = proc.stdout.encode("utf-8") if proc.stdout else None
-    err_bytes = proc.stderr.encode("utf-8") if proc.stderr else None
-    return (out_bytes, err_bytes)
-
-
 def _fetch_container_logs_raw(
     container_id: str,
     tail: int | str,
     timestamps: bool,
     follow: bool,
 ) -> Any:
-    """Fetch logs from container using Docker SDK with fallback to CLI subprocess."""
-    try:
-        client = _get_docker_client()
-        container = client.containers.get(container_id)
-        return container.logs(
-            stdout=True,
-            stderr=True,
-            stream=follow,
-            follow=follow,
-            tail=tail,
-            timestamps=timestamps,
-            demux=True,
-        )
-    except Exception as exc:
-        logger.debug("Docker SDK logs failed (%s); fallback to subprocess", exc)
-        return _fetch_logs_via_subprocess(container_id, tail, timestamps, follow=follow)
+    """Fetch demultiplexed container logs directly over the Docker Engine API socket."""
+    return get_engine().container_log_stream(
+        container_id, tail=tail, timestamps=timestamps, follow=follow
+    )
 
 
 def _process_log_line(
