@@ -396,6 +396,9 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops vault get [OPTIONS] <path>` | Fetch secret value from Vault or OS Keyring fallback. |
 |  | `devops vault set [OPTIONS] <path> <key_values>` | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
 |  | `devops vault sync [OPTIONS] <path>` | Synchronize secrets from Vault into OS Keyring for offline/local CLI operations. |
+|  | `devops vault login [OPTIONS]` | Authenticate with Vault natively via AppRole or the in-cluster ServiceAccount. |
+|  | `devops vault leases [OPTIONS]` | Inspect, renew, or revoke tracked Vault dynamic secret leases. |
+|  | `devops vault audit [OPTIONS]` | Show which provider satisfied each credential lookup in this session. |
 | **valkey** | `devops valkey ping [OPTIONS]` | Test connection and measure round-trip latency to the Valkey server. |
 |  | `devops valkey info [OPTIONS]` | Inspect server configuration, memory allocation, and operational metrics. |
 |  | `devops valkey stats [OPTIONS]` | Display quick diagnostic summary of server health, memory, and keys. |

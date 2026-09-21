@@ -727,11 +727,28 @@ def save_settings(settings: Settings, target_path: Path | None = None) -> None:
     os.replace(tmp, dest_path)
 
 
-# NOTE (Design Justification - AGENTS.md §4): Secret storage prioritizes OS keyring integration
-# (_keyring_get/_keyring_set) while environment variable overrides (e.g., DEVOPS_CLI_GITHUB_TOKEN)
-# serve as an intentional fallback mechanism for non-interactive CI environments.
+# NOTE (Design Justification - AGENTS.md §4): Every credential resolves through the single
+# provider chain in `devops_cli.security.secrets`, which walks OS keyring -> Vault ->
+# environment -> configuration in that fixed order and records an audit entry naming the
+# provider that answered (never the value). Environment variables remain an intentional
+# fallback for non-interactive CI runners. Previously each getter below carried its own
+# hand-written ladder, so two secrets could disagree about precedence and no lookup was
+# observable.
+def _resolve(option: str, settings: Settings) -> str | None:
+    """Resolve one managed credential through the unified provider chain."""
+    from devops_cli.security.secrets import build_secret_registry, get_resolver
+
+    ref = build_secret_registry(_KEYRING_KEYS).get(option)
+    if ref is None:
+        return _keyring_get(_KEYRING_KEYS[option])
+    # Bind the caller's settings so configuration-sourced values reflect this call, not a
+    # snapshot captured when the process-wide resolver was first constructed.
+    return get_resolver().resolve(ref, settings_source=lambda: settings)
+
+
 def get_github_token(settings: Settings) -> str | None:
-    return _keyring_get(_KEYRING_KEYS[opt.GITHUB_TOKEN]) or _github_cli_token()
+    """Resolve the GitHub token, falling back to an authenticated GitHub CLI session."""
+    return _resolve(opt.GITHUB_TOKEN, settings) or _github_cli_token()
 
 
 def _github_cli_token() -> str | None:
@@ -751,43 +768,45 @@ def _github_cli_token() -> str | None:
 
 
 def get_grafana_token(settings: Settings) -> str | None:
-    return _keyring_get(_KEYRING_KEYS[opt.GRAFANA_TOKEN])
+    """Resolve the Grafana API token."""
+    return _resolve(opt.GRAFANA_TOKEN, settings)
 
 
 def get_grafana_password(settings: Settings) -> str | None:
-    return _keyring_get(_KEYRING_KEYS[opt.GRAFANA_PASSWORD])
+    """Resolve the Grafana account password."""
+    return _resolve(opt.GRAFANA_PASSWORD, settings)
 
 
 def get_argocd_token(settings: Settings) -> str | None:
-    token = _keyring_get(_KEYRING_KEYS[opt.ARGOCD_TOKEN]) or os.getenv("DEVOPS_CLI_ARGOCD_TOKEN")
-    if token and not token.startswith("*"):
-        return token
-    return None
+    """Resolve the ArgoCD API token, rejecting masked placeholder values."""
+    token = _resolve(opt.ARGOCD_TOKEN, settings)
+    # A masked value indicates a redacted export was re-imported, not a usable token.
+    return token if token and not token.startswith("*") else None
 
 
 def get_argocd_password(settings: Settings) -> str | None:
-    return _keyring_get(_KEYRING_KEYS[opt.ARGOCD_PASSWORD])
+    """Resolve the ArgoCD account password."""
+    return _resolve(opt.ARGOCD_PASSWORD, settings)
 
 
 def get_ai_api_key(settings: Settings) -> str | None:
-    return _keyring_get(_KEYRING_KEYS[opt.AI_API_KEY])
+    """Resolve the AI provider API key."""
+    return _resolve(opt.AI_API_KEY, settings)
 
 
 def get_qdrant_api_key(settings: Settings) -> str | None:
-    return _keyring_get(_KEYRING_KEYS[opt.QDRANT_API_KEY]) or settings.qdrant.api_key
+    """Resolve the Qdrant API key."""
+    return _resolve(opt.QDRANT_API_KEY, settings)
 
 
 def get_valkey_password(settings: Settings) -> str | None:
-    return _keyring_get(_KEYRING_KEYS[opt.VALKEY_PASSWORD]) or settings.valkey.password
+    """Resolve the Valkey password."""
+    return _resolve(opt.VALKEY_PASSWORD, settings)
 
 
 def get_logfire_token(settings: Settings) -> str | None:
-    return (
-        _keyring_get(_KEYRING_KEYS[opt.TELEMETRY_LOGFIRE_TOKEN])
-        or os.getenv("DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN")
-        or getattr(settings.telemetry, "logfire_token", None)
-        or os.getenv("LOGFIRE_TOKEN")
-    )
+    """Resolve the Logfire telemetry write token."""
+    return _resolve(opt.TELEMETRY_LOGFIRE_TOKEN, settings)
 
 
 def get_llm_client(task: str | None = None) -> Any:

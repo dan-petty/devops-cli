@@ -403,10 +403,19 @@ def test_agent_turn_handle_without_span() -> None:
 
 
 def test_get_logfire_token_resolution_order() -> None:
-    """Verify token resolution order: keyring > DEVOPS_CLI env > settings config > LOGFIRE_TOKEN."""
-    settings = Settings()
+    """Verify the unified resolution order: keyring > vault > environment > settings.
 
-    # 1. Keyring takes precedence
+    Every managed credential now walks the same provider chain. This replaced a
+    logfire-specific ladder that placed `settings.telemetry.logfire_token` above the bare
+    `LOGFIRE_TOKEN` environment variable; the environment is an override mechanism and now
+    consistently outranks committed configuration for all secrets.
+    """
+    from devops_cli.security.secrets import reset_resolver
+
+    settings = Settings()
+    reset_resolver()
+
+    # 1. Keyring is canonical and outranks everything else.
     with (
         patch("devops_cli.config.settings._keyring_get", return_value="keyring-token"),
         patch.dict(
@@ -417,7 +426,7 @@ def test_get_logfire_token_resolution_order() -> None:
         settings.telemetry.logfire_token = "config-token"
         assert get_logfire_token(settings) == "keyring-token"
 
-    # 2. DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN
+    # 2. The project-scoped environment variable is consulted before the generic one.
     with (
         patch("devops_cli.config.settings._keyring_get", return_value=None),
         patch.dict(
@@ -428,7 +437,7 @@ def test_get_logfire_token_resolution_order() -> None:
         settings.telemetry.logfire_token = "config-token"
         assert get_logfire_token(settings) == "env-cli-token"
 
-    # 3. settings.telemetry.logfire_token
+    # 3. The generic environment variable now outranks committed configuration.
     with (
         patch("devops_cli.config.settings._keyring_get", return_value=None),
         patch.dict(
@@ -436,17 +445,17 @@ def test_get_logfire_token_resolution_order() -> None:
         ),
     ):
         settings.telemetry.logfire_token = "config-token"
-        assert get_logfire_token(settings) == "config-token"
+        assert get_logfire_token(settings) == "env-token"
 
-    # 4. Fallback to LOGFIRE_TOKEN
+    # 4. Configuration is the last resort.
     with (
         patch("devops_cli.config.settings._keyring_get", return_value=None),
-        patch.dict(
-            "os.environ", {"DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN": "", "LOGFIRE_TOKEN": "env-token"}
-        ),
+        patch.dict("os.environ", {"DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN": "", "LOGFIRE_TOKEN": ""}),
     ):
-        settings.telemetry.logfire_token = None
-        assert get_logfire_token(settings) == "env-token"
+        settings.telemetry.logfire_token = "config-token"
+        assert get_logfire_token(settings) == "config-token"
+
+    reset_resolver()
 
 
 def test_init_logfire_if_enabled_error_handling() -> None:

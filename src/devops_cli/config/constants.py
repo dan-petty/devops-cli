@@ -370,6 +370,8 @@ CONST_ERROR_CODE_SECURITY = "SECURITY_ERROR"
 CONST_ERROR_CODE_TOOL = "TOOL_EXECUTION_ERROR"
 CONST_ERROR_CODE_VALIDATION = "VALIDATION_ERROR"
 CONST_ERROR_CODE_VAULT = "VAULT_ERROR"
+CONST_ERROR_CODE_VAULT_AUTH = "VAULT_AUTH_ERROR"
+CONST_ERROR_CODE_VAULT_LEASE = "VAULT_LEASE_ERROR"
 CONST_ERROR_CODE_VALKEY = "VALKEY_ERROR"
 CONST_ERROR_CODE_DOCKER_SANDBOX = "DOCKER_SANDBOX_ERROR"
 CONST_ERROR_CODE_DOCKER_ENGINE = "DOCKER_ENGINE_ERROR"
@@ -698,6 +700,37 @@ REVIEW_STRONG_SYMBOL_MIN_LENGTH: Final[int] = 6
 # enclosing symbol are treated as one defect. Set high enough that different defects in
 # the same function stay separate, since dropping a real finding is the costlier error.
 REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD: Final[float] = 0.35
+# ── Unified Secret Resolution & Vault Lease Lifecycle ────────────────────────
+# Provider identifiers recorded in the credential access audit trail.
+CONST_SECRET_PROVIDER_KEYRING: Final[str] = "keyring"
+CONST_SECRET_PROVIDER_VAULT: Final[str] = "vault"
+CONST_SECRET_PROVIDER_ENVIRONMENT: Final[str] = "environment"
+CONST_SECRET_PROVIDER_SETTINGS: Final[str] = "settings"
+CONST_SECRET_PROVIDER_TOOL: Final[str] = "tool"
+
+# Upper bound on retained credential access records, preventing unbounded growth in
+# long-running sessions. The trail records provider and outcome only, never values.
+CONST_SECRET_AUDIT_MAX_ENTRIES: Final[int] = 1000
+
+# Vault API paths. Fixed by the Vault HTTP API, so this set is closed and exhaustive.
+CONST_VAULT_API_PREFIX: Final[str] = "/v1"
+# Conventional KV-v2 mount and folder holding this project's managed credentials.
+CONST_VAULT_SECRET_MOUNT: Final[str] = "secret/data/devops-cli"
+CONST_VAULT_PATH_APPROLE_LOGIN: Final[str] = "auth/approle/login"
+CONST_VAULT_PATH_KUBERNETES_LOGIN: Final[str] = "auth/kubernetes/login"
+
+# Supported Vault authentication methods, closed by what this CLI implements.
+CONST_VAULT_AUTH_METHODS: Final[frozenset[str]] = frozenset({"approle", "kubernetes"})
+CONST_VAULT_PATH_TOKEN_LOOKUP_SELF: Final[str] = "auth/token/lookup-self"
+CONST_VAULT_PATH_TOKEN_RENEW_SELF: Final[str] = "auth/token/renew-self"
+CONST_VAULT_PATH_LEASE_RENEW: Final[str] = "sys/leases/renew"
+CONST_VAULT_PATH_LEASE_REVOKE: Final[str] = "sys/leases/revoke"
+CONST_VAULT_PATH_TRANSIT_ENCRYPT: Final[str] = "transit/encrypt"
+CONST_VAULT_PATH_TRANSIT_DECRYPT: Final[str] = "transit/decrypt"
+
+# Default in-cluster ServiceAccount token projected into every Kubernetes pod.
+CONST_KUBERNETES_SA_TOKEN_PATH: Final[str] = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
 # ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
 # HCL configuration file extensions recognised by Terraform and OpenTofu.
 CONST_HCL_FILE_EXTENSIONS: Final[tuple[str, ...]] = (".tf",)
