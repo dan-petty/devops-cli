@@ -1234,3 +1234,29 @@ CONST_K8S_INFORMER_EVENTS: Final[tuple[str, ...]] = (
     CONST_K8S_EVENT_DELETED,
     CONST_K8S_EVENT_ERROR,
 )
+
+# ── Dashboard TUI Domains ────────────────────────────────────────────────────
+# Each domain is one tab of the workstation dashboard, refreshed by its own worker.
+CONST_DASHBOARD_DOMAIN_K8S: Final[str] = "k8s"
+CONST_DASHBOARD_DOMAIN_DOCKER: Final[str] = "docker"
+CONST_DASHBOARD_DOMAIN_TELEMETRY: Final[str] = "telemetry"
+CONST_DASHBOARD_DOMAIN_AI: Final[str] = "ai"
+CONST_DASHBOARD_DOMAIN_VALKEY: Final[str] = "valkey"
+CONST_DASHBOARD_DOMAINS: Final[tuple[str, ...]] = (
+    CONST_DASHBOARD_DOMAIN_K8S,
+    CONST_DASHBOARD_DOMAIN_DOCKER,
+    CONST_DASHBOARD_DOMAIN_TELEMETRY,
+    CONST_DASHBOARD_DOMAIN_AI,
+    CONST_DASHBOARD_DOMAIN_VALKEY,
+)
+# Human-readable labels used for tab titles and status banners.
+CONST_DASHBOARD_DOMAIN_LABELS: Final[dict[str, str]] = {
+    CONST_DASHBOARD_DOMAIN_K8S: "Kubernetes",
+    CONST_DASHBOARD_DOMAIN_DOCKER: "Docker",
+    CONST_DASHBOARD_DOMAIN_TELEMETRY: "Telemetry",
+    CONST_DASHBOARD_DOMAIN_AI: "AI Review",
+    CONST_DASHBOARD_DOMAIN_VALKEY: "Valkey Cache",
+}
+# Tab holding the streamed log pane. Not a data domain: it has no provider and is filled
+# by selecting a pod rather than by the refresh cycle.
+CONST_LOGS_TAB_ID: Final[str] = "tab-logs"

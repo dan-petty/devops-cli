@@ -704,3 +704,18 @@ DEFAULT_K8S_INFORMER_STOP_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES: int = 10000
 DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_K8S_STREAM_TIMEOUT_SECONDS: float = 300.0
+
+# ── Dashboard TUI Defaults ──────────────────────────────────────────────────
+# Retention ceiling for a streamed log view. A tail can emit hundreds of thousands
+# of lines; memory is bounded by this rather than by how long the stream runs.
+DEFAULT_LOG_BUFFER_MAX_LINES: int = 10000
+# Lines rendered at once. Only this slice is handed to the widget per frame.
+DEFAULT_LOG_VIEWPORT_LINES: int = 50
+# Seconds between automatic dashboard refreshes.
+DEFAULT_DASHBOARD_REFRESH_SECONDS: int = 5
+# Age beyond which a domain snapshot is flagged as stale in the UI.
+DEFAULT_DASHBOARD_STALE_SECONDS: float = 30.0
+# Minimum seconds between log-pane redraws. A busy stream produces lines far faster than
+# a terminal can usefully repaint; every line is still retained, only the drawing is
+# coalesced, which is what keeps the UI thread free under load.
+DEFAULT_LOG_REDRAW_INTERVAL_SECONDS: float = 0.05
