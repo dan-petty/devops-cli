@@ -5744,6 +5744,25 @@ devops gh issues sync-roadmap [OPTIONS]
 | `--limit`, `-L` | `integer` | `20` | Maximum issues to create |
 | `--repo`, `-R` | `string` | - | Target repository |
 
+#### `devops gh issues close-merged`
+
+**Close issues linked by merged pull requests. GitHub only honours closing keywords when a pull request merges into the default branch, so pull requests targeting a release branch leave their issues open.**
+
+```bash
+devops gh issues close-merged [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--pr`, `-p` | `integer` | - | Close issues for this single pull request instead of sweeping. |
+| `--base`, `-b` | `string` | - | Only consider merged pull requests with this base branch. |
+| `--limit`, `-L` | `integer` | `100` | Maximum merged pull requests to examine. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--repo`, `-R` | `string` | - | Target repository |
+
 ### `devops gh runs`
 
 ```bash

@@ -1393,3 +1393,24 @@ CONST_GITHUB_HOST_KEY_FINGERPRINTS: Final[frozenset[str]] = frozenset(
     }
 )
 CONST_GITHUB_META_URL: Final[str] = "https://api.github.com/meta"
+
+# ── Issue Closure From Merged Pull Requests ──────────────────────────────────
+# GitHub's closing keywords. A pull request body using any of these links the issue, but
+# GitHub only acts on the link when the pull request merges into the DEFAULT branch, so a
+# pull request targeting a release branch leaves its issue open indefinitely.
+# https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue
+CONST_ISSUE_CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
+    {
+        "close",
+        "closes",
+        "closed",
+        "fix",
+        "fixes",
+        "fixed",
+        "resolve",
+        "resolves",
+        "resolved",
+    }
+)
+CONST_ISSUE_STATE_OPEN: Final[str] = "open"
+CONST_ISSUE_STATE_CLOSED: Final[str] = "closed"
