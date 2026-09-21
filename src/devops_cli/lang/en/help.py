@@ -742,6 +742,14 @@ class GHCommandHelp:
     issues_triage: str = "Audit open issues for mandatory taxonomy labels and milestone linkage."
     issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
     issues_edit: str = "Edit an existing issue title, body, state, milestone, or taxonomy labels."
+    issues_close_merged: str = (
+        "Close issues linked by merged pull requests. GitHub only honours closing keywords "
+        "when a pull request merges into the default branch, so pull requests targeting a "
+        "release branch leave their issues open."
+    )
+    close_merged_pr: str = "Close issues for this single pull request instead of sweeping."
+    close_merged_base: str = "Only consider merged pull requests with this base branch."
+    close_merged_limit: str = "Maximum merged pull requests to examine."
     issues_reconcile_roadmap: str = (
         "Reconcile existing issue milestones to match docs/ROADMAP.md specifications."
     )
