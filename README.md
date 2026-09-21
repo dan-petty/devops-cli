@@ -278,6 +278,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops scan sbom [OPTIONS] <target>` | Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format. |
 |  | `devops scan aibom [OPTIONS] <target>` | Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates. |
 |  | `devops scan fix [OPTIONS] <target>` | Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation. |
+|  | `devops scan report [OPTIONS] <target>` | Run every registered scanner and report deduplicated, correlated findings. |
+|  | `devops scan sarif [OPTIONS] <document>` | Ingest a SARIF document from any tool and report it in the unified taxonomy. |
 | **ai** | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |
 |  | `devops ai models` | List available models for the configured provider. |
 |  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |

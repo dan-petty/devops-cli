@@ -1279,3 +1279,84 @@ CONST_TRACEPARENT_ENV_VAR: Final[str] = "TRACEPARENT"
 CONST_TRACESTATE_ENV_VAR: Final[str] = "TRACESTATE"
 # The specification caps tracestate at 32 list members.
 CONST_TRACESTATE_MAX_MEMBERS: Final[int] = 32
+
+# ── SARIF (Static Analysis Results Interchange Format) ───────────────────────
+# https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
+CONST_SARIF_VERSION: Final[str] = "2.1.0"
+CONST_SARIF_SCHEMA_URI: Final[str] = "https://json.schemastore.org/sarif-2.1.0.json"
+# SARIF defines exactly these result levels; anything else is rejected by consumers.
+CONST_SARIF_LEVEL_ERROR: Final[str] = "error"
+CONST_SARIF_LEVEL_WARNING: Final[str] = "warning"
+CONST_SARIF_LEVEL_NOTE: Final[str] = "note"
+CONST_SARIF_LEVEL_NONE: Final[str] = "none"
+CONST_SARIF_LEVELS: Final[frozenset[str]] = frozenset(
+    {
+        CONST_SARIF_LEVEL_ERROR,
+        CONST_SARIF_LEVEL_WARNING,
+        CONST_SARIF_LEVEL_NOTE,
+        CONST_SARIF_LEVEL_NONE,
+    }
+)
+# GitHub code scanning ranks by this property rather than by SARIF level, so both are
+# emitted: the level for generic consumers, the score for GitHub's severity ordering.
+CONST_SARIF_SECURITY_SEVERITY_PROPERTY: Final[str] = "security-severity"
+# Fingerprint key. SARIF requires a versioned name so a later change to the scheme does
+# not silently re-open every previously suppressed result.
+CONST_SARIF_FINGERPRINT_KEY: Final[str] = "devopsCli/v1"
+
+# ── Security Finding Taxonomy ────────────────────────────────────────────────
+CONST_SEVERITY_CRITICAL: Final[str] = "CRITICAL"
+CONST_SEVERITY_HIGH: Final[str] = "HIGH"
+CONST_SEVERITY_MEDIUM: Final[str] = "MEDIUM"
+CONST_SEVERITY_LOW: Final[str] = "LOW"
+CONST_SEVERITY_INFO: Final[str] = "INFO"
+# Ordered most severe first; the index doubles as the ranking key.
+CONST_SEVERITY_ORDER: Final[tuple[str, ...]] = (
+    CONST_SEVERITY_CRITICAL,
+    CONST_SEVERITY_HIGH,
+    CONST_SEVERITY_MEDIUM,
+    CONST_SEVERITY_LOW,
+    CONST_SEVERITY_INFO,
+)
+CONST_SEVERITY_TO_SARIF_LEVEL: Final[dict[str, str]] = {
+    CONST_SEVERITY_CRITICAL: CONST_SARIF_LEVEL_ERROR,
+    CONST_SEVERITY_HIGH: CONST_SARIF_LEVEL_ERROR,
+    CONST_SEVERITY_MEDIUM: CONST_SARIF_LEVEL_WARNING,
+    CONST_SEVERITY_LOW: CONST_SARIF_LEVEL_NOTE,
+    CONST_SEVERITY_INFO: CONST_SARIF_LEVEL_NOTE,
+}
+# GitHub's documented banding: 9.0+ critical, 7.0+ high, 4.0+ medium, 0.1+ low.
+CONST_SEVERITY_TO_SECURITY_SCORE: Final[dict[str, str]] = {
+    CONST_SEVERITY_CRITICAL: "9.5",
+    CONST_SEVERITY_HIGH: "7.5",
+    CONST_SEVERITY_MEDIUM: "5.0",
+    CONST_SEVERITY_LOW: "2.0",
+    CONST_SEVERITY_INFO: "0.5",
+}
+# Severity vocabularies differ per scanner; these are the spellings actually emitted.
+CONST_SEVERITY_ALIASES: Final[dict[str, str]] = {
+    "CRITICAL": CONST_SEVERITY_CRITICAL,
+    "BLOCKER": CONST_SEVERITY_CRITICAL,
+    "HIGH": CONST_SEVERITY_HIGH,
+    "ERROR": CONST_SEVERITY_HIGH,
+    "MEDIUM": CONST_SEVERITY_MEDIUM,
+    "MODERATE": CONST_SEVERITY_MEDIUM,
+    "WARNING": CONST_SEVERITY_MEDIUM,
+    "WARN": CONST_SEVERITY_MEDIUM,
+    "LOW": CONST_SEVERITY_LOW,
+    "MINOR": CONST_SEVERITY_LOW,
+    "NOTE": CONST_SEVERITY_LOW,
+    "INFO": CONST_SEVERITY_INFO,
+    "INFORMATIONAL": CONST_SEVERITY_INFO,
+    "UNKNOWN": CONST_SEVERITY_INFO,
+    "NONE": CONST_SEVERITY_INFO,
+}
+CONST_SARIF_LEVEL_TO_SEVERITY: Final[dict[str, str]] = {
+    CONST_SARIF_LEVEL_ERROR: CONST_SEVERITY_HIGH,
+    CONST_SARIF_LEVEL_WARNING: CONST_SEVERITY_MEDIUM,
+    CONST_SARIF_LEVEL_NOTE: CONST_SEVERITY_LOW,
+    CONST_SARIF_LEVEL_NONE: CONST_SEVERITY_INFO,
+}
+# Depth limit for suppression policy inheritance, so a misconfigured chain fails with a
+# clear error rather than recursing until the interpreter stops it.
+CONST_SUPPRESSION_MAX_INHERITANCE_DEPTH: Final[int] = 10
