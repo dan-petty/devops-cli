@@ -628,6 +628,38 @@ def _sync_mcp_configuration(workspace_dir: Path, *, dry_run: bool = False) -> li
     return actions
 
 
+def _bootstrap_developer_tools(*, dry_run: bool = False) -> list[str]:
+    """Bootstrap essential developer CLI tools (uv, pre-commit, claude) if missing."""
+    if dry_run:
+        return []
+    actions: list[str] = []
+    tool_installers: tuple[tuple[str, list[str], str, str], ...] = (
+        (
+            "uv",
+            ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
+            "Installed standalone uv binary into $HOME/.local/bin",
+            "Warning: Failed to install standalone uv binary",
+        ),
+        (
+            "pre-commit",
+            ["uv", "tool", "install", "pre-commit"],
+            "Installed standalone pre-commit tool into $HOME/.local/bin",
+            "Warning: Failed to install standalone pre-commit tool via uv",
+        ),
+        (
+            "claude",
+            ["sh", "-c", "curl -fsSL https://claude.ai/install.sh | bash"],
+            "Installed standalone claude CLI into $HOME/.local/bin",
+            "Warning: Failed to install standalone claude CLI",
+        ),
+    )
+    for bin_name, cmd, success_msg, failure_msg in tool_installers:
+        if shutil.which(bin_name) is None:
+            res = run_subprocess(cmd, check=False, quiet=True)
+            actions.append(success_msg if res.returncode == 0 else failure_msg)
+    return actions
+
+
 def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
     """Execute DevContainer post-create setup tasks in pure Python."""
     actions: list[str] = []
@@ -636,28 +668,7 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     actions.extend(_setup_volume_mount_permissions(workspace_dir, dry_run=dry_run))
 
     # 2. Bootstrap tools if not present
-
-    if shutil.which("uv") is None and not dry_run:
-        res = run_subprocess(
-            ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
-            check=False,
-            quiet=True,
-        )
-        if res.returncode == 0:
-            actions.append("Installed standalone uv binary into $HOME/.local/bin")
-        else:
-            actions.append("Warning: Failed to install standalone uv binary")
-
-    if shutil.which("pre-commit") is None and not dry_run:
-        res = run_subprocess(
-            ["uv", "tool", "install", "pre-commit"],
-            check=False,
-            quiet=True,
-        )
-        if res.returncode == 0:
-            actions.append("Installed standalone pre-commit tool into $HOME/.local/bin")
-        else:
-            actions.append("Warning: Failed to install standalone pre-commit tool via uv")
+    actions.extend(_bootstrap_developer_tools(dry_run=dry_run))
 
     # 3. Persistent bash history
     hist_file = Path.home() / ".bash_history"
