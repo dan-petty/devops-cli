@@ -406,3 +406,11 @@ def test_devcontainer_image_path_filter_covers_dockerfile_sources() -> None:
         "The CI image-change filter must watch .devcontainer/Dockerfile; a change to the "
         "build recipe alters the image even when no copied source file changes."
     )
+
+    # The workflow fixes the image name, tags, cache source, and builder action version,
+    # so a change to it alters what gets published even with identical build inputs.
+    assert _covered(".github/workflows/ci.yml"), (
+        "The CI image-change filter must watch the workflow that performs the build; "
+        "changing the image name, tag, cache source, or builder version alters the "
+        "published image without touching any build input."
+    )

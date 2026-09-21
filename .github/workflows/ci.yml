@@ -108,10 +108,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      # IMAGE_CONTENT_PATHS mirrors everything baked into the published image: the
-      # .devcontainer build definition (Dockerfile, devcontainer.json and its lockfile)
-      # plus the build context consumed by the Dockerfile's COPY directives —
-      # pyproject.toml, uv.lock, README.md and the devops-cli source tree itself.
+      # IMAGE_CONTENT_PATHS mirrors everything that determines the published image: the
+      # .devcontainer build definition (Dockerfile, devcontainer.json and its lockfile),
+      # the build context consumed by the Dockerfile's COPY directives (pyproject.toml,
+      # uv.lock, README.md and the devops-cli source tree), and this workflow itself,
+      # which fixes the image name, tags, cache source and builder action version.
       # tests/test_architectural_invariants.py asserts this list stays in sync with the
       # Dockerfile, so a new COPY cannot silently start publishing a stale image.
       - name: Detect Image Content Changes
@@ -124,8 +125,11 @@ jobs:
             pyproject.toml
             uv.lock
             README.md
+            .github/workflows/ci.yml
         run: |
-          git fetch --no-tags --depth=0 origin "$BASE_REF"
+          # The checkout above already fetched full history; this only ensures the base
+          # branch ref exists locally, since a PR checkout resolves the merge ref instead.
+          git fetch --no-tags origin "$BASE_REF"
           readarray -t WATCHED < <(printf '%s\n' "$IMAGE_CONTENT_PATHS" | sed '/^[[:space:]]*$/d')
           CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD" -- "${WATCHED[@]}")
           if [ -n "$CHANGED" ]; then
