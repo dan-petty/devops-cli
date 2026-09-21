@@ -1,7 +1,14 @@
-"""Interactive Terminal UI Dashboard powered by Textual."""
+"""Interactive Terminal UI Dashboard powered by Textual.
+
+Refreshes run on worker threads and publish into a shared state store; the UI thread only
+renders what has been published. The previous design called five blocking provider
+functions in sequence from the keypress handler, so the interface stopped responding for
+the sum of five network round trips and one unreachable cluster froze every unrelated tab.
+"""
 
 from __future__ import annotations
 
+from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -17,13 +24,24 @@ from textual.widgets import (
     TabPane,
 )
 
-from devops_cli.ui.data_providers import (
-    fetch_docker_status,
-    fetch_k8s_status,
-    fetch_review_status,
-    fetch_telemetry_status,
-    fetch_valkey_status,
+from devops_cli.config.constants import (
+    CONST_DASHBOARD_DOMAIN_K8S,
+    CONST_DASHBOARD_DOMAIN_LABELS,
+    CONST_DASHBOARD_DOMAINS,
+    CONST_LOGS_TAB_ID,
 )
+from devops_cli.config.defaults import (
+    DEFAULT_DASHBOARD_REFRESH_SECONDS,
+    DEFAULT_DASHBOARD_STALE_SECONDS,
+)
+from devops_cli.ui.refresh import pod_log_source, refresh_domain
+from devops_cli.ui.state import DashboardState, DomainSnapshot
+from devops_cli.ui.widgets import DomainPanel, LogPane
+
+
+def _tab_id(domain: str) -> str:
+    """Return the TabPane id for a domain."""
+    return f"tab-{domain}"
 
 
 class HelpScreen(ModalScreen[None]):
@@ -59,13 +77,25 @@ class HelpScreen(ModalScreen[None]):
     ]
 
     def compose(self) -> ComposeResult:
+        tab_hints = ", ".join(
+            f"{index}={CONST_DASHBOARD_DOMAIN_LABELS[domain]}"
+            for index, domain in enumerate(CONST_DASHBOARD_DOMAINS, start=1)
+        )
+        logs_key = len(CONST_DASHBOARD_DOMAINS) + 1
         help_text = (
             "Keyboard Navigation:\n\n"
-            "  1-5 : Switch Tabs (1=K8s, 2=Docker, 3=Telemetry, 4=AI, 5=Valkey)\n"
+            f"  1-{len(CONST_DASHBOARD_DOMAINS)} : Switch Tabs ({tab_hints})\n"
+            f"  {logs_key}   : Streamed pod logs\n"
             "  r   : Refresh active data sources\n"
             "  ?   : Open this help dialog\n"
             "  q   : Quit the dashboard\n\n"
-            "Tip: You can also click tab headers or use arrow keys."
+            "In the log pane:\n\n"
+            "  up/down   : Scroll one line\n"
+            "  pgup/pgdn : Scroll one page\n"
+            "  end       : Resume following the stream\n\n"
+            "Tip: select a pod on the Kubernetes tab to tail its logs.\n"
+            "Refreshes run in the background; the interface stays responsive while\n"
+            "a slow or unreachable subsystem is still being queried."
         )
         with Vertical(id="help-dialog"):
             yield Label("DevOps CLI Dashboard Help", id="help-title")
@@ -83,11 +113,23 @@ class DashboardApp(App[None]):
     SUB_TITLE = "Real-Time Workstation Situational Awareness"
 
     BINDINGS = [
-        Binding("1", "switch_tab('tab-k8s')", "K8s", show=True, priority=True),
-        Binding("2", "switch_tab('tab-docker')", "Docker", show=True, priority=True),
-        Binding("3", "switch_tab('tab-telemetry')", "Telemetry", show=True, priority=True),
-        Binding("4", "switch_tab('tab-ai')", "AI Review", show=True, priority=True),
-        Binding("5", "switch_tab('tab-valkey')", "Valkey", show=True, priority=True),
+        *(
+            Binding(
+                str(index),
+                f"switch_tab('{_tab_id(domain)}')",
+                CONST_DASHBOARD_DOMAIN_LABELS[domain],
+                show=True,
+                priority=True,
+            )
+            for index, domain in enumerate(CONST_DASHBOARD_DOMAINS, start=1)
+        ),
+        Binding(
+            str(len(CONST_DASHBOARD_DOMAINS) + 1),
+            f"switch_tab('{CONST_LOGS_TAB_ID}')",
+            "Logs",
+            show=True,
+            priority=True,
+        ),
         Binding("r", "refresh_data", "Refresh", show=True),
         Binding("question_mark", "show_help", "Help", show=True),
         Binding("q", "quit", "Quit", show=True),
@@ -97,165 +139,91 @@ class DashboardApp(App[None]):
     TabbedContent {
         height: 1fr;
     }
-    DataTable {
-        height: 1fr;
-    }
-    .status-banner {
-        padding: 0 1;
-        margin-bottom: 1;
-        background: $boost;
-        color: $text;
-    }
     """
 
     def __init__(
         self,
         initial_tab: str = "tab-k8s",
-        refresh_interval: int = 5,
+        refresh_interval: int = DEFAULT_DASHBOARD_REFRESH_SECONDS,
+        state: DashboardState | None = None,
     ) -> None:
         super().__init__()
         self._initial_tab = (
-            initial_tab if initial_tab.startswith("tab-") else f"tab-{initial_tab.lower()}"
+            initial_tab if initial_tab.startswith("tab-") else _tab_id(initial_tab.lower())
         )
         self._refresh_interval = max(0, refresh_interval)
+        self._state = state if state is not None else DashboardState()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with TabbedContent(initial=self._initial_tab):
-            with TabPane("Kubernetes (1)", id="tab-k8s"):
-                yield Static(id="k8s-banner", classes="status-banner")
-                yield DataTable(id="k8s-table")
-            with TabPane("Docker (2)", id="tab-docker"):
-                yield Static(id="docker-banner", classes="status-banner")
-                yield DataTable(id="docker-table")
-            with TabPane("Telemetry (3)", id="tab-telemetry"):
-                yield Static(id="telemetry-banner", classes="status-banner")
-                yield DataTable(id="telemetry-table")
-            with TabPane("AI Review (4)", id="tab-ai"):
-                yield Static(id="ai-banner", classes="status-banner")
-                yield DataTable(id="ai-table")
-            with TabPane("Valkey Cache (5)", id="tab-valkey"):
-                yield Static(id="valkey-banner", classes="status-banner")
-                yield DataTable(id="valkey-table")
+            for index, domain in enumerate(CONST_DASHBOARD_DOMAINS, start=1):
+                label = CONST_DASHBOARD_DOMAIN_LABELS[domain]
+                with TabPane(f"{label} ({index})", id=_tab_id(domain)):
+                    yield DomainPanel(domain, stale_after=DEFAULT_DASHBOARD_STALE_SECONDS)
+            with TabPane(f"Logs ({len(CONST_DASHBOARD_DOMAINS) + 1})", id=CONST_LOGS_TAB_ID):
+                yield LogPane(id="log-pane", title="Select a pod on the Kubernetes tab")
         yield Footer()
 
     def on_mount(self) -> None:
-        self._init_tables()
         self.action_refresh_data()
         if self._refresh_interval > 0:
             self.set_interval(self._refresh_interval, self.action_refresh_data)
 
-    def _init_tables(self) -> None:
-        k8s_table = self.query_one("#k8s-table", DataTable)
-        k8s_table.add_columns("Namespace", "Pod Name", "Status", "Ready", "Restarts")
-
-        docker_table = self.query_one("#docker-table", DataTable)
-        docker_table.add_columns("Container ID", "Name", "Image", "Status")
-
-        telemetry_table = self.query_one("#telemetry-table", DataTable)
-        telemetry_table.add_columns("Metric Name", "Type", "Value / Count")
-
-        ai_table = self.query_one("#ai-table", DataTable)
-        ai_table.add_columns("Severity", "Title", "Location", "Status")
-
-        valkey_table = self.query_one("#valkey-table", DataTable)
-        valkey_table.add_columns("Metric Property", "Value")
-
     def action_switch_tab(self, tab_id: str) -> None:
         """Switch the active TabPane by id."""
-        tabs = self.query_one(TabbedContent)
-        tabs.active = tab_id
+        self.query_one(TabbedContent).active = tab_id
 
     def action_show_help(self) -> None:
         """Display the help dialog modal."""
         self.push_screen(HelpScreen())
 
     def action_refresh_data(self) -> None:
-        """Reload and update all dashboard tables and status banners."""
-        self._refresh_k8s()
-        self._refresh_docker()
-        self._refresh_telemetry()
-        self._refresh_ai()
-        self._refresh_valkey()
+        """Start a background refresh for every domain.
 
-    def _refresh_k8s(self) -> None:
-        summary = fetch_k8s_status()
-        banner = self.query_one("#k8s-banner", Static)
-        status_color = "green" if summary.connected else "yellow"
-        mk_txt = " | Minikube: Active" if summary.minikube_active else ""
-        banner.update(
-            f"[{status_color}]●[/{status_color}] Kubernetes: {'Connected' if summary.connected else 'Disconnected'}{mk_txt}"
-        )
+        Returns immediately. Each domain is fetched on its own worker thread and renders as
+        soon as it arrives, so a fast subsystem is not held behind a slow one and the key
+        that triggered the refresh is never what makes the interface hang.
+        """
+        for domain in CONST_DASHBOARD_DOMAINS:
+            self._refresh_worker(domain)
 
-        table = self.query_one("#k8s-table", DataTable)
-        table.clear()
-        for p in summary.pods:
-            table.add_row(p["namespace"], p["name"], p["status"], p["ready"], p["restarts"])
+    @work(thread=True, group="dashboard-refresh")
+    def _refresh_worker(self, domain: str) -> None:
+        """Fetch one domain off the UI thread and hand the result back for rendering."""
+        snapshot = refresh_domain(self._state, domain)
+        if snapshot is not None:
+            self.call_from_thread(self.apply_snapshot, snapshot)
 
-    def _refresh_docker(self) -> None:
-        summary = fetch_docker_status()
-        banner = self.query_one("#docker-banner", Static)
-        status_color = "green" if summary.connected else "yellow"
-        banner.update(
-            f"[{status_color}]●[/{status_color}] Docker: {'Active' if summary.connected else 'Inactive'} ({len(summary.containers)} containers)"
-        )
+    def apply_snapshot(self, snapshot: DomainSnapshot) -> None:
+        """Render a published snapshot into its panel, if the panel is still mounted.
 
-        table = self.query_one("#docker-table", DataTable)
-        table.clear()
-        for c in summary.containers:
-            table.add_row(c["id"], c["name"], c["image"], c["status"])
+        A projection that cannot render the data it was given is reported in that domain's
+        own banner. Letting it propagate would fail the worker and, because this runs on
+        the UI thread, take down a dashboard whose other four subsystems are healthy.
+        """
+        for panel in self.query(f"#panel-{snapshot.domain}").results(DomainPanel):
+            try:
+                panel.apply(snapshot)
+            except Exception as exc:
+                # The fallback carries no data, so rendering it cannot fail the same way:
+                # retaining the payload that just broke the projection would only re-raise.
+                message = f"render failed: {type(exc).__name__}: {exc}"
+                self._state.publish_error(snapshot.domain, message)
+                panel.apply(DomainSnapshot(domain=snapshot.domain, error=message))
 
-    def _refresh_telemetry(self) -> None:
-        summary = fetch_telemetry_status()
-        banner = self.query_one("#telemetry-banner", Static)
-        banner.update(
-            f"OpenTelemetry: {summary.counter_count} Counters, {summary.gauge_count} Gauges, {summary.histogram_count} Histograms"
-        )
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Stream the selected pod's logs, so a pod can be inspected without leaving the TUI."""
+        if event.data_table.id != f"{CONST_DASHBOARD_DOMAIN_K8S}-table":
+            return
+        row = event.data_table.get_row(event.row_key)
+        namespace, pod = str(row[0]), str(row[1])
+        if not pod:
+            return
+        pane = self.query_one("#log-pane", LogPane)
+        pane.title = f"{namespace}/{pod}"
+        pane.start_stream(pod_log_source(pod, namespace))
+        self.action_switch_tab(CONST_LOGS_TAB_ID)
 
-        table = self.query_one("#telemetry-table", DataTable)
-        table.clear()
-        for name, val in summary.counters.items():
-            table.add_row(name, "Counter", f"{val:.1f}")
-        for name, val in summary.gauges.items():
-            table.add_row(name, "Gauge", f"{val:.1f}")
 
-    def _refresh_ai(self) -> None:
-        summary = fetch_review_status()
-        banner = self.query_one("#ai-banner", Static)
-        if summary.has_session:
-            dist_str = (
-                " | ".join(f"{k}: {v}" for k, v in summary.severity_distribution.items()) or "None"
-            )
-            banner.update(
-                f"Latest Review: {summary.session_name} | Total: {summary.total_findings} (Verified: {summary.verified_count}) | {dist_str}"
-            )
-        else:
-            banner.update("No active or past AI code review sessions found.")
-
-        table = self.query_one("#ai-table", DataTable)
-        table.clear()
-        for f in summary.findings:
-            table.add_row(
-                f.get("severity", "MEDIUM"),
-                f.get("title", "Untitled")[:45],
-                f.get("location", "—"),
-                f.get("status", "UNVERIFIED"),
-            )
-
-    def _refresh_valkey(self) -> None:
-        summary = fetch_valkey_status()
-        banner = self.query_one("#valkey-banner", Static)
-        status_color = "green" if summary.connected else "yellow"
-        banner.update(
-            f"[{status_color}]●[/{status_color}] Valkey Cache: {summary.version} | Used Memory: {summary.used_memory} | Hit Ratio: {summary.hit_ratio:.1f}%"
-        )
-
-        table = self.query_one("#valkey-table", DataTable)
-        table.clear()
-        table.add_row("Server Version", summary.version)
-        table.add_row("Status", "Connected" if summary.connected else "Offline")
-        table.add_row("Used Memory", summary.used_memory)
-        table.add_row("Cache Hit Ratio", f"{summary.hit_ratio:.1f}%")
-        table.add_row("Connected Clients", str(summary.connected_clients))
-        table.add_row("Key Count", str(summary.key_count))
-        table.add_row("Total Commands", str(summary.total_commands))
+__all__ = ["DashboardApp", "HelpScreen"]
