@@ -389,3 +389,105 @@ def test_k8s_service_list_exceptions() -> None:
             svc.list_nodes()
         with pytest.raises(KubernetesContextError, match="Failed to query pods"):
             svc.list_pods()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Informer shutdown & cache bounding regressions
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_stream_events_publishes_watcher_for_interruption() -> None:
+    """The active Watch is published so stop() can interrupt the blocking stream.
+
+    Previously the Watch stayed local to stream_events, leaving `_watcher` as None so
+    stop() could not interrupt the stream and the worker thread ran until the next
+    server-side resync timeout.
+    """
+    mock_svc = MagicMock()
+    mock_svc.load_config.return_value = True
+    informer = ResourceInformer(resource_kind="Pod", namespace="default", service=mock_svc)
+
+    mock_obj = SimpleNamespace(
+        metadata=SimpleNamespace(name="p", namespace="default"),
+        status=SimpleNamespace(phase="Running"),
+    )
+    mock_watch = MagicMock()
+    observed: list[object] = []
+
+    def _stream(*_args: object, **_kwargs: object):
+        # The watcher must be reachable from stop() while the stream is being consumed.
+        observed.append(informer._watcher)
+        yield {"type": CONST_K8S_EVENT_ADDED, "object": mock_obj}
+
+    mock_watch.stream.side_effect = _stream
+
+    with patch("kubernetes.watch.Watch", return_value=mock_watch):
+        list(informer.stream_events(timeout_seconds=1.0))
+
+    # Published during streaming, and cleared once the stream is exhausted.
+    assert (observed, informer._watcher) == ([mock_watch], None)
+
+
+def test_stop_interrupts_watcher_and_joins_thread() -> None:
+    """stop() interrupts the active watch and joins the background worker thread."""
+    mock_svc = MagicMock()
+    informer = ResourceInformer(service=mock_svc)
+
+    mock_watch = MagicMock()
+    mock_thread = MagicMock()
+    mock_thread.is_alive.return_value = False
+    informer._watcher = mock_watch
+    informer._watch_thread = mock_thread
+
+    informer.stop(timeout=0.5)
+
+    assert (informer._running, informer._watch_thread) == (False, None)
+    mock_watch.stop.assert_called_once()
+
+
+def test_stop_survives_watcher_failure() -> None:
+    """A watcher that refuses to stop does not prevent the informer from shutting down."""
+    informer = ResourceInformer(service=MagicMock())
+    mock_watch = MagicMock()
+    mock_watch.stop.side_effect = RuntimeError("stream already closed")
+    informer._watcher = mock_watch
+
+    informer.stop(timeout=0.1)
+    assert informer._running is False
+
+
+def test_informer_cache_is_bounded() -> None:
+    """The resource cache evicts oldest entries instead of growing without bound."""
+    from devops_cli.config.defaults import DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES
+
+    informer = ResourceInformer(namespace="default", service=MagicMock())
+    overflow = DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES + 25
+
+    for index in range(overflow):
+        obj = SimpleNamespace(
+            metadata=SimpleNamespace(name=f"pod-{index}", namespace="default"),
+            status=SimpleNamespace(phase="Running"),
+        )
+        event = informer._normalize_event({"type": CONST_K8S_EVENT_ADDED, "object": obj})
+        informer._update_cache(event, obj)
+
+    cached = informer.get_cached_resources()
+    assert len(cached) == DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES
+    # Oldest evicted, newest retained.
+    assert "default/pod-0" not in cached
+    assert f"default/pod-{overflow - 1}" in cached
+
+
+def test_cache_honours_per_entry_ttl() -> None:
+    """A short negative-result TTL expires independently of the default cache TTL.
+
+    Reachability probes cache failures for ~2s so they retry promptly; previously the
+    ttl argument was accepted and silently ignored, pinning failures for the full TTL.
+    """
+    service = KubernetesService()
+    service._cache_ttl = 300.0
+
+    service._set_cached("short", "negative", ttl=0.0)
+    service._set_cached("long", "positive")
+
+    assert (service._get_cached("short"), service._get_cached("long")) == (None, "positive")

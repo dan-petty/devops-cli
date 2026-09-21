@@ -166,7 +166,111 @@ Tracing spans decorated with `@trace_span("review.<phase>")` capture execution l
 
 ---
 
-## 5. Historical Remediation Case Studies
+## 5. Loop Failure Modes & Calibration Guardrails
+
+The review loop can fail in ways that look like productivity. A session that emits many
+findings is not necessarily a session that found many defects, and a suppression catalog
+that grows steadily is not necessarily a catalog that is getting smarter. The failure
+modes below were each observed in a real session and are now guarded mechanically, in
+prompts, or both.
+
+### 5.1 Symptom Fan-Out (One Root Cause Reported As Many Findings)
+
+A single defect frequently surfaces as several findings, because each persona (and each
+file segment) encounters a different downstream consequence of it. One unassigned
+attribute produced five findings: the unassigned attribute, the ineffective shutdown, the
+un-joined thread, the delayed stream teardown, and the leaked resource.
+
+**Guardrails**:
+- **Prompt**: `code_review_prompt.md` and `review_output_instruction.md` mandate one finding
+  per root cause, with downstream consequences enumerated inside that finding's description,
+  and require models to scan their own `findings` array for entries a single edit would fix.
+- **Mechanical**: `consolidate_duplicate_findings` merges findings that name the same
+  distinctive code symbol over overlapping lines, and merges near-identical titles in one
+  file even when the cited line ranges differ (personas routinely cite different, and often
+  both wrong, ranges for the same defect).
+- **Deliberately conservative**: findings that merely share an enclosing function are never
+  merged. Losing a real defect is far costlier than leaving a duplicate on the board.
+
+### 5.2 Segment-Boundary False Positives (Asserting Absence Of Unseen Code)
+
+Reviewers see a bounded slice of each file and then assert that a control is *absent*
+because it is not in that slice. A FastMCP server was reported as unauthenticated and
+internet-exposed on the strength of its constructor at lines 1–60, while the launch path
+2,900 lines away defaults to stdio and hard-rejects non-loopback binds without an explicit
+opt-in flag. The inverse error is identical in shape: help strings were reported as
+referencing non-existent commands because the commands are registered in a different module.
+
+**Guardrails**:
+- **Prompt**: a *Segment Boundary Honesty* mandate forbids asserting a missing control —
+  authentication, validation, error handling, bounds checks, cleanup — when the code that
+  would establish it lies outside the provided segment. A matching rule forbids declaring a
+  symbol unused or dangling without locating its consumer. In both cases the model must
+  omit the finding or record the unchecked assumption and lower `confidence_score`.
+- **Persona**: the DevSecOps persona carries an explicit rule that a server object's
+  constructor is not its security boundary; transport, bind address, and loopback
+  enforcement live at the launch site.
+- **Catalog**: both confirmed false positives are registered as recognised patterns
+  (`HALLUCINATION-SERVER-CONSTRUCTOR-NO-AUTH`, `HALLUCINATION-DECLARATION-WITHOUT-CONSUMER`).
+
+### 5.3 Suppression Catalog Poisoning (Self-Improvement That Degrades Itself)
+
+This is the most dangerous failure mode, because it silently suppresses true positives and
+leaves no trace in the output. Auto-learning synthesized each new signature from a *single*
+keyword, so words such as `unvalidated`, `traversal`, `insecure`, `unbounded`, and
+`validation` became complete suppression patterns — each matching nearly every genuine
+security finding. The module's documented safety invariant ("no common English words may
+flag findings as hallucinations") was enforced for `pattern_keywords` but not for
+`signature_patterns`, so learning routed straight around it.
+
+**Guardrails**:
+- Auto-learning now synthesizes a **co-occurrence** signature requiring two distinctive
+  keywords, or emits no signature at all and relies on the already-guarded compound keyword
+  match.
+- Bare single-word signatures are rejected **at match time**, which neutralizes catalogs
+  already written to disk without requiring a data migration.
+- An invalid signature regex is skipped rather than degraded into a broad substring match.
+
+**Auditing the catalog**: a growing suppression catalog deserves periodic scrutiny, not
+trust. Entries with short, generic signatures should be treated as suspect until re-derived
+from a confirmed false positive.
+
+### 5.4 Silent Baseline Loss (Fail-Open Calibration)
+
+The builtin hallucination catalog was validated inside a single `try` around a list
+comprehension, so one malformed record discarded all 27 entries and the failure was logged
+only at debug level. Verification then ran on auto-learned entries alone — precisely the
+entries most likely to be poisoned — with no visible signal.
+
+**Guardrails**: entries are validated individually, a malformed record is skipped with a
+warning naming its id, and a missing or unreadable baseline warns rather than failing
+silently. Calibration data that fails to load must be loud, because its absence changes
+review outcomes without changing review output.
+
+### 5.5 Unactionable Findings
+
+Both CRITICAL findings in session `20260920-124350` carried an empty `fix`. A finding
+without a remediation is a report of unease, not an engineering artifact.
+
+**Guardrail**: `fix` is mandatory and non-empty. A model that cannot articulate a concrete
+remediation does not yet understand the defect well enough to report it.
+
+### 5.6 Calibration Metrics Worth Tracking
+
+Finding counts measure volume, not value. The ratios below measure whether the loop is
+actually improving:
+
+| Signal | Interpretation |
+| :--- | :--- |
+| False positives per CRITICAL/HIGH finding | Precision where it matters most; the costliest errors to ship. |
+| Findings per distinct root cause | Symptom fan-out; approaching 1.0 means the loop reports defects, not symptoms. |
+| Share of findings with a non-empty `fix` | Actionability of the output. |
+| Suppression entries with generic signatures | Catalog poisoning risk; should trend to zero. |
+| Builtin catalog entries successfully loaded | Calibration integrity; any shortfall is a silent regression. |
+
+---
+
+## 6. Historical Remediation Case Studies
 
 ### Session `20260913-231617` (DevSecOps & Robustness Remediation)
 
@@ -223,3 +327,44 @@ The DevSecOps and Architecture review session `20260915-124521` produced 22 find
    - Masked Minikube cluster startup status output in `devops k8s switch-context`.
    - Routed PR check fallbacks through `run_gh()` with secret masking.
    - Masked Vault configuration error details in `devops vault`.
+
+### Session `20260920-124350` (Review Loop Calibration & Informer Shutdown Remediation)
+
+A DevSecOps, Architecture, and QA session produced 55 findings across 2 CRITICAL, 4 HIGH,
+24 MEDIUM, and 25 LOW. Hand-verification of the CRITICAL and HIGH tier found 4 real defects,
+2 false positives, and substantial symptom fan-out — which redirected the remediation toward
+the loop itself as much as the code.
+
+1. **Verified Defects Remediated**:
+   - `k8s/informer.py`: the active `watch.Watch()` was never published to `self._watcher`, so
+     `stop()` could not interrupt the blocking stream and the worker thread survived until the
+     next server-side resync. The watcher is now published for the stream's lifetime, cleared
+     on exit, and `stop()` joins the worker under a bounded timeout.
+   - `k8s/informer.py`: the resource cache grew without bound; it is now an `OrderedDict` with
+     FIFO eviction at `DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES`.
+   - `k8s/service.py`: `_set_cached` accepted a `ttl` argument and silently ignored it, so
+     short negative caches (a failed reachability probe asking for ~2s) were pinned for the
+     full cache TTL. Entries now carry their own expiry deadline.
+   - `commands/k8s/cluster_context.py`: `except Exception: pass` around the in-process client
+     realignment hid genuine failures; it now logs a typed warning without failing the command.
+   - `github/client.py`: `get_repo_overview` let raw GraphQL transport errors escape and crash
+     the CLI; they are wrapped in an annotated `GitHubOperationError`.
+
+2. **False Positives Disarmed** (see §5.2):
+   - *FastMCP server lacks authentication*: judged from the constructor while the launch path
+     defaults to stdio and rejects non-loopback binds absent an explicit opt-in flag.
+   - *Help strings reference nonexistent commands*: the commands are registered in
+     `commands/gh.py`, a module outside the reviewed segment.
+
+3. **Loop Calibration** (the substantive outcome):
+   - Symbol-aware and range-independent duplicate consolidation, reducing this session's
+     findings from 55 to 50 without merging any distinct defect; the residual fan-out is
+     addressed at generation time through the root-cause prompt mandate.
+   - **110 degenerate single-word suppression signatures neutralized** at match time. Words
+     including `unvalidated`, `traversal`, `insecure`, and `unbounded` had been learned as
+     complete suppression patterns capable of burying genuine security findings.
+   - The builtin catalog was discovered to be loading **zero of 27 entries** because one
+     malformed record aborted the whole comprehension; validation is now per-entry and loud.
+   - Prompt mandates added for root-cause consolidation, segment-boundary honesty,
+     declaration-versus-consumer reasoning, narrowest-true-location anchoring, and a
+     mandatory non-empty `fix`.

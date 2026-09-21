@@ -276,16 +276,20 @@ class KubernetesService:
         return None
 
     def _get_cached(self, key: str) -> Any | None:
-        """Retrieve unexpired value from memory cache."""
+        """Retrieve an unexpired value from the memory cache."""
         entry = self._cache.get(key)
         if not entry:
             return None
-        cached_time, val = entry
-        if time.time() - cached_time < self._cache_ttl:
+        expires_at, val = entry
+        if time.time() < expires_at:
             return val
         self._cache.pop(key, None)
         return None
 
     def _set_cached(self, key: str, val: Any, ttl: float | None = None) -> None:
-        """Store value into memory cache with timestamp."""
-        self._cache[key] = (time.time(), val)
+        """Store a value in the memory cache under its own expiry deadline.
+
+        Callers pass a short `ttl` for negative results (such as a failed reachability
+        probe) so they are retried promptly rather than pinned for the full cache TTL.
+        """
+        self._cache[key] = (time.time() + (self._cache_ttl if ttl is None else ttl), val)

@@ -451,3 +451,44 @@ def test_k8s_run_cmd_kubeconfig_security(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("KUBECONFIG", "/etc/kubernetes/admin.conf")
     with pytest.raises(SecurityError):
         _run_cmd(["kubectl", "version"])
+
+
+def test_switch_context_logs_service_realignment_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A failed in-process client realignment is logged, not silently swallowed.
+
+    The kubectl invocation is authoritative for the kubeconfig, so the command still
+    succeeds; the diagnostic must survive for troubleshooting.
+    """
+    import logging
+    from unittest.mock import MagicMock, patch
+
+    from devops_cli.exceptions.k8s import KubernetesContextError
+
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("k8s:\n  context: default\n", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
+
+    mock_service = MagicMock()
+    mock_service.switch_context.side_effect = KubernetesContextError("apiserver unreachable")
+
+    with (
+        patch(
+            "devops_cli.commands.k8s.cluster_context.runtime._run_cmd",
+            return_value=MagicMock(returncode=0, stdout="OK", stderr=""),
+        ),
+        patch(
+            "devops_cli.commands.k8s.cluster_runtime._minikube_running",
+            return_value=True,
+        ),
+        patch(
+            "devops_cli.k8s.service.KubernetesService.get_instance",
+            return_value=mock_service,
+        ),
+        caplog.at_level(logging.WARNING, logger="devops_cli.commands.k8s.cluster_context"),
+    ):
+        result = runner.invoke(app, ["switch-context", "staging"])
+
+    assert result.exit_code == 0
+    assert "Could not realign in-process Kubernetes client" in caplog.text

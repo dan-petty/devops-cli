@@ -635,5 +635,9 @@ DEFAULT_SYNTOPICAL_MAX_SOURCES: int = 20
 # ── Kubernetes Informer & Service Defaults ───────────────────────────────────
 DEFAULT_K8S_CACHE_TTL_SECONDS: float = 5.0
 DEFAULT_K8S_INFORMER_RESYNC_SECONDS: float = 30.0
+# Grace period granted to the informer worker thread to unwind after stop().
+DEFAULT_K8S_INFORMER_STOP_TIMEOUT_SECONDS: float = 5.0
+# Upper bound on cached watch objects, preventing unbounded growth on large clusters.
+DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES: int = 10000
 DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_K8S_STREAM_TIMEOUT_SECONDS: float = 300.0

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from devops_cli.config.constants import CONST_GH_CLI, CONST_URL_GITHUB_API_BASE
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.models.ssh import SSHKeyInfo
 
@@ -59,13 +60,22 @@ class GitHubClient:
         else:
             owner = self._gh.get_user().login
             name = repo
-        return self._graphql.fetch_repo_overview(
-            owner=owner,
-            repo=name,
-            issues_limit=issues_limit,
-            prs_limit=prs_limit,
-            milestones_limit=milestones_limit,
-        )
+        try:
+            return self._graphql.fetch_repo_overview(
+                owner=owner,
+                repo=name,
+                issues_limit=issues_limit,
+                prs_limit=prs_limit,
+                milestones_limit=milestones_limit,
+            )
+        except GitHubOperationError:
+            raise
+        except Exception as exc:
+            raise GitHubOperationError(
+                f"Failed fetching repository overview for '{owner}/{name}': {exc}",
+                operation="repo_overview",
+                details={"repo": f"{owner}/{name}"},
+            ) from exc
 
     def get_org_repos(
         self,
