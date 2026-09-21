@@ -1257,6 +1257,29 @@ CONST_DASHBOARD_DOMAIN_LABELS: Final[dict[str, str]] = {
     CONST_DASHBOARD_DOMAIN_AI: "AI Review",
     CONST_DASHBOARD_DOMAIN_VALKEY: "Valkey Cache",
 }
+
+# ── Docker Resource Sub-Tabs ─────────────────────────────────────────────────
+# Every Docker resource lives under the single Docker tab and is projected from one
+# DockerSummary, so the whole inventory costs one daemon round trip per refresh.
+CONST_DOCKER_RESOURCE_CONTAINERS: Final[str] = "containers"
+CONST_DOCKER_RESOURCE_IMAGES: Final[str] = "images"
+CONST_DOCKER_RESOURCE_NETWORKS: Final[str] = "networks"
+CONST_DOCKER_RESOURCE_VOLUMES: Final[str] = "volumes"
+CONST_DOCKER_RESOURCE_REGISTRIES: Final[str] = "registries"
+CONST_DOCKER_RESOURCES: Final[tuple[str, ...]] = (
+    CONST_DOCKER_RESOURCE_CONTAINERS,
+    CONST_DOCKER_RESOURCE_IMAGES,
+    CONST_DOCKER_RESOURCE_NETWORKS,
+    CONST_DOCKER_RESOURCE_VOLUMES,
+    CONST_DOCKER_RESOURCE_REGISTRIES,
+)
+CONST_DOCKER_RESOURCE_LABELS: Final[dict[str, str]] = {
+    CONST_DOCKER_RESOURCE_CONTAINERS: "Containers",
+    CONST_DOCKER_RESOURCE_IMAGES: "Images",
+    CONST_DOCKER_RESOURCE_NETWORKS: "Networks",
+    CONST_DOCKER_RESOURCE_VOLUMES: "Volumes",
+    CONST_DOCKER_RESOURCE_REGISTRIES: "Registries",
+}
 # Tab holding the streamed log pane. Not a data domain: it has no provider and is filled
 # by selecting a pod rather than by the refresh cycle.
 CONST_LOGS_TAB_ID: Final[str] = "tab-logs"
@@ -1414,3 +1437,6 @@ CONST_ISSUE_CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
 )
 CONST_ISSUE_STATE_OPEN: Final[str] = "open"
 CONST_ISSUE_STATE_CLOSED: Final[str] = "closed"
+# Series listed in the telemetry panel. A Prometheus instance exposes thousands of metric
+# names; rendering all of them costs more than it tells the reader.
+CONST_TELEMETRY_PANEL_MAX_SERIES: Final[int] = 50

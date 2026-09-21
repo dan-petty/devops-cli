@@ -2,38 +2,54 @@
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
-from textual.widgets import DataTable, Static, TabbedContent
+from textual.widgets import DataTable, Static, TabbedContent, TabPane
 
 import devops_cli.ui.dashboard as dashboard_module
+import devops_cli.ui.data_providers as data_providers
 import devops_cli.ui.refresh as refresh_module
 from devops_cli.commands.dashboard import TAB_NUM_MAP
-from devops_cli.config.constants import CONST_DASHBOARD_DOMAINS
+from devops_cli.config.constants import (
+    CONST_DASHBOARD_DOMAIN_AI,
+    CONST_DASHBOARD_DOMAIN_DOCKER,
+    CONST_DASHBOARD_DOMAINS,
+    CONST_DOCKER_RESOURCES,
+)
 from devops_cli.ui.dashboard import DashboardApp
 from devops_cli.ui.data_providers import (
     DockerSummary,
     K8sSummary,
+    ReviewSessionInfo,
     ReviewSummary,
     TelemetrySummary,
     ValkeySummary,
+    fetch_review_status,
+    fetch_telemetry_status,
+    list_review_sessions,
 )
 from devops_cli.ui.log_buffer import LogLine, VirtualLogBuffer, tail
 from devops_cli.ui.projections import (
+    DOCKER_RESOURCE_COLUMNS,
     DOMAIN_COLUMNS,
     ai_banner,
     ai_rows,
     docker_banner,
+    docker_resource_label,
+    docker_resource_rows,
     docker_rows,
     k8s_banner,
     k8s_rows,
     render_banner,
     render_domain,
     render_rows,
+    review_session_rows,
     telemetry_banner,
     telemetry_rows,
     valkey_banner,
@@ -46,7 +62,7 @@ from devops_cli.ui.refresh import (
     refresh_domain,
 )
 from devops_cli.ui.state import DashboardState, DomainSnapshot
-from devops_cli.ui.widgets import DomainPanel, LogPane
+from devops_cli.ui.widgets import DockerPanel, DomainPanel, LogPane, ReviewPanel
 
 # =============================================================================
 # Fixtures
@@ -79,6 +95,35 @@ def _docker() -> DockerSummary:
     return DockerSummary(
         connected=True,
         containers=[{"id": "abc123", "name": "valkey", "image": "valkey:8", "status": "running"}],
+        images=[
+            {
+                "id": "img001",
+                "tag": "valkey:8",
+                "size": "41.2MB",
+                "created": "2026-09-01 10:00:00",
+            }
+        ],
+        networks=[
+            {
+                "id": "net001",
+                "name": "bridge",
+                "driver": "bridge",
+                "scope": "local",
+                "containers": "1",
+            }
+        ],
+        volumes=[
+            {
+                "name": "data",
+                "driver": "local",
+                "mountpoint": "/var/lib/docker/volumes/data/_data",
+                "size": "-",
+                "created": "2026-09-01 10:00:00",
+            }
+        ],
+        registries=[
+            {"name": "https://index.docker.io/v1/", "kind": "default", "status": "configured"}
+        ],
     )
 
 
@@ -453,19 +498,42 @@ def test_k8s_banner_reports_a_disconnected_cluster() -> None:
     assert "Disconnected" in k8s_banner(K8sSummary(connected=False))
 
 
-def test_docker_banner_counts_containers() -> None:
-    """The banner carries the container count alongside daemon state."""
-    assert docker_banner(_docker()).endswith("Docker: Active (1 containers)")
+def test_docker_banner_distinguishes_running_from_present() -> None:
+    """The panel lists stopped containers too, so one count would match neither view."""
+    assert docker_banner(_docker()).endswith("Docker: Active (1 running / 1 total)")
+
+
+def test_docker_banner_counts_a_stopped_container_as_present_not_running() -> None:
+    """A stopped container is present in the table but is not running."""
+    summary = DockerSummary(
+        connected=True,
+        containers=[
+            {"id": "a", "name": "up", "image": "i", "status": "running"},
+            {"id": "b", "name": "down", "image": "i", "status": "exited"},
+        ],
+    )
+    assert docker_banner(summary).endswith("(1 running / 2 total)")
 
 
 def test_docker_banner_reports_an_inactive_daemon() -> None:
-    """An unreachable daemon reads as inactive with zero containers."""
-    assert docker_banner(DockerSummary()).endswith("Docker: Inactive (0 containers)")
+    """An unreachable daemon reads as inactive with nothing present."""
+    assert docker_banner(DockerSummary()).endswith("Docker: Inactive (0 running / 0 total)")
 
 
 def test_telemetry_banner_counts_each_instrument_kind() -> None:
     """Instrument counts come from the summary, not from the rendered rows."""
-    assert telemetry_banner(_telemetry()) == ("OpenTelemetry: 2 Counters, 1 Gauges, 0 Histograms")
+    assert telemetry_banner(_telemetry()).endswith("2 Counters, 1 Gauges, 0 Histograms")
+
+
+def test_telemetry_banner_names_the_registry_it_read() -> None:
+    """An empty in-process registry is indistinguishable from broken instrumentation."""
+    assert "in-process" in telemetry_banner(_telemetry())
+
+
+def test_telemetry_banner_reports_a_failed_backend_query() -> None:
+    """A telemetry backend outage must not look like an absence of metrics."""
+    summary = TelemetrySummary(source="in-process", error_message="http://prom: refused")
+    assert "refused" in telemetry_banner(summary)
 
 
 def test_ai_banner_summarises_the_latest_session() -> None:
@@ -884,6 +952,8 @@ async def test_the_dashboard_mounts_one_panel_per_configured_domain(
     app = DashboardApp(refresh_interval=0)
     async with app.run_test():
         panels = {panel.domain for panel in app.query(DomainPanel).results(DomainPanel)}
+        panels |= {panel.domain for panel in app.query(DockerPanel).results(DockerPanel)}
+        panels |= {panel.domain for panel in app.query(ReviewPanel).results(ReviewPanel)}
         assert panels == set(CONST_DASHBOARD_DOMAINS)
 
 
@@ -899,7 +969,12 @@ async def test_every_panel_declares_the_columns_its_domain_projects(
             panel.domain: len(panel.query_one(DataTable).columns)
             for panel in app.query(DomainPanel).results(DomainPanel)
         }
-        assert widths == {domain: len(DOMAIN_COLUMNS[domain]) for domain in CONST_DASHBOARD_DOMAINS}
+        # Docker and AI Review compose nested tabs, so they are not plain DomainPanels.
+        assert widths == {
+            domain: len(DOMAIN_COLUMNS[domain])
+            for domain in CONST_DASHBOARD_DOMAINS
+            if domain not in (CONST_DASHBOARD_DOMAIN_DOCKER, CONST_DASHBOARD_DOMAIN_AI)
+        }
 
 
 @pytest.mark.asyncio
@@ -920,6 +995,8 @@ async def test_the_initial_refresh_populates_every_panel(
             panel.domain: panel.query_one(DataTable).row_count
             for panel in app.query(DomainPanel).results(DomainPanel)
         }
+        counts["docker"] = app.query_one("#docker-table", DataTable).row_count
+        counts["ai"] = app.query_one("#ai-table", DataTable).row_count
         assert counts == {"k8s": 1, "docker": 1, "telemetry": 3, "ai": 1, "valkey": 7}
 
 
@@ -933,9 +1010,9 @@ async def test_a_panel_renders_a_snapshot_handed_to_it(
     app = DashboardApp(refresh_interval=0, state=state)
     async with app.run_test() as pilot:
         await _settle(pilot, lambda: not state.pending_domains())
-        panel = app.query_one("#panel-docker", DomainPanel)
+        panel = app.query_one("#panel-docker", DockerPanel)
         panel.apply(DomainSnapshot(domain="docker", data=DockerSummary(), updated_at=time.time()))
-        table = panel.query_one(DataTable)
+        table = panel.query_one("#docker-table", DataTable)
         assert (table.row_count, "Docker: Inactive" in str(panel.query_one(Static).render())) == (
             0,
             True,
@@ -1310,11 +1387,11 @@ async def test_selecting_a_row_outside_the_pod_table_starts_no_stream(
 async def test_the_logs_tab_is_reachable_by_its_own_key(
     patched_fetchers: Callable[..., None],
 ) -> None:
-    """The log pane has a binding of its own, after the domain tabs."""
+    """The log pane is bound to a letter, leaving the numbers for the domain tabs."""
     patched_fetchers()
     app = DashboardApp(refresh_interval=0)
     async with app.run_test() as pilot:
-        await pilot.press(str(len(CONST_DASHBOARD_DOMAINS) + 1))
+        await pilot.press("l")
         await pilot.pause()
         assert app.query_one(TabbedContent).active == "tab-logs"
 
@@ -1438,3 +1515,302 @@ async def test_selecting_a_pod_row_with_no_pod_name_starts_no_stream(
         await pilot.press("enter")
         await pilot.pause()
         assert (requested, app.query_one(TabbedContent).active) == ([], "tab-k8s")
+
+
+# =============================================================================
+# Docker Inventory
+# =============================================================================
+
+
+def test_stopped_containers_are_listed_alongside_running_ones() -> None:
+    """The panel disagreed with `docker ps -a`: it listed only running containers."""
+    summary = DockerSummary(
+        connected=True,
+        containers=[
+            {"id": "a", "name": "up", "image": "i", "status": "running"},
+            {"id": "b", "name": "down", "image": "i", "status": "exited"},
+        ],
+    )
+    assert [row[3] for row in docker_rows(summary)] == ["running", "exited"]
+
+
+@pytest.mark.parametrize(
+    ("resource", "expected_first"),
+    [
+        ("containers", "abc123"),
+        ("images", "img001"),
+        ("networks", "net001"),
+        ("volumes", "data"),
+        ("registries", "https://index.docker.io/v1/"),
+    ],
+)
+def test_each_docker_resource_projects_from_the_shared_snapshot(
+    resource: str, expected_first: str
+) -> None:
+    """Every Docker view is rendered from one inventory, not from its own daemon query."""
+    snapshot = DomainSnapshot(domain="docker", data=_docker(), updated_at=time.time())
+    assert docker_resource_rows(resource, snapshot)[0][0] == expected_first
+
+
+@pytest.mark.parametrize("resource", list(CONST_DOCKER_RESOURCES))
+def test_each_docker_resource_row_matches_its_column_count(resource: str) -> None:
+    """A mismatch raises inside Textual on the UI thread when the row is added."""
+    snapshot = DomainSnapshot(domain="docker", data=_docker(), updated_at=time.time())
+    widths = {len(row) for row in docker_resource_rows(resource, snapshot)}
+    assert widths == {len(DOCKER_RESOURCE_COLUMNS[resource])}
+
+
+@pytest.mark.parametrize("resource", list(CONST_DOCKER_RESOURCES))
+def test_a_docker_resource_renders_nothing_before_the_first_fetch(resource: str) -> None:
+    """An unloaded panel renders empty rather than raising."""
+    assert docker_resource_rows(resource, DomainSnapshot(domain="docker")) == []
+
+
+def test_a_docker_sub_tab_label_carries_its_row_count() -> None:
+    """Counts are readable without opening each tab."""
+    snapshot = DomainSnapshot(domain="docker", data=_docker(), updated_at=time.time())
+    assert docker_resource_label("images", snapshot) == "Images (1)"
+
+
+def test_a_docker_sub_tab_label_omits_a_count_before_loading() -> None:
+    """A count of zero before the first fetch would claim the daemon has nothing."""
+    assert docker_resource_label("images", DomainSnapshot(domain="docker")) == "Images"
+
+
+@pytest.mark.asyncio
+async def test_every_docker_resource_lives_under_the_single_docker_tab(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """Docker resources are Docker state and belong under one header.
+
+    Promoting each to a top-level tab made them compete with Kubernetes and Valkey for
+    attention, and crowded the footer past the point of truncation.
+    """
+    patched_fetchers()
+    state = DashboardState()
+    app = DashboardApp(refresh_interval=0, state=state)
+    async with app.run_test() as pilot:
+        await _settle(pilot, lambda: not state.pending_domains())
+        panel = app.query_one("#panel-docker", DockerPanel)
+        tabs = {
+            pane.id for pane in panel.query_one("#docker-resources", TabbedContent).query(TabPane)
+        }
+        assert tabs == {f"docker-{resource}" for resource in CONST_DOCKER_RESOURCES}
+
+
+@pytest.mark.asyncio
+async def test_the_docker_panel_populates_every_resource_table(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """One fetch fills all five views."""
+    patched_fetchers()
+    state = DashboardState()
+    app = DashboardApp(refresh_interval=0, state=state)
+    async with app.run_test() as pilot:
+        await _settle(pilot, lambda: not state.pending_domains())
+        panel = app.query_one("#panel-docker", DockerPanel)
+        counts = {
+            resource: panel.query_one(f"#{panel._table_id(resource)}", DataTable).row_count
+            for resource in CONST_DOCKER_RESOURCES
+        }
+        assert counts == dict.fromkeys(CONST_DOCKER_RESOURCES, 1)
+
+
+# =============================================================================
+# Review Session Selection
+# =============================================================================
+
+
+def _sessions() -> list[ReviewSessionInfo]:
+    """Sessions as the provider returns them: newest first."""
+    return [
+        ReviewSessionInfo(name="20260921-212653", completed=False),
+        ReviewSessionInfo(name="20260920-124350", completed=True, finding_count=55),
+        ReviewSessionInfo(name="20260919-145233", completed=True, finding_count=286),
+    ]
+
+
+def test_review_sessions_render_newest_first() -> None:
+    """The provider orders them; re-sorting here would let the two disagree."""
+    summary = ReviewSummary(has_session=True, sessions=_sessions())
+    snapshot = DomainSnapshot(domain="ai", data=summary, updated_at=time.time())
+    assert [row[0] for row in review_session_rows(snapshot)] == [
+        "20260921-212653",
+        "20260920-124350",
+        "20260919-145233",
+    ]
+
+
+def test_an_incomplete_session_shows_no_finding_count() -> None:
+    """A session that never wrote findings has no count, and zero would imply it found none."""
+    summary = ReviewSummary(has_session=True, sessions=_sessions())
+    snapshot = DomainSnapshot(domain="ai", data=summary, updated_at=time.time())
+    rows = review_session_rows(snapshot)
+    assert (rows[0][1], rows[0][2], rows[1][1], rows[1][2]) == (
+        "incomplete",
+        "-",
+        "complete",
+        "55",
+    )
+
+
+def test_review_sessions_render_nothing_before_the_first_fetch() -> None:
+    """An unloaded panel renders empty rather than raising."""
+    assert review_session_rows(DomainSnapshot(domain="ai")) == []
+
+
+def test_the_review_banner_reports_incomplete_sessions() -> None:
+    """A run still in progress is worth knowing about without being shown as the result."""
+    summary = ReviewSummary(
+        has_session=True,
+        session_name="20260920-124350",
+        total_findings=55,
+        incomplete=["20260921-212653"],
+    )
+    assert "1 incomplete" in ai_banner(summary)
+
+
+def test_the_review_banner_omits_the_note_when_every_session_completed() -> None:
+    """There is nothing to report when nothing is outstanding."""
+    summary = ReviewSummary(has_session=True, session_name="s", total_findings=1)
+    assert "incomplete" not in ai_banner(summary)
+
+
+# =============================================================================
+# Review Session Discovery
+# =============================================================================
+
+
+def _make_sessions(tmp_path: Path, spec: dict[str, int | None]) -> Path:
+    """Create review session directories; a None count writes no findings.json."""
+    reviews = tmp_path / "reviews"
+    reviews.mkdir(parents=True, exist_ok=True)
+    for name, count in spec.items():
+        directory = reviews / name
+        directory.mkdir()
+        if count is not None:
+            payload = {"findings": [{"severity": "LOW", "title": f"f{i}"} for i in range(count)]}
+            (directory / "findings.json").write_text(json.dumps(payload), encoding="utf-8")
+    return tmp_path
+
+
+def test_an_in_progress_review_does_not_displace_the_last_completed_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A running review creates its directory before it writes any findings.
+
+    Taking the newest directory therefore presented an empty session as the latest result
+    and hid the last real review behind it.
+    """
+    root = _make_sessions(
+        tmp_path, {"20260921-212653": None, "20260920-124350": 55, "20260919-145233": 286}
+    )
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(root))
+    summary = fetch_review_status()
+    assert (summary.session_name, summary.total_findings) == ("20260920-124350", 55)
+
+
+def test_sessions_are_listed_newest_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Session names are timestamps, so reverse lexical order is reverse chronological."""
+    root = _make_sessions(
+        tmp_path, {"20260919-145233": 1, "20260921-212653": None, "20260920-124350": 2}
+    )
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(root))
+    assert [info.name for info in list_review_sessions()] == [
+        "20260921-212653",
+        "20260920-124350",
+        "20260919-145233",
+    ]
+
+
+def test_an_explicitly_selected_session_is_displayed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Choosing an earlier review opens it rather than the newest completed one."""
+    root = _make_sessions(tmp_path, {"20260920-124350": 55, "20260919-145233": 286})
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(root))
+    summary = fetch_review_status("20260919-145233")
+    assert (summary.session_name, summary.total_findings) == ("20260919-145233", 286)
+
+
+def test_a_selected_session_name_cannot_escape_the_reviews_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The selection names a session, so it must not be usable as a path."""
+    root = _make_sessions(tmp_path, {"20260920-124350": 5})
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(root))
+    assert fetch_review_status("../../etc").has_session is False
+
+
+def test_incomplete_sessions_are_reported_without_being_shown_as_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """They are worth knowing about, but they are not findings."""
+    root = _make_sessions(tmp_path, {"20260921-212653": None, "20260920-124350": 55})
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(root))
+    summary = fetch_review_status()
+    assert (summary.incomplete, summary.session_name) == (
+        ["20260921-212653"],
+        "20260920-124350",
+    )
+
+
+def test_a_review_with_nothing_completed_still_shows_the_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Showing the in-flight session beats showing nothing at all."""
+    root = _make_sessions(tmp_path, {"20260921-212653": None})
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(root))
+    summary = fetch_review_status()
+    assert (summary.has_session, summary.session_name, summary.total_findings) == (
+        True,
+        "20260921-212653",
+        0,
+    )
+
+
+def test_a_malformed_findings_file_counts_as_zero_rather_than_raising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One corrupt session must not break the session list."""
+    reviews = tmp_path / "reviews" / "20260920-124350"
+    reviews.mkdir(parents=True)
+    (reviews / "findings.json").write_text("{not json", encoding="utf-8")
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    assert [(i.name, i.finding_count) for i in list_review_sessions()] == [("20260920-124350", 0)]
+
+
+def test_no_reviews_directory_lists_no_sessions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A workspace that has never been reviewed is not an error."""
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    assert (list_review_sessions(), fetch_review_status().has_session) == ([], False)
+
+
+# =============================================================================
+# Telemetry Source
+# =============================================================================
+
+
+def test_telemetry_falls_back_to_the_in_process_registry_without_a_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no Prometheus configured the panel reports what this process recorded."""
+    monkeypatch.setattr(data_providers, "_prometheus_base_url", lambda: None)
+    assert fetch_telemetry_status().source == "in-process"
+
+
+def test_a_failed_backend_query_names_the_endpoint_that_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ "Connection refused" against a configured endpoint is a different problem from
+    having no metrics, and the banner has to distinguish them."""
+    monkeypatch.setattr(data_providers, "_prometheus_base_url", lambda: "http://prom:9090")
+    monkeypatch.setattr(
+        data_providers,
+        "_fetch_prometheus_metrics",
+        lambda url: (_ for _ in ()).throw(ConnectionError("connection refused")),
+    )
+    summary = fetch_telemetry_status()
+    assert ("http://prom:9090" in summary.error_message, summary.source) == (True, "in-process")
