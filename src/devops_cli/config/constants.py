@@ -599,6 +599,104 @@ CONST_TELEMETRY_CALL_NAMES: frozenset[str] = frozenset(
     }
 )
 
+# ── Review Finding Consolidation Signals ─────────────────────────────────────
+# Identifiers too generic to prove two findings describe the same defect. Kept here
+# (never inline) so the list stays auditable for over-matching, per the brittle-subset
+# prohibition: it only ever *weakens* a duplicate signal, never invalidates a finding.
+REVIEW_GENERIC_SYMBOL_STOPWORDS: Final[frozenset[str]] = frozenset(
+    {
+        "the",
+        "and",
+        "not",
+        "for",
+        "with",
+        "this",
+        "that",
+        "from",
+        "into",
+        "when",
+        "self",
+        "none",
+        "true",
+        "false",
+        "str",
+        "int",
+        "dict",
+        "list",
+        "set",
+        "any",
+        "type",
+        "class",
+        "def",
+        "return",
+        "value",
+        "values",
+        "name",
+        "names",
+        "data",
+        "path",
+        "paths",
+        "file",
+        "files",
+        "line",
+        "lines",
+        "code",
+        "test",
+        "tests",
+        "error",
+        "errors",
+        "exception",
+        "result",
+        "results",
+        "config",
+        "settings",
+        "method",
+        "function",
+        "module",
+        "object",
+        "param",
+        "params",
+        "arg",
+        "args",
+        "kwargs",
+        "input",
+        "output",
+        "call",
+        "calls",
+        "user",
+        "users",
+        "http",
+        "https",
+        "api",
+        "url",
+        "urls",
+        "time",
+        "size",
+        "count",
+        "index",
+        "key",
+        "keys",
+        "item",
+        "items",
+        "state",
+        "status",
+        "message",
+        "messages",
+        "log",
+        "logs",
+        "logger",
+    }
+)
+
+# Minimum length at which a single shared identifier is specific enough, on its own,
+# to conclude two findings describe the same defect.
+REVIEW_STRONG_SYMBOL_MIN_LENGTH: Final[int] = 6
+
+# Minimum description token overlap required before two findings that merely share an
+# enclosing symbol are treated as one defect. Set high enough that different defects in
+# the same function stay separate, since dropping a real finding is the costlier error.
+REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD: Final[float] = 0.35
+
 # ── Docker Engine Socket API & BuildKit Cache Introspection ──────────────────
 # Container CPU utilisation severity thresholds for live stats rendering.
 CONST_DOCKER_CPU_WARNING_PERCENT: Final[float] = 50.0

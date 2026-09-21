@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -14,7 +15,9 @@ from devops_cli.config.constants import (
     CONST_K8S_INFORMER_EVENTS,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES,
     DEFAULT_K8S_INFORMER_RESYNC_SECONDS,
+    DEFAULT_K8S_INFORMER_STOP_TIMEOUT_SECONDS,
     DEFAULT_K8S_STREAM_TIMEOUT_SECONDS,
 )
 from devops_cli.exceptions.k8s import KubernetesContextError
@@ -38,7 +41,7 @@ class ResourceInformer:
         self.namespace = namespace
         self.label_selector = label_selector
         self._service = service or KubernetesService.get_instance()
-        self._cache: dict[str, Any] = {}
+        self._cache: OrderedDict[str, Any] = OrderedDict()
         self._lock = threading.Lock()
         self._running: bool = False
         self._watcher: Any = None
@@ -74,6 +77,9 @@ class ResourceInformer:
 
         core_v1 = self._service._core_v1
         w = watch.Watch()
+        # Publish the watcher so stop() can interrupt the blocking stream immediately
+        # instead of waiting out the server-side resync timeout.
+        self._watcher = w
         kwargs: dict[str, Any] = {"timeout_seconds": int(timeout_seconds)}
         if self.label_selector:
             kwargs["label_selector"] = self.label_selector
@@ -84,10 +90,13 @@ class ResourceInformer:
             else lambda **kw: core_v1.list_namespaced_pod(namespace=self.namespace, **kw)
         )
 
-        for raw_event in w.stream(target_fn, **kwargs):
-            event = self._normalize_event(raw_event)
-            self._update_cache(event, raw_event.get("object"))
-            yield event
+        try:
+            for raw_event in w.stream(target_fn, **kwargs):
+                event = self._normalize_event(raw_event)
+                self._update_cache(event, raw_event.get("object"))
+                yield event
+        finally:
+            self._watcher = None
 
     def start(self, on_event: Callable[[K8sEvent], None] | None = None) -> None:
         """Start informer background watcher thread."""
@@ -102,14 +111,23 @@ class ResourceInformer:
         )
         self._watch_thread.start()
 
-    def stop(self) -> None:
-        """Stop informer background watcher thread."""
+    def stop(self, timeout: float = DEFAULT_K8S_INFORMER_STOP_TIMEOUT_SECONDS) -> None:
+        """Stop the informer, interrupting the watch stream and joining the worker thread."""
         self._running = False
-        if self._watcher:
+        watcher = self._watcher
+        if watcher is not None:
             try:
-                self._watcher.stop()
+                watcher.stop()
             except Exception as exc:
                 logger.debug("Failed to stop watcher: %s", exc)
+
+        thread, self._watch_thread = self._watch_thread, None
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=timeout)
+            if thread.is_alive():
+                logger.debug(
+                    "Informer thread %s did not exit within %.1fs of stop()", thread.name, timeout
+                )
 
     def _run_watch_loop(self, on_event: Callable[[K8sEvent], None] | None) -> None:
         """Internal background loop reconnecting watch streams on timeout."""
@@ -151,11 +169,16 @@ class ResourceInformer:
         )
 
     def _update_cache(self, event: K8sEvent, obj: Any) -> None:
-        """Update in-memory resource map based on event type."""
+        """Update the in-memory resource map, evicting oldest entries beyond the cache cap."""
         with self._lock:
             key = f"{event.namespace}/{event.name}"
             if event.event_type == CONST_K8S_EVENT_DELETED:
                 self._cache.pop(key, None)
             elif obj is not None:
+                # Re-insert so the mapping stays ordered oldest-first for FIFO eviction.
+                self._cache.pop(key, None)
                 self._cache[key] = obj
+                while len(self._cache) > DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES:
+                    evicted, _ = self._cache.popitem(last=False)
+                    logger.debug("Informer cache at capacity; evicted oldest entry %s", evicted)
             self._synced = True

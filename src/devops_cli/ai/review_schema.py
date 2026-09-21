@@ -23,6 +23,11 @@ from devops_cli.config import (
     DEFAULT_REVIEW_MAX_TITLE_LENGTH,
     DEFAULT_REVIEW_TITLE_SIMILARITY_THRESHOLD,
 )
+from devops_cli.config.constants import (
+    REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD,
+    REVIEW_GENERIC_SYMBOL_STOPWORDS,
+    REVIEW_STRONG_SYMBOL_MIN_LENGTH,
+)
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (
     DependencySpec,
@@ -495,6 +500,62 @@ def _parse_location(location: str) -> tuple[str, int | None, int | None]:
     return file_part, s_line, e_line
 
 
+def _extract_code_symbols(text: str) -> set[str]:
+    """Extract the distinctive code identifiers named in a piece of review prose."""
+    symbols: set[str] = set()
+
+    # Backtick-quoted identifiers and dotted paths.
+    for raw in re.findall(r"`([^`\n]{2,80})`", text):
+        symbols.update(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", raw))
+    # Bare identifiers written in call form, or carrying an underscore.
+    symbols.update(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(\)", text))
+    symbols.update(re.findall(r"\b(_[A-Za-z0-9_]+|[A-Za-z0-9]+_[A-Za-z0-9_]+)\b", text))
+
+    return {
+        s.lower()
+        for s in symbols
+        if len(s) > 2 and s.lower() not in REVIEW_GENERIC_SYMBOL_STOPWORDS
+    }
+
+
+def _is_distinctive_symbol_overlap(shared: set[str]) -> bool:
+    """Report whether a shared symbol set is specific enough to identify one defect."""
+    if not shared:
+        return False
+    # A single shared symbol only counts when it is specific (private, snake_case, or
+    # long); otherwise require corroboration from a second shared symbol.
+    strong = any("_" in s or len(s) >= REVIEW_STRONG_SYMBOL_MIN_LENGTH for s in shared)
+    return strong or len(shared) > 1
+
+
+def _share_distinctive_symbol(primary: Finding, candidate: Finding) -> bool:
+    """Report whether two findings describe the same defect in the same code symbol.
+
+    A symbol named in both *titles* is strong evidence on its own. A symbol shared only
+    in the bodies is usually just the enclosing function both findings happen to sit
+    inside, so it additionally requires the two descriptions to tell a similar story;
+    otherwise genuinely different defects sharing one call site would be collapsed.
+    """
+    if _is_distinctive_symbol_overlap(
+        _extract_code_symbols(primary.title) & _extract_code_symbols(candidate.title)
+    ):
+        return True
+
+    body_shared = _extract_code_symbols(primary.description) & _extract_code_symbols(
+        candidate.description
+    )
+    if not _is_distinctive_symbol_overlap(body_shared):
+        return False
+
+    primary_body = _tokenize_title(primary.description)
+    candidate_body = _tokenize_title(candidate.description)
+    union = primary_body | candidate_body
+    if not union:
+        return False
+    overlap = len(primary_body & candidate_body) / len(union)
+    return overlap >= REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD
+
+
 def _are_findings_duplicate(primary: Finding, candidate: Finding) -> bool:
     """Determine if two findings describe the same underlying issue across personas or segments."""
     primary_file, primary_start, primary_end = _parse_location(primary.location)
@@ -540,6 +601,16 @@ def _are_findings_duplicate(primary: Finding, candidate: Finding) -> bool:
             and len(intersection) / min(len(primary_tokens), len(candidate_tokens)) >= 0.5
         ):
             return True
+
+    # Personas frequently cite the same defect at different line ranges, because each
+    # reviews a different segment of the file or quotes the enclosing block rather than
+    # the offending line. Title wording alone therefore under-merges, so fall back to
+    # two range-independent signals.
+    if jaccard >= TITLE_SIMILARITY_THRESHOLD:
+        return True
+
+    if same_line_range and _share_distinctive_symbol(primary, candidate):
+        return True
 
     return False
 

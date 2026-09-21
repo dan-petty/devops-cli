@@ -22,7 +22,7 @@ from enum import StrEnum
 from pathlib import Path
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.constants import CONST_HALLUCINATIONS_FILE_NAME
@@ -297,23 +297,47 @@ _BUILTIN_HALLUCINATIONS_FILE = Path(__file__).resolve().parent / "common_halluci
 
 
 def _build_builtin_hallucinations() -> list[CommonHallucinationEntry]:
-    """Load baseline verified common hallucinations catalog from JSON file."""
-    if _BUILTIN_HALLUCINATIONS_FILE.exists() and _BUILTIN_HALLUCINATIONS_FILE.is_file():
+    """Load the baseline verified common hallucinations catalog from its JSON file.
+
+    Entries are validated individually: a single malformed record must never discard the
+    whole baseline, because silently falling back to an empty builtin catalog leaves only
+    auto-learned entries active and degrades verification without any visible signal.
+    """
+    if not (_BUILTIN_HALLUCINATIONS_FILE.exists() and _BUILTIN_HALLUCINATIONS_FILE.is_file()):
+        logger.warning(
+            "Builtin hallucinations catalog missing at %s; verification will rely solely "
+            "on auto-learned entries",
+            _BUILTIN_HALLUCINATIONS_FILE,
+        )
+        return []
+
+    try:
+        data = json.loads(_BUILTIN_HALLUCINATIONS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(
+            "Failed reading builtin hallucinations from %s: %s", _BUILTIN_HALLUCINATIONS_FILE, exc
+        )
+        return []
+
+    if not isinstance(data, list):
+        logger.warning(
+            "Builtin hallucinations catalog at %s is not a JSON list", _BUILTIN_HALLUCINATIONS_FILE
+        )
+        return []
+
+    entries: list[CommonHallucinationEntry] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
         try:
-            data = json.loads(_BUILTIN_HALLUCINATIONS_FILE.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                return [
-                    CommonHallucinationEntry.model_validate(item)
-                    for item in data
-                    if isinstance(item, dict)
-                ]
-        except Exception as exc:
-            logger.debug(
-                "Failed loading builtin hallucinations from %s: %s",
-                _BUILTIN_HALLUCINATIONS_FILE,
+            entries.append(CommonHallucinationEntry.model_validate(item))
+        except ValidationError as exc:
+            logger.warning(
+                "Skipping malformed builtin hallucination entry %r: %s",
+                item.get("id", "<unknown>"),
                 exc,
             )
-    return []
+    return entries
 
 
 # ── File Path & Storage Helpers ──────────────────────────────────────────────
@@ -443,17 +467,52 @@ def _check_file_pattern_match(file_name: str, patterns: list[str]) -> bool:
     )
 
 
+def _synthesize_compound_signature(keywords: list[str]) -> list[str]:
+    """Build a signature requiring two distinctive keywords to co-occur, or none at all."""
+    distinctive = [kw for kw in keywords if _is_distinctive_signature_token(kw)]
+    if len(distinctive) < 2:
+        return []
+    first, second = re.escape(distinctive[0]), re.escape(distinctive[1])
+    return [rf"(?=.*\b{first}\b)(?=.*\b{second}\b)"]
+
+
+def _is_distinctive_signature_token(token: str) -> bool:
+    """Report whether a token is specific enough to appear in a suppression signature."""
+    clean = token.lower().strip()
+    return bool(clean) and clean not in _FORBIDDEN_COMMON_WORDS and len(clean) > 4
+
+
+def _is_degenerate_signature(pattern: str) -> bool:
+    """Detect a signature that is a bare prose word rather than a code identifier.
+
+    Auto-learning previously persisted single English words such as ``unvalidated``,
+    ``traversal``, and ``unbounded`` as complete signatures. Those match nearly every
+    genuine security finding, so they are rejected at match time rather than requiring a
+    data migration of catalogues already written to disk.
+
+    A bare *code identifier* remains a valid signature: ``DEFAULT_HTTP_BROKER`` and
+    ``FastMCP`` name one specific symbol, whereas an all-lowercase alphabetic word is
+    prose and cannot distinguish a false alarm from a real defect.
+    """
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_\-]*", pattern):
+        return False
+    # Underscores, digits, hyphens, or internal capitals mark a code identifier.
+    return pattern.islower() and pattern.isalpha()
+
+
 def _check_signature_match(finding_text: str, signatures: list[str]) -> list[str]:
-    """Evaluate if finding text matches any of the explicit signature regexes, returning matched text."""
+    """Evaluate if finding text matches any explicit signature regex, returning matched text."""
     matches: list[str] = []
     for pattern in signatures:
+        if _is_degenerate_signature(pattern):
+            logger.debug("Ignoring degenerate bare-word hallucination signature %r", pattern)
+            continue
         try:
             m = re.search(pattern, finding_text, re.IGNORECASE)
             if m:
-                matches.append(m.group(0))
+                matches.append(m.group(0) or pattern)
         except re.error:
-            if pattern.lower() in finding_text.lower():
-                matches.append(pattern)
+            logger.debug("Skipping invalid hallucination signature regex %r", pattern)
     return matches
 
 
@@ -950,8 +1009,12 @@ def auto_record_invalidated_finding(
     loc_file = finding.location.split(":")[0].strip()
     file_pat = [f"*{Path(loc_file).suffix}"] if loc_file and Path(loc_file).suffix else ["*"]
 
-    # Synthesize a safe signature pattern from distinctive keywords
-    sig = [re.escape(safe_keywords[0])]
+    # Synthesize a compound signature requiring two distinctive keywords to co-occur.
+    # A single bare word (e.g. "unvalidated", "traversal", "unbounded") matches nearly
+    # every genuine security finding, so learning one would suppress true positives.
+    # With fewer than two distinctive keywords, emit no signature at all and rely on
+    # compound keyword matching, which already enforces the common-word guard.
+    sig = _synthesize_compound_signature(safe_keywords)
 
     new_entry = CommonHallucinationEntry(
         id=f"HALLUCINATION-AUTO-{uuid4().hex[:8].upper()}",
