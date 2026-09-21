@@ -719,3 +719,8 @@ DEFAULT_DASHBOARD_STALE_SECONDS: float = 30.0
 # a terminal can usefully repaint; every line is still retained, only the drawing is
 # coalesced, which is what keeps the UI thread free under load.
 DEFAULT_LOG_REDRAW_INTERVAL_SECONDS: float = 0.05
+
+# ── Telemetry Span Buffer ───────────────────────────────────────────────────
+# Completed spans retained in memory for the waterfall view and offline inspection.
+# Bounded so a long-running command cannot grow the buffer without limit.
+DEFAULT_SPAN_BUFFER_MAX_SPANS: int = 1000

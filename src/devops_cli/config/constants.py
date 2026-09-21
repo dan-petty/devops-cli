@@ -1260,3 +1260,22 @@ CONST_DASHBOARD_DOMAIN_LABELS: Final[dict[str, str]] = {
 # Tab holding the streamed log pane. Not a data domain: it has no provider and is filled
 # by selecting a pod rather than by the refresh cycle.
 CONST_LOGS_TAB_ID: Final[str] = "tab-logs"
+
+# ── W3C Trace Context ────────────────────────────────────────────────────────
+# https://www.w3.org/TR/trace-context/
+CONST_TRACEPARENT_VERSION: Final[str] = "00"
+# Version "ff" is reserved by the specification and must never be accepted.
+CONST_TRACEPARENT_INVALID_VERSION: Final[str] = "ff"
+CONST_TRACE_ID_HEX_LENGTH: Final[int] = 32
+CONST_SPAN_ID_HEX_LENGTH: Final[int] = 16
+CONST_TRACE_FLAGS_HEX_LENGTH: Final[int] = 2
+CONST_TRACE_FLAG_SAMPLED: Final[str] = "01"
+CONST_TRACE_FLAG_NOT_SAMPLED: Final[str] = "00"
+# HTTP headers are lowercase; process environment variables are uppercase. Using one
+# spelling for both is what lets an injected value be shadowed by an inherited one.
+CONST_TRACEPARENT_HEADER: Final[str] = "traceparent"
+CONST_TRACESTATE_HEADER: Final[str] = "tracestate"
+CONST_TRACEPARENT_ENV_VAR: Final[str] = "TRACEPARENT"
+CONST_TRACESTATE_ENV_VAR: Final[str] = "TRACESTATE"
+# The specification caps tracestate at 32 list members.
+CONST_TRACESTATE_MAX_MEMBERS: Final[int] = 32
