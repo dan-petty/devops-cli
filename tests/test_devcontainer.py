@@ -584,8 +584,9 @@ class TestDevcontainerCli:
         assert (
             "anthropic.claude-code" in vscode_exts,
             "anthropic.claude-code" in antigravity_exts,
+            "ghcr.io/devcontainers/features/node:1" in features,
             "ghcr.io/anthropics/devcontainer-features/claude-code:1" in features,
-        ) == (True, True, True)
+        ) == (True, True, True, True)
 
     def test_run_lifecycle_command_executes_hooks(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
