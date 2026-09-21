@@ -2669,6 +2669,57 @@ devops scan fix [OPTIONS] <target>
 | `--create-branch`, `-b` | `boolean` | - | Create a git topic branch for the remediation |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops scan report`
+
+**Run every registered scanner and report deduplicated, correlated findings.**
+
+```bash
+devops scan report [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or file to scan with all registered scanners. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--scanner`, `-s` | `string` | - | Limit the run to these scanners (repeatable). Defaults to all registered. |
+| `--sarif` | `path` | - | Write findings to this path as a SARIF 2.1.0 document. |
+| `--min-severity` | `string` | - | Drop findings below this severity (CRITICAL|HIGH|MEDIUM|LOW|INFO). |
+| `--suppress` | `path` | - | Suppression policy file; inherited policies are resolved via 'extends'. |
+| `--show-suppressed` | `boolean` | - | List findings hidden by the suppression policy and the rule that hid them. |
+| `--fail-on` | `string` | - | Exit non-zero when a finding at or above this severity survives suppression. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops scan sarif`
+
+**Ingest a SARIF document from any tool and report it in the unified taxonomy.**
+
+```bash
+devops scan sarif [OPTIONS] <document>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<document>` | `path` | Yes | SARIF document to ingest, from this or any other SARIF-emitting tool. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--min-severity` | `string` | - | Drop findings below this severity (CRITICAL|HIGH|MEDIUM|LOW|INFO). |
+| `--suppress` | `path` | - | Suppression policy file; inherited policies are resolved via 'extends'. |
+| `--show-suppressed` | `boolean` | - | List findings hidden by the suppression policy and the rule that hid them. |
+| `--fail-on` | `string` | - | Exit non-zero when a finding at or above this severity survives suppression. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ---
 
 ## devops ai

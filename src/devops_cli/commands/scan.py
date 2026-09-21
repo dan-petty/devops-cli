@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Annotated
 
@@ -31,9 +32,19 @@ from devops_cli.security.aibom import generate_aibom
 from devops_cli.security.checkov import run_checkov_scan
 from devops_cli.security.complexity import run_complexity_scan
 from devops_cli.security.gitleaks import run_gitleaks_scan
+from devops_cli.security.pipeline import ScanReport, build_report, report_from_findings
+from devops_cli.security.registry import global_scanner_registry
+from devops_cli.security.sarif import SarifError, read_sarif, write_sarif
 from devops_cli.security.sbom import generate_cyclonedx_sbom, generate_spdx_sbom
 from devops_cli.security.semgrep import run_semgrep_scan
+from devops_cli.security.suppression import (
+    SuppressionPolicy,
+    SuppressionPolicyError,
+    load_policy,
+)
 from devops_cli.security.trivy import run_trivy_scan
+
+logger = logging.getLogger(__name__)
 
 app = new_typer(
     help=HELP.scan.app,
@@ -680,3 +691,211 @@ def scan_fix(
     if exec_result.branch_name:
         print_success(f"✓ Changes staged on git branch '{exec_result.branch_name}'")
     return None
+
+
+def _render_report_table(report: ScanReport) -> None:
+    """Render correlated findings, most severe and most corroborated first."""
+    if not report.clusters:
+        print_success(f"No findings at or above the configured threshold in {report.target}.")
+        return
+
+    columns: list[str | tuple[str, str]] = [
+        ("Severity", "bold"),
+        "Location",
+        "Tools",
+        "Rule",
+        "Finding",
+    ]
+    rows: list[list[str]] = []
+    for cluster in report.clusters:
+        representative = cluster.representative
+        colour = _SEV_COLORS.get(cluster.severity, "white")
+        tools = ",".join(cluster.tools)
+        # A count is only worth showing when more than one tool agreed.
+        if cluster.confirmations > 1:
+            tools = f"{tools} ({cluster.confirmations}x)"
+        rows.append(
+            [
+                f"[{colour}]{cluster.severity}[/{colour}]",
+                representative.location or "-",
+                tools,
+                representative.rule_id,
+                representative.message[:80],
+            ]
+        )
+    print_table(f"Security Findings — {report.target}", columns, rows)
+
+    counts = report.counts
+    summary = "  ".join(f"{name}: {counts[name]}" for name in counts)
+    print_muted(summary)
+    if report.duplicates_removed:
+        print_muted(f"{report.duplicates_removed} duplicate finding(s) collapsed.")
+    if report.suppressed:
+        print_muted(f"{len(report.suppressed)} finding(s) hidden by the suppression policy.")
+
+
+def _render_suppressed(report: ScanReport) -> None:
+    """List what the policy hid and which rule hid it."""
+    if not report.suppressed:
+        return
+    columns: list[str | tuple[str, str]] = [("Severity", "bold"), "Location", "Rule", "Reason"]
+    rows = [
+        [finding.severity, finding.location or "-", rule.rule, rule.reason or "-"]
+        for finding, rule in report.suppressed
+    ]
+    print_table("Suppressed Findings", columns, rows)
+
+
+def _warn_expired(report: ScanReport) -> None:
+    """Surface lapsed suppressions, which are no longer hiding anything."""
+    for rule in report.expired_suppressions:
+        print_muted(
+            f"Suppression for '{rule.rule}' expired on {rule.expires}; "
+            f"its findings are being reported again ({rule.source})."
+        )
+
+
+def _load_policy_or_exit(policy_path: Path | None) -> SuppressionPolicy | None:
+    """Load a suppression policy, failing loudly rather than scanning without it.
+
+    Continuing with no policy after being handed one would report findings the operator
+    believes are accepted, training them to ignore the output.
+    """
+    if policy_path is None:
+        return None
+    try:
+        return load_policy(policy_path)
+    except SuppressionPolicyError as exc:
+        print_error(str(exc))
+        raise typer.Exit(2) from exc
+
+
+@app.command("report")
+def scan_report(
+    target: Annotated[
+        Path,
+        typer.Argument(help=HELP.scan.target_report),
+    ] = DEFAULT_CURRENT_PATH,
+    scanners: Annotated[
+        list[str] | None,
+        typer.Option("--scanner", "-s", help=HELP.scan.scanners),
+    ] = None,
+    sarif: Annotated[
+        Path | None,
+        typer.Option("--sarif", help=HELP.scan.sarif_output),
+    ] = None,
+    min_severity: Annotated[
+        str | None,
+        typer.Option("--min-severity", help=HELP.scan.min_severity),
+    ] = None,
+    suppress: Annotated[
+        Path | None,
+        typer.Option("--suppress", help=HELP.scan.suppression_policy),
+    ] = None,
+    show_suppressed: Annotated[
+        bool,
+        typer.Option("--show-suppressed", help=HELP.scan.show_suppressed),
+    ] = False,
+    fail_on: Annotated[
+        str | None,
+        typer.Option("--fail-on", help=HELP.scan.fail_on),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Run every registered scanner and report deduplicated, correlated findings."""
+    set_dry_run(dry_run)
+    target_abs = target.resolve() if target.exists() else target
+    policy = _load_policy_or_exit(suppress)
+
+    registry = global_scanner_registry
+    selected = scanners or registry.list_scanners()
+    unknown = [name for name in selected if registry.get(name) is None]
+    if unknown:
+        print_error(f"Unknown scanner(s): {', '.join(sorted(unknown))}")
+        raise typer.Exit(2)
+
+    results: dict[str, list[Finding]] = {}
+    for name in selected:
+        scanner = registry.get(name)
+        if scanner is None:
+            continue
+        try:
+            results[name] = scanner.scan(target_abs)
+        except Exception as exc:
+            # One failing scanner must not discard every other scanner's findings.
+            logger.debug("Scanner '%s' failed during report: %s", name, exc)
+            results[name] = []
+
+    report = build_report(results, target_abs, policy=policy, min_severity=min_severity)
+
+    if sarif is not None:
+        write_sarif(report.findings, sarif)
+
+    if json_output:
+        write_stdout(format_json(report.as_dict()))
+    else:
+        _render_report_table(report)
+        _warn_expired(report)
+        if show_suppressed:
+            _render_suppressed(report)
+        if sarif is not None:
+            print_success(f"SARIF document written to {sarif}")
+
+    if fail_on and report.exceeds(fail_on):
+        raise typer.Exit(1)
+
+
+@app.command("sarif")
+def scan_sarif(
+    document: Annotated[
+        Path,
+        typer.Argument(help=HELP.scan.sarif_import),
+    ],
+    min_severity: Annotated[
+        str | None,
+        typer.Option("--min-severity", help=HELP.scan.min_severity),
+    ] = None,
+    suppress: Annotated[
+        Path | None,
+        typer.Option("--suppress", help=HELP.scan.suppression_policy),
+    ] = None,
+    show_suppressed: Annotated[
+        bool,
+        typer.Option("--show-suppressed", help=HELP.scan.show_suppressed),
+    ] = False,
+    fail_on: Annotated[
+        str | None,
+        typer.Option("--fail-on", help=HELP.scan.fail_on),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+) -> None:
+    """Ingest a SARIF document from any tool and report it in the unified taxonomy."""
+    policy = _load_policy_or_exit(suppress)
+    try:
+        findings = read_sarif(document)
+    except SarifError as exc:
+        print_error(str(exc))
+        raise typer.Exit(2) from exc
+
+    report = report_from_findings(findings, str(document), policy=policy, min_severity=min_severity)
+
+    if json_output:
+        write_stdout(format_json(report.as_dict()))
+    else:
+        _render_report_table(report)
+        _warn_expired(report)
+        if show_suppressed:
+            _render_suppressed(report)
+
+    if fail_on and report.exceeds(fail_on):
+        raise typer.Exit(1)

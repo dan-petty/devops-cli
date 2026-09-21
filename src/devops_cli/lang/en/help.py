@@ -876,6 +876,22 @@ class ScanCommandHelp:
     aibom_format: str = "AIBOM format output (cyclonedx, json)."
     aibom_output: str = "Destination file path for generated AIBOM manifest."
     framework: str = "Specific IaC framework (e.g. terraform)."
+    report: str = (
+        "Run every registered scanner, deduplicate and correlate findings across tools, "
+        "and report or export them as SARIF."
+    )
+    target_report: str = "Target directory or file to scan with all registered scanners."
+    scanners: str = "Limit the run to these scanners (repeatable). Defaults to all registered."
+    sarif_output: str = "Write findings to this path as a SARIF 2.1.0 document."
+    sarif_import: str = "SARIF document to ingest, from this or any other SARIF-emitting tool."
+    min_severity: str = "Drop findings below this severity (CRITICAL|HIGH|MEDIUM|LOW|INFO)."
+    suppression_policy: str = (
+        "Suppression policy file; inherited policies are resolved via 'extends'."
+    )
+    show_suppressed: str = (
+        "List findings hidden by the suppression policy and the rule that hid them."
+    )
+    fail_on: str = "Exit non-zero when a finding at or above this severity survives suppression."
 
 
 @dataclass(frozen=True)
