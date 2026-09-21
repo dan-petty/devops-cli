@@ -452,6 +452,14 @@ class CICommandHelp:
     filter_keyword: str = "Filter tests by keyword expression."
     stop_fail: str = "Stop after first failure."
     num_workers: str = "Number of parallel worker processes."
+    test_paths: str = (
+        "Source or test files to verify. Narrows the run to covering tests; "
+        "omit to run the full suite."
+    )
+    selection_fallback: str = (
+        "Run the full suite when a changed source has no covering tests, rather than "
+        "reporting success without verifying it."
+    )
     html_report: str = "Generate HTML coverage report in .data/htmlcov/."
     xml_report: str = "Generate XML coverage report in .data/coverage.xml."
     auto_fix: str = "Auto-fix violations where possible."

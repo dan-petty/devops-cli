@@ -251,7 +251,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops config auth-headless <key> <token>` | Load secret tokens into ephemeral memory for headless CI environments lacking DBus. |
 |  | `devops config audit-stream <destination>` | Stream stored audit records to SIEM destination URL. |
 |  | `devops config audit-keys [OPTIONS]` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. |
-| **ci** | `devops ci test [OPTIONS]` | Run the pytest test suite in parallel leveraging all CPU cores. |
+| **ci** | `devops ci test [OPTIONS] <paths>` | Run the test suite, or only the tests covering the given source files. |
 |  | `devops ci coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
 |  | `devops ci lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 |  | `devops ci format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |

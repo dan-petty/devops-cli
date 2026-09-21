@@ -635,6 +635,18 @@ class ArgoMessages:
 @dataclass(frozen=True)
 class CIMessages:
     python_version_check: str = "python version check (3.14+)"
+    no_covering_tests: str = (
+        "No covering tests found for: {files}. Changed code without a covering test "
+        "cannot be verified by a narrowed run."
+    )
+    no_testable_files: str = "No source or test files supplied; nothing to verify."
+    selection_fallback: str = (
+        "Falling back to the full suite because the changed sources map to no tests."
+    )
+    selection_empty: str = (
+        "Refusing to report success without running any tests. Re-run with --fallback "
+        "to verify via the full suite, or add a covering test."
+    )
     pytest_coverage: str = "pytest & coverage"
     ruff_check: str = "ruff check"
     ruff_format: str = "ruff format"

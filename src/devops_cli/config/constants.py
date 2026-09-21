@@ -731,6 +731,13 @@ CONST_VAULT_PATH_TRANSIT_DECRYPT: Final[str] = "transit/decrypt"
 # Default in-cluster ServiceAccount token projected into every Kubernetes pod.
 CONST_KUBERNETES_SA_TOKEN_PATH: Final[str] = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 
+# ── Source & Test Tree Layout ────────────────────────────────────────────────
+# Repository layout conventions used to map changed sources onto covering tests.
+CONST_SOURCE_ROOT_DIR: Final[str] = "src"
+CONST_TESTS_ROOT_DIR: Final[str] = "tests"
+CONST_TEST_FILE_PREFIX: Final[str] = "test_"
+CONST_PYTHON_FILE_SUFFIX: Final[str] = ".py"
+
 # ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
 # HCL configuration file extensions recognised by Terraform and OpenTofu.
 CONST_HCL_FILE_EXTENSIONS: Final[tuple[str, ...]] = (".tf",)
