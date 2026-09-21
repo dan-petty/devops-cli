@@ -79,7 +79,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Deep Integration & Functional Extension*: Native gRPC and REST client integration directly with the ArgoCD API server; direct Kubernetes Custom Resource Definition (`Application`, `ApplicationSet`, `Rollout`) manipulation; automated Canary rollout analysis verifying Prometheus SLO thresholds during progressive delivery.
   - *Code Optimization & Performance Acceleration*: Eliminate external CLI binary prerequisites across CI runners and developer workstations; execute multi-application fleet synchronization queries in parallel over a single multiplexed HTTP/2 connection.
   - *Refactoring Potential & Legacy Elimination*: Consolidate `src/devops_cli/commands/argo.py` into a declarative GitOps engine; replace shell returncode checks with typed gRPC status exceptions; eliminate procedural sync polling loops.
-- [ ] **Terraform & OpenTofu HCL AST Analysis, State Introspection & Drift Optimization Research (P1 - High, Issue #310)**:
+- [x] **Terraform & OpenTofu HCL AST Analysis, State Introspection & Drift Optimization Research (P1 - High, Issue #310)**:
   - *Context & Rationale*: Infrastructure as Code commands execute full `tofu` / `terraform` binary runs for static checks, incurring substantial startup latency and disk I/O for simple plan and drift inspections.
   - *Deep Integration & Functional Extension*: In-process HCL AST parsing (`python-hcl2`) and state file JSON schema introspection (`terraform.tfstate`) to inspect resource graphs, analyze attribute references, detect configuration drift, and calculate cost estimations without spawning binary CLI processes for read-only queries.
   - *Code Optimization & Performance Acceleration*: Accelerate IaC drift detection and configuration linting by 90%+ by bypassing CLI binary initialization; construct direct topological resource DAGs in memory for instant blast-radius visualization.
@@ -482,7 +482,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | MCP Resource-First Data Access & Tool Output Sandboxing | FastMCP / MCP Resources | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
 |  | Docker Engine Socket API & Layer Caching Introspection Research | Docker Engine / BuildKit | High | Medium | v0.2.22 | ✅ Completed (P1) |
 |  | ArgoCD Server API, CRD Reconciliation & Canary Verification Research | ArgoCD / Rollouts | High | Medium | v0.2.22 | ✅ Completed (P1) |
-|  | Terraform & OpenTofu HCL AST Analysis & Drift Optimization Research | OpenTofu / HCL AST | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | Terraform & OpenTofu HCL AST Analysis & Drift Optimization Research | OpenTofu / HCL AST | High | Medium | v0.2.22 | ✅ Completed (P1) |
 |  | HashiCorp Vault Native Client, Dynamic Leases & Envelope Encryption Research | Vault / HVAC / Keyring | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 |  | Valkey & Redis RESP3 Connection Pooling & Tiered L1/L2 Cache Research | Valkey / RESP3 / Redis | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 |  | Qdrant Vector Engine Async Connection Pooling & Quantization Research | Qdrant / Hybrid Search | High | Medium | v0.2.22 | 📋 Scheduled (P1) |

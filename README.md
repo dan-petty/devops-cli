@@ -369,6 +369,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops tf validate [OPTIONS] <directory>` | Validate the OpenTofu configuration files in a directory. |
 |  | `devops tf fmt [OPTIONS] <directory>` | Rewrites OpenTofu configuration files to canonical format. |
 |  | `devops tf status <directory>` | Show OpenTofu directory state, initialization status, and provider plugins. |
+|  | `devops tf graph [OPTIONS] <directory>` | Inspect the in-memory resource dependency graph and blast radius. |
+|  | `devops tf drift [OPTIONS] <directory>` | Compare declared configuration against recorded state. |
 |  | `devops tf deploy-cloud [OPTIONS]` | Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP. |
 |  | `devops tf lint [OPTIONS] <directory>` | Run TFLint static analysis on Terraform/OpenTofu configurations. |
 |  | `devops tf notify-plan [OPTIONS]` | Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments. |

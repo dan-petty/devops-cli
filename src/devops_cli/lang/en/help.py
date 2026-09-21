@@ -386,6 +386,9 @@ class TfCommandHelp:
     check_fmt: str = "Check formatting without writing files."
     recursive_fmt: str = "Format subdirectories recursively."
     no_color: str = "Disable color codes."
+    graph: str = "Inspect the in-memory resource dependency graph and blast radius."
+    drift: str = "Compare declared configuration against recorded state."
+    resource_address: str = "Resource address to compute blast radius for, e.g. aws_vpc.main."
     tflint_config: str = "Path to .tflint.hcl config file."
     tflint_dry_run: str = "Simulate TFLint execution."
 
