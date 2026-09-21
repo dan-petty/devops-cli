@@ -1,22 +1,27 @@
-"""Docker command group (Docker SDK)."""
+"""Docker command group (Engine API over the daemon socket)."""
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 
+from devops_cli.config.constants import (
+    CONST_DOCKER_CPU_CRITICAL_PERCENT,
+    CONST_DOCKER_CPU_WARNING_PERCENT,
+)
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
-    DEFAULT_DOCKER_TIMEOUT_SECONDS,
     DEFAULT_SANDBOX_NETWORK,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.docker.engine import DockerEngineService, get_engine
 from devops_cli.dry_run import is_dry_run
+from devops_cli.exceptions.docker import DockerError
 from devops_cli.lang import ERRORS, HELP, MESSAGES
+from devops_cli.models.docker import BuildCacheReport, ContainerStatEntry
 from devops_cli.output import (
     TablePayload,
     format_docker_stats_table,
@@ -37,28 +42,19 @@ app = new_typer(help=HELP.docker.app, no_args_is_help=True)
 
 
 # =============================================================================
-# Docker SDK Client Connection Helper
+# Docker Engine API Connection Helper
 # =============================================================================
 
 
-def _client() -> Any:
+def _engine() -> DockerEngineService:
+    """Resolve the shared Engine API service, surfacing daemon failures as CLI errors."""
+    engine = get_engine()
     try:
-        import docker  # type: ignore[import-untyped]
-        from docker.errors import DockerException  # type: ignore[import-untyped]
-
-        docker_host = os.environ.get("DOCKER_HOST", "").strip()
-        if docker_host.startswith(("tcp://", "http://", "https://")):
-            from devops_cli.config.settings import load_settings
-            from devops_cli.core.validation import validate_service_url
-
-            settings = load_settings()
-            http_url = docker_host.replace("tcp://", "http://", 1)
-            validate_service_url(http_url, "Docker Host", allow=settings.ai.allow_private_network)
-
-        return docker.from_env(timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS))
-    except (ImportError, DockerException, ValueError) as exc:
+        engine.client()
+    except DockerError as exc:
         print_error(ERRORS.docker.cannot_connect.format(exc=exc), prefix=False)
         raise typer.Exit(1)
+    return engine
 
 
 # =============================================================================
@@ -78,8 +74,7 @@ def list_images(
             details={"name_filter": name},
         )
         return
-    client = _client()
-    images = client.images.list(name=name)
+    images = _engine().list_images(name=name)
 
     rows: list[list[str]] = []
     for image in images:
@@ -123,7 +118,7 @@ def build(
             },
         )
         return
-    client = _client()
+    client = _engine().client()
     kwargs: dict[str, Any] = {"path": str(context), "rm": True, "nocache": no_cache}
     if tag:
         kwargs["tag"] = tag
@@ -162,7 +157,7 @@ def push(
     if not re.match(r"^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*(?::[a-zA-Z0-9_.-]+)?$", image):
         print_error(ERRORS.docker.invalid_image_name.format(image=image), prefix=False)
         raise typer.Exit(1)
-    client = _client()
+    client = _engine().client()
     print_info(MESSAGES.docker.pushing_image.format(image=image), prefix=False)
     for chunk in client.images.push(image, stream=True, decode=True):
         if "status" in chunk and "progressDetail" not in chunk:
@@ -198,7 +193,7 @@ def prune(
             "Remove all unused containers, images, and networks?",
             abort=True,
         )
-    client = _client()
+    client = _engine().client()
     result = client.system.prune(volumes=volumes)
     if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], dict):
         reclaimed_bytes = sum(result[1].values())
@@ -215,56 +210,37 @@ def prune(
 # =============================================================================
 
 
-def _parse_docker_stats_row(container: Any) -> list[str]:
-    """Extract a single Rich table row from a running Docker container stats stream."""
-    name = container.name
-    stats = container.stats(stream=False)
-    cpu_stats = stats.get("cpu_stats", {})
-    precpu_stats = stats.get("precpu_stats", {})
-    memory_stats = stats.get("memory_stats", {})
-    networks = stats.get("networks", {})
+def _cpu_color(cpu_percentage: float) -> str:
+    """Select the utilisation severity colour for a CPU percentage."""
+    if cpu_percentage > CONST_DOCKER_CPU_CRITICAL_PERCENT:
+        return "red"
+    return "yellow" if cpu_percentage > CONST_DOCKER_CPU_WARNING_PERCENT else "green"
 
-    cpu_delta = cpu_stats.get("cpu_usage", {}).get("total_usage", 0) - precpu_stats.get(
-        "cpu_usage", {}
-    ).get("total_usage", 0)
-    system_delta = cpu_stats.get("system_cpu_usage", 0) - precpu_stats.get("system_cpu_usage", 0)
-    num_cpus = cpu_stats.get("online_cpus") or len(
-        cpu_stats.get("cpu_usage", {}).get("percpu_usage", [1])
-    )
-    cpu_pct = (cpu_delta / system_delta * num_cpus * 100.0) if system_delta > 0 else 0.0
 
-    mem_usage = memory_stats.get("usage", 0)
-    mem_cache = memory_stats.get("stats", {}).get("cache", 0)
-    mem_net = mem_usage - mem_cache
-    mem_limit = memory_stats.get("limit", 0)
-
-    net_rx = sum(v.get("rx_bytes", 0) for v in networks.values())
-    net_tx = sum(v.get("tx_bytes", 0) for v in networks.values())
-
-    cpu_color = "red" if cpu_pct > 80 else ("yellow" if cpu_pct > 50 else "green")
+def _stats_row(sample: ContainerStatEntry) -> list[str]:
+    """Render a typed container resource sample as a Rich table row."""
+    color = _cpu_color(sample.cpu_percentage)
     return [
-        name,
-        f"[{cpu_color}]{cpu_pct:.1f}%[/{cpu_color}]",
-        f"{_format_bytes(mem_net)} / {_format_bytes(mem_limit)}",
-        f"{_format_bytes(net_rx)} / {_format_bytes(net_tx)}",
+        sample.name,
+        f"[{color}]{sample.cpu_percentage:.1f}%[/{color}]",
+        f"{_format_bytes(sample.memory_usage_bytes)} / {_format_bytes(sample.memory_limit_bytes)}",
+        f"{_format_bytes(sample.net_io_in_bytes)} / {_format_bytes(sample.net_io_out_bytes)}",
     ]
 
 
 def _build_docker_stats_table(name_filter: str | None) -> TablePayload:
-    """Build a TablePayload of live Docker container statistics."""
-    client = _client()
+    """Build a TablePayload of live Docker container statistics from the Engine API."""
+    engine = _engine()
     try:
-        containers = client.containers.list(filters={"name": name_filter} if name_filter else None)
-    except Exception:
+        containers = engine.list_containers(name=name_filter)
+    except DockerError:
         containers = []
 
     rows: list[list[str]] = []
-
     for container in containers:
         try:
-            row = _parse_docker_stats_row(container)
-            rows.append(list(row))
-        except Exception:
+            rows.append(_stats_row(engine.container_stats(container.container_id)))
+        except DockerError:
             rows.append([container.name, "—", "—", "—"])
 
     return format_docker_stats_table(rows)
@@ -299,6 +275,80 @@ def stats(
         from devops_cli.output import print
 
         print(_build_docker_stats_table(name))
+
+
+# =============================================================================
+# Command: devops docker cache
+# =============================================================================
+
+
+def _build_cache_rows(report: BuildCacheReport) -> list[list[str]]:
+    """Render BuildKit cache records as Rich table rows ordered by descending size."""
+    ordered = sorted(report.records, key=lambda record: record.size_bytes, reverse=True)
+    return [
+        [
+            record.cache_id[:12],
+            record.cache_type or "—",
+            _format_bytes(record.size_bytes),
+            str(record.usage_count),
+            "yes" if record.in_use else "no",
+            "yes" if record.shared else "no",
+            record.description[:60] or "—",
+        ]
+        for record in ordered
+    ]
+
+
+@app.command("cache")
+def build_cache(
+    prune: Annotated[bool, typer.Option("--prune", help=HELP.docker.prune_cache)] = False,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Introspect BuildKit multi-stage layer cache occupancy, reuse, and reclaimable space."""
+    from devops_cli.output import format_json
+
+    if dry_run or is_dry_run():
+        render_dry_run_result(
+            command="devops docker cache",
+            action="docker_build_cache_introspect",
+            details={"prune": prune},
+        )
+        return
+
+    engine = _engine()
+    report = engine.build_cache()
+
+    if json_output:
+        write_stdout(format_json(report.model_dump()) + "\n")
+        return
+
+    print_table(
+        title=MESSAGES.docker.table_title_build_cache,
+        columns=[
+            ("ID", "cyan"),
+            "Type",
+            ("Size", "right"),
+            ("Uses", "right"),
+            "In Use",
+            "Shared",
+            "Step",
+        ],
+        rows=_build_cache_rows(report),
+    )
+    print_info(
+        MESSAGES.docker.build_cache_summary.format(
+            total=_format_bytes(report.total_bytes),
+            reclaimable=_format_bytes(report.reclaimable_bytes),
+            reuse=report.reuse_ratio * 100,
+            in_use=report.in_use_count,
+            shared=report.shared_count,
+        )
+    )
+
+    if prune:
+        reclaimed = engine.prune_build_cache()
+        print_success(MESSAGES.docker.build_cache_pruned.format(reclaimed=_format_bytes(reclaimed)))
 
 
 # =============================================================================

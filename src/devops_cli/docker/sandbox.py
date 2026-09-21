@@ -13,17 +13,19 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from devops_cli.config.constants import (
     CONST_SANDBOX_DOCKER_INTERNAL_NET,
     CONST_SANDBOX_SENSITIVE_SUBPATHS,
+    CONST_SANDBOX_TIMEOUT_EXIT_CODE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
-    DEFAULT_DOCKER_TIMEOUT_SECONDS,
     DEFAULT_SANDBOX_CPUS,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
     DEFAULT_SANDBOX_IMAGE,
     DEFAULT_SANDBOX_MEMORY,
     DEFAULT_SANDBOX_NETWORK,
+    DEFAULT_SANDBOX_PIDS_LIMIT,
 )
-from devops_cli.core.process import run_subprocess
+from devops_cli.docker.engine import decode_stream as _decode_logs
+from devops_cli.docker.engine import get_engine
 from devops_cli.exceptions.docker import DockerSandboxError
 from devops_cli.sandbox.engine import is_home_or_subpath
 from devops_cli.sandbox.models import SandboxNetworkConfig, SandboxNetworkMode
@@ -32,76 +34,13 @@ from devops_cli.telemetry import trace_span
 logger = logging.getLogger(__name__)
 
 
-def _get_docker_client() -> Any:
-    """Connect to the local or remote Docker daemon via Docker SDK."""
-    import docker  # type: ignore[import-untyped]
-
-    return docker.from_env(timeout=int(DEFAULT_DOCKER_TIMEOUT_SECONDS))
-
-
-def _is_internal_network_sdk(client: Any, net_name: str) -> bool:
-    """Check if existing Docker network via SDK is an internal bridge."""
-    try:
-        net = client.networks.get(net_name)
-        attrs = getattr(net, "attrs", {}) or {}
-        if attrs.get("Internal") is True:
-            return True
-        try:
-            net.remove()
-        except Exception:
-            pass
-    except Exception:
-        pass
-    return False
-
-
-def _create_internal_network_sdk(client: Any, net_name: str) -> bool:
-    """Create Docker internal bridge network via SDK."""
-    try:
-        client.networks.create(net_name, driver="bridge", internal=True, check_duplicate=True)
-        return True
-    except Exception as exc:
-        logger.debug("Docker SDK network creation fallback: %s", exc)
-        return False
-
-
-def _ensure_internal_network(client: Any | None = None) -> None:
-    """Lazily ensure Docker internal bridge network exists for intra-namespace communication."""
-    if client is not None:
-        if _is_internal_network_sdk(client, CONST_SANDBOX_DOCKER_INTERNAL_NET):
-            return
-        if _create_internal_network_sdk(client, CONST_SANDBOX_DOCKER_INTERNAL_NET):
-            return
-
-    try:
-        inspect_res = run_subprocess(
-            [
-                "docker",
-                "network",
-                "inspect",
-                CONST_SANDBOX_DOCKER_INTERNAL_NET,
-                "--format",
-                "{{.Internal}}",
-            ],
-            check=False,
-            timeout=10,
+def _ensure_internal_network() -> None:
+    """Ensure the egress-denied internal bridge network backing namespaced sandboxes exists."""
+    if not get_engine().ensure_internal_network(CONST_SANDBOX_DOCKER_INTERNAL_NET):
+        raise DockerSandboxError(
+            f"Cannot provision internal sandbox network '{CONST_SANDBOX_DOCKER_INTERNAL_NET}'; "
+            "the Docker daemon is unreachable or refused the request."
         )
-        if inspect_res.returncode == 0:
-            if inspect_res.stdout.strip().lower() == "true":
-                return
-            run_subprocess(
-                ["docker", "network", "rm", CONST_SANDBOX_DOCKER_INTERNAL_NET],
-                check=False,
-                timeout=10,
-            )
-
-        run_subprocess(
-            ["docker", "network", "create", "--internal", CONST_SANDBOX_DOCKER_INTERNAL_NET],
-            check=False,
-            timeout=10,
-        )
-    except Exception as exc:
-        logger.debug("Docker CLI network create failed: %s", exc)
 
 
 class WorkloadSandboxConfig(BaseModel):
@@ -269,173 +208,110 @@ class WorkloadSandboxRunner:
             )
         return resolved
 
+    _INTERNAL_NETWORK_MODES: frozenset[SandboxNetworkMode] = frozenset(
+        {
+            SandboxNetworkMode.SANDBOX_NAMESPACE,
+            SandboxNetworkMode.PUBLIC_WHITELIST,
+            SandboxNetworkMode.LOCAL_WHITELIST,
+        }
+    )
+    _PROXY_ENFORCED_MODES: frozenset[SandboxNetworkMode] = frozenset(
+        {SandboxNetworkMode.PUBLIC_WHITELIST, SandboxNetworkMode.LOCAL_WHITELIST}
+    )
+
+    def _network_create_kwargs(self) -> dict[str, Any]:
+        """Resolve Engine API network and proxy settings for the configured isolation tier."""
+        mode = self.config.network_config.mode
+        if mode in self._PROXY_ENFORCED_MODES and not self.config.network_config.egress_proxy:
+            raise DockerSandboxError(
+                f"Docker runner cannot enforce egress whitelist filtering for '{mode.value}' without an egress proxy. Use isolated or sandbox_namespace mode, or deploy to Kubernetes where NetworkPolicy enforces egress boundaries."
+            )
+        if mode in self._INTERNAL_NETWORK_MODES:
+            _ensure_internal_network()
+
+        if mode == SandboxNetworkMode.ISOLATED:
+            return {"network_mode": "none", "environment": dict(self.config.env)}
+        if mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
+            return {
+                "network_mode": CONST_SANDBOX_DOCKER_INTERNAL_NET,
+                "environment": dict(self.config.env),
+            }
+        if mode in self._PROXY_ENFORCED_MODES:
+            proxy_url = self.config.network_config.egress_proxy or ""
+            return {
+                "network_mode": CONST_SANDBOX_DOCKER_INTERNAL_NET,
+                "environment": {
+                    "HTTP_PROXY": proxy_url,
+                    "HTTPS_PROXY": proxy_url,
+                    "ALL_PROXY": proxy_url,
+                    **self.config.env,
+                },
+            }
+        return {"network_mode": "bridge", "environment": dict(self.config.env)}
+
+    def _build_create_kwargs(self, ws_resolved: Path) -> dict[str, Any]:
+        """Assemble the hardened Engine API container creation payload."""
+        mount_mode = "ro" if self.config.read_only else "rw"
+        user_str = (
+            f"{os.getuid()}:{os.getgid()}"
+            if self.config.rootless and hasattr(os, "getuid")
+            else None
+        )
+        return {
+            "image": self.config.image,
+            "command": self.config.command,
+            "working_dir": "/workspace",
+            "volumes": {str(ws_resolved): {"bind": "/workspace", "mode": mount_mode}},
+            "user": user_str,
+            "mem_limit": self.config.memory_limit,
+            "nano_cpus": int(self.config.cpu_limit * 1e9) if self.config.cpu_limit else None,
+            "cap_drop": ["ALL"],
+            "security_opt": ["no-new-privileges:true"],
+            "pids_limit": DEFAULT_SANDBOX_PIDS_LIMIT,
+            "detach": True,
+            **self._network_create_kwargs(),
+        }
+
+    def _collect_output(self, container: Any) -> tuple[int, str, str]:
+        """Run the container to completion and drain its stdout and stderr streams."""
+        container.start()
+        result = container.wait(timeout=int(self.config.timeout))
+        exit_code = result.get("StatusCode", 0) if isinstance(result, dict) else int(result)
+        return (
+            exit_code,
+            _decode_logs(container.logs(stdout=True, stderr=False)),
+            _decode_logs(container.logs(stdout=False, stderr=True)),
+        )
+
     def run(self) -> WorkloadSandboxResult:
-        """Spawn, execute, capture output, and tear down ephemeral sandbox container."""
+        """Spawn, execute, capture output, and tear down an ephemeral sandbox container."""
         start_time = time.monotonic()
         ws_resolved = self._validate_workspace_dir()
-        ws_abs = str(ws_resolved)
-        mount_mode = "ro" if self.config.read_only else "rw"
-        volumes = {ws_abs: {"bind": "/workspace", "mode": mount_mode}}
-
-        user_str = None
-        if self.config.rootless and hasattr(os, "getuid"):
-            user_str = f"{os.getuid()}:{os.getgid()}"
 
         with trace_span(
             "docker.workload_sandbox.run",
             attributes={"image": self.config.image, "network_mode": self.config.network_mode},
         ):
-            if (
-                self.config.network_config.mode
-                in (
-                    SandboxNetworkMode.PUBLIC_WHITELIST,
-                    SandboxNetworkMode.LOCAL_WHITELIST,
-                )
-                and not self.config.network_config.egress_proxy
-            ):
-                raise DockerSandboxError(
-                    f"Docker runner cannot enforce egress whitelist filtering for '{self.config.network_config.mode.value}' without an egress proxy. Use isolated or sandbox_namespace mode, or deploy to Kubernetes where NetworkPolicy enforces egress boundaries."
-                )
-            if self.config.network_config.mode in (
-                SandboxNetworkMode.SANDBOX_NAMESPACE,
-                SandboxNetworkMode.PUBLIC_WHITELIST,
-                SandboxNetworkMode.LOCAL_WHITELIST,
-            ):
-                _ensure_internal_network()
+            engine = get_engine()
+            container = engine.create_container(**self._build_create_kwargs(ws_resolved))
+            container_id = str(container.id)
+
             try:
-                client = _get_docker_client()
-                nano_cpus = int(self.config.cpu_limit * 1e9) if self.config.cpu_limit else None
-
-                create_kwargs: dict[str, Any] = {
-                    "image": self.config.image,
-                    "command": self.config.command,
-                    "working_dir": "/workspace",
-                    "volumes": volumes,
-                    "user": user_str,
-                    "mem_limit": self.config.memory_limit,
-                    "nano_cpus": nano_cpus,
-                    "environment": self.config.env,
-                    "cap_drop": ["ALL"],
-                    "security_opt": ["no-new-privileges:true"],
-                    "pids_limit": 256,
-                    "detach": True,
-                }
-                if self.config.network_config.mode == SandboxNetworkMode.ISOLATED:
-                    create_kwargs["network_mode"] = "none"
-                elif self.config.network_config.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
-                    _ensure_internal_network(client)
-                    create_kwargs["network_mode"] = CONST_SANDBOX_DOCKER_INTERNAL_NET
-                elif self.config.network_config.mode in (
-                    SandboxNetworkMode.PUBLIC_WHITELIST,
-                    SandboxNetworkMode.LOCAL_WHITELIST,
-                ):
-                    _ensure_internal_network(client)
-                    create_kwargs["network_mode"] = CONST_SANDBOX_DOCKER_INTERNAL_NET
-                    proxy_url = self.config.network_config.egress_proxy or ""
-                    create_kwargs["environment"] = {
-                        "HTTP_PROXY": proxy_url,
-                        "HTTPS_PROXY": proxy_url,
-                        "ALL_PROXY": proxy_url,
-                        **self.config.env,
-                    }
-                else:
-                    create_kwargs["network_mode"] = "bridge"
-
-                container = client.containers.create(**create_kwargs)
+                exit_code, stdout, stderr = self._collect_output(container)
             except Exception as exc:
-                logger.debug("Falling back to docker run subprocess: %s", exc)
-                return self._run_via_subprocess()
-
-            container_id = container.id
-            stdout = ""
-            stderr = ""
-            exit_code = 0
-
-            try:
-                container.start()
-                res = container.wait(timeout=int(self.config.timeout))
-                exit_code = res.get("StatusCode", 0) if isinstance(res, dict) else int(res)
-                raw_out = container.logs(stdout=True, stderr=False)
-                raw_err = container.logs(stdout=False, stderr=True)
-                stdout = (
-                    raw_out.decode("utf-8", errors="replace")
-                    if isinstance(raw_out, bytes)
-                    else str(raw_out)
+                logger.debug("Sandbox container %s execution failed: %s", container_id, exc)
+                exit_code = CONST_SANDBOX_TIMEOUT_EXIT_CODE
+                stdout, stderr = (
+                    "",
+                    (f"Container execution timed out after {self.config.timeout}s: {exc}"),
                 )
-                stderr = (
-                    raw_err.decode("utf-8", errors="replace")
-                    if isinstance(raw_err, bytes)
-                    else str(raw_err)
-                )
-            except Exception as wait_exc:
-                logger.debug("Container wait failed or timed out: %s", wait_exc)
-                exit_code = 124
-                stderr = f"Container execution timed out after {self.config.timeout}s: {wait_exc}"
             finally:
-                try:
-                    container.remove(force=True)
-                except Exception as rem_exc:
-                    logger.debug("Failed removing container %s: %s", container_id, rem_exc)
+                engine.remove_container(container_id, force=True)
 
-            duration = round(time.monotonic() - start_time, 2)
             return WorkloadSandboxResult(
                 exit_code=exit_code,
                 stdout=stdout,
                 stderr=stderr,
                 container_id=container_id,
-                duration_seconds=duration,
+                duration_seconds=round(time.monotonic() - start_time, 2),
             )
-
-    def _run_via_subprocess(self) -> WorkloadSandboxResult:
-        """Fallback to executing docker CLI via subprocess."""
-        start_time = time.monotonic()
-        if (
-            self.config.network_config.mode
-            in (
-                SandboxNetworkMode.PUBLIC_WHITELIST,
-                SandboxNetworkMode.LOCAL_WHITELIST,
-            )
-            and not self.config.network_config.egress_proxy
-        ):
-            raise DockerSandboxError(
-                f"Docker runner cannot enforce egress whitelist filtering for '{self.config.network_config.mode.value}' without an egress proxy. Use isolated or sandbox_namespace mode, or deploy to Kubernetes where NetworkPolicy enforces egress boundaries."
-            )
-        if self.config.network_config.mode in (
-            SandboxNetworkMode.SANDBOX_NAMESPACE,
-            SandboxNetworkMode.PUBLIC_WHITELIST,
-            SandboxNetworkMode.LOCAL_WHITELIST,
-        ):
-            _ensure_internal_network()
-        ws_abs = str(self.config.workspace_dir.resolve())
-        mount_mode = "ro" if self.config.read_only else "rw"
-        cmd = [
-            "docker",
-            "run",
-            "--rm",
-            "--cap-drop=ALL",
-            "--security-opt=no-new-privileges",
-            "--pids-limit=256",
-            "-v",
-            f"{ws_abs}:/workspace:{mount_mode}",
-            "-w",
-            "/workspace",
-            "-m",
-            self.config.memory_limit,
-            f"--cpus={self.config.cpu_limit}",
-        ]
-        cmd.extend(self.config.network_config.to_docker_args())
-        for env_key, env_val in self.config.env.items():
-            cmd.extend(["-e", f"{env_key}={env_val}"])
-        if self.config.rootless and hasattr(os, "getuid"):
-            cmd.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
-        cmd.append(self.config.image)
-        cmd.extend(self.config.command)
-
-        proc = run_subprocess(cmd, check=False, timeout=int(self.config.timeout))
-        duration = round(time.monotonic() - start_time, 2)
-        return WorkloadSandboxResult(
-            exit_code=proc.returncode,
-            stdout=proc.stdout,
-            stderr=proc.stderr,
-            duration_seconds=duration,
-        )

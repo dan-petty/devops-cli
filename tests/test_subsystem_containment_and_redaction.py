@@ -19,6 +19,7 @@ Tests cover:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -217,7 +218,7 @@ def test_telemetry_endpoint_sanitization() -> None:
 
 
 # 10. Docker sandbox container wait timeout
-def test_docker_sandbox_wait_timeout(tmp_path: Path) -> None:
+def test_docker_sandbox_wait_timeout(tmp_path: Path, docker_engine: Any) -> None:
     from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
 
     cfg = WorkloadSandboxConfig(workspace_dir=tmp_path, command=["sleep", "1"])
@@ -230,7 +231,7 @@ def test_docker_sandbox_wait_timeout(tmp_path: Path) -> None:
     mock_container.wait.return_value = {"StatusCode": 0}
     mock_container.logs.return_value = b"done"
 
-    with patch("devops_cli.docker.sandbox._get_docker_client", return_value=mock_client):
+    with docker_engine(mock_client):
         res = runner.run()
         assert res.exit_code == 0
         mock_container.wait.assert_called_once()

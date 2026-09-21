@@ -221,6 +221,17 @@ DEFAULT_MCP_SCHEMA_CACHE_MAX_ENTRIES: int = 256
 DEFAULT_DOCKER_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_COSIGN_TIMEOUT_SECONDS: float = 60.0
 
+# Engine API socket handshake budget. Short by design: the daemon socket is local,
+# so a slow ping means the daemon is down rather than merely busy.
+DEFAULT_DOCKER_PING_TIMEOUT_SECONDS: float = 2.0
+# Reachability and introspection response cache lifetime, mirroring the Kubernetes
+# service cache tier so repeated command invocations avoid redundant round-trips.
+DEFAULT_DOCKER_CACHE_TTL_SECONDS: float = 5.0
+# Grace period granted to a container to flush and exit before SIGKILL.
+DEFAULT_DOCKER_STOP_TIMEOUT_SECONDS: int = 10
+# Maximum consecutive samples drained from the Engine stats stream per invocation.
+DEFAULT_DOCKER_STATS_STREAM_SAMPLES: int = 1
+
 # ── Connection & Response Timeout Policies ───────────────────────────────────
 # NOTE (Design Justification): Connection timeouts are intentionally short (1.0s)
 # to fail fast when endpoints are unreachable, while response/read timeouts remain
@@ -544,6 +555,7 @@ DEFAULT_SANDBOX_NAME: str = "app-sandbox"
 DEFAULT_SANDBOX_IMAGE: str = "python:3.14-slim"
 DEFAULT_SANDBOX_MEMORY: str = "2g"
 DEFAULT_SANDBOX_CPUS: float = 2.0
+DEFAULT_SANDBOX_PIDS_LIMIT: int = 256
 DEFAULT_SANDBOX_NETWORK: str = "isolated"
 DEFAULT_LOG_STREAM: str = "stdout"
 DEFAULT_SANDBOX_INSTANCE_ID: str = "sandbox"

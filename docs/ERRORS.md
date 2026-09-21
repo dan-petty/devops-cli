@@ -37,6 +37,8 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `COSIGN_VERIFICATION_FAILED` | `1` | Docker | Raised when Sigstore Cosign signature or attestation verification fails. |
 | `DEPENDENCY_MISSING` | `1` | Tools | Raised when a required external binary/dependency is missing from the system PATH. |
 | `DOC_COMPACTION_ERROR` | `1` | Docs | Exception raised when documentation compaction fails. |
+| `DOCKER_DAEMON_UNAVAILABLE` | `1` | Docker | Raised when the Docker daemon socket cannot be reached or negotiated. |
+| `DOCKER_ENGINE_ERROR` | `1` | Docker | Raised when a Docker Engine API call over the daemon socket fails. |
 | `DOCKER_ERROR` | `1` | Docker | Base exception for Docker operations. |
 | `DOCKER_SANDBOX_ERROR` | `1` | Docker | Raised when docker sandbox execution, container creation, or termination fails. |
 | `DOCS_INGESTION_ERROR` | `1` | Ai | Base exception for documentation ingestion errors. |

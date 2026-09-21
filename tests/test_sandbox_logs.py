@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.sandbox import app
+from devops_cli.exceptions.docker import DockerEngineError
 from devops_cli.exceptions.sandbox import SandboxNotFoundError
 from devops_cli.sandbox.engine import WorkloadSandboxEngine
 from devops_cli.sandbox.logs import (
@@ -221,7 +223,7 @@ def test_parse_docker_log_line_with_timestamp() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_engine_logs_success(tmp_path: Path) -> None:
+def test_engine_logs_success(tmp_path: Path, docker_engine: Any) -> None:
     """Verify WorkloadSandboxEngine.logs retrieves and parses logs with incidents."""
     inst = _make_dummy_instance()
     engine = WorkloadSandboxEngine()
@@ -234,11 +236,9 @@ def test_engine_logs_success(tmp_path: Path) -> None:
         b"ZeroDivisionError: division by zero\n"
     )
 
-    with patch("devops_cli.sandbox.engine._get_docker_client") as mock_get_client:
-        mock_client = MagicMock()
-        mock_client.containers.get.return_value = mock_container
-        mock_get_client.return_value = mock_client
-
+    mock_client = MagicMock()
+    mock_client.containers.get.return_value = mock_container
+    with docker_engine(mock_client):
         report = engine.logs(
             identifier=inst.instance_id,
             tail=50,
@@ -346,31 +346,23 @@ def test_cli_sandbox_logs_panic_alert_display(tmp_path: Path) -> None:
         assert "python_traceback" in res.stdout or "CRITICAL" in res.stdout
 
 
-def test_engine_logs_subprocess_fallback(tmp_path: Path) -> None:
-    """Verify engine falls back to CLI subprocess when Docker SDK throws an exception."""
+def test_engine_logs_surface_daemon_failure(docker_engine: Any) -> None:
+    """An Engine API log retrieval failure is surfaced rather than retried via the CLI."""
     inst = _make_dummy_instance()
     engine = WorkloadSandboxEngine()
     engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
 
-    with (
-        patch(
-            "devops_cli.sandbox.engine._get_docker_client",
-            side_effect=RuntimeError("Docker daemon down"),
-        ),
-        patch("devops_cli.sandbox.engine.run_subprocess") as mock_run_proc,
-    ):
-        mock_proc = MagicMock()
-        mock_proc.returncode = 0
-        mock_proc.stdout = "2026-09-12T20:20:00.000Z Fallback log output 1\nFallback log output 2\n"
-        mock_proc.stderr = ""
-        mock_run_proc.return_value = mock_proc
+    mock_container = MagicMock()
+    mock_container.logs.side_effect = RuntimeError("No such container")
+    mock_client = MagicMock()
+    mock_client.containers.get.return_value = mock_container
 
-        report = engine.logs(identifier=inst.instance_id, detect_panics_flag=False)
-        assert report.total_lines == 2
-        assert report.lines[0].content == "Fallback log output 1"
+    with docker_engine(mock_client):
+        with pytest.raises(DockerEngineError, match="Container log stream failed"):
+            engine.logs(identifier=inst.instance_id, detect_panics_flag=False)
 
 
-def test_engine_logs_generator_stream() -> None:
+def test_engine_logs_generator_stream(docker_engine: Any) -> None:
     """Verify engine handles generator byte chunks from container logs."""
     inst = _make_dummy_instance()
     engine = WorkloadSandboxEngine()
@@ -379,11 +371,9 @@ def test_engine_logs_generator_stream() -> None:
     mock_container = MagicMock()
     mock_container.logs.return_value = [b"stream chunk 1\n", b"stream chunk 2\n"]
 
-    with patch("devops_cli.sandbox.engine._get_docker_client") as mock_get_client:
-        mock_client = MagicMock()
-        mock_client.containers.get.return_value = mock_container
-        mock_get_client.return_value = mock_client
-
+    mock_client = MagicMock()
+    mock_client.containers.get.return_value = mock_container
+    with docker_engine(mock_client):
         report = engine.logs(identifier=inst.instance_id, follow=True)
         assert report.total_lines == 2
 
@@ -564,7 +554,7 @@ def test_detect_rust_panic_symbolic_frames() -> None:
     assert len(incidents[0].stacktrace) >= 4
 
 
-def test_engine_logs_demux_stream_preservation() -> None:
+def test_engine_logs_demux_stream_preservation(docker_engine: Any) -> None:
     """Verify Docker demux response preserves stdout vs stderr streams."""
     inst = _make_dummy_instance()
     engine = WorkloadSandboxEngine()
@@ -576,11 +566,9 @@ def test_engine_logs_demux_stream_preservation() -> None:
         b"2026-09-12T20:00:01Z stderr log message\n",
     )
 
-    with patch("devops_cli.sandbox.engine._get_docker_client") as mock_get_client:
-        mock_client = MagicMock()
-        mock_client.containers.get.return_value = mock_container
-        mock_get_client.return_value = mock_client
-
+    mock_client = MagicMock()
+    mock_client.containers.get.return_value = mock_container
+    with docker_engine(mock_client):
         report = engine.logs(identifier=inst.instance_id, detect_panics_flag=False)
         assert report.total_lines == 2
         streams = [line.stream for line in report.lines]
@@ -588,7 +576,7 @@ def test_engine_logs_demux_stream_preservation() -> None:
         assert "stderr" in streams
 
 
-def test_engine_logs_follow_bounded_buffer() -> None:
+def test_engine_logs_follow_bounded_buffer(docker_engine: Any) -> None:
     """Verify follow mode bounds memory retention to MAX_FOLLOW_BUFFER_LINES."""
     inst = _make_dummy_instance()
     engine = WorkloadSandboxEngine()
@@ -599,39 +587,12 @@ def test_engine_logs_follow_bounded_buffer() -> None:
     mock_container = MagicMock()
     mock_container.logs.return_value = iter(chunks)
 
-    with patch("devops_cli.sandbox.engine._get_docker_client") as mock_get_client:
-        mock_client = MagicMock()
-        mock_client.containers.get.return_value = mock_container
-        mock_get_client.return_value = mock_client
-
+    mock_client = MagicMock()
+    mock_client.containers.get.return_value = mock_container
+    with docker_engine(mock_client):
         report = engine.logs(identifier=inst.instance_id, follow=True, detect_panics_flag=False)
         assert report.total_lines == 1500
         assert len(report.lines) <= 1000
-
-
-def test_engine_logs_subprocess_fallback_failure() -> None:
-    """Verify subprocess fallback raises SandboxError on nonzero returncode."""
-    from devops_cli.exceptions.sandbox import SandboxError
-
-    inst = _make_dummy_instance()
-    engine = WorkloadSandboxEngine()
-    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
-
-    with (
-        patch(
-            "devops_cli.sandbox.engine._get_docker_client",
-            side_effect=RuntimeError("Docker daemon down"),
-        ),
-        patch("devops_cli.sandbox.engine.run_subprocess") as mock_run_proc,
-    ):
-        mock_proc = MagicMock()
-        mock_proc.returncode = 1
-        mock_proc.stdout = ""
-        mock_proc.stderr = "Error: No such container"
-        mock_run_proc.return_value = mock_proc
-
-        with pytest.raises(SandboxError, match="No such container"):
-            engine.logs(identifier=inst.instance_id)
 
 
 def test_cli_sandbox_logs_rich_escaping_and_secret_masking() -> None:

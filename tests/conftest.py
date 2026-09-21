@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -178,3 +181,30 @@ def mock_settings(tmp_path: Path):
     settings.prometheus.url = None
     settings.argocd.url = None
     return settings
+
+
+@contextmanager
+def _patched_docker_engine(client: Any) -> Iterator[Any]:
+    """Bind a mock Engine API client to an isolated DockerEngineService singleton."""
+    from devops_cli.docker.engine import DockerEngineService
+
+    engine = DockerEngineService()
+    engine._client = client
+    with patch.object(DockerEngineService, "get_instance", return_value=engine):
+        yield engine
+
+
+@pytest.fixture
+def docker_engine():
+    """Provide a factory binding mock Engine API clients to the Docker engine singleton."""
+    return _patched_docker_engine
+
+
+@pytest.fixture(autouse=True)
+def reset_docker_engine_singleton():
+    """Guarantee no Engine API socket connection leaks between tests."""
+    from devops_cli.docker.engine import DockerEngineService
+
+    DockerEngineService.reset_instance()
+    yield
+    DockerEngineService.reset_instance()

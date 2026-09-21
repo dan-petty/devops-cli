@@ -222,6 +222,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops docker push <image>` | Push a Docker image to a registry. |
 |  | `devops docker prune [OPTIONS]` | Remove unused containers, images, and networks. |
 |  | `devops docker stats [OPTIONS]` | Display live container CPU, memory, and network I/O statistics. |
+|  | `devops docker cache [OPTIONS]` | Introspect BuildKit multi-stage layer cache occupancy, reuse, and reclaimable space. |
 |  | `devops docker analyze-layers [OPTIONS] <image>` | Analyze container image layer efficiency and wasted space using Dive. |
 |  | `devops docker sandbox [OPTIONS] <command>` | Execute workload inside an isolated, disposable Docker container sandbox. |
 |  | `devops docker sign [OPTIONS] <image>` | Sign a container image using Sigstore Cosign (keyless or keyed). |

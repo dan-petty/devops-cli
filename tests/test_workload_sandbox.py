@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.docker import app as docker_app
 from devops_cli.commands.test_cmd import app as cli_test_app
+from devops_cli.config.defaults import DEFAULT_SANDBOX_PIDS_LIMIT
 from devops_cli.docker.sandbox import (
     WorkloadSandboxConfig,
     WorkloadSandboxRunner,
@@ -50,7 +52,7 @@ def test_sandbox_runner_dry_run(tmp_path: Path) -> None:
     assert dry["network_mode"] == "none"
 
 
-def test_sandbox_runner_docker_execution_success(tmp_path: Path) -> None:
+def test_sandbox_runner_docker_execution_success(tmp_path: Path, docker_engine: Any) -> None:
     """Test running a sandboxed command successfully using Docker SDK."""
     cfg = WorkloadSandboxConfig(
         workspace_dir=tmp_path,
@@ -66,19 +68,19 @@ def test_sandbox_runner_docker_execution_success(tmp_path: Path) -> None:
     mock_client = MagicMock()
     mock_client.containers.create.return_value = mock_container
 
-    with patch("devops_cli.docker.sandbox._get_docker_client", return_value=mock_client):
+    with docker_engine(mock_client):
         res = sandbox.run()
         assert res.exit_code == 0
         assert "sandbox-ok" in res.stdout
         assert mock_container.start.called
-        assert mock_container.remove.called
+        mock_client.api.remove_container.assert_called_once_with("c123456789", force=True)
         create_kwargs = mock_client.containers.create.call_args.kwargs
         assert create_kwargs.get("cap_drop") == ["ALL"]
         assert create_kwargs.get("security_opt") == ["no-new-privileges:true"]
         assert create_kwargs.get("pids_limit") == 256
 
 
-def test_sandbox_runner_docker_execution_failure(tmp_path: Path) -> None:
+def test_sandbox_runner_docker_execution_failure(tmp_path: Path, docker_engine: Any) -> None:
     """Test handling container execution failure and cleanup."""
     cfg = WorkloadSandboxConfig(
         workspace_dir=tmp_path,
@@ -94,11 +96,11 @@ def test_sandbox_runner_docker_execution_failure(tmp_path: Path) -> None:
     mock_client = MagicMock()
     mock_client.containers.create.return_value = mock_container
 
-    with patch("devops_cli.docker.sandbox._get_docker_client", return_value=mock_client):
+    with docker_engine(mock_client):
         res = sandbox.run()
         assert res.exit_code == 1
         assert "Error occurred" in res.stderr
-        assert mock_container.remove.called
+        mock_client.api.remove_container.assert_called_once_with("c987654321", force=True)
 
 
 def test_cli_test_sandbox_dry_run(tmp_path: Path) -> None:
@@ -141,8 +143,8 @@ def test_cli_docker_sandbox_dry_run(tmp_path: Path) -> None:
     assert "pytest" in res.output
 
 
-def test_sandbox_runner_subprocess_env_propagation(tmp_path: Path) -> None:
-    """Test that WorkloadSandboxConfig.env is propagated as -e flags in subprocess fallback."""
+def test_sandbox_runner_env_and_hardening_propagation(tmp_path: Path, docker_engine: Any) -> None:
+    """Config env and container hardening reach the Engine API creation payload."""
     cfg = WorkloadSandboxConfig(
         workspace_dir=tmp_path,
         command=["python3", "-c", "print('hello')"],
@@ -150,22 +152,31 @@ def test_sandbox_runner_subprocess_env_propagation(tmp_path: Path) -> None:
     )
     sandbox = WorkloadSandboxRunner(cfg)
 
-    with (
-        patch("devops_cli.docker.sandbox._get_docker_client", return_value=None),
-        patch("devops_cli.docker.sandbox.run_subprocess") as mock_subproc,
-    ):
-        mock_subproc.return_value = MagicMock(returncode=0, stdout="hello", stderr="")
+    mock_container = MagicMock()
+    mock_container.id = "c111222333"
+    mock_container.wait.return_value = {"StatusCode": 0}
+    mock_container.logs.side_effect = [b"hello", b""]
+    mock_client = MagicMock()
+    mock_client.containers.create.return_value = mock_container
+
+    with docker_engine(mock_client):
         res = sandbox.run()
 
-        assert res.exit_code == 0
-        cmd_args = mock_subproc.call_args[0][0]
-        assert "-e" in cmd_args
-        assert "TEST_VAR=custom_val" in cmd_args
-        assert "API_KEY=secret123" in cmd_args
-        assert "--cap-drop=ALL" in cmd_args
-        assert "--security-opt=no-new-privileges" in cmd_args
-        assert "--pids-limit=256" in cmd_args
-        assert mock_subproc.call_args.kwargs.get("timeout") == int(cfg.timeout)
+    create_kwargs = mock_client.containers.create.call_args.kwargs
+    assert res.exit_code == 0
+    assert (
+        create_kwargs["environment"],
+        create_kwargs["cap_drop"],
+        create_kwargs["security_opt"],
+        create_kwargs["pids_limit"],
+        create_kwargs["network_mode"],
+    ) == (
+        {"TEST_VAR": "custom_val", "API_KEY": "secret123"},
+        ["ALL"],
+        ["no-new-privileges:true"],
+        DEFAULT_SANDBOX_PIDS_LIMIT,
+        "none",
+    )
 
 
 def test_workload_sandbox_runner_exclude_home_dir(tmp_path: Path) -> None:
