@@ -589,6 +589,9 @@ class SSHMessages:
 @dataclass(frozen=True)
 class PrometheusMessages:
     query_instant_header: str = "Prometheus Instant Query: '{query}'"
+    table_title_analysis: str = "Series Analysis: {expr}"
+    table_title_anomalies: str = "Detected Anomalies"
+    no_series_to_analyze: str = "Query '{expr}' returned no series to analyze."
     url_not_configured: str = (
         "Prometheus URL not configured. Run: devops config set prometheus.url <url>"
     )

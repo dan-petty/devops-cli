@@ -99,7 +99,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Deep Integration & Functional Extension*: Asynchronous Qdrant client connection pooling; hybrid search combining dense neural vector embeddings with sparse BM25 lexical indices; memory-mapped on-disk scalar/product payload quantization; background collection snapshotting and hot-reload during repository re-indexing.
   - *Code Optimization & Performance Acceleration*: Slash vector retrieval latency by 60%+ through async batched queries; reduce vector index memory footprint by up to 75% via scalar quantization; eliminate blocking during repository re-indexing.
   - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/ai/rag/` to decouple embedding generation, vector storage, and query filtering into distinct pipeline stages; replace procedural file chunking loops with functional generator pipelines; remove legacy file staging.
-- [ ] **Prometheus PromQL AST Validation, Client-Side Anomaly Detection & Alertmanager Engine Research (P1 - High, Issue #314)**:
+- [x] **Prometheus PromQL AST Validation, Client-Side Anomaly Detection & Alertmanager Engine Research (P1 - High, Issue #314)**:
   - *Context & Rationale*: Metric monitoring currently forwards raw PromQL strings to `/api/v1/query` with minimal client-side validation and no automated anomaly analysis.
   - *Deep Integration & Functional Extension*: In-process PromQL AST parser to validate query syntax before network dispatch; client-side anomaly detection (z-score, EWMA trend forecasting) on metric vectors; native Alertmanager alert dispatch and silence management; pre-flight rule file syntax verification.
   - *Code Optimization & Performance Acceleration*: Prevent invalid PromQL queries from hitting Prometheus servers; compute instant trend projections locally in Python without server-side subqueries; aggregate multi-target scrape metrics without redundant JSON decoding.
@@ -427,7 +427,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Universal Command Palette & Fuzzy Action Launcher | Textual CommandPalette | High | Low | v0.2.24 | 📋 Scheduled (P1) |
 |  | Automated Multi-IDE MCP Scaffolder (`devops ide configure`) | FastMCP / Stdio / Watchdog | High | Low | v0.2.25 | 📋 Scheduled (P1) |
 |  | Path-Specific Copilot Instructions Scaffolder | Copilot Prompts / AST | High | Low | v0.2.25 | 📋 Scheduled (P1) |
-|  | Prometheus PromQL AST Validation & Anomaly Detection Research | Prometheus / PromQL AST | High | Low | v0.2.22 | 📋 Scheduled (P1) |
+|  | Prometheus PromQL AST Validation & Anomaly Detection Research | Prometheus / PromQL AST | High | Low | v0.2.22 | ✅ Completed (P1) |
 |  | Rich Renderables Architecture & Universal Output Serialization Research | Rich / Typer / Console | High | Low | v0.2.22 | 📋 Scheduled (P1) |
 |  | Cryptography Pure-Python Asymmetric Key Management Research | cryptography / OpenSSH | Medium | Low | v0.2.22 | 📋 Scheduled (P2) |
 |  | Template Rendering Engine Sandboxing & Pre-Compiled AST Caching Research | Jinja2 / Sandbox | Medium | Low | v0.2.22 | 📋 Scheduled (P2) |

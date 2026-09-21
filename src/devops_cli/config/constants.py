@@ -731,6 +731,18 @@ CONST_VAULT_PATH_TRANSIT_DECRYPT: Final[str] = "transit/decrypt"
 # Default in-cluster ServiceAccount token projected into every Kubernetes pod.
 CONST_KUBERNETES_SA_TOKEN_PATH: Final[str] = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 
+# ── PromQL Structural Validation ─────────────────────────────────────────────
+# Bracket pairs used by the PromQL grammar. Closed and exhaustive: these are the only
+# grouping delimiters the language defines.
+CONST_PROMQL_BRACKET_PAIRS: Final[dict[str, str]] = {"(": ")", "[": "]", "{": "}"}
+
+# Quote characters that open a PromQL string literal.
+CONST_PROMQL_QUOTE_CHARS: Final[frozenset[str]] = frozenset({'"', "'", "`"})
+
+# Duration units defined by the PromQL time-duration grammar. Closed and exhaustive per
+# the Prometheus query language specification.
+CONST_PROMQL_DURATION_UNITS: Final[frozenset[str]] = frozenset({"ms", "s", "m", "h", "d", "w", "y"})
+
 # ── Tiered Cache Namespacing & Tiers ─────────────────────────────────────────
 # Root prefix for every cache key this project writes, so a shared Valkey instance can
 # be swept per-project and keys never collide with another tenant's.
