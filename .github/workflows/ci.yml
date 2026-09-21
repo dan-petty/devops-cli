@@ -6,7 +6,7 @@ on:
   pull_request:
     # Deliberately excludes ready_for_review so converting draft PRs to ready does not
     # re-trigger redundant test suites, coverage reports, and container builds.
-    # Project automation and card state transitions are handled in .github/workflows/project-automation.yml.
+    # Project automation and card state transitions are handled natively via GitHub Projects v2 built-in workflows.
     types: [opened, synchronize, reopened]
     branches: [main, "release/**"]
   workflow_dispatch:
