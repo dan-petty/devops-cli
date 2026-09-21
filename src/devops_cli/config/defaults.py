@@ -546,6 +546,19 @@ DEFAULT_VALKEY_TOKEN_COST: int = 1
 DEFAULT_VALKEY_KEY_SUFFIX: str = "default"
 DEFAULT_VALKEY_SCAN_COUNT: int = 100
 
+# ── Connection Pooling & Tiered Cache Defaults ───────────────────────────────
+# Upper bound on concurrent pooled connections to a single Valkey endpoint.
+DEFAULT_VALKEY_POOL_MAX_SIZE: int = 10
+# Connections idle beyond this window are discarded rather than handed out, since a
+# server-side timeout would otherwise surface as a mid-operation failure.
+DEFAULT_VALKEY_POOL_IDLE_TIMEOUT_SECONDS: float = 60.0
+# Entries retained by the in-process L1 cache before least-recently-used eviction.
+DEFAULT_CACHE_L1_MAX_ENTRIES: int = 2048
+# Lifetime applied to cached values when a call site does not specify one.
+DEFAULT_CACHE_TTL_SECONDS: float = 3600.0
+# Lifetime for cached AI artefacts (embeddings, findings, LLM responses).
+DEFAULT_AI_CACHE_TTL_SECONDS: int = 86400
+
 # ── Watcher Defaults ────────────────────────────────────────────────────────
 DEFAULT_FILE_WATCHER_DEBOUNCE_MS: int = 500
 DEFAULT_FILE_WATCHER_INTERVAL_SECONDS: float = 0.5

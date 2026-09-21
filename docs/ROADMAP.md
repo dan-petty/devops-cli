@@ -89,7 +89,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Deep Integration & Functional Extension*: Native asynchronous Vault client integration (`hvac` / async HTTP) with Kubernetes service account and AppRole authentication; background daemon for proactive secret lease renewal; Vault Transit engine integration for zero-knowledge envelope encryption of local workstation credentials.
   - *Code Optimization & Performance Acceleration*: Eliminate expired credential failures in long-running CI/CD runs via automated token lease renewal; eliminate plaintext secret staging in memory buffers; unify local and remote credential resolution into a single-pass lookup.
   - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/commands/vault.py` and security modules to implement a unified `SecretProvider` protocol; eliminate fragmented keyring vs. env fallback ladders; centralize audit logging of credential accesses.
-- [ ] **Valkey & Redis RESP3 Connection Pooling, Pipeline Batching & Tiered L1/L2 Cache Architecture Research (P1 - High, Issue #312)**:
+- [x] **Valkey & Redis RESP3 Connection Pooling, Pipeline Batching & Tiered L1/L2 Cache Architecture Research (P1 - High, Issue #312)**:
   - *Context & Rationale*: Valkey caching currently operates via basic socket calls and shallow key-value operations without connection pooling, transaction pipelining, or unified invalidation semantics across agent tiers.
   - *Deep Integration & Functional Extension*: Native asynchronous RESP3 wire protocol connection pooling; pipelined batch transactions for mass embedding and AST symbol lookups; Lua atomic scripts for distributed locking (`Redlock`) and deduplication; real-time memory eviction and cache hit telemetry.
   - *Code Optimization & Performance Acceleration*: Reduce cache round-trip latency from ~5ms to <0.5ms; eliminate redundant serialization overhead via binary msgpack encoding; implement tiered L1 (in-memory LRU) / L2 (Valkey) caching for AI prompt contexts.
@@ -484,7 +484,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | ArgoCD Server API, CRD Reconciliation & Canary Verification Research | ArgoCD / Rollouts | High | Medium | v0.2.22 | ✅ Completed (P1) |
 |  | Terraform & OpenTofu HCL AST Analysis & Drift Optimization Research | OpenTofu / HCL AST | High | Medium | v0.2.22 | ✅ Completed (P1) |
 |  | HashiCorp Vault Native Client, Dynamic Leases & Envelope Encryption Research | Vault / HVAC / Keyring | High | Medium | v0.2.22 | ✅ Completed (P1) |
-|  | Valkey & Redis RESP3 Connection Pooling & Tiered L1/L2 Cache Research | Valkey / RESP3 / Redis | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | Valkey & Redis RESP3 Connection Pooling & Tiered L1/L2 Cache Research | Valkey / RESP3 / Redis | High | Medium | v0.2.22 | ✅ Completed (P1) |
 |  | Qdrant Vector Engine Async Connection Pooling & Quantization Research | Qdrant / Hybrid Search | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 |  | Grafana Declarative Dashboard Schema Models & GitOps Sync Research | Grafana / Pydantic Models | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 |  | Textual TUI Reactive Architecture & Virtualized Log Streamers Research | Textual / Reactive | High | Medium | v0.2.22 | 📋 Scheduled (P1) |

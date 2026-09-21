@@ -731,6 +731,20 @@ CONST_VAULT_PATH_TRANSIT_DECRYPT: Final[str] = "transit/decrypt"
 # Default in-cluster ServiceAccount token projected into every Kubernetes pod.
 CONST_KUBERNETES_SA_TOKEN_PATH: Final[str] = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 
+# ── Tiered Cache Namespacing & Tiers ─────────────────────────────────────────
+# Root prefix for every cache key this project writes, so a shared Valkey instance can
+# be swept per-project and keys never collide with another tenant's.
+CONST_CACHE_NAMESPACE_ROOT: Final[str] = "devops-cli"
+CONST_CACHE_KEY_SEPARATOR: Final[str] = ":"
+
+# Cache tiers. Closed set: L1 is the in-process LRU, L2 is Valkey, and L1_L2 writes both.
+CONST_CACHE_TIER_L1: Final[str] = "l1"
+CONST_CACHE_TIER_L2: Final[str] = "l2"
+CONST_CACHE_TIER_L1_L2: Final[str] = "l1_l2"
+CONST_CACHE_TIERS: Final[frozenset[str]] = frozenset(
+    {CONST_CACHE_TIER_L1, CONST_CACHE_TIER_L2, CONST_CACHE_TIER_L1_L2}
+)
+
 # ── Source & Test Tree Layout ────────────────────────────────────────────────
 # Repository layout conventions used to map changed sources onto covering tests.
 CONST_SOURCE_ROOT_DIR: Final[str] = "src"
