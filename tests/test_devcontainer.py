@@ -507,6 +507,86 @@ class TestDevcontainerCli:
         assert result.exit_code == 0
         assert "Warning: Failed to install standalone pre-commit tool" in result.output
 
+    def test_post_create_installs_claude_when_missing(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify post-create installs claude CLI when claude binary is missing."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setattr(
+            "shutil.which",
+            lambda prog: "/usr/local/bin/" + prog if prog in ("uv", "pre-commit") else None,
+        )
+
+        calls: list[list[str]] = []
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            calls.append(cmd)
+            import subprocess
+
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        assert (
+            result.exit_code,
+            "Installed standalone claude CLI" in result.output,
+            any("claude.ai/install.sh" in arg for cmd in calls for arg in cmd),
+        ) == (0, True, True)
+
+    def test_post_create_warns_on_claude_install_failure(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify post-create appends warning when claude CLI install returns non-zero."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setattr(
+            "shutil.which",
+            lambda prog: "/usr/local/bin/" + prog if prog in ("uv", "pre-commit") else None,
+        )
+
+        def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+            import subprocess
+
+            return subprocess.CompletedProcess(
+                cmd, returncode=1, stdout="", stderr="download error"
+            )
+
+        monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", mock_run_subprocess)
+
+        result = runner.invoke(app, ["post-create", "--workspace", str(tmp_path)])
+        assert (
+            result.exit_code,
+            "Warning: Failed to install standalone claude CLI" in result.output,
+        ) == (0, True)
+
+    def test_init_scaffolds_claude_extension_and_feature(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Verify devcontainer init scaffolds claude extension and devcontainer feature."""
+        result = runner.invoke(
+            app, ["init", str(tmp_path), "--name", "claude-test", "--image", "python:3.14"]
+        )
+        assert result.exit_code == 0
+
+        dc_file = tmp_path / ".devcontainer" / "devcontainer.json"
+        dc_data = json.loads(dc_file.read_text(encoding="utf-8"))
+
+        vscode_exts = dc_data.get("customizations", {}).get("vscode", {}).get("extensions", [])
+        antigravity_exts = (
+            dc_data.get("customizations", {}).get("antigravity", {}).get("extensions", [])
+        )
+        features = dc_data.get("features", {})
+
+        assert (
+            "anthropic.claude-code" in vscode_exts,
+            "anthropic.claude-code" in antigravity_exts,
+            "ghcr.io/anthropics/devcontainer-features/claude-code:1" in features,
+        ) == (True, True, True)
+
     def test_run_lifecycle_command_executes_hooks(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

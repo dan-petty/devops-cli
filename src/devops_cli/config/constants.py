@@ -125,6 +125,10 @@ CONST_DEVCONTAINER_POST_CREATE_PATH = (
 )
 CONST_DEVCONTAINER_IMAGE_PREFIX = "mcr.microsoft.com/devcontainers/python:"
 CONST_DEVCONTAINER_PUBLISHED_IMAGE = "ghcr.io/dan-petty/devops-cli/devcontainer:latest"
+CONST_DEVCONTAINER_CLAUDE_EXTENSION: Final[str] = "anthropic.claude-code"
+CONST_DEVCONTAINER_CLAUDE_FEATURE: Final[str] = (
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1"
+)
 
 # ── Specifications, Load Testing & Chaos ──────────────────────────────────────
 CONST_SPECS_DIR_NAME = ".devops/specs"

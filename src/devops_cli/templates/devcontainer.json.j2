@@ -29,7 +29,8 @@
       "minikube": "latest"
     }{% endif %},
     "ghcr.io/devcontainers/features/copilot-cli:1": {},
-    "ghcr.io/devcontainers/features/github-cli:1": {}
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
   },
   {% endif %}
   "mounts": [
@@ -119,7 +120,8 @@
         "ms-azuretools.vscode-docker",
         "ms-azuretools.vscode-containers",
         "ms-kubernetes-tools.vscode-kubernetes-tools",
-        "Ollama.ollama"
+        "Ollama.ollama",
+        "anthropic.claude-code"
       ],
       "settings": {
         "editor.formatOnSave": true,
@@ -147,7 +149,8 @@
         "ms-azuretools.vscode-docker",
         "ms-azuretools.vscode-containers",
         "ms-kubernetes-tools.vscode-kubernetes-tools",
-        "Ollama.ollama"
+        "Ollama.ollama",
+        "anthropic.claude-code"
       ],
       "settings": {
         "editor.formatOnSave": true,
