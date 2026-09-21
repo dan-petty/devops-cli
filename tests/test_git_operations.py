@@ -62,34 +62,35 @@ def test_iter_workspace_repos(tmp_path: Path) -> None:
     assert discovered == [repo_1]
 
 
+GITHUB_ED25519_KEY = "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+
+
 def test_ensure_known_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _ensure_known_host checks and writes host keys."""
+    """Verify _ensure_known_host checks membership and writes only verified host keys."""
     fake_home = tmp_path / "home"
     monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
 
-    # 1. Host already known in known_hosts
+    # 1. Host already known in known_hosts: no scan is attempted at all. Membership is
+    #    now determined in-process, so ssh-keygen is never spawned for the check either.
     known_hosts = fake_home / ".ssh" / "known_hosts"
     known_hosts.parent.mkdir(parents=True, exist_ok=True)
-    known_hosts.write_text("github.com ssh-ed25519 AAAAC3\n", encoding="utf-8")
+    known_hosts.write_text(f"github.com ssh-ed25519 {GITHUB_ED25519_KEY}\n", encoding="utf-8")
 
     with patch("devops_cli.git.operations.run_subprocess") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0)
         _ensure_known_host("github.com")
-        mock_run.assert_called_once()
+        mock_run.assert_not_called()
 
-    # 2. Host missing from known_hosts -> fetch with keyscan
+    # 2. Host missing from known_hosts -> scan, verify against GitHub's published
+    #    fingerprints, then record it.
+    known_hosts.write_text("", encoding="utf-8")
     with patch("devops_cli.git.operations.run_subprocess") as mock_run:
-        # First call (ssh-keygen check) fails
-        keygen_res = MagicMock(returncode=1)
-        # Second call (ssh-keyscan) succeeds
-        keyscan_res = MagicMock(
-            returncode=0, stdout="github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA"
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout=f"github.com ssh-ed25519 {GITHUB_ED25519_KEY}\n"
         )
-        mock_run.side_effect = [keygen_res, keyscan_res]
         _ensure_known_host("github.com")
 
         content = known_hosts.read_text(encoding="utf-8")
-        assert "AAAAC3NzaC1lZDI1NTE5AAAA" in content
+        assert GITHUB_ED25519_KEY in content
 
 
 def test_clone_repo_ensures_github_known_host_for_ssh_urls(tmp_path: Path) -> None:
@@ -319,14 +320,11 @@ def test_host_key_and_clone_prep_helpers(tmp_path: Path) -> None:
     missing_file = tmp_path / "nonexistent_known_hosts"
     assert not _is_host_in_known_hosts("github.com", missing_file)
 
-    # 2. _is_host_in_known_hosts when present
+    # 2. _is_host_in_known_hosts reads the file directly rather than spawning ssh-keygen
     existing_file = tmp_path / "known_hosts"
-    existing_file.touch()
-    with patch("devops_cli.git.operations.run_subprocess") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0)
-        assert _is_host_in_known_hosts("github.com", existing_file)
-        mock_run.return_value = MagicMock(returncode=1)
-        assert not _is_host_in_known_hosts("github.com", existing_file)
+    existing_file.write_text("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5\n", encoding="utf-8")
+    assert _is_host_in_known_hosts("github.com", existing_file)
+    assert not _is_host_in_known_hosts("gitlab.example.com", existing_file)
 
     # 3. _scan_host_key successes and failures
     with patch("devops_cli.git.operations.run_subprocess") as mock_run:
