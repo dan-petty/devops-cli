@@ -6,6 +6,7 @@ import logging
 import time
 from typing import Any
 
+from devops_cli.ai.lexical import bm25_scores
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.rag.models import CodeChunk, RAGContext, SearchResult
 from devops_cli.ai.rag.qdrant import QdrantClient
@@ -78,6 +79,62 @@ def _search_collections(
     return raw_results
 
 
+def _project_search_results(raw_results: list[dict[str, Any]]) -> list[SearchResult]:
+    """Project raw Qdrant points into typed search results.
+
+    Storage projection is kept separate from ranking so each stage can be tested and
+    changed without disturbing the other.
+    """
+    results: list[SearchResult] = []
+    for point in raw_results:
+        payload = point.get("payload", {})
+        results.append(
+            SearchResult(
+                chunk=CodeChunk(
+                    id=str(point.get("id", "")),
+                    file_path=str(payload.get("file_path", "")),
+                    start_line=int(payload.get("start_line", 1)),
+                    end_line=int(payload.get("end_line", 1)),
+                    content=str(payload.get("content", "")),
+                    language=str(payload.get("language", "text")),
+                    doc_type=str(payload.get("doc_type", "code")),
+                    category=str(payload.get("category", "code")),
+                    project_name=str(payload.get("project_name", "default")),
+                    section_path=list(payload.get("section_path", [])),
+                    symbol_names=list(payload.get("symbol_names", [])),
+                    metadata=dict(payload.get("metadata", {})),
+                    content_hash=str(payload.get("content_hash", "")),
+                ),
+                score=float(point.get("score", 0.0)),
+            )
+        )
+    return results
+
+
+def lexical_rerank(query: str, results: list[SearchResult]) -> list[SearchResult]:
+    """Rank candidate chunks by BM25 relevance to the literal query text.
+
+    Dense similarity smooths over the exact tokens that make a query specific — an error
+    code, a flag, a symbol name — so a literal match can rank below a merely thematic one.
+    Scoring the same candidates lexically recovers those, and fusing the two orderings
+    keeps the semantic matches that BM25 would miss.
+    """
+    if not results:
+        return []
+    ranked = bm25_scores(query, [res.chunk.content for res in results])
+    return [results[match.index] for match in ranked]
+
+
+def hybrid_search_results(
+    query: str, dense_results: list[SearchResult], k: int = 60
+) -> list[SearchResult]:
+    """Fuse dense and lexical rankings of the same candidate pool."""
+    lexical = lexical_rerank(query, dense_results)
+    if not lexical:
+        return dense_results
+    return reciprocal_rank_fusion(dense_results, lexical, k=k)
+
+
 def reciprocal_rank_fusion(
     dense_results: list[SearchResult],
     sparse_results: list[SearchResult],
@@ -145,6 +202,34 @@ class SemanticRetriever:
         self.default_score_threshold = default_score_threshold
         self.reranker = reranker or SearchReranker()
 
+    def _resolve_collections(self, collection: str | None, category: str | None) -> list[str]:
+        """Select which collections a query should target."""
+        if collection:
+            return [collection]
+        if category == "docs":
+            return [self.docs_collection]
+        if category in ("code", "iac", "config"):
+            return [self.code_collection]
+        return [self.code_collection, self.docs_collection]
+
+    def _rank_results(
+        self,
+        query: str,
+        results: list[SearchResult],
+        k: int,
+        *,
+        rerank: bool,
+        hybrid: bool,
+    ) -> list[SearchResult]:
+        """Produce the final ordering from the candidate pool."""
+        if rerank and results:
+            return list(self.reranker.rerank(query, results, top_k=k))
+        if hybrid:
+            # Fusion already ordered the candidates; re-sorting by raw score would
+            # discard the lexical contribution entirely.
+            return results[:k]
+        return sorted(results, key=lambda r: r.score, reverse=True)[:k]
+
     def search(
         self,
         query: str,
@@ -157,8 +242,14 @@ class SemanticRetriever:
         category: str | None = None,
         file_filter: str | None = None,
         rerank: bool = True,
+        hybrid: bool = True,
     ) -> list[SearchResult]:
-        """Execute semantic search across vector collections with faceted filters and re-ranking."""
+        """Search vector collections with faceted filters, hybrid fusion, and re-ranking.
+
+        `hybrid` additionally scores the dense candidate pool lexically and fuses the two
+        rankings, so exact symbol and identifier matches are not lost to embedding
+        smoothing. Set it to False for purely semantic retrieval.
+        """
         k = max(1, min(top_k if top_k is not None else self.default_top_k, 100))
         fetch_limit = max(k * 3, 10) if rerank else k
         raw_threshold = (
@@ -180,15 +271,7 @@ class SemanticRetriever:
             if query_vec is None:
                 return []
 
-            if collection:
-                target_collections = [collection]
-            elif category == "docs":
-                target_collections = [self.docs_collection]
-            elif category in ("code", "iac", "config"):
-                target_collections = [self.code_collection]
-            else:
-                target_collections = [self.code_collection, self.docs_collection]
-
+            target_collections = self._resolve_collections(collection, category)
             search_span.set_attribute("rag.collections", target_collections)
 
             active_filter = _build_rag_filter_payload(file_filter, project, language, category)
@@ -201,31 +284,11 @@ class SemanticRetriever:
                 active_filter,
             )
 
-            results: list[SearchResult] = []
-            for pt in raw_results:
-                payload = pt.get("payload", {})
-                chunk = CodeChunk(
-                    id=str(pt.get("id", "")),
-                    file_path=str(payload.get("file_path", "")),
-                    start_line=int(payload.get("start_line", 1)),
-                    end_line=int(payload.get("end_line", 1)),
-                    content=str(payload.get("content", "")),
-                    language=str(payload.get("language", "text")),
-                    doc_type=str(payload.get("doc_type", "code")),
-                    category=str(payload.get("category", "code")),
-                    project_name=str(payload.get("project_name", "default")),
-                    section_path=list(payload.get("section_path", [])),
-                    symbol_names=list(payload.get("symbol_names", [])),
-                    metadata=dict(payload.get("metadata", {})),
-                    content_hash=str(payload.get("content_hash", "")),
-                )
-                results.append(SearchResult(chunk=chunk, score=float(pt.get("score", 0.0))))
-
-            if rerank and results:
-                final_results = self.reranker.rerank(query, results, top_k=k)
-            else:
-                results.sort(key=lambda x: x.score, reverse=True)
-                final_results = results[:k]
+            results = _project_search_results(raw_results)
+            if hybrid and results:
+                results = hybrid_search_results(query, results)
+                search_span.set_attribute("rag.hybrid", True)
+            final_results = self._rank_results(query, results, k, rerank=rerank, hybrid=hybrid)
 
             search_span.set_attribute("rag.results_count", len(final_results))
             if final_results:
