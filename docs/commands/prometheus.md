@@ -50,6 +50,31 @@ devops prometheus query-range [OPTIONS] <expr>
 
 ---
 
+## `devops prometheus analyze`
+
+**Detect anomalies and project the trend of a metric series, computed locally.**
+
+```bash
+devops prometheus analyze [OPTIONS] <expr>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<expr>` | `string` | Yes | PromQL expression. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--start`, `-s` | `string` | `1h` | Start: duration ago (e.g. 1h) or Unix ts. |
+| `--step` | `string` | `60s` | Query resolution step interval. |
+| `--threshold`, `-t` | `float` | `3.0` | Z-score threshold before a sample is reported as anomalous. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+---
+
 ## `devops prometheus rules`
 
 **List Prometheus recording and alerting rules.**

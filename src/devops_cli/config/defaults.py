@@ -575,6 +575,17 @@ DEFAULT_QDRANT_QUANTIZATION_ENABLED: bool = True
 # compress the scale for every other value.
 DEFAULT_QDRANT_QUANTIZATION_QUANTILE: float = 0.99
 
+# ── Client-Side Metric Analysis ──────────────────────────────────────────────
+# Standard deviations from the mean before a sample is reported as anomalous.
+DEFAULT_ANOMALY_Z_THRESHOLD: float = 3.0
+# Minimum series length before anomaly detection runs. Below this a baseline cannot be
+# established, and a reported "anomaly" would be noise dressed as signal.
+DEFAULT_ANOMALY_MIN_SAMPLES: int = 8
+# Exponential smoothing factor; higher values track level shifts faster.
+DEFAULT_EWMA_ALPHA: float = 0.3
+# Samples projected beyond the observed window.
+DEFAULT_FORECAST_HORIZON_SAMPLES: int = 5
+
 # ── Watcher Defaults ────────────────────────────────────────────────────────
 DEFAULT_FILE_WATCHER_DEBOUNCE_MS: int = 500
 DEFAULT_FILE_WATCHER_INTERVAL_SECONDS: float = 0.5

@@ -233,6 +233,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops grafana dashboards COMMAND [ARGS]...` | Grafana dashboard and alert management. |
 | **prometheus** | `devops prometheus query [OPTIONS] <expr>` | Execute an instant PromQL query. |
 |  | `devops prometheus query-range [OPTIONS] <expr>` | Execute a range PromQL query and summarise the result. |
+|  | `devops prometheus analyze [OPTIONS] <expr>` | Detect anomalies and project the trend of a metric series, computed locally. |
 |  | `devops prometheus rules` | List Prometheus recording and alerting rules. |
 |  | `devops prometheus targets` | List active Prometheus scrape targets. |
 | **argo** | `devops argo sync [OPTIONS] <name>` | Synchronize an ArgoCD application (or multi-cluster fleet when --fleet is passed). |

@@ -990,6 +990,7 @@ class AnalyzeCommandHelp:
 @dataclass(frozen=True)
 class PrometheusCommandHelp:
     app: str = "Prometheus metrics querying and analysis."
+    anomaly_threshold: str = "Z-score threshold before a sample is reported as anomalous."
     query: str = "Execute an instant PromQL query."
     query_range: str = "Execute a range PromQL query."
     expr: str = "PromQL expression."
