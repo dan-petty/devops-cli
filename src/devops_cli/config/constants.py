@@ -1360,3 +1360,36 @@ CONST_SARIF_LEVEL_TO_SEVERITY: Final[dict[str, str]] = {
 # Depth limit for suppression policy inheritance, so a misconfigured chain fails with a
 # clear error rather than recursing until the interpreter stops it.
 CONST_SUPPRESSION_MAX_INHERITANCE_DEPTH: Final[int] = 10
+
+# ── OpenSSH known_hosts ──────────────────────────────────────────────────────
+# Hashed host fields are written as |1|<base64 salt>|<base64 HMAC-SHA1 digest>.
+CONST_KNOWN_HOSTS_HASH_PREFIX: Final[str] = "|1|"
+CONST_KNOWN_HOSTS_MARKER_REVOKED: Final[str] = "@revoked"
+CONST_KNOWN_HOSTS_MARKER_CERT_AUTHORITY: Final[str] = "@cert-authority"
+
+# ── SSH Host Key Verification ────────────────────────────────────────────────
+CONST_SSH_FINGERPRINT_PREFIX: Final[str] = "SHA256:"
+# Host key algorithms accepted from a scan. Types outside this set are ignored rather than
+# written to known_hosts, where an unusable entry silently breaks later connections.
+CONST_SSH_HOST_KEY_TYPES: Final[frozenset[str]] = frozenset(
+    {
+        "ssh-ed25519",
+        "ecdsa-sha2-nistp256",
+        "ecdsa-sha2-nistp384",
+        "ecdsa-sha2-nistp521",
+        "ssh-rsa",
+        "rsa-sha2-256",
+        "rsa-sha2-512",
+    }
+)
+# GitHub publishes these at https://api.github.com/meta over TLS, so pinning them lets the
+# SSH host key be verified against a channel that is already authenticated rather than
+# trusting whatever answers the first connection. Refresh with `devops git host-keys`.
+CONST_GITHUB_HOST_KEY_FINGERPRINTS: Final[frozenset[str]] = frozenset(
+    {
+        "SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU",  # ssh-ed25519
+        "SHA256:p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM",  # ecdsa-sha2-nistp256
+        "SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s",  # ssh-rsa
+    }
+)
+CONST_GITHUB_META_URL: Final[str] = "https://api.github.com/meta"
