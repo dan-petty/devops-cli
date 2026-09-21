@@ -26,7 +26,7 @@ from devops_cli.config.constants import (
     CONST_ROLLOUT_FIELD_RESTART_AT,
 )
 from devops_cli.config.defaults import DEFAULT_K8S_NAMESPACE
-from devops_cli.core.validation import validate_k8s_name
+from devops_cli.core.validation import is_valid_k8s_name
 from devops_cli.exceptions.argo import ArgoError, ArgoResourceNotFoundError
 from devops_cli.models.argo import ArgoResourceState, ArgoRolloutState, ArgoWorkflowState
 
@@ -38,6 +38,16 @@ _HTTP_NOT_FOUND = 404
 def _is_not_found(exc: Exception) -> bool:
     """Detect a Kubernetes API 404 without importing the client at module scope."""
     return int(getattr(exc, "status", 0) or 0) == _HTTP_NOT_FOUND
+
+
+def _require_k8s_name(value: str, label: str, *, namespace: bool = False) -> None:
+    """Validate an RFC 1123 name, raising a domain error rather than a CLI exit.
+
+    `validate_k8s_name` aborts the process with `typer.Exit`, which is correct at the CLI
+    boundary but wrong in a library consumed by FastMCP tools and the TUI as well.
+    """
+    if not is_valid_k8s_name(value, namespace=namespace):
+        raise ArgoError(f"Invalid {label}: {value!r}. Must be a valid RFC 1123 name.")
 
 
 class ArgoCRDService:
@@ -62,7 +72,7 @@ class ArgoCRDService:
         self, plural: str, namespace: str = DEFAULT_K8S_NAMESPACE
     ) -> list[dict[str, Any]]:
         """List Argo custom resources of one kind within a namespace."""
-        validate_k8s_name(namespace, "namespace", namespace=True)
+        _require_k8s_name(namespace, "namespace", namespace=True)
         try:
             response = self._api().list_namespaced_custom_object(
                 group=CONST_ARGO_API_GROUP,
@@ -80,8 +90,8 @@ class ArgoCRDService:
         self, plural: str, name: str, namespace: str = DEFAULT_K8S_NAMESPACE
     ) -> dict[str, Any]:
         """Fetch a single Argo custom resource, raising a typed error when absent."""
-        validate_k8s_name(name, f"{plural} name")
-        validate_k8s_name(namespace, "namespace", namespace=True)
+        _require_k8s_name(name, f"{plural} name")
+        _require_k8s_name(namespace, "namespace", namespace=True)
         try:
             resource = self._api().get_namespaced_custom_object(
                 group=CONST_ARGO_API_GROUP,
@@ -112,8 +122,8 @@ class ArgoCRDService:
         namespace: str = DEFAULT_K8S_NAMESPACE,
     ) -> dict[str, Any]:
         """Apply a merge patch to an Argo custom resource."""
-        validate_k8s_name(name, f"{plural} name")
-        validate_k8s_name(namespace, "namespace", namespace=True)
+        _require_k8s_name(name, f"{plural} name")
+        _require_k8s_name(namespace, "namespace", namespace=True)
         try:
             patched = self._api().patch_namespaced_custom_object(
                 group=CONST_ARGO_API_GROUP,
@@ -146,8 +156,8 @@ class ArgoCRDService:
             raise ArgoError(
                 f"Argo {plural[:-1]} manifest is missing 'metadata.name'", namespace=namespace
             )
-        validate_k8s_name(name, f"{plural} name")
-        validate_k8s_name(namespace, "namespace", namespace=True)
+        _require_k8s_name(name, f"{plural} name")
+        _require_k8s_name(namespace, "namespace", namespace=True)
         try:
             created = self._api().create_namespaced_custom_object(
                 group=CONST_ARGO_API_GROUP,

@@ -74,7 +74,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Deep Integration & Functional Extension*: Establish direct asynchronous communication over the local Docker daemon Unix domain socket (`/var/run/docker.sock`) using engine APIs; introspect BuildKit multi-stage layer caching; stream real-time container resource metrics and cgroup telemetry directly into reactive streams.
   - *Code Optimization & Performance Acceleration*: Eliminate subshell latency when provisioning sandboxes; streamline ephemeral image builds via BuildKit cache mounts; implement zero-overhead container health probing via socket pings.
   - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/commands/docker.py` and `src/devops_cli/core/sandbox.py` to share a unified container engine client; replace unstructured stdout scraping with typed Pydantic container state models; eliminate legacy fallback shims.
-- [ ] **ArgoCD Server API, CRD Reconciliation & Automated Canary Metric Verification Research (P1 - High, Issue #309)**:
+- [x] **ArgoCD Server API, CRD Reconciliation & Automated Canary Metric Verification Research (P1 - High, Issue #309)**:
   - *Context & Rationale*: GitOps fleet synchronization currently depends on external `argocd` and `kubectl-argo-rollouts` binary installations, creating environment friction and shallow subprocess orchestration.
   - *Deep Integration & Functional Extension*: Native gRPC and REST client integration directly with the ArgoCD API server; direct Kubernetes Custom Resource Definition (`Application`, `ApplicationSet`, `Rollout`) manipulation; automated Canary rollout analysis verifying Prometheus SLO thresholds during progressive delivery.
   - *Code Optimization & Performance Acceleration*: Eliminate external CLI binary prerequisites across CI runners and developer workstations; execute multi-application fleet synchronization queries in parallel over a single multiplexed HTTP/2 connection.
@@ -481,7 +481,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Structured Constraint Propagation Across Subagent Delegation | PydanticAI / Workflow | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
 |  | MCP Resource-First Data Access & Tool Output Sandboxing | FastMCP / MCP Resources | High | Medium | v0.2.25 | 📋 Scheduled (P1) |
 |  | Docker Engine Socket API & Layer Caching Introspection Research | Docker Engine / BuildKit | High | Medium | v0.2.22 | ✅ Completed (P1) |
-|  | ArgoCD Server API, CRD Reconciliation & Canary Verification Research | ArgoCD / Rollouts | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | ArgoCD Server API, CRD Reconciliation & Canary Verification Research | ArgoCD / Rollouts | High | Medium | v0.2.22 | ✅ Completed (P1) |
 |  | Terraform & OpenTofu HCL AST Analysis & Drift Optimization Research | OpenTofu / HCL AST | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 |  | HashiCorp Vault Native Client, Dynamic Leases & Envelope Encryption Research | Vault / HVAC / Keyring | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 |  | Valkey & Redis RESP3 Connection Pooling & Tiered L1/L2 Cache Research | Valkey / RESP3 / Redis | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
