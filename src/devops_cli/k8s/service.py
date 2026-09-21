@@ -36,6 +36,7 @@ class KubernetesService:
         self._core_v1: Any = None
         self._apps_v1: Any = None
         self._version_api: Any = None
+        self._custom_objects: Any = None
         self._cache: dict[str, tuple[float, Any]] = {}
         self._cache_ttl: float = DEFAULT_K8S_CACHE_TTL_SECONDS
 
@@ -81,12 +82,22 @@ class KubernetesService:
             self._core_v1 = k8s_client.CoreV1Api(self._api_client)
             self._apps_v1 = k8s_client.AppsV1Api(self._api_client)
             self._version_api = k8s_client.VersionApi(self._api_client)
+            self._custom_objects = k8s_client.CustomObjectsApi(self._api_client)
             self._config_loaded = True
             return True
         except Exception as exc:
             logger.debug("Failed to initialize Kubernetes API client: %s", exc)
             self._config_loaded = False
             return False
+
+    def custom_objects_api(self, context: str | None = None) -> Any:
+        """Return the CustomObjectsApi client used to manipulate CRDs in-process."""
+        if not self.load_config(context=context) or self._custom_objects is None:
+            raise KubernetesContextError(
+                "Cannot reach the Kubernetes API server to manipulate custom resources",
+                context=context,
+            )
+        return self._custom_objects
 
     def is_cluster_reachable(
         self,

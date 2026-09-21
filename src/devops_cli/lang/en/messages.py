@@ -597,7 +597,7 @@ class ArgoMessages:
     no_apps_found: str = "No ArgoCD applications found."
     app_not_found: str = "Application '{name}' not found."
     sync_triggered: str = "Sync triggered for '{name}'."
-    workflow_submitted: str = "Workflow submitted: {name}"
+    workflow_submitted: str = "Workflow submitted: {name} ({phase})"
     workflow_resumed: str = "Workflow resumed: {name}"
     workflow_stopped: str = "Workflow stopped: {name}"
     rollout_restarted: str = "Rollout restarted: {name}"
@@ -607,6 +607,12 @@ class ArgoMessages:
     table_title_apps: str = "ArgoCD Applications"
     table_title_workflows: str = "Argo Workflows"
     table_title_rollouts: str = "Argo Rollouts"
+    table_title_rollout_status: str = "Argo Rollout: {name}"
+    workflow_finished: str = "Workflow {name} finished with phase: {phase}"
+    workflow_no_pods: str = "Workflow '{name}' has no pod nodes to stream logs from."
+    workflow_wait_timeout: str = (
+        "Timed out after {seconds:.0f}s waiting for workflow '{name}' to reach a terminal phase."
+    )
 
 
 @dataclass(frozen=True)

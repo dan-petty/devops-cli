@@ -375,6 +375,8 @@ CONST_ERROR_CODE_DOCKER_SANDBOX = "DOCKER_SANDBOX_ERROR"
 CONST_ERROR_CODE_DOCKER_ENGINE = "DOCKER_ENGINE_ERROR"
 CONST_ERROR_CODE_DOCKER_DAEMON_UNAVAILABLE = "DOCKER_DAEMON_UNAVAILABLE"
 CONST_ERROR_CODE_K8S = "K8S_ERROR"
+CONST_ERROR_CODE_ARGO = "ARGO_ERROR"
+CONST_ERROR_CODE_ARGO_RESOURCE_NOT_FOUND = "ARGO_RESOURCE_NOT_FOUND"
 CONST_ERROR_CODE_MODEL_BUNDLE = "MODEL_BUNDLE_ERROR"
 CONST_ERROR_CODE_HARNESS = "HARNESS_ERROR"
 CONST_ERROR_CODE_HARNESS_VALIDATION = "HARNESS_VALIDATION_ERROR"
@@ -696,6 +698,50 @@ REVIEW_STRONG_SYMBOL_MIN_LENGTH: Final[int] = 6
 # enclosing symbol are treated as one defect. Set high enough that different defects in
 # the same function stay separate, since dropping a real finding is the costlier error.
 REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD: Final[float] = 0.35
+# ── Argo CRD Group, Version & Resource Plurals ───────────────────────────────
+# The Argo project serves Applications, ApplicationSets, Rollouts, AnalysisRuns,
+# and Workflows from a single API group. These identifiers are fixed by the
+# published Argo CRD manifests, so the set is closed and exhaustive.
+CONST_ARGO_API_GROUP: Final[str] = "argoproj.io"
+CONST_ARGO_API_VERSION: Final[str] = "v1alpha1"
+
+CONST_ARGO_PLURAL_APPLICATIONS: Final[str] = "applications"
+CONST_ARGO_PLURAL_APPLICATION_SETS: Final[str] = "applicationsets"
+CONST_ARGO_PLURAL_ROLLOUTS: Final[str] = "rollouts"
+CONST_ARGO_PLURAL_ANALYSIS_RUNS: Final[str] = "analysisruns"
+CONST_ARGO_PLURAL_WORKFLOWS: Final[str] = "workflows"
+
+CONST_ARGO_RESOURCE_PLURALS: Final[frozenset[str]] = frozenset(
+    {
+        CONST_ARGO_PLURAL_APPLICATIONS,
+        CONST_ARGO_PLURAL_APPLICATION_SETS,
+        CONST_ARGO_PLURAL_ROLLOUTS,
+        CONST_ARGO_PLURAL_ANALYSIS_RUNS,
+        CONST_ARGO_PLURAL_WORKFLOWS,
+    }
+)
+
+# Argo Rollouts control-plane fields. The rollouts controller watches these
+# exact fields to drive promotion, abort, and restart, which is what the
+# `kubectl argo rollouts` plugin patches on the user's behalf.
+CONST_ROLLOUT_FIELD_ABORT: Final[str] = "abort"
+CONST_ROLLOUT_FIELD_PROMOTE_FULL: Final[str] = "promoteFull"
+CONST_ROLLOUT_FIELD_PAUSE_CONDITIONS: Final[str] = "pauseConditions"
+CONST_ROLLOUT_FIELD_CONTROLLER_PAUSE: Final[str] = "controllerPause"
+CONST_ROLLOUT_FIELD_RESTART_AT: Final[str] = "restartAt"
+
+# Terminal Argo Workflow phases. Closed set defined by the Argo Workflows
+# controller's `status.phase` enumeration.
+CONST_ARGO_WORKFLOW_PHASE_SUCCEEDED: Final[str] = "Succeeded"
+CONST_ARGO_WORKFLOW_PHASE_FAILED: Final[str] = "Failed"
+CONST_ARGO_WORKFLOW_PHASE_ERROR: Final[str] = "Error"
+
+CONST_ARGO_WORKFLOW_FAILURE_PHASES: Final[frozenset[str]] = frozenset(
+    {CONST_ARGO_WORKFLOW_PHASE_FAILED, CONST_ARGO_WORKFLOW_PHASE_ERROR}
+)
+CONST_ARGO_WORKFLOW_TERMINAL_PHASES: Final[frozenset[str]] = (
+    CONST_ARGO_WORKFLOW_FAILURE_PHASES | frozenset({CONST_ARGO_WORKFLOW_PHASE_SUCCEEDED})
+)
 
 # ── Docker Engine Socket API & BuildKit Cache Introspection ──────────────────
 # Container CPU utilisation severity thresholds for live stats rendering.
