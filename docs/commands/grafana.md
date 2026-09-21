@@ -108,4 +108,29 @@ devops grafana dashboards sync [OPTIONS]
 |---|---|---|---|
 | `--dir`, `-d` | `path` | - | Directory path containing dashboard definitions. |
 
+### `devops grafana dashboards lint`
+
+**Statically check dashboard JSON for layout, query, and binding defects.**
+
+Statically check dashboard JSON for layout, query, and binding defects.
+
+Catches overlapping panels, duplicate ids, unbound datasources, and malformed PromQL
+before a dashboard reaches Grafana, where the only symptom is a blank or wrong panel.
+
+```bash
+devops grafana dashboards lint [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `path` | No | Dashboard JSON file or directory to lint. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ---

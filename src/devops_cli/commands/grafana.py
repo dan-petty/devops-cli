@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import httpx2
 import typer
@@ -267,6 +267,89 @@ def dashboards_sync(
 # =============================================================================
 # Command: devops grafana search
 # =============================================================================
+
+
+# =============================================================================
+# Command: devops grafana dashboards lint
+# =============================================================================
+
+
+def _lint_rows(reports: list[Any]) -> list[list[str]]:
+    """Render lint issues across dashboards as table rows."""
+    return [
+        [
+            report.source_file or report.dashboard_title,
+            issue.severity,
+            issue.panel or "(dashboard)",
+            issue.message,
+        ]
+        for report in reports
+        for issue in report.issues
+    ]
+
+
+@dashboards_app.command("lint")
+def dashboards_lint(
+    path: Annotated[
+        Path, typer.Argument(help=HELP.grafana.lint_path)
+    ] = DEFAULT_GRAFANA_DASHBOARDS_DIR,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+) -> None:
+    """Statically check dashboard JSON for layout, query, and binding defects.
+
+    Catches overlapping panels, duplicate ids, unbound datasources, and malformed PromQL
+    before a dashboard reaches Grafana, where the only symptom is a blank or wrong panel.
+    """
+    from devops_cli.grafana import lint_dashboard_file
+    from devops_cli.output import format_json, print_info, write_stdout
+
+    target = path.resolve()
+    if is_dry_run():
+        render_dry_run_result(
+            command=f"devops grafana dashboards lint {path}",
+            action="lint_grafana_dashboards",
+            target=str(target),
+        )
+        return
+
+    if target.is_dir():
+        files = sorted(target.glob("*.json"))
+    elif target.is_file():
+        files = [target]
+    else:
+        print_error(ERRORS.grafana.dashboards_not_found.format(path=path), prefix=False)
+        raise typer.Exit(1)
+
+    if not files:
+        print_warning(MESSAGES.grafana.no_dashboards_found.format(path=path))
+        return
+
+    reports = [lint_dashboard_file(f) for f in files]
+
+    if json_output:
+        write_stdout(format_json([r.model_dump() for r in reports]) + "\n")
+        return
+
+    error_count = sum(len(r.errors) for r in reports)
+    warning_count = sum(len(r.warnings) for r in reports)
+
+    if error_count or warning_count:
+        print_table(
+            title=MESSAGES.grafana.table_title_lint,
+            columns=[("Dashboard", "cyan"), "Severity", "Panel", "Issue"],
+            rows=_lint_rows(reports),
+        )
+
+    print_info(
+        MESSAGES.grafana.lint_summary.format(
+            dashboards=len(reports),
+            panels=sum(r.panel_count for r in reports),
+            errors=error_count,
+            warnings=warning_count,
+        )
+    )
+    if error_count:
+        raise typer.Exit(1)
 
 
 @app.command()

@@ -731,6 +731,19 @@ CONST_VAULT_PATH_TRANSIT_DECRYPT: Final[str] = "transit/decrypt"
 # Default in-cluster ServiceAccount token projected into every Kubernetes pod.
 CONST_KUBERNETES_SA_TOKEN_PATH: Final[str] = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 
+# ── Grafana Dashboard Schema ─────────────────────────────────────────────────
+# Grafana lays dashboards out on a fixed 24-column grid; a panel extending past it is
+# clipped rather than wrapped.
+CONST_GRAFANA_DASHBOARD_GRID_WIDTH: Final[int] = 24
+# Dashboard JSON schema version targeted by the generated models (Grafana 10+).
+CONST_GRAFANA_SCHEMA_VERSION: Final[int] = 39
+CONST_GRAFANA_DEFAULT_DATASOURCE_TYPE: Final[str] = "prometheus"
+
+# Panel types emitted by the builder library.
+CONST_GRAFANA_PANEL_TYPE_TIMESERIES: Final[str] = "timeseries"
+CONST_GRAFANA_PANEL_TYPE_STAT: Final[str] = "stat"
+CONST_GRAFANA_PANEL_TYPE_ROW: Final[str] = "row"
+
 # ── PromQL Structural Validation ─────────────────────────────────────────────
 # Bracket pairs used by the PromQL grammar. Closed and exhaustive: these are the only
 # grouping delimiters the language defines.
