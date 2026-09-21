@@ -131,3 +131,113 @@ class TFCostBreakdownResult(BaseModel):
     raw_json: dict[str, Any] | None = Field(default=None, description="Raw JSON data payload")
 
     model_config = {"populate_by_name": True}
+
+
+# =============================================================================
+# In-Process HCL AST Analysis & State Introspection
+# =============================================================================
+
+
+class IaCResource(BaseModel):
+    """A resource or data source declared in HCL configuration."""
+
+    address: str = Field(..., description="Canonical address, e.g. aws_vpc.main")
+    block_type: str = Field(default="resource", description="Declaring block type")
+    resource_type: str = Field(default="", description="Provider resource type")
+    name: str = Field(default="", description="Local resource name")
+    source_file: str = Field(default="", description="File the declaration was parsed from")
+    provider: str = Field(default="", description="Provider prefix derived from the resource type")
+    references: list[str] = Field(
+        default_factory=list, description="Addresses this resource interpolates or depends on"
+    )
+    attributes: dict[str, Any] = Field(
+        default_factory=dict, description="Declared attribute values"
+    )
+
+
+class IaCModule(BaseModel):
+    """A module invocation declared in HCL configuration."""
+
+    address: str = Field(..., description="Canonical module address, e.g. module.db")
+    name: str = Field(default="", description="Module instance name")
+    source: str = Field(default="", description="Module source location")
+    source_file: str = Field(default="", description="File the invocation was parsed from")
+    references: list[str] = Field(
+        default_factory=list, description="Addresses this module's arguments reference"
+    )
+
+
+class IaCConfiguration(BaseModel):
+    """Typed projection of a parsed Terraform/OpenTofu configuration directory."""
+
+    directory: str = Field(default="", description="Parsed configuration directory")
+    resources: list[IaCResource] = Field(
+        default_factory=list, description="Declared resources and data sources"
+    )
+    modules: list[IaCModule] = Field(default_factory=list, description="Declared module calls")
+    variables: list[str] = Field(default_factory=list, description="Declared input variable names")
+    outputs: list[str] = Field(default_factory=list, description="Declared output names")
+    parsed_files: list[str] = Field(default_factory=list, description="Files parsed successfully")
+    failed_files: dict[str, str] = Field(
+        default_factory=dict, description="Files that failed to parse, keyed by path"
+    )
+
+
+class IaCStateResource(BaseModel):
+    """A resource instance recorded in a Terraform/OpenTofu state file."""
+
+    address: str = Field(..., description="Canonical state address")
+    mode: str = Field(default="managed", description="State mode (managed or data)")
+    resource_type: str = Field(default="", description="Provider resource type")
+    name: str = Field(default="", description="Local resource name")
+    provider: str = Field(default="", description="Fully qualified provider reference")
+    module: str = Field(default="", description="Owning module path, empty for the root module")
+    instance_count: int = Field(default=0, description="Number of recorded instances")
+
+
+class IaCState(BaseModel):
+    """Typed projection of a Terraform/OpenTofu state file."""
+
+    version: int = Field(default=0, description="State format version")
+    terraform_version: str = Field(default="", description="Binary version that wrote the state")
+    serial: int = Field(default=0, description="State serial number")
+    lineage: str = Field(default="", description="State lineage identifier")
+    resources: list[IaCStateResource] = Field(
+        default_factory=list, description="Recorded resource instances"
+    )
+    outputs: dict[str, Any] = Field(default_factory=dict, description="Recorded output values")
+
+
+class IaCDriftReport(BaseModel):
+    """Divergence between declared configuration and recorded state."""
+
+    directory: str = Field(default="", description="Analyzed configuration directory")
+    declared_count: int = Field(default=0, description="Resources declared in configuration")
+    state_count: int = Field(default=0, description="Managed resources recorded in state")
+    missing_from_state: list[str] = Field(
+        default_factory=list, description="Declared but absent from state (awaiting apply)"
+    )
+    orphaned_in_state: list[str] = Field(
+        default_factory=list, description="Recorded in state but no longer declared"
+    )
+    in_sync: list[str] = Field(
+        default_factory=list, description="Addresses present in both configuration and state"
+    )
+    drift_detected: bool = Field(default=False, description="Whether any divergence was found")
+    state_present: bool = Field(default=False, description="Whether a state file was found")
+
+
+class IaCBlastRadius(BaseModel):
+    """Transitive impact of changing a single resource address."""
+
+    address: str = Field(..., description="Resource address the analysis originates from")
+    direct_dependents: list[str] = Field(
+        default_factory=list, description="Addresses directly referencing this resource"
+    )
+    transitive_dependents: list[str] = Field(
+        default_factory=list, description="All addresses transitively impacted"
+    )
+    depends_on: list[str] = Field(
+        default_factory=list, description="Addresses this resource itself depends upon"
+    )
+    impact_count: int = Field(default=0, description="Total transitively impacted addresses")

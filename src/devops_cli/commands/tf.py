@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -32,6 +32,8 @@ from devops_cli.output import (
     print_error,
     print_info,
     print_success,
+    print_table,
+    print_warning,
     write_stdout,
 )
 
@@ -408,6 +410,172 @@ def status_command(
             initialized=tf_dir.exists(),
             has_lock=lock_file.exists(),
             has_state=state_file.exists(),
+        )
+    )
+
+
+# =============================================================================
+# Command: devops tf graph
+# =============================================================================
+
+
+def _graph_rows(config: Any, graph: dict[str, list[str]]) -> list[list[str]]:
+    """Render each declared address with its dependencies and source file."""
+    origin = {r.address: r.source_file for r in config.resources}
+    origin.update({m.address: m.source_file for m in config.modules})
+    return [
+        [address, ", ".join(dependencies) or "—", origin.get(address, "—")]
+        for address, dependencies in sorted(graph.items())
+    ]
+
+
+def _report_parse_failures(config: Any) -> None:
+    """Surface files that could not be parsed rather than silently omitting them."""
+    if config.failed_files:
+        print_warning(
+            MESSAGES.tf.parse_failures.format(
+                count=len(config.failed_files), files=", ".join(sorted(config.failed_files))
+            )
+        )
+
+
+@app.command("graph")
+def tf_graph(
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
+    resource: Annotated[
+        str | None, typer.Option("--resource", "-r", help=HELP.tf.resource_address)
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+) -> None:
+    """Inspect the in-memory resource dependency graph and blast radius."""
+    from devops_cli.output import format_json
+    from devops_cli.tf.analysis import (
+        build_dependency_graph,
+        compute_blast_radius,
+        parse_hcl_directory,
+    )
+
+    target = validate_dir(directory)
+    if is_dry_run():
+        render_dry_run_result(
+            command=f"devops tf graph {directory}",
+            action="analyze_iac_dependency_graph",
+            target=str(target),
+            details={"resource": resource},
+        )
+        return
+
+    config = parse_hcl_directory(target)
+    graph = build_dependency_graph(config)
+
+    if resource:
+        if resource not in graph:
+            print_error(
+                MESSAGES.tf.graph_unknown_address.format(address=resource, directory=target.name),
+                prefix=False,
+            )
+            raise typer.Exit(1)
+        radius = compute_blast_radius(graph, resource)
+        if json_output:
+            write_stdout(format_json(radius.model_dump()) + "\n")
+            return
+        print_table(
+            title=MESSAGES.tf.table_title_blast_radius.format(address=resource),
+            columns=[("Impacted Address", "cyan"), "Relationship"],
+            rows=[[address, "direct"] for address in radius.direct_dependents]
+            + [
+                [address, "transitive"]
+                for address in radius.transitive_dependents
+                if address not in radius.direct_dependents
+            ],
+        )
+        print_info(
+            MESSAGES.tf.blast_radius_summary.format(
+                address=resource,
+                impact=radius.impact_count,
+                depends=", ".join(radius.depends_on) or "nothing",
+            )
+        )
+        return
+
+    if json_output:
+        write_stdout(format_json({"graph": graph, "directory": str(target)}) + "\n")
+        return
+
+    if not graph:
+        print_info(MESSAGES.tf.graph_no_resources.format(directory=target.name), prefix=False)
+        _report_parse_failures(config)
+        return
+
+    print_table(
+        title=MESSAGES.tf.table_title_graph.format(directory=target.name),
+        columns=[("Address", "cyan"), "Depends On", "Source File"],
+        rows=_graph_rows(config, graph),
+    )
+    print_info(
+        MESSAGES.tf.graph_summary.format(
+            resources=len(config.resources),
+            modules=len(config.modules),
+            edges=sum(len(deps) for deps in graph.values()),
+            files=len(config.parsed_files),
+        )
+    )
+    _report_parse_failures(config)
+
+
+# =============================================================================
+# Command: devops tf drift
+# =============================================================================
+
+
+@app.command("drift")
+def tf_drift(
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+) -> None:
+    """Compare declared configuration against recorded state."""
+    from devops_cli.output import format_json
+    from devops_cli.tf.analysis import analyze_directory, detect_drift
+
+    target = validate_dir(directory)
+    if is_dry_run():
+        render_dry_run_result(
+            command=f"devops tf drift {directory}",
+            action="detect_iac_configuration_drift",
+            target=str(target),
+        )
+        return
+
+    config, state = analyze_directory(target)
+    report = detect_drift(config, state)
+
+    if json_output:
+        write_stdout(format_json(report.model_dump()) + "\n")
+        return
+
+    _report_parse_failures(config)
+
+    if not report.state_present:
+        print_warning(
+            MESSAGES.tf.drift_no_state.format(directory=target.name, declared=report.declared_count)
+        )
+        return
+
+    if not report.drift_detected:
+        print_success(MESSAGES.tf.drift_in_sync.format(count=len(report.in_sync)))
+        return
+
+    print_table(
+        title=MESSAGES.tf.table_title_drift.format(directory=target.name),
+        columns=[("Address", "cyan"), "Divergence"],
+        rows=[[address, "declared, not in state"] for address in report.missing_from_state]
+        + [[address, "in state, not declared"] for address in report.orphaned_in_state],
+    )
+    print_info(
+        MESSAGES.tf.drift_summary.format(
+            missing=len(report.missing_from_state),
+            orphaned=len(report.orphaned_in_state),
+            synced=len(report.in_sync),
         )
     )
 

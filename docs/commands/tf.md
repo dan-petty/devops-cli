@@ -182,6 +182,51 @@ devops tf status <directory>
 
 ---
 
+## `devops tf graph`
+
+**Inspect the in-memory resource dependency graph and blast radius.**
+
+```bash
+devops tf graph [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--resource`, `-r` | `string` | - | Resource address to compute blast radius for, e.g. aws_vpc.main. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+---
+
+## `devops tf drift`
+
+**Compare declared configuration against recorded state.**
+
+```bash
+devops tf drift [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+---
+
 ## `devops tf deploy-cloud`
 
 **Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP.**

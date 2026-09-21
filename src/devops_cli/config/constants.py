@@ -698,6 +698,57 @@ REVIEW_STRONG_SYMBOL_MIN_LENGTH: Final[int] = 6
 # enclosing symbol are treated as one defect. Set high enough that different defects in
 # the same function stay separate, since dropping a real finding is the costlier error.
 REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD: Final[float] = 0.35
+# ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
+# HCL configuration file extensions recognised by Terraform and OpenTofu.
+CONST_HCL_FILE_EXTENSIONS: Final[tuple[str, ...]] = (".tf",)
+CONST_HCL_JSON_FILE_EXTENSION: Final[str] = ".tf.json"
+
+# Candidate state file names, in the order Terraform and OpenTofu resolve them.
+CONST_TF_STATE_FILE_NAMES: Final[tuple[str, ...]] = (
+    "terraform.tfstate",
+    ".terraform/terraform.tfstate",
+)
+
+# Top-level HCL block types. This set is closed and exhaustive: it is fixed by the
+# Terraform and OpenTofu configuration language grammar, not inferred from samples.
+CONST_HCL_BLOCK_RESOURCE: Final[str] = "resource"
+CONST_HCL_BLOCK_DATA: Final[str] = "data"
+CONST_HCL_BLOCK_MODULE: Final[str] = "module"
+CONST_HCL_BLOCK_VARIABLE: Final[str] = "variable"
+CONST_HCL_BLOCK_OUTPUT: Final[str] = "output"
+CONST_HCL_BLOCK_LOCALS: Final[str] = "locals"
+CONST_HCL_BLOCK_PROVIDER: Final[str] = "provider"
+CONST_HCL_BLOCK_TERRAFORM: Final[str] = "terraform"
+CONST_HCL_BLOCK_MOVED: Final[str] = "moved"
+CONST_HCL_BLOCK_IMPORT: Final[str] = "import"
+CONST_HCL_BLOCK_CHECK: Final[str] = "check"
+
+CONST_HCL_BLOCK_TYPES: Final[frozenset[str]] = frozenset(
+    {
+        CONST_HCL_BLOCK_RESOURCE,
+        CONST_HCL_BLOCK_DATA,
+        CONST_HCL_BLOCK_MODULE,
+        CONST_HCL_BLOCK_VARIABLE,
+        CONST_HCL_BLOCK_OUTPUT,
+        CONST_HCL_BLOCK_LOCALS,
+        CONST_HCL_BLOCK_PROVIDER,
+        CONST_HCL_BLOCK_TERRAFORM,
+        CONST_HCL_BLOCK_MOVED,
+        CONST_HCL_BLOCK_IMPORT,
+        CONST_HCL_BLOCK_CHECK,
+    }
+)
+
+# Marker key `python-hcl2` injects to distinguish blocks from plain attribute maps.
+CONST_HCL_BLOCK_MARKER: Final[str] = "__is_block__"
+
+# Traversal prefixes that do NOT address another resource, so they create no dependency
+# edge. Closed and exhaustive: these are the named values defined by the configuration
+# language's expression grammar, not an inferred subset.
+CONST_HCL_NON_RESOURCE_NAMESPACES: Final[frozenset[str]] = frozenset(
+    {"var", "local", "each", "count", "path", "self", "terraform"}
+)
+
 # ── Argo CRD Group, Version & Resource Plurals ───────────────────────────────
 # The Argo project serves Applications, ApplicationSets, Rollouts, AnalysisRuns,
 # and Workflows from a single API group. These identifiers are fixed by the

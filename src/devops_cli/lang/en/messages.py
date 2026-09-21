@@ -377,6 +377,23 @@ class ReleaseMessages:
 @dataclass(frozen=True)
 class TfMessages:
     init_header: str = "Initializing OpenTofu in [cyan]{path}[/cyan]..."
+    table_title_graph: str = "IaC Resource Dependency Graph: {directory}"
+    table_title_blast_radius: str = "Blast Radius: {address}"
+    table_title_drift: str = "Configuration Drift: {directory}"
+    graph_summary: str = (
+        "{resources} resource(s), {modules} module(s), {edges} dependency edge(s) "
+        "across {files} file(s)."
+    )
+    graph_no_resources: str = "No resources declared in '{directory}'."
+    graph_unknown_address: str = "Resource address '{address}' is not declared in '{directory}'."
+    blast_radius_summary: str = "{address} impacts {impact} address(es); depends on {depends}."
+    drift_no_state: str = "No state file found in '{directory}'; all {declared} declared resource(s) are pending apply."
+    drift_in_sync: str = "✓ Configuration and state agree on all {count} resource(s)."
+    drift_summary: str = (
+        "{missing} declared but not in state, {orphaned} in state but not declared, "
+        "{synced} in sync."
+    )
+    parse_failures: str = "{count} file(s) could not be parsed: {files}"
     init_success: str = "✓ OpenTofu initialization successful."
     plan_header: str = "Running OpenTofu plan for [cyan]{path}[/cyan]..."
     plan_success: str = "✓ OpenTofu plan completed."
