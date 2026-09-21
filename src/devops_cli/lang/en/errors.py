@@ -125,6 +125,7 @@ class GrafanaErrorMessages:
     parse_failed: str = "Failed to parse dashboard JSON file '{path}': {exc}"
     invalid_json_object: str = "Invalid dashboard JSON in '{path}': expected JSON object."
     sync_failed: str = "Failed to sync '{file}': {exc}"
+    dashboards_not_found: str = "Dashboard path not found: {path}"
 
 
 @dataclass(frozen=True)

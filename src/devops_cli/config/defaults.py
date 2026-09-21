@@ -586,6 +586,12 @@ DEFAULT_EWMA_ALPHA: float = 0.3
 # Samples projected beyond the observed window.
 DEFAULT_FORECAST_HORIZON_SAMPLES: int = 5
 
+# ── Grafana Panel Layout ─────────────────────────────────────────────────────
+# Default panel height in grid rows, and the single-row height Grafana uses for section
+# separators.
+DEFAULT_GRAFANA_PANEL_HEIGHT: int = 8
+DEFAULT_GRAFANA_ROW_HEIGHT: int = 1
+
 # ── Watcher Defaults ────────────────────────────────────────────────────────
 DEFAULT_FILE_WATCHER_DEBOUNCE_MS: int = 500
 DEFAULT_FILE_WATCHER_INTERVAL_SECONDS: float = 0.5

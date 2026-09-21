@@ -720,6 +720,12 @@ class DockerMessages:
 @dataclass(frozen=True)
 class GrafanaMessages:
     url_not_configured: str = "Grafana URL not configured. Run: devops config set grafana.url <url>"
+    table_title_lint: str = "Dashboard Lint Findings"
+    no_dashboards_found: str = "No dashboard JSON files found under '{path}'."
+    lint_summary: str = (
+        "Linted {dashboards} dashboard(s), {panels} panel(s): {errors} error(s), "
+        "{warnings} warning(s)."
+    )
     table_title_dashboards: str = "Grafana Dashboards"
     exported_success: str = "Exported → {dest}"
     imported_success: str = "Imported: {slug}"

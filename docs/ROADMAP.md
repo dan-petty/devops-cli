@@ -104,7 +104,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Deep Integration & Functional Extension*: In-process PromQL AST parser to validate query syntax before network dispatch; client-side anomaly detection (z-score, EWMA trend forecasting) on metric vectors; native Alertmanager alert dispatch and silence management; pre-flight rule file syntax verification.
   - *Code Optimization & Performance Acceleration*: Prevent invalid PromQL queries from hitting Prometheus servers; compute instant trend projections locally in Python without server-side subqueries; aggregate multi-target scrape metrics without redundant JSON decoding.
   - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/commands/prometheus.py` into a strongly-typed metric analysis library; unify metric representations across CLI, TUI, and Grafana provisioners; eliminate ad-hoc dictionary parsing.
-- [ ] **Grafana Declarative Dashboard Schema Models & Bi-Directional GitOps Provisioning Research (P1 - High, Issue #315)**:
+- [x] **Grafana Declarative Dashboard Schema Models & Bi-Directional GitOps Provisioning Research (P1 - High, Issue #315)**:
   - *Context & Rationale*: Grafana integration manages large, static JSON dashboard templates that are cumbersome to maintain, diff, and parameterize across multi-cluster environments.
   - *Deep Integration & Functional Extension*: Declarative dashboard generation using Pydantic schema models to programmatically synthesize Grafana 10+ JSON models; bi-directional folder and permission reconciliation; automated datasource health probing; synthetic alerting rule generation.
   - *Code Optimization & Performance Acceleration*: Eliminate thousands of lines of duplicated JSON boilerplate across repository templates; enable compile-time linting of panel layouts, query targets, and datasource bindings; streamline live reloads via Kubernetes ConfigMap sidecars.
@@ -486,7 +486,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | HashiCorp Vault Native Client, Dynamic Leases & Envelope Encryption Research | Vault / HVAC / Keyring | High | Medium | v0.2.22 | ✅ Completed (P1) |
 |  | Valkey & Redis RESP3 Connection Pooling & Tiered L1/L2 Cache Research | Valkey / RESP3 / Redis | High | Medium | v0.2.22 | ✅ Completed (P1) |
 |  | Qdrant Vector Engine Async Connection Pooling & Quantization Research | Qdrant / Hybrid Search | High | Medium | v0.2.22 | ✅ Completed (P1) |
-|  | Grafana Declarative Dashboard Schema Models & GitOps Sync Research | Grafana / Pydantic Models | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
+|  | Grafana Declarative Dashboard Schema Models & GitOps Sync Research | Grafana / Pydantic Models | High | Medium | v0.2.22 | ✅ Completed (P1) |
 |  | Textual TUI Reactive Architecture & Virtualized Log Streamers Research | Textual / Reactive | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 |  | OpenTelemetry W3C Traceparent Context Propagation & Metric SDK Research | OpenTelemetry / OTLP | High | Medium | v0.2.22 | 📋 Scheduled (P1) |
 |  | Security Scanners Unified SARIF Engine & AST Autofix Synthesis Research | SARIF / AST Autofix | High | Medium | v0.2.22 | 📋 Scheduled (P1) |

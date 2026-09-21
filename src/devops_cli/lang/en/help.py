@@ -549,6 +549,7 @@ class DockerCommandHelp:
 @dataclass(frozen=True)
 class GrafanaCommandHelp:
     app: str = "Grafana dashboard and alert management."
+    lint_path: str = "Dashboard JSON file or directory to lint."
     dashboards: str = "Manage Grafana dashboards."
     search: str = "Search Grafana dashboards and folders by query string."
     datasources: str = "List configured datasources."
