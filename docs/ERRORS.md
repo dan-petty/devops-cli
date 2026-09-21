@@ -103,7 +103,9 @@ and domain categorization for all exceptions inheriting from `DevOpsCLIError`.
 | `VALKEY_CONNECTION_ERROR` | `1` | Valkey | Raised when connection to Valkey instance fails, times out, or drops. |
 | `VALKEY_ERROR` | `1` | Valkey | Base exception for Valkey workstation and caching operations. |
 | `VALKEY_TIMEOUT_ERROR` | `1` | Valkey | Raised when a Valkey socket operation exceeds timeout. |
+| `VAULT_AUTH_ERROR` | `1` | Vault | Raised when a Vault login method fails to issue a client token. |
 | `VAULT_CONFIGURATION_ERROR` | `1` | Vault | Raised when Vault environment or connection settings are missing or invalid. |
 | `VAULT_ERROR` | `1` | Vault | Base exception for HashiCorp Vault operations. |
 | `VAULT_KEY_ERROR` | `1` | Vault | Raised when a secret key or field is not found in Vault. |
+| `VAULT_LEASE_ERROR` | `1` | Vault | Raised when a dynamic secret lease cannot be renewed or revoked. |
 | `VAULT_OPERATION_ERROR` | `1` | Vault | Raised when an API request to Vault fails or returns an error response. |

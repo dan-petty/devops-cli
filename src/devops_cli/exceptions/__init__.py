@@ -98,9 +98,11 @@ from devops_cli.exceptions.valkey import (
     ValkeyTimeoutError,
 )
 from devops_cli.exceptions.vault import (
+    VaultAuthenticationError,
     VaultConfigurationError,
     VaultError,
     VaultKeyError,
+    VaultLeaseError,
     VaultOperationError,
 )
 
@@ -181,8 +183,10 @@ __all__ = [
     "ValkeyConnectionError",
     "ValkeyError",
     "ValkeyTimeoutError",
+    "VaultAuthenticationError",
     "VaultConfigurationError",
     "VaultError",
     "VaultKeyError",
+    "VaultLeaseError",
     "VaultOperationError",
 ]

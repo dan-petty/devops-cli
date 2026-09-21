@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -23,6 +23,22 @@ from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.security.vault_broker import VaultSecretBroker
 
 VAULT_PATH_PATTERN = re.compile(r"^(?:vault://)?[a-zA-Z0-9_\-./#]+$")
+
+_LEASE_REGISTRY: Any = None
+
+
+def get_lease_registry(default: Any) -> Any:
+    """Return the session-scoped lease registry, creating it on first use."""
+    global _LEASE_REGISTRY
+    if _LEASE_REGISTRY is None:
+        _LEASE_REGISTRY = default
+    return _LEASE_REGISTRY
+
+
+def reset_lease_registry() -> None:
+    """Reset the session lease registry for clean test isolation."""
+    global _LEASE_REGISTRY
+    _LEASE_REGISTRY = None
 
 
 def _validate_vault_path(path: str) -> None:
@@ -221,3 +237,187 @@ def vault_sync(
     count = broker.sync_to_keyring(path, keys=keys)
     print_success(f"✓ Synchronized {count} secret(s) from '{path}' into OS Keyring")
     return None
+
+
+# =============================================================================
+# Command: devops vault login
+# =============================================================================
+
+
+@app.command("login")
+def vault_login(
+    method: Annotated[
+        str, typer.Option("--method", "-m", help="Authentication method: approle or kubernetes")
+    ] = "approle",
+    role: Annotated[
+        str | None, typer.Option("--role", help="Vault role name (kubernetes method)")
+    ] = None,
+    role_id: Annotated[str | None, typer.Option("--role-id", help="AppRole role_id")] = None,
+    secret_id: Annotated[str | None, typer.Option("--secret-id", help="AppRole secret_id")] = None,
+    store: Annotated[
+        bool, typer.Option("--store/--no-store", help="Persist the issued token to the OS keyring")
+    ] = True,
+) -> None:
+    """Authenticate with Vault natively via AppRole or the in-cluster ServiceAccount."""
+    from devops_cli.config.constants import CONST_VAULT_AUTH_METHODS
+    from devops_cli.exceptions.vault import VaultAuthenticationError
+    from devops_cli.security.vault_lease import login_approle, login_kubernetes
+
+    if method not in CONST_VAULT_AUTH_METHODS:
+        print_error(
+            f"Unsupported Vault auth method '{method}'. "
+            f"Choose one of: {', '.join(sorted(CONST_VAULT_AUTH_METHODS))}."
+        )
+        raise typer.Exit(1)
+
+    broker = VaultSecretBroker()
+    if is_dry_run():
+        render_dry_run_result(
+            command=f"devops vault login --method {method}",
+            action="vault_authenticate",
+            details={"method": method, "role": role, "store": store},
+        )
+        return
+
+    try:
+        if method == "kubernetes":
+            result = login_kubernetes(
+                broker.vault_addr, role or "", namespace=broker.vault_namespace
+            )
+        else:
+            result = login_approle(
+                broker.vault_addr,
+                role_id or "",
+                secret_id or "",
+                namespace=broker.vault_namespace,
+            )
+    except VaultAuthenticationError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1)
+
+    if store:
+        from devops_cli.config.settings import set_keyring_secret
+
+        set_keyring_secret("vault_token", result.client_token)
+
+    print_success(
+        f"✓ Authenticated with Vault via {result.method}. "
+        f"Lease: {result.lease_duration}s, renewable: {result.renewable}, "
+        f"policies: {', '.join(result.policies) or 'none'}."
+    )
+
+
+# =============================================================================
+# Command: devops vault leases
+# =============================================================================
+
+
+@app.command("leases")
+def vault_leases(
+    renew: Annotated[
+        bool, typer.Option("--renew", help="Renew every tracked lease nearing expiry")
+    ] = False,
+    revoke: Annotated[
+        str | None, typer.Option("--revoke", help="Revoke a single lease by id")
+    ] = None,
+) -> None:
+    """Inspect, renew, or revoke tracked Vault dynamic secret leases."""
+    from devops_cli.security.vault_lease import LeaseRegistry
+
+    broker = VaultSecretBroker()
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops vault leases",
+            action="vault_lease_lifecycle",
+            details={"renew": renew, "revoke": revoke},
+        )
+        return
+
+    registry = get_lease_registry(
+        LeaseRegistry(
+            vault_addr=broker.vault_addr,
+            token=broker.vault_token,
+            namespace=broker.vault_namespace,
+        )
+    )
+
+    if revoke:
+        revoked = registry.revoke(revoke)
+        if not revoked:
+            print_error(f"Could not revoke lease '{mask_secrets(revoke)}'.")
+            raise typer.Exit(1)
+        print_success(f"✓ Revoked lease '{mask_secrets(revoke)}'.")
+        return
+
+    if renew:
+        report = registry.renew_expiring()
+        print_success(
+            f"✓ Renewed {len(report.renewed)} lease(s); "
+            f"{len(report.failed)} failed, {len(report.skipped)} still within lifetime."
+        )
+        if report.failed:
+            raise typer.Exit(1)
+        return
+
+    leases = registry.leases()
+    if not leases:
+        print_success("No Vault leases are currently tracked in this session.")
+        return
+
+    print_table(
+        title="Vault Dynamic Secret Leases",
+        columns=[("Lease", "cyan"), "Path", "Remaining", "Renewable", "Renewals"],
+        rows=[
+            [
+                mask_secrets(lease.lease_id),
+                lease.secret_path or "—",
+                f"{lease.remaining_seconds():.0f}s",
+                "yes" if lease.renewable else "no",
+                str(lease.renewal_count),
+            ]
+            for lease in leases
+        ],
+    )
+
+
+# =============================================================================
+# Command: devops vault audit
+# =============================================================================
+
+
+@app.command("audit")
+def vault_audit(
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit the audit trail as JSON")
+    ] = False,
+) -> None:
+    """Show which provider satisfied each credential lookup in this session.
+
+    The trail records the logical secret name and the answering provider only; secret
+    values are never stored or rendered.
+    """
+    from devops_cli.output import format_json, write_stdout
+    from devops_cli.security.secrets import audit_entries
+
+    entries = audit_entries()
+    if json_output:
+        write_stdout(format_json([entry.__dict__ for entry in entries]) + "\n")
+        return
+
+    if not entries:
+        print_success("No credential lookups have been recorded in this session.")
+        return
+
+    print_table(
+        title="Credential Access Audit",
+        columns=[("Credential", "cyan"), "Provider", "Resolved", "Timestamp"],
+        rows=[
+            [
+                entry.credential_id,
+                entry.provider or "—",
+                "yes" if entry.resolved else "no",
+                entry.timestamp,
+            ]
+            for entry in entries
+        ],
+    )

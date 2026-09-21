@@ -221,6 +221,15 @@ DEFAULT_MCP_SCHEMA_CACHE_MAX_ENTRIES: int = 256
 DEFAULT_DOCKER_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_COSIGN_TIMEOUT_SECONDS: float = 60.0
 
+# ── Vault Lease Lifecycle Defaults ───────────────────────────────────────────
+# Renew a lease once its remaining lifetime drops below this fraction of its TTL, so a
+# long CI run never presents an expired credential mid-operation.
+DEFAULT_VAULT_LEASE_RENEW_THRESHOLD: float = 0.25
+# Lifetime requested on each renewal, in seconds.
+DEFAULT_VAULT_LEASE_RENEW_INCREMENT_SECONDS: int = 3600
+# Bound on a single Vault HTTP API call.
+DEFAULT_VAULT_REQUEST_TIMEOUT_SECONDS: float = 10.0
+
 # ── Argo GitOps & Progressive Delivery Defaults ──────────────────────────────
 # (DEFAULT_ARGOCD_NAMESPACE is defined with the Kubernetes namespace defaults below.)
 # Refresh cadence for the live `devops argo rollouts status --watch` view.
