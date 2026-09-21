@@ -559,6 +559,22 @@ DEFAULT_CACHE_TTL_SECONDS: float = 3600.0
 # Lifetime for cached AI artefacts (embeddings, findings, LLM responses).
 DEFAULT_AI_CACHE_TTL_SECONDS: int = 86400
 
+# ── Sparse Lexical (BM25) Ranking Defaults ───────────────────────────────────
+# Term-frequency saturation and length-normalisation constants. These are the values
+# established by the Okapi BM25 literature and used unchanged across both consumers.
+DEFAULT_BM25_K1: float = 1.5
+DEFAULT_BM25_B: float = 0.75
+# Candidate pool drawn from the dense index before lexical re-ranking is applied.
+DEFAULT_HYBRID_CANDIDATE_LIMIT: int = 50
+
+# ── Qdrant Vector Quantization ───────────────────────────────────────────────
+# Store vectors as int8 rather than float32. Trades a small amount of recall for roughly
+# a quarter of the memory footprint, which keeps a large index viable on a workstation.
+DEFAULT_QDRANT_QUANTIZATION_ENABLED: bool = True
+# Quantile bounding the int8 range, discarding extreme outliers that would otherwise
+# compress the scale for every other value.
+DEFAULT_QDRANT_QUANTIZATION_QUANTILE: float = 0.99
+
 # ── Watcher Defaults ────────────────────────────────────────────────────────
 DEFAULT_FILE_WATCHER_DEBOUNCE_MS: int = 500
 DEFAULT_FILE_WATCHER_INTERVAL_SECONDS: float = 0.5

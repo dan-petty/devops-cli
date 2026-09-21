@@ -18,6 +18,8 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_MAX_RETRIES,
     DEFAULT_QDRANT_DISTANCE,
+    DEFAULT_QDRANT_QUANTIZATION_ENABLED,
+    DEFAULT_QDRANT_QUANTIZATION_QUANTILE,
     DEFAULT_QDRANT_URL,
     DEFAULT_RAG_TOP_K,
 )
@@ -100,6 +102,23 @@ def _log_retry_warning(op_desc: str, attempt: int, max_attempts: int, exc: Excep
         exc,
     )
     time.sleep(0.5 * attempt)
+
+
+def _build_quantization_config(enabled: bool) -> Any:
+    """Build the scalar quantization config for a collection, or None to store raw vectors.
+
+    Quantized vectors are kept in RAM while the originals stay on disk, so search touches
+    the compact representation and only rescores candidates against full precision.
+    """
+    if not enabled:
+        return None
+    return qmodels.ScalarQuantization(
+        scalar=qmodels.ScalarQuantizationConfig(
+            type=qmodels.ScalarType.INT8,
+            quantile=DEFAULT_QDRANT_QUANTIZATION_QUANTILE,
+            always_ram=True,
+        )
+    )
 
 
 class QdrantClient:
@@ -230,8 +249,14 @@ class QdrantClient:
         name: str,
         vector_size: int,
         distance: str = DEFAULT_QDRANT_DISTANCE,
+        quantize: bool = DEFAULT_QDRANT_QUANTIZATION_ENABLED,
     ) -> bool:
-        """Create collection if it does not already exist, recreating if dimension changed."""
+        """Create a collection if absent, recreating it when the dimension changed.
+
+        `quantize` enables scalar quantization, which stores vectors as int8 rather than
+        float32. That trades a small amount of recall for roughly a quarter of the memory
+        footprint, which is what keeps a large index viable on a workstation.
+        """
         if self._verified_collections.get(name) == vector_size:
             return True
 
@@ -256,6 +281,7 @@ class QdrantClient:
                 lambda c: c.create_collection(
                     collection_name=name,
                     vectors_config=qmodels.VectorParams(size=vector_size, distance=dist_enum),
+                    quantization_config=_build_quantization_config(quantize),
                 ),
                 f"create_collection({name})",
             )
