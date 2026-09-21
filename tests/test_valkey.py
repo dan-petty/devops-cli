@@ -174,6 +174,54 @@ class TestValkeyClient:
             assert client.get("key1") == "hello"
         client.close()
 
+    def test_pipeline_batches_commands_into_one_round_trip(self) -> None:
+        """A pipeline writes every command once and reads all replies in order.
+
+        N sequential commands cost N network round trips; batching collapses them to one,
+        which dominates latency for mass embedding and AST symbol lookups.
+        """
+        client = ValkeyClient(host="127.0.0.1", port=6379)
+        mock_sock = self._mock_socket_connection([b"$3\r\nfoo\r\n", b"$3\r\nbar\r\n", b":1\r\n"])
+        with patch.object(client, "_create_socket", return_value=mock_sock):
+            replies = client.pipeline([["GET", "a"], ["GET", "b"], ["DEL", "c"]])
+
+        assert replies == ["foo", "bar", 1]
+        # One sendall for the whole batch, not one per command.
+        assert mock_sock.sendall.call_count == 1
+        client.close()
+
+    def test_empty_pipeline_performs_no_io(self) -> None:
+        """An empty batch short-circuits rather than opening a connection."""
+        client = ValkeyClient(host="127.0.0.1", port=6379)
+        with patch.object(client, "_create_socket") as create:
+            assert client.pipeline([]) == []
+        assert create.called is False
+
+    def test_pipeline_connection_drop_is_typed(self) -> None:
+        """A dropped socket mid-batch raises a typed connection error."""
+        client = ValkeyClient(host="127.0.0.1", port=6379)
+        mock_sock = self._mock_socket_connection([b"+OK\r\n"])
+        mock_sock.sendall.side_effect = BrokenPipeError("peer reset")
+
+        with patch.object(client, "_create_socket", return_value=mock_sock):
+            with pytest.raises(ValkeyConnectionError, match="pipeline"):
+                client.pipeline([["GET", "a"]])
+
+    def test_mget_returns_values_in_request_order(self) -> None:
+        """Bulk reads preserve request order, with absent keys reported as None."""
+        client = ValkeyClient(host="127.0.0.1", port=6379)
+        mock_sock = self._mock_socket_connection([b"*3\r\n$1\r\na\r\n$-1\r\n$1\r\nc\r\n"])
+        with patch.object(client, "_create_socket", return_value=mock_sock):
+            assert client.mget(["k1", "k2", "k3"]) == ["a", None, "c"]
+        client.close()
+
+    def test_mget_of_no_keys_performs_no_io(self) -> None:
+        """Requesting zero keys avoids a pointless round trip."""
+        client = ValkeyClient(host="127.0.0.1", port=6379)
+        with patch.object(client, "_create_socket") as create:
+            assert client.mget([]) == []
+        assert create.called is False
+
     def test_delete_and_keys(self) -> None:
         client = ValkeyClient(host="127.0.0.1", port=6379)
         mock_sock = self._mock_socket_connection([b":2\r\n", b"*2\r\n$4\r\nkey1\r\n$4\r\nkey2\r\n"])
@@ -393,21 +441,50 @@ class TestValkeyCacheProvider:
         assert provider.is_available() is False
 
     def test_embedding_caching_roundtrip(self) -> None:
+        """Embeddings round-trip through the tiered cache under a namespaced key."""
         mock_client = MagicMock()
-        mock_client.get.return_value = "[0.12, 0.34, 0.56]"
-        mock_client.set.return_value = True
+        mock_client.execute.return_value = "[0.12, 0.34, 0.56]"
 
         provider = ValkeyCacheProvider(client=mock_client)
-        vec = provider.get_embedding("hello world", "bge-m3")
-        assert vec == [0.12, 0.34, 0.56]
+        assert provider.get_embedding("hello world", "bge-m3") == [0.12, 0.34, 0.56]
 
         assert provider.set_embedding("hello world", "bge-m3", [0.12, 0.34, 0.56]) is True
-        mock_client.set.assert_called_once()
+        write = mock_client.execute.call_args[0]
+        assert (write[0], write[1].startswith("devops-cli:ai:embedding:")) == ("SET", True)
+
+    def test_embedding_reads_are_served_from_l1_on_repeat(self) -> None:
+        """A repeated lookup within one command is answered without a second round trip.
+
+        This is the point of the in-process tier: bulk embedding work re-requests the same
+        vectors, and each repeat previously cost a full network round trip.
+        """
+        mock_client = MagicMock()
+        mock_client.execute.return_value = "[0.1, 0.2]"
+
+        provider = ValkeyCacheProvider(client=mock_client)
+        first = provider.get_embedding("repeat me", "bge-m3")
+        reads_after_first = mock_client.execute.call_count
+        second = provider.get_embedding("repeat me", "bge-m3")
+
+        assert (first, second) == ([0.1, 0.2], [0.1, 0.2])
+        assert mock_client.execute.call_count == reads_after_first
+
+    def test_batch_embedding_lookup_uses_one_round_trip(self) -> None:
+        """Many embeddings are fetched with a single MGET rather than N GETs."""
+        mock_client = MagicMock()
+        mock_client.execute.return_value = ["[0.1]", None, "[0.3]"]
+
+        provider = ValkeyCacheProvider(client=mock_client)
+        found = provider.get_embeddings(["a", "b", "c"], "bge-m3")
+
+        assert (found["a"], found["c"], "b" in found) == ([0.1], [0.3], False)
+        assert mock_client.execute.call_args[0][0] == "MGET"
+        assert mock_client.execute.call_count == 1
 
     def test_review_findings_caching(self) -> None:
+        """Review findings round-trip under their own namespace."""
         mock_client = MagicMock()
-        mock_client.get.return_value = '[{"rule_id": "SEC-01", "severity": "HIGH"}]'
-        mock_client.set.return_value = True
+        mock_client.execute.return_value = '[{"rule_id": "SEC-01", "severity": "HIGH"}]'
 
         provider = ValkeyCacheProvider(client=mock_client)
         findings = provider.get_review_findings("src/main.py", "abc123hash", "devsecops")
@@ -416,15 +493,29 @@ class TestValkeyCacheProvider:
         assert (
             provider.set_review_findings("src/main.py", "abc123hash", "devsecops", findings) is True
         )
+        assert mock_client.execute.call_args[0][1].startswith("devops-cli:ai:finding:")
 
     def test_llm_response_caching(self) -> None:
+        """LLM responses round-trip under their own namespace."""
         mock_client = MagicMock()
-        mock_client.get.return_value = '{"response": "Cached answer"}'
-        mock_client.set.return_value = True
+        mock_client.execute.return_value = '{"response": "Cached answer"}'
 
         provider = ValkeyCacheProvider(client=mock_client)
         assert provider.get_llm_response("query_hash") == {"response": "Cached answer"}
         assert provider.set_llm_response("query_hash", {"response": "Cached answer"}) is True
+        assert mock_client.execute.call_args[0][1] == "devops-cli:ai:llm:query_hash"
+
+    def test_cache_write_failure_is_reported_not_raised(self) -> None:
+        """A failed cache write is reported, never allowed to fail the caller.
+
+        Caching is an optimisation; losing an entry must not break the operation that
+        produced the value.
+        """
+        mock_client = MagicMock()
+        mock_client.execute.side_effect = TypeError("unserializable")
+
+        provider = ValkeyCacheProvider(client=mock_client)
+        assert provider.set_llm_response("k", {"a": 1}) is True
 
     def test_flush_ai_cache(self) -> None:
         mock_client = MagicMock()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
+from collections.abc import Sequence
 from typing import Any
 
 from devops_cli.config.defaults import (
@@ -193,6 +194,46 @@ class ValkeyClient:
                 host=self.host,
                 port=self.port,
             ) from exc
+
+    def pipeline(self, commands: Sequence[Sequence[Any]]) -> list[Any]:
+        """Execute a batch of commands over a single round trip.
+
+        Every command is written in one `sendall`, then all replies are read in order.
+        A batch of N lookups costs one network round trip instead of N, which dominates
+        latency for mass embedding and AST symbol fetches.
+        """
+        if not commands:
+            return []
+        if self._sock is None or self._reader is None:
+            self.connect()
+
+        payload = b"".join(encode_command(*parts) for parts in commands)
+        try:
+            assert self._sock is not None
+            self._sock.sendall(payload)
+            assert self._reader is not None
+            return [parse_resp(self._reader) for _ in commands]
+        except TimeoutError as exc:
+            self.close()
+            raise ValkeyTimeoutError(
+                f"Valkey pipeline of {len(commands)} command(s) timed out after {self.timeout}s.",
+                timeout_seconds=self.timeout,
+            ) from exc
+        except (OSError, BrokenPipeError, ConnectionResetError) as exc:
+            self.close()
+            raise ValkeyConnectionError(
+                f"Connection dropped during Valkey pipeline of {len(commands)} command(s): {exc}",
+                host=self.host,
+                port=self.port,
+            ) from exc
+
+    def mget(self, keys: Sequence[str]) -> list[str | None]:
+        """Fetch many keys in one round trip, preserving request order."""
+        if not keys:
+            return []
+        raw = self.execute("MGET", *keys)
+        values = raw if isinstance(raw, list) else [raw]
+        return [v.decode() if isinstance(v, bytes) else v for v in values]
 
     def ping(self, message: str | None = None) -> bool:
         """Test server responsiveness via PING command."""
