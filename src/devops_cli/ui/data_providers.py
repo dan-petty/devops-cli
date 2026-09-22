@@ -20,6 +20,7 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import load_settings
 from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
 from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.k8s.service_http import describe_endpoint
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.valkey.client import ValkeyClient
 
@@ -363,30 +364,28 @@ def _fetch_prometheus_metrics(base_url: str) -> TelemetrySummary:
 
     The dashboard panel exists to answer "is telemetry flowing", and the only registry that
     can answer that is the one the exporters actually write to.
+
+    The endpoint may be an ordinary URL or a `k8s://` service address; `get_json` resolves
+    either, so a configuration can move to cluster-native addressing without this code
+    changing.
     """
-    import httpx2
+    from devops_cli.k8s.service_http import get_json
 
-    from devops_cli.core.validation import validate_url_egress
-
-    # allow_private: Prometheus is a cluster-internal endpoint the operator configured
-    # themselves, which is the case SSRF protection is not about -- it exists to stop an
-    # attacker-supplied URL reaching internal services, not to stop the operator reaching
-    # their own. The same reasoning applies to Loki in k8s/logql.py.
-    validate_url_egress(
-        f"{base_url}/api/v1/label/__name__/values", purpose="Prometheus", allow_private=True
+    payload = get_json(
+        base_url,
+        "api/v1/label/__name__/values",
+        timeout=DEFAULT_TELEMETRY_QUERY_TIMEOUT_SECONDS,
+        purpose="Prometheus",
     )
-    with httpx2.Client(timeout=DEFAULT_TELEMETRY_QUERY_TIMEOUT_SECONDS) as client:
-        names_response = client.get(f"{base_url}/api/v1/label/__name__/values")
-        names_response.raise_for_status()
-        names = names_response.json().get("data") or []
+    names = payload.get("data") or []
 
-        counters = {name: 0.0 for name in names if str(name).endswith("_total")}
-        histograms = {name for name in names if str(name).endswith(("_bucket", "_sum", "_count"))}
-        gauges = {
-            name: 0.0
-            for name in names
-            if name not in counters and name not in histograms and not str(name).startswith("go_")
-        }
+    counters = {name: 0.0 for name in names if str(name).endswith("_total")}
+    histograms = {name for name in names if str(name).endswith(("_bucket", "_sum", "_count"))}
+    gauges = {
+        name: 0.0
+        for name in names
+        if name not in counters and name not in histograms and not str(name).startswith("go_")
+    }
 
     return TelemetrySummary(
         counter_count=len(counters),
@@ -396,7 +395,7 @@ def _fetch_prometheus_metrics(base_url: str) -> TelemetrySummary:
         # on every refresh, which is what makes a dashboard hammer its own backend.
         counters=dict(sorted(counters.items())[:CONST_TELEMETRY_PANEL_MAX_SERIES]),
         gauges=dict(sorted(gauges.items())[:CONST_TELEMETRY_PANEL_MAX_SERIES]),
-        source=base_url,
+        source=describe_endpoint(base_url),
     )
 
 

@@ -251,6 +251,10 @@ class K8sCommandHelp:
     validate_manifest: str = (
         "Validate Kubernetes manifests against OpenAPI schemas with Kubeconform."
     )
+    addressing: str = (
+        "How to record endpoints: 'nodeport' writes a cluster-specific host and port, "
+        "'proxy' writes portable k8s:// service addresses needing no port-forward."
+    )
     proxy_service: str = "Service name to address through the Kubernetes API server."
     proxy_port: str = "Service port name or number (a Service may expose several)."
     proxy_path: str = "Request path appended to the service address."

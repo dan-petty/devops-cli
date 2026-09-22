@@ -185,6 +185,7 @@ devops k8s configure-urls [OPTIONS]
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--addressing`, `-a` | `string` | `nodeport` | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward. |
 
 ---
 
