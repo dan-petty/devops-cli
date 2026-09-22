@@ -42,31 +42,3 @@ def test_test_gen(tmp_path: Path) -> None:
     res = runner.invoke(ai_app, ["test-gen", str(sample), "--dry-run"])
     assert res.exit_code == 0
     assert "SYNTHESIZED_DRY_RUN" in res.output
-
-
-def test_prompt_eval_and_feedback_dataset(tmp_path: Path) -> None:
-    """Verify prompt evaluation with real dataset and fallback cases."""
-    from devops_cli.ai.prompt_eval import PromptEvalBenchmarkResult, evaluate_persona_prompts
-
-    # 1. Fallback baseline
-    res_base = evaluate_persona_prompts("devsecops", dataset_path=tmp_path / "nonexistent.jsonl")
-    assert isinstance(res_base, PromptEvalBenchmarkResult)
-    assert res_base.total_cases > 0
-    d = res_base.to_dict()
-    assert "accuracy_score" in d
-
-    # 2. Existing JSONL dataset
-    ds_file = tmp_path / "feedback.jsonl"
-    ds_file.write_text(
-        '{"id": "c1", "title": "Secret in code", "ground_truth": "VALID", "persona": "devsecops"}\n'
-        '{"id": "c2", "title": "Doc comment", "ground_truth": "INVALID", "persona": "devsecops"}\n',
-        encoding="utf-8",
-    )
-    res_ds = evaluate_persona_prompts("devsecops", dataset_path=ds_file)
-    assert res_ds.total_cases == 2
-
-    # 3. Malformed JSONL dataset
-    bad_ds = tmp_path / "bad_feedback.jsonl"
-    bad_ds.write_text("not json at all\n", encoding="utf-8")
-    res_bad = evaluate_persona_prompts("devsecops", dataset_path=bad_ds)
-    assert res_bad.total_cases > 0

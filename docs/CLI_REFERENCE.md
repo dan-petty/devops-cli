@@ -3079,7 +3079,7 @@ devops ai diagram [OPTIONS] <diagram_type>
 
 ### `devops ai prompt-eval`
 
-**Benchmark persona prompt variations against verified review feedback datasets.**
+**Measure the deterministic suppression layer against recorded review verdicts.**
 
 ```bash
 devops ai prompt-eval [OPTIONS]
@@ -3089,7 +3089,7 @@ devops ai prompt-eval [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--persona`, `-p` | `string` | `devsecops` | Evaluate and benchmark code review quality against feedback dataset. |
+| `--persona`, `-p` | `string` | `devsecops` | Persona whose recorded findings to measure the layer against. |
 | `--dataset`, `-d` | `path` | - | Path to feedback dataset jsonl. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
