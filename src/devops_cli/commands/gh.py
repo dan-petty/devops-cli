@@ -12,6 +12,7 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.commands.pr import app as pr_app
+from devops_cli.config.constants import CONST_PROJECT_WORKFLOW_EXPECTATIONS
 from devops_cli.config.env import ENV_GITHUB_TOKEN
 from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
@@ -685,17 +686,43 @@ def list_project_workflows(
         print_info(f"No built-in workflows found for project #{proj_num} ({owner}).")
         return
 
-    columns = ["#", "Workflow Name", "Status", "Configuration URL"]
+    columns = ["#", "Workflow Name", "Status", "Expected Configuration"]
     rows = [
         [
             str(w["number"]),
             w["name"],
             "[green]✓ Enabled[/green]" if w["enabled"] else "[yellow]○ Disabled[/yellow]",
-            w["url"],
+            CONST_PROJECT_WORKFLOW_EXPECTATIONS.get(w["name"], "[dim]not required[/dim]"),
         ]
         for w in workflows
     ]
     print_table(f"Built-In Automations (Project #{proj_num})", columns, rows)
+    _report_workflow_gaps(workflows, proj_num)
+
+
+def _report_workflow_gaps(workflows: list[dict[str, Any]], proj_num: int) -> None:
+    """Name the workflows the task flow depends on that the board has switched off.
+
+    These cannot be enabled from here. GitHub's GraphQL API offers `deleteProjectV2Workflow`
+    and no counterpart that creates or enables one, so a board owner sets them in the web
+    UI. Reporting the gap precisely is the most the CLI can do, and leaving it unreported
+    is why a board silently stops tracking what it is supposed to track.
+    """
+    expected = [w for w in workflows if w["name"] in CONST_PROJECT_WORKFLOW_EXPECTATIONS]
+    missing = [w for w in expected if not w["enabled"]]
+    if not missing:
+        print_success(f"Every expected automation is enabled on project #{proj_num}.")
+        return
+
+    print_warning(
+        f"{len(missing)} of {len(expected)} expected automations are disabled. Items will "
+        f"not change status on their own."
+    )
+    for workflow in missing:
+        print_info(
+            f"  {workflow['name']} -> {CONST_PROJECT_WORKFLOW_EXPECTATIONS[workflow['name']]}"
+        )
+    print_info(f"Enable them at: {missing[0]['url']}")
 
 
 @project_app.command("list", help=HELP.gh.project_list)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -279,3 +280,59 @@ def test_cli_project_workflows_list_empty() -> None:
             ],
         )
         assert (result.exit_code, "No built-in workflows found" in result.output) == (0, True)
+
+
+# =============================================================================
+# Expected configuration
+# =============================================================================
+
+
+def _workflow(name: str, number: int, enabled: bool) -> dict[str, object]:
+    """Shape one built-in workflow as the API returns it."""
+    return {
+        "id": f"PW_{number}",
+        "name": name,
+        "number": number,
+        "enabled": enabled,
+        "url": f"https://github.com/users/dan-petty/projects/2/workflows/{number}",
+    }
+
+
+def _run_list() -> Any:
+    """Invoke the listing against a fixed board."""
+    return runner.invoke(
+        app,
+        ["project", "workflows", "list", "--project-number", "2", "--repo", "dan-petty/devops-cli"],
+    )
+
+
+def test_a_disabled_automation_is_named_with_what_it_should_do() -> None:
+    """A board whose automations are off stops tracking silently.
+
+    The listing showed only enabled/disabled, so a board that had never been configured
+    looked the same as one deliberately left manual. GitHub's GraphQL API offers no
+    mutation that enables a workflow, so naming the gap precisely is the whole remedy.
+    """
+    workflows = [
+        _workflow("Item closed", 1, False),
+        _workflow("Auto-add sub-issues to project", 4, True),
+    ]
+    with patch("devops_cli.commands.gh.get_project_workflows", return_value=workflows):
+        result = _run_list()
+    assert (result.exit_code, "Set Status to Done" in result.output) == (0, True)
+
+
+def test_the_gap_is_counted_against_the_automations_the_board_has() -> None:
+    """Counting against every known expectation would report a gap for absent workflows."""
+    workflows = [_workflow("Item closed", 1, False), _workflow("Item added to project", 6, False)]
+    with patch("devops_cli.commands.gh.get_project_workflows", return_value=workflows):
+        result = _run_list()
+    assert "2 of 2 expected automations are disabled" in result.output
+
+
+def test_a_fully_configured_board_reports_no_gap() -> None:
+    """The report must be quiet when there is nothing to act on."""
+    workflows = [_workflow("Item closed", 1, True), _workflow("Pull request merged", 2, True)]
+    with patch("devops_cli.commands.gh.get_project_workflows", return_value=workflows):
+        result = _run_list()
+    assert "Every expected automation is enabled" in result.output
