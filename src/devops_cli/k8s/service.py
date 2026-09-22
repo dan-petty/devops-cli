@@ -15,6 +15,7 @@ from devops_cli.config.defaults import (
     DEFAULT_LOG_TAIL_LINES,
 )
 from devops_cli.exceptions.k8s import KubernetesContextError
+from devops_cli.k8s.context import resolve_context
 from devops_cli.security.sanitizer import mask_secrets
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,13 @@ class KubernetesService:
         from kubernetes import client as k8s_client  # type: ignore[import-untyped]
         from kubernetes import config as k8s_config
 
-        if self._config_loaded and self._active_context == context and self._core_v1 is not None:
+        # Resolved before the cache is consulted: an explicit argument and the configured
+        # context must not be treated as different cache keys when they name the same
+        # cluster, and a caller passing None must not be served a client built for
+        # whatever context happened to be current earlier in the process.
+        resolved = resolve_context(context)
+
+        if self._config_loaded and self._active_context == resolved and self._core_v1 is not None:
             return True
 
         try:
@@ -74,10 +81,10 @@ class KubernetesService:
                 k8s_config.load_incluster_config()
                 logger.debug("Loaded in-cluster Kubernetes configuration")
             except Exception:
-                k8s_config.load_kube_config(context=context)
-                logger.debug("Loaded kubeconfig with context: %s", context)
+                k8s_config.load_kube_config(context=resolved)
+                logger.debug("Loaded kubeconfig with context: %s", resolved)
 
-            self._active_context = context
+            self._active_context = resolved
             self._api_client = k8s_client.ApiClient()
             self._core_v1 = k8s_client.CoreV1Api(self._api_client)
             self._apps_v1 = k8s_client.AppsV1Api(self._api_client)

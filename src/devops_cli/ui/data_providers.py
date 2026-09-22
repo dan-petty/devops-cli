@@ -122,11 +122,18 @@ class ValkeySummary(BaseModel):
 
 
 def _get_k8s_client() -> Any:
-    """Retrieve initialized Kubernetes CoreV1Api client."""
+    """Retrieve an initialized Kubernetes CoreV1Api client for the configured context.
+
+    The dashboard must show the cluster the workstation is configured for. Loading the
+    kubeconfig without a context silently follows `kubectl config current-context`, so the
+    panel would report on a different cluster than every other command.
+    """
     from kubernetes import client, config  # type: ignore[import-untyped]
 
+    from devops_cli.k8s.context import resolve_context
+
     try:
-        config.load_kube_config()
+        config.load_kube_config(context=resolve_context())
     except Exception as exc:
         logger.debug("Falling back to incluster k8s config: %s", exc)
         config.load_incluster_config()

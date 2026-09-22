@@ -13,6 +13,38 @@ import pytest
 
 
 @pytest.fixture(autouse=True, scope="session")
+def isolate_kubeconfig(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """Point KUBECONFIG at a throwaway file for the whole run.
+
+    `KubernetesService.switch_context` rewrites the kubeconfig on disk, so a test that
+    exercises context switching without mocking it silently repoints the developer's real
+    kubectl at another cluster -- which is exactly what was happening. Isolating the path
+    once, for every test, removes the possibility rather than relying on each test to
+    remember to mock it.
+    """
+    kubeconfig = tmp_path_factory.mktemp("kube") / "config"
+    kubeconfig.write_text(
+        "apiVersion: v1\n"
+        "kind: Config\n"
+        "clusters: []\n"
+        "contexts: []\n"
+        'current-context: ""\n'
+        "preferences: {}\n"
+        "users: []\n",
+        encoding="utf-8",
+    )
+    previous = os.environ.get("KUBECONFIG")
+    os.environ["KUBECONFIG"] = str(kubeconfig)
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("KUBECONFIG", None)
+        else:
+            os.environ["KUBECONFIG"] = previous
+
+
+@pytest.fixture(autouse=True, scope="session")
 def register_test_mock_provider():
     """Register test MockProvider for unit testing."""
     from devops_cli.ai.providers import register_provider
