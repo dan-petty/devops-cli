@@ -562,14 +562,19 @@ def _try_fast_cached_ci(
 
 def _handle_ci_results(
     results: list[CheckResult],
-    cache: bool,
     root: Path,
     all_files: list[str] | None,
     ci_options: dict[str, Any],
 ) -> None:
-    """Handle post-execution caching or failure exit."""
+    """Handle post-execution caching or failure exit.
+
+    A passing run is recorded whatever `--cache` said. That flag decides whether an
+    existing entry may be *trusted*, not whether a fresh result is worth keeping: a
+    `--no-cache` run has done the full work and proved the tree, so discarding the proof
+    made the next ordinary run repeat it for no reason.
+    """
     if all(res.passed for res in results):
-        if cache and not is_dry_run():
+        if not is_dry_run():
             _try_save_ci_cache(root, results, all_files, ci_options)
         return
 
@@ -631,7 +636,7 @@ def all_checks(
     )
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - start_time)
-    _handle_ci_results(results, cache, root, all_files, ci_options)
+    _handle_ci_results(results, root, all_files, ci_options)
 
 
 # =============================================================================

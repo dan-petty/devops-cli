@@ -709,7 +709,7 @@ def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
         patch("devops_cli.commands.ci._try_save_ci_cache") as mock_try_save,
         patch("devops_cli.commands.ci.is_dry_run", return_value=False),
     ):
-        _handle_ci_results(results, cache=True, root=tmp_path, all_files=None, ci_options={})
+        _handle_ci_results(results, root=tmp_path, all_files=None, ci_options={})
         assert mock_try_save.called
 
     fail_results = [CheckResult(name="t", display_title="T", passed=False, duration_seconds=1.0)]
@@ -717,8 +717,48 @@ def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
         patch("devops_cli.ci.cache.clear_ci_cache") as mock_clear,
         pytest.raises(typer.Exit),
     ):
-        _handle_ci_results(fail_results, cache=True, root=tmp_path, all_files=None, ci_options={})
+        _handle_ci_results(fail_results, root=tmp_path, all_files=None, ci_options={})
         assert mock_clear.called
+
+
+def test_a_no_cache_run_still_records_its_result(tmp_path: Path) -> None:
+    """`--no-cache` decides whether an existing entry may be trusted, not whether a fresh
+    one is worth keeping.
+
+    The run has done the full work and proved the tree. Discarding that made the next
+    ordinary run repeat all of it, so a single `--no-cache` cost two full runs.
+    """
+    from devops_cli.commands.ci import CheckResult, _handle_ci_results
+
+    results = [CheckResult(name="t", display_title="T", passed=True, duration_seconds=1.0)]
+    with (
+        patch("devops_cli.commands.ci._try_save_ci_cache") as mock_save,
+        patch("devops_cli.commands.ci.is_dry_run", return_value=False),
+    ):
+        _handle_ci_results(results, root=tmp_path, all_files=None, ci_options={})
+    assert mock_save.called
+
+
+def test_a_no_cache_run_does_not_read_an_existing_entry(tmp_path: Path) -> None:
+    """Recording a result must not turn `--no-cache` back into a cached run."""
+    from devops_cli.commands.ci import _try_fast_cached_ci
+
+    with patch("devops_cli.commands.ci._try_get_ci_cache") as mock_get:
+        hit = _try_fast_cached_ci(tmp_path, None, {}, cache=False, force=False)
+    assert (hit, mock_get.called) == (False, False)
+
+
+def test_a_dry_run_records_nothing(tmp_path: Path) -> None:
+    """A preview has not run the checks, so it has no verdict to record."""
+    from devops_cli.commands.ci import CheckResult, _handle_ci_results
+
+    results = [CheckResult(name="t", display_title="T", passed=True, duration_seconds=1.0)]
+    with (
+        patch("devops_cli.commands.ci._try_save_ci_cache") as mock_save,
+        patch("devops_cli.commands.ci.is_dry_run", return_value=True),
+    ):
+        _handle_ci_results(results, root=tmp_path, all_files=None, ci_options={})
+    assert not mock_save.called
 
 
 def _run_image_change_detection(repo: Path, base_ref: str) -> tuple[int, str, str]:
