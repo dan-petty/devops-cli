@@ -3,10 +3,39 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+# The keyword patterns below match a word following "secret", "token" or "password". In
+# prose that word is usually English: "unify secret resolution" was rewritten to "unify
+# <masked-token>", and that corruption reached published release descriptions before anyone
+# noticed, because the changelog is masked on its way out. A credential is distinguishable
+# from a word -- it carries a digit, a capital, or a separator, or it is longer than any
+# English word -- so the value is inspected rather than assumed.
+_CREDENTIAL_MIN_OPAQUE_LENGTH = 24
+
+
+def _looks_like_a_credential(value: str) -> bool:
+    """Report whether a value following a credential keyword is plausibly a secret."""
+    if len(value) >= _CREDENTIAL_MIN_OPAQUE_LENGTH:
+        return True
+    return any(char.isdigit() or char.isupper() or char in "_-." for char in value)
+
+
+def _mask_credential_like_value(match: re.Match[str]) -> str:
+    """Replace a keyword-prefixed value only when it looks like a credential."""
+    value = match.group(1)
+    if not _looks_like_a_credential(value):
+        return match.group(0)
+    return match.group(0).replace(value, "<masked-token>")
+
+
+# A replacement is a literal for a pattern whose whole match is the secret, or a
+# callable where the match also covers surrounding text that must survive.
+_Replacement = str | Callable[[re.Match[str]], str]
+
+_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], _Replacement], ...] = (
     (
         re.compile(
             r"(?<![a-zA-Z0-9<])(?:ghp_[A-Za-z0-9_]{10,}|gho_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{20,})\b"
@@ -81,7 +110,7 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
             r"\b(?:token|bearer|secret|password|api_key)\s+([A-Za-z0-9_\-.]{10,})\b",
             re.IGNORECASE,
         ),
-        "<masked-token>",
+        _mask_credential_like_value,
     ),
     (
         re.compile(
