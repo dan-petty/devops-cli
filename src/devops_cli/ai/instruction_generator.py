@@ -254,6 +254,13 @@ codebase or reviewing target repositories.
   its own width, so an embedded newline that looked right at one width reads as a ragged break at
   every other, and it breaks copy-paste and search. Where a long string must still satisfy the
   source line limit, split it with implicit string concatenation rather than inserting a newline.
+- **Responsible Use of `devops ai` (Token Cost & Local Inference Capacity)**: Every `devops ai`
+  command spends tokens and, on a local stack, holds GPU VRAM and an inference slot for the
+  duration of the call. Use these commands where they are the right tool, not as a default: a
+  question answerable by reading a file or running a deterministic check must be answered that
+  way. Pass the most specific parameters that still achieve the intended use, and run **at most
+  one `devops ai` call at a time** -- concurrent calls queue against the same finite slots and
+  make each other slower.
 - **Modern Python Ecosystem**: Track modern Python 3.14+ runtime features, typing standards, and
   established open-source libraries (`pydantic v2`, `httpx2`, `pytest`, `ruff`, `mypy`, `uv.lock`).
   Avoid custom workarounds when standard library or robust open-source tools exist.
