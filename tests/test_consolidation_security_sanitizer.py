@@ -393,3 +393,58 @@ def test_mask_secrets_word_boundaries_and_safe_paths() -> None:
         mask_secrets("Authorization: Bearer sk-proj-1234567890abcdef12345678")
         == "Authorization: Bearer <masked-openai-key>"
     )
+
+
+# =============================================================================
+# Prose that merely mentions credentials
+# =============================================================================
+
+
+def test_a_sentence_about_secrets_is_not_a_secret() -> None:
+    """`\\bsecret\\s+(\\S{10,})` matches any English word of ten characters or more.
+
+    "unify secret resolution and manage Vault lease lifecycle" became "unify
+    <masked-token> and manage ...", and because the changelog is masked on its way out,
+    that corruption reached the published release description for v0.2.21 before anyone
+    noticed. "secret storage" survived only because "storage" is seven characters.
+    """
+    from devops_cli.security.sanitizer import mask_secrets
+
+    subject = "unify secret resolution and manage Vault lease lifecycle"
+    assert mask_secrets(subject) == subject
+
+
+def test_other_credential_keywords_are_safe_in_prose() -> None:
+    """The same pattern covers token, password and api_key, so all four need the guard."""
+    from devops_cli.security.sanitizer import mask_secrets
+
+    for subject in (
+        "token counting inside loops",
+        "password management policy",
+        "api_key rotation scheduling",
+        "bearer instrumentation coverage",
+    ):
+        assert mask_secrets(subject) == subject
+
+
+def test_a_space_separated_credential_is_still_masked() -> None:
+    """`Bearer <token>` and `token <value>` are the real space-separated forms."""
+    from devops_cli.security.sanitizer import mask_secrets
+
+    assert "abc123def456ghi789" not in mask_secrets("token abc123def456ghi789")
+
+
+def test_a_long_opaque_lowercase_value_is_still_masked() -> None:
+    """No English word runs to twenty-four characters, so length alone is enough signal."""
+    from devops_cli.security.sanitizer import mask_secrets
+
+    secret = "abcdefghijklmnopqrstuvwxyz"
+    assert secret not in mask_secrets(f"secret {secret}")
+
+
+def test_assigned_credentials_are_unaffected_by_the_guard() -> None:
+    """The keyword rule is one of many; narrowing it must not weaken the specific ones."""
+    from devops_cli.security.sanitizer import mask_secrets
+
+    masked = mask_secrets("export AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE")
+    assert "AKIAIOSFODNN7EXAMPLE" not in masked
