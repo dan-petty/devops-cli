@@ -1,50 +1,55 @@
-## Chain-of-Thought Code Review Protocol
+## Code Review Protocol
 
-Follow a structured 5-phase reasoning process before formulating findings:
+Work through grounding, inspection, falsification, and formulation before reporting anything.
 
-### Phase 1: Context & Target Grounding
-- **Universal Standards & Target Conventions**: Evaluate against universal software engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY, Clean Architecture) and the target project's declared conventions (e.g. `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`). Never impose host CLI assumptions, internal task structures, or tool-specific directory layouts onto arbitrary target repositories.
-- **Verified Dependencies**: Authoritative lockfiles (`uv.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`, etc.) manage dependencies. Never hallucinate CVEs or unverified package warnings against verified packages.
-- **Context-Aware Evaluation**: Distinguish production code from test fixtures, mocks, documentation, or template files (`*.example.*`). Never flag sample configurations or security tutorials explaining or mitigating known vulnerabilities.
+### 1. Ground the review in the target
 
-### Phase 2: Semantic & AST Inspection
-- **Control & Data Flow**: Trace execution paths, boundary conditions, exception handling, and resource lifecycles.
-- **Symbol & Module Validation**: Verify imported modules and referenced symbols in the target codebase before flagging import errors or missing attributes. Dynamically check definitions, `__all__`, or `__getattr__`. Never claim an imported symbol is missing without verifying the source module. Never hallucinate non-existent files or modules (e.g. `src/devops_cli/ai/fixer.py` does not exist; JSON response repair is in `response_repair.py`).
-- **Dynamic State & Headers Grounding**: Never report missing headers, configuration keys, or request parameters based solely on an initial empty structure (e.g. `headers = {}`). Trace subsequent mutations, environment fallbacks, and conditional assignments throughout the enclosing function.
-- **Security & Path Containment**: Enforce path containment (`is_relative_to` / canonical bounds) on filesystem writes and inputs to prevent path traversal (CWE-22). Container mount destinations, process working directories (`cwd`), and local persistent stores (`SqlitePlanStore`) must validate against path traversal (`validate_no_path_traversal`) and reject targeting system paths (`is_forbidden_system_path`).
-- **CI/CD Workflow Invariants & Transient State**: GitHub Actions marks pull request `mergeable_state` as `"blocked"` while CI checks are in flight. Never report transient CI accommodations (such as `--allow-blocked-state` in `.github/workflows/ci.yml`) as insecure merge blockers or bypasses.
-- **OS Keyring & Secret Stores vs Plaintext Configuration**: Configuration models (`Settings`) securely resolve credentials and API tokens from the OS Keyring or environment variables at runtime. Never report configuration classes or settings models as persisting plaintext secrets unless unredacted credentials are explicitly written to disk in plain text.
-- **Prompt Sanitization Boundaries vs HTML Escaping**: LLM prompt boundary sanitization (`sanitize_prompt_injection`) strips delimiter tags to prevent model hijacking. Never flag prompt sanitizers for omitting HTML escaping (`<`, `>`, `&`), as HTML escaping corrupts source code, mathematical comparisons, and structured tokens destined for LLMs. HTML escaping belongs exclusively in web browser DOM rendering.
-- **Local Cache & Internal Services (Valkey/Redis)**: Local caching tiers (Valkey, Redis, Memcached) are designed specifically to run locally or within private cluster networks. Do NOT flag loopback (`127.0.0.1`, `localhost`) or private IP addresses configured for internal cache connections as SSRF vulnerabilities.
-- **Zero Information Leakage & Network Boundaries**: Prevent exposure of real internal RFC 1918 IP addresses in public documentation, tutorials, or environment descriptions (require RFC 5737 TEST-NET `192.0.2.0/24` or placeholders). Audit NetworkPolicies to ensure sensitive internal ports (e.g. Loki, metrics, databases) are restricted to explicit namespaces and podSelectors rather than broad RFC 1918 CIDR blocks.
-- **Network Egress & SSRF Protection**: In outbound HTTP requests and web scrapers, enforce DNS resolution to IP addresses and verify that all resolved IPs are non-private before and after redirects (`validate_url_egress`). Never rely on pre-fetch hostname string matching alone (guarding against DNS rebinding).
-- **HTTP Client Timeout Construction**: When constructing `httpx2.Timeout` or HTTP clients with numeric timeouts, ensure the value configures the `read` timeout (e.g. `request_timeout(read=...)`) while keeping short connect timeouts (`DEFAULT_CONNECT_TIMEOUT_SECONDS`), preventing hung connections and resource exhaustion (CWE-400).
-- **Algorithmic Complexity & Resource Protection (CWE-400)**: Identify $O(N^2)$ repetitive AST unparsing, string serialization, or token counting inside loops. Enforce linear $O(N)$ budgeting with single-pass calculation. Bound string lengths and JSON parsing inputs ($\le 5\text{ MiB}$) to prevent memory exhaustion. Distinguish bounded local repository file processing (e.g. reading `pyproject.toml`, package manifests, local markdown, or CLI schemas) from untrusted external streams or unbounded buffers; never flag reading bounded local repository files or CLI dictionary accumulation as CWE-400 DoS.
-- **Bounded Error Propagation & Credential Masking (CWE-209)**: Ensure exception detail dictionaries and structured error logs bound caller-provided strings (e.g. truncating long titles, URIs, or bodies to $\le 256$ chars) and mask userinfo/credentials in URLs to prevent log injection, credential leakage, and denial-of-service memory bloat.
-- **Symlink Traversal & Directory Walking (CWE-22 / CWE-59)**: In file scanning, directory walking (`os.walk`, `rglob`, `iterdir`), and manifest ingestion, explicitly skip symlinks (`is_symlink()`) and enforce resolved path containment (`resolved.is_relative_to(repo_root)`) to prevent arbitrary file reading, hashing, or secret scanning outside repository boundaries.
-- **Container Sandbox Isolation & Secure Defaults**: Container sandbox utilities and deployment tools must strictly default to restrictive/isolated network modes (`isolated`, `none`) rather than host-accessible bridge modes (`bridge`). Flag CLI and FastMCP tools exposing unconfined default network modes without security warnings.
-- **Client-Side Rate Limiter Quota Sanity & Re-Entrancy**: In rate limiting and pacing subsystems, all quota metrics (`remaining`, `limit`, `used`, `time_until_reset`) must strictly enforce non-negativity ($\ge 0$). Dynamic delays must be derived from live quota metrics without hardcoded windows. Use re-entrant locks (`threading.RLock`) to prevent self-deadlocks during nested status resolution.
-- **Secret Hygiene Across Tooling Wrappers & Read Caching**: In CLI wrappers (GitHub, Minikube, Kubernetes, Git), ensure all command outputs, exception strings, and fallback payloads are systematically passed through `mask_secrets` prior to terminal rendering. In-memory read caches must never store command results for invocations containing sensitive tokens, passwords, cookies, or authorization headers.
-- **Ecosystem Idioms**: Adhere to target runtime idioms and authoritative lockfiles. Valid modern syntax (e.g. Python 3.14+ PEP 758 `except A, B:`) must never be reported as syntax errors. Prompt sanitization tokens (`<masked-*>`, `<secret-placeholder>`) are redactions, not code defects. Standard Prometheus exposition parsing conforming to OpenMetrics regex specifications must not be reported as unvalidated metric names.
+- Judge against universal engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the conventions the target itself declares (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`). Never impose this CLI's layout, task structure or module names on another repository.
+- Lockfiles (`uv.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) are authoritative. Never invent a CVE or a package warning against a pinned dependency.
+- Separate production code from tests, mocks, fixtures, documentation and templates (`*.example.*`). A sample configuration or a tutorial explaining a vulnerability is not that vulnerability.
 
-### Phase 3: Falsification & Invalidation Testing
-- **Actively Attempt Disproof**: Before reporting an issue, search surrounding guards, upstream sanitizers, lockfile pins, type guards, module exports, or caller constraints that disprove or mitigate the defect.
-- **Catalog-Grounded Anti-Hallucination**: Cross-check candidate findings against the common hallucinations catalog (`common_hallucinations.json`) and historical feedback memory (`feedback_dataset.jsonl`). Dismiss findings matching catalogued false alarms (PEP 758 syntax, masked placeholder tokens, synthetic mock credentials, established modern libraries, local file read CWE-400 claims).
-- **Abstract Interfaces & Mixin Protocols**: Do NOT flag abstract base classes or mixins for raising `NotImplementedError` on methods implemented by composite or derived subclasses.
-- **Signal Over Style**: Prioritize high-signal, reproducible bugs and security flaws over cosmetic preferences. Dismiss theoretical or already-mitigated alerts.
+### 2. Inspect
 
-### Phase 4: Root Cause & Impact Formulation
-- **Isolate Failure Mechanism**: Pinpoint exact root causes and assess exploit scenarios, blast radius, and concrete failure modes.
-- **Severity Classification**:
-  - **CRITICAL**: Exploitable vulnerability, auth bypass, credential leak, SSRF, arbitrary file write outside root, or fatal crash.
-  - **HIGH**: Preconditioned vulnerability, data corruption, race condition, unvalidated path write, or resource leak.
-  - **MEDIUM**: Bounded flaw, unhandled error state, or incomplete mitigation.
-  - **LOW**: Hardening, observability, defense-in-depth, or maintainability improvement.
+- **Flow**: trace execution paths, boundary conditions, exception handling and resource lifecycles.
+- **Symbols**: verify a module or symbol exists in the target before reporting a missing import or attribute. Check definitions, `__all__` and `__getattr__`. Never name a file or module you have not seen.
+- **State after declaration**: never report a missing header, config key or request parameter from an initially empty structure (`headers = {}`). Trace mutations, environment fallbacks and conditional assignments through the whole function.
+- **Path containment (CWE-22, CWE-59)**: filesystem writes, mount destinations, working directories and local stores must validate against traversal and refuse system paths. Directory walks (`os.walk`, `rglob`, `iterdir`) must skip symlinks (`is_symlink()`) and confirm the resolved path stays inside the repository.
+- **Egress and SSRF**: outbound requests must resolve DNS and check every resolved address is non-private, before and after redirects. Hostname string matching alone does not survive DNS rebinding.
+- **Timeouts**: a numeric timeout on an HTTP client must configure the `read` timeout while the connect timeout stays short. One value applied to both either hangs or fails fast for the wrong reason.
+- **Complexity (CWE-400)**: find $O(N^2)$ AST unparsing, serialization or token counting inside loops; require single-pass budgeting. Bound string lengths and parsed JSON. Reading bounded local repository files or accumulating a CLI dictionary is not a denial of service — untrusted streams and unbounded buffers are.
+- **Error detail (CWE-209)**: exception details and structured logs must bound caller-supplied strings (for example $\le 256$ chars) and mask credentials in URLs.
+- **Rate limiting**: quota metrics (`remaining`, `limit`, `used`, `time_until_reset`) must stay $\ge 0$, delays must derive from live quota rather than a hardcoded window, and nested status resolution needs a re-entrant lock (`threading.RLock`).
+- **Sandbox defaults**: sandbox and deployment tooling must default to an isolated network mode, not a host-accessible bridge. Flag an unconfined default offered without warning.
+- **Secret hygiene**: command output, exception strings and fallback payloads from tooling wrappers must be masked before rendering, and a read cache must never store the result of an invocation carrying a token, password, cookie or authorization header.
+- **Address hygiene**: published documentation must use RFC 5737 blocks (`192.0.2.0/24`) or placeholders, never a real RFC 1918 address. A NetworkPolicy must restrict sensitive ports to explicit namespaces and podSelectors rather than a broad RFC 1918 CIDR.
+- **Ecosystem idioms**: valid modern syntax is not an error — Python 3.14 PEP 758 permits `except A, B:`. Redaction tokens (`<masked-*>`, `<secret-placeholder>`) are redactions. Prometheus exposition parsing that conforms to OpenMetrics is not an unvalidated metric name.
 
-### Phase 5: Self-Healing Remediation, Verification & Forward-Looking Evolution
-- **Drop-In Remediation**: Provide a complete, self-contained replacement code snippet (`fix`) directly resolving the defect without regressions or breaking API contracts.
-- **Verification & Invalidation Criteria**: Formulate 1–3 concrete observable conditions proving defect presence (`verification_criteria`), and 1–3 conditions proving defect absence/mitigation (`invalidation_criteria`). Keep criteria isolated to their schema fields.
-- **Closed-Loop Feedback Dataset Calibration**: Ensure criteria precision directly grounds automated verification, unit test generation (`ai_test_gen`), and training dataset export (`devops review export-feedback` -> `feedback_dataset.jsonl`) for continuous benchmark evaluation and prompt fine-tuning.
-- **Continuous Self-Improvement**: Feed verified findings and remediation patterns back into documentation ([`docs/SELF_IMPROVEMENT.md`](../../../../docs/SELF_IMPROVEMENT.md)) and test suites to prevent defect regression.
-- **Forward-Looking Suggestions & Roadmap Opportunities**: Proactively formulate constructive, forward-looking suggestions, valuable architectural improvements, and ecosystem integrations that can advance the codebase, recommending them as candidate tasks for `docs/ROADMAP.md`.
-- **Clean Approval**: If no actionable defects exist, return an empty findings array and `APPROVE`.
+### 3. Falsify before reporting
+
+- Search for what disproves the defect: surrounding guards, upstream sanitizers, lockfile pins, type guards, module exports, caller constraints.
+- Cross-check against the hallucination catalog (`common_hallucinations.json`) and recorded feedback (`feedback_dataset.jsonl`). Drop a finding matching a catalogued false alarm.
+- An abstract base class or mixin raising `NotImplementedError` for a method its subclasses implement is not a defect.
+- Prefer a reproducible bug over a style preference. Drop the theoretical and the already-mitigated.
+
+### 4. When the target is this repository
+
+These resolve claims that recur against this codebase. Ignore them entirely when reviewing anything else.
+
+- `Settings` resolves credentials from the OS keyring or the environment at runtime. It persists plaintext secrets only if unredacted credentials are written to disk.
+- `sanitize_prompt_injection` strips delimiter tags to stop model hijacking. It omits HTML escaping deliberately: escaping `<`, `>` and `&` corrupts source code and comparisons on the way to a model. HTML escaping belongs in DOM rendering.
+- Local cache tiers (Valkey, Redis, Memcached) are meant to run on loopback or a private cluster network. A private address configured for one is not SSRF.
+- GitHub Actions reports `mergeable_state` as `"blocked"` while checks are in flight, so `--allow-blocked-state` in `.github/workflows/ci.yml` accommodates a transient state rather than bypassing a gate.
+- JSON response repair lives in `response_repair.py`. There is no `ai/fixer.py`.
+
+### 5. Formulate
+
+- **Root cause**: name the failure mechanism, the exploit path and the blast radius, not the symptom.
+- **Severity**:
+  - **CRITICAL** — exploitable vulnerability, auth bypass, credential leak, SSRF, arbitrary write outside root, fatal crash.
+  - **HIGH** — preconditioned vulnerability, data corruption, race, unvalidated path write, resource leak.
+  - **MEDIUM** — bounded flaw, unhandled error state, incomplete mitigation.
+  - **LOW** — hardening, observability, defense in depth, maintainability.
+- **Fix**: a complete, self-contained replacement that resolves the defect without breaking an API contract.
+- **Criteria**: 1–3 observable conditions that would demonstrate the defect (`verification_criteria`) and 1–3 that would show it absent or mitigated (`invalidation_criteria`). Keep each in its own field. These drive automated verification and test generation, so vague criteria make a finding unusable.
+- **Roadmap**: where you see a worthwhile architectural improvement or integration beyond the defects, propose it as a candidate for `docs/ROADMAP.md`.
+- **Approval**: with no actionable defect, return an empty findings array and `APPROVE`.

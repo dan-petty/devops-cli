@@ -1040,3 +1040,44 @@ def test_a_dependency_the_scan_flagged_still_reports() -> None:
         )
     ]
     assert _check_scanned_clean_dependency(finding, flagged) is None
+
+
+# =============================================================================
+# Verifier prompt rule coverage
+# =============================================================================
+
+# The verifier system prompt is sent on every verification batch. It was compressed from
+# 2560 to roughly 1840 tokens; these markers are the decisions that compression had to
+# preserve, one per falsification rule.
+_VERIFIER_PROMPT_RULES: tuple[str, ...] = (
+    "PEP 758",
+    "ImportError",
+    "mypy --strict",
+    "CVE-2023-xxxx",
+    "requires-python",
+    "Authorization",
+    "NameError",
+    "removed",
+    "getattr",
+    "off-by-one",
+    "CWE-400",
+    "CWE-209",
+    "allow_private_network",
+    "CWE-200",
+    "<masked-secret>",
+    "__import__",
+    "cacheFrom",
+    "192.0.2.0/24",
+    "203.0.113.0/24",
+    "command injection",
+    "does not raise",
+    "verified_criteria_matched",
+)
+
+
+def test_the_verifier_prompt_still_carries_every_falsification_rule() -> None:
+    """A rule dropped here reappears as a class of false positive nobody traces back."""
+    from devops_cli.ai.task_loader import load_task_prompt
+
+    prompt = load_task_prompt("verify_finding_system.md")
+    assert [rule for rule in _VERIFIER_PROMPT_RULES if rule not in prompt] == []
