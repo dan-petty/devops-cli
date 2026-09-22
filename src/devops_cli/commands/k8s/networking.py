@@ -625,7 +625,15 @@ def port_forward(
             svc,
             f"{lport}:{rport}",
         ] + ctx_args
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Its own session, so the forward outlives the command that started it and does
+        # not take a terminal's SIGINT along with the CLI. `devops k8s port-forward status`
+        # lists these as background daemons, which is only true if they are detached.
+        proc = subprocess.Popen(  # nosec B603
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
         active_forwards.append(
             PortForwardInfo(
                 pid=proc.pid,
