@@ -657,6 +657,12 @@ class PRCommandHelp:
     threads_only_replied: str = (
         "Only resolve threads that have received one or more in-thread replies."
     )
+    readiness_allow_draft: str = (
+        "Report a draft pull request as ready; GitHub still refuses to merge one."
+    )
+    readiness_allow_pending_checks: str = (
+        "Treat checks that are still running as acceptable rather than blocking."
+    )
     check_readiness_auto_resolve: str = (
         "Automatically resolve review discussion threads that have received replies."
     )

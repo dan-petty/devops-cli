@@ -1217,14 +1217,78 @@ def _evaluate_threads_blockers(
     return [f"PR #{pr_num} has {len(unresolved)} unresolved review discussion thread(s)."]
 
 
+def _failing_check_runs(owner: str, repo_name: str, head_sha: str) -> tuple[list[str], list[str]]:
+    """Return the names of concluded-failing and still-running checks for a commit.
+
+    A pull request whose checks are red cannot be merged under branch protection, and this
+    command exists to say whether a pull request can be merged. It previously reported only
+    conflicts and review threads, so #335 passed readiness while a CodeQL check had been
+    failing on it for the whole release.
+    """
+    res = run_gh(
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{head_sha}/check-runs"],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode != 0 or not res.stdout.strip():
+        return [], []
+    try:
+        payload = json.loads(res.stdout)
+    except json.JSONDecodeError:
+        return [], []
+
+    failing: list[str] = []
+    pending: list[str] = []
+    for run in payload.get("check_runs", []) if isinstance(payload, dict) else []:
+        if not isinstance(run, dict):
+            continue
+        name = str(run.get("name") or "check")
+        if run.get("status") != "completed":
+            pending.append(name)
+        elif run.get("conclusion") in ("failure", "timed_out", "cancelled", "action_required"):
+            failing.append(name)
+    return failing, pending
+
+
+def _check_run_blockers(
+    pr_data: dict[str, Any],
+    pr_num: int,
+    owner: str,
+    repo_name: str,
+    allow_pending_checks: bool,
+) -> list[str]:
+    """Report failing checks as blockers, and pending ones unless explicitly allowed."""
+    head_sha = str(pr_data.get("head", {}).get("sha") or "")
+    if not head_sha:
+        return []
+
+    failing, pending = _failing_check_runs(owner, repo_name, head_sha)
+    blockers = (
+        [f"PR #{pr_num} has {len(failing)} failing check(s): {', '.join(sorted(failing))}."]
+        if failing
+        else []
+    )
+
+    if pending:
+        message = (
+            f"PR #{pr_num} has {len(pending)} check(s) still running: {', '.join(sorted(pending))}."
+        )
+        if allow_pending_checks:
+            print_warning(message)
+        else:
+            blockers.append(message)
+    return blockers
+
+
 def _evaluate_pr_blockers(
     pr_data: dict[str, Any],
     pr_num: int,
     owner: str,
     repo_name: str,
-    require_ready: bool,
+    allow_draft: bool = False,
     allow_blocked_state: bool = False,
     allow_replied_threads: bool = False,
+    allow_pending_checks: bool = False,
 ) -> list[str]:
     """Inspect PR data and unresolved discussion threads for merge blockers."""
     if pr_data.get("merged") is True:
@@ -1240,12 +1304,15 @@ def _evaluate_pr_blockers(
     if merge_err:
         blockers.append(merge_err)
 
-    if require_ready and is_draft:
-        blockers.append(f"PR #{pr_num} is currently in draft status (convert to ready for review).")
+    # A draft cannot be merged, so it is a blocker rather than a warning. GitHub still
+    # reports `mergeable_state: clean` for one, which is how a draft passed this check and
+    # was reported ready.
+    if is_draft and not allow_draft:
+        blockers.append(f"PR #{pr_num} is in draft status; GitHub refuses to merge a draft.")
     elif is_draft:
-        print_warning(
-            f"PR #{pr_num} is currently in draft status (merging is blocked on GitHub until ready)."
-        )
+        print_warning(f"PR #{pr_num} is in draft status and cannot be merged as-is.")
+
+    blockers.extend(_check_run_blockers(pr_data, pr_num, owner, repo_name, allow_pending_checks))
 
     unresolved: list[Any] = []
     try:
@@ -1320,9 +1387,13 @@ def check_readiness(
         int | None,
         typer.Argument(help="PR number to verify (defaults to current branch PR)"),
     ] = None,
-    require_ready: Annotated[
+    allow_draft: Annotated[
         bool,
-        typer.Option("--require-ready", help="Fail if the pull request is in draft status"),
+        typer.Option("--allow-draft", help=HELP.pr.readiness_allow_draft),
+    ] = False,
+    allow_pending_checks: Annotated[
+        bool,
+        typer.Option("--allow-pending-checks", help=HELP.pr.readiness_allow_pending_checks),
     ] = False,
     allow_blocked_state: Annotated[
         bool,
@@ -1368,9 +1439,10 @@ def check_readiness(
         pr_num,
         owner,
         repo_name,
-        require_ready,
+        allow_draft=allow_draft,
         allow_blocked_state=allow_blocked_state,
         allow_replied_threads=allow_replied_threads,
+        allow_pending_checks=allow_pending_checks,
     )
     _emit_readiness_status(blockers, pr_num)
 

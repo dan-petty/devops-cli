@@ -5079,7 +5079,8 @@ devops pr check-readiness [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
+| `--allow-draft` | `boolean` | - | Report a draft pull request as ready; GitHub still refuses to merge one. |
+| `--allow-pending-checks` | `boolean` | - | Treat checks that are still running as acceptable rather than blocking. |
 | `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
 | `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
 | `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
@@ -6176,7 +6177,8 @@ devops gh pr check-readiness [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
+| `--allow-draft` | `boolean` | - | Report a draft pull request as ready; GitHub still refuses to merge one. |
+| `--allow-pending-checks` | `boolean` | - | Treat checks that are still running as acceptable rather than blocking. |
 | `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
 | `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
 | `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |

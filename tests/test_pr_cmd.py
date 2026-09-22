@@ -1067,14 +1067,19 @@ class TestPrCommands:
             assert res.exit_code == 1
             assert "unreplied review discussion thread" in res.output
 
-    def test_check_readiness_require_ready_draft(self, runner: CliRunner) -> None:
-        """devops pr check-readiness fails with --require-ready on draft PR."""
+    def test_check_readiness_fails_on_a_draft_without_any_flag(self, runner: CliRunner) -> None:
+        """A draft cannot be merged, so it blocks by default rather than on request.
+
+        `--require-ready` made the safe answer opt-in, and GitHub reports
+        `mergeable_state: clean` for a draft, so the command called one ready.
+        """
         mock_pr = json.dumps(
             {
                 "draft": True,
                 "mergeable": True,
                 "mergeable_state": "clean",
                 "base": {"ref": "release/v0.2.17"},
+                "head": {"sha": "a" * 40},
             }
         )
         with (
@@ -1085,10 +1090,11 @@ class TestPrCommands:
                 return_value=MagicMock(returncode=0, stdout=mock_pr, stderr=""),
             ),
             patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
+            patch("devops_cli.commands.pr._failing_check_runs", return_value=([], [])),
         ):
-            res = runner.invoke(app, ["check-readiness", "187", "--require-ready"])
+            res = runner.invoke(app, ["check-readiness", "187"])
             assert res.exit_code == 1
-            assert "currently in draft status" in res.output
+            assert "draft status" in res.output
 
     def test_check_readiness_mergeable_null(self, runner: CliRunner) -> None:
         """devops pr check-readiness fails when mergeability is null/unresolved."""
@@ -1448,3 +1454,96 @@ class TestPrCommands:
         ):
             res = runner.invoke(app, ["diff", "184"])
             assert res.exit_code == 2
+
+
+# =============================================================================
+# Merge readiness gates
+# =============================================================================
+
+
+def _ready_pr(**overrides: object) -> dict:
+    """Shape a pull request that is mergeable unless an override says otherwise."""
+    payload = {
+        "merged": False,
+        "state": "open",
+        "draft": False,
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "base": {"ref": "release/v0.2.22"},
+        "head": {"sha": "a" * 40},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _blockers(pr_data: dict, **kwargs: object) -> list[str]:
+    """Evaluate blockers with no review threads and no check runs unless stubbed."""
+    from devops_cli.commands import pr as pr_module
+
+    with (
+        patch.object(pr_module, "list_pr_review_threads", return_value=[], create=True),
+        patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
+        patch.object(pr_module, "_failing_check_runs", return_value=([], [])),
+    ):
+        return pr_module._evaluate_pr_blockers(pr_data, 335, "dan-petty", "devops-cli", **kwargs)
+
+
+def test_a_draft_pull_request_is_not_merge_ready() -> None:
+    """GitHub refuses to merge a draft, and still reports `mergeable_state: clean` for one.
+
+    So a draft passed this check and was reported ready. PR #335 was reported ready while
+    it was a draft, because draft status was a warning rather than a blocker.
+    """
+    assert _blockers(_ready_pr(draft=True)) != []
+
+
+def test_a_draft_can_be_excused_explicitly() -> None:
+    """Checking a draft you intend to keep draft is a legitimate use; it must be asked for."""
+    assert _blockers(_ready_pr(draft=True), allow_draft=True) == []
+
+
+def test_a_failing_check_blocks_readiness() -> None:
+    """Branch protection refuses a red pull request, so readiness must account for checks.
+
+    #335 passed this command while a CodeQL check had been failing on it for the whole
+    release, because check status was never consulted.
+    """
+    from devops_cli.commands import pr as pr_module
+
+    with (
+        patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
+        patch.object(pr_module, "_failing_check_runs", return_value=(["CodeQL"], [])),
+    ):
+        blockers = pr_module._evaluate_pr_blockers(_ready_pr(), 335, "dan-petty", "devops-cli")
+    assert any("CodeQL" in blocker for blocker in blockers)
+
+
+def test_checks_still_running_block_by_default() -> None:
+    """An unfinished check is not a passing one; calling it ready would be a guess."""
+    from devops_cli.commands import pr as pr_module
+
+    with (
+        patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
+        patch.object(pr_module, "_failing_check_runs", return_value=([], ["Tests & Coverage"])),
+    ):
+        blockers = pr_module._evaluate_pr_blockers(_ready_pr(), 335, "dan-petty", "devops-cli")
+    assert blockers != []
+
+
+def test_running_checks_can_be_excused_for_in_flight_verification() -> None:
+    """A CI job checking its own pull request cannot wait for itself to finish."""
+    from devops_cli.commands import pr as pr_module
+
+    with (
+        patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
+        patch.object(pr_module, "_failing_check_runs", return_value=([], ["Tests & Coverage"])),
+    ):
+        blockers = pr_module._evaluate_pr_blockers(
+            _ready_pr(), 335, "dan-petty", "devops-cli", allow_pending_checks=True
+        )
+    assert blockers == []
+
+
+def test_a_clean_pull_request_reports_ready() -> None:
+    """Adding gates must not make every pull request unmergeable."""
+    assert _blockers(_ready_pr()) == []
