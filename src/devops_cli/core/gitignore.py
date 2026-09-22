@@ -20,6 +20,7 @@ Reference: gitignore(5).
 from __future__ import annotations
 
 import logging
+import os.path
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -116,9 +117,15 @@ class GitignoreIndex:
         return spec
 
     def _relative(self, target: Path) -> Path | None:
-        """Return the path relative to the repository root, or None if outside it."""
+        """Return the path relative to the repository root, or None if outside it.
+
+        `Path.relative_to` is purely lexical, so it accepts a path that walks back out of
+        the root: `repo/../../etc/x` is "relative to" `repo` as `../../etc/x`. Collapsing
+        `..` first is what makes the containment check mean containment.
+        """
+        collapsed = Path(os.path.normpath(target))
         try:
-            return target.relative_to(self.repo_root)
+            return collapsed.relative_to(self.repo_root)
         except ValueError:
             return None
 
@@ -212,11 +219,17 @@ def reset_indexes() -> None:
 
 
 def is_within_git_dir(repo_root: Path, target: Path) -> bool:
-    """Report whether a path lies inside the repository's own `.git` directory."""
+    """Report whether a path lies inside *this* repository's own `.git` directory.
+
+    A path outside the repository is not inside its `.git`, however it is spelled. Falling
+    back to the target's own components answered a different question -- whether any
+    ancestor anywhere is named `.git` -- so an unrelated checkout under a temporary
+    directory reported as part of this repository.
+    """
     try:
         parts = target.resolve().relative_to(repo_root.resolve()).parts
     except ValueError:
-        parts = target.parts
+        return False
     return CONST_GIT_DIR_NAME in parts
 
 

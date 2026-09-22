@@ -657,3 +657,37 @@ def test_an_explicit_parent_trace_id_is_honoured(tracer: Any) -> None:
     with tracer.span("adopted", parent_trace_id=VALID_TRACE_ID, parent_span_id=VALID_SPAN_ID):
         observed = tracer.current_trace_id
     assert observed == VALID_TRACE_ID
+
+
+# =============================================================================
+# Header name case
+# =============================================================================
+
+
+def test_an_existing_traceparent_is_recognised_whatever_its_case() -> None:
+    """Header names are case-insensitive on the wire; a `dict` is not.
+
+    Injecting beside a caller's `TraceParent` put two traceparent headers on the request.
+    W3C Trace Context allows one, so a receiver must treat the pair as malformed and the
+    trace breaks at that hop.
+    """
+    headers = inject_traceparent_headers({"TraceParent": "supplied"}, auto_generate=True)
+    names = [key.lower() for key in headers]
+    assert names.count(CONST_TRACEPARENT_HEADER) == 1
+
+
+def test_injecting_a_context_replaces_a_differently_cased_traceparent() -> None:
+    """`inject_headers` documents lowercase names, so it must own the header outright."""
+    context = TraceContext(trace_id="a" * 32, span_id="b" * 16)
+    headers = inject_headers(context, {"TRACEPARENT": "stale", "accept": "application/json"})
+    assert (sorted(headers), headers[CONST_TRACEPARENT_HEADER]) == (
+        ["accept", CONST_TRACEPARENT_HEADER],
+        context.to_traceparent(),
+    )
+
+
+def test_unrelated_headers_survive_injection() -> None:
+    """Dropping every spelling of one name must not disturb the rest of the mapping."""
+    context = TraceContext(trace_id="a" * 32, span_id="b" * 16)
+    headers = inject_headers(context, {"authorization": "Bearer t", "x-request-id": "r"})
+    assert (headers["authorization"], headers["x-request-id"]) == ("Bearer t", "r")

@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from devops_cli.ai.agents.embeddings import Embedder
 
 from devops_cli.config.constants import (
-    CONST_ERROR_CODE_LLM_INFERENCE,
+    CONST_ERROR_CODE_EMBEDDINGS,
     CONST_EXIT_FAILURE,
     CONST_VALKEY_EMBEDDING_PREFIX,
 )
@@ -151,14 +151,20 @@ class EmbeddingList(list[list[float]]):
 
 
 class EmbeddingsError(DevOpsCLIError, RuntimeError):
-    """Raised when embeddings generation fails across all endpoints."""
+    """Raised when embeddings generation fails across all endpoints.
+
+    This carries its own error code rather than reusing `LLM_INFERENCE_ERROR`. It is not an
+    `LLMInferenceError` and exits with a different status, so sharing the code meant one
+    machine-readable identifier mapped to two exit statuses -- a caller branching on the
+    code could not predict which it would get.
+    """
 
     def __init__(
         self,
         message: str,
         *,
         exit_code: int = CONST_EXIT_FAILURE,
-        error_code: str = CONST_ERROR_CODE_LLM_INFERENCE,
+        error_code: str = CONST_ERROR_CODE_EMBEDDINGS,
         details: dict[str, Any] | None = None,
     ) -> None:
         DevOpsCLIError.__init__(

@@ -161,3 +161,33 @@ def test_config_exceptions() -> None:
     assert cfg_err.error_code == "CONFIGURATION_ERROR"
     assert cfg_err.details["key"] == "telemetry.endpoint"
     assert cfg_err.details["extra"] == "val"
+
+
+def test_one_error_code_maps_to_one_exit_status() -> None:
+    """A caller branching on `error_code` cannot act on a code with two exit statuses.
+
+    `EmbeddingsError` reused `LLM_INFERENCE_ERROR` while exiting 1 rather than 10, so the
+    generated catalog listed the same code against both.
+    """
+    import devops_cli.ai.client.models  # noqa: F401
+    import devops_cli.ai.rag.embeddings  # noqa: F401
+    import devops_cli.exceptions.ai  # noqa: F401
+
+    def descendants(cls: type[DevOpsCLIError]) -> list[type[DevOpsCLIError]]:
+        found: list[type[DevOpsCLIError]] = []
+        for sub in cls.__subclasses__():
+            found.append(sub)
+            found.extend(descendants(sub))
+        return found
+
+    statuses: dict[str, set[int]] = {}
+    for cls in descendants(DevOpsCLIError):
+        try:
+            error = cls("message")
+        except Exception:
+            continue
+        code, status = getattr(error, "error_code", None), getattr(error, "exit_code", None)
+        if isinstance(code, str) and isinstance(status, int):
+            statuses.setdefault(code, set()).add(status)
+
+    assert {code: sorted(v) for code, v in statuses.items() if len(v) > 1} == {}

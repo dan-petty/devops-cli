@@ -156,11 +156,24 @@ def sanitize_tracestate(value: str | None) -> str | None:
 # =============================================================================
 
 
+def _without(headers: dict[str, str], name: str) -> dict[str, str]:
+    """Drop every spelling of a header name.
+
+    HTTP header names are case-insensitive, but a `dict` is not: writing `traceparent`
+    beside a caller's `TraceParent` puts two of them on the wire. W3C Trace Context allows
+    exactly one, and a receiver that sees two is required to treat the context as
+    malformed -- so the trace breaks at the first hop rather than propagating.
+    """
+    folded = name.lower()
+    return {key: value for key, value in headers.items() if key.lower() != folded}
+
+
 def inject_headers(context: TraceContext, headers: dict[str, str] | None = None) -> dict[str, str]:
     """Return a copy of `headers` carrying this context, using lowercase header names."""
-    result = dict(headers or {})
+    result = _without(dict(headers or {}), CONST_TRACEPARENT_HEADER)
     result[CONST_TRACEPARENT_HEADER] = context.to_traceparent()
     if context.trace_state:
+        result = _without(result, CONST_TRACESTATE_HEADER)
         result[CONST_TRACESTATE_HEADER] = context.trace_state
     return result
 

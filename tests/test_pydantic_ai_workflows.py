@@ -253,3 +253,15 @@ def test_llm_gateway_build_pydantic_cascade_model() -> None:
         mock_resolve.side_effect = lambda m, **kw: TestModel()
         model = gw.build_pydantic_cascade_model("devops-chat")
         assert isinstance(model, FallbackModel)
+
+
+def test_waiting_the_returned_delay_repays_an_overdraft_exactly() -> None:
+    """A review read the negative balance as a leak; it is the pacing mechanism.
+
+    Clamping at zero would forgive the shortfall, so a run of oversized requests would
+    exceed the configured rate. This pins the property rather than the sign.
+    """
+    governor = TokenBucketGovernance(capacity=100, refill_rate=50.0)
+    delay = governor.acquire_token_permit(150)
+    replenished = governor.tokens + (delay * governor.refill_rate)
+    assert (delay, round(replenished, 6)) == (1.0, 0.0)
