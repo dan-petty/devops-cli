@@ -259,7 +259,9 @@ def resolve_proxy_target(
 
 
 __all__ = [
+    "ProxyConnection",
     "ProxyTarget",
+    "resolve_proxy_connection",
     "reset_configuration_cache",
     "discover_service",
     "ServiceAddressError",
@@ -268,6 +270,36 @@ __all__ = [
     "parse_service_url",
     "resolve_proxy_target",
 ]
+
+
+@dataclass(frozen=True)
+class ProxyConnection:
+    """An API-server proxy target split for clients that take a base URL and a path prefix.
+
+    Third-party clients — the Qdrant client, for one — accept a host and a prefix rather
+    than a whole URL, and manage their own HTTP. Handing them these four pieces is what
+    lets a `k8s://` address work for a library this project does not control, instead of
+    only for its own requests.
+    """
+
+    base_url: str
+    prefix: str
+    headers: dict[str, str]
+    ssl_context: ssl.SSLContext
+
+
+def resolve_proxy_connection(ref: ServiceRef, context: str | None = None) -> ProxyConnection:
+    """Resolve a Service reference into the parts a URL-and-prefix client needs."""
+    from urllib.parse import urlparse
+
+    target = resolve_proxy_target(ref, path="", context=context)
+    parsed = urlparse(target.url)
+    return ProxyConnection(
+        base_url=f"{parsed.scheme}://{parsed.netloc}",
+        prefix=parsed.path.strip("/"),
+        headers=target.headers,
+        ssl_context=target.ssl_context,
+    )
 
 
 def discover_service(
