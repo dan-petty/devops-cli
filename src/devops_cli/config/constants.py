@@ -1475,3 +1475,17 @@ CONST_GIT_INFO_EXCLUDE_RELATIVE: Final[str] = ".git/info/exclude"
 # pathspec's git ignore pattern factory. The older "gitwildmatch" alias is deprecated and
 # emits a warning per compiled file; the semantics are identical.
 CONST_GITIGNORE_PATTERN_STYLE: Final[str] = "gitignore"
+# What each built-in Projects v2 workflow must be set to for this repository's task flow
+# to keep a board honest without anyone touching it. GitHub's GraphQL API exposes only
+# `deleteProjectV2Workflow` -- there is no mutation that enables or configures one -- so
+# these are reported as a gap against the live board rather than applied.
+CONST_PROJECT_WORKFLOW_EXPECTATIONS: Final[dict[str, str]] = {
+    "Item added to project": "Set Status to Todo",
+    "Item closed": "Set Status to Done",
+    "Item reopened": "Set Status to Todo",
+    "Pull request linked to issue": "Set Status to In Progress",
+    "Pull request merged": "Set Status to Done",
+    "Auto-close issue": "Close the issue when its linked pull request merges",
+    "Auto-add sub-issues to project": "Add sub-issues to this project",
+    "Auto-archive items": "Archive items closed more than two weeks ago",
+}
