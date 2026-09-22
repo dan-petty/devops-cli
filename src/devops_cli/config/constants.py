@@ -1456,3 +1456,11 @@ CONST_K8S_URL_SCHEMES: Final[frozenset[str]] = frozenset(
 CONST_K8S_SERVICE_PROXY_TEMPLATE: Final[str] = (
     "/api/v1/namespaces/{namespace}/services/{target}/proxy"
 )
+# How `configure-urls` records endpoints. "nodeport" writes a reachable host and port,
+# which is fast but cluster-specific; "proxy" writes k8s:// service addresses, which carry
+# no host and therefore resolve on whichever cluster is active.
+CONST_ADDRESSING_NODEPORT: Final[str] = "nodeport"
+CONST_ADDRESSING_PROXY: Final[str] = "proxy"
+CONST_ADDRESSING_MODES: Final[frozenset[str]] = frozenset(
+    {CONST_ADDRESSING_NODEPORT, CONST_ADDRESSING_PROXY}
+)
