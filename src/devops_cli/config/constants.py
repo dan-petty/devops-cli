@@ -1489,3 +1489,7 @@ CONST_PROJECT_WORKFLOW_EXPECTATIONS: Final[dict[str, str]] = {
     "Auto-add sub-issues to project": "Add sub-issues to this project",
     "Auto-archive items": "Archive items closed more than two weeks ago",
 }
+# The heading GitHub writes above its generated release summary. A release here is cut
+# from one `feat(release)` pull request, so the summary lists that pull request alone and
+# carries no information the changelog does not.
+CONST_GENERATED_NOTES_HEADING: Final[str] = "What's Changed"

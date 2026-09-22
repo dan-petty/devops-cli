@@ -807,6 +807,8 @@ class ReleaseCommandHelp:
     epic: str = (
         "Provision, correlate, and synchronize parent release tracking epics for milestones."
     )
+    sync_notes: str = "Republish GitHub release descriptions from CHANGELOG.md."
+    sync_notes_all: str = "Sync every published release rather than one version."
 
 
 @dataclass(frozen=True)
