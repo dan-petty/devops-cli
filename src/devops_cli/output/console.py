@@ -57,6 +57,10 @@ if TYPE_CHECKING:
         TablePayload,
     )
 
+# Distinguishes "the caller said nothing about colour" from "the caller asked for none".
+# Rich reads `color_system=None` as the second, so the two cannot share a default.
+_INHERIT: Any = object()
+
 # Shared Console instance for standard output
 _CONSOLE: _RichConsole | None = None
 _STDERR_CONSOLE: _RichConsole | None = None
@@ -65,14 +69,24 @@ _STDERR_CONSOLE: _RichConsole | None = None
 def get_console(
     *,
     file: Any = None,
-    color_system: Any = None,
+    color_system: Any = _INHERIT,
     stderr: bool = False,
     force_terminal: bool | None = None,
     **kwargs: Any,
 ) -> _RichConsole:
-    """Return a Console instance dynamically bound to output, stderr, or custom file stream."""
+    """Return a Console instance dynamically bound to output, stderr, or custom file stream.
+
+    `color_system` defaults to whatever Rich negotiates, which is how `NO_COLOR`, a
+    non-TTY destination and `TERM=dumb` take effect. It previously defaulted to `None`,
+    and `None` is not "unspecified" to Rich -- it means no colour at all. Any caller that
+    passed `file=` or `force_terminal=` therefore lost colour silently, which is the
+    opposite of negotiating the terminal's capabilities. Passing `color_system=None`
+    explicitly still disables colour, which is what the tests want.
+    """
     global _CONSOLE, _STDERR_CONSOLE
-    if file is not None or kwargs or force_terminal is not None or color_system is not None:
+    if file is not None or kwargs or force_terminal is not None or color_system is not _INHERIT:
+        if color_system is _INHERIT:
+            return _RichConsole(file=file, stderr=stderr, force_terminal=force_terminal, **kwargs)
         return _RichConsole(
             file=file,
             color_system=color_system,
@@ -92,7 +106,7 @@ def get_console(
 def get_stderr_console(
     *,
     file: Any = None,
-    color_system: Any = None,
+    color_system: Any = _INHERIT,
     force_terminal: bool | None = None,
     **kwargs: Any,
 ) -> _RichConsole:
