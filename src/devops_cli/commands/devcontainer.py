@@ -586,6 +586,51 @@ def _setup_volume_mount_permissions(workspace_dir: Path, *, dry_run: bool = Fals
     return actions
 
 
+def _apply_configured_k8s_context(*, dry_run: bool = False) -> list[str]:
+    """Point kubectl at the context recorded in the project configuration.
+
+    The CLI resolves the configured context itself, but `kubectl` and every other tool in
+    the container follow the kubeconfig's own current-context. Leaving them disagreeing is
+    how a container ends up running `devops k8s pods` against one cluster and `kubectl get
+    pods` against another, and the current-context drifts back on any rebuild that restores
+    a cached kubeconfig.
+
+    Nothing is changed when the configured context is not present in the kubeconfig:
+    selecting a context that does not exist would break `kubectl` outright, which is worse
+    than leaving it pointing where it already pointed.
+    """
+    from devops_cli.k8s.context import configured_context
+
+    desired = configured_context()
+    if not desired:
+        return []
+
+    if dry_run:
+        return [f"Would set kubectl current-context to '{desired}'"]
+
+    available = run_subprocess(
+        ["kubectl", "config", "get-contexts", "-o", "name"],
+        check=False,
+        quiet=True,
+    )
+    if available.returncode != 0:
+        logger.debug("Could not list kubeconfig contexts: %s", available.stderr.strip())
+        return []
+
+    names = {line.strip() for line in available.stdout.splitlines() if line.strip()}
+    if desired not in names:
+        return [
+            f"Configured Kubernetes context '{desired}' is not in the kubeconfig; "
+            f"left current-context unchanged"
+        ]
+
+    result = run_subprocess(["kubectl", "config", "use-context", desired], check=False, quiet=True)
+    if result.returncode != 0:
+        logger.debug("Failed selecting context '%s': %s", desired, result.stderr.strip())
+        return [f"Failed setting kubectl current-context to '{desired}'"]
+    return [f"Set kubectl current-context to configured context '{desired}'"]
+
+
 def _sync_mcp_configuration(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
     """Scaffold and synchronize MCP configuration across IDE and agent paths."""
     actions: list[str] = []
@@ -1036,6 +1081,12 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     auto_git_daemon = os.getenv("DEVOPS_GIT_DAEMON_AUTOSTART", "true").lower() in ("true", "1")
     if auto_git_daemon:
         actions.extend(_start_git_daemon(workspace_dir, dry_run=dry_run))
+
+    # 8. Align kubectl with the configured context -- last, because the minikube supervisor
+    # above runs `minikube start`, and that rewrites current-context to "minikube". Aligning
+    # any earlier is undone immediately, which is exactly how a container configured for one
+    # cluster ends up pointing at another on every rebuild.
+    actions.extend(_apply_configured_k8s_context(dry_run=dry_run))
 
     return actions
 
