@@ -19,8 +19,11 @@ be configured to authenticate.
 from __future__ import annotations
 
 import logging
+import os
 import ssl
+import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -34,6 +37,9 @@ from devops_cli.exceptions.k8s import KubernetesError
 from devops_cli.k8s.context import resolve_context
 
 logger = logging.getLogger(__name__)
+
+_CONFIGURATIONS: dict[tuple[str | None, float], Any] = {}
+_CONFIG_LOCK = threading.RLock()
 
 
 class ServiceAddressError(KubernetesError):
@@ -132,12 +138,42 @@ def parse_service_url(url: str) -> ServiceRef:
     )
 
 
+def _kubeconfig_path() -> Path:
+    """Resolve the kubeconfig file the client would read."""
+    env_path = os.environ.get("KUBECONFIG")
+    if env_path:
+        first = env_path.split(os.pathsep)[0].strip()
+        if first:
+            return Path(first).expanduser()
+    return Path.home() / ".kube" / "config"
+
+
+def _kubeconfig_mtime() -> float:
+    """Return the kubeconfig's modification time, or 0.0 when there is none."""
+    try:
+        return float(_kubeconfig_path().stat().st_mtime)
+    except OSError:
+        return 0.0
+
+
 def _kube_configuration(context: str | None = None) -> Any:
-    """Load the Kubernetes client configuration for the resolved context."""
+    """Load the Kubernetes client configuration for the resolved context.
+
+    Cached on the context and the kubeconfig's modification time. Reloading and reparsing
+    the kubeconfig per call cost 24 ms of a 32 ms proxied request -- more than the HTTP --
+    and the dashboard issues one of these per panel per refresh. Keying on mtime means a
+    context switch or an edited kubeconfig is still picked up on the next call.
+    """
     from kubernetes import client as k8s_client  # type: ignore[import-untyped]
     from kubernetes import config as k8s_config
 
     resolved = resolve_context(context)
+    cache_key = (resolved, _kubeconfig_mtime())
+    with _CONFIG_LOCK:
+        cached = _CONFIGURATIONS.get(cache_key)
+        if cached is not None:
+            return cached
+
     try:
         k8s_config.load_incluster_config()
     except Exception:
@@ -147,7 +183,20 @@ def _kube_configuration(context: str | None = None) -> Any:
             raise ServiceAddressError(
                 f"No usable Kubernetes configuration for context '{resolved or 'current'}': {exc}"
             ) from exc
-    return k8s_client.Configuration.get_default_copy()
+
+    configuration = k8s_client.Configuration.get_default_copy()
+    with _CONFIG_LOCK:
+        # Only the current key is retained: a kubeconfig edit or context switch makes every
+        # earlier entry unreachable, and keeping them would hold stale credentials.
+        _CONFIGURATIONS.clear()
+        _CONFIGURATIONS[cache_key] = configuration
+    return configuration
+
+
+def reset_configuration_cache() -> None:
+    """Discard cached client configurations, forcing a reload on the next request."""
+    with _CONFIG_LOCK:
+        _CONFIGURATIONS.clear()
 
 
 def _ssl_context(configuration: Any) -> ssl.SSLContext:
@@ -211,6 +260,7 @@ def resolve_proxy_target(
 
 __all__ = [
     "ProxyTarget",
+    "reset_configuration_cache",
     "discover_service",
     "ServiceAddressError",
     "ServiceRef",

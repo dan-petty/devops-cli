@@ -10,9 +10,11 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 from devops_cli.config.defaults import DEFAULT_K8S_PROXY_TIMEOUT_SECONDS
 from devops_cli.core.validation import validate_url_egress
+from devops_cli.http.pool import get_shared_client
 from devops_cli.k8s.service_proxy import (
     ServiceAddressError,
     is_service_url,
@@ -21,6 +23,16 @@ from devops_cli.k8s.service_proxy import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _transport_key(url: str) -> str:
+    """Identify the transport a URL uses: scheme, host and port.
+
+    The path is deliberately excluded. Every path on one host shares a connection, so
+    keying on it would create a client per endpoint and reinstate the churn.
+    """
+    parsed = urlparse(url)
+    return f"{parsed.scheme}://{parsed.netloc}"
 
 
 def get_json(
@@ -32,26 +44,27 @@ def get_json(
     purpose: str = "cluster service",
 ) -> Any:
     """Fetch JSON from a plain URL or a `k8s://` Service reference."""
-    import httpx2
-
     if is_service_url(url):
         ref = parse_service_url(url)
         target = resolve_proxy_target(ref, path, context)
-        with httpx2.Client(
-            timeout=timeout, headers=target.headers, verify=target.ssl_context
-        ) as client:
-            response = client.get(target.url)
-            response.raise_for_status()
-            return json.loads(response.text)
+        # Keyed on the API server and its TLS material, which is what a connection can be
+        # shared across. Headers carry the credential and are passed per request, so two
+        # callers of the same cluster reuse one connection instead of renegotiating TLS.
+        client = get_shared_client(
+            f"k8s-proxy:{_transport_key(target.url)}", verify=target.ssl_context
+        )
+        response = client.get(target.url, headers=target.headers, timeout=timeout)
+        response.raise_for_status()
+        return json.loads(response.text)
 
     # A direct URL is validated for egress. The endpoint is operator-configured and
     # ordinarily private, which is the case SSRF protection is not aimed at.
     full_url = f"{url.rstrip('/')}/{path.lstrip('/')}" if path else url
     validate_url_egress(full_url, purpose=purpose, allow_private=True)
-    with httpx2.Client(timeout=timeout) as client:
-        response = client.get(full_url)
-        response.raise_for_status()
-        return json.loads(response.text)
+    client = get_shared_client(f"direct:{_transport_key(full_url)}")
+    response = client.get(full_url, timeout=timeout)
+    response.raise_for_status()
+    return json.loads(response.text)
 
 
 def describe_endpoint(url: str) -> str:

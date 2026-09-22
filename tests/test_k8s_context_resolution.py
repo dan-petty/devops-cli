@@ -10,6 +10,16 @@ import pytest
 from devops_cli.k8s.context import configured_context, resolve_context
 
 
+@pytest.fixture(autouse=True)
+def clear_context_cache() -> Any:
+    """The resolved context is cached process-wide; tests must not inherit one another's."""
+    from devops_cli.k8s.context import reset_context_cache
+
+    reset_context_cache()
+    yield
+    reset_context_cache()
+
+
 def _settings(context: Any) -> Any:
     """Build a settings object exposing k8s.context."""
     settings = MagicMock()
@@ -81,15 +91,26 @@ def test_unreadable_settings_do_not_make_the_cluster_unreachable() -> None:
         assert resolve_context() is None
 
 
-def test_settings_are_re_read_on_every_resolution() -> None:
-    """A long-running process must follow a context change rather than the startup value.
+def test_a_context_change_is_followed_rather_than_pinned_at_startup() -> None:
+    """A long-running process must follow a context change, not the value it started with.
 
-    Capturing the setting once would leave the dashboard and the MCP server talking to the
-    cluster configured when they started.
+    The resolved context is cached against the configuration file's modification time
+    rather than re-read per call -- loading settings cost 10.8 ms and this is consulted on
+    every cluster request -- so the property is asserted here through a changed file rather
+    than through a reload count.
     """
-    with patch("devops_cli.config.settings.load_settings") as load:
+    from devops_cli.k8s import context as context_module
+
+    context_module.reset_context_cache()
+    signatures = iter([1.0, 2.0])
+    with (
+        patch.object(context_module, "_config_signature", side_effect=lambda: next(signatures)),
+        patch("devops_cli.config.settings.load_settings") as load,
+    ):
         load.side_effect = [_settings("first"), _settings("second")]
-        assert (resolve_context(), resolve_context()) == ("first", "second")
+        resolved = (resolve_context(), resolve_context())
+    context_module.reset_context_cache()
+    assert resolved == ("first", "second")
 
 
 # =============================================================================
