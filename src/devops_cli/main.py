@@ -12,7 +12,7 @@ import typer
 
 from devops_cli import __version__
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run, set_dry_run
+from devops_cli.dry_run import dry_run_requested_by_environment, is_dry_run, set_dry_run
 from devops_cli.lang import HELP
 
 _timing: dict[str, float] = {}
@@ -224,8 +224,15 @@ def main(
 ) -> None:
     """DevOps CLI — manage repos, SSH keys, Kubernetes, and more."""
     _timing["start"] = time.monotonic()
-    set_dry_run(dry_run)
-    ctx.obj = {"dry_run": dry_run}
+    # The flag turns dry-run on; its absence must not turn off a `DEVOPS_CLI_DRY_RUN`
+    # the caller exported. `set_dry_run(False)` clears that variable, so every invocation
+    # without the flag discarded it -- a wrapper or CI job that exported it got a live run
+    # and no indication that its request had been dropped. A flag set by an earlier
+    # invocation in this process is a different thing and is still cleared, or one
+    # `--dry-run` would latch for the life of the process.
+    requested = dry_run or dry_run_requested_by_environment()
+    set_dry_run(requested)
+    ctx.obj = {"dry_run": requested}
 
 
 def main_entry() -> None:

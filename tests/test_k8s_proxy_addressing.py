@@ -206,3 +206,69 @@ def test_a_failing_service_address_falls_back_and_names_the_endpoint() -> None:
         summary = data_providers.fetch_telemetry_status()
 
     assert (address in summary.error_message, summary.source) == (True, "in-process")
+
+
+# =============================================================================
+# Dry-run preview
+# =============================================================================
+
+
+def test_the_preview_follows_the_requested_addressing_mode() -> None:
+    """A fixed block of NodePort URLs was previewed whatever `--addressing` asked for.
+
+    Running `--addressing proxy --dry-run` described the NodePort result, which is not what
+    the command would have written.
+    """
+    from devops_cli.commands.k8s.networking import _dry_run_preview
+
+    proxy = _dry_run_preview(["llm"], "proxy")
+    nodeport = _dry_run_preview(["llm"], "nodeport")
+    assert proxy != nodeport
+
+
+def test_the_proxy_preview_renders_cluster_native_addresses() -> None:
+    """Proxy addressing writes `k8s://` addresses, so the preview must show those."""
+    from devops_cli.commands.k8s.networking import _dry_run_preview
+
+    preview = _dry_run_preview(["llm"], "proxy")
+    assert preview["qdrant.url"].startswith("k8s://llm/qdrant:")
+
+
+def test_the_preview_carries_no_host_address() -> None:
+    """A minikube node IP was hardcoded here with assigned port numbers.
+
+    It described some other cluster on every run, and it was the only concrete private
+    address left in `src`.
+    """
+    import re
+
+    from devops_cli.commands.k8s.networking import _dry_run_preview
+
+    rendered = " ".join(
+        value
+        for mode in ("proxy", "nodeport")
+        for value in _dry_run_preview(["infra", "llm"], mode).values()
+    )
+    assert re.search(r"\b\d{1,3}(\.\d{1,3}){3}\b", rendered) is None
+
+
+def test_the_nodeport_preview_names_the_shape_of_what_it_cannot_know() -> None:
+    """A node address and an assigned port are only resolved by asking the cluster."""
+    from devops_cli.commands.k8s.networking import _dry_run_preview
+
+    preview = _dry_run_preview(["infra"], "nodeport")
+    assert preview["grafana.url"] == "http://<node>:<port>"
+
+
+def test_the_valkey_preview_keeps_its_scheme() -> None:
+    """Valkey is addressed over tcp, not http; a preview that said otherwise would mislead."""
+    from devops_cli.commands.k8s.networking import _dry_run_preview
+
+    assert _dry_run_preview(["llm"], "nodeport")["valkey.url"].startswith("tcp://")
+
+
+def test_a_stack_that_was_not_selected_is_absent_from_the_preview() -> None:
+    """The preview describes what this invocation would write, not the full catalogue."""
+    from devops_cli.commands.k8s.networking import _dry_run_preview
+
+    assert "qdrant.url" not in _dry_run_preview(["infra"], "proxy")

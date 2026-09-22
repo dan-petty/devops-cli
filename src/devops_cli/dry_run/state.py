@@ -8,13 +8,31 @@ from typing import Any
 
 _DRY_RUN_ENV = "DEVOPS_CLI_DRY_RUN"
 
+# Whether this process turned dry-run on, as opposed to inheriting it. The variable alone
+# cannot answer that, and the difference decides whether a command without `--dry-run`
+# should clear it: a request the caller exported outlives one invocation, a `--dry-run`
+# flag does not.
+_ACTIVATED_HERE = False
+
 
 def set_dry_run(enabled: bool) -> None:
     """Set global dry-run mode in environment."""
+    global _ACTIVATED_HERE
+    _ACTIVATED_HERE = enabled
     if enabled:
         os.environ[_DRY_RUN_ENV] = "true"
         return
     os.environ.pop(_DRY_RUN_ENV, None)
+
+
+def dry_run_requested_by_environment() -> bool:
+    """Report whether the caller's environment asked for dry-run.
+
+    A `--dry-run` flag applies to the invocation that carried it, so a later command in the
+    same process must not inherit it. An exported `DEVOPS_CLI_DRY_RUN` applies to every
+    command in that environment, so a later command must not discard it.
+    """
+    return is_dry_run() and not _ACTIVATED_HERE
 
 
 def is_dry_run() -> bool:
