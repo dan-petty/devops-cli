@@ -247,6 +247,13 @@ codebase or reviewing target repositories.
   branching, and nested iterations into dedicated, single-responsibility functions. Prefer clean
   functional pipelines, Pydantic models, and standard library composition over low-level nested
   loops or ad-hoc procedural parsing.
+- **Line Breaks Belong to Source Files, Not to Output**: Hard-wrap text only where a line length
+  limit applies -- source files and repository Markdown. Never hand-wrap text the program emits or
+  sends: terminal messages, log records, commit bodies, pull request descriptions, release notes,
+  issue comments, and API payloads. Those are wrapped by the terminal or the receiving surface at
+  its own width, so an embedded newline that looked right at one width reads as a ragged break at
+  every other, and it breaks copy-paste and search. Where a long string must still satisfy the
+  source line limit, split it with implicit string concatenation rather than inserting a newline.
 - **Modern Python Ecosystem**: Track modern Python 3.14+ runtime features, typing standards, and
   established open-source libraries (`pydantic v2`, `httpx2`, `pytest`, `ruff`, `mypy`, `uv.lock`).
   Avoid custom workarounds when standard library or robust open-source tools exist.
