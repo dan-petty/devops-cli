@@ -1547,3 +1547,55 @@ def test_running_checks_can_be_excused_for_in_flight_verification() -> None:
 def test_a_clean_pull_request_reports_ready() -> None:
     """Adding gates must not make every pull request unmergeable."""
     assert _blockers(_ready_pr()) == []
+
+
+def test_a_failed_create_explains_itself() -> None:
+    """`run_gh` captures the CLI's output, so a failure printed nothing at all.
+
+    Three invocations in one session produced no pull request and no message beyond the
+    command's own elapsed time; the base branch had been deleted when its release merged
+    and nothing said so.
+    """
+    from devops_cli.commands.pr import app as pr_app
+
+    failure = MagicMock(returncode=1, stdout="", stderr="Base ref must be a branch")
+    with (
+        patch("devops_cli.commands.pr.run_gh", return_value=failure),
+        patch("devops_cli.commands.pr._fallback_create_pr", return_value=False),
+    ):
+        result = CliRunner().invoke(
+            pr_app, ["create", "--title", "t", "--body", "b", "--base", "release/v9.9.9"]
+        )
+    assert (result.exit_code, "release/v9.9.9" in result.output) == (1, True)
+
+
+def test_a_failed_create_relays_the_underlying_reason() -> None:
+    """The CLI's own message is the diagnostic; suppressing it hid the cause."""
+    from devops_cli.commands.pr import app as pr_app
+
+    failure = MagicMock(returncode=1, stdout="", stderr="Base ref must be a branch")
+    with (
+        patch("devops_cli.commands.pr.run_gh", return_value=failure),
+        patch("devops_cli.commands.pr._fallback_create_pr", return_value=False),
+    ):
+        result = CliRunner().invoke(
+            pr_app, ["create", "--title", "t", "--body", "b", "--base", "release/v9.9.9"]
+        )
+    assert "Base ref must be a branch" in result.output
+
+
+def test_an_unpushed_branch_gets_the_remedy() -> None:
+    """The most common cause has a one-line fix; naming it saves a round trip."""
+    from devops_cli.commands.pr import app as pr_app
+
+    failure = MagicMock(
+        returncode=1, stdout="", stderr="aborted: you must first push the current branch"
+    )
+    with (
+        patch("devops_cli.commands.pr.run_gh", return_value=failure),
+        patch("devops_cli.commands.pr._fallback_create_pr", return_value=False),
+    ):
+        result = CliRunner().invoke(
+            pr_app, ["create", "--title", "t", "--body", "b", "--base", "main"]
+        )
+    assert "git push -u origin HEAD" in result.output
