@@ -743,3 +743,6 @@ DEFAULT_VALKEY_PIPELINE_CHUNK_BYTES: int = 8 * 1024 * 1024
 # Budget for the type-check probe that invalidates impossible None-dereference findings.
 # Bounded because it runs during verification, where a hung probe stalls the whole review.
 DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS: float = 120.0
+# How long the log consumer waits for a line before re-checking whether it should stop.
+# Short enough that quitting feels immediate on a silent stream.
+DEFAULT_LOG_STREAM_POLL_SECONDS: float = 0.1

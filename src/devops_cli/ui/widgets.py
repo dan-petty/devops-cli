@@ -12,6 +12,7 @@ app composes a panel per domain and holds no per-domain rendering code at all.
 from __future__ import annotations
 
 import contextlib
+import queue
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -29,8 +30,12 @@ from devops_cli.config.constants import (
     CONST_DOCKER_RESOURCE_CONTAINERS,
     CONST_DOCKER_RESOURCE_LABELS,
     CONST_DOCKER_RESOURCES,
+    CONST_LOG_STREAM_QUEUE_SIZE,
 )
-from devops_cli.config.defaults import DEFAULT_LOG_REDRAW_INTERVAL_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_LOG_REDRAW_INTERVAL_SECONDS,
+    DEFAULT_LOG_STREAM_POLL_SECONDS,
+)
 from devops_cli.ui.log_buffer import VirtualLogBuffer
 from devops_cli.ui.projections import (
     DOCKER_RESOURCE_COLUMNS,
@@ -299,6 +304,8 @@ class LogPane(Vertical):
         self.title = title
         self.redraw_interval = redraw_interval
         self._stop = threading.Event()
+        self._lines: queue.Queue[str | None] = queue.Queue(maxsize=CONST_LOG_STREAM_QUEUE_SIZE)
+        self._producer: threading.Thread | None = None
 
     def compose(self) -> ComposeResult:
         yield Static("", id="log-status")
@@ -327,35 +334,90 @@ class LogPane(Vertical):
     # -- Streaming ------------------------------------------------------------
 
     def start_stream(self, source: Callable[[], Iterable[str]]) -> None:
-        """Consume a line source on a worker thread, redrawing as lines arrive."""
+        """Consume a line source, redrawing as lines arrive."""
         self._stop.clear()
         self.buffer.clear()
-        self._consume(source)
+        self._lines = queue.Queue(maxsize=CONST_LOG_STREAM_QUEUE_SIZE)
+        self._producer = threading.Thread(
+            target=self._produce, args=(source, self._stop, self._lines), daemon=True
+        )
+        self._producer.start()
+        self._consume()
 
     def stop_stream(self) -> None:
-        """Ask the streaming worker to finish after its current line."""
+        """Ask the stream to finish."""
         self._stop.set()
 
-    @work(thread=True, group="log-stream", exclusive=True)
-    def _consume(self, source: Callable[[], Iterable[str]]) -> None:
-        """Append lines off the UI thread, coalescing redraws as they arrive.
+    def on_unmount(self) -> None:
+        """Stop streaming when the pane goes away.
 
-        Redrawing once per line would put the UI thread under exactly the load this pane
-        exists to avoid, since a busy pod emits lines far faster than a terminal can
-        usefully repaint. Every line is still retained; only the drawing is coalesced.
+        The pane owns the stream, so it stops it. Doing this from the application instead
+        does not work: by the time the app unmounts, the widget tree has been torn down and
+        a query for the pane returns nothing, leaving the consumer spinning and the
+        interpreter unable to exit.
         """
-        last_draw = 0.0
+        self.stop_stream()
+
+    @staticmethod
+    def _produce(
+        source: Callable[[], Iterable[str]],
+        stop: threading.Event,
+        lines: queue.Queue[str | None],
+    ) -> None:
+        """Read the stream on a daemon thread, handing lines to the consumer.
+
+        A followed log never ends, and the read blocks until the next line arrives -- which
+        for a quiet pod may be never. Textual waits for its thread workers on shutdown, so
+        doing this read inside the worker meant pressing `q` hung the application until the
+        process was killed.
+
+        This thread is a daemon and is never joined: it is blocked in a socket read that
+        cannot be interrupted, so the only way to stop waiting for it is not to.
+        """
         try:
             for text in source():
-                if self._stop.is_set():
+                if stop.is_set():
                     break
-                self.buffer.append(text.rstrip("\n"))
-                now = time.monotonic()
-                if now - last_draw >= self.redraw_interval:
-                    last_draw = now
-                    self._schedule_redraw()
+                # Backpressure rather than dropping. The queue is bounded so a producer
+                # faster than the terminal cannot grow it without limit, but discarding
+                # here would break the buffer's count of everything the stream produced --
+                # the figure the status line reports true position from. Waiting in slices
+                # keeps the stop flag observable while the consumer catches up.
+                while not stop.is_set():
+                    try:
+                        lines.put(text, timeout=DEFAULT_LOG_STREAM_POLL_SECONDS)
+                        break
+                    except queue.Full:
+                        continue
         except Exception as exc:
-            self.buffer.append(f"stream ended: {type(exc).__name__}: {exc}")
+            with contextlib.suppress(queue.Full):
+                lines.put_nowait(f"stream ended: {type(exc).__name__}: {exc}")
+        with contextlib.suppress(queue.Full):
+            # Sentinel: tells the consumer the stream ended rather than merely paused.
+            lines.put(None, timeout=DEFAULT_LOG_STREAM_POLL_SECONDS)
+
+    @work(thread=True, group="log-stream", exclusive=True)
+    def _consume(self) -> None:
+        """Drain produced lines, coalescing redraws as they arrive.
+
+        Waits with a timeout rather than blocking, so the stop flag is observed promptly
+        even when the stream is silent, and the worker Textual waits for on shutdown is
+        always one that can return.
+        """
+        last_draw = 0.0
+        lines = self._lines
+        while not self._stop.is_set():
+            try:
+                text = lines.get(timeout=DEFAULT_LOG_STREAM_POLL_SECONDS)
+            except queue.Empty:
+                continue
+            if text is None:
+                break
+            self.buffer.append(text.rstrip("\n"))
+            now = time.monotonic()
+            if now - last_draw >= self.redraw_interval:
+                last_draw = now
+                self._schedule_redraw()
         # A final redraw guarantees the last lines are shown even if the stream ended
         # inside a coalescing window.
         self._schedule_redraw()

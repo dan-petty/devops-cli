@@ -1464,3 +1464,6 @@ CONST_ADDRESSING_PROXY: Final[str] = "proxy"
 CONST_ADDRESSING_MODES: Final[frozenset[str]] = frozenset(
     {CONST_ADDRESSING_NODEPORT, CONST_ADDRESSING_PROXY}
 )
+# Lines held between the stream reader and the renderer. Bounded so a producer faster than
+# the terminal cannot grow it without limit; the log buffer is the retention mechanism.
+CONST_LOG_STREAM_QUEUE_SIZE: Final[int] = 2000
