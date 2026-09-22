@@ -17,10 +17,22 @@ _CREDENTIAL_MIN_OPAQUE_LENGTH = 24
 
 
 def _looks_like_a_credential(value: str) -> bool:
-    """Report whether a value following a credential keyword is plausibly a secret."""
+    """Report whether a value following a credential keyword is plausibly a secret.
+
+    Treating any uppercase letter as a credential signal was wrong: an ordinary word is
+    capitalised at the start of a sentence or in a heading. "Secret Resolution" and "Token
+    Governance" were rewritten to "Secret <masked-token>" and "Token <masked-token>" in the
+    published v0.2.22 release description for exactly that reason, because the first fix
+    for this was tested only against lowercase prose.
+
+    A leading capital marks a word. An internal capital, a digit, a separator, or a length
+    no English word reaches marks a token.
+    """
     if len(value) >= _CREDENTIAL_MIN_OPAQUE_LENGTH:
         return True
-    return any(char.isdigit() or char.isupper() or char in "_-." for char in value)
+    if any(char.isdigit() or char in "_-." for char in value):
+        return True
+    return any(char.isupper() for char in value[1:])
 
 
 def _mask_credential_like_value(match: re.Match[str]) -> str:

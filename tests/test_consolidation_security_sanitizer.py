@@ -414,6 +414,31 @@ def test_a_sentence_about_secrets_is_not_a_secret() -> None:
     assert mask_secrets(subject) == subject
 
 
+def test_a_title_cased_word_is_not_a_credential() -> None:
+    """A leading capital marks a word; treating any capital as a token signal was wrong.
+
+    The first fix for this was tested only against lowercase prose, so "Secret Resolution"
+    and "Token Governance" still reached the published v0.2.22 release description as
+    "Secret <masked-token>" and "Token <masked-token>" -- changelog headings are title
+    case, which is precisely where this rule is applied.
+    """
+    from devops_cli.security.sanitizer import mask_secrets
+
+    for subject in (
+        "Secret Resolution & Vault Lease Lifecycle",
+        "Structured AI Workflows, Prompt Caching & Token Governance",
+        "Password Management Policy",
+    ):
+        assert mask_secrets(subject) == subject
+
+
+def test_an_internal_capital_still_marks_a_token() -> None:
+    """Mixed case inside a value is a credential signal; a leading capital is not."""
+    from devops_cli.security.sanitizer import mask_secrets
+
+    assert "aBcDeFgHiJkL" not in mask_secrets("token aBcDeFgHiJkL")
+
+
 def test_other_credential_keywords_are_safe_in_prose() -> None:
     """The same pattern covers token, password and api_key, so all four need the guard."""
     from devops_cli.security.sanitizer import mask_secrets
