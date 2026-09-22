@@ -733,3 +733,13 @@ DEFAULT_TELEMETRY_QUERY_TIMEOUT_SECONDS: float = 3.0
 # Timeout for requests proxied through the Kubernetes API server. The extra hop makes these
 # a little slower than a direct call, but they must still not block a dashboard refresh.
 DEFAULT_K8S_PROXY_TIMEOUT_SECONDS: float = 5.0
+
+# ── Valkey Pipeline Batching ────────────────────────────────────────────────
+# A pipeline is serialized into one buffer before it is written, so an unbounded batch
+# costs memory proportional to the batch. Both limits apply: many tiny commands and a few
+# very large values are different shapes of the same problem.
+DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS: int = 1000
+DEFAULT_VALKEY_PIPELINE_CHUNK_BYTES: int = 8 * 1024 * 1024
+# Budget for the type-check probe that invalidates impossible None-dereference findings.
+# Bounded because it runs during verification, where a hung probe stalls the whole review.
+DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS: float = 120.0

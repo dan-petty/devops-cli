@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import functools
 import json
 import logging
 from datetime import datetime
@@ -15,6 +16,7 @@ from devops_cli.config.defaults import (
     DEFAULT_DIFF_CONTEXT_LINES,
     DEFAULT_MAX_RELATED_FILES,
     DEFAULT_RELATED_FILE_MAX_CHARS,
+    DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS,
 )
 from devops_cli.security.sanitizer import (
     mask_secrets,
@@ -819,6 +821,87 @@ def _check_masked_placeholder_syntax_error(
     return None
 
 
+_NONE_DEREFERENCE_CLAIM_PATTERNS: tuple[str, ...] = (
+    "attributeerror",
+    "nonetype",
+    "none dereference",
+    "null dereference",
+    "null pointer",
+    "is none",
+    "when none",
+    "if none",
+)
+
+
+@functools.lru_cache(maxsize=256)
+def _module_typechecks_clean(path_str: str, mtime: float) -> bool:
+    """Report whether a module passes strict type checking.
+
+    Cached on path and mtime: verification examines many findings against the same few
+    files, and a type check per finding would dominate the run.
+    """
+    from devops_cli.core.process import run_subprocess
+
+    try:
+        result = run_subprocess(
+            ["uv", "run", "mypy", "--strict", path_str],
+            check=False,
+            quiet=True,
+            timeout=DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        logger.debug("Type check probe failed for %s: %s", path_str, exc)
+        return False
+    return result.returncode == 0
+
+
+def _check_none_dereference_hallucination(finding: Finding, file_path: Path) -> Finding | None:
+    """Invalidate a claimed None dereference in a module that type checks strictly.
+
+    A finding asserting an AttributeError on a possibly-None attribute is a claim about
+    types, and this repository already runs `mypy --strict` over the whole package. If the
+    cited module passes, the attribute is not Optional and the runtime failure described
+    cannot occur; if mypy cannot type check it cleanly for any reason, nothing is claimed
+    and the finding proceeds to the model verifier as before.
+
+    This exists because two findings of exactly this shape were marked VERIFIED at 0.94
+    confidence against fields the schema declares as plain `str`.
+    """
+    if not (file_path.exists() and file_path.is_file() and file_path.suffix.lower() == ".py"):
+        return None
+
+    haystack = f"{finding.title} {finding.description or ''}".lower()
+    if not any(pattern in haystack for pattern in _NONE_DEREFERENCE_CLAIM_PATTERNS):
+        return None
+
+    try:
+        mtime = file_path.stat().st_mtime
+    except OSError:
+        return None
+    if not _module_typechecks_clean(str(file_path), mtime):
+        return None
+
+    res = finding.model_copy(
+        update={
+            "verified": False,
+            "mitigated": False,
+            "reportable": False,
+            "status": "INVALIDATED",
+            "invalidation_reason": (
+                "Module passes `mypy --strict`, so the attribute is not Optional and the "
+                "described None dereference is not reachable"
+            ),
+        }
+    )
+    try:
+        from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
+
+        auto_record_invalidated_finding(res, file_path=file_path, reason=res.invalidation_reason)
+    except Exception:
+        pass
+    return res
+
+
 def _check_code_file_hallucinations(finding: Finding, file_path: Path) -> Finding | None:
     """Run deterministic checks against resolved target code file."""
     for checker in (
@@ -828,6 +911,7 @@ def _check_code_file_hallucinations(finding: Finding, file_path: Path) -> Findin
         _check_syntax_error_hallucination,
         _check_missing_symbol_hallucination,
         _check_missing_header_hallucination,
+        _check_none_dereference_hallucination,
     ):
         res = checker(finding, file_path)
         if res:
