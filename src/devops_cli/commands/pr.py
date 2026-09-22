@@ -820,6 +820,26 @@ def _print_created_pr_message(stdout: str, base: str) -> None:
         print_success(f"Pull request created successfully targeting base [bold]{base}[/bold]")
 
 
+def _report_create_failure(res: Any, target_base: str) -> None:
+    """Explain why a pull request could not be created.
+
+    `run_gh` captures the GitHub CLI's output, so a failure here printed nothing at all --
+    the command exited non-zero with no message beyond its own elapsed time. Three
+    invocations in one session produced no pull request and no indication of why: the base
+    branch had been deleted when its release merged, and nothing said so.
+    """
+    from devops_cli.security.sanitizer import mask_secrets
+
+    detail = mask_secrets((res.stderr or res.stdout or "").strip()[:512])
+    print_error(
+        f"Could not create the pull request against base '{target_base}'."
+        + (f"\n{detail}" if detail else ""),
+        safe=True,
+    )
+    if detail and "must first push" in detail:
+        print_info("Push the branch first: git push -u origin HEAD")
+
+
 def _fallback_create_pr(
     title: str,
     body: str,
@@ -914,6 +934,7 @@ def create_pr(
     if res.returncode != 0:
         if _fallback_create_pr(title, body, target_base, draft, repo):
             return
+        _report_create_failure(res, target_base)
         raise typer.Exit(res.returncode)
     print_success(f"Pull request created successfully targeting base [bold]{target_base}[/bold]")
 
