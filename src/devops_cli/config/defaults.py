@@ -733,3 +733,6 @@ DEFAULT_TELEMETRY_QUERY_TIMEOUT_SECONDS: float = 3.0
 # Timeout for requests proxied through the Kubernetes API server. The extra hop makes these
 # a little slower than a direct call, but they must still not block a dashboard refresh.
 DEFAULT_K8S_PROXY_TIMEOUT_SECONDS: float = 5.0
+# How long the log consumer waits for a line before re-checking whether it should stop.
+# Short enough that quitting feels immediate on a silent stream.
+DEFAULT_LOG_STREAM_POLL_SECONDS: float = 0.1

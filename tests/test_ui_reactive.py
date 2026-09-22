@@ -21,6 +21,7 @@ from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_DOCKER,
     CONST_DASHBOARD_DOMAINS,
     CONST_DOCKER_RESOURCES,
+    CONST_LOG_STREAM_QUEUE_SIZE,
 )
 from devops_cli.ui.dashboard import DashboardApp
 from devops_cli.ui.data_providers import (
@@ -1814,3 +1815,103 @@ def test_a_failed_backend_query_names_the_endpoint_that_failed(
     )
     summary = fetch_telemetry_status()
     assert ("http://prom:9090" in summary.error_message, summary.source) == (True, "in-process")
+
+
+# =============================================================================
+# Shutdown
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_quitting_does_not_wait_on_a_silent_log_stream(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """Pressing `q` while tailing a quiet pod must not hang the application.
+
+    A followed log never ends, and the read blocks until the next line arrives -- which
+    for a quiet pod may be never. Textual waits for its thread workers on shutdown, so
+    reading inside the worker meant quitting hung until the process was killed.
+    """
+    producing = threading.Event()
+    release = threading.Event()
+
+    def silent() -> Any:
+        producing.set()
+        release.wait(timeout=30)
+        yield "eventually"
+
+    patched_fetchers()
+    app = DashboardApp(refresh_interval=0)
+    try:
+        async with app.run_test() as pilot:
+            pane = app.query_one("#log-pane", LogPane)
+            pane.start_stream(silent)
+            assert producing.wait(timeout=10)
+            started = time.monotonic()
+            await pilot.press("q")
+            await pilot.pause(0.2)
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+
+    assert elapsed < 5.0, f"quitting took {elapsed:.1f}s while a stream was open"
+
+
+@pytest.mark.asyncio
+async def test_unmounting_the_pane_stops_its_stream(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """The pane owns the stream, so the pane stops it.
+
+    Doing this from the application does not work: by the time the app unmounts, the
+    widget tree is torn down and a query for the pane returns nothing, leaving the
+    consumer spinning and the interpreter unable to exit.
+    """
+    patched_fetchers()
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        pane = app.query_one("#log-pane", LogPane)
+        pane.start_stream(lambda: iter(["one"]))
+        await _settle(pilot, lambda: pane.buffer.total_appended >= 1)
+        pane.on_unmount()
+        assert pane._stop.is_set()
+
+
+@pytest.mark.asyncio
+async def test_the_stream_reader_runs_on_a_daemon_thread(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """The reader is blocked in a read that cannot be interrupted.
+
+    The only way to stop waiting for it is not to, so it must never be a thread the
+    interpreter joins at exit.
+    """
+    release = threading.Event()
+    patched_fetchers()
+    app = DashboardApp(refresh_interval=0)
+    try:
+        async with app.run_test() as pilot:
+            pane = app.query_one("#log-pane", LogPane)
+            pane.start_stream(lambda: iter(release.wait(30) or ["x"]))
+            await pilot.pause(0.1)
+            assert pane._producer is not None
+            assert pane._producer.daemon is True
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
+async def test_a_producer_faster_than_the_terminal_does_not_grow_without_bound(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """The hand-off queue is bounded; the log buffer is the retention mechanism.
+
+    Blocking the producer instead would stall the stream, and growing the queue would
+    reintroduce the unbounded memory the virtualized buffer exists to prevent.
+    """
+    patched_fetchers()
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        pane = app.query_one("#log-pane", LogPane)
+        await _stream_into(pilot, pane, [f"line-{index}" for index in range(5000)])
+        assert pane._lines.qsize() <= CONST_LOG_STREAM_QUEUE_SIZE
