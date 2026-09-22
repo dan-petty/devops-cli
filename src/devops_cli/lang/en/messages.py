@@ -347,6 +347,11 @@ class ReleaseMessages:
     tag_created: str = "✓ Created git tag [bold]{tag}[/bold]"
     tag_pushed: str = "✓ Pushed commit and tag [bold]{tag}[/bold] to origin"
     notes_not_found: str = "No changelog entry found for version {version} in CHANGELOG.md"
+    notes_in_sync: str = "✓ {tag} already matches CHANGELOG.md"
+    notes_republished: str = "✓ Republished {tag} from CHANGELOG.md{stripped}"
+    notes_republish_failed: str = "✗ Could not update {tag}"
+    notes_unreadable: str = "Skipped {tag}: the published description could not be read"
+    notes_no_changelog: str = "Skipped {tag}: no changelog entry"
     dry_run_prepare: str = (
         "[yellow][dry-run][/yellow] Would bump version to {version} and sync docs/README"
     )

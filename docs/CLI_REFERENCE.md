@@ -4758,6 +4758,30 @@ devops release notes [OPTIONS]
 | `--raw` | `boolean` | - | Output raw string without formatting or shell escapes. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
 
+### `devops release sync-notes`
+
+**Republish GitHub release descriptions from CHANGELOG.md.**
+
+Republish GitHub release descriptions from CHANGELOG.md.
+
+A release body is written once at publish time. Nothing in the repository could change
+it afterwards, so a release published before the workflow disabled GitHub's generated
+summary keeps carrying it, and an edited changelog entry never reaches the release it
+describes.
+
+```bash
+devops release sync-notes [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--version`, `-v` | `string` | - | Target version string. |
+| `--all` | `boolean` | - | Sync every published release rather than one version. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--root`, `-r` | `path` | - | Project repository root directory. |
+
 ### `devops release changelog`
 
 **Compile and generate changelog entries from git commits or PR deliverables.**

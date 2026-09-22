@@ -1253,6 +1253,95 @@ def release_notes(
 
 
 # =============================================================================
+# Command: release sync-notes
+# =============================================================================
+
+
+def _sync_one_release(repo: str, tag: str, repo_root: Path, dry_run: bool) -> str:
+    """Bring one published release description back in line with the changelog."""
+    from devops_cli.github.release_notes import (
+        ReleaseBody,
+        get_release_body,
+        set_release_body,
+    )
+
+    published = get_release_body(repo, tag)
+    if published is None:
+        return MESSAGES.release.notes_unreadable.format(tag=tag)
+
+    expected = _resolve_release_notes(repo_root, tag.lstrip("v"))
+    if not expected:
+        return MESSAGES.release.notes_no_changelog.format(tag=tag)
+
+    body = ReleaseBody(tag=tag, published=published, expected=expected)
+    if not body.differs:
+        return MESSAGES.release.notes_in_sync.format(tag=tag)
+
+    stripped = " (removed GitHub's generated summary)" if body.carries_generated_notes else ""
+    if dry_run or not set_release_body(repo, tag, expected):
+        if dry_run:
+            return MESSAGES.release.notes_republished.format(tag=tag, stripped=stripped)
+        return MESSAGES.release.notes_republish_failed.format(tag=tag)
+    return MESSAGES.release.notes_republished.format(tag=tag, stripped=stripped)
+
+
+@app.command("sync-notes")
+def release_sync_notes(
+    version: Annotated[
+        str | None,
+        typer.Option("--version", "-v", help=HELP.options.version),
+    ] = None,
+    all_releases: Annotated[
+        bool,
+        typer.Option("--all", help=HELP.release.sync_notes_all),
+    ] = False,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
+    ] = None,
+    root: Annotated[
+        Path | None,
+        typer.Option("--root", "-r", help=HELP.options.root),
+    ] = None,
+) -> None:
+    """Republish GitHub release descriptions from CHANGELOG.md.
+
+    A release body is written once at publish time. Nothing in the repository could change
+    it afterwards, so a release published before the workflow disabled GitHub's generated
+    summary keeps carrying it, and an edited changelog entry never reaches the release it
+    describes.
+    """
+    from devops_cli.commands.gh import _resolve_repo
+    from devops_cli.github.release_notes import list_published_releases
+
+    repo_root = _get_project_root(root)
+    target_repo = repo or _resolve_repo()
+    if not target_repo or "/" not in target_repo:
+        _get("print_error")("Cannot resolve target repository.")
+        raise typer.Exit(1)
+
+    if all_releases:
+        tags = list_published_releases(target_repo)
+    else:
+        target_ver = (version or _get_pyproject_version(repo_root) or "").lstrip("v")
+        if not target_ver:
+            _get("print_error")("Could not determine target release version.")
+            raise typer.Exit(1)
+        tags = [f"v{target_ver}"]
+
+    dry_run = is_dry_run()
+    if dry_run:
+        render_dry_run_result(
+            command="devops release sync-notes",
+            action="republish_release_notes",
+            details={"repo": target_repo, "releases": ", ".join(tags)},
+        )
+
+    for tag in tags:
+        _get("print_info")(_sync_one_release(target_repo, tag, repo_root, dry_run))
+
+
+# =============================================================================
 # Command: release changelog
 # =============================================================================
 
