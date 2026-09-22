@@ -21,6 +21,12 @@ from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_LABELS,
     CONST_DASHBOARD_DOMAIN_TELEMETRY,
     CONST_DASHBOARD_DOMAIN_VALKEY,
+    CONST_DOCKER_RESOURCE_CONTAINERS,
+    CONST_DOCKER_RESOURCE_IMAGES,
+    CONST_DOCKER_RESOURCE_LABELS,
+    CONST_DOCKER_RESOURCE_NETWORKS,
+    CONST_DOCKER_RESOURCE_REGISTRIES,
+    CONST_DOCKER_RESOURCE_VOLUMES,
 )
 from devops_cli.ui.data_providers import (
     DockerSummary,
@@ -78,38 +84,90 @@ def k8s_banner(summary: K8sSummary) -> str:
 
 
 def docker_banner(summary: DockerSummary) -> str:
-    """Render the Docker daemon banner."""
+    """Render the Docker daemon banner.
+
+    Running and total are both shown: the panel lists stopped containers too, so a single
+    count would not match either what is listed or what is actually running.
+    """
     state = "Active" if summary.connected else "Inactive"
-    return f"{_dot(summary.connected)} Docker: {state} ({len(summary.containers)} containers)"
-
-
-def telemetry_banner(summary: TelemetrySummary) -> str:
-    """Render the instrument count banner."""
+    running = summary.running_containers
     return (
-        f"OpenTelemetry: {summary.counter_count} Counters, "
-        f"{summary.gauge_count} Gauges, {summary.histogram_count} Histograms"
+        f"{_dot(summary.connected)} Docker: {state} "
+        f"({running} running / {len(summary.containers)} total)"
     )
 
 
+def images_banner(summary: DockerSummary) -> str:
+    """Render the Docker image inventory banner."""
+    dangling = sum(1 for record in summary.images if record.get("tag", "").startswith("<none>"))
+    suffix = f", {dangling} dangling" if dangling else ""
+    return f"{_dot(summary.connected)} Images: {len(summary.images)}{suffix}"
+
+
+def networks_banner(summary: DockerSummary) -> str:
+    """Render the Docker network inventory banner."""
+    return f"{_dot(summary.connected)} Networks: {len(summary.networks)}"
+
+
+def volumes_banner(summary: DockerSummary) -> str:
+    """Render the Docker volume inventory banner."""
+    return f"{_dot(summary.connected)} Volumes: {len(summary.volumes)}"
+
+
+def registries_banner(summary: DockerSummary) -> str:
+    """Render the configured registry banner."""
+    return f"{_dot(summary.connected)} Registries: {len(summary.registries)} configured"
+
+
+def telemetry_banner(summary: TelemetrySummary) -> str:
+    """Render the instrument count banner, naming where the figures came from.
+
+    An empty in-process registry is indistinguishable from broken instrumentation unless
+    the panel says which registry it read.
+    """
+    counts = (
+        f"{summary.counter_count} Counters, {summary.gauge_count} Gauges, "
+        f"{summary.histogram_count} Histograms"
+    )
+    if summary.error_message:
+        return f"{CONST_STATUS_DOT_WARN} Telemetry ({summary.source}): {counts} — {summary.error_message}"
+    return f"{_dot(True)} Telemetry ({summary.source}): {counts}"
+
+
 def ai_banner(summary: ReviewSummary) -> str:
-    """Render the latest review session banner."""
+    """Render the review session banner.
+
+    The session shown is the newest **completed** one. A review that is still running
+    creates its directory before it writes any findings, so the newest directory was being
+    presented as the latest result with zero findings, hiding the last real review.
+    """
     if not summary.has_session:
         return "No active or past AI code review sessions found."
+    pending = f" | {len(summary.incomplete)} incomplete" if summary.incomplete else ""
     distribution = (
         " | ".join(f"{name}: {count}" for name, count in summary.severity_distribution.items())
         or "None"
     )
     return (
-        f"Latest Review: {summary.session_name} | "
+        f"Review {summary.session_name} | "
         f"Total: {summary.total_findings} (Verified: {summary.verified_count}) | "
-        f"{distribution}"
+        f"{distribution}{pending}"
     )
 
 
 def valkey_banner(summary: ValkeySummary) -> str:
-    """Render the Valkey cache banner."""
+    """Render the Valkey cache banner.
+
+    An offline cache names the endpoint that was tried and why it failed. "Offline" alone
+    cannot distinguish a cache that is not deployed from one that is deployed and refusing
+    connections, and sends the reader to the wrong place.
+    """
+    endpoint = f" @ {summary.endpoint}" if summary.endpoint else ""
+    if not summary.connected:
+        reason = f" — {summary.error_message}" if summary.error_message else ""
+        return f"{_dot(False)} Valkey Cache: Offline{endpoint}{reason}"
     return (
-        f"{_dot(summary.connected)} Valkey Cache: {summary.version} | "
+        f"{_dot(True)} Valkey Cache: {summary.version}{endpoint} | "
         f"Used Memory: {summary.used_memory} | Hit Ratio: {summary.hit_ratio:.1f}%"
     )
 
@@ -166,6 +224,26 @@ def ai_rows(summary: ReviewSummary) -> list[tuple[str, ...]]:
     ]
 
 
+def images_rows(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Project Docker images into table rows."""
+    return _records(summary.images, ("id", "tag", "size", "created"))
+
+
+def networks_rows(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Project Docker networks into table rows."""
+    return _records(summary.networks, ("id", "name", "driver", "scope", "containers"))
+
+
+def volumes_rows(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Project Docker volumes into table rows."""
+    return _records(summary.volumes, ("name", "driver", "mountpoint", "size", "created"))
+
+
+def registries_rows(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Project configured registries into table rows."""
+    return _records(summary.registries, ("name", "kind", "status"))
+
+
 def valkey_rows(summary: ValkeySummary) -> list[tuple[str, ...]]:
     """Project cache server properties into table rows."""
     return [
@@ -198,6 +276,67 @@ _ROWS: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
     CONST_DASHBOARD_DOMAIN_AI: ai_rows,
     CONST_DASHBOARD_DOMAIN_VALKEY: valkey_rows,
 }
+
+
+DOCKER_RESOURCE_COLUMNS: dict[str, tuple[str, ...]] = {
+    CONST_DOCKER_RESOURCE_CONTAINERS: ("Container ID", "Name", "Image", "Status"),
+    CONST_DOCKER_RESOURCE_IMAGES: ("Image ID", "Repository:Tag", "Size", "Created"),
+    CONST_DOCKER_RESOURCE_NETWORKS: ("Network ID", "Name", "Driver", "Scope", "Containers"),
+    CONST_DOCKER_RESOURCE_VOLUMES: ("Name", "Driver", "Mountpoint", "Size", "Created"),
+    CONST_DOCKER_RESOURCE_REGISTRIES: ("Registry", "Kind", "Status"),
+}
+
+DOCKER_RESOURCE_ROWS: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
+    CONST_DOCKER_RESOURCE_CONTAINERS: docker_rows,
+    CONST_DOCKER_RESOURCE_IMAGES: images_rows,
+    CONST_DOCKER_RESOURCE_NETWORKS: networks_rows,
+    CONST_DOCKER_RESOURCE_VOLUMES: volumes_rows,
+    CONST_DOCKER_RESOURCE_REGISTRIES: registries_rows,
+}
+
+DOCKER_RESOURCE_COUNTS: dict[str, Callable[[Any], int]] = {
+    CONST_DOCKER_RESOURCE_CONTAINERS: lambda summary: len(summary.containers),
+    CONST_DOCKER_RESOURCE_IMAGES: lambda summary: len(summary.images),
+    CONST_DOCKER_RESOURCE_NETWORKS: lambda summary: len(summary.networks),
+    CONST_DOCKER_RESOURCE_VOLUMES: lambda summary: len(summary.volumes),
+    CONST_DOCKER_RESOURCE_REGISTRIES: lambda summary: len(summary.registries),
+}
+
+
+def docker_resource_rows(resource: str, snapshot: Any) -> list[tuple[str, ...]]:
+    """Render one Docker resource view from the shared inventory snapshot."""
+    if snapshot.data is None:
+        return []
+    return DOCKER_RESOURCE_ROWS[resource](snapshot.data)
+
+
+def docker_resource_label(resource: str, snapshot: Any) -> str:
+    """Render a sub-tab label carrying its row count, so counts are visible unopened."""
+    label = CONST_DOCKER_RESOURCE_LABELS[resource]
+    if snapshot is None or snapshot.data is None:
+        return label
+    return f"{label} ({DOCKER_RESOURCE_COUNTS[resource](snapshot.data)})"
+
+
+REVIEW_SESSION_COLUMNS: tuple[str, ...] = ("Session", "Status", "Findings")
+
+
+def review_session_rows(snapshot: Any) -> list[tuple[str, ...]]:
+    """Project review sessions into table rows, newest first.
+
+    Sessions are already ordered newest-first by the provider; re-sorting here would let
+    the two disagree.
+    """
+    if snapshot.data is None:
+        return []
+    return [
+        (
+            info.name,
+            "complete" if info.completed else "incomplete",
+            str(info.finding_count) if info.completed else "-",
+        )
+        for info in snapshot.data.sessions
+    ]
 
 
 def render_banner(snapshot: DomainSnapshot, *, stale_after: float | None = None) -> str:
@@ -236,7 +375,21 @@ def render_domain(
 
 
 __all__ = [
+    "DOCKER_RESOURCE_COLUMNS",
+    "REVIEW_SESSION_COLUMNS",
+    "review_session_rows",
+    "DOCKER_RESOURCE_ROWS",
     "DOMAIN_COLUMNS",
+    "docker_resource_label",
+    "docker_resource_rows",
+    "images_banner",
+    "images_rows",
+    "networks_banner",
+    "networks_rows",
+    "registries_banner",
+    "registries_rows",
+    "volumes_banner",
+    "volumes_rows",
     "ai_banner",
     "ai_rows",
     "docker_banner",
