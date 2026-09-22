@@ -239,3 +239,111 @@ def test_the_dashboard_falls_back_to_in_cluster_configuration() -> None:
         data_providers._get_k8s_client()
 
     config_module.load_incluster_config.assert_called_once()
+
+
+# =============================================================================
+# DevContainer Post-Start Alignment
+# =============================================================================
+
+
+def _kubectl_router(contexts: str, use_rc: int = 0, list_rc: int = 0) -> Any:
+    """Route kubectl invocations for the post-start context step."""
+    calls: list[list[str]] = []
+
+    def route(args: list[str], **_: Any) -> Any:
+        calls.append(args)
+        if args[:3] == ["kubectl", "config", "get-contexts"]:
+            return MagicMock(returncode=list_rc, stdout=contexts, stderr="")
+        return MagicMock(returncode=use_rc, stdout="", stderr="denied")
+
+    route.calls = calls  # type: ignore[attr-defined]
+    return route
+
+
+def test_post_start_points_kubectl_at_the_configured_context() -> None:
+    """kubectl and the CLI must agree on which cluster they are talking to.
+
+    The CLI resolves the configured context itself, but kubectl follows the kubeconfig's
+    own current-context, and that drifts back on any rebuild restoring a cached kubeconfig.
+    """
+    from devops_cli.commands.devcontainer import _apply_configured_k8s_context
+
+    router = _kubectl_router("minikube\nhomelab-k3s\n")
+    with (
+        patch("devops_cli.commands.devcontainer.run_subprocess", side_effect=router),
+        patch("devops_cli.k8s.context.configured_context", return_value="homelab-k3s"),
+    ):
+        actions = _apply_configured_k8s_context()
+
+    selected = [c for c in router.calls if c[:3] == ["kubectl", "config", "use-context"]]
+    assert (selected[0][3], "homelab-k3s" in actions[0]) == ("homelab-k3s", True)
+
+
+def test_post_start_leaves_kubectl_alone_when_the_context_is_absent() -> None:
+    """Selecting a context that is not in the kubeconfig breaks kubectl outright.
+
+    Leaving it where it already pointed is the lesser failure, and the action says so.
+    """
+    from devops_cli.commands.devcontainer import _apply_configured_k8s_context
+
+    router = _kubectl_router("minikube\n")
+    with (
+        patch("devops_cli.commands.devcontainer.run_subprocess", side_effect=router),
+        patch("devops_cli.k8s.context.configured_context", return_value="homelab-k3s"),
+    ):
+        actions = _apply_configured_k8s_context()
+
+    attempted = [c for c in router.calls if c[:3] == ["kubectl", "config", "use-context"]]
+    assert (attempted, "not in the kubeconfig" in actions[0]) == ([], True)
+
+
+def test_post_start_does_nothing_without_a_configured_context() -> None:
+    """An unconfigured workstation keeps whatever kubectl was already using."""
+    from devops_cli.commands.devcontainer import _apply_configured_k8s_context
+
+    with (
+        patch("devops_cli.commands.devcontainer.run_subprocess") as run,
+        patch("devops_cli.k8s.context.configured_context", return_value=None),
+    ):
+        actions = _apply_configured_k8s_context()
+
+    assert (actions, run.call_count) == ([], 0)
+
+
+def test_post_start_reports_a_failed_selection() -> None:
+    """A silent failure would leave the container pointing at the wrong cluster."""
+    from devops_cli.commands.devcontainer import _apply_configured_k8s_context
+
+    router = _kubectl_router("homelab-k3s\n", use_rc=1)
+    with (
+        patch("devops_cli.commands.devcontainer.run_subprocess", side_effect=router),
+        patch("devops_cli.k8s.context.configured_context", return_value="homelab-k3s"),
+    ):
+        actions = _apply_configured_k8s_context()
+
+    assert "Failed setting" in actions[0]
+
+
+def test_post_start_tolerates_an_unreadable_kubeconfig() -> None:
+    """A container without kubectl, or with no kubeconfig yet, must still finish starting."""
+    from devops_cli.commands.devcontainer import _apply_configured_k8s_context
+
+    router = _kubectl_router("", list_rc=1)
+    with (
+        patch("devops_cli.commands.devcontainer.run_subprocess", side_effect=router),
+        patch("devops_cli.k8s.context.configured_context", return_value="homelab-k3s"),
+    ):
+        assert _apply_configured_k8s_context() == []
+
+
+def test_post_start_dry_run_changes_nothing() -> None:
+    """A preview must not mutate the kubeconfig."""
+    from devops_cli.commands.devcontainer import _apply_configured_k8s_context
+
+    with (
+        patch("devops_cli.commands.devcontainer.run_subprocess") as run,
+        patch("devops_cli.k8s.context.configured_context", return_value="homelab-k3s"),
+    ):
+        actions = _apply_configured_k8s_context(dry_run=True)
+
+    assert (run.call_count, "Would set" in actions[0]) == (0, True)
