@@ -1493,3 +1493,8 @@ CONST_PROJECT_WORKFLOW_EXPECTATIONS: Final[dict[str, str]] = {
 # from one `feat(release)` pull request, so the summary lists that pull request alone and
 # carries no information the changelog does not.
 CONST_GENERATED_NOTES_HEADING: Final[str] = "What's Changed"
+# Stand-ins for values a dry run cannot know. A node address and an assigned NodePort are
+# only resolved by talking to the cluster, so a preview names their shape rather than
+# inventing a concrete one that describes some other cluster.
+CONST_PLACEHOLDER_NODE: Final[str] = "<node>"
+CONST_PLACEHOLDER_PORT: Final[str] = "<port>"

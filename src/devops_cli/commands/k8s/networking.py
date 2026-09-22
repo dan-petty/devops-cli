@@ -14,6 +14,9 @@ from devops_cli.config.constants import (
     CONST_ADDRESSING_MODES,
     CONST_ADDRESSING_NODEPORT,
     CONST_ADDRESSING_PROXY,
+    CONST_K8S_URL_SCHEME,
+    CONST_PLACEHOLDER_NODE,
+    CONST_PLACEHOLDER_PORT,
 )
 from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_PORT,
@@ -384,6 +387,66 @@ def _configure_proxy_urls(
         configured[key] = address
 
 
+# The endpoints nodeport addressing writes, per stack. Proxy addressing derives its own
+# from `_PROXY_TARGETS_*`, which is why the two previews differ: proxy mode configures only
+# the services it can address through the API server.
+_NODEPORT_KEYS_INFRA: tuple[str, ...] = (
+    "argocd.url",
+    "grafana.url",
+    "prometheus.url",
+    "jaeger.url",
+    "otel.endpoint",
+)
+_NODEPORT_KEYS_LLM: tuple[str, ...] = (
+    "ai.ollama_urls",
+    "open_webui.url",
+    "qdrant.url",
+    "valkey.url",
+)
+
+
+def _preview_proxy_addresses(stacks: Sequence[str]) -> dict[str, str]:
+    """Render the cluster-native address each key will receive."""
+    targets: list[tuple[str, str, tuple[str, ...], tuple[str, ...]]] = []
+    if "infra" in stacks:
+        targets.extend(_PROXY_TARGETS_INFRA)
+    if "llm" in stacks:
+        targets.extend(_PROXY_TARGETS_LLM)
+
+    preview: dict[str, str] = {}
+    for key, namespace, patterns, port_hints in targets:
+        port = next((hint for hint in port_hints if hint.isdigit()), CONST_PLACEHOLDER_PORT)
+        preview[key] = f"{CONST_K8S_URL_SCHEME}://{namespace}/{patterns[0]}:{port}"
+    return preview
+
+
+def _preview_nodeport_addresses(stacks: Sequence[str]) -> dict[str, str]:
+    """Render the shape of a node address, which is only known after discovery.
+
+    A fixed address was written here -- a minikube node IP with assigned port numbers --
+    so the preview described a cluster the command was not going to configure, and did so
+    identically whichever addressing mode was asked for.
+    """
+    keys: list[str] = []
+    if "infra" in stacks:
+        keys.extend(_NODEPORT_KEYS_INFRA)
+    if "llm" in stacks:
+        keys.extend(_NODEPORT_KEYS_LLM)
+
+    preview: dict[str, str] = {}
+    for key in keys:
+        scheme = "tcp" if key.startswith("valkey") else "http"
+        preview[key] = f"{scheme}://{CONST_PLACEHOLDER_NODE}:{CONST_PLACEHOLDER_PORT}"
+    return preview
+
+
+def _dry_run_preview(stacks: Sequence[str], addressing: str) -> dict[str, str]:
+    """Describe what `configure-urls` would write under the requested addressing mode."""
+    if addressing == CONST_ADDRESSING_PROXY:
+        return _preview_proxy_addresses(stacks)
+    return _preview_nodeport_addresses(stacks)
+
+
 def configure_urls(
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
     context: Annotated[
@@ -406,31 +469,11 @@ def configure_urls(
 
     selected_stacks = _resolve_stacks(stack)
 
-    dry_run_details: dict[str, str] = {}
-    if "infra" in selected_stacks:
-        dry_run_details.update(
-            {
-                "argocd.url": "http://192.168.49.2:30080",
-                "grafana.url": "http://192.168.49.2:32047",
-                "prometheus.url": "http://192.168.49.2:30090",
-                "jaeger.url": "http://192.168.49.2:30686",
-            }
-        )
-    if "llm" in selected_stacks:
-        dry_run_details.update(
-            {
-                "ai.ollama_urls": "http://192.168.49.2:31434",
-                "open_webui.url": "http://192.168.49.2:30080",
-                "qdrant.url": "http://192.168.49.2:30633",
-                "valkey.url": "tcp://192.168.49.2:30379",
-            }
-        )
-
     if is_dry_run():
         render_dry_run_result(
             command="devops k8s configure-urls",
             action="configure_monitoring_urls",
-            details=dry_run_details,
+            details=_dry_run_preview(selected_stacks, addressing),
         )
         return
 
