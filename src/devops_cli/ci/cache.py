@@ -87,8 +87,14 @@ def _hash_file(path: Path) -> str:
         return ""
 
 
-def _get_git_output(args: list[str], root: Path) -> str | None:
-    """Execute git command within root directory, returning stdout or None."""
+def _get_git_output(args: list[str], root: Path, strip: bool = True) -> str | None:
+    """Execute git command within root directory, returning stdout or None.
+
+    `strip` must be disabled for porcelain output: its first two columns are status codes
+    and an unmodified index is reported as a leading space, so stripping shifts every
+    column by one and a file modified in the working tree reads as one modified in the
+    index -- inverting exactly the distinction the caller needs.
+    """
     try:
         result = run_subprocess(
             ["git", *args],
@@ -99,7 +105,9 @@ def _get_git_output(args: list[str], root: Path) -> str | None:
             quiet=True,
             timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         )
-        return result.stdout.strip() if result.returncode == 0 else None
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip() if strip else result.stdout
     except Exception as exc:
         logger.debug("Git command git %s failed: %s", " ".join(args), exc)
         return None
@@ -142,41 +150,123 @@ def _collect_modified_git_files(root: Path) -> list[str]:
     return sorted(set(target_files))
 
 
+def _index_blob_hashes(root: Path) -> dict[str, str]:
+    """Map every tracked path to the content hash git holds for it in the index."""
+    output = _get_git_output(["ls-files", "-s"], root)
+    if not output:
+        return {}
+    hashes: dict[str, str] = {}
+    for line in output.splitlines():
+        # Format: <mode> <object> <stage>\t<path>
+        meta, _, path = line.partition("\t")
+        fields = meta.split()
+        if path and len(fields) >= 2:
+            hashes[path] = fields[1]
+    return hashes
+
+
+def _worktree_divergent_paths(root: Path) -> tuple[list[str], list[str]]:
+    """Return paths whose working copy differs from the index, and paths that are gone."""
+    output = _get_git_output(
+        ["status", "--porcelain=v1", "--untracked-files=all"], root, strip=False
+    )
+    if not output:
+        return [], []
+
+    changed: list[str] = []
+    deleted: list[str] = []
+    for line in output.splitlines():
+        if len(line) < 4:
+            continue
+        index_state, worktree_state, path = line[0], line[1], line[3:].strip().strip('"')
+        # A rename is reported as "old -> new"; only the new path exists on disk.
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if worktree_state == "D" or index_state == "D":
+            deleted.append(path)
+        elif worktree_state != " " or index_state == "?":
+            changed.append(path)
+    return changed, deleted
+
+
+def _git_blob_hashes(root: Path, paths: list[str]) -> dict[str, str]:
+    """Hash working-copy files the way git hashes them, in one invocation.
+
+    `git hash-object --stdin-paths` takes the whole list at once; hashing per file would
+    spawn a process per changed file on every fingerprint.
+    """
+    if not paths:
+        return {}
+    try:
+        result = run_subprocess(
+            ["git", "hash-object", "--stdin-paths"],
+            cwd=root,
+            input="\n".join(paths) + "\n",
+            capture_output=True,
+            text=True,
+            check=False,
+            quiet=True,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        logger.debug("Failed hashing worktree files: %s", exc)
+        return {}
+    if result.returncode != 0:
+        return {}
+
+    digests = result.stdout.split()
+    if len(digests) != len(paths):
+        # A mismatch means some path could not be read; falling back to no cache is safer
+        # than pairing hashes with the wrong files and calling a stale tree verified.
+        logger.debug("git hash-object returned %d digests for %d paths", len(digests), len(paths))
+        return {}
+    return dict(zip(paths, digests, strict=True))
+
+
 def compute_workspace_fingerprint(
     root: Path = Path("."),
     options: dict[str, Any] | None = None,
 ) -> tuple[str, str, dict[str, str]] | None:
-    """Compute deterministic codebase fingerprint from git state and file hashes.
+    """Compute a fingerprint of what the checks will actually read.
 
-    Returns (fingerprint, head_sha, file_hashes) or None if git repository cannot be queried.
+    The fingerprint describes **content**, not git state. It previously hashed `HEAD`, the
+    written tree, and the staged and unstaged diffs separately, which meant staging a file
+    changed it and committing changed it again -- even though no file content differed.
+    Since committing is precisely what happens between running `devops ci` and pushing, the
+    pre-push hook could never hit the cache and re-ran the whole suite on every push.
+
+    Content addressing makes the fingerprint invariant across `git add` and `git commit`,
+    so a verified tree stays verified until something in it actually changes.
     """
-    _get_git_output(["update-index", "--refresh", "-q"], root)
-    head_sha = _get_git_output(["rev-parse", "HEAD"], root)
-    if not head_sha:
+    head_sha = _get_git_output(["rev-parse", "HEAD"], root) or ""
+
+    index_hashes = _index_blob_hashes(root)
+    if not index_hashes and head_sha == "":
         return None
 
-    tree_sha = _get_git_output(["write-tree"], root) or ""
-    diff_files = _get_git_output(["diff", "-p"], root) or ""
-    diff_cached = _get_git_output(["diff", "--cached"], root) or ""
-    untracked = _get_git_output(["ls-files", "--others", "--exclude-standard"], root) or ""
+    changed, deleted = _worktree_divergent_paths(root)
+
+    # The working copy wins over the index: it is what the checks read. Worktree content is
+    # hashed by git rather than directly, because a git blob hash covers a header as well as
+    # the bytes -- mixing the two hash spaces would make a staged file look different from
+    # the identical unstaged one, which is the invariance this exists to provide.
+    content: dict[str, str] = dict(index_hashes)
+    content.update(_git_blob_hashes(root, [p for p in changed if (root / p).is_file()]))
+    for rel_path in deleted:
+        content.pop(rel_path, None)
 
     config_hash = _compute_config_hashes(root)
     opt_str = json.dumps(options or {}, sort_keys=True)
 
-    target_files = _collect_modified_git_files(root)
-    file_hashes = _compute_file_hashes(root, target_files)
-
     hasher = hashlib.sha256()
-    hasher.update(head_sha.encode())
-    hasher.update(tree_sha.encode())
-    hasher.update(hashlib.sha256(diff_files.encode()).hexdigest().encode())
-    hasher.update(hashlib.sha256(diff_cached.encode()).hexdigest().encode())
-    hasher.update(hashlib.sha256(untracked.encode()).hexdigest().encode())
     hasher.update(config_hash.encode())
     hasher.update(opt_str.encode())
-    for f_path, f_sha in sorted(file_hashes.items()):
+    for f_path, f_sha in sorted(content.items()):
         hasher.update(f"{f_path}:{f_sha}".encode())
 
+    # The per-file hashes retained for the pre-commit subset check cover the paths that
+    # differ from the index, which are the ones a partial run is asked about.
+    file_hashes = _compute_file_hashes(root, sorted(set(changed) | set(_CRITICAL_CONFIG_FILES)))
     return hasher.hexdigest(), head_sha, file_hashes
 
 
