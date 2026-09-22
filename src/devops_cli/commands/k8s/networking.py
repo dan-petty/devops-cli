@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from collections.abc import Sequence
 from typing import Annotated, Any
 
 import typer
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
+from devops_cli.config.constants import (
+    CONST_ADDRESSING_MODES,
+    CONST_ADDRESSING_NODEPORT,
+    CONST_ADDRESSING_PROXY,
+)
 from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_PORT,
     DEFAULT_GRAFANA_PORT,
@@ -333,13 +339,67 @@ def _configure_llm_stack_urls(
         configured["valkey.url"] = valkey_url
 
 
+# Which Service backs each configured endpoint. Names are matched as substrings, most
+# specific first, because chart releases rename services: Prometheus ships as
+# `kube-prometheus-kube-prome-prometheus` rather than `prometheus`.
+_PROXY_TARGETS_INFRA: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...] = (
+    ("argocd.url", "argocd", ("argocd-server",), ("80", "http", "server")),
+    ("grafana.url", "monitoring", ("grafana",), ("80", "http", "service")),
+    ("prometheus.url", "monitoring", ("prome-prometheus", "prometheus"), ("9090", "web")),
+    ("jaeger.url", "otel", ("jaeger",), ("16686", "query", "http-query")),
+)
+_PROXY_TARGETS_LLM: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...] = (
+    ("open_webui.url", "llm", ("open-webui",), ("80", "http")),
+    ("qdrant.url", "llm", ("qdrant",), ("6333", "http")),
+)
+
+
+def _configure_proxy_urls(
+    effective_context: str | None,
+    settings: Any,
+    configured: dict[str, str],
+    stacks: Sequence[str],
+) -> None:
+    """Record cluster-native addresses for each detected service.
+
+    These addresses carry no host and no local port, so the same configuration resolves on
+    whichever cluster is active and survives a cluster being rebuilt.
+    """
+    from devops_cli.config.settings import dotted_set
+    from devops_cli.k8s.service_proxy import discover_service
+
+    targets: list[tuple[str, str, tuple[str, ...], tuple[str, ...]]] = []
+    if "infra" in stacks:
+        targets.extend(_PROXY_TARGETS_INFRA)
+    if "llm" in stacks:
+        targets.extend(_PROXY_TARGETS_LLM)
+
+    for key, namespace, patterns, port_hints in targets:
+        ref = discover_service(namespace, patterns, port_hints, context=effective_context)
+        if ref is None:
+            logger.debug("No service matching %s in namespace '%s'", patterns, namespace)
+            continue
+        address = ref.describe()
+        dotted_set(settings, key, address)
+        configured[key] = address
+
+
 def configure_urls(
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
+    addressing: Annotated[
+        str, typer.Option("--addressing", "-a", help=HELP.k8s.addressing)
+    ] = CONST_ADDRESSING_NODEPORT,
 ) -> None:
     """Auto-detect Kubernetes stack URLs and update CLI config."""
+    if addressing not in CONST_ADDRESSING_MODES:
+        print_error(
+            f"Unknown addressing mode '{addressing}'. Choose one of: "
+            f"{', '.join(sorted(CONST_ADDRESSING_MODES))}."
+        )
+        raise typer.Exit(2)
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")
@@ -386,11 +446,14 @@ def configure_urls(
     settings = load_settings()
     configured: dict[str, str] = {}
 
-    if "infra" in selected_stacks:
-        _configure_infra_stack_urls(effective_context, settings, configured)
+    if addressing == CONST_ADDRESSING_PROXY:
+        _configure_proxy_urls(effective_context, settings, configured, selected_stacks)
+    else:
+        if "infra" in selected_stacks:
+            _configure_infra_stack_urls(effective_context, settings, configured)
 
-    if "llm" in selected_stacks:
-        _configure_llm_stack_urls(effective_context, settings, configured)
+        if "llm" in selected_stacks:
+            _configure_llm_stack_urls(effective_context, settings, configured)
 
     if configured:
         save_settings(settings)

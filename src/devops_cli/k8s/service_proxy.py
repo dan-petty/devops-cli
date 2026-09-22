@@ -211,9 +211,69 @@ def resolve_proxy_target(
 
 __all__ = [
     "ProxyTarget",
+    "discover_service",
     "ServiceAddressError",
     "ServiceRef",
     "is_service_url",
     "parse_service_url",
     "resolve_proxy_target",
 ]
+
+
+def discover_service(
+    namespace: str,
+    patterns: tuple[str, ...],
+    port_hints: tuple[str, ...] = (),
+    context: str | None = None,
+) -> ServiceRef | None:
+    """Find a Service in a namespace by name pattern, returning its proxy address.
+
+    Chart-installed services rarely carry the bare name an operator thinks in: Prometheus
+    ships as `kube-prometheus-kube-prome-prometheus`. Matching on substrings lets the same
+    lookup work across clusters and chart releases, which is the point of addressing a
+    Service by what it is rather than by where a port-forward put it.
+
+    The first pattern that matches anything wins, so callers order patterns from most to
+    least specific.
+    """
+    from devops_cli.k8s.service import KubernetesService
+
+    service_api = KubernetesService.get_instance()
+    if not service_api.load_config(context=resolve_context(context)):
+        return None
+
+    try:
+        listing = service_api._core_v1.list_namespaced_service(namespace=namespace)
+    except Exception as exc:
+        logger.debug("Could not list services in namespace '%s': %s", namespace, exc)
+        return None
+
+    services = [item for item in (listing.items or []) if getattr(item, "metadata", None)]
+    for pattern in patterns:
+        for item in services:
+            name = str(item.metadata.name or "")
+            if pattern not in name:
+                continue
+            port = _select_port(item, port_hints)
+            if port is None:
+                continue
+            return ServiceRef(namespace=namespace, service=name, port=port)
+    return None
+
+
+def _select_port(service: Any, hints: tuple[str, ...]) -> str | None:
+    """Choose which of a Service's ports to address.
+
+    A Service commonly exposes several -- Prometheus publishes 9090 alongside a reloader
+    port -- so a hinted match is preferred and the first port is only a fallback.
+    """
+    spec = getattr(service, "spec", None)
+    ports = list(getattr(spec, "ports", None) or [])
+    if not ports:
+        return None
+
+    for hint in hints:
+        for port in ports:
+            if hint in {str(getattr(port, "name", "") or ""), str(getattr(port, "port", ""))}:
+                return str(port.port)
+    return str(ports[0].port)

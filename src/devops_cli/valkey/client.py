@@ -5,12 +5,15 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
+import threading
 from collections.abc import Sequence
 from typing import Any
 
 from devops_cli.config.defaults import (
     DEFAULT_VALKEY_HOST,
     DEFAULT_VALKEY_PATTERN,
+    DEFAULT_VALKEY_PIPELINE_CHUNK_BYTES,
+    DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS,
     DEFAULT_VALKEY_PORT,
     DEFAULT_VALKEY_SCAN_COUNT,
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
@@ -77,6 +80,12 @@ class ValkeyClient:
         self.allow_private_network = allow_private_network
         self._sock: socket.socket | None = None
         self._reader: Any = None
+        # RESP is a stream protocol with no request identifiers: replies are matched to
+        # commands purely by order. Two threads sharing a connection therefore read each
+        # other's replies -- silently, as plausible-looking data for the wrong key. The
+        # lock makes each request/response cycle atomic. It is reentrant because the
+        # error paths call close() from inside a held section.
+        self._lock = threading.RLock()
         self._validate_destination()
 
     def _validate_destination(self) -> None:
@@ -125,6 +134,11 @@ class ValkeyClient:
 
     def connect(self) -> None:
         """Establish connection to Valkey instance and authenticate."""
+        with self._lock:
+            self._connect_locked()
+
+    def _connect_locked(self) -> None:
+        """Open the connection with the lock already held."""
         if self._sock is not None:
             return
 
@@ -172,6 +186,11 @@ class ValkeyClient:
 
     def execute(self, *parts: Any) -> Any:
         """Send command and read decoded response from Valkey server."""
+        with self._lock:
+            return self._execute_locked(*parts)
+
+    def _execute_locked(self, *parts: Any) -> Any:
+        """Send one command and read its reply, with the connection already claimed."""
         if self._sock is None or self._reader is None:
             self.connect()
 
@@ -204,9 +223,27 @@ class ValkeyClient:
         """
         if not commands:
             return []
+        with self._lock:
+            return self._pipeline_locked(commands)
+
+    def _pipeline_locked(self, commands: Sequence[Sequence[Any]]) -> list[Any]:
+        """Run a batch with the connection claimed, in bounded chunks.
+
+        The batch is split so the serialized payload never exceeds a bounded size. Joining
+        an entire batch into one buffer is what turns a mass embedding fetch -- exactly the
+        workload this method advertises -- into memory proportional to the batch rather
+        than to the connection.
+        """
         if self._sock is None or self._reader is None:
             self.connect()
 
+        replies: list[Any] = []
+        for chunk in _chunk_commands(commands):
+            replies.extend(self._send_chunk(chunk))
+        return replies
+
+    def _send_chunk(self, commands: Sequence[Sequence[Any]]) -> list[Any]:
+        """Write one chunk of commands and read exactly that many replies."""
         payload = b"".join(encode_command(*parts) for parts in commands)
         try:
             assert self._sock is not None
@@ -341,6 +378,11 @@ class ValkeyClient:
 
     def close(self) -> None:
         """Close socket and reader cleanly."""
+        with self._lock:
+            self._close_locked()
+
+    def _close_locked(self) -> None:
+        """Close the connection with the lock already held."""
         if self._reader is not None:
             try:
                 self._reader.close()
@@ -361,3 +403,34 @@ class ValkeyClient:
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.close()
+
+
+def _chunk_commands(
+    commands: Sequence[Sequence[Any]],
+    max_commands: int = DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS,
+    max_bytes: int = DEFAULT_VALKEY_PIPELINE_CHUNK_BYTES,
+) -> list[Sequence[Sequence[Any]]]:
+    """Split a batch so no single write buffers an unbounded amount of memory.
+
+    Both a command count and a byte budget are applied: a million tiny commands and a
+    handful of megabyte-sized values are different shapes of the same problem, and either
+    alone lets the other through.
+
+    A single command larger than the byte budget still forms its own chunk -- splitting it
+    would corrupt the protocol -- so the budget is a target, not a guarantee.
+    """
+    chunks: list[Sequence[Sequence[Any]]] = []
+    current: list[Sequence[Any]] = []
+    current_bytes = 0
+
+    for parts in commands:
+        size = sum(len(str(part)) for part in parts)
+        if current and (len(current) >= max_commands or current_bytes + size > max_bytes):
+            chunks.append(current)
+            current, current_bytes = [], 0
+        current.append(parts)
+        current_bytes += size
+
+    if current:
+        chunks.append(current)
+    return chunks
