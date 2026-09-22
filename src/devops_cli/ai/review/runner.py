@@ -188,9 +188,18 @@ def _llm_request_preview(client: Any, system: str, user: str) -> dict[str, Any]:
 
 
 def _persona_system_prompt(persona: PersonaDefinition, agents_md: str) -> str:
-    """Compose the per-file/segment system prompt for this persona."""
+    """Compose the per-file/segment system prompt for this persona.
+
+    The recorded false positives are appended so a persona sees what it has already got
+    wrong against this codebase. The ledger was previously written on every deterministic
+    invalidation and read back only during verification, which suppresses a finding after
+    a model has been paid to produce it; the same ones recur, the top entry 225 times.
+    """
+    from devops_cli.ai.review.common_hallucinations import render_negative_exemplars
+
+    exemplars = render_negative_exemplars()
     if not agents_md:
-        return persona.system_prompt + _GUARDRAILS_PROMPT
+        return persona.system_prompt + exemplars + _GUARDRAILS_PROMPT
 
     clean_agents = sanitize_prompt_boundary_tags(agents_md)
     return (
@@ -201,7 +210,7 @@ def _persona_system_prompt(persona: PersonaDefinition, agents_md: str) -> str:
         "</project_conventions_context>\n\n"
         "Adhere to target project conventions. Do not raise findings that merely "
         "restate or contradict the conventions explicitly documented above."
-        f"{_GUARDRAILS_PROMPT}"
+        f"{exemplars}{_GUARDRAILS_PROMPT}"
     )
 
 
