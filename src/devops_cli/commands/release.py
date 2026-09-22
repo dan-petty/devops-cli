@@ -352,13 +352,55 @@ def _update_init_version(root: Path, new_version: str) -> bool:
     return True
 
 
-def _build_changelog_section(root: Path, new_version: str, today: str) -> str:
-    """Build a complete changelog markdown section for a release version."""
+def _existing_changelog_entries(notes: str | None) -> list[str]:
+    """Read the bullet entries already written under a version heading."""
+    if not notes:
+        return []
+    return [
+        line.strip()[2:].strip() for line in notes.splitlines() if line.strip().startswith("- ")
+    ]
+
+
+def _merge_changelog_entries(existing: list[str], compiled: list[str]) -> list[str]:
+    """Combine entries already present with newly compiled ones, without repeating any.
+
+    An entry already in the file wins, so a hand-edited description survives. Comparison
+    ignores trailing pull request references for the same reason deduplication does: the
+    squash merge and the original subject describe one change.
+    """
+    merged = list(existing)
+    seen = {_deduplication_key(entry) for entry in existing}
+    for entry in compiled:
+        key = _deduplication_key(entry)
+        if key not in seen:
+            seen.add(key)
+            merged.append(entry)
+    return merged
+
+
+def _build_changelog_section(
+    root: Path, new_version: str, today: str, existing_notes: str | None = None
+) -> str:
+    """Build a changelog section, folding in anything already written under the heading.
+
+    This previously ran only when the section was empty. A section that already held one
+    entry was left at one entry and only its date was refreshed, so `--update` reported
+    success while the release it described stayed unwritten -- v0.2.22 carried a single
+    line against fifty-two commits. Merging makes the command idempotent and additive.
+    """
     compiled_notes = _extract_git_commit_notes(root, new_version)
-    if compiled_notes:
-        notes_body = re.sub(r"^###\s+Changes in v[^\n]+\n*", "", compiled_notes).strip()
-        if notes_body:
-            return f"## [{new_version}] - {today}\n\n{notes_body}\n\n"
+    compiled = (
+        _extract_raw_commit_lines(re.sub(r"^###[^\n]*\n", "", compiled_notes, flags=re.MULTILINE))
+        if compiled_notes
+        else []
+    )
+    merged = _merge_changelog_entries(_existing_changelog_entries(existing_notes), compiled)
+    if merged:
+        body = re.sub(
+            r"^###\s+Changes in v[^\n]+\n*", "", _format_categorized_notes(merged, new_version)
+        ).strip()
+        if body:
+            return f"## [{new_version}] - {today}\n\n{body}\n\n"
     return f"## [{new_version}] - {today}\n\n### Added\n- Release version {new_version}.\n\n"
 
 
@@ -375,16 +417,9 @@ def _update_changelog_header(root: Path, new_version: str, release_date: str | N
     # If version already present in changelog, update date and populate if empty
     if f"## [{new_version}]" in content:
         current_notes = _extract_changelog_notes(root, new_version)
-        if current_notes:
-            new_content = re.sub(
-                rf"##\s+\[{re.escape(new_version)}\]\s*(?:-\s*\d{{4}}-\d{{2}}-\d{{2}})?",
-                f"## [{new_version}] - {today}",
-                content,
-            )
-        else:
-            section = _build_changelog_section(root, new_version, today)
-            pattern = rf"##\s+\[{re.escape(new_version)}\][^\n]*(?:\n\s*)*"
-            new_content = re.sub(pattern, section, content, count=1)
+        section = _build_changelog_section(root, new_version, today, existing_notes=current_notes)
+        pattern = rf"##\s+\[{re.escape(new_version)}\][^\n]*\n(?:(?!^##\s+\[).*\n)*"
+        new_content = re.sub(pattern, section, content, count=1, flags=re.MULTILINE)
         write_text_file(changelog_file, new_content)
         return True
 
