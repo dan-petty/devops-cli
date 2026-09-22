@@ -750,3 +750,11 @@ DEFAULT_LOG_STREAM_POLL_SECONDS: float = 0.1
 # Stat-ing every ignore file on every check dominated the cost of a repository walk; an
 # edit is still picked up within this window.
 DEFAULT_GITIGNORE_REVALIDATE_SECONDS: float = 2.0
+
+# ── Shared HTTP Connection Pooling ──────────────────────────────────────────
+# Reusing connections without a ceiling trades connection churn for descriptor exhaustion.
+DEFAULT_HTTP_MAX_CONNECTIONS: int = 100
+DEFAULT_HTTP_MAX_KEEPALIVE_CONNECTIONS: int = 20
+# Idle connections are dropped after this long. Long enough to span a burst of agent calls,
+# short enough that an endpoint restarting does not leave the pool holding dead sockets.
+DEFAULT_HTTP_KEEPALIVE_EXPIRY_SECONDS: float = 30.0
