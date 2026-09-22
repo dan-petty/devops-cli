@@ -418,22 +418,21 @@ def test_run_review_single_segment_skips_recompose() -> None:
 def test_review_client_uses_long_read_timeout_for_chat_requests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A review chat runs far longer than a generic HTTP call and must not be cut short.
+
+    The timeout moved from the client to the request when providers began sharing a pooled
+    connection: a shared client cannot carry one caller's timeout. This asserts it at the
+    request, which is where it now takes effect -- the first version of that change dropped
+    it here entirely, and every long review would have aborted.
+    """
     client = LLMClient(
         AIConfig(provider="ollama"), request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS
     )
-    seen: dict[str, object] = {}
+    seen: dict[str, Any] = {}
 
     class DummyClient:
-        def __init__(self, timeout: object) -> None:
-            seen["timeout"] = timeout
-
-        def __enter__(self) -> DummyClient:
-            return self
-
-        def __exit__(self, exc_type, exc, tb) -> None:
-            return None
-
         def post(self, *args: object, **kwargs: object) -> object:
+            seen["timeout"] = kwargs.get("timeout")
             return type(
                 "Response",
                 (),
@@ -443,7 +442,7 @@ def test_review_client_uses_long_read_timeout_for_chat_requests(
                 },
             )()
 
-    monkeypatch.setattr("devops_cli.ai.client.httpx2.Client", DummyClient)
+    monkeypatch.setattr(type(client), "_shared_client", lambda self: DummyClient())
 
     client._ollama_messages("system", [ChatMessage(role="user", content="user")])
 

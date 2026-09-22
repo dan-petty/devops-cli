@@ -47,12 +47,9 @@ class TestOllamaProviderPrewarm:
         config = AIConfig(provider="ollama", model="gemma4:26b")
         provider = DummyOllamaProvider(config)
 
-        with patch("httpx2.Client") as mock_client_cls:
-            mock_http = MagicMock()
-            mock_res = MagicMock(status_code=200)
-            mock_http.post.return_value = mock_res
-            mock_client_cls.return_value.__enter__.return_value = mock_http
-
+        mock_http = MagicMock()
+        mock_http.post.return_value = MagicMock(status_code=200)
+        with patch.object(type(provider), "_shared_client", return_value=mock_http):
             url, ok = provider._preload_single_ollama_url(
                 "http://example.com:11434",
                 model="gemma4:26b",
@@ -60,21 +57,23 @@ class TestOllamaProviderPrewarm:
             )
             assert (url, ok) == ("http://example.com:11434", True)
 
-            mock_http.post.assert_called_once_with(
-                "http://example.com:11434/api/generate",
-                json={"model": "gemma4:26b", "prompt": "", "keep_alive": "1h"},
-            )
+            # The timeout is now a per-request argument: the client is shared, so it
+            # cannot carry one caller's timeout.
+            assert mock_http.post.call_args.args == ("http://example.com:11434/api/generate",)
+            assert mock_http.post.call_args.kwargs["json"] == {
+                "model": "gemma4:26b",
+                "prompt": "",
+                "keep_alive": "1h",
+            }
 
     def test_preload_single_ollama_url_failure(self) -> None:
         """Verify failing status code or connection exception returns ok=False."""
         config = AIConfig(provider="ollama", model="gemma4:26b")
         provider = DummyOllamaProvider(config)
 
-        with patch("httpx2.Client") as mock_client_cls:
-            mock_http = MagicMock()
-            mock_http.post.side_effect = ConnectionError("Connection refused")
-            mock_client_cls.return_value.__enter__.return_value = mock_http
-
+        mock_http = MagicMock()
+        mock_http.post.side_effect = ConnectionError("Connection refused")
+        with patch.object(type(provider), "_shared_client", return_value=mock_http):
             url, ok = provider._preload_single_ollama_url(
                 "http://example.com:11434",
                 model="gemma4:26b",
@@ -87,21 +86,23 @@ class TestOllamaProviderPrewarm:
         config = AIConfig(provider="ollama", model="gemma4:26b")
         provider = DummyOllamaProvider(config)
 
-        with patch("httpx2.Client") as mock_client_cls:
-            mock_http = MagicMock()
-            mock_http.post.return_value = MagicMock(status_code=200)
-            mock_client_cls.return_value.__enter__.return_value = mock_http
-
+        mock_http = MagicMock()
+        mock_http.post.return_value = MagicMock(status_code=200)
+        with patch.object(type(provider), "_shared_client", return_value=mock_http):
             url, ok = provider._preload_single_ollama_url(
                 "http://example.com:11434",
                 model="qwen2.5-coder:7b",
                 keep_alive=0,
             )
             assert (url, ok) == ("http://example.com:11434", True)
-            mock_http.post.assert_called_once_with(
-                "http://example.com:11434/api/generate",
-                json={"model": "qwen2.5-coder:7b", "prompt": "", "keep_alive": 0},
-            )
+            # The timeout is now a per-request argument: the client is shared, so it
+            # cannot carry one caller's timeout.
+            assert mock_http.post.call_args.args == ("http://example.com:11434/api/generate",)
+            assert mock_http.post.call_args.kwargs["json"] == {
+                "model": "qwen2.5-coder:7b",
+                "prompt": "",
+                "keep_alive": 0,
+            }
 
     def test_execute_preload_all_and_callback(self) -> None:
         """Verify concurrent multi-node prewarm execution and on_complete callback dispatch."""

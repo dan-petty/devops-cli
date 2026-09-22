@@ -18,6 +18,17 @@ from devops_cli.k8s.service_proxy import (
     resolve_proxy_target,
 )
 
+
+@pytest.fixture(autouse=True)
+def clear_configuration_cache() -> Any:
+    """Client configurations are cached process-wide; tests must not inherit one another's."""
+    from devops_cli.k8s.service_proxy import reset_configuration_cache
+
+    reset_configuration_cache()
+    yield
+    reset_configuration_cache()
+
+
 runner = CliRunner()
 
 PROM = "k8s://monitoring/prometheus:9090"

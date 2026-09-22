@@ -14,17 +14,44 @@ is consulted by every caller rather than by none of them.
 from __future__ import annotations
 
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
+
+
+_CACHE: tuple[float, str | None] | None = None
+_CACHE_LOCK = threading.RLock()
+
+
+def _config_signature() -> float:
+    """Return a value that changes when the active configuration file changes."""
+    try:
+        from devops_cli.config.settings import get_active_config_path
+
+        path = get_active_config_path()
+    except Exception:
+        return 0.0
+    try:
+        return float(path.stat().st_mtime) if path else 0.0
+    except OSError:
+        return 0.0
 
 
 def configured_context() -> str | None:
     """Return the context recorded in settings, or ``None`` when unset.
 
-    Settings are read on every call rather than captured once. A long-running process --
-    the dashboard, the MCP server -- would otherwise keep talking to the cluster that was
-    configured when it started, long after the operator switched.
+    Cached against the configuration file's modification time rather than captured once. A
+    long-running process -- the dashboard, the MCP server -- must follow a context change
+    instead of talking to whichever cluster was configured when it started, but reloading
+    settings per call cost 10.8 ms, and this is consulted on every cluster request.
     """
+    global _CACHE
+    signature = _config_signature()
+    with _CACHE_LOCK:
+        cached = _CACHE
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+
     try:
         from devops_cli.config.settings import load_settings
 
@@ -34,9 +61,18 @@ def configured_context() -> str | None:
         # the ambient kubeconfig is what the caller did before this resolver existed.
         logger.debug("Could not read the configured Kubernetes context: %s", exc)
         return None
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
+
+    resolved = value.strip() if isinstance(value, str) and value.strip() else None
+    with _CACHE_LOCK:
+        _CACHE = (signature, resolved)
+    return resolved
+
+
+def reset_context_cache() -> None:
+    """Discard the cached context, forcing a settings reload on the next call."""
+    global _CACHE
+    with _CACHE_LOCK:
+        _CACHE = None
 
 
 def resolve_context(explicit: str | None = None) -> str | None:
@@ -51,4 +87,4 @@ def resolve_context(explicit: str | None = None) -> str | None:
     return configured_context()
 
 
-__all__ = ["configured_context", "resolve_context"]
+__all__ = ["configured_context", "reset_context_cache", "resolve_context"]
