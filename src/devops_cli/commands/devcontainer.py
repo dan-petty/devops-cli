@@ -1023,9 +1023,6 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
             write_text_file(kube_file, kube_skeleton, mode=0o600)
     actions.append(f"Initialized kubeconfig file at {kube_file}")
 
-    # 3b. Align kubectl's current-context with the configured one
-    actions.extend(_apply_configured_k8s_context(dry_run=dry_run))
-
     # 4. MCP configuration sync
     actions.extend(_sync_mcp_configuration(workspace_dir, dry_run=dry_run))
 
@@ -1084,6 +1081,12 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     auto_git_daemon = os.getenv("DEVOPS_GIT_DAEMON_AUTOSTART", "true").lower() in ("true", "1")
     if auto_git_daemon:
         actions.extend(_start_git_daemon(workspace_dir, dry_run=dry_run))
+
+    # 8. Align kubectl with the configured context -- last, because the minikube supervisor
+    # above runs `minikube start`, and that rewrites current-context to "minikube". Aligning
+    # any earlier is undone immediately, which is exactly how a container configured for one
+    # cluster ends up pointing at another on every rebuild.
+    actions.extend(_apply_configured_k8s_context(dry_run=dry_run))
 
     return actions
 

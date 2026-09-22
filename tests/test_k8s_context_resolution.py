@@ -347,3 +347,19 @@ def test_post_start_dry_run_changes_nothing() -> None:
         actions = _apply_configured_k8s_context(dry_run=True)
 
     assert (run.call_count, "Would set" in actions[0]) == (0, True)
+
+
+def test_context_alignment_runs_after_the_minikube_supervisor() -> None:
+    """Ordering is the point: `minikube start` rewrites kubectl's current-context.
+
+    Aligning before the supervisor is undone immediately, which is how a container
+    configured for one cluster ends up pointing at another on every rebuild.
+    """
+    import inspect
+
+    from devops_cli.commands import devcontainer
+
+    source = inspect.getsource(devcontainer._run_post_start_lifecycle)
+    align = source.index("_apply_configured_k8s_context")
+    supervisor = source.index("_spawn_background_k8s_bootstrap")
+    assert align > supervisor
