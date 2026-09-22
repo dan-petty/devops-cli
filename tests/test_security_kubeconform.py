@@ -12,9 +12,22 @@ from devops_cli.security.kubeconform import (
 )
 
 
+def test_kubeconform_fallback_ignores_yaml_that_is_not_a_manifest(tmp_path: Path) -> None:
+    """A YAML file declaring no apiVersion is not a manifest, so it is not validated.
+
+    This previously reported every such file as a broken manifest -- nine of them in this
+    repository, all correct Helm values files. Absence of apiVersion is how a non-manifest
+    is recognised, not a defect in one.
+    """
+    (tmp_path / "values.yaml").write_text("foo: bar\ncount: 5\n", encoding="utf-8")
+
+    assert _run_native_fallback_k8s_validation(tmp_path) == []
+
+
 def test_kubeconform_fallback_validation(tmp_path: Path) -> None:
+    """A document declaring apiVersion is a manifest, and must declare kind too."""
     bad_yaml = tmp_path / "bad.yaml"
-    bad_yaml.write_text("foo: bar\ncount: 5\n", encoding="utf-8")
+    bad_yaml.write_text("apiVersion: apps/v1\nmetadata:\n  name: x\n", encoding="utf-8")
 
     findings = _run_native_fallback_k8s_validation(tmp_path)
     assert len(findings) == 1
