@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.repos import app as repos_app
+from devops_cli.core.gitignore import reset_indexes
 from devops_cli.core.repo import (
     find_repo_root,
     find_top_level_repo_root,
@@ -303,13 +304,19 @@ def test_core_repo_gitignore_and_files(tmp_path: Path) -> None:
     assert is_ignored_by_git(tmp_path, tmp_path / "test.tmp") is True
     assert is_ignored_by_git(tmp_path, tmp_path / "app.py") is False
 
-    # Git check-ignore subprocess fallback
+    # Ignore rules are evaluated in-process; no git subprocess is spawned. A miss is the
+    # common case, so the previous per-file `git check-ignore` fallback ran constantly.
     (tmp_path / ".git").mkdir(exist_ok=True)
     with patch("devops_cli.core.repo.run_subprocess") as mock_proc:
-        mock_proc.return_value = subprocess.CompletedProcess(
-            args=["git"], returncode=0, stdout="", stderr=""
-        )
-        assert is_ignored_by_git(tmp_path, tmp_path / "dynamic_ignored.txt") is True
+        assert is_ignored_by_git(tmp_path, tmp_path / "dynamic_ignored.txt") is False
+        mock_proc.assert_not_called()
+
+    # A rule added after the first evaluation takes effect once the cache is reset.
+    # Compiled ignore files are revalidated on an interval rather than stat-ed per call,
+    # which is what makes a repository walk affordable.
+    (tmp_path / ".gitignore").write_text("*.tmp\nbuild/\ndynamic_ignored.txt\n", encoding="utf-8")
+    reset_indexes()
+    assert is_ignored_by_git(tmp_path, tmp_path / "dynamic_ignored.txt") is True
 
     # Symlink outside repository root
     outside_dir = tmp_path.parent / "outside_dir"
