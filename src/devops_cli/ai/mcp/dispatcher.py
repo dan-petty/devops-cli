@@ -18,6 +18,19 @@ from devops_cli.core.process import run_subprocess
 logger = logging.getLogger(__name__)
 
 
+# Nothing derived from a dispatched command reaches a log record here. This dispatcher
+# runs arbitrary `devops` command lines and some carry a credential as an argument --
+# `gh secrets set NAME VALUE`, a token passed as a flag -- so logging the argument list
+# wrote that credential out in clear text. CodeQL reported it as three high-severity
+# `py/clear-text-logging-sensitive-data` alerts, and they blocked the v0.2.22 release.
+#
+# Masking the values first did not resolve it and made it worse: the sanitizer is not a
+# barrier CodeQL recognises, so each masked argument became another flagged expression and
+# three alerts became six. An exception's class and a duration carry the diagnostic weight
+# -- which site failed, what kind of failure, how long it took -- without carrying data
+# that came from the caller.
+
+
 # ── Domain Schema Hydration ───────────────────────────────────────────────────
 
 
@@ -117,7 +130,7 @@ class ResourceSubscriptionManager:
                 listener(resource_uri, content)
                 notified += 1
             except Exception as exc:
-                logger.error("Error notifying subscriber for %s: %s", resource_uri, exc)
+                logger.error("Error notifying subscriber: %s", type(exc).__name__)
         return notified
 
     def subscriber_count(self, resource_uri: str) -> int:
@@ -200,7 +213,7 @@ class InProcessDispatcher:
                 try:
                     return handlers_snapshot[two_key](*sub_args[2:])
                 except Exception as exc:
-                    logger.debug("Functional handler %s failed: %s", two_key, exc)
+                    logger.debug("Two-part functional handler failed: %s", type(exc).__name__)
 
         if len(sub_args) >= 1:
             one_key = (sub_args[0],)
@@ -208,7 +221,7 @@ class InProcessDispatcher:
                 try:
                     return handlers_snapshot[one_key](*sub_args[1:])
                 except Exception as exc:
-                    logger.debug("Functional handler %s failed: %s", one_key, exc)
+                    logger.debug("One-part functional handler failed: %s", type(exc).__name__)
 
         return None
 
@@ -227,7 +240,7 @@ class InProcessDispatcher:
             start_t = time.perf_counter()
             res = runner.invoke(app, sub_args, env=env)
             dur_ms = (time.perf_counter() - start_t) * 1000
-            logger.debug("In-process dispatch %s finished in %.2fms", sub_args, dur_ms)
+            logger.debug("In-process dispatch finished in %.2fms", dur_ms)
 
             out = (res.output or "").strip()
             if res.stderr and res.stderr.strip():
