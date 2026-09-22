@@ -487,7 +487,9 @@ class CICommandHelp:
     uv_check: str = "Run uv check for fast static type checking and project validation."
     lockfile: str = "Verify lockfile consistency and freshness via uv lock --check."
     outdated: str = "Display outdated dependencies and packages via uv tree --outdated."
-    cache: str = "Enable or disable execution caching when codebase is unchanged."
+    cache: str = (
+        "Reuse a cached verdict when the codebase is unchanged. Results are recorded either way."
+    )
     force: str = "Bypass CI execution cache and force re-execution of all quality gates."
     files: str = (
         "Explicit list of file paths to verify (e.g. from pre-commit file change tracking)."
