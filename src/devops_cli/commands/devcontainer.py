@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from devops_cli.ai.instruction_generator import scaffold_agent_instructions
 from devops_cli.config.constants import (
@@ -36,6 +35,7 @@ from devops_cli.config.metadata import get_project_python_version
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.templating import render_json_template
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.git.operations import iter_workspace_repos
@@ -62,16 +62,6 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # =============================================================================
 # Template & Environment Helpers
 # =============================================================================
-
-
-def _jinja_env() -> Environment:
-    return Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
-        autoescape=select_autoescape([]),
-        trim_blocks=True,
-        lstrip_blocks=True,
-        keep_trailing_newline=True,
-    )
 
 
 # =============================================================================
@@ -105,6 +95,10 @@ def init(
             "-p",
             help=HELP.devcontainer.published,
         ),
+    ] = True,
+    minikube: Annotated[
+        bool,
+        typer.Option("--minikube/--no-minikube", help=HELP.devcontainer.minikube),
     ] = True,
     home_volume: Annotated[
         str | None,
@@ -144,14 +138,14 @@ def init(
 
     resolved_home_vol = home_volume or f"{name}-home"
 
-    env = _jinja_env()
-
-    rendered = env.get_template("devcontainer.json.j2").render(
+    rendered = render_json_template(
+        "devcontainer.json.j2",
         project_name=name,
         python_version=python_version,
         image=selected_image,
         published=is_published,
         home_volume=resolved_home_vol,
+        minikube=minikube,
     )
     write_text_file(dc_file, rendered.strip() + "\n")
     print_success(MESSAGES.devcontainer.created_file.format(path=dc_file))
@@ -161,7 +155,7 @@ def init(
     if not mcp_file.exists() or force:
         write_text_file(
             mcp_file,
-            env.get_template("mcp.json.j2").render(project_name=name),
+            render_json_template("mcp.json.j2", project_name=name),
         )
         print_success(MESSAGES.devcontainer.created_file.format(path=mcp_file))
 
@@ -637,12 +631,11 @@ def _sync_mcp_configuration(workspace_dir: Path, *, dry_run: bool = False) -> li
     vscode_mcp = workspace_dir / CONST_VSCODE_DIR_NAME / CONST_MCP_JSON_NAME
     if not vscode_mcp.exists() and (workspace_dir / CONST_PYPROJECT_FILENAME).exists():
         if not dry_run:
-            env = _jinja_env()
             raw_name = workspace_dir.name
             name = re.sub(r"[^a-zA-Z0-9._-]+", "_", raw_name)
             write_text_file(
                 vscode_mcp,
-                env.get_template("mcp.json.j2").render(project_name=name),
+                render_json_template("mcp.json.j2", project_name=name),
             )
         actions.append(f"Scaffolded MCP configuration at {vscode_mcp}")
 
