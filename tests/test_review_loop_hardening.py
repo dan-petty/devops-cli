@@ -110,6 +110,12 @@ def test_verification_index_alignment_with_pre_invalidated_findings(tmp_path: Pa
     mock_client.chat.return_value = json.dumps(
         [
             {
+                # The verdict names the finding it describes. Position cannot: the
+                # response covers only the unresolved findings, so index 0 here is the
+                # second finding in the result, and binding by index put verdicts on
+                # the wrong findings.
+                "title": "Missing type annotations",
+                "location": "valid.py:2",
                 "verified": True,
                 "status": "VERIFIED",
                 "reportable": True,
