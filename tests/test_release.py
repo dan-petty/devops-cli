@@ -1079,3 +1079,63 @@ def test_release_commits_are_excluded() -> None:
 
     log = "feat(release): v0.2.22 (#335)\nfix(ci): a real change (#400)\n"
     assert _extract_raw_commit_lines(log) == ["fix(ci): a real change (#400)"]
+
+
+def test_update_fills_a_section_that_already_has_an_entry(tmp_path: Path) -> None:
+    """Population ran only when the section was empty.
+
+    A section holding one entry kept one entry and had only its date refreshed, so
+    `--update` reported success while the release stayed unwritten: v0.2.22 carried a
+    single line against fifty-two commits.
+    """
+    from devops_cli.commands.release import _build_changelog_section
+
+    with patch(
+        "devops_cli.commands.release._extract_git_commit_notes",
+        return_value="### Changes in v1.0.0\n\n### Added\n- feat(a): one (#1)\n- feat(b): two (#2)\n",
+    ):
+        section = _build_changelog_section(
+            tmp_path, "1.0.0", "2026-09-22", existing_notes="### Added\n- feat(c): kept (#3)\n"
+        )
+    assert [marker in section for marker in ("kept (#3)", "one (#1)", "two (#2)")] == [
+        True,
+        True,
+        True,
+    ]
+
+
+def test_an_entry_already_written_is_not_repeated(tmp_path: Path) -> None:
+    """Re-running must not grow the section, or the command is unusable more than once."""
+    from devops_cli.commands.release import _build_changelog_section
+
+    with patch(
+        "devops_cli.commands.release._extract_git_commit_notes",
+        return_value="### Changes in v1.0.0\n\n### Added\n- feat(a): one (#1)\n",
+    ):
+        section = _build_changelog_section(
+            tmp_path, "1.0.0", "2026-09-22", existing_notes="### Added\n- feat(a): one (#1)\n"
+        )
+    assert section.count("feat(a): one") == 1
+
+
+def test_a_hand_written_entry_survives_recompilation(tmp_path: Path) -> None:
+    """The file wins over the compiler, so an edited description is not reverted."""
+    from devops_cli.commands.release import _merge_changelog_entries
+
+    merged = _merge_changelog_entries(
+        ["feat(a): a carefully worded description (#1)"],
+        ["feat(a): a carefully worded description"],
+    )
+    assert merged == ["feat(a): a carefully worded description (#1)"]
+
+
+def test_an_empty_section_is_still_populated(tmp_path: Path) -> None:
+    """The case that did work must keep working."""
+    from devops_cli.commands.release import _build_changelog_section
+
+    with patch(
+        "devops_cli.commands.release._extract_git_commit_notes",
+        return_value="### Changes in v1.0.0\n\n### Added\n- feat(a): one (#1)\n",
+    ):
+        section = _build_changelog_section(tmp_path, "1.0.0", "2026-09-22", existing_notes=None)
+    assert "feat(a): one (#1)" in section

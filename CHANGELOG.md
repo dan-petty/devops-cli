@@ -5,10 +5,69 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.22] - 2026-09-19
+## [0.2.22] - 2026-09-22
+
+### Added
+- feat(cli): add the output format join point and restore colour negotiation (#391)
+- feat(rag): reach Qdrant through the cluster API instead of a port-forward (#379)
+- feat(k8s): resolve dashboard endpoints through cluster-native addressing (#370)
+- feat(k8s): address cluster services without localhost port-forwarding (#369)
+- feat(gh): close issues linked by pull requests merged outside main (#342) (#366)
+- feat(security): unify scanner findings behind a SARIF engine (#321) (#363)
+- feat(tui): refresh dashboard domains on workers and virtualize log tailing (#317) (#361)
+- feat(grafana): build dashboards declaratively and lint them statically (#315) (#359)
+- feat(prometheus): validate PromQL locally and analyse series client-side (#314) (#358)
+- feat(rag): fuse lexical and dense retrieval, and quantize stored vectors (#313) (#357)
+- feat(valkey): pool connections, batch commands, and unify caching tiers (#312) (#356)
+- feat(security): unify secret resolution and manage Vault lease lifecycle (#353)
+- feat(tf): analyze HCL and state in-process for graphs and drift (#310) (#352)
+- feat(argo): manipulate Argo custom resources natively via the Kubernetes API (#351)
+- feat(docker): route all container operations through the Engine API socket (#308) (#348)
+- feat(devcontainer): add claude cli and vscode extension to devcontainer configuration and lifecycle (#346) (#347)
+- feat(gh): add project workflows inspection & linking, decommission bot project-automation workflow (#342) (#343)
+- feat(ai): implement Pydantic AI structured workflows, prompt caching and token governance (#320) (#341)
+- feat(mcp): implement FastMCP in-process execution, dispatching and resource subscriptions (#318) (#338)
+- feat(github): implement GraphQL batch consolidation, ETag caching and rate optimization (#316) (#337)
+- feat(k8s): implement dynamic informer and native in-process service (#307) (#336)
+
+### Fixed & Hardened
+- fix(security): mask credentials, not sentences that mention them (#392)
+- fix(ci): record a passing run even when the cache was not consulted (#389)
+- fix(k8s): preview what configure-urls would write, and honour the dry-run variable (#388)
+- fix(ai): make prompt-eval measure something instead of reporting 1.0 (#385)
+- fix(gh): report which project automations are off and what they should do (#381)
+- fix(review): act on the verified findings and close the classes that produced the rest (#380)
+- fix(templates): encode values as JSON instead of pasting them between quotes (#378)
+- fix(k8s): validate only actual manifests, and loosen the argocd probe (#376)
+- fix(ci): make the CI cache fingerprint content-addressed (#375)
+- fix(tui): quit promptly instead of hanging on an open log stream (#372)
+- fix(review): address session findings and ground verification in tooling (#371)
+- fix(k8s): honour the configured cluster context when connecting
+- fix(devcontainer): align kubectl with the configured cluster context on start
+- fix(devcontainer): stop the configured context being overwritten on start
+- fix(tui): correct the Docker, telemetry, Valkey and review panels (#368)
+- fix(git): verify SSH host keys before trusting them (#322) (#364)
+- fix(telemetry): propagate W3C trace context into child processes (#319) (#362)
+- fix(ci): drop the invalid --depth=0 from devcontainer change detection (#355)
+- fix(ci): rebuild the devcontainer image when the build workflow changes
+- fix(security): name the audited value a credential identifier, not a secret (#311)
+- fix(review): correct feedback loop calibration and remediate verified findings (#349) (#350)
+- fix(devcontainer): include node feature dependency for claude code installation (#346)
+- fix(ai): eliminate arbitrary defaults in network slot leasing and elevate file size limits to 50 MiB (#344) (#345)
+- fix(github): remove unused import in graphql.py
 
 ### Changed & Improved
 - docs(roadmap): add OCI container image packaging and GHCR metadata configuration (#333)
+- docs(agents): state the cost of a `devops ai` call and cap concurrency at one (#390)
+- docs(roadmap): prompt benchmarking and synthetic corpora for evaluation (#387)
+- perf(ai): compress the two hot-path review prompts and scope their host rules (#386)
+- docs(agents): hard-wrap source files, not the text the program emits (#384)
+- perf(gh): sweep merged pull requests in a few calls instead of one per issue (#382)
+- perf(http): share pooled connections instead of rebuilding them per request (#374)
+- perf(git): evaluate ignore rules in memory instead of per-file subprocesses (#373)
+- docs(roadmap): schedule AI review verification integrity work for v0.2.23 (#360)
+- perf(ci): parallelize the quality gate and narrow tests to changed sources (#354)
+- test(argo): cover the native CRD engine and localize name validation (#309)
 
 ## [0.2.21] - 2026-09-19
 
