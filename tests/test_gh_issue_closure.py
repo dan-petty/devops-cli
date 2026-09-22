@@ -21,7 +21,7 @@ from devops_cli.github.issue_closure import (
     closure_comment,
     extract_linked_issues,
     get_default_branch,
-    get_issue_state,
+    get_issue_states,
     get_pull_request,
     list_merged_pull_requests,
     strip_non_prose,
@@ -162,7 +162,7 @@ def test_a_merged_release_branch_pull_request_closes_its_issue() -> None:
     """The case GitHub declines to handle."""
     responses = {
         "pr view": _completed(_pr_payload()),
-        "issue view": _completed(json.dumps({"number": 317, "state": "OPEN"})),
+        "issue list": _completed(json.dumps([{"number": 317, "state": "OPEN"}])),
         "issue close": _completed(),
     }
     with patch("devops_cli.github.issue_closure.run_gh", side_effect=_gh_router(responses)):
@@ -201,7 +201,7 @@ def test_an_already_closed_issue_is_reported_rather_than_reclosed() -> None:
     """Re-closing posts a second comment on an issue that is already settled."""
     responses = {
         "pr view": _completed(_pr_payload()),
-        "issue view": _completed(json.dumps({"number": 317, "state": "CLOSED"})),
+        "issue list": _completed(json.dumps([{"number": 317, "state": "CLOSED"}])),
     }
     with patch("devops_cli.github.issue_closure.run_gh", side_effect=_gh_router(responses)):
         result = close_issues_for_pull_request(REPO, 361, default_branch="main")
@@ -212,7 +212,7 @@ def test_a_reference_that_is_not_an_issue_is_skipped() -> None:
     """A pull request number where an issue was expected must not be closed as one."""
     responses = {
         "pr view": _completed(_pr_payload()),
-        "issue view": _completed(returncode=1, stderr="not found"),
+        "issue list": _completed(returncode=1, stderr="not found"),
     }
     with patch("devops_cli.github.issue_closure.run_gh", side_effect=_gh_router(responses)):
         result = close_issues_for_pull_request(REPO, 361, default_branch="main")
@@ -223,7 +223,7 @@ def test_a_failed_close_is_reported_rather_than_counted_as_success() -> None:
     """Reporting a close that did not happen is worse than reporting the failure."""
     responses = {
         "pr view": _completed(_pr_payload()),
-        "issue view": _completed(json.dumps({"number": 317, "state": "OPEN"})),
+        "issue list": _completed(json.dumps([{"number": 317, "state": "OPEN"}])),
         "issue close": _completed(returncode=1, stderr="permission denied"),
     }
     with patch("devops_cli.github.issue_closure.run_gh", side_effect=_gh_router(responses)):
@@ -240,7 +240,7 @@ def test_a_dry_run_reports_what_it_would_close_without_closing_it() -> None:
         return _gh_router(
             {
                 "pr view": _completed(_pr_payload()),
-                "issue view": _completed(json.dumps({"number": 317, "state": "OPEN"})),
+                "issue list": _completed(json.dumps([{"number": 317, "state": "OPEN"}])),
             }
         )(args)
 
@@ -287,23 +287,21 @@ def test_a_sweep_resolves_the_default_branch_once() -> None:
     assert sum(1 for call in calls if call[:2] == ["repo", "view"]) == 1
 
 
-def test_an_unreadable_pull_request_is_recorded_as_an_error_not_a_clean_result() -> None:
-    """A sweep where every lookup failed must not report that nothing needed closing.
+def test_an_unreadable_listing_aborts_rather_than_reporting_nothing_to_do() -> None:
+    """A sweep that could not read anything must not look like an up-to-date repository.
 
-    That output is indistinguishable from a genuinely up-to-date repository, which is how a
-    broken sweep goes unnoticed.
+    That output is indistinguishable from a clean sweep, which is how a broken one goes
+    unnoticed. The listing is now the single read, so its failure is the sweep's failure.
     """
 
     def route(args: list[str], **_: Any) -> Any:
         if args[:2] == ["repo", "view"]:
             return _completed(json.dumps({"defaultBranchRef": {"name": "main"}}))
-        if args[:2] == ["pr", "list"]:
-            return _completed(json.dumps([{"number": 1}]))
         return _completed(returncode=1, stderr="api failure")
 
     with patch("devops_cli.github.issue_closure.run_gh", side_effect=route):
-        results = close_issues_for_merged_pull_requests(REPO)
-    assert (len(results), bool(results[0].error), results[0].closed) == (1, True, [])
+        with pytest.raises(GitHubOperationError):
+            close_issues_for_merged_pull_requests(REPO)
 
 
 def test_a_sweep_filters_by_base_branch() -> None:
@@ -325,13 +323,38 @@ def test_a_sweep_filters_by_base_branch() -> None:
     assert "--base" in listing and "release/v0.2.22" in listing
 
 
-def test_merged_pull_requests_are_listed_by_number() -> None:
-    """The sweep iterates numbers, not full payloads."""
+def test_the_listing_carries_everything_a_closure_decision_needs() -> None:
+    """Reading the body per pull request cost a subprocess each.
+
+    Over this repository's last 100 merged pull requests that was 45 seconds spent
+    re-reading bodies this one call returns in under one.
+    """
+    payload = [{"number": 5, "baseRefName": "release/v0.2.22", "body": "Closes #1", "url": "u"}]
     with patch(
-        "devops_cli.github.issue_closure.run_gh",
-        return_value=_completed(json.dumps([{"number": 5}, {"number": 3}])),
-    ):
-        assert list_merged_pull_requests(REPO) == [5, 3]
+        "devops_cli.github.issue_closure.run_gh", return_value=_completed(json.dumps(payload))
+    ) as invoked:
+        listed = list_merged_pull_requests(REPO)
+    requested = invoked.call_args.args[0]
+    assert (listed[0]["body"], "body" in " ".join(requested)) == ("Closes #1", True)
+
+
+def test_a_sweep_skips_default_branch_merges_without_reading_them() -> None:
+    """GitHub has already honoured their keywords, so there was never anything to do."""
+    listing = [
+        {"number": 5, "baseRefName": "main", "body": "Closes #1", "url": "u"},
+        {"number": 6, "baseRefName": "release/v0.2.22", "body": "", "url": "u"},
+    ]
+
+    def route(args: list[str], **_: Any) -> Any:
+        if args[:2] == ["repo", "view"]:
+            return _completed(json.dumps({"defaultBranchRef": {"name": "main"}}))
+        if args[:2] == ["pr", "list"]:
+            return _completed(json.dumps(listing))
+        return _completed(returncode=1, stderr="unexpected")
+
+    with patch("devops_cli.github.issue_closure.run_gh", side_effect=route):
+        results = close_issues_for_merged_pull_requests(REPO)
+    assert [r.pull_request for r in results] == [6]
 
 
 def test_a_malformed_listing_yields_no_pull_requests() -> None:
@@ -387,23 +410,49 @@ def test_an_unresolvable_default_branch_is_an_error() -> None:
 
 def test_an_issue_state_is_normalized_to_lower_case() -> None:
     """gh reports OPEN; the comparison is against 'open'."""
-    with patch(
-        "devops_cli.github.issue_closure.run_gh",
-        return_value=_completed(json.dumps({"number": 1, "state": "OPEN"})),
-    ):
-        assert get_issue_state(REPO, 1) == "open"
+    listing = json.dumps([{"number": 1, "state": "OPEN"}])
+    with patch("devops_cli.github.issue_closure.run_gh", return_value=_completed(listing)):
+        assert get_issue_states(REPO, [1]) == {1: "open"}
 
 
-def test_an_unreadable_issue_state_is_none() -> None:
+def test_an_unreadable_listing_yields_no_states() -> None:
     """Absence is distinguishable from open or closed."""
     with patch("devops_cli.github.issue_closure.run_gh", return_value=_completed(returncode=1)):
-        assert get_issue_state(REPO, 1) is None
+        assert get_issue_states(REPO, [1]) == {}
 
 
-def test_a_malformed_issue_payload_is_none() -> None:
+def test_a_malformed_issue_payload_yields_no_states() -> None:
     """Unparseable output is not a state."""
     with patch("devops_cli.github.issue_closure.run_gh", return_value=_completed("{oops")):
-        assert get_issue_state(REPO, 1) is None
+        assert get_issue_states(REPO, [1]) == {}
+
+
+def test_a_pull_request_number_resolves_to_no_state() -> None:
+    """`gh issue view` resolves a pull request and reports its state as an issue's.
+
+    An open pull request named by a closing keyword therefore read back as an open issue,
+    and would have been closed as one. A listing of issues contains only issues, so a pull
+    request number is simply absent.
+    """
+    listing = json.dumps([{"number": 7, "state": "OPEN"}])
+    with patch("devops_cli.github.issue_closure.run_gh", return_value=_completed(listing)):
+        assert get_issue_states(REPO, [7, 335]) == {7: "open"}
+
+
+def test_states_are_resolved_in_one_call_for_many_issues() -> None:
+    """A sweep spawned one subprocess per issue; over 100 pull requests that was 70."""
+    listing = json.dumps([{"number": n, "state": "CLOSED"} for n in range(1, 40)])
+    with patch(
+        "devops_cli.github.issue_closure.run_gh", return_value=_completed(listing)
+    ) as invoked:
+        states = get_issue_states(REPO, list(range(1, 40)))
+    assert (len(states), invoked.call_count) == (39, 1)
+
+
+def test_no_issues_costs_no_call() -> None:
+    """A pull request with no closing keywords must not query anything."""
+    with patch("devops_cli.github.issue_closure.run_gh") as invoked:
+        assert (get_issue_states(REPO, []), invoked.call_count) == ({}, 0)
 
 
 def test_closing_passes_the_comment_through() -> None:
