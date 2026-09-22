@@ -1153,16 +1153,19 @@ def _apply_single_finding_verification(
         status_val = "UNVERIFIED"
         is_rep = False
 
+    # A confidence derived from `len(verified_criteria_matched) / len(verification_criteria)`
+    # divides the model's claim about its criteria by the criteria the model wrote. It
+    # measures self-agreement and reads as evidence, which is how findings reached 0.95
+    # while being refutable by reading one file. AGENTS.md requires a score to come from a
+    # tool's native rating or a structured model response, and to be absent otherwise --
+    # so an absent score stays absent rather than being computed into existence.
     conf_val = item.get("confidence_score")
+    conf: float | None = f.confidence_score
     if conf_val is not None:
         try:
-            conf: float | None = max(0.0, min(1.0, float(conf_val)))
+            conf = max(0.0, min(1.0, float(conf_val)))
         except ValueError, TypeError:
             conf = f.confidence_score
-    elif f.verification_criteria:
-        conf = round(len(ver_matched) / max(1, len(f.verification_criteria)), 2)
-    else:
-        conf = f.confidence_score
 
     updates: dict[str, object] = {
         "verified": is_v,
