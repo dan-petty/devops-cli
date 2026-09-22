@@ -454,6 +454,11 @@ def test_validate_segment_findings_and_merge() -> None:
         {
             "findings": [
                 {
+                    # The verdict identifies its finding. Without these it cannot be bound,
+                    # and binding by position is what shifted verdicts onto the wrong
+                    # findings.
+                    "title": "Finding 1",
+                    "location": "a.py:1",
                     "verified": True,
                     "reportable": True,
                     "confidence_score": 0.9,
@@ -1141,3 +1146,94 @@ def test_an_existing_score_survives_a_response_that_omits_one() -> None:
         _apply_single_finding_verification(finding, {"verified": True}, "now").confidence_score
         == 0.4
     )
+
+
+# =============================================================================
+# Verdict binding
+# =============================================================================
+
+
+def _unresolved(*titles: str) -> list[Finding]:
+    """Build findings the model will be asked to verify."""
+    return [
+        Finding(severity="HIGH", title=title, location=f"src/{index}.py:1", description="")
+        for index, title in enumerate(titles)
+    ]
+
+
+def _verdict(title: str, location: str, *, verified: bool) -> dict:
+    """Shape one model verdict."""
+    return {"title": title, "location": location, "verified": verified, "status": "VERIFIED"}
+
+
+def test_a_reordered_response_still_reaches_the_right_findings() -> None:
+    """Verdicts were bound by list position, so any reordering shifted every one of them.
+
+    Across this repository's 59 recorded sessions, 35 findings carry an
+    `invalidation_reason` while reporting `verified=true` and `status=VERIFIED` -- 23 in a
+    single session -- and several of those reasons are verbatim the title of a different
+    finding. A finding cannot be both withdrawn and confirmed.
+    """
+    from devops_cli.ai.review.verification import _bind_verdicts_to_findings
+
+    findings = _unresolved("Alpha defect", "Beta defect")
+    items = [
+        _verdict("Beta defect", "src/1.py:1", verified=False),
+        _verdict("Alpha defect", "src/0.py:1", verified=True),
+    ]
+    bound = _bind_verdicts_to_findings(findings, items)
+    assert (bound[0]["title"], bound[1]["title"]) == ("Alpha defect", "Beta defect")
+
+
+def test_a_truncated_response_leaves_the_rest_unbound() -> None:
+    """A model that drops an item must not shift the others onto their neighbours."""
+    from devops_cli.ai.review.verification import _bind_verdicts_to_findings
+
+    findings = _unresolved("Alpha defect", "Beta defect", "Gamma defect")
+    bound = _bind_verdicts_to_findings(
+        findings, [_verdict("Gamma defect", "src/2.py:1", verified=True)]
+    )
+    assert (sorted(bound), bound[2]["title"]) == ([2], "Gamma defect")
+
+
+def test_an_extra_verdict_matching_nothing_is_discarded() -> None:
+    """An invented item has no finding to describe; applying it by index is worse."""
+    from devops_cli.ai.review.verification import _bind_verdicts_to_findings
+
+    bound = _bind_verdicts_to_findings(
+        _unresolved("Alpha defect"),
+        [
+            _verdict("Alpha defect", "src/0.py:1", verified=True),
+            _verdict("A defect nobody reported", "src/9.py:1", verified=True),
+        ],
+    )
+    assert (len(bound), bound[0]["title"]) == (1, "Alpha defect")
+
+
+def test_a_verdict_identifying_nothing_is_discarded() -> None:
+    """Without a title or a location an item cannot name its finding."""
+    from devops_cli.ai.review.verification import _bind_verdicts_to_findings
+
+    assert _bind_verdicts_to_findings(_unresolved("Alpha defect"), [{"verified": True}]) == {}
+
+
+def test_two_verdicts_cannot_claim_the_same_finding() -> None:
+    """A duplicated item would otherwise overwrite the verdict already bound."""
+    from devops_cli.ai.review.verification import _bind_verdicts_to_findings
+
+    bound = _bind_verdicts_to_findings(
+        _unresolved("Alpha defect", "Beta defect"),
+        [
+            _verdict("Alpha defect", "src/0.py:1", verified=True),
+            _verdict("Alpha defect", "src/0.py:1", verified=False),
+        ],
+    )
+    assert (len(bound), bound[0]["verified"]) == (1, True)
+
+
+def test_a_finding_with_no_verdict_keeps_its_status() -> None:
+    """Seven findings were never updated at all; that must be visible, not guessed at."""
+    from devops_cli.ai.review.verification import _apply_single_finding_verification
+
+    finding = Finding(severity="HIGH", title="Alpha defect", location="src/0.py:1")
+    assert _apply_single_finding_verification(finding, None, "now").status == finding.status
