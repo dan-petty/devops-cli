@@ -1824,7 +1824,7 @@ def prompt_eval_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Benchmark persona prompt variations against verified review feedback datasets."""
+    """Measure the deterministic suppression layer against recorded review verdicts."""
     import json
 
     from devops_cli.ai.prompt_eval import evaluate_persona_prompts
@@ -1844,20 +1844,28 @@ def prompt_eval_cmd(
         return
 
     print_info(
-        f"[bold]Prompt Mutation Benchmark — Persona: {res.persona}[/bold] (Cases: {res.total_cases})",
+        f"[bold]Deterministic Layer vs Recorded Verdicts — {res.persona}[/bold] "
+        f"({res.total_cases} records)",
         prefix=False,
     )
     print_table(
         columns=["Metric", "Result"],
         rows=[
-            ["Total Test Cases", str(res.total_cases)],
-            ["Verified Matches", str(res.verified_matches)],
-            ["Invalid Rejections", str(res.invalidated_rejections)],
-            ["False Positive Rate", f"{res.false_positive_rate:.1%}"],
-            ["Accuracy Score", f"[green]{res.accuracy_score:.1%}[/green]"],
+            ["Recorded invalidations", str(res.labelled_invalidated)],
+            ["  caught without a model", f"[green]{res.caught_invalidations}[/green]"],
+            ["  catch rate", f"{res.catch_rate:.1%}"],
+            ["Recorded verifications", str(res.labelled_verified)],
+            ["  contested by the layer", f"[yellow]{res.contested_verifications}[/yellow]"],
+            ["  contested rate", f"{res.contested_rate:.1%}"],
         ],
         border_style="cyan",
     )
+    if res.contested_verifications:
+        print_info(
+            "A contested record is one the layer suppresses that was recorded as verified. "
+            "Either the layer over-suppresses or that verdict was a false positive; both "
+            "need reading, so they are not netted against the catch rate."
+        )
 
 
 # =============================================================================

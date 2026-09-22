@@ -136,7 +136,7 @@ class AICommandHelp:
     include_tests: str = "Include test modules in symbol map."
     diagram: str = "Generate Mermaid architecture topology or STRIDE threat model diagram."
     diagram_type: str = "Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model."
-    eval_review: str = "Evaluate and benchmark code review quality against feedback dataset."
+    eval_review: str = "Persona whose recorded findings to measure the layer against."
     dataset_path: str = "Path to feedback dataset jsonl."
     test_gen: str = "Synthesize unit test suites for functions and modules via LLM."
     test_function: str = "Specific function to synthesize tests for."
