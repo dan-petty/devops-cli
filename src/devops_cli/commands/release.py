@@ -173,18 +173,57 @@ def _categorize_commit_item(line: str) -> str:
     return "Other Changes"
 
 
+# A squash merge appends its pull request number to the subject, and the original subject
+# often survives in the body without one. Comparing whole lines therefore missed the pair,
+# and the same change was listed twice -- once as "... port-forwarding (#369)" and once
+# bare. Trailing references are stripped for comparison only; the line keeps them.
+_TRAILING_REFERENCES_RE = re.compile(r"(?:\s*\(#\d+\))+\s*$")
+
+
+def _deduplication_key(line: str) -> str:
+    """Reduce a subject to what identifies the change rather than how it was merged."""
+    return _TRAILING_REFERENCES_RE.sub("", line).strip().lower()
+
+
+def _is_conventional_subject(line: str) -> bool:
+    """Report whether a line is a conventional commit subject rather than prose.
+
+    Matching `word:` alone is not enough. Ordinary sentences carry colons -- "Fixed:",
+    "Docker: the panel listed only running containers", "kubeconfig: selecting one that
+    does not exist" -- and each of those reached a release description as a bullet. The
+    type has to be one the project actually uses.
+    """
+    match = _CONVENTIONAL_RE.match(line)
+    return bool(match and match.group(1).lower() in CONST_CONVENTIONAL_COMMIT_CATEGORIES)
+
+
 def _extract_raw_commit_lines(raw_log: str) -> list[str]:
-    """Extract individual bullet items or commit message lines from git log output."""
+    """Extract changelog-worthy subjects from git log output.
+
+    The log is read as full commit bodies so that a squash merge listing several subjects
+    contributes all of them. The cost is that every prose paragraph in a commit message
+    arrives here too, and those were filed under "Other Changes" -- so a release
+    description ended up carrying whole explanatory paragraphs as bullet points.
+
+    A changelog entry is a conventional commit subject. When the range contains any, the
+    rest is body prose and is dropped. A repository that does not use conventional commits
+    still gets every line, since there is nothing else to select on.
+    """
     raw_lines = [
         line.strip().lstrip("*- ").strip() for line in raw_log.splitlines() if line.strip()
     ]
+    candidates = [
+        line for line in raw_lines if len(line) > 4 and not _RELEASE_COMMIT_RE.match(line)
+    ]
+    conventional = [line for line in candidates if _is_conventional_subject(line)]
+    selected = conventional or candidates
+
     seen: set[str] = set()
     items: list[str] = []
-    for line in raw_lines:
-        if len(line) <= 4 or _RELEASE_COMMIT_RE.match(line):
-            continue
-        if line not in seen:
-            seen.add(line)
+    for line in selected:
+        key = _deduplication_key(line)
+        if key not in seen:
+            seen.add(key)
             items.append(line)
     return items
 
