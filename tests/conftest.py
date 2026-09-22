@@ -3,10 +3,45 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+@pytest.fixture(autouse=True, scope="session")
+def isolate_kubeconfig(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """Point KUBECONFIG at a throwaway file for the whole run.
+
+    `KubernetesService.switch_context` rewrites the kubeconfig on disk, so a test that
+    exercises context switching without mocking it silently repoints the developer's real
+    kubectl at another cluster -- which is exactly what was happening. Isolating the path
+    once, for every test, removes the possibility rather than relying on each test to
+    remember to mock it.
+    """
+    kubeconfig = tmp_path_factory.mktemp("kube") / "config"
+    kubeconfig.write_text(
+        "apiVersion: v1\n"
+        "kind: Config\n"
+        "clusters: []\n"
+        "contexts: []\n"
+        'current-context: ""\n'
+        "preferences: {}\n"
+        "users: []\n",
+        encoding="utf-8",
+    )
+    previous = os.environ.get("KUBECONFIG")
+    os.environ["KUBECONFIG"] = str(kubeconfig)
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("KUBECONFIG", None)
+        else:
+            os.environ["KUBECONFIG"] = previous
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -178,3 +213,30 @@ def mock_settings(tmp_path: Path):
     settings.prometheus.url = None
     settings.argocd.url = None
     return settings
+
+
+@contextmanager
+def _patched_docker_engine(client: Any) -> Iterator[Any]:
+    """Bind a mock Engine API client to an isolated DockerEngineService singleton."""
+    from devops_cli.docker.engine import DockerEngineService
+
+    engine = DockerEngineService()
+    engine._client = client
+    with patch.object(DockerEngineService, "get_instance", return_value=engine):
+        yield engine
+
+
+@pytest.fixture
+def docker_engine():
+    """Provide a factory binding mock Engine API clients to the Docker engine singleton."""
+    return _patched_docker_engine
+
+
+@pytest.fixture(autouse=True)
+def reset_docker_engine_singleton():
+    """Guarantee no Engine API socket connection leaks between tests."""
+    from devops_cli.docker.engine import DockerEngineService
+
+    DockerEngineService.reset_instance()
+    yield
+    DockerEngineService.reset_instance()

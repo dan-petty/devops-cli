@@ -60,6 +60,7 @@ _LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
     "trace_span": ("devops_cli.telemetry", "trace_span"),
     "print_error": ("devops_cli.output", "print_error"),
     "print_muted": ("devops_cli.output", "print_muted"),
+    "print_warning": ("devops_cli.output", "print_warning"),
     "print_section": ("devops_cli.output", "print_section"),
     "print_table": ("devops_cli.output", "print_table"),
     "write_stderr": ("devops_cli.output", "write_stderr"),
@@ -561,14 +562,19 @@ def _try_fast_cached_ci(
 
 def _handle_ci_results(
     results: list[CheckResult],
-    cache: bool,
     root: Path,
     all_files: list[str] | None,
     ci_options: dict[str, Any],
 ) -> None:
-    """Handle post-execution caching or failure exit."""
+    """Handle post-execution caching or failure exit.
+
+    A passing run is recorded whatever `--cache` said. That flag decides whether an
+    existing entry may be *trusted*, not whether a fresh result is worth keeping: a
+    `--no-cache` run has done the full work and proved the tree, so discarding the proof
+    made the next ordinary run repeat it for no reason.
+    """
     if all(res.passed for res in results):
-        if cache and not is_dry_run():
+        if not is_dry_run():
             _try_save_ci_cache(root, results, all_files, ci_options)
         return
 
@@ -630,7 +636,7 @@ def all_checks(
     )
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - start_time)
-    _handle_ci_results(results, cache, root, all_files, ci_options)
+    _handle_ci_results(results, root, all_files, ci_options)
 
 
 # =============================================================================
@@ -638,24 +644,78 @@ def all_checks(
 # =============================================================================
 
 
+def _report_selection(selection: Any) -> None:
+    """Explain which tests were chosen for the supplied files, and which were not."""
+    for source, tests in sorted(selection.mapped_sources.items()):
+        _get("print_muted")(f"  {source} → {', '.join(tests)}")
+    if selection.unmapped_sources:
+        _get("print_warning")(
+            MESSAGES.ci.no_covering_tests.format(files=", ".join(selection.unmapped_sources))
+        )
+
+
+def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None:
+    """Map changed files onto pytest targets.
+
+    Returns the targets to run, or ``None`` when the caller should run the whole suite.
+    Selection never yields an empty run for changed sources: an unmappable source either
+    escalates to the full suite or is reported, so a narrowed run can't report a false
+    green for code nothing covered.
+    """
+    from devops_cli.core.test_selection import select_tests_for_sources
+
+    selection = select_tests_for_sources(paths, _get_project_root())
+    _report_selection(selection)
+
+    if selection.has_selection:
+        return selection.pytest_targets()
+
+    if not selection.unmapped_sources:
+        # Only non-source files were supplied (docs, manifests); nothing to verify.
+        _get("print_muted")(MESSAGES.ci.no_testable_files)
+        return []
+
+    if fallback:
+        _get("print_warning")(MESSAGES.ci.selection_fallback)
+        return None
+
+    _get("print_error")(MESSAGES.ci.selection_empty, prefix=False)
+    raise typer.Exit(1)
+
+
 @app.command()
 def test(
+    paths: Annotated[list[Path] | None, typer.Argument(help=HELP.ci.test_paths)] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help=HELP.options.verbose)] = False,
     k: Annotated[str | None, typer.Option("-k", help=HELP.ci.filter_keyword)] = None,
     x: Annotated[bool, typer.Option("-x", help=HELP.ci.stop_fail)] = False,
     numprocesses: Annotated[
         str, typer.Option("-n", "--numprocesses", help=HELP.ci.num_workers)
     ] = DEFAULT_PYTEST_NUMPROCESSES,
+    fallback: Annotated[
+        bool, typer.Option("--fallback/--no-fallback", help=HELP.ci.selection_fallback)
+    ] = True,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Run the pytest test suite in parallel leveraging all CPU cores."""
+    """Run the test suite, or only the tests covering the given source files.
+
+    Passing paths narrows the run to the tests that import or conventionally cover them,
+    which is what makes this usable as a pre-commit hook on staged files.
+    """
     if dry_run:
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
+
+    targets: list[str] | None = None
+    if paths:
+        targets = _resolve_test_targets(list(paths), fallback)
+        if targets == []:
+            return
+
     cmd = ["uv", "run", "pytest", "-n", numprocesses]
     if verbose:
         cmd.append("-v")
@@ -666,6 +726,8 @@ def test(
         cmd.extend(["-k", k])
     if x:
         cmd.append("-x")
+    if targets:
+        cmd.extend(targets)
     if not _run(cmd):
         raise typer.Exit(1)
 

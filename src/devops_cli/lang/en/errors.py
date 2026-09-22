@@ -125,6 +125,7 @@ class GrafanaErrorMessages:
     parse_failed: str = "Failed to parse dashboard JSON file '{path}': {exc}"
     invalid_json_object: str = "Invalid dashboard JSON in '{path}': expected JSON object."
     sync_failed: str = "Failed to sync '{file}': {exc}"
+    dashboards_not_found: str = "Dashboard path not found: {path}"
 
 
 @dataclass(frozen=True)
@@ -176,6 +177,7 @@ class PrometheusErrorMessages:
         "Prometheus URL not configured. Run: devops config set prometheus.url <url>"
     )
     expr_too_long: str = "PromQL expression exceeds maximum length of {max_len} characters."
+    invalid_promql: str = "Invalid PromQL expression: {errors}"
     unexpected_content_type: str = "Unexpected Content-Type '{content_type}' from Prometheus API."
     query_failed: str = "Query failed: {error}"
 

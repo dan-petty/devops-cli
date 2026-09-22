@@ -154,7 +154,7 @@ def _is_file_excluded(
     except OSError, RuntimeError:
         return True
     root = repo_root or find_repo_root(source_file)
-    if is_ignored_by_git(root, source_file):
+    if is_ignored_by_git(root, source_file, is_dir=False):
         return True
     return not include_tests and "test" in source_file.name
 

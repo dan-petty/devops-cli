@@ -347,6 +347,11 @@ class ReleaseMessages:
     tag_created: str = "✓ Created git tag [bold]{tag}[/bold]"
     tag_pushed: str = "✓ Pushed commit and tag [bold]{tag}[/bold] to origin"
     notes_not_found: str = "No changelog entry found for version {version} in CHANGELOG.md"
+    notes_in_sync: str = "✓ {tag} already matches CHANGELOG.md"
+    notes_republished: str = "✓ Republished {tag} from CHANGELOG.md{stripped}"
+    notes_republish_failed: str = "✗ Could not update {tag}"
+    notes_unreadable: str = "Skipped {tag}: the published description could not be read"
+    notes_no_changelog: str = "Skipped {tag}: no changelog entry"
     dry_run_prepare: str = (
         "[yellow][dry-run][/yellow] Would bump version to {version} and sync docs/README"
     )
@@ -377,6 +382,23 @@ class ReleaseMessages:
 @dataclass(frozen=True)
 class TfMessages:
     init_header: str = "Initializing OpenTofu in [cyan]{path}[/cyan]..."
+    table_title_graph: str = "IaC Resource Dependency Graph: {directory}"
+    table_title_blast_radius: str = "Blast Radius: {address}"
+    table_title_drift: str = "Configuration Drift: {directory}"
+    graph_summary: str = (
+        "{resources} resource(s), {modules} module(s), {edges} dependency edge(s) "
+        "across {files} file(s)."
+    )
+    graph_no_resources: str = "No resources declared in '{directory}'."
+    graph_unknown_address: str = "Resource address '{address}' is not declared in '{directory}'."
+    blast_radius_summary: str = "{address} impacts {impact} address(es); depends on {depends}."
+    drift_no_state: str = "No state file found in '{directory}'; all {declared} declared resource(s) are pending apply."
+    drift_in_sync: str = "✓ Configuration and state agree on all {count} resource(s)."
+    drift_summary: str = (
+        "{missing} declared but not in state, {orphaned} in state but not declared, "
+        "{synced} in sync."
+    )
+    parse_failures: str = "{count} file(s) could not be parsed: {files}"
     init_success: str = "✓ OpenTofu initialization successful."
     plan_header: str = "Running OpenTofu plan for [cyan]{path}[/cyan]..."
     plan_success: str = "✓ OpenTofu plan completed."
@@ -572,6 +594,9 @@ class SSHMessages:
 @dataclass(frozen=True)
 class PrometheusMessages:
     query_instant_header: str = "Prometheus Instant Query: '{query}'"
+    table_title_analysis: str = "Series Analysis: {expr}"
+    table_title_anomalies: str = "Detected Anomalies"
+    no_series_to_analyze: str = "Query '{expr}' returned no series to analyze."
     url_not_configured: str = (
         "Prometheus URL not configured. Run: devops config set prometheus.url <url>"
     )
@@ -597,7 +622,7 @@ class ArgoMessages:
     no_apps_found: str = "No ArgoCD applications found."
     app_not_found: str = "Application '{name}' not found."
     sync_triggered: str = "Sync triggered for '{name}'."
-    workflow_submitted: str = "Workflow submitted: {name}"
+    workflow_submitted: str = "Workflow submitted: {name} ({phase})"
     workflow_resumed: str = "Workflow resumed: {name}"
     workflow_stopped: str = "Workflow stopped: {name}"
     rollout_restarted: str = "Rollout restarted: {name}"
@@ -607,11 +632,29 @@ class ArgoMessages:
     table_title_apps: str = "ArgoCD Applications"
     table_title_workflows: str = "Argo Workflows"
     table_title_rollouts: str = "Argo Rollouts"
+    table_title_rollout_status: str = "Argo Rollout: {name}"
+    workflow_finished: str = "Workflow {name} finished with phase: {phase}"
+    workflow_no_pods: str = "Workflow '{name}' has no pod nodes to stream logs from."
+    workflow_wait_timeout: str = (
+        "Timed out after {seconds:.0f}s waiting for workflow '{name}' to reach a terminal phase."
+    )
 
 
 @dataclass(frozen=True)
 class CIMessages:
     python_version_check: str = "python version check (3.14+)"
+    no_covering_tests: str = (
+        "No covering tests found for: {files}. Changed code without a covering test "
+        "cannot be verified by a narrowed run."
+    )
+    no_testable_files: str = "No source or test files supplied; nothing to verify."
+    selection_fallback: str = (
+        "Falling back to the full suite because the changed sources map to no tests."
+    )
+    selection_empty: str = (
+        "Refusing to report success without running any tests. Re-run with --fallback "
+        "to verify via the full suite, or add a covering test."
+    )
     pytest_coverage: str = "pytest & coverage"
     ruff_check: str = "ruff check"
     ruff_format: str = "ruff format"
@@ -671,11 +714,23 @@ class DockerMessages:
         "Efficiency: {eff:.1f}% | Size: {size:.1f} MB | Wasted: {wasted:.1f} MB"
     )
     table_title_layers: str = "Container Layer Efficiency: {image}"
+    table_title_build_cache: str = "BuildKit Layer Cache"
+    build_cache_summary: str = (
+        "Cache: {total} total | {reclaimable} reclaimable | {reuse:.1f}% reused "
+        "| {in_use} in use | {shared} shared"
+    )
+    build_cache_pruned: str = "Pruned BuildKit cache. Space reclaimed: {reclaimed}"
 
 
 @dataclass(frozen=True)
 class GrafanaMessages:
     url_not_configured: str = "Grafana URL not configured. Run: devops config set grafana.url <url>"
+    table_title_lint: str = "Dashboard Lint Findings"
+    no_dashboards_found: str = "No dashboard JSON files found under '{path}'."
+    lint_summary: str = (
+        "Linted {dashboards} dashboard(s), {panels} panel(s): {errors} error(s), "
+        "{warnings} warning(s)."
+    )
     table_title_dashboards: str = "Grafana Dashboards"
     exported_success: str = "Exported → {dest}"
     imported_success: str = "Imported: {slug}"

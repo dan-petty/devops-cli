@@ -68,7 +68,13 @@ def format_serialized(
     if fmt in ("yaml", "yml"):
         import yaml
 
-        return yaml.dump(prepared, sort_keys=False, default_flow_style=False)
+        # `yaml.dump` writes a Python-specific tag for anything it does not recognise, so
+        # an enum came out as `!!python/object/apply:...` -- not portable YAML, and
+        # `yaml.safe_load` refuses to read it back. Passing the values through JSON first
+        # coerces enums, paths and datetimes exactly as the JSON branch does, so the two
+        # formats describe the same data rather than merely claiming to.
+        plain = json.loads(json.dumps(prepared, default=str))
+        return yaml.safe_dump(plain, sort_keys=False, default_flow_style=False)
     return json.dumps(prepared, indent=indent, default=str)
 
 

@@ -33,19 +33,24 @@ from devops_cli.exceptions.ai import (
     UsageLimitExceeded,
     UserError,
 )
+from devops_cli.exceptions.argo import ArgoError, ArgoResourceNotFoundError
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.docker import (
     CosignError,
     CosignVerificationError,
+    DockerDaemonUnavailableError,
+    DockerEngineError,
     DockerError,
     DockerSandboxError,
 )
 from devops_cli.exceptions.docs import DocCompactionError
 from devops_cli.exceptions.git import (
     BranchAlreadyExistsError,
+    GitHubGraphQLError,
     GitHubOperationError,
     GitHubRateLimitError,
+    GitHubWebhookVerificationError,
     GitOperationError,
     InvalidBranchNameError,
 )
@@ -93,15 +98,19 @@ from devops_cli.exceptions.valkey import (
     ValkeyTimeoutError,
 )
 from devops_cli.exceptions.vault import (
+    VaultAuthenticationError,
     VaultConfigurationError,
     VaultError,
     VaultKeyError,
+    VaultLeaseError,
     VaultOperationError,
 )
 
 __all__ = [
     "AgentRunError",
     "ApprovalRequired",
+    "ArgoError",
+    "ArgoResourceNotFoundError",
     "BranchAlreadyExistsError",
     "CallDeferred",
     "ChaosExecutionError",
@@ -116,12 +125,16 @@ __all__ = [
     "CosignError",
     "CosignVerificationError",
     "DevOpsCLIError",
+    "DockerDaemonUnavailableError",
+    "DockerEngineError",
     "DockerError",
     "DockerSandboxError",
     "DocCompactionError",
     "DocsIngestionError",
+    "GitHubGraphQLError",
     "GitHubOperationError",
     "GitHubRateLimitError",
+    "GitHubWebhookVerificationError",
     "GitOperationError",
     "GitOpsSyncError",
     "HarnessExecutionError",
@@ -170,8 +183,10 @@ __all__ = [
     "ValkeyConnectionError",
     "ValkeyError",
     "ValkeyTimeoutError",
+    "VaultAuthenticationError",
     "VaultConfigurationError",
     "VaultError",
     "VaultKeyError",
+    "VaultLeaseError",
     "VaultOperationError",
 ]

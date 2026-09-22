@@ -56,3 +56,64 @@ def test_persona_registry_mapping_and_getattr(tmp_path) -> None:
 
     assert load_custom_repo_persona(tmp_path, "../traversal") is None
     assert load_custom_repo_persona(tmp_path, "missing") is None
+
+
+# =============================================================================
+# Prompt rule coverage
+# =============================================================================
+
+# Each entry is a decision the shared review prompt encodes. The prompt was compressed
+# from 2225 to roughly 1400 tokens and is sent once per persona per segment, so an edit
+# that trims a rule along with the prose is cheap to make and invisible until findings
+# regress. These are the markers that make such a removal fail here instead.
+_REVIEW_PROMPT_RULES: tuple[str, ...] = (
+    "OWASP",
+    "AGENTS.md",
+    "uv.lock",
+    "*.example.*",
+    "__all__",
+    "headers = {}",
+    "CWE-22",
+    "CWE-59",
+    "is_symlink()",
+    "DNS rebinding",
+    "CWE-400",
+    "CWE-209",
+    "threading.RLock",
+    "192.0.2.0/24",
+    "NetworkPolicy",
+    "PEP 758",
+    "OpenMetrics",
+    "common_hallucinations.json",
+    "feedback_dataset.jsonl",
+    "NotImplementedError",
+    "verification_criteria",
+    "invalidation_criteria",
+    "ROADMAP.md",
+    "APPROVE",
+    "sanitize_prompt_injection",
+    "mergeable_state",
+    "response_repair.py",
+)
+
+
+def test_the_review_prompt_still_carries_every_rule() -> None:
+    """Compression must not drop a decision along with the words that stated it."""
+    from devops_cli.ai.personas import _TASKS_DIR, _load
+
+    prompt = _load(_TASKS_DIR / "review.md")
+    assert [rule for rule in _REVIEW_PROMPT_RULES if rule not in prompt] == []
+
+
+def test_host_specific_rules_are_marked_as_host_specific() -> None:
+    """The prompt forbids imposing this CLI's assumptions on another repository.
+
+    It then named `SqlitePlanStore`, `response_repair.py` and this repo's CI workflow among
+    its general inspection rules, so it contradicted itself on every target that is not
+    this one. Those rules are still there, under a heading that scopes them.
+    """
+    from devops_cli.ai.personas import _TASKS_DIR, _load
+
+    prompt = _load(_TASKS_DIR / "review.md")
+    scoped = prompt[prompt.index("### 4. When the target is this repository") :]
+    assert all(marker in scoped for marker in ("response_repair.py", "mergeable_state"))

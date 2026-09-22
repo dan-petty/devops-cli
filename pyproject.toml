@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.2.21"
+version = "0.2.22"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -28,6 +28,7 @@ dependencies = [
     "json-repair==0.63.4",
     "tldextract==5.3.2",
     "pathspec==1.1.1",
+    "python-hcl2==8.1.4",
     "packaging==26.3",
     "fastapi==0.141.1",
     "uvicorn==0.53.0",
@@ -79,7 +80,7 @@ plugins = ['pydantic.mypy']
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-n auto --maxprocesses=8"
+addopts = "-n logical"
 
 
 [tool.coverage.run]

@@ -173,18 +173,57 @@ def _categorize_commit_item(line: str) -> str:
     return "Other Changes"
 
 
+# A squash merge appends its pull request number to the subject, and the original subject
+# often survives in the body without one. Comparing whole lines therefore missed the pair,
+# and the same change was listed twice -- once as "... port-forwarding (#369)" and once
+# bare. Trailing references are stripped for comparison only; the line keeps them.
+_TRAILING_REFERENCES_RE = re.compile(r"(?:\s*\(#\d+\))+\s*$")
+
+
+def _deduplication_key(line: str) -> str:
+    """Reduce a subject to what identifies the change rather than how it was merged."""
+    return _TRAILING_REFERENCES_RE.sub("", line).strip().lower()
+
+
+def _is_conventional_subject(line: str) -> bool:
+    """Report whether a line is a conventional commit subject rather than prose.
+
+    Matching `word:` alone is not enough. Ordinary sentences carry colons -- "Fixed:",
+    "Docker: the panel listed only running containers", "kubeconfig: selecting one that
+    does not exist" -- and each of those reached a release description as a bullet. The
+    type has to be one the project actually uses.
+    """
+    match = _CONVENTIONAL_RE.match(line)
+    return bool(match and match.group(1).lower() in CONST_CONVENTIONAL_COMMIT_CATEGORIES)
+
+
 def _extract_raw_commit_lines(raw_log: str) -> list[str]:
-    """Extract individual bullet items or commit message lines from git log output."""
+    """Extract changelog-worthy subjects from git log output.
+
+    The log is read as full commit bodies so that a squash merge listing several subjects
+    contributes all of them. The cost is that every prose paragraph in a commit message
+    arrives here too, and those were filed under "Other Changes" -- so a release
+    description ended up carrying whole explanatory paragraphs as bullet points.
+
+    A changelog entry is a conventional commit subject. When the range contains any, the
+    rest is body prose and is dropped. A repository that does not use conventional commits
+    still gets every line, since there is nothing else to select on.
+    """
     raw_lines = [
         line.strip().lstrip("*- ").strip() for line in raw_log.splitlines() if line.strip()
     ]
+    candidates = [
+        line for line in raw_lines if len(line) > 4 and not _RELEASE_COMMIT_RE.match(line)
+    ]
+    conventional = [line for line in candidates if _is_conventional_subject(line)]
+    selected = conventional or candidates
+
     seen: set[str] = set()
     items: list[str] = []
-    for line in raw_lines:
-        if len(line) <= 4 or _RELEASE_COMMIT_RE.match(line):
-            continue
-        if line not in seen:
-            seen.add(line)
+    for line in selected:
+        key = _deduplication_key(line)
+        if key not in seen:
+            seen.add(key)
             items.append(line)
     return items
 
@@ -313,13 +352,55 @@ def _update_init_version(root: Path, new_version: str) -> bool:
     return True
 
 
-def _build_changelog_section(root: Path, new_version: str, today: str) -> str:
-    """Build a complete changelog markdown section for a release version."""
+def _existing_changelog_entries(notes: str | None) -> list[str]:
+    """Read the bullet entries already written under a version heading."""
+    if not notes:
+        return []
+    return [
+        line.strip()[2:].strip() for line in notes.splitlines() if line.strip().startswith("- ")
+    ]
+
+
+def _merge_changelog_entries(existing: list[str], compiled: list[str]) -> list[str]:
+    """Combine entries already present with newly compiled ones, without repeating any.
+
+    An entry already in the file wins, so a hand-edited description survives. Comparison
+    ignores trailing pull request references for the same reason deduplication does: the
+    squash merge and the original subject describe one change.
+    """
+    merged = list(existing)
+    seen = {_deduplication_key(entry) for entry in existing}
+    for entry in compiled:
+        key = _deduplication_key(entry)
+        if key not in seen:
+            seen.add(key)
+            merged.append(entry)
+    return merged
+
+
+def _build_changelog_section(
+    root: Path, new_version: str, today: str, existing_notes: str | None = None
+) -> str:
+    """Build a changelog section, folding in anything already written under the heading.
+
+    This previously ran only when the section was empty. A section that already held one
+    entry was left at one entry and only its date was refreshed, so `--update` reported
+    success while the release it described stayed unwritten -- v0.2.22 carried a single
+    line against fifty-two commits. Merging makes the command idempotent and additive.
+    """
     compiled_notes = _extract_git_commit_notes(root, new_version)
-    if compiled_notes:
-        notes_body = re.sub(r"^###\s+Changes in v[^\n]+\n*", "", compiled_notes).strip()
-        if notes_body:
-            return f"## [{new_version}] - {today}\n\n{notes_body}\n\n"
+    compiled = (
+        _extract_raw_commit_lines(re.sub(r"^###[^\n]*\n", "", compiled_notes, flags=re.MULTILINE))
+        if compiled_notes
+        else []
+    )
+    merged = _merge_changelog_entries(_existing_changelog_entries(existing_notes), compiled)
+    if merged:
+        body = re.sub(
+            r"^###\s+Changes in v[^\n]+\n*", "", _format_categorized_notes(merged, new_version)
+        ).strip()
+        if body:
+            return f"## [{new_version}] - {today}\n\n{body}\n\n"
     return f"## [{new_version}] - {today}\n\n### Added\n- Release version {new_version}.\n\n"
 
 
@@ -336,16 +417,9 @@ def _update_changelog_header(root: Path, new_version: str, release_date: str | N
     # If version already present in changelog, update date and populate if empty
     if f"## [{new_version}]" in content:
         current_notes = _extract_changelog_notes(root, new_version)
-        if current_notes:
-            new_content = re.sub(
-                rf"##\s+\[{re.escape(new_version)}\]\s*(?:-\s*\d{{4}}-\d{{2}}-\d{{2}})?",
-                f"## [{new_version}] - {today}",
-                content,
-            )
-        else:
-            section = _build_changelog_section(root, new_version, today)
-            pattern = rf"##\s+\[{re.escape(new_version)}\][^\n]*(?:\n\s*)*"
-            new_content = re.sub(pattern, section, content, count=1)
+        section = _build_changelog_section(root, new_version, today, existing_notes=current_notes)
+        pattern = rf"##\s+\[{re.escape(new_version)}\][^\n]*\n(?:(?!^##\s+\[).*\n)*"
+        new_content = re.sub(pattern, section, content, count=1, flags=re.MULTILINE)
         write_text_file(changelog_file, new_content)
         return True
 
@@ -1250,6 +1324,95 @@ def release_notes(
         title=f"Release Notes — v{target_ver}",
         border_style="cyan",
     )
+
+
+# =============================================================================
+# Command: release sync-notes
+# =============================================================================
+
+
+def _sync_one_release(repo: str, tag: str, repo_root: Path, dry_run: bool) -> str:
+    """Bring one published release description back in line with the changelog."""
+    from devops_cli.github.release_notes import (
+        ReleaseBody,
+        get_release_body,
+        set_release_body,
+    )
+
+    published = get_release_body(repo, tag)
+    if published is None:
+        return MESSAGES.release.notes_unreadable.format(tag=tag)
+
+    expected = _resolve_release_notes(repo_root, tag.lstrip("v"))
+    if not expected:
+        return MESSAGES.release.notes_no_changelog.format(tag=tag)
+
+    body = ReleaseBody(tag=tag, published=published, expected=expected)
+    if not body.differs:
+        return MESSAGES.release.notes_in_sync.format(tag=tag)
+
+    stripped = " (removed GitHub's generated summary)" if body.carries_generated_notes else ""
+    if dry_run or not set_release_body(repo, tag, expected):
+        if dry_run:
+            return MESSAGES.release.notes_republished.format(tag=tag, stripped=stripped)
+        return MESSAGES.release.notes_republish_failed.format(tag=tag)
+    return MESSAGES.release.notes_republished.format(tag=tag, stripped=stripped)
+
+
+@app.command("sync-notes")
+def release_sync_notes(
+    version: Annotated[
+        str | None,
+        typer.Option("--version", "-v", help=HELP.options.version),
+    ] = None,
+    all_releases: Annotated[
+        bool,
+        typer.Option("--all", help=HELP.release.sync_notes_all),
+    ] = False,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
+    ] = None,
+    root: Annotated[
+        Path | None,
+        typer.Option("--root", "-r", help=HELP.options.root),
+    ] = None,
+) -> None:
+    """Republish GitHub release descriptions from CHANGELOG.md.
+
+    A release body is written once at publish time. Nothing in the repository could change
+    it afterwards, so a release published before the workflow disabled GitHub's generated
+    summary keeps carrying it, and an edited changelog entry never reaches the release it
+    describes.
+    """
+    from devops_cli.commands.gh import _resolve_repo
+    from devops_cli.github.release_notes import list_published_releases
+
+    repo_root = _get_project_root(root)
+    target_repo = repo or _resolve_repo()
+    if not target_repo or "/" not in target_repo:
+        _get("print_error")("Cannot resolve target repository.")
+        raise typer.Exit(1)
+
+    if all_releases:
+        tags = list_published_releases(target_repo)
+    else:
+        target_ver = (version or _get_pyproject_version(repo_root) or "").lstrip("v")
+        if not target_ver:
+            _get("print_error")("Could not determine target release version.")
+            raise typer.Exit(1)
+        tags = [f"v{target_ver}"]
+
+    dry_run = is_dry_run()
+    if dry_run:
+        render_dry_run_result(
+            command="devops release sync-notes",
+            action="republish_release_notes",
+            details={"repo": target_repo, "releases": ", ".join(tags)},
+        )
+
+    for tag in tags:
+        _get("print_info")(_sync_one_release(target_repo, tag, repo_root, dry_run))
 
 
 # =============================================================================

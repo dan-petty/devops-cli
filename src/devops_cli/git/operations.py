@@ -9,7 +9,6 @@ Functionality:
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Generator
 from pathlib import Path
 
@@ -23,12 +22,19 @@ from devops_cli.config.constants import (
     CONST_GITHUB_SSH_PREFIX,
     CONST_GITHUB_SSH_URL_PREFIX,
     CONST_PERM_DIR,
-    CONST_PERM_PRIVATE_KEY,
     CONST_URL_SCHEME_HTTP,
     CONST_URL_SCHEME_HTTPS,
 )
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
+from devops_cli.crypto.host_keys import (
+    HostKey,
+    HostKeyVerificationError,
+    is_pinned_host,
+    parse_host_keys,
+    select_verified_key,
+)
+from devops_cli.crypto.known_hosts import append_entry, format_entry, has_trusted_host_key
 from devops_cli.exceptions import (
     BranchAlreadyExistsError,
     GitOperationError,
@@ -67,18 +73,13 @@ def iter_workspace_repos(root: Path) -> Generator[Path]:
 
 
 def _is_host_in_known_hosts(hostname: str, known_hosts: Path) -> bool:
-    """Check if *hostname* is present in *known_hosts* via ssh-keygen."""
-    if not known_hosts.exists():
-        return False
-    result = run_subprocess(
-        ["ssh-keygen", "-F", hostname, "-f", str(known_hosts)],
-        capture_output=True,
-        text=True,
-        check=False,
-        quiet=True,
-        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-    )
-    return result.returncode == 0
+    """Check whether *hostname* already has a trusted key on file.
+
+    Parsed in-process rather than through `ssh-keygen -F`: that required the OpenSSH client
+    to be installed and cost a process spawn per check. A key carrying an `@revoked` marker
+    does not count as trusted, so a withdrawn key is re-verified rather than relied upon.
+    """
+    return has_trusted_host_key(known_hosts, hostname)
 
 
 def _scan_host_key(hostname: str) -> str | None:
@@ -100,37 +101,65 @@ def _scan_host_key(hostname: str) -> str | None:
 
 
 def _append_known_host_entry(known_hosts: Path, entry: str) -> None:
-    """Safely append an ssh-keyscan host key entry to known_hosts with secure file permissions."""
-    cleaned_entry = entry.strip()
-    if not cleaned_entry:
-        return
+    """Safely append a host key entry to known_hosts with secure file permissions."""
+    append_entry(known_hosts, entry)
+
+
+def _verified_host_key(hostname: str, scan_output: str) -> HostKey:
+    """Select the scanned key whose fingerprint matches what the host's operator publishes.
+
+    Raises :class:`GitOperationError` when none does. `ssh-keyscan` reports whatever the
+    network returns and verifies nothing, so without this step an intercepted first
+    connection pins the interceptor's key permanently and silently.
+    """
     try:
-        needs_prefix_newline = False
-        if known_hosts.is_file() and known_hosts.stat().st_size > 0:
-            with known_hosts.open("rb") as f:
-                f.seek(-1, os.SEEK_END)
-                needs_prefix_newline = f.read(1) != b"\n"
-
-        with known_hosts.open("a", encoding="utf-8") as handle:
-            if needs_prefix_newline:
-                handle.write("\n")
-            handle.write(f"{cleaned_entry}\n")
-        known_hosts.chmod(CONST_PERM_PRIVATE_KEY)
-    except (OSError, PermissionError) as exc:
-        logger.debug("Failed updating known_hosts: %s", exc)
+        return select_verified_key(parse_host_keys(scan_output), hostname)
+    except HostKeyVerificationError as exc:
+        raise GitOperationError(str(exc)) from exc
 
 
-def _ensure_known_host(hostname: str = CONST_GITHUB_HOST) -> None:
-    """Add *hostname* to ~/.ssh/known_hosts when it is missing."""
+def _ensure_known_host(
+    hostname: str = CONST_GITHUB_HOST, *, allow_unverified: bool = False
+) -> None:
+    """Add *hostname* to ~/.ssh/known_hosts, verifying the key before trusting it.
+
+    Verification fails closed. A key that cannot be checked against published fingerprints
+    is not written, because accepting it anyway is indistinguishable from having no check:
+    that was the previous behaviour, and it meant anyone able to intercept the first
+    connection had their key trusted for every clone afterwards.
+
+    `allow_unverified` restores trust-on-first-use for hosts that publish no fingerprints,
+    and is refused for hosts that do -- there, an unverifiable key is a signal, not a gap.
+    """
     ssh_dir = Path.home() / ".ssh"
     known_hosts = ssh_dir / "known_hosts"
     ssh_dir.mkdir(mode=CONST_PERM_DIR, parents=True, exist_ok=True)
     if _is_host_in_known_hosts(hostname, known_hosts):
         return
 
-    host_key = _scan_host_key(hostname)
-    if host_key:
-        _append_known_host_entry(known_hosts, host_key)
+    scan_output = _scan_host_key(hostname)
+    if not scan_output:
+        return
+
+    if allow_unverified and not is_pinned_host(hostname):
+        keys = parse_host_keys(scan_output)
+        if not keys:
+            return
+        logger.warning(
+            "Trusting unverified host key for '%s' (%s); no published fingerprints are "
+            "pinned for this host.",
+            hostname,
+            keys[0].fingerprint,
+        )
+        _append_known_host_entry(
+            known_hosts, format_entry(hostname, keys[0].key_type, keys[0].key_data)
+        )
+        return
+
+    key = _verified_host_key(hostname, scan_output)
+    # Written under the hostname that was requested, not the one the scan claimed, so a
+    # response naming a different host cannot pin a key under that name.
+    _append_known_host_entry(known_hosts, format_entry(hostname, key.key_type, key.key_data))
 
 
 def _validate_clone_dest(dest: Path) -> None:

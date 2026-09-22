@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from devops_cli.config.defaults import (
-    DEFAULT_K8S_NAMESPACE,
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-)
-from devops_cli.core.process import run_subprocess
+from devops_cli.argo.crd import ArgoCRDService, get_argo_crd_service
+from devops_cli.config.defaults import DEFAULT_K8S_NAMESPACE
 from devops_cli.core.validation import validate_k8s_name
-from devops_cli.models.argo import RolloutAnalysisResult, RolloutMetricThreshold
+from devops_cli.exceptions.argo import ArgoError
+from devops_cli.models.argo import (
+    ArgoRolloutState,
+    RolloutAnalysisResult,
+    RolloutMetricThreshold,
+)
 
 if TYPE_CHECKING:
     from devops_cli.output.models import TablePayload
+
+logger = logging.getLogger(__name__)
 
 
 def promote_rollout(
@@ -22,24 +28,10 @@ def promote_rollout(
     full: bool = False,
     dry_run: bool = False,
 ) -> bool:
-    """Promote an Argo Rollout to next step or full release."""
-    validate_k8s_name(name, "rollout name")
-    validate_k8s_name(namespace, "namespace", namespace=True)
-
-    if dry_run:
-        return True
-
-    cmd = ["kubectl", "argo", "rollouts", "promote", name, "--namespace", namespace]
-    if full:
-        cmd.append("--full")
-
-    proc = run_subprocess(
-        cmd,
-        check=False,
-        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        capture_output=True,
+    """Promote an Argo Rollout to its next step or to full release."""
+    return _mutate_rollout(
+        name, namespace, dry_run, lambda svc: svc.promote_rollout(name, namespace, full=full)
     )
-    return proc.returncode == 0
 
 
 def abort_rollout(
@@ -47,21 +39,8 @@ def abort_rollout(
     namespace: str = DEFAULT_K8S_NAMESPACE,
     dry_run: bool = False,
 ) -> bool:
-    """Abort an in-progress Argo Rollout and revert to stable revision."""
-    validate_k8s_name(name, "rollout name")
-    validate_k8s_name(namespace, "namespace", namespace=True)
-
-    if dry_run:
-        return True
-
-    cmd = ["kubectl", "argo", "rollouts", "abort", name, "--namespace", namespace]
-    proc = run_subprocess(
-        cmd,
-        check=False,
-        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        capture_output=True,
-    )
-    return proc.returncode == 0
+    """Abort an in-progress Argo Rollout and revert to the stable revision."""
+    return _mutate_rollout(name, namespace, dry_run, lambda svc: svc.abort_rollout(name, namespace))
 
 
 def restart_rollout(
@@ -70,20 +49,30 @@ def restart_rollout(
     dry_run: bool = False,
 ) -> bool:
     """Restart an Argo Rollout across all pods."""
+    return _mutate_rollout(
+        name, namespace, dry_run, lambda svc: svc.restart_rollout(name, namespace)
+    )
+
+
+def _mutate_rollout(
+    name: str,
+    namespace: str,
+    dry_run: bool,
+    mutate: Callable[[ArgoCRDService], ArgoRolloutState],
+) -> bool:
+    """Validate inputs and apply a Rollout control-plane patch through the Kubernetes API."""
     validate_k8s_name(name, "rollout name")
     validate_k8s_name(namespace, "namespace", namespace=True)
 
     if dry_run:
         return True
 
-    cmd = ["kubectl", "argo", "rollouts", "restart", name, "--namespace", namespace]
-    proc = run_subprocess(
-        cmd,
-        check=False,
-        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        capture_output=True,
-    )
-    return proc.returncode == 0
+    try:
+        mutate(get_argo_crd_service())
+    except ArgoError as exc:
+        logger.debug("Rollout '%s' mutation failed in namespace '%s': %s", name, namespace, exc)
+        return False
+    return True
 
 
 def _fetch_metric_value(query: str) -> float | None:

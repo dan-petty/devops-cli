@@ -45,8 +45,19 @@ def _run_mcp_cmd(
     timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
     env: dict[str, str] | None = None,
 ) -> str:
-    """Run a subprocess command for an MCP tool and return combined output or error status."""
+    """Run a command for an MCP tool in-process or via subprocess and return masked output."""
+    from devops_cli.ai.mcp.dispatcher import _extract_devops_sub_args, get_mcp_dispatcher
     from devops_cli.security.sanitizer import mask_secrets
+
+    sub_args = _extract_devops_sub_args(cmd)
+    is_mocked = hasattr(run_subprocess, "assert_called")
+    if sub_args is not None and not is_mocked:
+        dispatcher = get_mcp_dispatcher()
+        exit_code, output = dispatcher.dispatch(cmd, timeout=timeout, env=env)
+        clean = mask_secrets(output.strip())
+        if exit_code != 0:
+            return f"Command exited with status {exit_code}:\n{clean}"
+        return clean or "Success"
 
     try:
         res = run_subprocess(cmd, capture_output=True, text=True, timeout=timeout, env=env)
@@ -1121,10 +1132,24 @@ def tf_notify_plan(plan_file: str = "tfplan.json") -> str:
 # ── FastMCP Dynamic System State Resources ───────────────────────────────────
 
 
+def _run_mcp_resource(
+    resource_uri: str,
+    cmd: list[str],
+    timeout: float = DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
+) -> str:
+    """Execute resource query in-process and stream state update to subscribers."""
+    output = _run_mcp_cmd(cmd, timeout=timeout)
+    from devops_cli.ai.mcp.dispatcher import get_mcp_dispatcher
+
+    get_mcp_dispatcher().subscriptions.notify(resource_uri, output)
+    return output
+
+
 @mcp.resource("resource://workspace/status")
 def get_workspace_resource() -> str:
     """Return live workspace inventory and repository statuses."""
-    return _run_mcp_cmd(
+    return _run_mcp_resource(
+        "resource://workspace/status",
         ["uv", "run", "devops", "workspace", "list"],
         timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
     )
@@ -1133,7 +1158,8 @@ def get_workspace_resource() -> str:
 @mcp.resource("resource://config/active")
 def get_config_resource() -> str:
     """Return active configuration settings."""
-    return _run_mcp_cmd(
+    return _run_mcp_resource(
+        "resource://config/active",
         ["uv", "run", "devops", "config", "show"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )

@@ -39,7 +39,12 @@ from devops_cli.models.ai import (
     VerifyFindingRequest,
     VerifyFindingResult,
 )
-from devops_cli.models.argo import ArgoCDApp
+from devops_cli.models.argo import (
+    ArgoCDApp,
+    ArgoResourceState,
+    ArgoRolloutState,
+    ArgoWorkflowState,
+)
 from devops_cli.models.benchmark import (
     BenchmarkCategory,
     BenchmarkReport,
@@ -61,6 +66,9 @@ from devops_cli.models.config import (
     ConfigShowResult,
 )
 from devops_cli.models.docker import (
+    BuildCacheRecord,
+    BuildCacheReport,
+    ContainerState,
     ContainerStatEntry,
     DockerLayerAnalysisRequest,
     DockerLayerAnalysisResult,
@@ -160,11 +168,16 @@ from devops_cli.models.workspace import (
 __all__ = [
     "AnalysisMetadata",
     "ArgoCDApp",
+    "ArgoResourceState",
+    "ArgoRolloutState",
+    "ArgoWorkflowState",
     "BenchmarkCategory",
     "BenchmarkReport",
     "BenchmarkTask",
     "BranchListing",
     "BranchesListRequest",
+    "BuildCacheRecord",
+    "BuildCacheReport",
     "CAGenerationRequest",
     "CICheckResult",
     "CIRunRequest",
@@ -178,6 +191,7 @@ __all__ = [
     "ConfigOutputResult",
     "ConfigShowRequest",
     "ConfigShowResult",
+    "ContainerState",
     "ContainerStatEntry",
     "DependencySpec",
     "DockerLayerAnalysisRequest",

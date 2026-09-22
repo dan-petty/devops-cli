@@ -197,6 +197,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops k8s deploy-stack [OPTIONS]` | Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes. |
 |  | `devops k8s sync-secrets [OPTIONS]` | Fetch stack admin credentials (ArgoCD, Grafana) from Kubernetes and store in OS Keyring. |
 |  | `devops k8s configure-urls [OPTIONS]` | Auto-detect Kubernetes stack URLs and update CLI config. |
+|  | `devops k8s service-url [OPTIONS] <service>` | Show, or fetch from, a cluster service address that needs no port-forward. |
 |  | `devops k8s port-forward [OPTIONS]` | Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config. |
 |  | `devops k8s port-forward-status` | List active background Kubernetes port-forward daemons. |
 |  | `devops k8s port-forward-stop [OPTIONS]` | Terminate active background Kubernetes port-forward daemons. |
@@ -222,6 +223,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops docker push <image>` | Push a Docker image to a registry. |
 |  | `devops docker prune [OPTIONS]` | Remove unused containers, images, and networks. |
 |  | `devops docker stats [OPTIONS]` | Display live container CPU, memory, and network I/O statistics. |
+|  | `devops docker cache [OPTIONS]` | Introspect BuildKit multi-stage layer cache occupancy, reuse, and reclaimable space. |
 |  | `devops docker analyze-layers [OPTIONS] <image>` | Analyze container image layer efficiency and wasted space using Dive. |
 |  | `devops docker sandbox [OPTIONS] <command>` | Execute workload inside an isolated, disposable Docker container sandbox. |
 |  | `devops docker sign [OPTIONS] <image>` | Sign a container image using Sigstore Cosign (keyless or keyed). |
@@ -232,6 +234,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops grafana dashboards COMMAND [ARGS]...` | Grafana dashboard and alert management. |
 | **prometheus** | `devops prometheus query [OPTIONS] <expr>` | Execute an instant PromQL query. |
 |  | `devops prometheus query-range [OPTIONS] <expr>` | Execute a range PromQL query and summarise the result. |
+|  | `devops prometheus analyze [OPTIONS] <expr>` | Detect anomalies and project the trend of a metric series, computed locally. |
 |  | `devops prometheus rules` | List Prometheus recording and alerting rules. |
 |  | `devops prometheus targets` | List active Prometheus scrape targets. |
 | **argo** | `devops argo sync [OPTIONS] <name>` | Synchronize an ArgoCD application (or multi-cluster fleet when --fleet is passed). |
@@ -250,7 +253,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops config auth-headless <key> <token>` | Load secret tokens into ephemeral memory for headless CI environments lacking DBus. |
 |  | `devops config audit-stream <destination>` | Stream stored audit records to SIEM destination URL. |
 |  | `devops config audit-keys [OPTIONS]` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. |
-| **ci** | `devops ci test [OPTIONS]` | Run the pytest test suite in parallel leveraging all CPU cores. |
+| **ci** | `devops ci test [OPTIONS] <paths>` | Run the test suite, or only the tests covering the given source files. |
 |  | `devops ci coverage [OPTIONS]` | Run pytest with parallel code coverage analysis over src/. |
 |  | `devops ci lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 |  | `devops ci format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
@@ -276,6 +279,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops scan sbom [OPTIONS] <target>` | Generate Software Bill of Materials (SBOM) in CycloneDX, SPDX, or JSON format. |
 |  | `devops scan aibom [OPTIONS] <target>` | Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates. |
 |  | `devops scan fix [OPTIONS] <target>` | Remediate vulnerable dependencies via lockfile upgrades and optional git branch creation. |
+|  | `devops scan report [OPTIONS] <target>` | Run every registered scanner and report deduplicated, correlated findings. |
+|  | `devops scan sarif [OPTIONS] <document>` | Ingest a SARIF document from any tool and report it in the unified taxonomy. |
 | **ai** | `devops ai config [OPTIONS]` | Show or update AI provider configuration. |
 |  | `devops ai models` | List available models for the configured provider. |
 |  | `devops ai preload` | Preload configured model into VRAM across all configured Ollama servers. |
@@ -293,7 +298,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai pack-context [OPTIONS] <target_path>` | Pack and prune source code context to fit token budget while preserving signatures. |
 |  | `devops ai read [OPTIONS] <target_path>` | Inspect and read source code across 3 multi-scale focal zoom levels (Topology, Structural Outline, Deep Focal Window). |
 |  | `devops ai diagram [OPTIONS] <diagram_type>` | Generate visual Mermaid architecture topology or STRIDE threat modeling diagrams. |
-|  | `devops ai prompt-eval [OPTIONS]` | Benchmark persona prompt variations against verified review feedback datasets. |
+|  | `devops ai prompt-eval [OPTIONS]` | Measure the deterministic suppression layer against recorded review verdicts. |
 |  | `devops ai test-gen [OPTIONS] <target_file>` | Synthesize isolated pytest unit test suites for functions or source files. |
 |  | `devops ai chaos-model [OPTIONS]` | Model dependency chaos engineering suite simulating provider faults and validating local failovers. |
 |  | `devops ai quiesce [OPTIONS]` | Centralized emergency quiesce cleanly suspending active agent loops and background tasks. |
@@ -332,6 +337,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops release pr [OPTIONS]` | Create release branch, commit version bumps, and open a GitHub Release Pull Request. |
 |  | `devops release check [OPTIONS]` | Verify release readiness (version consistency, docs freshness, and CI quality gates). |
 |  | `devops release notes [OPTIONS]` | Print markdown release notes for a specified or current release version. |
+|  | `devops release sync-notes [OPTIONS]` | Republish GitHub release descriptions from CHANGELOG.md. |
 |  | `devops release changelog [OPTIONS]` | Compile and generate changelog entries from git commits or PR deliverables. |
 |  | `devops release tag [OPTIONS]` | Create release commit and annotated git tag. |
 |  | `devops release epic [OPTIONS] <version>` | Provision, correlate, and synchronize parent release tracking epics for milestones. |
@@ -368,6 +374,8 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops tf validate [OPTIONS] <directory>` | Validate the OpenTofu configuration files in a directory. |
 |  | `devops tf fmt [OPTIONS] <directory>` | Rewrites OpenTofu configuration files to canonical format. |
 |  | `devops tf status <directory>` | Show OpenTofu directory state, initialization status, and provider plugins. |
+|  | `devops tf graph [OPTIONS] <directory>` | Inspect the in-memory resource dependency graph and blast radius. |
+|  | `devops tf drift [OPTIONS] <directory>` | Compare declared configuration against recorded state. |
 |  | `devops tf deploy-cloud [OPTIONS]` | Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP. |
 |  | `devops tf lint [OPTIONS] <directory>` | Run TFLint static analysis on Terraform/OpenTofu configurations. |
 |  | `devops tf notify-plan [OPTIONS]` | Format and post structured, collapsible OpenTofu/Terraform plan diffs to PR comments. |
@@ -393,6 +401,9 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops vault get [OPTIONS] <path>` | Fetch secret value from Vault or OS Keyring fallback. |
 |  | `devops vault set [OPTIONS] <path> <key_values>` | Store secret key-value pairs in HashiCorp Vault KV-v2 engine. |
 |  | `devops vault sync [OPTIONS] <path>` | Synchronize secrets from Vault into OS Keyring for offline/local CLI operations. |
+|  | `devops vault login [OPTIONS]` | Authenticate with Vault natively via AppRole or the in-cluster ServiceAccount. |
+|  | `devops vault leases [OPTIONS]` | Inspect, renew, or revoke tracked Vault dynamic secret leases. |
+|  | `devops vault audit [OPTIONS]` | Show which provider satisfied each credential lookup in this session. |
 | **valkey** | `devops valkey ping [OPTIONS]` | Test connection and measure round-trip latency to the Valkey server. |
 |  | `devops valkey info [OPTIONS]` | Inspect server configuration, memory allocation, and operational metrics. |
 |  | `devops valkey stats [OPTIONS]` | Display quick diagnostic summary of server health, memory, and keys. |

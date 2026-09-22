@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.22] - 2026-09-22
+
+### Added
+- **Cluster-Native Service Addressing (`devops_cli.k8s.service_proxy`, `devops_cli.k8s.service_http`)**:
+  - Introduced the `k8s://namespace/service:port` scheme, resolving endpoints through the Kubernetes API server's Service proxy so the same configuration works on any cluster without a local port-forward (#369).
+  - Routed dashboard, Grafana, Prometheus, Jaeger, ArgoCD and Open WebUI endpoints through cluster-native addressing, and added `devops k8s configure-urls --addressing proxy` to record them (#370).
+  - Reached the Qdrant vector store through the cluster API rather than `localhost:6333`, making `devops ai rag query` work with no port-forward running (#379).
+- **Native In-Process Kubernetes Engine (`devops_cli.k8s.informer`, `devops_cli.k8s.service`)**:
+  - Replaced `kubectl` subprocess invocations with a dynamic informer and an in-process service client, with bounded FIFO caches and per-entry TTLs (#307, #336).
+- **Docker Engine API Client (`devops_cli.docker`)**:
+  - Routed every container, image, network, volume and registry operation through the Engine API socket instead of the `docker` binary (#308, #348).
+- **Native Argo Custom Resource Manipulation (`devops_cli.argo`)**:
+  - Manipulated Argo Workflows and ArgoCD custom resources directly via the Kubernetes API, with localized name validation (#309, #351).
+- **In-Process Terraform & OpenTofu Analysis (`devops_cli.tf.analysis`)**:
+  - Parsed HCL and state in-process to build dependency graphs and detect drift without invoking the Terraform binary (#310, #352).
+- **Valkey Connection Pooling & Unified Cache Tiers (`devops_cli.valkey`)**:
+  - Pooled connections with idle expiry, batched commands, and consolidated the separate caching tiers behind one client (#312, #356).
+- **Hybrid Retrieval & Vector Quantization (`devops_cli.ai.rag`)**:
+  - Fused BM25 lexical ranking with dense embeddings and quantized stored vectors, reducing index size while preserving recall (#313, #357).
+- **Client-Side Prometheus Analysis (`devops_cli.prometheus`)**:
+  - Validated PromQL locally before dispatch and analysed returned series client-side, removing round trips for malformed queries (#314, #358).
+- **Declarative Grafana Dashboards (`devops_cli.grafana`)**:
+  - Built dashboards from declarative definitions and linted them statically, catching malformed panels before upload (#315, #359).
+- **Reactive TUI Dashboard (`devops_cli.ui`)**:
+  - Refreshed each dashboard domain on its own worker thread and virtualized log tailing behind a bounded buffer, so a fast producer cannot outrun the terminal (#317, #361).
+- **Unified SARIF Security Engine (`devops_cli.security`)**:
+  - Consolidated every scanner behind a single SARIF 2.1.0 pipeline with shared normalization and suppression (#321, #363).
+- **Secret Resolution & Vault Lease Lifecycle (`devops_cli.security`)**:
+  - Unified credential resolution across keyring, environment and Vault, and managed lease renewal and revocation explicitly (#311, #353).
+- **Structured AI Workflows, Prompt Caching & Token Governance (`devops_cli.ai`)**:
+  - Implemented Pydantic AI structured workflows, a prompt cache, and a token-bucket governor that carries overdraft as debt so the long-run rate holds (#320, #341).
+- **FastMCP In-Process Execution (`devops_cli.ai.mcp`)**:
+  - Executed MCP tools in-process with dispatching and resource subscriptions rather than spawning a server (#318, #338).
+- **GitHub GraphQL Consolidation & ETag Caching (`devops_cli.github`)**:
+  - Batched GraphQL queries, cached responses by ETag, and paced requests against live quota rather than a fixed window (#316, #337).
+- **Release-Branch Issue Closure & Project Automation Inspection (`devops_cli.github.issue_closure`)**:
+  - Added `devops gh issues close-merged`, closing the issues a pull request declared when it merges into a release branch -- GitHub honours closing keywords only on the default branch, so those references were previously inert (#342, #366).
+  - Added `devops gh project workflows list`, reporting which built-in project automations are enabled and what each should be configured to do (#343, #381).
+- **Output Format Join Point & Terminal Capability Negotiation (`devops_cli.output`)**:
+  - Added `emit_serialized`, rendering any payload as JSON or YAML from one place, and made YAML output portable rather than Python-tagged (#391).
+  - Restored Rich's colour negotiation, so `NO_COLOR`, a non-TTY destination and `TERM=dumb` take effect (#391).
+- **DevContainer Tooling (`devops_cli.commands.devcontainer`)**:
+  - Added the Claude CLI and VS Code extension to the devcontainer configuration and lifecycle (#346, #347).
+
+### Fixed & Hardened
+- **Trace Context Propagation (`devops_cli.telemetry`)**: Injected W3C `traceparent` into child process environments; the return value of the injector had been discarded at both call sites, so no child ever received a parent span (#319, #362).
+- **SSH Host Key Verification (`devops_cli.crypto.known_hosts`)**: Verified host keys against `known_hosts` before trusting them, including hashed entries, `@revoked` markers and `[host]:port` forms (#322, #364).
+- **CI Cache Correctness (`devops_cli.ci.cache`)**: Made the workspace fingerprint content-addressed, so staging or committing a file no longer invalidates a verified tree and the pre-push gate can reuse the run that preceded it -- 3m51s to 8.7s (#375). A passing run is now recorded even when `--no-cache` skipped reading one (#389).
+- **Secret Masking (`devops_cli.security.sanitizer`)**: Masked credentials rather than sentences mentioning them; the keyword rule had rewritten "unify secret resolution" to "unify `<masked-token>`", and that corruption reached published release descriptions (#392).
+- **Kubernetes Context Handling (`devops_cli.k8s.context`)**: Honoured the configured cluster context when connecting, and stopped the devcontainer post-start script overwriting it.
+- **Dry-Run Semantics (`devops_cli.main`)**: Honoured an exported `DEVOPS_CLI_DRY_RUN` instead of discarding it, without letting a `--dry-run` flag latch for the life of the process (#388).
+- **Terminal UI (`devops_cli.ui`)**: Corrected the Docker, telemetry, Valkey and review panels (#368), and made the dashboard quit promptly instead of hanging on an open log stream (#372).
+- **Template Rendering (`devops_cli.core.templating`)**: Encoded values as JSON rather than pasting them between quotes, so a value containing a quote or newline cannot produce malformed output (#378).
+- **Manifest Validation (`devops_cli.k8s`)**: Validated only actual manifests, discriminating on `apiVersion` rather than `kind`, and loosened an over-strict ArgoCD probe (#376).
+- **Review Loop Calibration (`devops_cli.ai.review`)**: Grounded verification in tooling rather than model agreement -- a claimed `None` dereference is now settled by `mypy --strict`, a placeholder advisory identifier invalidates a dependency finding, and a claim against an uninstallable Python is rejected against `requires-python` (#349, #350, #371, #380).
+- **Review Benchmarking Honesty (`devops_cli.ai.prompt_eval`)**: `devops ai prompt-eval` had reported accuracy 1.0 and a 0.0 false positive rate on every run without invoking a model. It now replays the deterministic suppression layer against recorded verdicts and reports both directions separately (#385).
+- **AI Slot Leasing (`devops_cli.ai.client`)**: Removed arbitrary defaults from network slot leasing and raised file size limits to 50 MiB (#344, #345).
+- **Continuous Integration Workflows**: Dropped an invalid `--depth=0` from devcontainer change detection (#355) and rebuilt the devcontainer image when the build workflow itself changes.
+
+### Changed & Improved
+- **HTTP Connection Reuse (`devops_cli.http.pool`)**: Shared pooled clients with HTTP/2 and bounded keepalive instead of constructing one per request -- 1.5x faster on a LAN endpoint, 4.1x on a WAN endpoint, and a proxied cluster request from 34ms to 13ms (#374).
+- **In-Memory Ignore Evaluation (`devops_cli.core.gitignore`)**: Evaluated git ignore rules in-process against `pathspec`, including nested `.gitignore` files and `.git/info/exclude`, rather than spawning `git check-ignore` per file -- 39.5ms to 0.73ms per file, a 54x reduction (#373).
+- **Merged Pull Request Sweeps (`devops_cli.github.issue_closure`)**: Read pull request bodies and issue states in a fixed number of calls rather than one subprocess each -- 170 subprocesses to 2, and 76s to 6.4s over 100 merged pull requests (#382).
+- **Quality Gate Execution (`devops_cli.ci`)**: Parallelized the gate and narrowed test selection to the sources a change touches (#354).
+- **AI Prompt Efficiency (`devops_cli.ai.tasks`)**: Compressed the two hot-path review prompts from 4785 to 3244 tokens with every decision rule preserved and pinned by tests, and scoped host-specific rules so they no longer apply when reviewing other repositories (#386).
+- **Agent Instructions (`AGENTS.md`)**: Recorded that hard wrapping belongs in source files rather than emitted output (#384), and stated the token and inference cost of a `devops ai` call with a one-at-a-time concurrency cap (#390).
+- **Roadmap**: Scheduled AI review verification integrity work (#360), OCI container image packaging and GHCR metadata (#333), and prompt benchmarking with synthetic corpora for evaluation and fuzzing (#387).
+
 ## [0.2.21] - 2026-09-19
 
 ### Added

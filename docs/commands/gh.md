@@ -321,6 +321,28 @@ devops gh project template [OPTIONS]
 |---|---|---|---|
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 
+### `devops gh project workflows`
+
+```bash
+devops gh project workflows COMMAND [ARGS]...
+```
+
+#### `devops gh project workflows list`
+
+**List built-in project workflows, enabled statuses, and configuration links.**
+
+```bash
+devops gh project workflows list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--project-number`, `-n` | `integer` | - | GitHub Projects v2 board number |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ---
 
 ## `devops gh views`
@@ -583,6 +605,25 @@ devops gh issues sync-roadmap [OPTIONS]
 | `--milestone`, `-m` | `string` | - | Filter by release milestone (e.g. v0.2.20) |
 | `--dry-run` | `boolean` | - | Preview issue and task creation without modifying remote state |
 | `--limit`, `-L` | `integer` | `20` | Maximum issues to create |
+| `--repo`, `-R` | `string` | - | Target repository |
+
+### `devops gh issues close-merged`
+
+**Close issues linked by merged pull requests. GitHub only honours closing keywords when a pull request merges into the default branch, so pull requests targeting a release branch leave their issues open.**
+
+```bash
+devops gh issues close-merged [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--pr`, `-p` | `integer` | - | Close issues for this single pull request instead of sweeping. |
+| `--base`, `-b` | `string` | - | Only consider merged pull requests with this base branch. |
+| `--limit`, `-L` | `integer` | `100` | Maximum merged pull requests to examine. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 ---

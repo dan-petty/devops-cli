@@ -18,6 +18,8 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_MAX_RETRIES,
     DEFAULT_QDRANT_DISTANCE,
+    DEFAULT_QDRANT_QUANTIZATION_ENABLED,
+    DEFAULT_QDRANT_QUANTIZATION_QUANTILE,
     DEFAULT_QDRANT_URL,
     DEFAULT_RAG_TOP_K,
 )
@@ -102,6 +104,23 @@ def _log_retry_warning(op_desc: str, attempt: int, max_attempts: int, exc: Excep
     time.sleep(0.5 * attempt)
 
 
+def _build_quantization_config(enabled: bool) -> Any:
+    """Build the scalar quantization config for a collection, or None to store raw vectors.
+
+    Quantized vectors are kept in RAM while the originals stay on disk, so search touches
+    the compact representation and only rescores candidates against full precision.
+    """
+    if not enabled:
+        return None
+    return qmodels.ScalarQuantization(
+        scalar=qmodels.ScalarQuantizationConfig(
+            type=qmodels.ScalarType.INT8,
+            quantile=DEFAULT_QDRANT_QUANTIZATION_QUANTILE,
+            always_ram=True,
+        )
+    )
+
+
 class QdrantClient:
     """Client for Qdrant vector database using official Qdrant Python SDK."""
 
@@ -131,8 +150,14 @@ class QdrantClient:
         self.allow_private_network = allow_private_network
         self.timeout = max(timeout, 60.0)
 
-        # Validate URL for SSRF protection
-        validate_service_url(self.base_url, "Qdrant", allow=self.allow_private_network)
+        # Validate URL for SSRF protection. A k8s:// address names a Service rather than a
+        # host, so there is no host here to validate; what is actually dialled is the API
+        # server from the kubeconfig, which is trusted by definition -- if it were not, the
+        # credentials in that file would already be the larger problem.
+        from devops_cli.k8s.service_proxy import is_service_url
+
+        if not is_service_url(self.base_url):
+            validate_service_url(self.base_url, "Qdrant", allow=self.allow_private_network)
 
         self._client: NativeQdrantClient | None = None
         self._last_alive: tuple[float, bool] | None = None
@@ -141,13 +166,41 @@ class QdrantClient:
 
     def _get_client(self, force_refresh: bool = False) -> NativeQdrantClient:
         if self._client is None or force_refresh:
-            self._client = NativeQdrantClient(
+            self._client = self._build_client()
+        return self._client
+
+    def _build_client(self) -> NativeQdrantClient:
+        """Construct the Qdrant client for the configured address.
+
+        A `k8s://` address is reached through the Kubernetes API server rather than a
+        localhost port-forward, which is what lets the same configuration work on any
+        cluster with no background tunnel to keep alive. The client accepts a base URL and
+        a path prefix separately, which is exactly the shape of a proxy endpoint, so the
+        credentials and TLS material from the kubeconfig can be handed to a library this
+        project does not control.
+        """
+        from devops_cli.k8s.service_proxy import is_service_url
+
+        if not is_service_url(self.base_url):
+            return NativeQdrantClient(
                 url=self.base_url,
                 api_key=self.api_key,
                 timeout=int(self.timeout),
                 check_compatibility=False,
             )
-        return self._client
+
+        from devops_cli.k8s.service_proxy import parse_service_url, resolve_proxy_connection
+
+        connection = resolve_proxy_connection(parse_service_url(self.base_url))
+        return NativeQdrantClient(
+            url=connection.base_url,
+            prefix=connection.prefix,
+            headers=connection.headers,
+            verify=connection.ssl_context,
+            api_key=self.api_key,
+            timeout=int(self.timeout),
+            check_compatibility=False,
+        )
 
     def _execute_with_retry(
         self,
@@ -175,12 +228,11 @@ class QdrantClient:
                 return status
 
         try:
-            client = self._client or NativeQdrantClient(
-                url=self.base_url,
-                api_key=self.api_key,
-                timeout=1,
-                check_compatibility=False,
-            )
+            # Built through the same path as every other request. Constructing a client
+            # directly from base_url here bypassed the handling for cluster-service
+            # addresses, so a store that could list its collections still reported itself
+            # as unreachable.
+            client = self._client or self._build_client()
             client.get_collections()
             self._last_alive = (now, True)
             return True
@@ -230,8 +282,14 @@ class QdrantClient:
         name: str,
         vector_size: int,
         distance: str = DEFAULT_QDRANT_DISTANCE,
+        quantize: bool = DEFAULT_QDRANT_QUANTIZATION_ENABLED,
     ) -> bool:
-        """Create collection if it does not already exist, recreating if dimension changed."""
+        """Create a collection if absent, recreating it when the dimension changed.
+
+        `quantize` enables scalar quantization, which stores vectors as int8 rather than
+        float32. That trades a small amount of recall for roughly a quarter of the memory
+        footprint, which is what keeps a large index viable on a workstation.
+        """
         if self._verified_collections.get(name) == vector_size:
             return True
 
@@ -256,6 +314,7 @@ class QdrantClient:
                 lambda c: c.create_collection(
                     collection_name=name,
                     vectors_config=qmodels.VectorParams(size=vector_size, distance=dist_enum),
+                    quantization_config=_build_quantization_config(quantize),
                 ),
                 f"create_collection({name})",
             )

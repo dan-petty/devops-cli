@@ -12,6 +12,7 @@ from devops_cli.ai.controller.models import (
     QuiesceState,
     SuspendedTask,
 )
+from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_AI_FALLBACK_MODEL,
     DEFAULT_AI_FALLBACK_PROVIDER,
@@ -20,13 +21,12 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
-    format_json,
     print_error,
     print_info,
     print_success,
     print_table,
-    write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, normalize_format
 
 
 def _build_status_badge(state: QuiesceState) -> str:
@@ -118,8 +118,9 @@ def run_quiesce_cmd(
     manager = ConstellationManager()
     res = manager.quiesce(reason=reason, drain_timeout=drain_timeout, dry_run=dry_run)
 
-    if output_format.lower() == "json":
-        write_stdout(format_json(res.model_dump()) + "\n")
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(res.model_dump(), resolved)
         return
 
     badge = _build_status_badge(res.state)
@@ -155,8 +156,9 @@ def run_failover_cmd(
         dry_run=dry_run,
     )
 
-    if output_format.lower() == "json":
-        write_stdout(format_json(res.model_dump()) + "\n")
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(res.model_dump(), resolved)
         return
 
     badge = _build_status_badge(res.state)
@@ -185,8 +187,9 @@ def run_resume_cmd(
     manager = ConstellationManager()
     res = manager.resume(dry_run=dry_run)
 
-    if output_format.lower() == "json":
-        write_stdout(format_json(res.model_dump()) + "\n")
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(res.model_dump(), resolved)
         return
 
     badge = _build_status_badge(res.state)
@@ -206,8 +209,9 @@ def run_constellation_cmd(
     manager = ConstellationManager()
     status = manager.status()
 
-    if output_format.lower() == "json":
-        write_stdout(format_json(status.model_dump()) + "\n")
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(status.model_dump(), resolved)
         return
 
     _render_constellation_status_table(status)

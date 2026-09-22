@@ -87,22 +87,41 @@ def test_sync_fleet_engine_partial_failure() -> None:
         assert "admission webhook" in target.message
 
 
-def test_rollouts_promote_and_abort() -> None:
-    """Verify rollout promotion and abort helpers execute kubectl rollouts commands."""
+def test_rollouts_promote_abort_and_restart_patch_control_plane_fields() -> None:
+    """Rollout helpers patch the control-plane fields the rollouts controller watches."""
     from devops_cli.argo.rollouts import abort_rollout, promote_rollout, restart_rollout
 
-    with patch("devops_cli.argo.rollouts.run_subprocess") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="rollout promoted")
+    mock_api = MagicMock()
+    mock_api.patch_namespaced_custom_object.return_value = {"metadata": {"name": "frontend"}}
+
+    with patch("devops_cli.argo.crd.ArgoCRDService._api", return_value=mock_api):
         assert promote_rollout("frontend", namespace="web", full=True) is True
-        assert "--full" in mock_run.call_args[0][0]
+        promote_body = mock_api.patch_namespaced_custom_object.call_args.kwargs["body"]
+        assert promote_body["status"] == {
+            "pauseConditions": None,
+            "controllerPause": False,
+            "promoteFull": True,
+        }
 
-        mock_run.return_value = MagicMock(returncode=0, stdout="rollout aborted")
         assert abort_rollout("frontend", namespace="web") is True
-        assert "abort" in mock_run.call_args[0][0]
+        assert mock_api.patch_namespaced_custom_object.call_args.kwargs["body"] == {
+            "status": {"abort": True}
+        }
 
-        mock_run.return_value = MagicMock(returncode=0, stdout="rollout restarted")
         assert restart_rollout("frontend", namespace="web") is True
-        assert "restart" in mock_run.call_args[0][0]
+        restart_body = mock_api.patch_namespaced_custom_object.call_args.kwargs["body"]
+        assert "restartAt" in restart_body["spec"]
+
+
+def test_rollout_mutation_failure_returns_false() -> None:
+    """A rejected Rollout patch is reported as failure rather than raising."""
+    from devops_cli.argo.rollouts import promote_rollout
+
+    mock_api = MagicMock()
+    mock_api.patch_namespaced_custom_object.side_effect = RuntimeError("apiserver unavailable")
+
+    with patch("devops_cli.argo.crd.ArgoCRDService._api", return_value=mock_api):
+        assert promote_rollout("frontend", namespace="web") is False
 
 
 def test_evaluate_rollout_gate_passed() -> None:
@@ -333,14 +352,14 @@ def test_execute_cluster_sync_missing_url() -> None:
 
 
 def test_rollout_dry_run_modes() -> None:
-    """Verify promote, abort, and restart return True without subprocess execution under dry_run."""
+    """Verify promote, abort, and restart return True without reaching the Kubernetes API."""
     from devops_cli.argo.rollouts import abort_rollout, promote_rollout, restart_rollout
 
-    with patch("devops_cli.argo.rollouts.run_subprocess") as mock_run:
+    with patch("devops_cli.argo.crd.ArgoCRDService._api") as mock_api:
         assert promote_rollout("web", dry_run=True) is True
         assert abort_rollout("web", dry_run=True) is True
         assert restart_rollout("web", dry_run=True) is True
-        mock_run.assert_not_called()
+        mock_api.assert_not_called()
 
 
 def test_fetch_metric_value_branches() -> None:

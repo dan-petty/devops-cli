@@ -998,3 +998,144 @@ def test_query_gh_milestone_issues_all_states_and_standalone_prs(sample_project_
         milestone="v0.2.21",
     )
     assert ("--milestone" in pr_cmd, pr_cmd[pr_cmd.index("--milestone") + 1]) == (True, "v0.2.21")
+
+
+# =============================================================================
+# Changelog compilation
+# =============================================================================
+
+
+def test_a_squash_merge_and_its_original_subject_are_one_entry() -> None:
+    """A squash merge appends its pull request number; the body often keeps the original.
+
+    Comparing whole lines missed the pair, so the same change was listed twice -- once as
+    "... port-forwarding (#369)" and once bare.
+    """
+    from devops_cli.commands.release import _extract_raw_commit_lines
+
+    log = (
+        "feat(k8s): address cluster services without localhost port-forwarding (#369)\n"
+        "feat(k8s): address cluster services without localhost port-forwarding\n"
+    )
+    assert _extract_raw_commit_lines(log) == [
+        "feat(k8s): address cluster services without localhost port-forwarding (#369)"
+    ]
+
+
+def test_the_entry_keeps_the_pull_request_reference() -> None:
+    """The reference is how a reader gets from the changelog to the change."""
+    from devops_cli.commands.release import _extract_raw_commit_lines
+
+    log = "fix(ci): drop the invalid --depth=0 (#355)\nfix(ci): drop the invalid --depth=0\n"
+    assert "(#355)" in _extract_raw_commit_lines(log)[0]
+
+
+def test_commit_body_prose_is_not_a_changelog_entry() -> None:
+    """The log is read as full bodies, so every paragraph of a commit message arrives too.
+
+    Those were filed under "Other Changes", and whole explanatory paragraphs reached a
+    release description as bullet points.
+    """
+    from devops_cli.commands.release import _extract_raw_commit_lines
+
+    log = (
+        "fix(tui): correct the Docker, telemetry and Valkey panels (#368)\n"
+        "Docker: the panel listed only running containers, so it disagreed with the CLI.\n"
+        "Telemetry: the panel read the in-process metric registry, which is empty.\n"
+        "Fixed:\n"
+    )
+    assert _extract_raw_commit_lines(log) == [
+        "fix(tui): correct the Docker, telemetry and Valkey panels (#368)"
+    ]
+
+
+def test_a_colon_does_not_make_a_line_a_commit_subject() -> None:
+    """`word:` matches ordinary prose, which is how "kubeconfig: selecting one that does
+    not exist" became an entry. The type has to be one the project uses."""
+    from devops_cli.commands.release import _is_conventional_subject
+
+    assert [
+        _is_conventional_subject(line)
+        for line in (
+            "feat(k8s): address cluster services",
+            "fix: a thing",
+            "kubeconfig: selecting one that does not exist breaks kubectl",
+            'http://localhost:6333" while Qdrant was running healthily',
+        )
+    ] == [True, True, False, False]
+
+
+def test_a_repository_without_conventional_commits_still_gets_entries() -> None:
+    """Filtering on a convention the target does not follow would produce nothing at all."""
+    from devops_cli.commands.release import _extract_raw_commit_lines
+
+    log = "Added a retry around the upload\nRemoved the unused helper\n"
+    assert len(_extract_raw_commit_lines(log)) == 2
+
+
+def test_release_commits_are_excluded() -> None:
+    """A release commit records the release; it is not one of its changes."""
+    from devops_cli.commands.release import _extract_raw_commit_lines
+
+    log = "feat(release): v0.2.22 (#335)\nfix(ci): a real change (#400)\n"
+    assert _extract_raw_commit_lines(log) == ["fix(ci): a real change (#400)"]
+
+
+def test_update_fills_a_section_that_already_has_an_entry(tmp_path: Path) -> None:
+    """Population ran only when the section was empty.
+
+    A section holding one entry kept one entry and had only its date refreshed, so
+    `--update` reported success while the release stayed unwritten: v0.2.22 carried a
+    single line against fifty-two commits.
+    """
+    from devops_cli.commands.release import _build_changelog_section
+
+    with patch(
+        "devops_cli.commands.release._extract_git_commit_notes",
+        return_value="### Changes in v1.0.0\n\n### Added\n- feat(a): one (#1)\n- feat(b): two (#2)\n",
+    ):
+        section = _build_changelog_section(
+            tmp_path, "1.0.0", "2026-09-22", existing_notes="### Added\n- feat(c): kept (#3)\n"
+        )
+    assert [marker in section for marker in ("kept (#3)", "one (#1)", "two (#2)")] == [
+        True,
+        True,
+        True,
+    ]
+
+
+def test_an_entry_already_written_is_not_repeated(tmp_path: Path) -> None:
+    """Re-running must not grow the section, or the command is unusable more than once."""
+    from devops_cli.commands.release import _build_changelog_section
+
+    with patch(
+        "devops_cli.commands.release._extract_git_commit_notes",
+        return_value="### Changes in v1.0.0\n\n### Added\n- feat(a): one (#1)\n",
+    ):
+        section = _build_changelog_section(
+            tmp_path, "1.0.0", "2026-09-22", existing_notes="### Added\n- feat(a): one (#1)\n"
+        )
+    assert section.count("feat(a): one") == 1
+
+
+def test_a_hand_written_entry_survives_recompilation(tmp_path: Path) -> None:
+    """The file wins over the compiler, so an edited description is not reverted."""
+    from devops_cli.commands.release import _merge_changelog_entries
+
+    merged = _merge_changelog_entries(
+        ["feat(a): a carefully worded description (#1)"],
+        ["feat(a): a carefully worded description"],
+    )
+    assert merged == ["feat(a): a carefully worded description (#1)"]
+
+
+def test_an_empty_section_is_still_populated(tmp_path: Path) -> None:
+    """The case that did work must keep working."""
+    from devops_cli.commands.release import _build_changelog_section
+
+    with patch(
+        "devops_cli.commands.release._extract_git_commit_notes",
+        return_value="### Changes in v1.0.0\n\n### Added\n- feat(a): one (#1)\n",
+    ):
+        section = _build_changelog_section(tmp_path, "1.0.0", "2026-09-22", existing_notes=None)
+    assert "feat(a): one (#1)" in section

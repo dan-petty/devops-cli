@@ -145,6 +145,14 @@ def _cluster_reachable(context: str | None = None) -> bool:
     """Return True if the target Kubernetes cluster (or Minikube) is reachable."""
     effective_context = resolve_effective_context(context)
 
+    try:
+        from devops_cli.k8s.service import KubernetesService
+
+        if KubernetesService.get_instance().is_cluster_reachable(context=effective_context):
+            return True
+    except Exception:
+        pass
+
     cmd = ["kubectl", "cluster-info", "--request-timeout=5s"]
     if effective_context:
         cmd.extend(["--context", effective_context])

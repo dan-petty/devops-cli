@@ -7,6 +7,8 @@ from typing import Final
 
 import typer
 
+from devops_cli.config.constants import CONST_DASHBOARD_DOMAINS
+from devops_cli.config.defaults import DEFAULT_DASHBOARD_REFRESH_SECONDS
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import HELP
 from devops_cli.output import (
@@ -25,17 +27,13 @@ from devops_cli.ui.data_providers import (
     fetch_valkey_status,
 )
 
+# Derived from the configured domains so a new tab cannot be reachable in the TUI while
+# remaining unselectable from the command line.
 TAB_NUM_MAP: Final[dict[str, str]] = {
-    "1": "tab-k8s",
-    "2": "tab-docker",
-    "3": "tab-telemetry",
-    "4": "tab-ai",
-    "5": "tab-valkey",
-    "k8s": "tab-k8s",
-    "docker": "tab-docker",
-    "telemetry": "tab-telemetry",
-    "ai": "tab-ai",
-    "valkey": "tab-valkey",
+    **{
+        str(index): f"tab-{domain}" for index, domain in enumerate(CONST_DASHBOARD_DOMAINS, start=1)
+    },
+    **{domain: f"tab-{domain}" for domain in CONST_DASHBOARD_DOMAINS},
 }
 
 app = new_typer(
@@ -217,7 +215,7 @@ def main_dashboard(
         help=HELP.dashboard.summary,
     ),
     refresh_interval: int = typer.Option(
-        5,
+        DEFAULT_DASHBOARD_REFRESH_SECONDS,
         "--refresh-interval",
         "-r",
         help=HELP.dashboard.refresh_interval,

@@ -90,3 +90,61 @@ devops vault sync [OPTIONS] <path>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
+
+## `devops vault login`
+
+**Authenticate with Vault natively via AppRole or the in-cluster ServiceAccount.**
+
+```bash
+devops vault login [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--method`, `-m` | `string` | `approle` | Authentication method: approle or kubernetes |
+| `--role` | `string` | - | Vault role name (kubernetes method) |
+| `--role-id` | `string` | - | AppRole role_id |
+| `--secret-id` | `string` | - | AppRole secret_id |
+| `--store`, `--no-store` | `boolean` | `True` | Persist the issued token to the OS keyring |
+
+---
+
+## `devops vault leases`
+
+**Inspect, renew, or revoke tracked Vault dynamic secret leases.**
+
+```bash
+devops vault leases [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--renew` | `boolean` | - | Renew every tracked lease nearing expiry |
+| `--revoke` | `string` | - | Revoke a single lease by id |
+
+---
+
+## `devops vault audit`
+
+**Show which provider satisfied each credential lookup in this session.**
+
+Show which provider satisfied each credential lookup in this session.
+
+The trail records the logical secret name and the answering provider only; secret
+values are never stored or rendered.
+
+```bash
+devops vault audit [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Emit the audit trail as JSON |
+
+---

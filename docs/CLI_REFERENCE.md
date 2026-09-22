@@ -349,6 +349,7 @@ devops devcontainer init [OPTIONS] <repo_path>
 | `--python` | `string` | `3.14` | Python version for base template. |
 | `--image`, `-i` | `string` | - | Base container image (defaults to published devops-cli image). |
 | `--published`, `-p` | `boolean` | `True` | Use published GHCR image (defaults to True). |
+| `--minikube`, `--no-minikube` | `boolean` | `True` | Install the kubectl, helm and minikube devcontainer feature. |
 | `--home-volume` | `string` | - | Custom volume name for /home/vscode (defaults to `<project_name>-home`). |
 | `--force`, `-f` | `boolean` | - | Overwrite existing devcontainer.json and configurations. |
 
@@ -746,6 +747,33 @@ devops k8s configure-urls [OPTIONS]
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--addressing`, `-a` | `string` | `nodeport` | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward. |
+
+### `devops k8s service-url`
+
+**Show, or fetch from, a cluster service address that needs no port-forward.**
+
+```bash
+devops k8s service-url [OPTIONS] <service>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<service>` | `string` | Yes | Service name to address through the Kubernetes API server. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+| `--port`, `-p` | `string` | `http` | Service port name or number (a Service may expose several). |
+| `--path` | `string` | `` | Request path appended to the service address. |
+| `--tls` | `boolean` | - | The service speaks HTTPS behind the proxy. |
+| `--fetch` | `boolean` | - | Fetch the address and print the JSON response instead of the address. |
+| `--context`, `-c` | `string` | - | Target context name to switch to. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops k8s port-forward`
 
@@ -1227,6 +1255,22 @@ devops docker stats [OPTIONS]
 | `--interval`, `-i` | `float` | `2.0` | Auto-refresh polling interval in seconds. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops docker cache`
+
+**Introspect BuildKit multi-stage layer cache occupancy, reuse, and reclaimable space.**
+
+```bash
+devops docker cache [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--prune` | `boolean` | - | Reclaim unused BuildKit build cache records after reporting. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops docker analyze-layers`
 
 **Analyze container image layer efficiency and wasted space using Dive.**
@@ -1433,6 +1477,31 @@ devops grafana dashboards sync [OPTIONS]
 |---|---|---|---|
 | `--dir`, `-d` | `path` | - | Directory path containing dashboard definitions. |
 
+#### `devops grafana dashboards lint`
+
+**Statically check dashboard JSON for layout, query, and binding defects.**
+
+Statically check dashboard JSON for layout, query, and binding defects.
+
+Catches overlapping panels, duplicate ids, unbound datasources, and malformed PromQL
+before a dashboard reaches Grafana, where the only symptom is a blank or wrong panel.
+
+```bash
+devops grafana dashboards lint [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `path` | No | Dashboard JSON file or directory to lint. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ---
 
 ## devops prometheus
@@ -1480,6 +1549,29 @@ devops prometheus query-range [OPTIONS] <expr>
 | `--start`, `-s` | `string` | `1h` | Start: duration ago (e.g. 1h) or Unix ts. |
 | `--end`, `-e` | `string` | - | Query range end timestamp or relative duration. |
 | `--step` | `string` | `60s` | Query resolution step interval. |
+
+### `devops prometheus analyze`
+
+**Detect anomalies and project the trend of a metric series, computed locally.**
+
+```bash
+devops prometheus analyze [OPTIONS] <expr>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<expr>` | `string` | Yes | PromQL expression. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--start`, `-s` | `string` | `1h` | Start: duration ago (e.g. 1h) or Unix ts. |
+| `--step` | `string` | `60s` | Query resolution step interval. |
+| `--threshold`, `-t` | `float` | `3.0` | Z-score threshold before a sample is reported as anomalous. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ### `devops prometheus rules`
 
@@ -2138,11 +2230,22 @@ Run tests, linting, formatting, and type-checks.
 
 ### `devops ci test`
 
-**Run the pytest test suite in parallel leveraging all CPU cores.**
+**Run the test suite, or only the tests covering the given source files.**
+
+Run the test suite, or only the tests covering the given source files.
+
+Passing paths narrows the run to the tests that import or conventionally cover them,
+which is what makes this usable as a pre-commit hook on staged files.
 
 ```bash
-devops ci test [OPTIONS]
+devops ci test [OPTIONS] <paths>
 ```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<paths>` | `path` | No | Source or test files to verify. Narrows the run to covering tests; omit to run the full suite. |
 
 **Options:**
 
@@ -2152,6 +2255,7 @@ devops ci test [OPTIONS]
 | `-k` | `string` | - | Filter tests by keyword expression. |
 | `-x` | `boolean` | - | Stop after first failure. |
 | `-n`, `--numprocesses` | `string` | `auto` | Number of parallel worker processes. |
+| `--fallback`, `--no-fallback` | `boolean` | `True` | Run the full suite when a changed source has no covering tests, rather than reporting success without verifying it. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ci coverage`
@@ -2593,6 +2697,57 @@ devops scan fix [OPTIONS] <target>
 | `--create-branch`, `-b` | `boolean` | - | Create a git topic branch for the remediation |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops scan report`
+
+**Run every registered scanner and report deduplicated, correlated findings.**
+
+```bash
+devops scan report [OPTIONS] <target>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<target>` | `path` | No | Target directory or file to scan with all registered scanners. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--scanner`, `-s` | `string` | - | Limit the run to these scanners (repeatable). Defaults to all registered. |
+| `--sarif` | `path` | - | Write findings to this path as a SARIF 2.1.0 document. |
+| `--min-severity` | `string` | - | Drop findings below this severity (CRITICAL|HIGH|MEDIUM|LOW|INFO). |
+| `--suppress` | `path` | - | Suppression policy file; inherited policies are resolved via 'extends'. |
+| `--show-suppressed` | `boolean` | - | List findings hidden by the suppression policy and the rule that hid them. |
+| `--fail-on` | `string` | - | Exit non-zero when a finding at or above this severity survives suppression. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops scan sarif`
+
+**Ingest a SARIF document from any tool and report it in the unified taxonomy.**
+
+```bash
+devops scan sarif [OPTIONS] <document>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<document>` | `path` | Yes | SARIF document to ingest, from this or any other SARIF-emitting tool. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--min-severity` | `string` | - | Drop findings below this severity (CRITICAL|HIGH|MEDIUM|LOW|INFO). |
+| `--suppress` | `path` | - | Suppression policy file; inherited policies are resolved via 'extends'. |
+| `--show-suppressed` | `boolean` | - | List findings hidden by the suppression policy and the rule that hid them. |
+| `--fail-on` | `string` | - | Exit non-zero when a finding at or above this severity survives suppression. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ---
 
 ## devops ai
@@ -2924,7 +3079,7 @@ devops ai diagram [OPTIONS] <diagram_type>
 
 ### `devops ai prompt-eval`
 
-**Benchmark persona prompt variations against verified review feedback datasets.**
+**Measure the deterministic suppression layer against recorded review verdicts.**
 
 ```bash
 devops ai prompt-eval [OPTIONS]
@@ -2934,7 +3089,7 @@ devops ai prompt-eval [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--persona`, `-p` | `string` | `devsecops` | Evaluate and benchmark code review quality against feedback dataset. |
+| `--persona`, `-p` | `string` | `devsecops` | Persona whose recorded findings to measure the layer against. |
 | `--dataset`, `-d` | `path` | - | Path to feedback dataset jsonl. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -4603,6 +4758,30 @@ devops release notes [OPTIONS]
 | `--raw` | `boolean` | - | Output raw string without formatting or shell escapes. |
 | `--root`, `-r` | `path` | - | Project repository root directory. |
 
+### `devops release sync-notes`
+
+**Republish GitHub release descriptions from CHANGELOG.md.**
+
+Republish GitHub release descriptions from CHANGELOG.md.
+
+A release body is written once at publish time. Nothing in the repository could change
+it afterwards, so a release published before the workflow disabled GitHub's generated
+summary keeps carrying it, and an edited changelog entry never reaches the release it
+describes.
+
+```bash
+devops release sync-notes [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--version`, `-v` | `string` | - | Target version string. |
+| `--all` | `boolean` | - | Sync every published release rather than one version. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--root`, `-r` | `path` | - | Project repository root directory. |
+
 ### `devops release changelog`
 
 **Compile and generate changelog entries from git commits or PR deliverables.**
@@ -5337,6 +5516,28 @@ devops gh project template [OPTIONS]
 |---|---|---|---|
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 
+#### `devops gh project workflows`
+
+```bash
+devops gh project workflows COMMAND [ARGS]...
+```
+
+##### `devops gh project workflows list`
+
+**List built-in project workflows, enabled statuses, and configuration links.**
+
+```bash
+devops gh project workflows list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--project-number`, `-n` | `integer` | - | GitHub Projects v2 board number |
+| `--repo`, `-R` | `string` | - | Target repository |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ### `devops gh views`
 
 ```bash
@@ -5593,6 +5794,25 @@ devops gh issues sync-roadmap [OPTIONS]
 | `--milestone`, `-m` | `string` | - | Filter by release milestone (e.g. v0.2.20) |
 | `--dry-run` | `boolean` | - | Preview issue and task creation without modifying remote state |
 | `--limit`, `-L` | `integer` | `20` | Maximum issues to create |
+| `--repo`, `-R` | `string` | - | Target repository |
+
+#### `devops gh issues close-merged`
+
+**Close issues linked by merged pull requests. GitHub only honours closing keywords when a pull request merges into the default branch, so pull requests targeting a release branch leave their issues open.**
+
+```bash
+devops gh issues close-merged [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--pr`, `-p` | `integer` | - | Close issues for this single pull request instead of sweeping. |
+| `--base`, `-b` | `string` | - | Only consider merged pull requests with this base branch. |
+| `--limit`, `-L` | `integer` | `100` | Maximum merged pull requests to examine. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--repo`, `-R` | `string` | - | Target repository |
 
 ### `devops gh runs`
@@ -6246,6 +6466,47 @@ devops tf status <directory>
 |---|---|---|---|
 | `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
 
+### `devops tf graph`
+
+**Inspect the in-memory resource dependency graph and blast radius.**
+
+```bash
+devops tf graph [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--resource`, `-r` | `string` | - | Resource address to compute blast radius for, e.g. aws_vpc.main. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+### `devops tf drift`
+
+**Compare declared configuration against recorded state.**
+
+```bash
+devops tf drift [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
 ### `devops tf deploy-cloud`
 
 **Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP.**
@@ -6794,6 +7055,58 @@ devops vault sync [OPTIONS] <path>
 |---|---|---|---|
 | `--key`, `-k` | `string` | - | Specific keys to sync (syncs all keys if omitted) |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops vault login`
+
+**Authenticate with Vault natively via AppRole or the in-cluster ServiceAccount.**
+
+```bash
+devops vault login [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--method`, `-m` | `string` | `approle` | Authentication method: approle or kubernetes |
+| `--role` | `string` | - | Vault role name (kubernetes method) |
+| `--role-id` | `string` | - | AppRole role_id |
+| `--secret-id` | `string` | - | AppRole secret_id |
+| `--store`, `--no-store` | `boolean` | `True` | Persist the issued token to the OS keyring |
+
+### `devops vault leases`
+
+**Inspect, renew, or revoke tracked Vault dynamic secret leases.**
+
+```bash
+devops vault leases [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--renew` | `boolean` | - | Renew every tracked lease nearing expiry |
+| `--revoke` | `string` | - | Revoke a single lease by id |
+
+### `devops vault audit`
+
+**Show which provider satisfied each credential lookup in this session.**
+
+Show which provider satisfied each credential lookup in this session.
+
+The trail records the logical secret name and the answering provider only; secret
+values are never stored or rendered.
+
+```bash
+devops vault audit [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `boolean` | - | Emit the audit trail as JSON |
 
 ---
 

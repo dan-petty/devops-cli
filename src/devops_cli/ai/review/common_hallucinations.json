@@ -595,5 +595,51 @@
     "occurrence_count": 1,
     "last_seen": "2026-09-18T00:00:00",
     "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-SERVER-CONSTRUCTOR-NO-AUTH",
+    "name": "Server Constructor Assumed Unauthenticated Or Remotely Exposed",
+    "category": "documentation_context",
+    "description": "Concluding from a server object's constructor or module header alone that the server lacks authentication, binds to all interfaces, or is reachable from outside the host, when the transport, bind address, and loopback enforcement are applied at a launch site (run_*/serve/main/CLI entry point) outside the reviewed segment.",
+    "signature_patterns": [
+      "(?:server|mcp|fastmcp|app)\\s+(?:is\\s+)?instantiated\\s+without\\s+any\\s+(?:authentication|authorization)",
+      "lacks\\s+authentication.*exposing.*(?:external|remote|outside)\\s+clients",
+      "if\\s+(?:the\\s+)?server\\s+is\\s+reachable\\s+from\\s+outside"
+    ],
+    "pattern_keywords": [
+      "constructor_no_auth",
+      "assumed_remote_exposure",
+      "bind_address_outside_segment"
+    ],
+    "file_patterns": [
+      "*"
+    ],
+    "resolution": "The transport and bind address are the security boundary, not the constructor. Verify the launch path before asserting exposure; a stdio default or a guard rejecting non-loopback hosts without an explicit opt-in flag is not exposed.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-21T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-DECLARATION-WITHOUT-CONSUMER",
+    "name": "Declaration Claimed Unused Or Dangling Without Checking Consumers",
+    "category": "documentation_context",
+    "description": "Claiming a help string, constant, message catalogue entry, enum member, or configuration default is unused, orphaned, or references a command/symbol that does not exist, based only on its declaration module without locating the consuming call site in another module.",
+    "signature_patterns": [
+      "help\\s+strings?\\s+reference\\s+(?:a\\s+)?nonexistent\\s+commands?",
+      "describe\\s+commands?\\s+that\\s+(?:are|is)\\s+not\\s+implemented",
+      "unused\\s+import\\s+of\\s+[A-Z_][A-Z0-9_]+"
+    ],
+    "pattern_keywords": [
+      "declaration_without_consumer",
+      "nonexistent_command_claim",
+      "cross_module_usage"
+    ],
+    "file_patterns": [
+      "*"
+    ],
+    "resolution": "Declarations and their consumers live in different modules. Locate the registration or usage site before reporting a declaration as dead.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-21T00:00:00",
+    "source": "builtin"
   }
 ]

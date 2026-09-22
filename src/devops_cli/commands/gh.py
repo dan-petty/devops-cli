@@ -12,6 +12,7 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.commands.pr import app as pr_app
+from devops_cli.config.constants import CONST_PROJECT_WORKFLOW_EXPECTATIONS
 from devops_cli.config.env import ENV_GITHUB_TOKEN
 from devops_cli.config.settings import get_keyring_secret
 from devops_cli.core.cli import new_typer
@@ -22,6 +23,10 @@ from devops_cli.github.branch_protection import (
     sync_branch_protection,
 )
 from devops_cli.github.client import GhCliClient, GitHubClient, parse_paginated_json
+from devops_cli.github.issue_closure import (
+    close_issues_for_merged_pull_requests,
+    close_issues_for_pull_request,
+)
 from devops_cli.github.issues import (
     audit_issues_triage,
     create_repository_issue,
@@ -48,6 +53,7 @@ from devops_cli.github.pages import (
 from devops_cli.github.projects import (
     audit_project_drift,
     audit_remote_project_views,
+    get_project_workflows,
     link_project_to_repository,
     list_remote_projects,
     load_project_template,
@@ -63,13 +69,16 @@ from devops_cli.github.secrets import (
 )
 from devops_cli.lang import HELP
 from devops_cli.output import (
+    format_json,
     print,
     print_error,
     print_info,
+    print_muted,
     print_panel,
     print_success,
     print_table,
     print_warning,
+    write_stdout,
 )
 
 logger = logging.getLogger(__name__)
@@ -598,10 +607,10 @@ def reconcile_project_cmd(
     proj_num = project_number
     if not proj_num:
         template = load_project_template()
-        matched = find_remote_project(owner, template.name)
+        matched = find_remote_project(owner, template.name, repo=target_repo)
         if not matched and template.short_name:
-            matched = find_remote_project(owner, template.short_name)
-        proj_num = int(matched.get("number", 1)) if matched else 1
+            matched = find_remote_project(owner, template.short_name, repo=target_repo)
+        proj_num = int(matched.get("number", 2)) if matched else 2
 
     mode_text = "[yellow][DRY RUN][/yellow] " if dry_run else ""
     try:
@@ -636,6 +645,84 @@ def link_project(
     else:
         print_error(f"Failed to link project #{project_number} to {target_repo}.")
         raise typer.Exit(1)
+
+
+workflows_app = new_typer(help=HELP.gh.project_workflows_app, no_args_is_help=True)
+project_app.add_typer(workflows_app, name="workflows")
+
+
+@workflows_app.command("list", help=HELP.gh.project_workflows_list)
+def list_project_workflows(
+    project_number: Annotated[
+        int | None,
+        typer.Option("--project-number", "-n", help="GitHub Projects v2 board number"),
+    ] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+) -> None:
+    """List built-in project workflows, enabled statuses, and configuration links."""
+    from devops_cli.github.projects import (
+        find_remote_project,
+        load_project_template,
+    )
+    from devops_cli.output import write_stream
+
+    target_repo = repo or _resolve_repo()
+    owner = target_repo.split("/")[0] if "/" in target_repo else "@me"
+    proj_num = project_number
+    if not proj_num:
+        template = load_project_template()
+        matched = find_remote_project(owner, template.name, repo=target_repo)
+        if not matched and template.short_name:
+            matched = find_remote_project(owner, template.short_name, repo=target_repo)
+        proj_num = int(matched.get("number", 2)) if matched else 2
+
+    workflows = get_project_workflows(proj_num, owner, repo=target_repo)
+    if json_output:
+        write_stream(json.dumps(workflows, indent=2) + "\n")
+        return
+
+    if not workflows:
+        print_info(f"No built-in workflows found for project #{proj_num} ({owner}).")
+        return
+
+    columns = ["#", "Workflow Name", "Status", "Expected Configuration"]
+    rows = [
+        [
+            str(w["number"]),
+            w["name"],
+            "[green]✓ Enabled[/green]" if w["enabled"] else "[yellow]○ Disabled[/yellow]",
+            CONST_PROJECT_WORKFLOW_EXPECTATIONS.get(w["name"], "[dim]not required[/dim]"),
+        ]
+        for w in workflows
+    ]
+    print_table(f"Built-In Automations (Project #{proj_num})", columns, rows)
+    _report_workflow_gaps(workflows, proj_num)
+
+
+def _report_workflow_gaps(workflows: list[dict[str, Any]], proj_num: int) -> None:
+    """Name the workflows the task flow depends on that the board has switched off.
+
+    These cannot be enabled from here. GitHub's GraphQL API offers `deleteProjectV2Workflow`
+    and no counterpart that creates or enables one, so a board owner sets them in the web
+    UI. Reporting the gap precisely is the most the CLI can do, and leaving it unreported
+    is why a board silently stops tracking what it is supposed to track.
+    """
+    expected = [w for w in workflows if w["name"] in CONST_PROJECT_WORKFLOW_EXPECTATIONS]
+    missing = [w for w in expected if not w["enabled"]]
+    if not missing:
+        print_success(f"Every expected automation is enabled on project #{proj_num}.")
+        return
+
+    print_warning(
+        f"{len(missing)} of {len(expected)} expected automations are disabled. Items will "
+        f"not change status on their own."
+    )
+    for workflow in missing:
+        print_info(
+            f"  {workflow['name']} -> {CONST_PROJECT_WORKFLOW_EXPECTATIONS[workflow['name']]}"
+        )
+    print_info(f"Enable them at: {missing[0]['url']}")
 
 
 @project_app.command("list", help=HELP.gh.project_list)
@@ -1244,6 +1331,90 @@ def issues_sync_roadmap_cmd(
         print_success(
             f"Successfully synchronized {result.created_count} roadmap deliverables into issues and tasks."
         )
+
+
+@issues_app.command(
+    "close-merged",
+    help=HELP.gh.issues_close_merged,
+)
+def issues_close_merged_cmd(
+    pr: Annotated[
+        int | None,
+        typer.Option("--pr", "-p", help=HELP.gh.close_merged_pr),
+    ] = None,
+    base: Annotated[
+        str | None,
+        typer.Option("--base", "-b", help=HELP.gh.close_merged_base),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", "-L", help=HELP.gh.close_merged_limit),
+    ] = 100,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help="Target repository"),
+    ] = None,
+) -> None:
+    """Close issues linked by merged pull requests that did not target the default branch."""
+    target_repo = repo or _resolve_repo()
+
+    if pr is not None:
+        results = [close_issues_for_pull_request(target_repo, pr, dry_run=dry_run)]
+    else:
+        results = close_issues_for_merged_pull_requests(
+            target_repo, base=base, limit=limit, dry_run=dry_run
+        )
+
+    if json_output:
+        write_stdout(format_json([result.as_dict() for result in results]))
+        return
+
+    failed = [result for result in results if result.error]
+    for result in failed:
+        print_error(f"#{result.pull_request}: {result.error}")
+
+    acted = [result for result in results if result.closed or result.already_closed]
+    if not acted:
+        examined = len(results) - len(failed)
+        print_muted(f"No issues needed closing across {examined} merged pull request(s).")
+        if failed:
+            # Reporting a clean sweep when nothing could be read is a false green.
+            raise typer.Exit(1)
+        return
+
+    columns: list[str | tuple[str, str]] = [("PR", "bold"), "Base", "Closed", "Already Closed"]
+    rows = [
+        [
+            f"#{result.pull_request}",
+            result.base_ref or "-",
+            ", ".join(f"#{n}" for n in result.closed) or "-",
+            ", ".join(f"#{n}" for n in result.already_closed) or "-",
+        ]
+        for result in acted
+    ]
+    mode = " (Dry-Run)" if dry_run else ""
+    print_table(f"Issue Closure{mode} ({target_repo})", columns, rows)
+
+    closed_total = sum(len(result.closed) for result in results)
+    skipped = [(result.pull_request, n, why) for result in results for n, why in result.skipped]
+    for pull_number, issue_number, why in skipped:
+        print_muted(f"#{pull_number}: skipped issue #{issue_number} ({why})")
+
+    if closed_total and not dry_run:
+        print_success(f"Closed {closed_total} issue(s).")
+    elif closed_total:
+        print_muted(f"{closed_total} issue(s) would be closed.")
+
+    if failed:
+        raise typer.Exit(1)
 
 
 # =============================================================================

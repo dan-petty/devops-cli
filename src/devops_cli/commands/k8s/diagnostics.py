@@ -39,33 +39,41 @@ def _build_pods_table(
     all_namespaces: bool,
 ) -> TablePayload:
     """Build a TablePayload of Kubernetes pod status using the kubernetes SDK."""
-
     try:
-        from kubernetes import client as k8s_client  # type: ignore[import-untyped]
-        from kubernetes import config as k8s_config
+        from devops_cli.k8s.service import KubernetesService
 
-        try:
-            k8s_config.load_incluster_config()
-        except Exception:
-            k8s_config.load_kube_config()
-
-        v1 = k8s_client.CoreV1Api()
-        kwargs: dict[str, Any] = {}
-        if label_selector:
-            kwargs["label_selector"] = label_selector
-
-        if all_namespaces:
-            pod_list = v1.list_pod_for_all_namespaces(**kwargs)
-        else:
-            ns = namespace or "default"
-            pod_list = v1.list_namespaced_pod(namespace=ns, **kwargs)
-
-        return format_k8s_pods_table(pod_list.items)
+        pods = KubernetesService.get_instance().list_pods(
+            namespace=namespace,
+            label_selector=label_selector,
+            all_namespaces=all_namespaces,
+        )
+        return format_k8s_pods_table(pods)
     except Exception as exc:
         from devops_cli.security.sanitizer import mask_secrets
 
         safe_err = mask_secrets(str(exc))
         return format_k8s_pods_table([["—", f"[red]Error: {safe_err}[/red]", "—", "—", "—", "—"]])
+
+
+def _stream_pods_watch(namespace: str | None, label: str | None, all_namespaces: bool) -> None:
+    """Stream pod lifecycle events using ResourceInformer."""
+    from devops_cli.k8s.informer import ResourceInformer
+    from devops_cli.output import print
+
+    informer = ResourceInformer(
+        resource_kind="Pod",
+        namespace="" if all_namespaces else (namespace or "default"),
+        label_selector=label,
+    )
+    try:
+        ns_label = "all namespaces" if all_namespaces else f"namespace '{namespace or 'default'}'"
+        print(f"[cyan]Streaming Pod events from {ns_label} (press Ctrl+C to exit)...[/cyan]")
+        for event in informer.stream_events():
+            print(
+                f"[{event.timestamp}] [bold]{event.event_type:<8}[/bold] {event.namespace}/{event.name} ({event.status})"
+            )
+    except KeyboardInterrupt, SystemExit:
+        informer.stop()
 
 
 # =============================================================================
@@ -115,14 +123,7 @@ def pods_cmd(
         return
 
     if watch:
-        from devops_cli.watchers.live_resource import LiveResourceWatcher
-
-        watcher = LiveResourceWatcher(
-            lambda: _build_pods_table(namespace, label, all_namespaces).render(),
-            interval_seconds=interval,
-            name="k8s_pods",
-        )
-        watcher.watch()
+        _stream_pods_watch(namespace, label, all_namespaces)
     else:
         from devops_cli.output import print
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -88,3 +90,51 @@ class PrometheusQueryResult(BaseModel):
         if isinstance(results, list):
             series = [_parse_range_series(item) for item in results if isinstance(item, dict)]
         return cls(status=status, series=series, error=error)
+
+
+class TrendDirection(StrEnum):
+    """Direction of a metric series' fitted trend."""
+
+    RISING = "rising"
+    FALLING = "falling"
+    FLAT = "flat"
+
+
+class MetricAnomaly(BaseModel):
+    """A single sample deviating materially from its series baseline."""
+
+    index: int = Field(..., description="Position of the sample within the series")
+    timestamp: float = Field(default=0.0, description="Unix timestamp of the sample")
+    value: float = Field(default=0.0, description="Observed sample value")
+    z_score: float = Field(default=0.0, description="Standard deviations from the mean")
+    direction: str = Field(default="above", description="Whether the sample sits above or below")
+
+
+class SeriesAnalysis(BaseModel):
+    """Distribution, anomalies, and projection for one metric series."""
+
+    sample_count: int = Field(default=0, description="Number of usable samples analyzed")
+    minimum: float = Field(default=0.0, description="Smallest observed value")
+    maximum: float = Field(default=0.0, description="Largest observed value")
+    mean: float = Field(default=0.0, description="Arithmetic mean")
+    median: float = Field(default=0.0, description="Median value")
+    stdev: float = Field(default=0.0, description="Sample standard deviation")
+    latest: float = Field(default=0.0, description="Most recent value")
+    slope: float = Field(default=0.0, description="Least-squares slope per sample")
+    trend: TrendDirection = Field(
+        default=TrendDirection.FLAT, description="Classified trend direction"
+    )
+    anomalies: list[MetricAnomaly] = Field(
+        default_factory=list, description="Samples exceeding the z-score threshold"
+    )
+    smoothed: list[float] = Field(
+        default_factory=list, description="Exponentially weighted moving average"
+    )
+    forecast: list[float] = Field(
+        default_factory=list, description="Projected values beyond the observed window"
+    )
+
+    @property
+    def has_anomalies(self) -> bool:
+        """Report whether any sample breached the anomaly threshold."""
+        return bool(self.anomalies)

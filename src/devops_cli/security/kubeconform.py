@@ -20,23 +20,67 @@ from devops_cli.telemetry import trace_span
 logger = logging.getLogger(__name__)
 
 
-def _validate_single_k8s_file_fallback(f: Path, rel_root: Path) -> Finding | None:
-    """Check single YAML manifest for apiVersion and kind headers."""
+def _parse_documents(f: Path) -> list[Any] | None:
+    """Parse a YAML file into documents, or return ``None`` if it cannot be parsed."""
+    import yaml
+
     try:
-        rel_str = str(f.relative_to(rel_root)) if f.is_relative_to(rel_root) else f.name
-        content = f.read_text(encoding="utf-8", errors="replace")
-        has_api = "apiVersion:" in content
-        has_kind = "kind:" in content
-        if not (has_api and has_kind):
+        return list(yaml.safe_load_all(f.read_text(encoding="utf-8", errors="replace")))
+    except Exception as exc:
+        logger.debug("Could not parse YAML in %s: %s", f, exc)
+        return None
+
+
+def _is_manifest_document(document: Any) -> bool:
+    """Report whether a YAML document is a Kubernetes manifest.
+
+    `apiVersion` is the discriminator, not `kind`. Helm charts legitimately expose `kind` as
+    a values key -- fluent-bit uses it to choose between a DaemonSet and a Deployment -- so
+    keying on it reports correct values files as broken manifests. Across this repository
+    every real manifest declares both fields and exactly one values file declares `kind`
+    alone.
+
+    A document omitting `apiVersion` is therefore skipped. That trades away detection of a
+    manifest missing it entirely, which `kubectl apply` rejects immediately with a clearer
+    message than this fallback could give, for not flagging correct files -- the failure
+    that teaches people to ignore a validator.
+    """
+    return isinstance(document, dict) and "apiVersion" in document
+
+
+def _validate_single_k8s_file_fallback(f: Path, rel_root: Path) -> Finding | None:
+    """Check the Kubernetes manifests in a YAML file for required schema headers.
+
+    A file with no manifest documents is skipped rather than reported. Treating the absence
+    of `apiVersion` and `kind` as a defect inverted the test: that absence is precisely how
+    a non-manifest is recognised, so every Helm values file in this repository was reported
+    as a broken manifest -- nine HIGH findings, all false, which is how a validator teaches
+    people to ignore it.
+    """
+    rel_str = str(f.relative_to(rel_root)) if f.is_relative_to(rel_root) else f.name
+    documents = _parse_documents(f)
+    if documents is None:
+        return Finding(
+            severity="HIGH",
+            location=f"{rel_str}:1",
+            title="Unparseable YAML document",
+            description="File could not be parsed as YAML and cannot be validated.",
+            fix="Correct the YAML syntax so the document can be parsed.",
+        )
+
+    manifests = [document for document in documents if _is_manifest_document(document)]
+    if not manifests:
+        return None
+
+    for document in manifests:
+        if not document.get("kind"):
             return Finding(
                 severity="HIGH",
                 location=f"{rel_str}:1",
                 title="Invalid Kubernetes manifest schema",
-                description="Manifest missing required apiVersion or kind fields.",
-                fix="Specify canonical apiVersion and kind metadata headers.",
+                description="Manifest declares apiVersion but is missing kind.",
+                fix="Specify the canonical kind metadata header.",
             )
-    except Exception as exc:
-        logger.debug("Fallback validation error for %s: %s", f, exc)
     return None
 
 

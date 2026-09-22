@@ -78,8 +78,9 @@ class ReleaseEpicSyncResult(BaseModel):
 def _format_deliverable_line(item: ReleaseEpicDeliverable) -> str:
     """Format a single deliverable line for markdown checklist."""
     check = "x" if item.is_completed else " "
-    ref = f"#{item.issue_number}: " if item.issue_number else ""
-    return f"- [{check}] {ref}{item.title} (`{item.priority}`, `{item.scope}`)"
+    if item.issue_number:
+        return f"- [{check}] #{item.issue_number}"
+    return f"- [{check}] {item.title} (`{item.priority}`, `{item.scope}`)"
 
 
 def _render_choreography_checklist(spec: ReleaseEpicSpec) -> list[str]:

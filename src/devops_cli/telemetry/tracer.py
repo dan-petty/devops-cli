@@ -12,6 +12,7 @@ import platform
 import secrets
 import threading
 import time
+from collections import deque
 from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import ContextVar
@@ -32,6 +33,15 @@ from devops_cli.config.defaults import (
     DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS,
     DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS,
     DEFAULT_OTEL_TEST_TIMEOUT,
+    DEFAULT_SPAN_BUFFER_MAX_SPANS,
+)
+from devops_cli.telemetry.propagation import (
+    TraceContext,
+    extract_env,
+    extract_headers,
+    inject_env,
+    inject_headers,
+    new_trace_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +55,36 @@ class ContextPropagatingThreadPoolExecutor(ThreadPoolExecutor):
     def submit(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Future[Any]:  # type: ignore[override]
         ctx = contextvars.copy_context()
         return super().submit(ctx.run, fn, *args, **kwargs)
+
+
+class ContextPropagatingThread(threading.Thread):
+    """Thread that runs its target under a snapshot of the spawning thread's context.
+
+    Unless the interpreter is started with `thread_inherit_context`, a thread begins with
+    empty context variables, so work moved onto one loses the active trace and any span it
+    opens becomes a new root. The snapshot is taken in the constructor, which still runs on
+    the spawning thread, and handed to the native `context` parameter rather than assigned
+    over the attribute the standard library uses for it.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("context", contextvars.copy_context())
+        super().__init__(*args, **kwargs)
+
+
+def bind_context(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Callable[[], Any]:
+    """Bind a callable to a snapshot of the *caller's* context.
+
+    The snapshot has to be taken here, on the thread that still holds the context. A helper
+    that copied the context inside the worker would capture the worker's own empty context
+    and silently propagate nothing, which is the failure it exists to prevent.
+
+    Intended for handing work to a pool this module does not own::
+
+        pool.submit(bind_context(do_work, arg))
+    """
+    ctx = contextvars.copy_context()
+    return functools.partial(ctx.run, fn, *args, **kwargs)
 
 
 def _generate_trace_id() -> str:
@@ -122,15 +162,16 @@ class SpanWaterfallNode(BaseModel):
 
 
 _SPANS_BUFFER_LOCK = threading.Lock()
-_COMPLETED_SPANS_BUFFER: list[dict[str, Any]] = []
-_MAX_SPANS_BUFFER_SIZE = 1000
+_MAX_SPANS_BUFFER_SIZE = DEFAULT_SPAN_BUFFER_MAX_SPANS
+# A deque evicts in constant time. The list this replaced used pop(0), which shifts every
+# retained span on each append once the buffer is full, so the cost of recording a span
+# grew with the retention limit exactly when spans were arriving fastest.
+_COMPLETED_SPANS_BUFFER: deque[dict[str, Any]] = deque(maxlen=_MAX_SPANS_BUFFER_SIZE)
 
 
 def record_completed_span(span_data: dict[str, Any]) -> None:
-    """Store completed span in thread-safe in-memory ring buffer."""
+    """Store a completed span in the bounded, thread-safe in-memory ring buffer."""
     with _SPANS_BUFFER_LOCK:
-        if len(_COMPLETED_SPANS_BUFFER) >= _MAX_SPANS_BUFFER_SIZE:
-            _COMPLETED_SPANS_BUFFER.pop(0)
         _COMPLETED_SPANS_BUFFER.append(dict(span_data))
 
 
@@ -520,25 +561,42 @@ class OTelTelemetryClient:
     def current_span_id(self) -> str | None:
         return _current_span_id_ctx.get()
 
+    def current_trace_context(self) -> TraceContext:
+        """Return the active trace context, starting a new one if no span is open."""
+        trace_id = _current_trace_id_ctx.get()
+        span_id = _current_span_id_ctx.get()
+        if trace_id and span_id:
+            return TraceContext(trace_id=trace_id, span_id=span_id)
+        return new_trace_context()
+
     def inject_trace_context(self, headers: dict[str, str] | None = None) -> dict[str, str]:
-        """Inject W3C traceparent (00-{trace_id}-{span_id}-01) into headers dict."""
+        """Return a copy of `headers` carrying the active context as a `traceparent`.
+
+        This is the HTTP carrier and does not mutate its argument. Use
+        :meth:`inject_trace_env` for a child process environment.
+        """
         out = dict(headers or {})
         if not self.enabled:
             return out
-        trace_id = _current_trace_id_ctx.get() or _generate_trace_id()
-        span_id = _current_span_id_ctx.get() or _generate_span_id()
-        out["traceparent"] = f"00-{trace_id}-{span_id}-01"
-        return out
+        return inject_headers(self.current_trace_context(), out)
+
+    def inject_trace_env(self, env: dict[str, str]) -> dict[str, str]:
+        """Write the active context into a child process environment, in place.
+
+        Mutating is the point: the caller already holds the environment it is about to hand
+        to the child, and the previous header-shaped injector returned a copy whose result
+        was discarded at both call sites, so no child process ever received a parent span.
+        """
+        if not self.enabled:
+            return env
+        return inject_env(self.current_trace_context(), env)
 
     def extract_trace_context(self, headers: dict[str, str]) -> tuple[str | None, str | None]:
-        """Extract trace_id and parent span_id from incoming W3C traceparent header."""
-        tp = headers.get("traceparent") or headers.get("Traceparent")
-        if not tp:
+        """Extract trace id and parent span id from an incoming `traceparent`."""
+        context = extract_headers(headers)
+        if context is None:
             return None, None
-        parts = tp.strip().split("-")
-        if len(parts) >= 4 and parts[0] == "00":
-            return parts[1], parts[2]
-        return None, None
+        return context.trace_id, context.span_id
 
     def _build_metrics_payload(
         self,
@@ -644,6 +702,34 @@ class OTelTelemetryClient:
                 error_msg = f"{exc.__class__.__name__}(exit_code={exit_code})"
         return error_msg
 
+    def _resolve_parent(
+        self,
+        parent_context: dict[str, str] | None,
+        parent_trace_id: str | None,
+        parent_span_id: str | None,
+    ) -> tuple[str | None, str | None]:
+        """Resolve the parent trace and span for a new span, in precedence order.
+
+        An explicit argument wins, then a context supplied by the caller, then the span
+        open on this thread, and only then the context inherited from a parent process. The
+        inherited value is validated before adoption: it is ambient input, and a malformed
+        one would otherwise be carried into trace ids and exported as though it were real.
+        """
+        if parent_context:
+            supplied = extract_headers(parent_context)
+            if supplied:
+                return supplied.trace_id, supplied.span_id
+
+        parent_trace = parent_trace_id or _current_trace_id_ctx.get()
+        parent_id = parent_span_id or _current_span_id_ctx.get()
+        if parent_trace:
+            return parent_trace, parent_id
+
+        inherited = extract_env()
+        if inherited:
+            return inherited.trace_id, inherited.span_id
+        return parent_trace, parent_id
+
     @contextlib.contextmanager
     def span(
         self,
@@ -661,22 +747,9 @@ class OTelTelemetryClient:
             yield SpanHandle("", {})
             return
 
-        parent_trace = parent_trace_id or _current_trace_id_ctx.get()
-        parent_id = parent_span_id or _current_span_id_ctx.get()
-
-        if parent_context:
-            ext_trace, ext_span = self.extract_trace_context(parent_context)
-            if ext_trace:
-                parent_trace = ext_trace
-                parent_id = ext_span
-
-        if not parent_trace:
-            tp = os.environ.get("TRACEPARENT") or os.environ.get("traceparent")
-            if tp:
-                ext_trace, ext_span = self.extract_trace_context({"traceparent": tp})
-                if ext_trace:
-                    parent_trace = ext_trace
-                    parent_id = ext_span
+        parent_trace, parent_id = self._resolve_parent(
+            parent_context, parent_trace_id, parent_span_id
+        )
 
         trace_id = parent_trace or _generate_trace_id()
         span_id = _generate_span_id()

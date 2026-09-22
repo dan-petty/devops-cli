@@ -6,9 +6,13 @@ on:
   pull_request:
     # Deliberately excludes ready_for_review so converting draft PRs to ready does not
     # re-trigger redundant test suites, coverage reports, and container builds.
-    # Project automation and card state transitions are handled in .github/workflows/project-automation.yml.
+    # Project automation and card state transitions are handled natively via GitHub Projects v2 built-in workflows.
     types: [opened, synchronize, reopened]
     branches: [main, "release/**"]
+  schedule:
+    # Advisory dependency freshness sweep at 05:00 UTC, kept off the pull request
+    # critical path so it never delays merge feedback.
+    - cron: "0 5 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -16,53 +20,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate:
-    name: Validation
+  # Fast-failing static gates. Split from the test suite so lint, typing, and formatting
+  # errors surface in roughly a minute instead of queuing behind the full suite.
+  static:
+    name: Static Analysis
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: read
-      packages: write
-      pull-requests: read
 
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
 
-      - name: Install uv and Python
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Set up uv toolchain
+        uses: ./.github/actions/setup-toolchain
         with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-          cache-python: "true"
-          prune-cache: "true"
-          version: "latest"
-          python-version: "3.14"
-
-      - name: Restore Tooling Caches (Mypy, Ruff, Pytest)
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: |
-            .mypy_cache
-            .ruff_cache
-            .pytest_cache
-          key: tooling-cache-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}
-          restore-keys: |
-            tooling-cache-${{ runner.os }}-
-
-      - name: Synchronize dependencies
-        run: uv sync --all-groups --all-extras
+          cache-suffix: static
 
       - name: Lockfile Freshness & Dependency Audit
         run: |
           uv lock --check
           uv audit
-          uv tree --outdated --depth=1
-
-      - name: Initialize Workspace Directories
-        run: mkdir -p .data/reviews .data/analysis .data/logs
 
       - name: Type Checking & Project Validation (uv check)
         run: uv check
@@ -76,6 +56,9 @@ jobs:
       - name: Strict Type Checking (Mypy)
         run: uv run mypy --python-version 3.14 --strict src
 
+      - name: Security Scan (Bandit)
+        run: uv run bandit -r src/ -ll -ii
+
       - name: Documentation Freshness Check
         run: uv run devops docs check
 
@@ -85,14 +68,81 @@ jobs:
       - name: DevContainer Manifest Smoke Test
         run: uv run devops devcontainer validate --workspace .
 
-      - name: Unit Tests & Code Coverage
-        run: uv run pytest -v --cov=src --cov-report=xml
+  test:
+    name: Tests & Coverage
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
 
-      - name: Security Scan (Bandit)
-        run: uv run bandit -r src/ -ll -ii
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up uv toolchain
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: test
+          tooling-cache-paths: |
+            .pytest_cache
+
+      - name: Unit Tests & Code Coverage
+        run: uv run pytest --cov=src --cov-report=xml
+
+  # The published image packages devops-cli itself, so it is rebuilt only for pull
+  # requests targeting main, and only when the change actually alters image content.
+  devcontainer:
+    name: DevContainer Image
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      # IMAGE_CONTENT_PATHS mirrors everything that determines the published image: the
+      # .devcontainer build definition (Dockerfile, devcontainer.json and its lockfile),
+      # the build context consumed by the Dockerfile's COPY directives (pyproject.toml,
+      # uv.lock, README.md and the devops-cli source tree), and this workflow itself,
+      # which fixes the image name, tags, cache source and builder action version.
+      # tests/test_architectural_invariants.py asserts this list stays in sync with the
+      # Dockerfile, so a new COPY cannot silently start publishing a stale image.
+      - name: Detect Image Content Changes
+        id: image_changes
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          IMAGE_CONTENT_PATHS: |
+            .devcontainer
+            src
+            pyproject.toml
+            uv.lock
+            README.md
+            .github/workflows/ci.yml
+        run: |
+          # The checkout above already fetched full history; this only ensures the base
+          # branch ref exists locally, since a PR checkout resolves the merge ref instead.
+          git fetch --no-tags origin "$BASE_REF"
+          readarray -t WATCHED < <(printf '%s\n' "$IMAGE_CONTENT_PATHS" | sed '/^[[:space:]]*$/d')
+          CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD" -- "${WATCHED[@]}")
+          if [ -n "$CHANGED" ]; then
+            echo "Image content changed; rebuilding:"
+            echo "$CHANGED"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No image content changed; skipping rebuild."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Log in to GitHub Container Registry (GHCR)
-        if: github.event_name == 'pull_request'
+        if: steps.image_changes.outputs.changed == 'true'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
@@ -100,13 +150,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set Image Repository Name
-        if: github.event_name == 'pull_request'
+        if: steps.image_changes.outputs.changed == 'true'
         id: image_repo
         run: |
           echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/devcontainer" >> "$GITHUB_OUTPUT"
 
       - name: Check PR Open Status Prior to Publishing Image
-        if: github.event_name == 'pull_request'
+        if: steps.image_changes.outputs.changed == 'true'
         id: pr_status
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -124,10 +174,32 @@ jobs:
           fi
 
       - name: Build & Publish PR DevContainer Image
-        if: github.event_name == 'pull_request' && steps.pr_status.outputs.state == 'OPEN'
+        if: steps.image_changes.outputs.changed == 'true' && steps.pr_status.outputs.state == 'OPEN'
         uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3
         with:
           imageName: ${{ steps.image_repo.outputs.name }}
           cacheFrom: ${{ steps.image_repo.outputs.name }}:latest
           imageTag: pr-${{ github.event.pull_request.number }}
           push: "always"
+
+  # Advisory only: reports newer upstream releases without gating any merge. Scheduled so
+  # the PyPI round-trip never sits on the pull request critical path.
+  dependency-freshness:
+    name: Dependency Freshness
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up uv toolchain
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: freshness
+
+      - name: Report Outdated Dependencies
+        run: uv tree --outdated --depth=1

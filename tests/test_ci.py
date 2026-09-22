@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from collections.abc import Generator
@@ -557,27 +558,73 @@ def test_github_workflows_caching_configuration() -> None:
 
 
 def test_ci_workflow_has_tooling_cache_step() -> None:
-    """Validate that ci.yml includes tooling cache for mypy, ruff, and pytest with stable key."""
+    """Validate the shared toolchain action caches incremental tool state with a stable key.
+
+    Caching moved out of a single monolithic job into the composite setup action once the
+    quality gate was split into parallel jobs, so every job restores the same tool state.
+    """
     import yaml
 
-    ci_file = Path(".github/workflows/ci.yml")
-    assert ci_file.is_file()
-    content = yaml.safe_load(ci_file.read_text(encoding="utf-8")) or {}
-    steps = content["jobs"]["validate"]["steps"]
+    action_file = Path(".github/actions/setup-toolchain/action.yml")
+    assert action_file.is_file()
+    action = yaml.safe_load(action_file.read_text(encoding="utf-8")) or {}
+
     cache_steps = [
-        s for s in steps if isinstance(s, dict) and "actions/cache" in str(s.get("uses", ""))
+        s
+        for s in action["runs"]["steps"]
+        if isinstance(s, dict) and "actions/cache" in str(s.get("uses", ""))
     ]
     assert len(cache_steps) >= 1
+
     cache_with = cache_steps[0].get("with", {})
-    assert isinstance(cache_with, dict)
-    cache_paths = str(cache_with.get("path", ""))
-    assert ".mypy_cache" in cache_paths
-    assert ".ruff_cache" in cache_paths
-    assert ".pytest_cache" in cache_paths
     cache_key = str(cache_with.get("key", ""))
-    assert "tooling-cache-" in cache_key
+    assert isinstance(cache_with, dict)
+    assert "tooling-" in cache_key
     assert "hashFiles" in cache_key
+    # A commit-scoped key would miss on every run, defeating the cache entirely.
     assert "github.sha" not in cache_key
+
+    # Default paths cover the incremental type and lint caches; the test job overrides
+    # them to cache pytest state instead.
+    default_paths = str(action["inputs"]["tooling-cache-paths"]["default"])
+    assert ".mypy_cache" in default_paths
+    assert ".ruff_cache" in default_paths
+
+    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
+    test_steps = ci["jobs"]["test"]["steps"]
+    setup = next(s for s in test_steps if "setup-toolchain" in str(s.get("uses", "")))
+    assert ".pytest_cache" in str(setup.get("with", {}).get("tooling-cache-paths", ""))
+
+
+def test_ci_workflow_parallelizes_quality_gates() -> None:
+    """Static analysis, tests, and the image build run as independent parallel jobs.
+
+    The image build is roughly half the wall clock but is not a quality gate, so keeping
+    it off the critical path is what lets merge feedback arrive quickly.
+    """
+    import yaml
+
+    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
+    jobs = ci["jobs"]
+
+    assert {"static", "test", "devcontainer"}.issubset(jobs.keys())
+    # No `needs:` between them, so they start concurrently rather than in sequence.
+    assert all(not jobs[name].get("needs") for name in ("static", "test", "devcontainer"))
+
+
+def test_devcontainer_image_publishes_only_for_main_targeted_pull_requests() -> None:
+    """The PR image is built only for pull requests targeting main.
+
+    Release branches are what merge into main, so this confines image publishing to the
+    release path instead of rebuilding an identical image on every feature pull request.
+    """
+    import yaml
+
+    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
+    condition = str(ci["jobs"]["devcontainer"].get("if", ""))
+
+    assert "github.base_ref == 'main'" in condition
+    assert "github.event_name == 'pull_request'" in condition
 
 
 def test_resolve_pytest_worker_count() -> None:
@@ -662,7 +709,7 @@ def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
         patch("devops_cli.commands.ci._try_save_ci_cache") as mock_try_save,
         patch("devops_cli.commands.ci.is_dry_run", return_value=False),
     ):
-        _handle_ci_results(results, cache=True, root=tmp_path, all_files=None, ci_options={})
+        _handle_ci_results(results, root=tmp_path, all_files=None, ci_options={})
         assert mock_try_save.called
 
     fail_results = [CheckResult(name="t", display_title="T", passed=False, duration_seconds=1.0)]
@@ -670,5 +717,160 @@ def test_try_save_ci_cache_and_handle_results(tmp_path: Path) -> None:
         patch("devops_cli.ci.cache.clear_ci_cache") as mock_clear,
         pytest.raises(typer.Exit),
     ):
-        _handle_ci_results(fail_results, cache=True, root=tmp_path, all_files=None, ci_options={})
+        _handle_ci_results(fail_results, root=tmp_path, all_files=None, ci_options={})
         assert mock_clear.called
+
+
+def test_a_no_cache_run_still_records_its_result(tmp_path: Path) -> None:
+    """`--no-cache` decides whether an existing entry may be trusted, not whether a fresh
+    one is worth keeping.
+
+    The run has done the full work and proved the tree. Discarding that made the next
+    ordinary run repeat all of it, so a single `--no-cache` cost two full runs.
+    """
+    from devops_cli.commands.ci import CheckResult, _handle_ci_results
+
+    results = [CheckResult(name="t", display_title="T", passed=True, duration_seconds=1.0)]
+    with (
+        patch("devops_cli.commands.ci._try_save_ci_cache") as mock_save,
+        patch("devops_cli.commands.ci.is_dry_run", return_value=False),
+    ):
+        _handle_ci_results(results, root=tmp_path, all_files=None, ci_options={})
+    assert mock_save.called
+
+
+def test_a_no_cache_run_does_not_read_an_existing_entry(tmp_path: Path) -> None:
+    """Recording a result must not turn `--no-cache` back into a cached run."""
+    from devops_cli.commands.ci import _try_fast_cached_ci
+
+    with patch("devops_cli.commands.ci._try_get_ci_cache") as mock_get:
+        hit = _try_fast_cached_ci(tmp_path, None, {}, cache=False, force=False)
+    assert (hit, mock_get.called) == (False, False)
+
+
+def test_a_dry_run_records_nothing(tmp_path: Path) -> None:
+    """A preview has not run the checks, so it has no verdict to record."""
+    from devops_cli.commands.ci import CheckResult, _handle_ci_results
+
+    results = [CheckResult(name="t", display_title="T", passed=True, duration_seconds=1.0)]
+    with (
+        patch("devops_cli.commands.ci._try_save_ci_cache") as mock_save,
+        patch("devops_cli.commands.ci.is_dry_run", return_value=True),
+    ):
+        _handle_ci_results(results, root=tmp_path, all_files=None, ci_options={})
+    assert not mock_save.called
+
+
+def _run_image_change_detection(repo: Path, base_ref: str) -> tuple[int, str, str]:
+    """Execute the workflow's image-change detection step verbatim inside a repo.
+
+    Parsing the workflow proves the shell is well-formed, but only running it proves the
+    git invocations are valid. An earlier revision passed lint and YAML validation while
+    failing at runtime with `fatal: depth 0 is not a positive number`.
+    """
+    import subprocess
+    import tempfile
+
+    import yaml
+
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    step = next(
+        s for s in workflow["jobs"]["devcontainer"]["steps"] if s.get("id") == "image_changes"
+    )
+
+    with tempfile.NamedTemporaryFile("w", suffix=".out", delete=False) as handle:
+        output_file = handle.name
+
+    env = {
+        **os.environ,
+        "BASE_REF": base_ref,
+        "IMAGE_CONTENT_PATHS": step["env"]["IMAGE_CONTENT_PATHS"],
+        "GITHUB_OUTPUT": output_file,
+    }
+    completed = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", step["run"]],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.returncode, completed.stdout, Path(output_file).read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def image_change_repo(tmp_path: Path) -> Path:
+    """Build a repo with an `origin` remote and a branch diverging from main."""
+    import subprocess
+
+    def git(*args: str, cwd: Path) -> None:
+        subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+    origin = tmp_path / "origin.git"
+    subprocess.run(
+        ["git", "init", "--bare", "-b", "main", str(origin)], check=True, capture_output=True
+    )
+
+    work = tmp_path / "work"
+    work.mkdir()
+    git("init", "-b", "main", cwd=work)
+    git("config", "user.email", "ci@example.com", cwd=work)
+    git("config", "user.name", "CI", cwd=work)
+    git("remote", "add", "origin", str(origin), cwd=work)
+
+    (work / "README.md").write_text("# base\n", encoding="utf-8")
+    (work / "docs").mkdir()
+    (work / "docs" / "guide.md").write_text("base\n", encoding="utf-8")
+    git("add", "-A", cwd=work)
+    git("commit", "-m", "base", cwd=work)
+    git("push", "origin", "main", cwd=work)
+
+    git("checkout", "-b", "feature", cwd=work)
+    return work
+
+
+def test_image_change_detection_flags_source_changes(image_change_repo: Path) -> None:
+    """A change under src/ marks the image as needing a rebuild.
+
+    The image packages devops-cli itself, so a source change makes the published image
+    stale even when nothing under .devcontainer/ moved.
+    """
+    import subprocess
+
+    src = image_change_repo / "src" / "devops_cli"
+    src.mkdir(parents=True)
+    (src / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=image_change_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "change source"],
+        cwd=image_change_repo,
+        check=True,
+        capture_output=True,
+    )
+
+    code, stdout, output = _run_image_change_detection(image_change_repo, "main")
+
+    assert (code, "changed=true" in output) == (0, True)
+    assert "src/devops_cli/module.py" in stdout
+
+
+def test_image_change_detection_skips_unrelated_changes(image_change_repo: Path) -> None:
+    """A documentation-only change leaves the published image untouched."""
+    import subprocess
+
+    (image_change_repo / "docs" / "guide.md").write_text("updated\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=image_change_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "docs only"],
+        cwd=image_change_repo,
+        check=True,
+        capture_output=True,
+    )
+
+    code, _, output = _run_image_change_detection(image_change_repo, "main")
+
+    assert (code, "changed=false" in output) == (0, True)

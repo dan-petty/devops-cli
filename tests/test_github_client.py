@@ -416,3 +416,53 @@ def test_gh_cli_client_milestones_paginated() -> None:
         assert "repos/owner/my-repo/milestones/2" in edit_cmd
         assert "title=v0.2.1" in edit_cmd
         assert "state=closed" in edit_cmd
+
+
+def test_get_repo_overview_wraps_graphql_failure() -> None:
+    """A GraphQL transport failure surfaces as a typed, annotated GitHubOperationError.
+
+    The raw exception previously propagated unhandled and crashed the CLI.
+    """
+    from devops_cli.exceptions.git import GitHubOperationError
+
+    with (
+        patch("github.Github"),
+        patch("devops_cli.github.graphql.GitHubGraphQLClient") as mock_graphql_cls,
+    ):
+        mock_graphql_cls.return_value.fetch_repo_overview.side_effect = RuntimeError("rate limited")
+        client = GitHubClient(token="t")
+
+        with pytest.raises(GitHubOperationError) as exc_info:
+            client.get_repo_overview("org/repo")
+
+    assert exc_info.value.details.get("repo") == "org/repo"
+    assert exc_info.value.details.get("operation") == "repo_overview"
+
+
+def test_get_repo_overview_preserves_typed_errors() -> None:
+    """An already-typed GitHub error passes through without being re-wrapped."""
+    from devops_cli.exceptions.git import GitHubOperationError
+
+    original = GitHubOperationError("upstream failure", operation="graphql_batch")
+    with (
+        patch("github.Github"),
+        patch("devops_cli.github.graphql.GitHubGraphQLClient") as mock_graphql_cls,
+    ):
+        mock_graphql_cls.return_value.fetch_repo_overview.side_effect = original
+        client = GitHubClient(token="t")
+
+        with pytest.raises(GitHubOperationError) as exc_info:
+            client.get_repo_overview("org/repo")
+
+    assert exc_info.value is original
+
+
+def test_get_repo_overview_returns_payload_on_success() -> None:
+    """A successful overview query returns the GraphQL payload unchanged."""
+    with (
+        patch("github.Github"),
+        patch("devops_cli.github.graphql.GitHubGraphQLClient") as mock_graphql_cls,
+    ):
+        mock_graphql_cls.return_value.fetch_repo_overview.return_value = {"name": "repo"}
+        client = GitHubClient(token="t")
+        assert client.get_repo_overview("org/repo") == {"name": "repo"}

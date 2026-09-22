@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Annotated, Any
 
 import typer
@@ -12,7 +13,7 @@ from devops_cli.config.defaults import DEFAULT_K8S_LOGS_TAIL, DEFAULT_SUBPROCESS
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.validation import validate_url_egress
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
-from devops_cli.exceptions.k8s import KubernetesContextError
+from devops_cli.exceptions.k8s import KubernetesContextError, KubernetesError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     format_k8s_contexts_table,
@@ -23,6 +24,8 @@ from devops_cli.output import (
     print_success,
     print_warning,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def contexts() -> None:
@@ -92,6 +95,17 @@ def switch_context(
 
     cmd = ["kubectl", "config", "use-context", name]
     runtime._run_cmd(cmd, check=True)
+
+    # The kubectl invocation above is authoritative for the on-disk kubeconfig; this
+    # realigns the in-process client so subsequent native API calls target the new
+    # context. A failure here is diagnostic, not fatal, so it is logged rather than
+    # swallowed silently.
+    try:
+        from devops_cli.k8s.service import KubernetesService
+
+        KubernetesService.get_instance().switch_context(name)
+    except (KubernetesError, OSError) as exc:
+        logger.warning("Could not realign in-process Kubernetes client to '%s': %s", name, exc)
 
     _sync_configured_k8s_context(name)
 
@@ -245,6 +259,26 @@ def _execute_legacy_kubectl_logs(
             details={"cmd": " ".join(cmd), "pod": pod, "tail": bounded_tail},
         )
         return
+
+    try:
+        from devops_cli.k8s.service import KubernetesService
+
+        log_output = KubernetesService.get_instance().read_pod_logs(
+            pod=pod,
+            namespace=namespace or "default",
+            container=container,
+            tail_lines=bounded_tail,
+            follow=follow,
+        )
+        if follow and not isinstance(log_output, str):
+            for line in log_output:
+                print(line, end="")
+        else:
+            print(str(log_output))
+        return
+    except Exception:
+        pass
+
     if follow:
         runtime.run_subprocess(
             cmd,

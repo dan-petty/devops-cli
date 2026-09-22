@@ -1,11 +1,11 @@
 {
-  "name": "{{ project_name }}",
+  "name": {{ project_name | tojson }},
   {% if published %}
   "image": "ghcr.io/dan-petty/devops-cli/devcontainer:latest",
   {% elif image %}
-  "image": "{{ image }}",
+  "image": {{ image | tojson }},
   {% else %}
-  "image": "python:{{ python_version }}-trixie",
+  "image": {{ ("python:" ~ python_version ~ "-trixie") | tojson }},
   {% endif %}
   {% if not published %}
   "features": {
@@ -29,12 +29,14 @@
       "minikube": "latest"
     }{% endif %},
     "ghcr.io/devcontainers/features/copilot-cli:1": {},
-    "ghcr.io/devcontainers/features/github-cli:1": {}
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
   },
   {% endif %}
   "mounts": [
     "source=global-devcontainer-tmp,target=/tmp,type=volume",
-    "source={{ home_volume | default(project_name ~ '-home') }},target=/home/vscode,type=volume",
+    {{ ("source=" ~ (home_volume | default(project_name ~ '-home')) ~ ",target=/home/vscode,type=volume") | tojson }},
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
   ],
   "containerEnv": {
@@ -119,7 +121,8 @@
         "ms-azuretools.vscode-docker",
         "ms-azuretools.vscode-containers",
         "ms-kubernetes-tools.vscode-kubernetes-tools",
-        "Ollama.ollama"
+        "Ollama.ollama",
+        "anthropic.claude-code"
       ],
       "settings": {
         "editor.formatOnSave": true,
@@ -132,7 +135,7 @@
           100
         ],
         "terminal.integrated.defaultProfile.linux": "zsh",
-        "python.defaultInterpreterPath": "/workspaces/{{ project_name }}/.venv/bin/python",
+        "python.defaultInterpreterPath": {{ ("/workspaces/" ~ project_name ~ "/.venv/bin/python") | tojson }},
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
         }
@@ -147,7 +150,8 @@
         "ms-azuretools.vscode-docker",
         "ms-azuretools.vscode-containers",
         "ms-kubernetes-tools.vscode-kubernetes-tools",
-        "Ollama.ollama"
+        "Ollama.ollama",
+        "anthropic.claude-code"
       ],
       "settings": {
         "editor.formatOnSave": true,
@@ -160,7 +164,7 @@
           100
         ],
         "terminal.integrated.defaultProfile.linux": "zsh",
-        "python.defaultInterpreterPath": "/workspaces/{{ project_name }}/.venv/bin/python",
+        "python.defaultInterpreterPath": {{ ("/workspaces/" ~ project_name ~ "/.venv/bin/python") | tojson }},
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
         }

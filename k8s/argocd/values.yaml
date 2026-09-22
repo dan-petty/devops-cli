@@ -44,6 +44,19 @@ repoServer:
     limits:
       cpu: 4000m
       memory: 4096Mi
+  # The chart defaults the liveness timeout to 1 second. The repo server fetches git
+  # repositories and renders manifests, so a slow fetch trips the probe and restarts the
+  # pod -- which loses in-flight work and empties the repository cache, making the next
+  # probe likelier to time out. Observed in this cluster as recurring
+  # "Liveness probe failed: context deadline exceeded" events.
+  livenessProbe:
+    timeoutSeconds: 10
+    periodSeconds: 30
+    failureThreshold: 3
+  readinessProbe:
+    timeoutSeconds: 10
+    periodSeconds: 20
+    failureThreshold: 3
 
 # Valkey replacement for Redis under BSD-3-Clause open-source license
 redis:

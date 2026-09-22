@@ -38,6 +38,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_AI_CONTEXT_WINDOW,
     DEFAULT_AI_GATEWAY_URL,
+    DEFAULT_AI_MAX_RESPONSE_BYTES,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import AIConfig
@@ -331,7 +332,7 @@ class LLMClient(
 
     @staticmethod
     def _read_limited_json(
-        response: httpx2.Response, limit_bytes: int = 20 * 1024 * 1024
+        response: httpx2.Response, limit_bytes: int = DEFAULT_AI_MAX_RESPONSE_BYTES
     ) -> dict[str, Any]:
         return read_limited_json(response, limit_bytes=limit_bytes)
 

@@ -24,7 +24,11 @@ from devops_cli.ai.client.streaming import (
     _consume_streaming_lines,
     _extract_ollama_stream_tuple,
 )
-from devops_cli.config.defaults import DEFAULT_AI_EVICT_KEEP_ALIVE
+from devops_cli.config.defaults import (
+    DEFAULT_AI_EVICT_KEEP_ALIVE,
+    DEFAULT_AI_PREWARM_KEEP_ALIVE,
+    DEFAULT_OLLAMA_MAX_PARALLEL,
+)
 from devops_cli.models.ai import ChatMessage
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor
@@ -40,7 +44,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         self,
         url: str,
         model: str | None = None,
-        keep_alive: str | int = "1h",
+        keep_alive: str | int = DEFAULT_AI_PREWARM_KEEP_ALIVE,
     ) -> tuple[str, bool]:
         """Prewarm or evict model on a single Ollama endpoint."""
         target_model = model or self._config.model
@@ -50,12 +54,13 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
                 purpose="Ollama",
                 allow_loopback_for_local_tooling=True,
             )
-            with httpx2.Client(timeout=self._request_timeout()) as http_client:
-                res = http_client.post(
-                    f"{base}/api/generate",
-                    json={"model": target_model, "prompt": "", "keep_alive": keep_alive},
-                )
-                return (url, res.status_code == 200)
+            http_client = self._shared_client()
+            res = http_client.post(
+                f"{base}/api/generate",
+                json={"model": target_model, "prompt": "", "keep_alive": keep_alive},
+                timeout=self._request_timeout(),
+            )
+            return (url, res.status_code == 200)
         except Exception:
             return (url, False)
 
@@ -233,7 +238,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         priority: RequestPriority | str | None = None,
     ) -> LLMResponse:
         candidates = [url for _idx, url in self._get_ollama_urls_loop()]
-        max_par = getattr(self._config, "ollama_max_parallel", 2)
+        max_par = getattr(self._config, "ollama_max_parallel", DEFAULT_OLLAMA_MAX_PARALLEL)
         last_exc: Exception | None = None
         remaining_candidates = list(candidates)
 
@@ -278,95 +283,98 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         self, base: str, system: str, messages: list[ChatMessage], think: bool
     ) -> LLMResponse:
         start_time = time.monotonic()
-        with httpx2.Client(timeout=self._request_timeout()) as http_client:
-            payload: dict[str, Any] = {
-                "model": self._config.model,
-                "stream": False,
-                "messages": [
-                    {"role": "system", "content": system},
-                    *[m.to_dict() for m in messages],
-                ],
-            }
-            payload["think"] = bool(think)
-            if self._config.reasoning_effort:
-                payload["reasoning_effort"] = self._config.reasoning_effort
-            ollama_opts: dict[str, Any] = {}
-            temp = getattr(self._config, "temperature", None)
-            if temp is not None:
-                ollama_opts["temperature"] = float(temp)
-            top_p = getattr(self._config, "top_p", None)
-            if top_p is not None:
-                ollama_opts["top_p"] = float(top_p)
-            ctx_win = getattr(self._config, "num_ctx", None) or getattr(
-                self._config, "context_window", None
-            )
-            if ctx_win:
-                ollama_opts["num_ctx"] = int(ctx_win)
-            if ollama_opts:
-                payload["options"] = ollama_opts
-            headers = inject_trace_context({"Content-Type": "application/json"})
-            response = http_client.post(f"{base}/api/chat", json=payload, headers=headers)
-            response.raise_for_status()
-            if think and self._ollama_thinking_supported is None:
-                self._ollama_thinking_supported = True
+        http_client = self._shared_client()
+        payload: dict[str, Any] = {
+            "model": self._config.model,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system},
+                *[m.to_dict() for m in messages],
+            ],
+        }
+        payload["think"] = bool(think)
+        if self._config.reasoning_effort:
+            payload["reasoning_effort"] = self._config.reasoning_effort
+        ollama_opts: dict[str, Any] = {}
+        temp = getattr(self._config, "temperature", None)
+        if temp is not None:
+            ollama_opts["temperature"] = float(temp)
+        top_p = getattr(self._config, "top_p", None)
+        if top_p is not None:
+            ollama_opts["top_p"] = float(top_p)
+        ctx_win = getattr(self._config, "num_ctx", None) or getattr(
+            self._config, "context_window", None
+        )
+        if ctx_win:
+            ollama_opts["num_ctx"] = int(ctx_win)
+        if ollama_opts:
+            payload["options"] = ollama_opts
+        headers = inject_trace_context({"Content-Type": "application/json"})
+        response = http_client.post(
+            f"{base}/api/chat",
+            json=payload,
+            headers=headers,
+            timeout=self._request_timeout(),
+        )
+        response.raise_for_status()
+        if think and self._ollama_thinking_supported is None:
+            self._ollama_thinking_supported = True
 
-            raw_res = read_limited_json(response)
-            wall_elapsed = time.monotonic() - start_time
+        raw_res = read_limited_json(response)
+        wall_elapsed = time.monotonic() - start_time
 
-            msg = raw_res.get("message", {})
-            content = str(msg.get("content", ""))
-            raw_thinking = msg.get("thinking")
-            thinking_str = str(raw_thinking).strip() if raw_thinking is not None else None
+        msg = raw_res.get("message", {})
+        content = str(msg.get("content", ""))
+        raw_thinking = msg.get("thinking")
+        thinking_str = str(raw_thinking).strip() if raw_thinking is not None else None
 
-            from devops_cli.ai.thinking_stream import extract_think_blocks
+        from devops_cli.ai.thinking_stream import extract_think_blocks
 
-            if "<think>" in content:
-                inner_thinks, clean = extract_think_blocks(content)
-                if inner_thinks:
-                    combined = (thinking_str + "\n" if thinking_str else "") + "\n".join(
-                        inner_thinks
-                    )
-                    thinking_str = combined.strip() or None
-                content = clean
+        if "<think>" in content:
+            inner_thinks, clean = extract_think_blocks(content)
+            if inner_thinks:
+                combined = (thinking_str + "\n" if thinking_str else "") + "\n".join(inner_thinks)
+                thinking_str = combined.strip() or None
+            content = clean
 
-            text = self._strip_think_blocks(content)
+        text = self._strip_think_blocks(content)
 
-            prompt_eval_ns = int(raw_res.get("prompt_eval_duration") or 0)
-            eval_ns = int(raw_res.get("eval_duration") or 0)
-            if prompt_eval_ns or eval_ns:
-                proc_sec: float | None = (prompt_eval_ns + eval_ns) / 1_000_000_000.0
-            elif "total_duration" in raw_res:
-                load_ns = int(raw_res.get("load_duration") or 0)
-                tot_ns = int(raw_res["total_duration"])
-                proc_sec = max((tot_ns - load_ns) / 1_000_000_000.0, 0.0)
-            else:
-                proc_sec = None
+        prompt_eval_ns = int(raw_res.get("prompt_eval_duration") or 0)
+        eval_ns = int(raw_res.get("eval_duration") or 0)
+        if prompt_eval_ns or eval_ns:
+            proc_sec: float | None = (prompt_eval_ns + eval_ns) / 1_000_000_000.0
+        elif "total_duration" in raw_res:
+            load_ns = int(raw_res.get("load_duration") or 0)
+            tot_ns = int(raw_res["total_duration"])
+            proc_sec = max((tot_ns - load_ns) / 1_000_000_000.0, 0.0)
+        else:
+            proc_sec = None
 
-            prompt_tokens = raw_res.get("prompt_eval_count")
-            completion_tokens = raw_res.get("eval_count")
-            total_tokens = (
-                (prompt_tokens + completion_tokens)
-                if prompt_tokens is not None and completion_tokens is not None
-                else None
-            )
-            eval_dur_ms = (eval_ns / 1_000_000.0) if eval_ns else None
-            prompt_eval_dur_ms = (prompt_eval_ns / 1_000_000.0) if prompt_eval_ns else None
+        prompt_tokens = raw_res.get("prompt_eval_count")
+        completion_tokens = raw_res.get("eval_count")
+        total_tokens = (
+            (prompt_tokens + completion_tokens)
+            if prompt_tokens is not None and completion_tokens is not None
+            else None
+        )
+        eval_dur_ms = (eval_ns / 1_000_000.0) if eval_ns else None
+        prompt_eval_dur_ms = (prompt_eval_ns / 1_000_000.0) if prompt_eval_ns else None
 
-            parsed = urlparse(base)
-            host_str = parsed.netloc or parsed.path or base
-            b_info = f"ollama ({host_str})"
-            return LLMResponse(
-                text,
-                processing_seconds=proc_sec,
-                wall_seconds=wall_elapsed,
-                backend_info=b_info,
-                thinking=thinking_str,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=total_tokens,
-                eval_duration_ms=eval_dur_ms,
-                prompt_eval_duration_ms=prompt_eval_dur_ms,
-            )
+        parsed = urlparse(base)
+        host_str = parsed.netloc or parsed.path or base
+        b_info = f"ollama ({host_str})"
+        return LLMResponse(
+            text,
+            processing_seconds=proc_sec,
+            wall_seconds=wall_elapsed,
+            backend_info=b_info,
+            thinking=thinking_str,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            eval_duration_ms=eval_dur_ms,
+            prompt_eval_duration_ms=prompt_eval_dur_ms,
+        )
 
     def _try_single_ollama_stream(
         self,
@@ -406,7 +414,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         priority: RequestPriority | str | None = None,
     ) -> Generator[str]:
         candidates = [url for _idx, url in self._get_ollama_urls_loop()]
-        max_par = getattr(self._config, "ollama_max_parallel", 2)
+        max_par = getattr(self._config, "ollama_max_parallel", DEFAULT_OLLAMA_MAX_PARALLEL)
         last_exc: Exception | None = None
         remaining_candidates = list(candidates)
 
@@ -460,10 +468,10 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         payload["think"] = bool(think)
         if self._config.reasoning_effort:
             payload["reasoning_effort"] = self._config.reasoning_effort
-        with (
-            httpx2.Client(timeout=self._request_timeout()) as http_client,
-            http_client.stream("POST", f"{base}/api/chat", json=payload) as response,
-        ):
+        http_client = self._shared_client()
+        with http_client.stream(
+            "POST", f"{base}/api/chat", json=payload, timeout=self._request_timeout()
+        ) as response:
             if response.status_code >= 400:
                 response.read()
             response.raise_for_status()
@@ -473,11 +481,11 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
 
     def _fetch_ollama_tags(self, base: str) -> list[str]:
         """Fetch available model tags from single Ollama host."""
-        with httpx2.Client(timeout=self._request_timeout()) as http_client:
-            response = http_client.get(f"{base}/api/tags")
-            response.raise_for_status()
-            models_data = read_limited_json(response).get("models", [])
-            return [model_info["name"] for model_info in models_data]
+        http_client = self._shared_client()
+        response = http_client.get(f"{base}/api/tags", timeout=self._request_timeout())
+        response.raise_for_status()
+        models_data = read_limited_json(response).get("models", [])
+        return [model_info["name"] for model_info in models_data]
 
     def _ollama_models(self) -> list[str]:
         candidates = self._get_ollama_urls_loop()

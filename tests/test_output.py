@@ -915,3 +915,173 @@ def test_table_payload_render_honors_header_options() -> None:
     )
     tbl_default = payload_default.render()
     assert (tbl_default.show_header, tbl_default.header_style) == (True, "bold")
+
+
+# =============================================================================
+# Terminal capability negotiation
+# =============================================================================
+
+
+def test_a_customised_console_still_negotiates_colour(monkeypatch) -> None:
+    """`color_system=None` is not "unspecified" to Rich; it means no colour at all.
+
+    The wrapper defaulted to it, so every caller passing `file=` or `force_terminal=`
+    silently lost colour -- the opposite of negotiating a terminal's capabilities. The
+    suite runs under `NO_COLOR=1` and `TERM=dumb`, so this test has to describe a terminal
+    that can show colour before it can tell whether the wrapper would use it.
+    """
+    import io
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    buf = io.StringIO()
+    get_console(file=buf, force_terminal=True).print("[red]x[/red]")
+    assert "\x1b[31m" in buf.getvalue()
+
+
+def test_a_caller_can_still_ask_for_no_colour() -> None:
+    """Plain text is what the assertions in this suite are written against."""
+    import io
+
+    buf = io.StringIO()
+    get_console(file=buf, force_terminal=True, color_system=None).print("[red]x[/red]")
+    assert buf.getvalue() == "x\n"
+
+
+def test_no_color_suppresses_styling(monkeypatch) -> None:
+    """`NO_COLOR` is honoured because the wrapper leaves the decision to Rich."""
+    import io
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    buf = io.StringIO()
+    get_console(file=buf, force_terminal=True).print("[red]x[/red]")
+    assert "\x1b[" not in buf.getvalue()
+
+
+def test_a_non_terminal_destination_gets_no_escapes() -> None:
+    """Redirecting output to a file must not write escape sequences into it."""
+    import io
+
+    buf = io.StringIO()
+    get_console(file=buf).print("[red]x[/red]")
+    assert "\x1b[" not in buf.getvalue()
+
+
+# =============================================================================
+# Output format serialization
+# =============================================================================
+
+
+def test_the_same_payload_renders_in_either_format() -> None:
+    """A format is a representation of one result, not a different result."""
+    import json
+
+    import yaml
+
+    from devops_cli.output.serialization import serialize
+
+    payload = {"name": "qdrant", "ports": [6333, 6334], "ready": True}
+    assert json.loads(serialize(payload, "json")) == yaml.safe_load(serialize(payload, "yaml"))
+
+
+def test_yaml_output_is_portable_rather_than_python_tagged() -> None:
+    """`yaml.dump` tags anything it does not recognise with a Python constructor.
+
+    An enum came out as `!!python/object/apply:...`, which `yaml.safe_load` refuses to
+    read, so the YAML was unusable by any consumer that is not this interpreter.
+    """
+    import enum
+
+    import yaml
+
+    from devops_cli.output.serialization import serialize
+
+    class State(enum.StrEnum):
+        QUIESCED = "quiesced"
+
+    rendered = serialize({"state": State.QUIESCED}, "yaml")
+    assert yaml.safe_load(rendered) == {"state": "quiesced"}
+
+
+def test_both_formats_agree_on_values_json_has_to_coerce() -> None:
+    """Paths, datetimes and enums must not differ between the two representations."""
+    import datetime
+    import json
+    import pathlib
+
+    import yaml
+
+    from devops_cli.output.serialization import serialize
+
+    payload = {
+        "path": pathlib.Path("/tmp/x"),
+        "when": datetime.datetime(2026, 9, 22, tzinfo=datetime.UTC),
+    }
+    assert json.loads(serialize(payload, "json")) == yaml.safe_load(serialize(payload, "yaml"))
+
+
+def test_a_pydantic_model_serializes_without_the_caller_unwrapping_it() -> None:
+    """Commands each remembered whether their own result needed `model_dump()` first."""
+    import json
+
+    from pydantic import BaseModel
+
+    from devops_cli.output.serialization import serialize
+
+    class Result(BaseModel):
+        name: str
+        count: int
+
+    assert json.loads(serialize(Result(name="a", count=2), "json")) == {"name": "a", "count": 2}
+
+
+def test_an_object_exposing_to_dict_serializes_too() -> None:
+    """The other convention in this codebase; both reach the same join point."""
+    import json
+
+    from devops_cli.output.serialization import serialize
+
+    class Report:
+        def to_dict(self) -> dict[str, int]:
+            return {"failures": 0}
+
+    assert json.loads(serialize(Report(), "json")) == {"failures": 0}
+
+
+def test_yml_is_accepted_as_yaml() -> None:
+    """Both spellings are in common use and neither should be a usage error."""
+    from devops_cli.output.serialization import normalize_format
+
+    assert normalize_format("yml") == "yaml"
+
+
+def test_an_unknown_format_is_refused_rather_than_falling_back() -> None:
+    """A misspelled format that quietly produced a table would hand a parser a table.
+
+    The failure then surfaces wherever that output is consumed, not where it was asked for.
+    """
+    import pytest
+
+    from devops_cli.exceptions.validation import ValidationError
+    from devops_cli.output.serialization import normalize_format
+
+    with pytest.raises(ValidationError):
+        normalize_format("toml")
+
+
+def test_asking_for_both_formats_is_refused() -> None:
+    """Only one representation can be written; a precedence rule would hide the mistake."""
+    import pytest
+
+    from devops_cli.exceptions.validation import ValidationError
+    from devops_cli.output.serialization import resolve_format
+
+    with pytest.raises(ValidationError):
+        resolve_format(json_output=True, yaml_output=True)
+
+
+def test_no_flag_means_the_human_readable_default() -> None:
+    """The table is what a person at a terminal asked for by not asking for anything."""
+    from devops_cli.output.serialization import resolve_format
+
+    assert resolve_format() == "table"

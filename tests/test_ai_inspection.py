@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -14,7 +15,6 @@ from devops_cli.ai.inspection import (
     FocalLevel,
     generate_semantic_outline,
 )
-from devops_cli.config.constants import CONST_MAX_INSPECT_FILE_SIZE_BYTES
 from devops_cli.exceptions import DevOpsCLIError, ValidationError
 from devops_cli.main import app
 
@@ -460,10 +460,11 @@ def test_path_validation_and_errors(tmp_path: Path) -> None:
 
     # Oversized file
     big_file = tmp_path / "giant.py"
-    big_file.write_text("x = 1\n" * (CONST_MAX_INSPECT_FILE_SIZE_BYTES // 4), encoding="utf-8")
-    with pytest.raises(DevOpsCLIError) as exc_big:
-        generate_semantic_outline(big_file, repo_root=tmp_path)
-    assert "exceeds maximum inspection size limit" in str(exc_big.value)
+    big_file.write_text("x = 1\n" * 50, encoding="utf-8")
+    with patch("devops_cli.ai.inspection.CONST_MAX_INSPECT_FILE_SIZE_BYTES", 10):
+        with pytest.raises(DevOpsCLIError) as exc_big:
+            generate_semantic_outline(big_file, repo_root=tmp_path)
+        assert "exceeds maximum inspection size limit" in str(exc_big.value)
 
 
 def test_analyze_single_file_metadata_integration(tmp_path: Path) -> None:

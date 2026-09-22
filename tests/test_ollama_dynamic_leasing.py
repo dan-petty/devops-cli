@@ -79,3 +79,63 @@ def test_concurrent_slot_leasing_across_threads() -> None:
     # All 3 nodes must have been leased
     distinct_nodes = set(results)
     assert distinct_nodes == set(candidates)
+
+
+def test_acquire_ollama_slot_config_defaults() -> None:
+    """Verify slot leasing and network helpers bind to centralized defaults and constants."""
+    import inspect
+
+    from devops_cli.ai.client.network import (
+        ALLOW_PRIVATE_NETWORK_ENV,
+        acquire_ollama_slot,
+        read_limited_json,
+        track_ollama_url,
+    )
+    from devops_cli.config.constants import CONST_AI_ALLOW_PRIVATE_NETWORK_ENV
+    from devops_cli.config.defaults import (
+        DEFAULT_AI_MAX_RESPONSE_BYTES,
+        DEFAULT_OLLAMA_MAX_PARALLEL,
+    )
+
+    sig_acquire = inspect.signature(acquire_ollama_slot)
+    sig_track = inspect.signature(track_ollama_url)
+    sig_json = inspect.signature(read_limited_json)
+
+    assert (
+        sig_acquire.parameters["max_parallel"].default,
+        sig_track.parameters["max_parallel"].default,
+        sig_json.parameters["limit_bytes"].default,
+        ALLOW_PRIVATE_NETWORK_ENV,
+    ) == (
+        DEFAULT_OLLAMA_MAX_PARALLEL,
+        DEFAULT_OLLAMA_MAX_PARALLEL,
+        DEFAULT_AI_MAX_RESPONSE_BYTES,
+        CONST_AI_ALLOW_PRIVATE_NETWORK_ENV,
+    )
+
+
+def test_acquire_ollama_slot_effective_timeout_defaults() -> None:
+    """Verify acquire_ollama_slot calculates effective timeout using centralized defaults."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.client.models import RequestPriority
+    from devops_cli.ai.client.network import acquire_ollama_slot
+    from devops_cli.config.defaults import DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS
+
+    with patch(
+        "devops_cli.ai.client.network._wait_for_slot", return_value="http://example.com:11434"
+    ) as mock_wait:
+        with acquire_ollama_slot(["http://example.com:11434"], timeout=None):
+            pass
+        eff_timeout = mock_wait.call_args[0][4]
+
+        with acquire_ollama_slot(
+            ["http://example.com:11434"], timeout=None, priority=RequestPriority.AS_AVAILABLE
+        ):
+            pass
+        as_avail_timeout = mock_wait.call_args[0][4]
+
+        assert (eff_timeout, as_avail_timeout) == (
+            DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS,
+            0.0,
+        )

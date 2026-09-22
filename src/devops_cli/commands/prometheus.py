@@ -9,6 +9,7 @@ import httpx2
 import typer
 
 from devops_cli.config.defaults import (
+    DEFAULT_ANOMALY_Z_THRESHOLD,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_PROMETHEUS_QUERY_RANGE_START,
     DEFAULT_PROMETHEUS_QUERY_RANGE_STEP,
@@ -57,9 +58,24 @@ def _base_url(settings: Settings) -> str:
 
 
 def _validate_expr(expr: str) -> None:
+    """Reject over-long or structurally malformed PromQL before dispatching it.
+
+    Catching a typo here saves a network round trip and reports the offending character
+    rather than relaying the server's phrasing of the failure.
+    """
     if len(expr) > _MAX_PROMQL_LEN:
         print_error(
             ERRORS.prometheus.expr_too_long.format(max_len=_MAX_PROMQL_LEN),
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+    from devops_cli.prometheus.promql import validate_promql
+
+    validation = validate_promql(expr)
+    if not validation:
+        print_error(
+            ERRORS.prometheus.invalid_promql.format(errors=validation.summary),
             prefix=False,
         )
         raise typer.Exit(1)
@@ -202,6 +218,105 @@ def query_range(
         print_info(
             f"  [cyan]{series.label_str or '(no labels)'}[/cyan]: {len(series.values)} points",
             prefix=False,
+        )
+
+
+# =============================================================================
+# Command: devops prometheus analyze
+# =============================================================================
+
+
+def _analysis_rows(analysis: Any) -> list[list[str]]:
+    """Render a series analysis as summary table rows."""
+    return [
+        ["Samples", str(analysis.sample_count)],
+        ["Latest", f"{analysis.latest:g}"],
+        ["Min / Max", f"{analysis.minimum:g} / {analysis.maximum:g}"],
+        ["Mean / Median", f"{analysis.mean:g} / {analysis.median:g}"],
+        ["Std deviation", f"{analysis.stdev:g}"],
+        ["Trend", f"{analysis.trend.value} (slope {analysis.slope:g}/sample)"],
+        ["Anomalies", str(len(analysis.anomalies))],
+        ["Forecast", ", ".join(f"{v:g}" for v in analysis.forecast) or "—"],
+    ]
+
+
+@app.command("analyze")
+def analyze(
+    expr: Annotated[str, typer.Argument(help=HELP.prometheus.expr)],
+    start: Annotated[
+        str, typer.Option("--start", "-s", help=HELP.prometheus.start_time)
+    ] = DEFAULT_PROMETHEUS_QUERY_RANGE_START,
+    step: Annotated[
+        str, typer.Option("--step", help=HELP.prometheus.step)
+    ] = DEFAULT_PROMETHEUS_QUERY_RANGE_STEP,
+    threshold: Annotated[
+        float, typer.Option("--threshold", "-t", help=HELP.prometheus.anomaly_threshold)
+    ] = DEFAULT_ANOMALY_Z_THRESHOLD,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+) -> None:
+    """Detect anomalies and project the trend of a metric series, computed locally."""
+    from devops_cli.output import format_json, write_stdout
+    from devops_cli.prometheus.analysis import analyze_series, extract_series_values
+
+    _validate_expr(expr)
+    if is_dry_run():
+        render_dry_run_result(
+            command=f"devops prometheus analyze {expr[:60]}",
+            action="analyze_metric_series",
+            details={"start": start, "step": step, "threshold": threshold},
+        )
+        return
+
+    settings = load_settings()
+    base = _base_url(settings)
+    now = time.time()
+    params = {
+        "query": expr,
+        "start": str(now - _parse_duration(start)),
+        "end": str(now),
+        "step": step,
+    }
+
+    with httpx2.Client() as http_client:
+        response = http_client.get(
+            f"{base}/api/v1/query_range",
+            params=params,
+            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+
+    payload = _read_json(response)
+    results = (payload.get("data") or {}).get("result") or []
+    if not results:
+        print_info(MESSAGES.prometheus.no_series_to_analyze.format(expr=expr[:80]), prefix=False)
+        return
+
+    timestamps, values = extract_series_values(results[0])
+    analysis = analyze_series(values, timestamps, threshold=threshold)
+
+    if json_output:
+        write_stdout(format_json(analysis.model_dump(mode="json")) + "\n")
+        return
+
+    print_table(
+        title=MESSAGES.prometheus.table_title_analysis.format(expr=expr[:60]),
+        columns=[("Metric", "cyan"), "Value"],
+        rows=_analysis_rows(analysis),
+    )
+
+    if analysis.has_anomalies:
+        print_table(
+            title=MESSAGES.prometheus.table_title_anomalies,
+            columns=[("Timestamp", "cyan"), ("Value", "right"), ("Z-score", "right"), "Direction"],
+            rows=[
+                [
+                    time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(a.timestamp)),
+                    f"{a.value:g}",
+                    f"{a.z_score:+.2f}",
+                    a.direction,
+                ]
+                for a in analysis.anomalies
+            ],
         )
 
 

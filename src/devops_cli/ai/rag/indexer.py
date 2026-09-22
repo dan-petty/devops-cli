@@ -15,6 +15,7 @@ from devops_cli.ai.rag.models import CodeChunk, IndexStats
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.config.constants import CONST_INDEX_CACHE_FILENAME
 from devops_cli.config.defaults import (
+    DEFAULT_MAX_AST_FILE_SIZE_BYTES,
     DEFAULT_RAG_CACHE_DIR,
     DEFAULT_RAG_CHUNK_OVERLAP,
     DEFAULT_RAG_CHUNK_SIZE,
@@ -98,10 +99,10 @@ def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bo
         rel = str(p.relative_to(root)) if p.is_relative_to(root) else p.name
         if gitignore_spec.match_file(rel):
             return False
-    if is_ignored_by_git(root, p):
+    if is_ignored_by_git(root, p, is_dir=False):
         return False
     try:
-        if p.stat().st_size > 2 * 1024 * 1024:
+        if p.stat().st_size > DEFAULT_MAX_AST_FILE_SIZE_BYTES:
             return False
     except OSError:
         return False

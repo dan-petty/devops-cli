@@ -185,6 +185,35 @@ devops k8s configure-urls [OPTIONS]
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--addressing`, `-a` | `string` | `nodeport` | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward. |
+
+---
+
+## `devops k8s service-url`
+
+**Show, or fetch from, a cluster service address that needs no port-forward.**
+
+```bash
+devops k8s service-url [OPTIONS] <service>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<service>` | `string` | Yes | Service name to address through the Kubernetes API server. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+| `--port`, `-p` | `string` | `http` | Service port name or number (a Service may expose several). |
+| `--path` | `string` | `` | Request path appended to the service address. |
+| `--tls` | `boolean` | - | The service speaks HTTPS behind the proxy. |
+| `--fetch` | `boolean` | - | Fetch the address and print the JSON response instead of the address. |
+| `--context`, `-c` | `string` | - | Target context name to switch to. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 

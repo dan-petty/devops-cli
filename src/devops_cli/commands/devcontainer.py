@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from devops_cli.ai.instruction_generator import scaffold_agent_instructions
 from devops_cli.config.constants import (
@@ -36,6 +35,7 @@ from devops_cli.config.metadata import get_project_python_version
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.templating import render_json_template
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.git.operations import iter_workspace_repos
@@ -62,16 +62,6 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # =============================================================================
 # Template & Environment Helpers
 # =============================================================================
-
-
-def _jinja_env() -> Environment:
-    return Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
-        autoescape=select_autoescape([]),
-        trim_blocks=True,
-        lstrip_blocks=True,
-        keep_trailing_newline=True,
-    )
 
 
 # =============================================================================
@@ -105,6 +95,10 @@ def init(
             "-p",
             help=HELP.devcontainer.published,
         ),
+    ] = True,
+    minikube: Annotated[
+        bool,
+        typer.Option("--minikube/--no-minikube", help=HELP.devcontainer.minikube),
     ] = True,
     home_volume: Annotated[
         str | None,
@@ -144,14 +138,14 @@ def init(
 
     resolved_home_vol = home_volume or f"{name}-home"
 
-    env = _jinja_env()
-
-    rendered = env.get_template("devcontainer.json.j2").render(
+    rendered = render_json_template(
+        "devcontainer.json.j2",
         project_name=name,
         python_version=python_version,
         image=selected_image,
         published=is_published,
         home_volume=resolved_home_vol,
+        minikube=minikube,
     )
     write_text_file(dc_file, rendered.strip() + "\n")
     print_success(MESSAGES.devcontainer.created_file.format(path=dc_file))
@@ -161,7 +155,7 @@ def init(
     if not mcp_file.exists() or force:
         write_text_file(
             mcp_file,
-            env.get_template("mcp.json.j2").render(project_name=name),
+            render_json_template("mcp.json.j2", project_name=name),
         )
         print_success(MESSAGES.devcontainer.created_file.format(path=mcp_file))
 
@@ -586,18 +580,62 @@ def _setup_volume_mount_permissions(workspace_dir: Path, *, dry_run: bool = Fals
     return actions
 
 
+def _apply_configured_k8s_context(*, dry_run: bool = False) -> list[str]:
+    """Point kubectl at the context recorded in the project configuration.
+
+    The CLI resolves the configured context itself, but `kubectl` and every other tool in
+    the container follow the kubeconfig's own current-context. Leaving them disagreeing is
+    how a container ends up running `devops k8s pods` against one cluster and `kubectl get
+    pods` against another, and the current-context drifts back on any rebuild that restores
+    a cached kubeconfig.
+
+    Nothing is changed when the configured context is not present in the kubeconfig:
+    selecting a context that does not exist would break `kubectl` outright, which is worse
+    than leaving it pointing where it already pointed.
+    """
+    from devops_cli.k8s.context import configured_context
+
+    desired = configured_context()
+    if not desired:
+        return []
+
+    if dry_run:
+        return [f"Would set kubectl current-context to '{desired}'"]
+
+    available = run_subprocess(
+        ["kubectl", "config", "get-contexts", "-o", "name"],
+        check=False,
+        quiet=True,
+    )
+    if available.returncode != 0:
+        logger.debug("Could not list kubeconfig contexts: %s", available.stderr.strip())
+        return []
+
+    names = {line.strip() for line in available.stdout.splitlines() if line.strip()}
+    if desired not in names:
+        return [
+            f"Configured Kubernetes context '{desired}' is not in the kubeconfig; "
+            f"left current-context unchanged"
+        ]
+
+    result = run_subprocess(["kubectl", "config", "use-context", desired], check=False, quiet=True)
+    if result.returncode != 0:
+        logger.debug("Failed selecting context '%s': %s", desired, result.stderr.strip())
+        return [f"Failed setting kubectl current-context to '{desired}'"]
+    return [f"Set kubectl current-context to configured context '{desired}'"]
+
+
 def _sync_mcp_configuration(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
     """Scaffold and synchronize MCP configuration across IDE and agent paths."""
     actions: list[str] = []
     vscode_mcp = workspace_dir / CONST_VSCODE_DIR_NAME / CONST_MCP_JSON_NAME
     if not vscode_mcp.exists() and (workspace_dir / CONST_PYPROJECT_FILENAME).exists():
         if not dry_run:
-            env = _jinja_env()
             raw_name = workspace_dir.name
             name = re.sub(r"[^a-zA-Z0-9._-]+", "_", raw_name)
             write_text_file(
                 vscode_mcp,
-                env.get_template("mcp.json.j2").render(project_name=name),
+                render_json_template("mcp.json.j2", project_name=name),
             )
         actions.append(f"Scaffolded MCP configuration at {vscode_mcp}")
 
@@ -628,6 +666,38 @@ def _sync_mcp_configuration(workspace_dir: Path, *, dry_run: bool = False) -> li
     return actions
 
 
+def _bootstrap_developer_tools(*, dry_run: bool = False) -> list[str]:
+    """Bootstrap essential developer CLI tools (uv, pre-commit, claude) if missing."""
+    if dry_run:
+        return []
+    actions: list[str] = []
+    tool_installers: tuple[tuple[str, list[str], str, str], ...] = (
+        (
+            "uv",
+            ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
+            "Installed standalone uv binary into $HOME/.local/bin",
+            "Warning: Failed to install standalone uv binary",
+        ),
+        (
+            "pre-commit",
+            ["uv", "tool", "install", "pre-commit"],
+            "Installed standalone pre-commit tool into $HOME/.local/bin",
+            "Warning: Failed to install standalone pre-commit tool via uv",
+        ),
+        (
+            "claude",
+            ["sh", "-c", "curl -fsSL https://claude.ai/install.sh | bash"],
+            "Installed standalone claude CLI into $HOME/.local/bin",
+            "Warning: Failed to install standalone claude CLI",
+        ),
+    )
+    for bin_name, cmd, success_msg, failure_msg in tool_installers:
+        if shutil.which(bin_name) is None:
+            res = run_subprocess(cmd, check=False, quiet=True)
+            actions.append(success_msg if res.returncode == 0 else failure_msg)
+    return actions
+
+
 def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
     """Execute DevContainer post-create setup tasks in pure Python."""
     actions: list[str] = []
@@ -636,28 +706,7 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     actions.extend(_setup_volume_mount_permissions(workspace_dir, dry_run=dry_run))
 
     # 2. Bootstrap tools if not present
-
-    if shutil.which("uv") is None and not dry_run:
-        res = run_subprocess(
-            ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
-            check=False,
-            quiet=True,
-        )
-        if res.returncode == 0:
-            actions.append("Installed standalone uv binary into $HOME/.local/bin")
-        else:
-            actions.append("Warning: Failed to install standalone uv binary")
-
-    if shutil.which("pre-commit") is None and not dry_run:
-        res = run_subprocess(
-            ["uv", "tool", "install", "pre-commit"],
-            check=False,
-            quiet=True,
-        )
-        if res.returncode == 0:
-            actions.append("Installed standalone pre-commit tool into $HOME/.local/bin")
-        else:
-            actions.append("Warning: Failed to install standalone pre-commit tool via uv")
+    actions.extend(_bootstrap_developer_tools(dry_run=dry_run))
 
     # 3. Persistent bash history
     hist_file = Path.home() / ".bash_history"
@@ -1025,6 +1074,12 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     auto_git_daemon = os.getenv("DEVOPS_GIT_DAEMON_AUTOSTART", "true").lower() in ("true", "1")
     if auto_git_daemon:
         actions.extend(_start_git_daemon(workspace_dir, dry_run=dry_run))
+
+    # 8. Align kubectl with the configured context -- last, because the minikube supervisor
+    # above runs `minikube start`, and that rewrites current-context to "minikube". Aligning
+    # any earlier is undone immediately, which is exactly how a container configured for one
+    # cluster ends up pointing at another on every rebuild.
+    actions.extend(_apply_configured_k8s_context(dry_run=dry_run))
 
     return actions
 

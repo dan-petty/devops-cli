@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from collections.abc import Sequence
 from typing import Annotated, Any
 
 import typer
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
+from devops_cli.config.constants import (
+    CONST_ADDRESSING_MODES,
+    CONST_ADDRESSING_NODEPORT,
+    CONST_ADDRESSING_PROXY,
+    CONST_K8S_URL_SCHEME,
+    CONST_PLACEHOLDER_NODE,
+    CONST_PLACEHOLDER_PORT,
+)
 from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_PORT,
     DEFAULT_GRAFANA_PORT,
@@ -28,12 +37,15 @@ from devops_cli.config.settings import load_settings, save_settings
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
+    format_json,
     format_k8s_service_targets_table,
     print,
     print_error,
     print_info,
     print_success,
     print_table,
+    print_warning,
+    write_stdout,
 )
 
 logger = logging.getLogger(__name__)
@@ -166,8 +178,19 @@ def _detect_kubectl_service_url(
 
 
 def _detect_service_url(service: str, namespace: str, context: str | None = None) -> str | None:
-    """Query service URL via minikube service or kubectl nodePort/cluster info."""
+    """Query service URL via native KubernetesService, minikube service, or kubectl fallback."""
     effective_ctx = runtime.resolve_effective_context(context)
+    try:
+        from devops_cli.k8s.service import KubernetesService
+
+        native_url = KubernetesService.get_instance().resolve_service_endpoint(
+            service=service, namespace=namespace, context=effective_ctx
+        )
+        if native_url:
+            return native_url
+    except Exception as exc:
+        logger.debug("Native service endpoint resolution failed: %s", exc)
+
     return _detect_minikube_service_url(
         service, namespace, effective_ctx
     ) or _detect_kubectl_service_url(service, namespace, effective_ctx)
@@ -319,44 +342,138 @@ def _configure_llm_stack_urls(
         configured["valkey.url"] = valkey_url
 
 
+# Which Service backs each configured endpoint. Names are matched as substrings, most
+# specific first, because chart releases rename services: Prometheus ships as
+# `kube-prometheus-kube-prome-prometheus` rather than `prometheus`.
+_PROXY_TARGETS_INFRA: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...] = (
+    ("argocd.url", "argocd", ("argocd-server",), ("80", "http", "server")),
+    ("grafana.url", "monitoring", ("grafana",), ("80", "http", "service")),
+    ("prometheus.url", "monitoring", ("prome-prometheus", "prometheus"), ("9090", "web")),
+    ("jaeger.url", "otel", ("jaeger",), ("16686", "query", "http-query")),
+)
+_PROXY_TARGETS_LLM: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...] = (
+    ("open_webui.url", "llm", ("open-webui",), ("80", "http")),
+    ("qdrant.url", "llm", ("qdrant",), ("6333", "http")),
+)
+
+
+def _configure_proxy_urls(
+    effective_context: str | None,
+    settings: Any,
+    configured: dict[str, str],
+    stacks: Sequence[str],
+) -> None:
+    """Record cluster-native addresses for each detected service.
+
+    These addresses carry no host and no local port, so the same configuration resolves on
+    whichever cluster is active and survives a cluster being rebuilt.
+    """
+    from devops_cli.config.settings import dotted_set
+    from devops_cli.k8s.service_proxy import discover_service
+
+    targets: list[tuple[str, str, tuple[str, ...], tuple[str, ...]]] = []
+    if "infra" in stacks:
+        targets.extend(_PROXY_TARGETS_INFRA)
+    if "llm" in stacks:
+        targets.extend(_PROXY_TARGETS_LLM)
+
+    for key, namespace, patterns, port_hints in targets:
+        ref = discover_service(namespace, patterns, port_hints, context=effective_context)
+        if ref is None:
+            logger.debug("No service matching %s in namespace '%s'", patterns, namespace)
+            continue
+        address = ref.describe()
+        dotted_set(settings, key, address)
+        configured[key] = address
+
+
+# The endpoints nodeport addressing writes, per stack. Proxy addressing derives its own
+# from `_PROXY_TARGETS_*`, which is why the two previews differ: proxy mode configures only
+# the services it can address through the API server.
+_NODEPORT_KEYS_INFRA: tuple[str, ...] = (
+    "argocd.url",
+    "grafana.url",
+    "prometheus.url",
+    "jaeger.url",
+    "otel.endpoint",
+)
+_NODEPORT_KEYS_LLM: tuple[str, ...] = (
+    "ai.ollama_urls",
+    "open_webui.url",
+    "qdrant.url",
+    "valkey.url",
+)
+
+
+def _preview_proxy_addresses(stacks: Sequence[str]) -> dict[str, str]:
+    """Render the cluster-native address each key will receive."""
+    targets: list[tuple[str, str, tuple[str, ...], tuple[str, ...]]] = []
+    if "infra" in stacks:
+        targets.extend(_PROXY_TARGETS_INFRA)
+    if "llm" in stacks:
+        targets.extend(_PROXY_TARGETS_LLM)
+
+    preview: dict[str, str] = {}
+    for key, namespace, patterns, port_hints in targets:
+        port = next((hint for hint in port_hints if hint.isdigit()), CONST_PLACEHOLDER_PORT)
+        preview[key] = f"{CONST_K8S_URL_SCHEME}://{namespace}/{patterns[0]}:{port}"
+    return preview
+
+
+def _preview_nodeport_addresses(stacks: Sequence[str]) -> dict[str, str]:
+    """Render the shape of a node address, which is only known after discovery.
+
+    A fixed address was written here -- a minikube node IP with assigned port numbers --
+    so the preview described a cluster the command was not going to configure, and did so
+    identically whichever addressing mode was asked for.
+    """
+    keys: list[str] = []
+    if "infra" in stacks:
+        keys.extend(_NODEPORT_KEYS_INFRA)
+    if "llm" in stacks:
+        keys.extend(_NODEPORT_KEYS_LLM)
+
+    preview: dict[str, str] = {}
+    for key in keys:
+        scheme = "tcp" if key.startswith("valkey") else "http"
+        preview[key] = f"{scheme}://{CONST_PLACEHOLDER_NODE}:{CONST_PLACEHOLDER_PORT}"
+    return preview
+
+
+def _dry_run_preview(stacks: Sequence[str], addressing: str) -> dict[str, str]:
+    """Describe what `configure-urls` would write under the requested addressing mode."""
+    if addressing == CONST_ADDRESSING_PROXY:
+        return _preview_proxy_addresses(stacks)
+    return _preview_nodeport_addresses(stacks)
+
+
 def configure_urls(
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
+    addressing: Annotated[
+        str, typer.Option("--addressing", "-a", help=HELP.k8s.addressing)
+    ] = CONST_ADDRESSING_NODEPORT,
 ) -> None:
     """Auto-detect Kubernetes stack URLs and update CLI config."""
+    if addressing not in CONST_ADDRESSING_MODES:
+        print_error(
+            f"Unknown addressing mode '{addressing}'. Choose one of: "
+            f"{', '.join(sorted(CONST_ADDRESSING_MODES))}."
+        )
+        raise typer.Exit(2)
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")
 
     selected_stacks = _resolve_stacks(stack)
 
-    dry_run_details: dict[str, str] = {}
-    if "infra" in selected_stacks:
-        dry_run_details.update(
-            {
-                "argocd.url": "http://192.168.49.2:30080",
-                "grafana.url": "http://192.168.49.2:32047",
-                "prometheus.url": "http://192.168.49.2:30090",
-                "jaeger.url": "http://192.168.49.2:30686",
-            }
-        )
-    if "llm" in selected_stacks:
-        dry_run_details.update(
-            {
-                "ai.ollama_urls": "http://192.168.49.2:31434",
-                "open_webui.url": "http://192.168.49.2:30080",
-                "qdrant.url": "http://192.168.49.2:30633",
-                "valkey.url": "tcp://192.168.49.2:30379",
-            }
-        )
-
     if is_dry_run():
         render_dry_run_result(
             command="devops k8s configure-urls",
             action="configure_monitoring_urls",
-            details=dry_run_details,
+            details=_dry_run_preview(selected_stacks, addressing),
         )
         return
 
@@ -372,11 +489,14 @@ def configure_urls(
     settings = load_settings()
     configured: dict[str, str] = {}
 
-    if "infra" in selected_stacks:
-        _configure_infra_stack_urls(effective_context, settings, configured)
+    if addressing == CONST_ADDRESSING_PROXY:
+        _configure_proxy_urls(effective_context, settings, configured, selected_stacks)
+    else:
+        if "infra" in selected_stacks:
+            _configure_infra_stack_urls(effective_context, settings, configured)
 
-    if "llm" in selected_stacks:
-        _configure_llm_stack_urls(effective_context, settings, configured)
+        if "llm" in selected_stacks:
+            _configure_llm_stack_urls(effective_context, settings, configured)
 
     if configured:
         save_settings(settings)
@@ -569,3 +689,71 @@ def port_forward_stop(
     mgr = get_daemon_manager()
     stopped = mgr.stop_forwards(service_filter=service)
     print_success(f"✓ Terminated {stopped} active port-forward daemon(s)")
+
+
+def service_url(
+    service: Annotated[str, typer.Argument(help=HELP.k8s.proxy_service)],
+    namespace: Annotated[
+        str, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = "default",
+    port: Annotated[str, typer.Option("--port", "-p", help=HELP.k8s.proxy_port)] = "http",
+    path: Annotated[str, typer.Option("--path", help=HELP.k8s.proxy_path)] = "",
+    tls: Annotated[bool, typer.Option("--tls", help=HELP.k8s.proxy_tls)] = False,
+    fetch: Annotated[bool, typer.Option("--fetch", help=HELP.k8s.proxy_fetch)] = False,
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help=HELP.k8s.context_target)
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+) -> None:
+    """Show, or fetch from, a cluster service address that needs no port-forward."""
+    from devops_cli.k8s.service_http import get_json
+    from devops_cli.k8s.service_proxy import (
+        ServiceAddressError,
+        ServiceRef,
+        resolve_proxy_target,
+    )
+
+    request_path, _, request_query = path.partition("?")
+    ref = ServiceRef(
+        namespace=namespace,
+        service=service,
+        port=port,
+        tls=tls,
+        path=request_path,
+        query=request_query,
+    )
+
+    if not fetch:
+        try:
+            target = resolve_proxy_target(ref, context=context)
+            resolved = target.url
+        except ServiceAddressError as exc:
+            # The portable address is still worth printing: it is valid configuration even
+            # when no cluster is reachable right now.
+            print_warning(str(exc))
+            resolved = ""
+        if json_output:
+            write_stdout(
+                format_json({"address": ref.describe(), "proxy_url": resolved, "path": ref.path})
+            )
+            return
+        print_table(
+            "Cluster Service Address",
+            ["Field", "Value"],
+            [
+                ["Configuration address", ref.describe()],
+                ["API server proxy URL", resolved or "unresolved"],
+            ],
+        )
+        return
+
+    try:
+        payload = get_json(ref.describe(), context=context)
+    except ServiceAddressError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+    except Exception as exc:
+        print_error(f"Request to {ref.describe()} failed: {exc}")
+        raise typer.Exit(1) from exc
+
+    write_stdout(format_json(payload))

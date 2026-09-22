@@ -931,3 +931,153 @@ def test_verification_helper_edge_cases(tmp_path: Path) -> None:
         title="Uninitialized variable 'var' causes UnboundLocalError",
     )
     assert _check_uninitialized_variable_hallucination(f_broken, broken_py) is None
+
+
+# =============================================================================
+# Deterministic invalidation of unfalsifiable evidence
+# =============================================================================
+
+
+def test_a_placeholder_advisory_identifier_invalidates_a_dependency_claim() -> None:
+    """A dependency finding stands on the advisory it names.
+
+    Review session `20260922-034125` reported outdated FastAPI and Uvicorn citing
+    `CVE-2023-xxxx` -- the shape of evidence written where evidence belongs. There is
+    nothing to look up, so no verifier can confirm or refute it.
+    """
+    from devops_cli.ai.review.verification import _check_placeholder_advisory_hallucination
+
+    finding = Finding(
+        severity="HIGH",
+        location="pyproject.toml:1-100",
+        title="Outdated FastAPI and Uvicorn versions",
+        description="Older releases may contain unpatched CVEs (e.g., CVE-2023-xxxx).",
+    )
+    result = _check_placeholder_advisory_hallucination(finding)
+    assert result is not None and result.status == "INVALIDATED"
+
+
+def test_a_real_advisory_identifier_is_left_alone() -> None:
+    """The check must reject placeholders, not dependency findings as a class."""
+    from devops_cli.ai.review.verification import _check_placeholder_advisory_hallucination
+
+    finding = Finding(
+        severity="HIGH",
+        location="pyproject.toml:1",
+        title="Vulnerable dependency",
+        description="CVE-2024-24762 affects python-multipart below 0.0.7.",
+    )
+    assert _check_placeholder_advisory_hallucination(finding) is None
+
+
+def test_a_failure_on_an_uninstallable_python_is_invalidated() -> None:
+    """`requires-python` is the support floor; below it the installer refuses the package.
+
+    The same session reported that `StrEnum` breaks on Python 3.10 for a project declaring
+    `requires-python = ">=3.14"`, describing a configuration that cannot exist.
+    """
+    from devops_cli.ai.review.verification import _check_unsupported_runtime_hallucination
+
+    finding = Finding(
+        severity="MEDIUM",
+        location="src/devops_cli/models/prometheus.py:3",
+        title="StrEnum import is incompatible with Python <3.11",
+        description="StrEnum arrived in 3.11; on Python 3.10 the import raises ImportError.",
+    )
+    result = _check_unsupported_runtime_hallucination(finding)
+    assert result is not None and result.status == "INVALIDATED"
+
+
+def test_a_failure_on_a_supported_python_survives() -> None:
+    """A genuine incompatibility with the runtime the project targets must still report."""
+    from devops_cli.ai.review.verification import _check_unsupported_runtime_hallucination
+
+    finding = Finding(
+        severity="MEDIUM",
+        location="src/devops_cli/models/prometheus.py:3",
+        title="Incompatible with Python 3.14",
+        description="This construct raises ImportError on Python 3.14.",
+    )
+    assert _check_unsupported_runtime_hallucination(finding) is None
+
+
+def test_a_dependency_this_run_scanned_clean_is_not_reported_vulnerable() -> None:
+    """The artifact refuted itself: the scan and the finding disagreed in the same file.
+
+    Session `20260922-034125` reported FastAPI and Uvicorn as carrying unpatched CVEs while
+    its own `external_dependencies` resolved both to CLEAN with no advisory records.
+    """
+    from devops_cli.ai.review.verification import _check_scanned_clean_dependency
+    from devops_cli.models.vulnerability import DependencySpec
+
+    finding = Finding(
+        severity="HIGH",
+        location="pyproject.toml:33",
+        title="Outdated FastAPI and Uvicorn versions",
+        description="Older releases may contain unpatched security vulnerabilities.",
+    )
+    scanned = [DependencySpec(name="fastapi"), DependencySpec(name="uvicorn")]
+    result = _check_scanned_clean_dependency(finding, scanned)
+    assert result is not None and result.status == "INVALIDATED"
+
+
+def test_a_dependency_the_scan_flagged_still_reports() -> None:
+    """The check defers to the scan; it must not suppress what the scan found."""
+    from devops_cli.ai.review.verification import _check_scanned_clean_dependency
+    from devops_cli.models.vulnerability import DependencySpec, VulnerabilityRecord
+
+    finding = Finding(
+        severity="HIGH",
+        location="pyproject.toml:33",
+        title="Vulnerable fastapi pin",
+        description="fastapi carries a known advisory.",
+    )
+    flagged = [
+        DependencySpec(
+            name="fastapi",
+            severity="HIGH",
+            vulnerabilities=[VulnerabilityRecord(id="CVE-2024-24762")],
+        )
+    ]
+    assert _check_scanned_clean_dependency(finding, flagged) is None
+
+
+# =============================================================================
+# Verifier prompt rule coverage
+# =============================================================================
+
+# The verifier system prompt is sent on every verification batch. It was compressed from
+# 2560 to roughly 1840 tokens; these markers are the decisions that compression had to
+# preserve, one per falsification rule.
+_VERIFIER_PROMPT_RULES: tuple[str, ...] = (
+    "PEP 758",
+    "ImportError",
+    "mypy --strict",
+    "CVE-2023-xxxx",
+    "requires-python",
+    "Authorization",
+    "NameError",
+    "removed",
+    "getattr",
+    "off-by-one",
+    "CWE-400",
+    "CWE-209",
+    "allow_private_network",
+    "CWE-200",
+    "<masked-secret>",
+    "__import__",
+    "cacheFrom",
+    "192.0.2.0/24",
+    "203.0.113.0/24",
+    "command injection",
+    "does not raise",
+    "verified_criteria_matched",
+)
+
+
+def test_the_verifier_prompt_still_carries_every_falsification_rule() -> None:
+    """A rule dropped here reappears as a class of false positive nobody traces back."""
+    from devops_cli.ai.task_loader import load_task_prompt
+
+    prompt = load_task_prompt("verify_finding_system.md")
+    assert [rule for rule in _VERIFIER_PROMPT_RULES if rule not in prompt] == []

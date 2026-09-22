@@ -68,6 +68,9 @@ DEFAULT_AI_CONTEXT_WINDOW: int = 32768
 DEFAULT_AI_MAX_CONTEXT_WINDOW: int = 131072
 DEFAULT_OLLAMA_URLS: tuple[str, ...] = (CONST_URL_OLLAMA_LOCALHOST,)
 DEFAULT_OLLAMA_MAX_PARALLEL: int = 2
+DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS: float = 900.0
+DEFAULT_OLLAMA_SLOT_POLL_INTERVAL_SECONDS: float = 2.0
+DEFAULT_AI_MAX_RESPONSE_BYTES: int = 50 * 1024 * 1024  # 50 MiB limit
 DEFAULT_AI_PREWARM_KEEP_ALIVE: str = "1h"
 DEFAULT_AI_EVICT_KEEP_ALIVE: int = 0
 DEFAULT_AI_MAX_RETRIES: int = 2
@@ -186,7 +189,7 @@ DEFAULT_LOKI_URL = "http://localhost:3100"
 
 # ── Tool & Agent Defaults ─────────────────────────────────────────────────────
 DEFAULT_TOOL_READ_MAX_BYTES: int = 4000
-DEFAULT_TOOL_MAX_BYTES_LIMIT: int = 5_000_000
+DEFAULT_TOOL_MAX_BYTES_LIMIT: int = 50 * 1024 * 1024  # 50 MiB limit
 DEFAULT_TOOL_DIFF_MAX_CHARS: int = 4000
 DEFAULT_TOOL_MAX_FILES: int = 100
 DEFAULT_TOOL_MAX_SEARCH_MATCHES: int = 50
@@ -212,10 +215,39 @@ DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS: float = 1.0
 DEFAULT_MCP_TOOL_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS: float = 30.0
+DEFAULT_MCP_SCHEMA_CACHE_MAX_ENTRIES: int = 256
 
 # ── Docker Defaults ───────────────────────────────────────────────────────────
 DEFAULT_DOCKER_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_COSIGN_TIMEOUT_SECONDS: float = 60.0
+
+# ── Vault Lease Lifecycle Defaults ───────────────────────────────────────────
+# Renew a lease once its remaining lifetime drops below this fraction of its TTL, so a
+# long CI run never presents an expired credential mid-operation.
+DEFAULT_VAULT_LEASE_RENEW_THRESHOLD: float = 0.25
+# Lifetime requested on each renewal, in seconds.
+DEFAULT_VAULT_LEASE_RENEW_INCREMENT_SECONDS: int = 3600
+# Bound on a single Vault HTTP API call.
+DEFAULT_VAULT_REQUEST_TIMEOUT_SECONDS: float = 10.0
+
+# ── Argo GitOps & Progressive Delivery Defaults ──────────────────────────────
+# (DEFAULT_ARGOCD_NAMESPACE is defined with the Kubernetes namespace defaults below.)
+# Refresh cadence for the live `devops argo rollouts status --watch` view.
+DEFAULT_ROLLOUT_WATCH_INTERVAL_SECONDS: float = 2.0
+# Poll cadence and wall-clock budget for `devops argo workflows submit --wait`.
+DEFAULT_WORKFLOW_POLL_INTERVAL_SECONDS: float = 3.0
+DEFAULT_WORKFLOW_WAIT_TIMEOUT_SECONDS: float = 1800.0
+
+# Engine API socket handshake budget. Short by design: the daemon socket is local,
+# so a slow ping means the daemon is down rather than merely busy.
+DEFAULT_DOCKER_PING_TIMEOUT_SECONDS: float = 2.0
+# Reachability and introspection response cache lifetime, mirroring the Kubernetes
+# service cache tier so repeated command invocations avoid redundant round-trips.
+DEFAULT_DOCKER_CACHE_TTL_SECONDS: float = 5.0
+# Grace period granted to a container to flush and exit before SIGKILL.
+DEFAULT_DOCKER_STOP_TIMEOUT_SECONDS: int = 10
+# Maximum consecutive samples drained from the Engine stats stream per invocation.
+DEFAULT_DOCKER_STATS_STREAM_SAMPLES: int = 1
 
 # ── Connection & Response Timeout Policies ───────────────────────────────────
 # NOTE (Design Justification): Connection timeouts are intentionally short (1.0s)
@@ -303,7 +335,7 @@ DEFAULT_ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
 DEFAULT_LLM_MAX_TOKENS: int = 8192
 DEFAULT_AI_TEST_PROMPT: str = "Hello, world!"
 DEFAULT_ESTIMATED_PROMPT_TOKENS: int = 1500
-DEFAULT_MAX_AST_FILE_SIZE_BYTES: int = 5 * 1024 * 1024  # 5MB DoS protection limit
+DEFAULT_MAX_AST_FILE_SIZE_BYTES: int = 50 * 1024 * 1024  # 50MB DoS protection limit
 DEFAULT_OPEN_SOURCE_PRICING_URL: str = (
     "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 )
@@ -418,8 +450,8 @@ DEFAULT_XML_METADATA_ROOT_TAG: str = "metadata"
 DEFAULT_CONTEXT_PACKING_MAX_TOKENS: int = 1500
 DEFAULT_CONTEXT_PACKING_TOTAL_BUDGET: int = 3000
 DEFAULT_REPOMAP_MAX_FILES: int = 100
-DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES: int = 5 * 1024 * 1024  # 5 MiB
-DEFAULT_JSON_REPAIR_MAX_LENGTH: int = 5 * 1024 * 1024  # 5 MiB
+DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES: int = 50 * 1024 * 1024  # 50 MiB
+DEFAULT_JSON_REPAIR_MAX_LENGTH: int = 50 * 1024 * 1024  # 50 MiB
 DEFAULT_TOOL_EXTRACT_PAGE_SIZE: int = 32 * 1024  # 32 KiB
 DEFAULT_TOOL_EXTRACT_OVERLAP: int = 1024  # 1 KiB
 
@@ -448,6 +480,10 @@ DEFAULT_PYTHON_REQUIRES: str = ">=3.14"
 DEFAULT_AI_AGENT_PERSONA: str = "devsecops"
 DEFAULT_AI_CONTEXT_TOKEN_BUDGET: int = 16384
 DEFAULT_AI_END_STRATEGY: str = "graceful"
+DEFAULT_AI_TOKEN_BUCKET_CAPACITY: int = 100_000
+DEFAULT_AI_TOKEN_BUCKET_REFILL_RATE: float = 10_000.0
+DEFAULT_AI_PROMPT_CACHE_TTL: str = "5m"
+DEFAULT_AI_USAGE_REQUEST_LIMIT: int = 50
 DEFAULT_FINDING_STATUS: str = "UNVERIFIED"
 DEFAULT_ROUTER_LATENCY_TIER: str = "fast-interactive"
 DEFAULT_SYNTHESIZED_TEST_STATUS: str = "SYNTHESIZED"
@@ -510,6 +546,52 @@ DEFAULT_VALKEY_TOKEN_COST: int = 1
 DEFAULT_VALKEY_KEY_SUFFIX: str = "default"
 DEFAULT_VALKEY_SCAN_COUNT: int = 100
 
+# ── Connection Pooling & Tiered Cache Defaults ───────────────────────────────
+# Upper bound on concurrent pooled connections to a single Valkey endpoint.
+DEFAULT_VALKEY_POOL_MAX_SIZE: int = 10
+# Connections idle beyond this window are discarded rather than handed out, since a
+# server-side timeout would otherwise surface as a mid-operation failure.
+DEFAULT_VALKEY_POOL_IDLE_TIMEOUT_SECONDS: float = 60.0
+# Entries retained by the in-process L1 cache before least-recently-used eviction.
+DEFAULT_CACHE_L1_MAX_ENTRIES: int = 2048
+# Lifetime applied to cached values when a call site does not specify one.
+DEFAULT_CACHE_TTL_SECONDS: float = 3600.0
+# Lifetime for cached AI artefacts (embeddings, findings, LLM responses).
+DEFAULT_AI_CACHE_TTL_SECONDS: int = 86400
+
+# ── Sparse Lexical (BM25) Ranking Defaults ───────────────────────────────────
+# Term-frequency saturation and length-normalisation constants. These are the values
+# established by the Okapi BM25 literature and used unchanged across both consumers.
+DEFAULT_BM25_K1: float = 1.5
+DEFAULT_BM25_B: float = 0.75
+# Candidate pool drawn from the dense index before lexical re-ranking is applied.
+DEFAULT_HYBRID_CANDIDATE_LIMIT: int = 50
+
+# ── Qdrant Vector Quantization ───────────────────────────────────────────────
+# Store vectors as int8 rather than float32. Trades a small amount of recall for roughly
+# a quarter of the memory footprint, which keeps a large index viable on a workstation.
+DEFAULT_QDRANT_QUANTIZATION_ENABLED: bool = True
+# Quantile bounding the int8 range, discarding extreme outliers that would otherwise
+# compress the scale for every other value.
+DEFAULT_QDRANT_QUANTIZATION_QUANTILE: float = 0.99
+
+# ── Client-Side Metric Analysis ──────────────────────────────────────────────
+# Standard deviations from the mean before a sample is reported as anomalous.
+DEFAULT_ANOMALY_Z_THRESHOLD: float = 3.0
+# Minimum series length before anomaly detection runs. Below this a baseline cannot be
+# established, and a reported "anomaly" would be noise dressed as signal.
+DEFAULT_ANOMALY_MIN_SAMPLES: int = 8
+# Exponential smoothing factor; higher values track level shifts faster.
+DEFAULT_EWMA_ALPHA: float = 0.3
+# Samples projected beyond the observed window.
+DEFAULT_FORECAST_HORIZON_SAMPLES: int = 5
+
+# ── Grafana Panel Layout ─────────────────────────────────────────────────────
+# Default panel height in grid rows, and the single-row height Grafana uses for section
+# separators.
+DEFAULT_GRAFANA_PANEL_HEIGHT: int = 8
+DEFAULT_GRAFANA_ROW_HEIGHT: int = 1
+
 # ── Watcher Defaults ────────────────────────────────────────────────────────
 DEFAULT_FILE_WATCHER_DEBOUNCE_MS: int = 500
 DEFAULT_FILE_WATCHER_INTERVAL_SECONDS: float = 0.5
@@ -536,6 +618,7 @@ DEFAULT_SANDBOX_NAME: str = "app-sandbox"
 DEFAULT_SANDBOX_IMAGE: str = "python:3.14-slim"
 DEFAULT_SANDBOX_MEMORY: str = "2g"
 DEFAULT_SANDBOX_CPUS: float = 2.0
+DEFAULT_SANDBOX_PIDS_LIMIT: int = 256
 DEFAULT_SANDBOX_NETWORK: str = "isolated"
 DEFAULT_LOG_STREAM: str = "stdout"
 DEFAULT_SANDBOX_INSTANCE_ID: str = "sandbox"
@@ -569,6 +652,8 @@ DEFAULT_GH_MAX_RETRIES: int = 2
 DEFAULT_GH_RESOURCE: str = "core"
 DEFAULT_GH_CACHE_TTL_SECONDS: float = 60.0
 DEFAULT_GH_GRAPHQL_SAFETY_THRESHOLD: int = 500
+DEFAULT_GH_GRAPHQL_CACHE_MAX_ENTRIES: int = 500
+DEFAULT_GH_GRAPHQL_MAX_COST_PER_QUERY: int = 100
 DEFAULT_GH_MAX_PROJECT_MUTATIONS_PER_SYNC: int = 25
 DEFAULT_GH_QUOTA_MAX_AGE_SECONDS: float = 300.0
 DEFAULT_GH_MAX_PAGINATED_PAGES: int = 100
@@ -609,3 +694,67 @@ DEFAULT_THREAT_INTEL_BATCH_SIZE: int = 25
 DEFAULT_RESEARCH_DIR: str = "./.data/research"
 DEFAULT_SYNTOPICAL_TIMEOUT_SECONDS: float = 30.0
 DEFAULT_SYNTOPICAL_MAX_SOURCES: int = 20
+
+# ── Kubernetes Informer & Service Defaults ───────────────────────────────────
+DEFAULT_K8S_CACHE_TTL_SECONDS: float = 5.0
+DEFAULT_K8S_INFORMER_RESYNC_SECONDS: float = 30.0
+# Grace period granted to the informer worker thread to unwind after stop().
+DEFAULT_K8S_INFORMER_STOP_TIMEOUT_SECONDS: float = 5.0
+# Upper bound on cached watch objects, preventing unbounded growth on large clusters.
+DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES: int = 10000
+DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS: float = 5.0
+DEFAULT_K8S_STREAM_TIMEOUT_SECONDS: float = 300.0
+
+# ── Dashboard TUI Defaults ──────────────────────────────────────────────────
+# Retention ceiling for a streamed log view. A tail can emit hundreds of thousands
+# of lines; memory is bounded by this rather than by how long the stream runs.
+DEFAULT_LOG_BUFFER_MAX_LINES: int = 10000
+# Lines rendered at once. Only this slice is handed to the widget per frame.
+DEFAULT_LOG_VIEWPORT_LINES: int = 50
+# Seconds between automatic dashboard refreshes.
+DEFAULT_DASHBOARD_REFRESH_SECONDS: int = 5
+# Age beyond which a domain snapshot is flagged as stale in the UI.
+DEFAULT_DASHBOARD_STALE_SECONDS: float = 30.0
+# Minimum seconds between log-pane redraws. A busy stream produces lines far faster than
+# a terminal can usefully repaint; every line is still retained, only the drawing is
+# coalesced, which is what keeps the UI thread free under load.
+DEFAULT_LOG_REDRAW_INTERVAL_SECONDS: float = 0.05
+
+# ── Telemetry Span Buffer ───────────────────────────────────────────────────
+# Completed spans retained in memory for the waterfall view and offline inspection.
+# Bounded so a long-running command cannot grow the buffer without limit.
+DEFAULT_SPAN_BUFFER_MAX_SPANS: int = 1000
+
+# ── Dashboard Provider Timeouts ─────────────────────────────────────────────
+# Kept short: these run per refresh, and a panel that blocks is the failure the threaded
+# refresh architecture exists to prevent.
+DEFAULT_VALKEY_PANEL_TIMEOUT_SECONDS: float = 1.0
+DEFAULT_TELEMETRY_QUERY_TIMEOUT_SECONDS: float = 3.0
+# Timeout for requests proxied through the Kubernetes API server. The extra hop makes these
+# a little slower than a direct call, but they must still not block a dashboard refresh.
+DEFAULT_K8S_PROXY_TIMEOUT_SECONDS: float = 5.0
+
+# ── Valkey Pipeline Batching ────────────────────────────────────────────────
+# A pipeline is serialized into one buffer before it is written, so an unbounded batch
+# costs memory proportional to the batch. Both limits apply: many tiny commands and a few
+# very large values are different shapes of the same problem.
+DEFAULT_VALKEY_PIPELINE_CHUNK_COMMANDS: int = 1000
+DEFAULT_VALKEY_PIPELINE_CHUNK_BYTES: int = 8 * 1024 * 1024
+# Budget for the type-check probe that invalidates impossible None-dereference findings.
+# Bounded because it runs during verification, where a hung probe stalls the whole review.
+DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS: float = 120.0
+# How long the log consumer waits for a line before re-checking whether it should stop.
+# Short enough that quitting feels immediate on a silent stream.
+DEFAULT_LOG_STREAM_POLL_SECONDS: float = 0.1
+# How long a compiled .gitignore is trusted before its modification time is checked again.
+# Stat-ing every ignore file on every check dominated the cost of a repository walk; an
+# edit is still picked up within this window.
+DEFAULT_GITIGNORE_REVALIDATE_SECONDS: float = 2.0
+
+# ── Shared HTTP Connection Pooling ──────────────────────────────────────────
+# Reusing connections without a ceiling trades connection churn for descriptor exhaustion.
+DEFAULT_HTTP_MAX_CONNECTIONS: int = 100
+DEFAULT_HTTP_MAX_KEEPALIVE_CONNECTIONS: int = 20
+# Idle connections are dropped after this long. Long enough to span a burst of agent calls,
+# short enough that an endpoint restarting does not leave the pool holding dead sockets.
+DEFAULT_HTTP_KEEPALIVE_EXPIRY_SECONDS: float = 30.0

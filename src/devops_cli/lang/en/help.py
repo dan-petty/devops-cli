@@ -136,7 +136,7 @@ class AICommandHelp:
     include_tests: str = "Include test modules in symbol map."
     diagram: str = "Generate Mermaid architecture topology or STRIDE threat model diagram."
     diagram_type: str = "Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model."
-    eval_review: str = "Evaluate and benchmark code review quality against feedback dataset."
+    eval_review: str = "Persona whose recorded findings to measure the layer against."
     dataset_path: str = "Path to feedback dataset jsonl."
     test_gen: str = "Synthesize unit test suites for functions and modules via LLM."
     test_function: str = "Specific function to synthesize tests for."
@@ -251,6 +251,15 @@ class K8sCommandHelp:
     validate_manifest: str = (
         "Validate Kubernetes manifests against OpenAPI schemas with Kubeconform."
     )
+    addressing: str = (
+        "How to record endpoints: 'nodeport' writes a cluster-specific host and port, "
+        "'proxy' writes portable k8s:// service addresses needing no port-forward."
+    )
+    proxy_service: str = "Service name to address through the Kubernetes API server."
+    proxy_port: str = "Service port name or number (a Service may expose several)."
+    proxy_path: str = "Request path appended to the service address."
+    proxy_tls: str = "The service speaks HTTPS behind the proxy."
+    proxy_fetch: str = "Fetch the address and print the JSON response instead of the address."
     context_target: str = "Target context name to switch to."
     manifest_path: str = "Manifest file or directory path."
     pod_name: str = "Pod name."
@@ -386,6 +395,9 @@ class TfCommandHelp:
     check_fmt: str = "Check formatting without writing files."
     recursive_fmt: str = "Format subdirectories recursively."
     no_color: str = "Disable color codes."
+    graph: str = "Inspect the in-memory resource dependency graph and blast radius."
+    drift: str = "Compare declared configuration against recorded state."
+    resource_address: str = "Resource address to compute blast radius for, e.g. aws_vpc.main."
     tflint_config: str = "Path to .tflint.hcl config file."
     tflint_dry_run: str = "Simulate TFLint execution."
 
@@ -449,6 +461,14 @@ class CICommandHelp:
     filter_keyword: str = "Filter tests by keyword expression."
     stop_fail: str = "Stop after first failure."
     num_workers: str = "Number of parallel worker processes."
+    test_paths: str = (
+        "Source or test files to verify. Narrows the run to covering tests; "
+        "omit to run the full suite."
+    )
+    selection_fallback: str = (
+        "Run the full suite when a changed source has no covering tests, rather than "
+        "reporting success without verifying it."
+    )
     html_report: str = "Generate HTML coverage report in .data/htmlcov/."
     xml_report: str = "Generate XML coverage report in .data/coverage.xml."
     auto_fix: str = "Auto-fix violations where possible."
@@ -467,7 +487,9 @@ class CICommandHelp:
     uv_check: str = "Run uv check for fast static type checking and project validation."
     lockfile: str = "Verify lockfile consistency and freshness via uv lock --check."
     outdated: str = "Display outdated dependencies and packages via uv tree --outdated."
-    cache: str = "Enable or disable execution caching when codebase is unchanged."
+    cache: str = (
+        "Reuse a cached verdict when the codebase is unchanged. Results are recorded either way."
+    )
     force: str = "Bypass CI execution cache and force re-execution of all quality gates."
     files: str = (
         "Explicit list of file paths to verify (e.g. from pre-commit file change tracking)."
@@ -476,6 +498,7 @@ class CICommandHelp:
 
 @dataclass(frozen=True)
 class DevcontainerCommandHelp:
+    minikube: str = "Install the kubectl, helm and minikube devcontainer feature."
     app: str = "Manage devcontainer configurations."
     init: str = "Scaffold .devcontainer/ using the published DevOps CLI devcontainer image."
     update: str = "Update the Python image version in an existing devcontainer.json."
@@ -517,6 +540,8 @@ class DockerCommandHelp:
     prune: str = "Remove unused containers, images, and networks."
     stats: str = "Display live container CPU, memory, and network I/O statistics."
     analyze_layers: str = "Analyze container image layer efficiency and wasted space using Dive."
+    cache: str = "Introspect BuildKit multi-stage layer cache occupancy and reuse."
+    prune_cache: str = "Reclaim unused BuildKit build cache records after reporting."
     filter_name: str = "Filter by name."
     context_dir: str = "Build context directory."
     image_tag: str = "Image name[:tag] to push."
@@ -536,6 +561,7 @@ class DockerCommandHelp:
 @dataclass(frozen=True)
 class GrafanaCommandHelp:
     app: str = "Grafana dashboard and alert management."
+    lint_path: str = "Dashboard JSON file or directory to lint."
     dashboards: str = "Manage Grafana dashboards."
     search: str = "Search Grafana dashboards and folders by query string."
     datasources: str = "List configured datasources."
@@ -702,6 +728,12 @@ class GHCommandHelp:
     project_link: str = "Link a GitHub Project v2 board to the repository."
     project_audit: str = "Audit project board items and fields against local tasks and template."
     project_template: str = "Display the declarative GitHub Projects v2 JSON template."
+    project_workflows_app: str = (
+        "Inspect and audit GitHub Projects v2 built-in workflows and automations."
+    )
+    project_workflows_list: str = (
+        "List built-in project workflows, enabled statuses, and configuration links."
+    )
     views_app: str = "Inspect standardized GitHub Projects v2 views."
     views_list: str = "List all 4 standardized project views."
     views_spec: str = "Output JSON schema specification for project views."
@@ -722,6 +754,14 @@ class GHCommandHelp:
     issues_triage: str = "Audit open issues for mandatory taxonomy labels and milestone linkage."
     issues_status: str = "Display aggregated issue counts by priority, type, and milestone."
     issues_edit: str = "Edit an existing issue title, body, state, milestone, or taxonomy labels."
+    issues_close_merged: str = (
+        "Close issues linked by merged pull requests. GitHub only honours closing keywords "
+        "when a pull request merges into the default branch, so pull requests targeting a "
+        "release branch leave their issues open."
+    )
+    close_merged_pr: str = "Close issues for this single pull request instead of sweeping."
+    close_merged_base: str = "Only consider merged pull requests with this base branch."
+    close_merged_limit: str = "Maximum merged pull requests to examine."
     issues_reconcile_roadmap: str = (
         "Reconcile existing issue milestones to match docs/ROADMAP.md specifications."
     )
@@ -769,6 +809,8 @@ class ReleaseCommandHelp:
     epic: str = (
         "Provision, correlate, and synchronize parent release tracking epics for milestones."
     )
+    sync_notes: str = "Republish GitHub release descriptions from CHANGELOG.md."
+    sync_notes_all: str = "Sync every published release rather than one version."
 
 
 @dataclass(frozen=True)
@@ -856,6 +898,22 @@ class ScanCommandHelp:
     aibom_format: str = "AIBOM format output (cyclonedx, json)."
     aibom_output: str = "Destination file path for generated AIBOM manifest."
     framework: str = "Specific IaC framework (e.g. terraform)."
+    report: str = (
+        "Run every registered scanner, deduplicate and correlate findings across tools, "
+        "and report or export them as SARIF."
+    )
+    target_report: str = "Target directory or file to scan with all registered scanners."
+    scanners: str = "Limit the run to these scanners (repeatable). Defaults to all registered."
+    sarif_output: str = "Write findings to this path as a SARIF 2.1.0 document."
+    sarif_import: str = "SARIF document to ingest, from this or any other SARIF-emitting tool."
+    min_severity: str = "Drop findings below this severity (CRITICAL|HIGH|MEDIUM|LOW|INFO)."
+    suppression_policy: str = (
+        "Suppression policy file; inherited policies are resolved via 'extends'."
+    )
+    show_suppressed: str = (
+        "List findings hidden by the suppression policy and the rule that hid them."
+    )
+    fail_on: str = "Exit non-zero when a finding at or above this severity survives suppression."
 
 
 @dataclass(frozen=True)
@@ -971,6 +1029,7 @@ class AnalyzeCommandHelp:
 @dataclass(frozen=True)
 class PrometheusCommandHelp:
     app: str = "Prometheus metrics querying and analysis."
+    anomaly_threshold: str = "Z-score threshold before a sample is reported as anomalous."
     query: str = "Execute an instant PromQL query."
     query_range: str = "Execute a range PromQL query."
     expr: str = "PromQL expression."

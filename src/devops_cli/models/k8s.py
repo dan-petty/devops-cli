@@ -256,3 +256,28 @@ class SecurityStreamResult(BaseModel):
     warning_count: int = Field(default=0, description="Count of Warning/Error alerts")
     notice_count: int = Field(default=0, description="Count of Notice/Informational alerts")
     duration_seconds: float = Field(default=0.0, description="Elapsed streaming duration")
+
+
+class K8sEvent(BaseModel):
+    """Normalized Kubernetes cluster event from Watch stream."""
+
+    event_type: str = Field(..., description="Event action type (ADDED, MODIFIED, DELETED, ERROR)")
+    resource_kind: str = Field(default="Pod", description="Resource kind")
+    name: str = Field(..., description="Target resource name")
+    namespace: str = Field(default="default", description="Target resource namespace")
+    status: str = Field(default="Unknown", description="Current phase or status")
+    message: str = Field(default="", description="Optional event message or diagnostic detail")
+    reason: str = Field(default="", description="Reason for event transition")
+    timestamp: str | None = Field(default=None, description="Event timestamp ISO 8601")
+
+
+class K8sInformerState(BaseModel):
+    """In-memory cache and synchronization state for Kubernetes resource informers."""
+
+    resource_kind: str = Field(default="Pod", description="Observed resource kind")
+    namespace: str = Field(default="default", description="Observed namespace or empty for all")
+    resource_count: int = Field(default=0, description="Total cached resource instances")
+    synced: bool = Field(default=False, description="Whether informer has synced with API server")
+    last_event_time: str | None = Field(
+        default=None, description="Timestamp of latest processed event"
+    )

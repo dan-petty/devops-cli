@@ -42,9 +42,10 @@ _TOOL_EXTRACT_PAGE_SIZE = DEFAULT_TOOL_EXTRACT_PAGE_SIZE
 _TOOL_EXTRACT_OVERLAP = DEFAULT_TOOL_EXTRACT_OVERLAP
 
 
-def repair_json_string(text: str, *, max_length: int = DEFAULT_JSON_REPAIR_MAX_LENGTH) -> Any:
+def repair_json_string(text: str, *, max_length: int | None = None) -> Any:
     """Extract and repair valid or partially-malformed JSON from text using json-repair."""
-    if not text or not text.strip() or len(text) > max_length:
+    effective_max = DEFAULT_JSON_REPAIR_MAX_LENGTH if max_length is None else max_length
+    if not text or not text.strip() or len(text) > effective_max:
         return None
 
     from devops_cli.ai.thinking_stream import strip_think_blocks

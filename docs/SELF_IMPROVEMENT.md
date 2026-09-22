@@ -79,6 +79,48 @@ Review models must follow the **5-Phase Chain-of-Thought Protocol** specified in
 - Actively search surrounding guards, upstream sanitizers, and lockfile constraints to disprove candidate findings.
 - Cross-reference candidate alerts against `common_hallucinations.json` (e.g. Python 3.14 PEP 758 syntax, masked placeholder tokens, synthetic test fixtures).
 - Dismiss theoretical or already-mitigated alerts; prioritize high-signal, reproducible flaws.
+- **Prefer the cheapest mechanical oracle over model judgement.** Before a finding is put to the model verifier, ask which existing tool already decides it. A claim of a `None` dereference is decided by `mypy --strict`; a claim of invalid syntax by the parser; a claim that a symbol is missing by reading the module. A verifier asked to confirm something a tool has already disproved will sometimes confirm it.
+- **A finding describes the code as it is now.** Claims that a guard was "removed", "no longer present", or "dropped" must be confirmed against the current file. An assertion about an earlier state, remembered or inferred, is not a finding.
+
+#### Calibration Record: Session `20260921-212653`
+
+This session produced 42 findings (4 CRITICAL, 6 HIGH). Of the ten highest-severity, four were false positives, and **two of those were marked `VERIFIED` at 0.94-0.95 confidence**:
+
+| Claim | Why it was false |
+| --- | --- |
+| `AttributeError` when `dashboard.uid`/`title` is `None` | Both are declared `str`, not `str \| None`. `mypy --strict` passes on the module. |
+| `AttributeError` when `panel.datasource` is `None` | The cited line dereferences `Target.datasource`, which is non-Optional; the one genuinely Optional field is already `None`-guarded. |
+| `_are_findings_duplicate` no longer checks same-file/same-line | Both checks are present and reachable in the current source. |
+| Unpinned `:latest` image in the release workflow | The reference is `cacheFrom`, a build-cache hint, not a deployed image. |
+
+Two of these were verifiable by a tool the repository already runs on every commit. The verification stage was reasoning about types instead of consulting the type checker, so `_check_none_dereference_hallucination` now invalidates a claimed `None` dereference whenever the cited module passes `mypy --strict`, before the model verifier sees it. The remaining two classes were added to the verifier prompt as falsification rules.
+
+The general lesson, and the reason this record exists: **a high-confidence `VERIFIED` is not evidence.** Confidence measures the model's agreement with itself. When a deterministic oracle for a claim exists, it outranks any confidence score, and the loop should consult it first rather than asking a second model to agree with the first.
+
+#### Calibration Record: Session `20260922-034125`
+
+This session produced 33 findings (2 CRITICAL, 11 HIGH, 15 MEDIUM, 5 LOW) and marked **all 33 `VERIFIED`**, eleven of them at 0.95 confidence. Hand-checking against the source found five real defects. The rest failed for reasons that had nothing to do with how hard the claims were to check:
+
+| Claim | Why it was false |
+| --- | --- |
+| FastAPI `0.141.1` and Uvicorn `0.53.0` are "several major releases behind" 0.110.x / 0.29.x | Version strings compared as decimals. Both pins are *ahead* of the versions cited as current, the supporting evidence was `CVE-2023-xxxx` — a placeholder, twice — and the same `findings.json` lists both packages `CLEAN` with an empty vulnerability list. |
+| `StrEnum` import breaks on Python 3.10 | `requires-python = ">=3.14"`. The installer refuses that interpreter before any import runs. |
+| Valkey pool caps idle connections at `max_size - 1` | At `len(idle) == max_size - 1` the guard is false and the append runs, giving exactly `max_size`. |
+| Token bucket permits drive the balance negative | That is the pacing mechanism: the returned delay is exactly the refill time for the shortfall, so a caller that waits leaves the bucket at zero. Clamping would forgive the overdraft and let oversized requests exceed the configured rate. |
+| SSRF via unvalidated `gateway_url` (CRITICAL) | The cited range is a display property returning a host string for a status panel; it issues no request. The suggested fix also rejected public addresses in `172.0`–`172.15` as private. |
+| Jinja2 injection in `devcontainer.json.j2` | Fixed in #378, merged before the finding was triaged. The review ran against a checkout that was already behind. |
+
+Two patterns generalize, and both now short-circuit before the model verifier:
+
+- **Unfalsifiable evidence.** `CVE-2023-xxxx` is the shape of evidence written where evidence belongs. A verifier asked to confirm it has nothing to look up, so it agrees with the shape. `_check_placeholder_advisory_hallucination` now invalidates any finding whose advisory identifier is a placeholder.
+- **Invented context.** A compatibility claim about Python 3.10 in a project declaring `>=3.14` describes a configuration that cannot be installed. `_check_unsupported_runtime_hallucination` reads the declared floor from `pyproject.toml` and invalidates claims below it.
+- **Evidence the run already had.** The dependency finding is the sharpest case, because the artifact refutes itself: `external_dependencies` in the same file resolves both packages to `CLEAN` with no advisory records. The pipeline held the answer and never put the question to it. `_check_scanned_clean_dependency` now invalidates a vulnerability claim naming a package this run scanned clean, before the model verifier sees it.
+
+Three further classes became verifier prompt rules — sink grounding for injection claims, boundary arithmetic stated as a traced sequence rather than a reading of an operator, and deliberate mechanisms reported as documentation gaps rather than defects.
+
+The last row is a different failure and deserves naming separately: the finding was *true when written*. The Present-State Invariant added after the previous session tells the verifier to read the current file, but the verifier read the same stale checkout the reviewer did. A review is a claim about a commit, and a finding triaged against a later commit needs that commit recorded to be worth anything.
+
+The lesson this record adds to the previous one: **the failures are not distributed like the difficulty.** Every false positive above was refutable in under a minute by reading one file, running one comparison, or noticing a placeholder — while the five real defects each took real tracing. Confidence tracked neither. A loop that spends its verification budget uniformly spends nearly all of it on the claims that needed none.
 
 ### Phase 4: Root Cause & Severity Classification
 - Isolate exact failure mechanisms and categorize severity:
@@ -166,7 +208,111 @@ Tracing spans decorated with `@trace_span("review.<phase>")` capture execution l
 
 ---
 
-## 5. Historical Remediation Case Studies
+## 5. Loop Failure Modes & Calibration Guardrails
+
+The review loop can fail in ways that look like productivity. A session that emits many
+findings is not necessarily a session that found many defects, and a suppression catalog
+that grows steadily is not necessarily a catalog that is getting smarter. The failure
+modes below were each observed in a real session and are now guarded mechanically, in
+prompts, or both.
+
+### 5.1 Symptom Fan-Out (One Root Cause Reported As Many Findings)
+
+A single defect frequently surfaces as several findings, because each persona (and each
+file segment) encounters a different downstream consequence of it. One unassigned
+attribute produced five findings: the unassigned attribute, the ineffective shutdown, the
+un-joined thread, the delayed stream teardown, and the leaked resource.
+
+**Guardrails**:
+- **Prompt**: `code_review_prompt.md` and `review_output_instruction.md` mandate one finding
+  per root cause, with downstream consequences enumerated inside that finding's description,
+  and require models to scan their own `findings` array for entries a single edit would fix.
+- **Mechanical**: `consolidate_duplicate_findings` merges findings that name the same
+  distinctive code symbol over overlapping lines, and merges near-identical titles in one
+  file even when the cited line ranges differ (personas routinely cite different, and often
+  both wrong, ranges for the same defect).
+- **Deliberately conservative**: findings that merely share an enclosing function are never
+  merged. Losing a real defect is far costlier than leaving a duplicate on the board.
+
+### 5.2 Segment-Boundary False Positives (Asserting Absence Of Unseen Code)
+
+Reviewers see a bounded slice of each file and then assert that a control is *absent*
+because it is not in that slice. A FastMCP server was reported as unauthenticated and
+internet-exposed on the strength of its constructor at lines 1–60, while the launch path
+2,900 lines away defaults to stdio and hard-rejects non-loopback binds without an explicit
+opt-in flag. The inverse error is identical in shape: help strings were reported as
+referencing non-existent commands because the commands are registered in a different module.
+
+**Guardrails**:
+- **Prompt**: a *Segment Boundary Honesty* mandate forbids asserting a missing control —
+  authentication, validation, error handling, bounds checks, cleanup — when the code that
+  would establish it lies outside the provided segment. A matching rule forbids declaring a
+  symbol unused or dangling without locating its consumer. In both cases the model must
+  omit the finding or record the unchecked assumption and lower `confidence_score`.
+- **Persona**: the DevSecOps persona carries an explicit rule that a server object's
+  constructor is not its security boundary; transport, bind address, and loopback
+  enforcement live at the launch site.
+- **Catalog**: both confirmed false positives are registered as recognised patterns
+  (`HALLUCINATION-SERVER-CONSTRUCTOR-NO-AUTH`, `HALLUCINATION-DECLARATION-WITHOUT-CONSUMER`).
+
+### 5.3 Suppression Catalog Poisoning (Self-Improvement That Degrades Itself)
+
+This is the most dangerous failure mode, because it silently suppresses true positives and
+leaves no trace in the output. Auto-learning synthesized each new signature from a *single*
+keyword, so words such as `unvalidated`, `traversal`, `insecure`, `unbounded`, and
+`validation` became complete suppression patterns — each matching nearly every genuine
+security finding. The module's documented safety invariant ("no common English words may
+flag findings as hallucinations") was enforced for `pattern_keywords` but not for
+`signature_patterns`, so learning routed straight around it.
+
+**Guardrails**:
+- Auto-learning now synthesizes a **co-occurrence** signature requiring two distinctive
+  keywords, or emits no signature at all and relies on the already-guarded compound keyword
+  match.
+- Bare single-word signatures are rejected **at match time**, which neutralizes catalogs
+  already written to disk without requiring a data migration.
+- An invalid signature regex is skipped rather than degraded into a broad substring match.
+
+**Auditing the catalog**: a growing suppression catalog deserves periodic scrutiny, not
+trust. Entries with short, generic signatures should be treated as suspect until re-derived
+from a confirmed false positive.
+
+### 5.4 Silent Baseline Loss (Fail-Open Calibration)
+
+The builtin hallucination catalog was validated inside a single `try` around a list
+comprehension, so one malformed record discarded all 27 entries and the failure was logged
+only at debug level. Verification then ran on auto-learned entries alone — precisely the
+entries most likely to be poisoned — with no visible signal.
+
+**Guardrails**: entries are validated individually, a malformed record is skipped with a
+warning naming its id, and a missing or unreadable baseline warns rather than failing
+silently. Calibration data that fails to load must be loud, because its absence changes
+review outcomes without changing review output.
+
+### 5.5 Unactionable Findings
+
+Both CRITICAL findings in session `20260920-124350` carried an empty `fix`. A finding
+without a remediation is a report of unease, not an engineering artifact.
+
+**Guardrail**: `fix` is mandatory and non-empty. A model that cannot articulate a concrete
+remediation does not yet understand the defect well enough to report it.
+
+### 5.6 Calibration Metrics Worth Tracking
+
+Finding counts measure volume, not value. The ratios below measure whether the loop is
+actually improving:
+
+| Signal | Interpretation |
+| :--- | :--- |
+| False positives per CRITICAL/HIGH finding | Precision where it matters most; the costliest errors to ship. |
+| Findings per distinct root cause | Symptom fan-out; approaching 1.0 means the loop reports defects, not symptoms. |
+| Share of findings with a non-empty `fix` | Actionability of the output. |
+| Suppression entries with generic signatures | Catalog poisoning risk; should trend to zero. |
+| Builtin catalog entries successfully loaded | Calibration integrity; any shortfall is a silent regression. |
+
+---
+
+## 6. Historical Remediation Case Studies
 
 ### Session `20260913-231617` (DevSecOps & Robustness Remediation)
 
@@ -223,3 +369,44 @@ The DevSecOps and Architecture review session `20260915-124521` produced 22 find
    - Masked Minikube cluster startup status output in `devops k8s switch-context`.
    - Routed PR check fallbacks through `run_gh()` with secret masking.
    - Masked Vault configuration error details in `devops vault`.
+
+### Session `20260920-124350` (Review Loop Calibration & Informer Shutdown Remediation)
+
+A DevSecOps, Architecture, and QA session produced 55 findings across 2 CRITICAL, 4 HIGH,
+24 MEDIUM, and 25 LOW. Hand-verification of the CRITICAL and HIGH tier found 4 real defects,
+2 false positives, and substantial symptom fan-out — which redirected the remediation toward
+the loop itself as much as the code.
+
+1. **Verified Defects Remediated**:
+   - `k8s/informer.py`: the active `watch.Watch()` was never published to `self._watcher`, so
+     `stop()` could not interrupt the blocking stream and the worker thread survived until the
+     next server-side resync. The watcher is now published for the stream's lifetime, cleared
+     on exit, and `stop()` joins the worker under a bounded timeout.
+   - `k8s/informer.py`: the resource cache grew without bound; it is now an `OrderedDict` with
+     FIFO eviction at `DEFAULT_K8S_INFORMER_CACHE_MAX_ENTRIES`.
+   - `k8s/service.py`: `_set_cached` accepted a `ttl` argument and silently ignored it, so
+     short negative caches (a failed reachability probe asking for ~2s) were pinned for the
+     full cache TTL. Entries now carry their own expiry deadline.
+   - `commands/k8s/cluster_context.py`: `except Exception: pass` around the in-process client
+     realignment hid genuine failures; it now logs a typed warning without failing the command.
+   - `github/client.py`: `get_repo_overview` let raw GraphQL transport errors escape and crash
+     the CLI; they are wrapped in an annotated `GitHubOperationError`.
+
+2. **False Positives Disarmed** (see §5.2):
+   - *FastMCP server lacks authentication*: judged from the constructor while the launch path
+     defaults to stdio and rejects non-loopback binds absent an explicit opt-in flag.
+   - *Help strings reference nonexistent commands*: the commands are registered in
+     `commands/gh.py`, a module outside the reviewed segment.
+
+3. **Loop Calibration** (the substantive outcome):
+   - Symbol-aware and range-independent duplicate consolidation, reducing this session's
+     findings from 55 to 50 without merging any distinct defect; the residual fan-out is
+     addressed at generation time through the root-cause prompt mandate.
+   - **110 degenerate single-word suppression signatures neutralized** at match time. Words
+     including `unvalidated`, `traversal`, `insecure`, and `unbounded` had been learned as
+     complete suppression patterns capable of burying genuine security findings.
+   - The builtin catalog was discovered to be loading **zero of 27 entries** because one
+     malformed record aborted the whole comprehension; validation is now per-entry and loud.
+   - Prompt mandates added for root-cause consolidation, segment-boundary honesty,
+     declaration-versus-consumer reasoning, narrowest-true-location anchoring, and a
+     mandatory non-empty `fix`.

@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import logging
-import math
-import re
 import time
 import warnings
-from collections import defaultdict
 from collections.abc import Callable
 from typing import Any, Literal, Protocol, cast, runtime_checkable
 
@@ -15,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.agents.pydantic_agent import AgentTool, BaseCapability, RunContext, Tool
 from devops_cli.ai.harness.constants import HarnessDeprecationWarning
+from devops_cli.ai.lexical import bm25_scores
+from devops_cli.config.defaults import DEFAULT_BM25_B, DEFAULT_BM25_K1
 from devops_cli.models.ai import ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -110,71 +109,35 @@ def bm25_rank(
     query: str,
     documents: list[dict[str, Any]],
     *,
-    k1: float = 1.5,
-    b: float = 0.75,
+    k1: float = DEFAULT_BM25_K1,
+    b: float = DEFAULT_BM25_B,
     max_matches: int = 10,
     context_lines: int = 5,
 ) -> list[ConversationSearchMatch]:
-    """Pure Python BM25 ranking algorithm over conversation messages."""
-    clean_q = query.strip().lower()
-    if not clean_q or not documents:
-        return []
+    """Rank conversation messages by BM25 relevance to a query.
 
-    terms = list(dict.fromkeys(re.findall(r"\w+", clean_q)))
-    if not terms:
-        return []
-
-    doc_tokens: list[list[str]] = []
-    doc_lens: list[int] = []
-    for doc in documents:
-        tokens = re.findall(r"\w+", str(doc.get("content", "")).lower())
-        doc_tokens.append(tokens)
-        doc_lens.append(len(tokens))
-
-    n_docs = len(documents)
-    avg_dl = sum(doc_lens) / max(1, n_docs)
-
-    doc_freqs: dict[str, int] = {}
-    for term in terms:
-        doc_freqs[term] = sum(1 for tokens in doc_tokens if term in tokens)
+    Scoring is delegated to the shared lexical ranker, so conversation search and RAG
+    hybrid retrieval cannot drift apart in how they weight a literal match.
+    """
+    contents = [str(doc.get("content", "")) for doc in documents]
+    ranked = bm25_scores(query, contents, k1=k1, b=b, limit=max_matches)
 
     matches: list[ConversationSearchMatch] = []
-    for idx, (doc, tokens, doc_len) in enumerate(zip(documents, doc_tokens, doc_lens, strict=True)):
-        if doc_len == 0:
-            continue
-        score = 0.0
-        term_counts: dict[str, int] = defaultdict(int)
-        for t in tokens:
-            term_counts[t] += 1
-
-        for term in terms:
-            tf = term_counts.get(term, 0)
-            if tf == 0:
-                continue
-            df = doc_freqs.get(term, 0)
-            idf = max(0.0, ((n_docs - df + 0.5) / (df + 0.5))) + 1.0
-            idf_score = math.log(idf)
-            denom = tf + k1 * (1.0 - b + b * (doc_len / max(0.0001, avg_dl)))
-            score += idf_score * (tf * (k1 + 1.0)) / max(0.0001, denom)
-
-        if score > 0.0:
-            content_str = str(doc.get("content", ""))
-            lines = content_str.splitlines()
-            snippet = "\n".join(lines[: max(1, context_lines)])
-            matches.append(
-                ConversationSearchMatch(
-                    run_id=str(doc.get("run_id", "")),
-                    conversation_id=doc.get("conversation_id"),
-                    role=str(doc.get("role", "assistant")),
-                    content=content_str,
-                    snippet=snippet,
-                    score=float(score),
-                    turn_index=int(doc.get("turn_index", idx)),
-                )
+    for match in ranked:
+        doc = documents[match.index]
+        content_str = contents[match.index]
+        matches.append(
+            ConversationSearchMatch(
+                run_id=str(doc.get("run_id", "")),
+                conversation_id=doc.get("conversation_id"),
+                role=str(doc.get("role", "assistant")),
+                content=content_str,
+                snippet="\n".join(content_str.splitlines()[: max(1, context_lines)]),
+                score=float(match.score),
+                turn_index=int(doc.get("turn_index", match.index)),
             )
-
-    matches.sort(key=lambda m: m.score, reverse=True)
-    return matches[:max_matches]
+        )
+    return matches
 
 
 def _fetch_conversation_runs(
