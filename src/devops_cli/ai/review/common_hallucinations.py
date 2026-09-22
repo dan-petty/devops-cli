@@ -26,7 +26,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.constants import CONST_HALLUCINATIONS_FILE_NAME
-from devops_cli.config.defaults import DEFAULT_HALLUCINATIONS_FILE_PATH
+from devops_cli.config.defaults import (
+    DEFAULT_HALLUCINATION_EXEMPLAR_CHARS,
+    DEFAULT_HALLUCINATION_EXEMPLAR_COUNT,
+    DEFAULT_HALLUCINATIONS_FILE_PATH,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1038,3 +1042,41 @@ def _extract_keyword_hints(finding: Finding, extra_text: str = "") -> list[str]:
     words = re.findall(r"[a-z0-9_\-\*]{4,}", raw)
     filtered = [w for w in words if w not in _FORBIDDEN_COMMON_WORDS and not w.isdigit()]
     return list(dict.fromkeys(filtered))
+
+
+def render_negative_exemplars(
+    target_file: Path | None = None,
+    limit: int = DEFAULT_HALLUCINATION_EXEMPLAR_COUNT,
+    max_chars: int = DEFAULT_HALLUCINATION_EXEMPLAR_CHARS,
+) -> str:
+    """Render the most frequently recorded false positives as a prompt block.
+
+    The ledger was written to on every deterministic invalidation and read back only at
+    verification time, which suppresses a finding *after* a model has been paid to produce
+    it. The same false positives recur: the top entry in this repository's ledger has been
+    recorded 225 times, and it is the PEP 758 multi-exception syntax claim that a rule in
+    the verifier prompt already exists to reject.
+
+    Showing a persona what it has repeatedly got wrong costs a few hundred tokens once per
+    segment; re-deriving those findings costs a generation and a verification each. Only
+    the head of the distribution is shown, because recurrence is concentrated there and the
+    tail would spend the budget without preventing anything.
+
+    Returns an empty string when the ledger is empty, so a first run against an unfamiliar
+    repository carries no block at all.
+    """
+    entries = load_common_hallucinations(target_file=target_file, include_builtin=True)
+    ranked = sorted(entries, key=lambda e: e.occurrence_count, reverse=True)[: max(0, limit)]
+    lines = [
+        f"- {(entry.description or entry.name or '').strip()[:max_chars]}"
+        for entry in ranked
+        if (entry.description or entry.name or "").strip()
+    ]
+    if not lines:
+        return ""
+    return (
+        "\n\n## Previously Recorded False Positives\n"
+        "Each of these was reported against this codebase and then disproved. Do not raise "
+        "them again unless the current source shows something the earlier finding did not.\n"
+        + "\n".join(lines)
+    )

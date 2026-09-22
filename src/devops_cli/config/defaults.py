@@ -758,3 +758,9 @@ DEFAULT_HTTP_MAX_KEEPALIVE_CONNECTIONS: int = 20
 # Idle connections are dropped after this long. Long enough to span a burst of agent calls,
 # short enough that an endpoint restarting does not leave the pool holding dead sockets.
 DEFAULT_HTTP_KEEPALIVE_EXPIRY_SECONDS: float = 30.0
+
+# How many recorded false positives are shown to a persona before it reviews. The ledger
+# holds hundreds; the recurrence is concentrated in a handful, so the tail costs tokens on
+# every segment and prevents almost nothing.
+DEFAULT_HALLUCINATION_EXEMPLAR_COUNT: Final[int] = 8
+DEFAULT_HALLUCINATION_EXEMPLAR_CHARS: Final[int] = 160
