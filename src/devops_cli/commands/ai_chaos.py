@@ -13,6 +13,7 @@ from devops_cli.ai.chaos import (
     ModelChaosInjector,
     ModelChaosReport,
 )
+from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_AI_FALLBACK_MODEL,
     DEFAULT_AI_FALLBACK_PROVIDER,
@@ -20,12 +21,11 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.lang import HELP
 from devops_cli.output import (
-    format_json,
     print_error,
     print_success,
     print_table,
-    write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, normalize_format
 
 
 def _build_status_cell(status: ChaosStatus) -> str:
@@ -132,8 +132,9 @@ def run_chaos_model_cmd(
     injector = ModelChaosInjector(config)
     report = injector.execute()
 
-    if output_format.lower() == "json":
-        write_stdout(format_json(report.model_dump()) + "\n")
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(), resolved)
         if not report.all_passed:
             raise typer.Exit(code=1)
         return

@@ -1498,3 +1498,11 @@ CONST_GENERATED_NOTES_HEADING: Final[str] = "What's Changed"
 # inventing a concrete one that describes some other cluster.
 CONST_PLACEHOLDER_NODE: Final[str] = "<node>"
 CONST_PLACEHOLDER_PORT: Final[str] = "<port>"
+# The representations a command can be asked to write. `table` is the human-readable
+# default; the rest are machine-readable and must round-trip the same payload.
+CONST_OUTPUT_FORMAT_TABLE: Final[str] = "table"
+CONST_OUTPUT_FORMAT_JSON: Final[str] = "json"
+CONST_OUTPUT_FORMAT_YAML: Final[str] = "yaml"
+CONST_OUTPUT_FORMATS: Final[frozenset[str]] = frozenset(
+    {CONST_OUTPUT_FORMAT_TABLE, CONST_OUTPUT_FORMAT_JSON, CONST_OUTPUT_FORMAT_YAML}
+)

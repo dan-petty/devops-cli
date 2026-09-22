@@ -7,18 +7,17 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.ai.gateway import GatewayRoute, GatewayRouter
-from devops_cli.config.constants import CONST_AI_GATEWAY_VIRTUAL_MODELS
+from devops_cli.config.constants import CONST_AI_GATEWAY_VIRTUAL_MODELS, CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.output import (
-    format_json,
     print_error,
     print_info,
     print_section,
     print_success,
     print_table,
-    write_stdout,
 )
+from devops_cli.output.serialization import emit_serialized, normalize_format
 
 app = new_typer(
     help="LLM Gateway and distributed inference mesh management.",
@@ -83,8 +82,9 @@ def status_cmd(
     router = GatewayRouter(settings.ai, provider=provider)
     result = router.probe_gateway(gateway_url, provider=provider)
 
-    if output_format.lower() == "json":
-        write_stdout(format_json(result.model_dump()))
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(result.model_dump(), resolved)
         return
 
     print_section("LLM Gateway Status")
@@ -118,8 +118,9 @@ def routes_cmd(
     router = GatewayRouter(settings.ai, provider=provider)
     routes = router.list_routes(gateway_url)
 
-    if output_format.lower() == "json":
-        write_stdout(format_json([r.model_dump() for r in routes]))
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized([r.model_dump() for r in routes], resolved)
         return
 
     _render_routes_table(routes)
@@ -154,8 +155,9 @@ def failover_cmd(
         print_error(str(exc))
         raise typer.Exit(code=1) from exc
 
-    if output_format.lower() == "json":
-        write_stdout(format_json(outcome))
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(outcome, resolved)
         return
 
     print_section("Model Failover Execution")
@@ -207,8 +209,9 @@ def scale_cmd(
             replicas=replicas, tensor_parallel_size=tensor_parallel_size, apply=apply
         )
 
-    if output_format.lower() == "json":
-        write_stdout(format_json(outcome))
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(outcome, resolved)
         return
 
     _render_scale_table(outcome)
@@ -234,8 +237,9 @@ def probe_backend_cmd(
     router = GatewayRouter(settings.ai)
     result = router.probe_backend(backend, backend_url=backend_url)
 
-    if output_format.lower() == "json":
-        write_stdout(format_json(result))
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(result, resolved)
         return
 
     print_section(f"Inference Backend Health: {result['backend_type']}")
