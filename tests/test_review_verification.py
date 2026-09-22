@@ -374,11 +374,14 @@ def test_format_related_file_block(tmp_path: Path) -> None:
             None,
         ),
         (
+            # One of two criteria claimed as matched used to yield 0.5. That divided the
+            # model's claim by the model's own criteria, so a dedicated test now asserts
+            # the absence rather than a fabricated score.
             {"verified": True, "reportable": True, "verified_criteria_matched": ["Criterion 1"]},
             "VERIFIED",
             True,
             True,
-            0.5,
+            None,
         ),
         (
             {"verified": False, "confidence_score": "invalid"},
@@ -1081,3 +1084,60 @@ def test_the_verifier_prompt_still_carries_every_falsification_rule() -> None:
 
     prompt = load_task_prompt("verify_finding_system.md")
     assert [rule for rule in _VERIFIER_PROMPT_RULES if rule not in prompt] == []
+
+
+# =============================================================================
+# Confidence provenance
+# =============================================================================
+
+
+def test_confidence_is_not_computed_from_the_models_own_claims() -> None:
+    """`len(verified_criteria_matched) / len(verification_criteria)` is self-agreement.
+
+    The numerator is the model's claim about the criteria in the denominator, which the
+    same model wrote. Dividing one by the other produced a number that reads as evidence:
+    findings reached 0.95 while being refutable by reading a single file. AGENTS.md
+    requires a score to originate from a tool's rating or a structured model response and
+    to be absent otherwise.
+    """
+    from devops_cli.ai.review.verification import _apply_single_finding_verification
+
+    finding = Finding(
+        severity="HIGH",
+        title="A defect",
+        location="src/x.py:1",
+        verification_criteria=["one", "two", "three", "four"],
+    )
+    item = {"verified": True, "verified_criteria_matched": ["one", "two", "three"]}
+    assert _apply_single_finding_verification(finding, item, "now").confidence_score is None
+
+
+def test_a_score_the_model_reported_is_still_kept() -> None:
+    """A structured model response is an allowed source; only the derived ratio is not."""
+    from devops_cli.ai.review.verification import _apply_single_finding_verification
+
+    finding = Finding(severity="HIGH", title="A defect", location="src/x.py:1")
+    item = {"verified": True, "confidence_score": 0.82}
+    assert _apply_single_finding_verification(finding, item, "now").confidence_score == 0.82
+
+
+def test_an_out_of_range_score_is_clamped_rather_than_discarded() -> None:
+    """A model that reports 1.4 still meant high confidence; the range is the contract."""
+    from devops_cli.ai.review.verification import _apply_single_finding_verification
+
+    finding = Finding(severity="HIGH", title="A defect", location="src/x.py:1")
+    item = {"verified": True, "confidence_score": 1.4}
+    assert _apply_single_finding_verification(finding, item, "now").confidence_score == 1.0
+
+
+def test_an_existing_score_survives_a_response_that_omits_one() -> None:
+    """Absence in one verdict is not evidence that an earlier measured score was wrong."""
+    from devops_cli.ai.review.verification import _apply_single_finding_verification
+
+    finding = Finding(
+        severity="HIGH", title="A defect", location="src/x.py:1", confidence_score=0.4
+    )
+    assert (
+        _apply_single_finding_verification(finding, {"verified": True}, "now").confidence_score
+        == 0.4
+    )
