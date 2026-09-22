@@ -1467,3 +1467,10 @@ CONST_ADDRESSING_MODES: Final[frozenset[str]] = frozenset(
 # Lines held between the stream reader and the renderer. Bounded so a producer faster than
 # the terminal cannot grow it without limit; the log buffer is the retention mechanism.
 CONST_LOG_STREAM_QUEUE_SIZE: Final[int] = 2000
+# Git ignore evaluation. `.git/info/exclude` is the repository-local ignore file, applied
+# before any `.gitignore` so a tracked-in rule can override it.
+CONST_GITIGNORE_FILENAME: Final[str] = ".gitignore"
+CONST_GIT_INFO_EXCLUDE_RELATIVE: Final[str] = ".git/info/exclude"
+# pathspec's git ignore pattern factory. The older "gitwildmatch" alias is deprecated and
+# emits a warning per compiled file; the semantics are identical.
+CONST_GITIGNORE_PATTERN_STYLE: Final[str] = "gitignore"

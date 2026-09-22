@@ -99,7 +99,7 @@ def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bo
         rel = str(p.relative_to(root)) if p.is_relative_to(root) else p.name
         if gitignore_spec.match_file(rel):
             return False
-    if is_ignored_by_git(root, p):
+    if is_ignored_by_git(root, p, is_dir=False):
         return False
     try:
         if p.stat().st_size > DEFAULT_MAX_AST_FILE_SIZE_BYTES:

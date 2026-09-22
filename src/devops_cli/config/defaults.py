@@ -746,3 +746,7 @@ DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS: float = 120.0
 # How long the log consumer waits for a line before re-checking whether it should stop.
 # Short enough that quitting feels immediate on a silent stream.
 DEFAULT_LOG_STREAM_POLL_SECONDS: float = 0.1
+# How long a compiled .gitignore is trusted before its modification time is checked again.
+# Stat-ing every ignore file on every check dominated the cost of a repository walk; an
+# edit is still picked up within this window.
+DEFAULT_GITIGNORE_REVALIDATE_SECONDS: float = 2.0

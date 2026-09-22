@@ -46,6 +46,7 @@ from devops_cli.ai.review_schema import (
 )
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.settings import Settings
+from devops_cli.core.gitignore import reset_indexes
 from devops_cli.core.repo import is_ignored_by_git
 from devops_cli.models.vulnerability import DependencySpec, NetworkReference
 from devops_cli.output import (
@@ -121,6 +122,9 @@ def test_runner_file_and_repo_helpers(tmp_path: Path) -> None:
     assert "print('hello')" in files
 
     (repo_dir / ".gitignore").write_text("*.py\n")
+    # Compiled ignore files are revalidated on an interval rather than stat-ed per call,
+    # so a rule written this instant is visible once the cached evaluator is reset.
+    reset_indexes()
     assert is_ignored_by_git(repo_dir, sample_file) is True
     (repo_dir / ".gitignore").unlink()
 
