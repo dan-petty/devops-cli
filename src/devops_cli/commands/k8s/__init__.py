@@ -55,6 +55,7 @@ from devops_cli.commands.k8s.networking import (
     port_forward,
     port_forward_status,
     port_forward_stop,
+    service_url,
 )
 from devops_cli.commands.k8s.security_audit import (
     k8s_audit,
@@ -100,6 +101,7 @@ app.command("bootstrap-openwebui")(bootstrap_openwebui)
 app.command("deploy-stack")(deploy_stack)
 app.command("sync-secrets")(sync_secrets)
 app.command("configure-urls")(configure_urls)
+app.command("service-url")(service_url)
 app.command("port-forward")(port_forward)
 app.command("port-forward-status")(port_forward_status)
 app.command("port-forward-stop")(port_forward_stop)

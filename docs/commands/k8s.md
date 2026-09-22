@@ -188,6 +188,34 @@ devops k8s configure-urls [OPTIONS]
 
 ---
 
+## `devops k8s service-url`
+
+**Show, or fetch from, a cluster service address that needs no port-forward.**
+
+```bash
+devops k8s service-url [OPTIONS] <service>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<service>` | `string` | Yes | Service name to address through the Kubernetes API server. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--namespace`, `-n` | `string` | `default` | Kubernetes namespace. |
+| `--port`, `-p` | `string` | `http` | Service port name or number (a Service may expose several). |
+| `--path` | `string` | `` | Request path appended to the service address. |
+| `--tls` | `boolean` | - | The service speaks HTTPS behind the proxy. |
+| `--fetch` | `boolean` | - | Fetch the address and print the JSON response instead of the address. |
+| `--context`, `-c` | `string` | - | Target context name to switch to. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+---
+
 ## `devops k8s port-forward`
 
 **Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config.**
