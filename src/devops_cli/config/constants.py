@@ -1414,3 +1414,19 @@ CONST_ISSUE_CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
 )
 CONST_ISSUE_STATE_OPEN: Final[str] = "open"
 CONST_ISSUE_STATE_CLOSED: Final[str] = "closed"
+
+# ── Cluster-Native Service Addressing ────────────────────────────────────────
+# A k8s:// URL names a Service rather than a host and port, so the same configuration
+# resolves on every cluster without a port-forward:
+#   k8s://<namespace>/<service>:<port>[/path]        backend speaks http
+#   k8s+https://<namespace>/<service>:<port>[/path]  backend speaks https
+CONST_K8S_URL_SCHEME: Final[str] = "k8s"
+CONST_K8S_URL_SCHEME_TLS: Final[str] = "k8s+https"
+CONST_K8S_URL_SCHEMES: Final[frozenset[str]] = frozenset(
+    {CONST_K8S_URL_SCHEME, CONST_K8S_URL_SCHEME_TLS}
+)
+# The API server exposes every Service at this path, which is what removes the need for a
+# local port: https://kubernetes.io/docs/tasks/access-application-cluster/access-cluster/
+CONST_K8S_SERVICE_PROXY_TEMPLATE: Final[str] = (
+    "/api/v1/namespaces/{namespace}/services/{target}/proxy"
+)

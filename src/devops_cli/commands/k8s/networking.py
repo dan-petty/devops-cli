@@ -28,12 +28,15 @@ from devops_cli.config.settings import load_settings, save_settings
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
+    format_json,
     format_k8s_service_targets_table,
     print,
     print_error,
     print_info,
     print_success,
     print_table,
+    print_warning,
+    write_stdout,
 )
 
 logger = logging.getLogger(__name__)
@@ -580,3 +583,71 @@ def port_forward_stop(
     mgr = get_daemon_manager()
     stopped = mgr.stop_forwards(service_filter=service)
     print_success(f"✓ Terminated {stopped} active port-forward daemon(s)")
+
+
+def service_url(
+    service: Annotated[str, typer.Argument(help=HELP.k8s.proxy_service)],
+    namespace: Annotated[
+        str, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = "default",
+    port: Annotated[str, typer.Option("--port", "-p", help=HELP.k8s.proxy_port)] = "http",
+    path: Annotated[str, typer.Option("--path", help=HELP.k8s.proxy_path)] = "",
+    tls: Annotated[bool, typer.Option("--tls", help=HELP.k8s.proxy_tls)] = False,
+    fetch: Annotated[bool, typer.Option("--fetch", help=HELP.k8s.proxy_fetch)] = False,
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help=HELP.k8s.context_target)
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
+) -> None:
+    """Show, or fetch from, a cluster service address that needs no port-forward."""
+    from devops_cli.k8s.service_http import get_json
+    from devops_cli.k8s.service_proxy import (
+        ServiceAddressError,
+        ServiceRef,
+        resolve_proxy_target,
+    )
+
+    request_path, _, request_query = path.partition("?")
+    ref = ServiceRef(
+        namespace=namespace,
+        service=service,
+        port=port,
+        tls=tls,
+        path=request_path,
+        query=request_query,
+    )
+
+    if not fetch:
+        try:
+            target = resolve_proxy_target(ref, context=context)
+            resolved = target.url
+        except ServiceAddressError as exc:
+            # The portable address is still worth printing: it is valid configuration even
+            # when no cluster is reachable right now.
+            print_warning(str(exc))
+            resolved = ""
+        if json_output:
+            write_stdout(
+                format_json({"address": ref.describe(), "proxy_url": resolved, "path": ref.path})
+            )
+            return
+        print_table(
+            "Cluster Service Address",
+            ["Field", "Value"],
+            [
+                ["Configuration address", ref.describe()],
+                ["API server proxy URL", resolved or "unresolved"],
+            ],
+        )
+        return
+
+    try:
+        payload = get_json(ref.describe(), context=context)
+    except ServiceAddressError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+    except Exception as exc:
+        print_error(f"Request to {ref.describe()} failed: {exc}")
+        raise typer.Exit(1) from exc
+
+    write_stdout(format_json(payload))

@@ -251,6 +251,11 @@ class K8sCommandHelp:
     validate_manifest: str = (
         "Validate Kubernetes manifests against OpenAPI schemas with Kubeconform."
     )
+    proxy_service: str = "Service name to address through the Kubernetes API server."
+    proxy_port: str = "Service port name or number (a Service may expose several)."
+    proxy_path: str = "Request path appended to the service address."
+    proxy_tls: str = "The service speaks HTTPS behind the proxy."
+    proxy_fetch: str = "Fetch the address and print the JSON response instead of the address."
     context_target: str = "Target context name to switch to."
     manifest_path: str = "Manifest file or directory path."
     pod_name: str = "Pod name."

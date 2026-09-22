@@ -724,3 +724,6 @@ DEFAULT_LOG_REDRAW_INTERVAL_SECONDS: float = 0.05
 # Completed spans retained in memory for the waterfall view and offline inspection.
 # Bounded so a long-running command cannot grow the buffer without limit.
 DEFAULT_SPAN_BUFFER_MAX_SPANS: int = 1000
+# Timeout for requests proxied through the Kubernetes API server. The extra hop makes these
+# a little slower than a direct call, but they must still not block a dashboard refresh.
+DEFAULT_K8S_PROXY_TIMEOUT_SECONDS: float = 5.0
