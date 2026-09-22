@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from devops_cli.core.gitignore import GitignoreIndex, get_index, reset_indexes
+from devops_cli.core.gitignore import (
+    GitignoreIndex,
+    get_index,
+    is_within_git_dir,
+    reset_indexes,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -253,3 +258,58 @@ def test_evaluation_does_not_spawn_git(tmp_path: Path) -> None:
     with patch("subprocess.run") as spawn:
         index.is_ignored(repo / "app.py", is_dir=False)
     spawn.assert_not_called()
+
+
+# =============================================================================
+# Repository containment
+# =============================================================================
+
+
+def _ignores_pyo(tmp_path: Path) -> Path:
+    """Build a repository whose root ignores `*.pyo`."""
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    (root / ".gitignore").write_text("*.pyo\n", encoding="utf-8")
+    return root
+
+
+def test_a_relative_path_that_escapes_the_root_is_not_evaluated(tmp_path: Path) -> None:
+    """`Path.relative_to` is lexical, so `root/../outside/x` is "relative to" root.
+
+    The containment guard therefore passed and a path outside the repository was matched
+    against this repository's rules. Git answers `is outside repository` for the same input.
+    """
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "x.pyo").write_text("", encoding="utf-8")
+
+    index = GitignoreIndex(repo_root=_ignores_pyo(tmp_path))
+    assert index.is_ignored(Path("../outside/x.pyo")) is False
+
+
+def test_a_relative_path_that_returns_to_the_root_is_still_evaluated(tmp_path: Path) -> None:
+    """Collapsing `..` must not reject a path that merely spells the root indirectly."""
+    root = _ignores_pyo(tmp_path)
+    (root / "src" / "x.pyo").write_text("", encoding="utf-8")
+
+    index = GitignoreIndex(repo_root=root)
+    assert index.is_ignored(Path("src/../src/x.pyo")) is True
+
+
+def test_an_unrelated_checkout_is_not_inside_this_repositorys_git_dir(tmp_path: Path) -> None:
+    """Falling back to the target's own components answered a different question.
+
+    `.git` appearing anywhere in an unrelated path is not *this* repository's `.git`.
+    """
+    root = _ignores_pyo(tmp_path)
+    elsewhere = tmp_path / "elsewhere" / ".git" / "config"
+    elsewhere.parent.mkdir(parents=True)
+    elsewhere.write_text("", encoding="utf-8")
+
+    assert is_within_git_dir(root, elsewhere) is False
+
+
+def test_this_repositorys_git_dir_is_still_recognised(tmp_path: Path) -> None:
+    """The narrowed check must keep reporting the case it exists for."""
+    root = _ignores_pyo(tmp_path)
+    assert is_within_git_dir(root, root / ".git" / "config") is True

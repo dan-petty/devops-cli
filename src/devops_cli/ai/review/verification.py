@@ -6,6 +6,8 @@ import ast
 import functools
 import json
 import logging
+import re
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -564,6 +566,137 @@ def _check_pathlib_resolve_hallucination(finding: Finding) -> Finding | None:
     return None
 
 
+# A real advisory identifier is all digits after the year. A finding that cites
+# `CVE-2023-xxxx` has named no advisory at all -- the model wrote the shape of evidence
+# where the evidence belongs. Matching the placeholder is cheaper and more certain than
+# asking a second model whether the vulnerability is real.
+_PLACEHOLDER_ADVISORY_PATTERN = re.compile(
+    r"\b(?:CVE-\d{4}-|GHSA-)[0-9a-z]*[xn?]{3,}", re.IGNORECASE
+)
+
+
+def _check_scanned_clean_dependency(
+    finding: Finding, dependencies: Sequence[Any]
+) -> Finding | None:
+    """Invalidate a vulnerability claim against a dependency this run already scanned clean.
+
+    The pipeline resolves advisories for every pinned dependency and writes the verdicts
+    into the same artifact as the findings. When a claim names a package the scan reports
+    `CLEAN` with no advisory records, the artifact contradicts itself, and the scan is the
+    side with a source.
+
+    Session `20260922-034125` reported FastAPI and Uvicorn as carrying unpatched CVEs while
+    its own `external_dependencies` listed both `CLEAN` with an empty vulnerability list.
+    """
+    if not dependencies:
+        return None
+
+    text = f"{finding.title} {finding.description or ''}".lower()
+    if not any(word in text for word in ("vulnerab", "cve", "advisory", "outdated", "unpatched")):
+        return None
+
+    named = [
+        dep
+        for dep in dependencies
+        if getattr(dep, "name", "") and re.search(rf"\b{re.escape(str(dep.name).lower())}\b", text)
+    ]
+    if not named or any(
+        getattr(dep, "vulnerabilities", None)
+        or str(getattr(dep, "severity", "CLEAN")).upper() != "CLEAN"
+        for dep in named
+    ):
+        return None
+
+    listed = ", ".join(sorted(str(dep.name) for dep in named))
+    return finding.model_copy(
+        update={
+            "verified": False,
+            "mitigated": False,
+            "reportable": False,
+            "status": "INVALIDATED",
+            "invalidation_reason": (
+                f"This run's own advisory scan reports {listed} CLEAN with no advisory "
+                "records at the pinned versions"
+            ),
+        }
+    )
+
+
+def _check_placeholder_advisory_hallucination(finding: Finding) -> Finding | None:
+    """Invalidate a vulnerability claim whose only evidence is a placeholder advisory id.
+
+    A dependency finding stands on the advisory it names. When the identifier is a
+    placeholder, there is nothing to look up, and the surrounding claim was produced by the
+    same step that could not name it.
+    """
+    text = f"{finding.title} {finding.description or ''} {' '.join(finding.references or [])}"
+    match = _PLACEHOLDER_ADVISORY_PATTERN.search(text)
+    if match is None:
+        return None
+    return finding.model_copy(
+        update={
+            "verified": False,
+            "mitigated": False,
+            "reportable": False,
+            "status": "INVALIDATED",
+            "invalidation_reason": (
+                f"Cites the placeholder advisory identifier {match.group(0)!r}, which names "
+                "no published advisory; a dependency claim must cite a real one"
+            ),
+        }
+    )
+
+
+_UNSUPPORTED_RUNTIME_PATTERN = re.compile(
+    r"python\s*(?:<|below|before|earlier than|older than)?\s*3\.(\d+)", re.IGNORECASE
+)
+
+
+def _check_unsupported_runtime_hallucination(finding: Finding) -> Finding | None:
+    """Invalidate a compatibility claim about a Python the project does not support.
+
+    `requires-python` is the declared support floor. A finding that a module breaks on an
+    interpreter below it describes a configuration that cannot occur: the installer refuses
+    it before any import runs.
+    """
+    text = f"{finding.title} {finding.description or ''}".lower()
+    if not any(word in text for word in ("incompatible", "compatib", "importerror", "raises")):
+        return None
+
+    floor = _declared_python_floor()
+    if floor is None:
+        return None
+
+    cited = [int(m.group(1)) for m in _UNSUPPORTED_RUNTIME_PATTERN.finditer(text)]
+    if not cited or max(cited) >= floor:
+        return None
+
+    return finding.model_copy(
+        update={
+            "verified": False,
+            "mitigated": False,
+            "reportable": False,
+            "status": "INVALIDATED",
+            "invalidation_reason": (
+                f"Describes a failure on Python 3.{max(cited)}, below the declared "
+                f"`requires-python` floor of 3.{floor}, which cannot be installed"
+            ),
+        }
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def _declared_python_floor() -> int | None:
+    """Return the minor version of this project's `requires-python` floor."""
+    root = Path(__file__).resolve().parents[3].parent
+    try:
+        raw = (root / "pyproject.toml").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r'requires-python\s*=\s*"[^"]*?3\.(\d+)', raw)
+    return int(match.group(1)) if match else None
+
+
 def _is_health_endpoint_version_claim(title_desc: str, loc: str) -> bool:
     return "version" in title_desc and any(
         k in loc or k in title_desc for k in ("health", "healthz", "health.py")
@@ -950,6 +1083,7 @@ def _deterministic_pre_verification(
     finding: Finding,
     repo_root: Path | None = None,
     target_dir: Path | None = None,
+    dependencies: Sequence[Any] | None = None,
     **kwargs: Any,
 ) -> Finding:
     """Run local deterministic parser, line boundary, and hallucination checks to invalidate obvious false positives."""
@@ -962,6 +1096,9 @@ def _deterministic_pre_verification(
         _check_conversational_monologue(title_lower, finding),
         _check_benign_compliment(title_lower, finding),
         _check_masked_placeholder_syntax_error(finding, title_lower, desc_lower),
+        _check_placeholder_advisory_hallucination(finding),
+        _check_unsupported_runtime_hallucination(finding),
+        _check_scanned_clean_dependency(finding, dependencies or ()),
     ]
     for res in early_results:
         if res:
@@ -1061,7 +1198,10 @@ def _validate_segment_findings(
 
     # Apply deterministic static rules first
     pre_validated_findings = [
-        _deterministic_pre_verification(f, repo_root=repo_root) for f in result.findings
+        _deterministic_pre_verification(
+            f, repo_root=repo_root, dependencies=result.external_dependencies
+        )
+        for f in result.findings
     ]
     result = result.model_copy(update={"findings": pre_validated_findings})
 

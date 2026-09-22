@@ -90,7 +90,7 @@ def inject_traceparent_headers(
     context: TraceContext | None = None
     if trace_id and span_id:
         context = TraceContext(trace_id=trace_id, span_id=span_id, trace_state=state)
-    elif auto_generate and CONST_TRACEPARENT_HEADER not in result:
+    elif auto_generate and CONST_TRACEPARENT_HEADER not in {key.lower() for key in result}:
         context = replace(new_trace_context(), trace_state=state)
 
     if context is not None:

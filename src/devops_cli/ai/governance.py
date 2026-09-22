@@ -78,7 +78,15 @@ class TokenBucketGovernance:
             return max(0.0, self.tokens)
 
     def acquire_token_permit(self, estimated_tokens: int = 1) -> float:
-        """Acquire token permits and calculate pacing delay in seconds if throttled."""
+        """Acquire token permits and calculate pacing delay in seconds if throttled.
+
+        A request that costs more than the bucket holds is admitted and the shortfall is
+        carried as debt, driving the balance negative. That is deliberate: the returned
+        delay is exactly the time the refill needs to repay it, so a caller that waits
+        leaves the bucket at zero and the long-run rate is still `refill_rate`. Clamping
+        the balance at zero instead would forgive the overdraft and let a run of oversized
+        requests exceed the configured rate indefinitely.
+        """
         cost = float(max(1, estimated_tokens))
         with self._lock:
             now = time.monotonic()

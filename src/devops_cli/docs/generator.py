@@ -838,8 +838,11 @@ class DocGenerator:
             "",
             "## Subsystem Error Code Matrix",
             "",
-            "| Error Code | Exit Code | Domain | Description |",
-            "|---|---|---|---|",
+            "An error code may be shared by a base class and its subclasses; the exception column",
+            "names the class each row describes. One code never maps to two exit statuses.",
+            "",
+            "| Exception | Error Code | Exit Code | Domain | Description |",
+            "|---|---|---|---|---|",
         ]
 
         def get_all_subclasses(cls: type[DevOpsCLIError]) -> list[type[DevOpsCLIError]]:
@@ -867,7 +870,10 @@ class DocGenerator:
                 .replace("devops_cli.exceptions", "core")
                 .capitalize()
             )
-            lines.append(f"| `{err_code}` | `{exit_code}` | {domain} | {doc or err_cls.__name__} |")
+            lines.append(
+                f"| `{err_cls.__name__}` | `{err_code}` | `{exit_code}` | {domain} | "
+                f"{doc or err_cls.__name__} |"
+            )
 
         lines.append("")
         return "\n".join(lines)
