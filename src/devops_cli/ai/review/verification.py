@@ -1184,6 +1184,48 @@ def _apply_single_finding_verification(
     return f.model_copy(update=updates)
 
 
+def _bind_verdicts_to_findings(
+    unresolved: list[Finding], items: list[Any]
+) -> dict[int, dict[str, Any]]:
+    """Match each model verdict to the finding it describes, by identity.
+
+    Verdicts were bound by list position, across two incompatible index spaces: the
+    response covers only the unresolved findings, but the fallback indexed it with a
+    position from the *whole* list including the findings deterministically invalidated
+    before the model ever saw them. Any count mismatch -- a model merging, dropping or
+    adding an item, which is routine -- shifted every verdict onto the wrong finding.
+
+    Measured across this repository's 59 recorded sessions: 35 findings carry an
+    `invalidation_reason` while reporting `verified=true` and `status=VERIFIED`, 23 of them
+    in a single session. Several of those reasons are verbatim the *title of a different
+    finding*, which is what a shifted verdict looks like from the outside. A finding cannot
+    be both withdrawn and confirmed.
+
+    An item that matches nothing is dropped rather than applied to whatever sits at its
+    index, and a finding that matches nothing keeps the status it already had.
+    """
+    bound: dict[int, dict[str, Any]] = {}
+    claimed: set[int] = set()
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").lower().strip()
+        location = str(item.get("location") or "").lower().strip()
+        if not title and not location:
+            continue
+        for index, finding in enumerate(unresolved):
+            if index in claimed:
+                continue
+            if _is_matching_finding(finding, title, location):
+                bound[index] = item
+                claimed.add(index)
+                break
+        else:
+            logger.debug("Verification verdict matched no finding: %r / %r", title, location)
+    return bound
+
+
 def _validate_segment_findings(
     result: ReviewResult,
     all_segments: list[str],
@@ -1233,18 +1275,15 @@ def _validate_segment_findings(
                 data = data["items"]
 
         if isinstance(data, list) and data:
+            bound = _bind_verdicts_to_findings(unresolved_findings, data)
             validated: list[Finding] = []
             now_iso = datetime.now().isoformat()
             unresolved_idx = 0
-            for idx, f in enumerate(result.findings):
+            for f in result.findings:
                 if f.status in {"INVALIDATED", "MITIGATED"}:
                     validated.append(f)
                     continue
-                item = (
-                    data[unresolved_idx]
-                    if len(data) == len(unresolved_findings) and unresolved_idx < len(data)
-                    else (data[idx] if idx < len(data) else None)
-                )
+                item = bound.get(unresolved_idx)
                 unresolved_idx += 1
                 validated.append(_apply_single_finding_verification(f, item, now_iso))
             return result.model_copy(update={"findings": validated}), proc_sec, b_info
