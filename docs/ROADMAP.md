@@ -166,6 +166,17 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/output.py` to replace procedural table formatting loops with declarative Pydantic-to-table mappers; standardize log levels, error alerts, and progress bars across all command modules.
 
 ### Foundational Architectural Guardrails & Project Hygiene (v0.2.23 - Scheduled)
+- [ ] **Per-Check Input Scoping for the CI Cache (P1 - High)**:
+  - *Context & Rationale*: The CI cache is all-or-nothing: a single changed file invalidates every gate, so editing a markdown file re-runs `mypy`, `bandit` and the full test suite. Each gate reads a knowable subset of the tree — `actionlint` reads `.github/workflows`, `ruff` and `mypy` read `src` and `tests`, docs validation reads `docs` and the CLI surface — and a gate whose inputs did not change has already been answered.
+  - *Deliverable*: Declare an input glob set per check, fingerprint each set independently, and reuse a cached verdict per check rather than per run. The existing whole-workspace fingerprint becomes the fallback for checks that genuinely read everything.
+  - *Constraint*: A check must fail closed. An input set that under-declares what a gate reads will report a stale pass, which is worse than re-running it, so the mapping needs to be derived from what each tool is actually invoked against rather than assumed.
+- [ ] **Deterministic Test Selection From Changed Sources (P1 - High)**:
+  - *Context & Rationale*: `devops ci test` already narrows to tests covering the source files it is given, which is what makes the pre-commit hook fast. The pre-push and full runs do not use it, so any change runs the whole suite. Coverage data already records which tests touch which modules.
+  - *Deliverable*: Build the reverse index from coverage output and select the covering tests for a changed set, with an explicit full-suite fallback whenever the index is stale, absent, or the change touches a shared fixture or configuration file.
+  - *Constraint*: Under-selection silently ships an untested change. Selection must be advisory on top of a full run in CI, and only authoritative locally where a full run precedes the push.
+- [ ] **Settings Load Caching (P2 - Medium)**:
+  - *Context & Rationale*: `load_settings()` re-reads and re-parses the configuration files on every call at a measured 10.8 ms, and it is consulted across the whole codebase — including inside per-request paths. A narrow cache keyed on the configuration file's modification time was added to the Kubernetes context resolver in v0.2.22; the general case remains.
+  - *Constraint*: Settings are mutable at runtime and a captured snapshot has already caused one stale-configuration defect in this project. Any cache must invalidate on the file that supplied the values rather than live for the process lifetime.
 - [ ] **In-Flight Work, PR Stagnation & Blocker Radar (`devops gh pm inflight`) (P1 - High)**:
   - *Context & Rationale*: Continuous surveillance of active in-flight work across the repository to eliminate PR starvation, review stagnation, and merge conflict decay.
   - *FIFO PR Queue Surveillance*: Enforces strict chronological (oldest to newest / FIFO) PR processing and surfaces older open PRs that are being starved or blocked by newer work.
