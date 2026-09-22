@@ -11,6 +11,7 @@ app composes a panel per domain and holds no per-domain rendering code at all.
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -19,12 +20,29 @@ from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable, Static, TabbedContent, TabPane
 
-from devops_cli.config.constants import CONST_DASHBOARD_DOMAIN_LABELS
+from devops_cli.config.constants import (
+    CONST_DASHBOARD_DOMAIN_AI,
+    CONST_DASHBOARD_DOMAIN_DOCKER,
+    CONST_DASHBOARD_DOMAIN_LABELS,
+    CONST_DOCKER_RESOURCE_CONTAINERS,
+    CONST_DOCKER_RESOURCE_LABELS,
+    CONST_DOCKER_RESOURCES,
+)
 from devops_cli.config.defaults import DEFAULT_LOG_REDRAW_INTERVAL_SECONDS
 from devops_cli.ui.log_buffer import VirtualLogBuffer
-from devops_cli.ui.projections import DOMAIN_COLUMNS, loading_banner, render_domain
+from devops_cli.ui.projections import (
+    DOCKER_RESOURCE_COLUMNS,
+    DOMAIN_COLUMNS,
+    REVIEW_SESSION_COLUMNS,
+    docker_resource_label,
+    docker_resource_rows,
+    loading_banner,
+    render_banner,
+    render_domain,
+    review_session_rows,
+)
 from devops_cli.ui.state import DomainSnapshot
 
 
@@ -80,7 +98,161 @@ class DomainPanel(Vertical):
             table.add_rows(rows)
 
 
-__all__ = ["DomainPanel", "LogPane"]
+__all__ = ["DockerPanel", "DomainPanel", "LogPane", "ReviewPanel"]
+
+
+class DockerPanel(Vertical):
+    """The Docker domain: one banner over nested tabs for each kind of resource.
+
+    Containers, images, networks, volumes and registries are all Docker state, so they live
+    under one header rather than competing with Kubernetes and Valkey for a top-level tab.
+    Every view is projected from the same snapshot, so the whole panel costs one set of
+    daemon queries per refresh.
+    """
+
+    DEFAULT_CSS = """
+    DockerPanel {
+        height: 1fr;
+    }
+    DockerPanel > Static {
+        padding: 0 1;
+        margin-bottom: 1;
+        background: $boost;
+        color: $text;
+    }
+    DockerPanel TabbedContent {
+        height: 1fr;
+    }
+    DockerPanel DataTable {
+        height: 1fr;
+    }
+    """
+
+    def __init__(
+        self, domain: str = CONST_DASHBOARD_DOMAIN_DOCKER, *, stale_after: float | None = None
+    ) -> None:
+        super().__init__(id=f"panel-{domain}")
+        self.domain = domain
+        self.stale_after = stale_after
+
+    @property
+    def label(self) -> str:
+        """Human-readable name for this domain."""
+        return CONST_DASHBOARD_DOMAIN_LABELS.get(self.domain, self.domain.title())
+
+    def compose(self) -> ComposeResult:
+        yield Static(loading_banner(self.domain), id=f"{self.domain}-banner")
+        with TabbedContent(id="docker-resources"):
+            for resource in CONST_DOCKER_RESOURCES:
+                with TabPane(CONST_DOCKER_RESOURCE_LABELS[resource], id=f"docker-{resource}"):
+                    # The containers table keeps its historical id so existing selection
+                    # handling and tests continue to address it.
+                    table_id = (
+                        "docker-table"
+                        if resource == CONST_DOCKER_RESOURCE_CONTAINERS
+                        else f"docker-{resource}-table"
+                    )
+                    yield DataTable(id=table_id)
+
+    def on_mount(self) -> None:
+        """Install each resource view's column headers."""
+        for resource in CONST_DOCKER_RESOURCES:
+            table = self.query_one(f"#{self._table_id(resource)}", DataTable)
+            table.cursor_type = "row"
+            table.add_columns(*DOCKER_RESOURCE_COLUMNS[resource])
+
+    @staticmethod
+    def _table_id(resource: str) -> str:
+        """Return the table id for a resource view."""
+        if resource == CONST_DOCKER_RESOURCE_CONTAINERS:
+            return "docker-table"
+        return f"docker-{resource}-table"
+
+    def apply(self, snapshot: DomainSnapshot) -> None:
+        """Render a snapshot into the banner and every resource table."""
+        self.query_one(Static).update(render_banner(snapshot, stale_after=self.stale_after))
+        tabs = self.query_one("#docker-resources", TabbedContent)
+        for resource in CONST_DOCKER_RESOURCES:
+            table = self.query_one(f"#{self._table_id(resource)}", DataTable)
+            rows = docker_resource_rows(resource, snapshot)
+            table.clear()
+            if rows:
+                table.add_rows(rows)
+            # The count rides on the tab label so it is readable without opening the tab.
+            with contextlib.suppress(Exception):
+                tabs.get_tab(f"docker-{resource}").label = docker_resource_label(resource, snapshot)
+
+
+class ReviewPanel(Vertical):
+    """The AI review domain: findings for one session, plus a session picker.
+
+    The session shown defaults to the newest completed one, and the picker lists every
+    session newest-first so an earlier review can be opened without leaving the dashboard.
+    """
+
+    DEFAULT_CSS = """
+    ReviewPanel {
+        height: 1fr;
+    }
+    ReviewPanel > Static {
+        padding: 0 1;
+        margin-bottom: 1;
+        background: $boost;
+        color: $text;
+    }
+    ReviewPanel TabbedContent {
+        height: 1fr;
+    }
+    ReviewPanel DataTable {
+        height: 1fr;
+    }
+    """
+
+    def __init__(
+        self, domain: str = CONST_DASHBOARD_DOMAIN_AI, *, stale_after: float | None = None
+    ) -> None:
+        super().__init__(id=f"panel-{domain}")
+        self.domain = domain
+        self.stale_after = stale_after
+
+    @property
+    def label(self) -> str:
+        """Human-readable name for this domain."""
+        return CONST_DASHBOARD_DOMAIN_LABELS.get(self.domain, self.domain.title())
+
+    def compose(self) -> ComposeResult:
+        yield Static(loading_banner(self.domain), id=f"{self.domain}-banner")
+        with TabbedContent(id="review-views"):
+            with TabPane("Findings", id="review-findings"):
+                yield DataTable(id="ai-table")
+            with TabPane("Sessions", id="review-sessions"):
+                yield DataTable(id="review-sessions-table")
+
+    def on_mount(self) -> None:
+        """Install the column headers for both views."""
+        findings = self.query_one("#ai-table", DataTable)
+        findings.cursor_type = "row"
+        findings.add_columns(*DOMAIN_COLUMNS[self.domain])
+
+        sessions = self.query_one("#review-sessions-table", DataTable)
+        sessions.cursor_type = "row"
+        sessions.add_columns(*REVIEW_SESSION_COLUMNS)
+
+    def apply(self, snapshot: DomainSnapshot) -> None:
+        """Render a snapshot into the banner, the findings table and the session list."""
+        banner, rows = render_domain(snapshot, stale_after=self.stale_after)
+        self.query_one(Static).update(banner)
+
+        findings = self.query_one("#ai-table", DataTable)
+        findings.clear()
+        if rows:
+            findings.add_rows(rows)
+
+        sessions = self.query_one("#review-sessions-table", DataTable)
+        sessions.clear()
+        session_rows = review_session_rows(snapshot)
+        if session_rows:
+            sessions.add_rows(session_rows)
 
 
 class LogPane(Vertical):

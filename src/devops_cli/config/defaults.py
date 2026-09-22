@@ -724,3 +724,9 @@ DEFAULT_LOG_REDRAW_INTERVAL_SECONDS: float = 0.05
 # Completed spans retained in memory for the waterfall view and offline inspection.
 # Bounded so a long-running command cannot grow the buffer without limit.
 DEFAULT_SPAN_BUFFER_MAX_SPANS: int = 1000
+
+# ── Dashboard Provider Timeouts ─────────────────────────────────────────────
+# Kept short: these run per refresh, and a panel that blocks is the failure the threaded
+# refresh architecture exists to prevent.
+DEFAULT_VALKEY_PANEL_TIMEOUT_SECONDS: float = 1.0
+DEFAULT_TELEMETRY_QUERY_TIMEOUT_SECONDS: float = 3.0
