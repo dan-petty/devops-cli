@@ -130,7 +130,7 @@ class TestK8sLLMGatewayManifests:
                 "devops-review",
                 "ollama/*",
             ],
-            "least-busy",
+            "simple-shuffle",
             2,
         )
 
@@ -193,7 +193,7 @@ class TestK8sLLMGatewayManifests:
         )
 
     def test_gateway_review_pool_spans_every_inference_backend(self) -> None:
-        """Verify devops-review load-balances over vLLM and Ollama within each backend's limits."""
+        """Verify devops-review spans vLLM and Ollama within each backend's context window."""
         cm = _load_kind(GATEWAY_DIR / "configmap.yaml", "ConfigMap")
         cfg = yaml.safe_load(cm["data"]["config.yaml"])
         pool = {
@@ -230,12 +230,38 @@ class TestK8sLLMGatewayManifests:
 
         assert (
             sorted(pool),
-            all(m["litellm_params"]["max_parallel_requests"] >= 1 for m in pool.values()),
             all(m["model_info"]["max_input_tokens"] < windows[base] for base, m in pool.items()),
         ) == (
             sorted(windows),
             True,
+        )
+
+    def test_gateway_review_pool_weights_backends_by_throughput_without_caps(self) -> None:
+        """Verify devops-review shares requests by backend throughput and caps no deployment.
+
+        LiteLLM waits on a deployment's max_parallel_requests only after routing to it, and
+        least-busy counts only requests past that wait, so caps hid queued requests and held the
+        largest server to the smallest cap. The backends queue excess requests themselves.
+        """
+        weights = {
+            m["litellm_params"]["api_base"]: m["litellm_params"].get("weight")
+            for m in _deployments("devops-review")
+        }
+        ollama = {weights[url] for url in _ollama_pod_urls()}
+
+        assert (
+            [
+                m["litellm_params"].get("max_parallel_requests")
+                for m in _deployments("devops-review")
+            ],
+            weights[DEFAULT_VLLM_CLUSTER_URL]
+            > weights[DEFAULT_VLLM_SINGLE_CLUSTER_URL]
+            > max(ollama),
+            len(ollama),
+        ) == (
+            [None] * len(weights),
             True,
+            1,
         )
 
     def test_gateway_lists_one_deployment_per_ollama_pod(self) -> None:
@@ -244,12 +270,6 @@ class TestK8sLLMGatewayManifests:
         The `ollama` Service would pin all gateway traffic to one pod, because LiteLLM keeps its
         connections open; per-pod deployments let LiteLLM balance and cool down each node.
         """
-        ollama_env = {
-            e["name"]: e.get("value")
-            for e in _load_kind(OLLAMA_MANIFEST, "StatefulSet")["spec"]["template"]["spec"][
-                "containers"
-            ][0]["env"]
-        }
         review_ollama = [
             m for m in _deployments("devops-review") if "ollama" in m["litellm_params"]["model"]
         ]
@@ -259,13 +279,11 @@ class TestK8sLLMGatewayManifests:
             [m["litellm_params"]["api_base"] for m in _deployments("devops-embedding")],
             [m["litellm_params"]["api_base"] for m in review_ollama],
             [m["litellm_params"]["api_base"] for m in _deployments("ollama/*")],
-            {m["litellm_params"]["max_parallel_requests"] for m in review_ollama},
         ) == (
             _ollama_pod_urls(),
             _ollama_pod_urls(),
             _ollama_pod_urls(),
             [f"{url}/v1" for url in _ollama_pod_urls()],
-            {int(ollama_env["OLLAMA_NUM_PARALLEL"] or 0)},
         )
 
     def test_gateway_health_checks_probe_each_deployment_the_way_it_is_called(self) -> None:
