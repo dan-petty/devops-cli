@@ -46,7 +46,7 @@ class TestMcpServer:
 
     def test_tools_registered(self) -> None:
         """All expected MCP tools must be registered on the server."""
-        tools = asyncio.run(mcp.list_tools())
+        tools = asyncio.run(mcp._list_tools())
         tool_names = {t.name for t in tools}
 
         expected = {
@@ -112,7 +112,7 @@ class TestMcpServer:
 
     def test_all_tools_have_descriptions(self) -> None:
         """All registered tools must have non-empty docstrings used as descriptions."""
-        tools = asyncio.run(mcp.list_tools())
+        tools = asyncio.run(mcp._list_tools())
         missing_desc = [t.name for t in tools if not t.description]
         assert missing_desc == [], f"Tools missing descriptions: {missing_desc}"
 

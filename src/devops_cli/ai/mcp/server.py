@@ -7,14 +7,16 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastmcp import FastMCP
+from fastmcp.server.middleware import Middleware
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_FALCO_SEVERITY_LEVELS,
     CONST_MAX_SECURITY_STREAM_TAIL_LINES,
+    CONST_MCP_EAGER_DOMAINS,
     CONST_MIN_SECURITY_STREAM_TAIL_LINES,
 )
 from devops_cli.config.defaults import (
@@ -2945,8 +2947,14 @@ def architecture_analysis_prompt(target: str = "src") -> str:
 
 
 def list_mcp_tools() -> list[MCPToolInfo]:
-    """Return a list of tool names and descriptions registered on the FastMCP server."""
-    tools = asyncio.run(mcp.list_tools())
+    """Return every tool registered on the FastMCP server, gated or not.
+
+    This documents the catalogue -- it drives `devops ai mcp export-schemas` and
+    `docs/MCP_TOOLS.md` -- so it reads the registry rather than the client-facing listing.
+    `mcp.list_tools()` runs the domain gate and would report only what a client is offered
+    before hydrating, which would silently shrink the published reference to a quarter.
+    """
+    tools = asyncio.run(mcp._list_tools())
     return [
         MCPToolInfo(
             name=t.name,
@@ -2970,3 +2978,70 @@ def run_mcp_server(
         mcp.run(transport="sse", host=host, port=port)
     else:
         mcp.run(transport="stdio", show_banner=False)
+
+
+# =============================================================================
+# Lazy domain-gated tool hydration
+# =============================================================================
+
+# Domains a caller has asked for, beyond the eager set. This filters what is advertised;
+# it never removes a tool from the server. An earlier version did remove them, which
+# mutated a process-wide object every consumer shares -- the schema exporter, the
+# in-process bridge and every later test saw whatever the last caller left behind, and a
+# launch rejected for binding a non-loopback address had already withheld its tools before
+# the security check ran.
+_HYDRATED_DOMAINS: set[str] = set()
+
+
+def _tool_domain(name: str) -> str:
+    """Return the domain prefix a tool name belongs to."""
+    return name.split("_", 1)[0]
+
+
+def _is_advertised(name: str) -> bool:
+    """Report whether a tool belongs to the set currently offered to a client."""
+    domain = _tool_domain(name)
+    return (
+        name == "hydrate_tool_domain"
+        or domain in CONST_MCP_EAGER_DOMAINS
+        or domain in _HYDRATED_DOMAINS
+    )
+
+
+class DomainGateMiddleware(Middleware):
+    """Advertise only the eager domains until a caller hydrates the rest.
+
+    The server registers 155 tools. Their names and summaries alone cost roughly 2,700
+    tokens in every request, before the per-parameter JSON Schema the protocol adds on top,
+    and a model choosing among 155 tools chooses worse than one choosing among a few dozen.
+
+    Calling a withheld tool still works; only the listing is filtered. A client that
+    already knows a tool's name is not forced through a hydration round trip to use it.
+    """
+
+    async def on_list_tools(self, context: Any, call_next: Any) -> Any:
+        tools = await call_next(context)
+        return [tool for tool in tools if _is_advertised(tool.name)]
+
+
+def reset_hydrated_domains() -> None:
+    """Forget every hydrated domain, restoring the eager-only listing."""
+    _HYDRATED_DOMAINS.clear()
+
+
+@mcp.tool()
+def hydrate_tool_domain(domain: str) -> dict[str, Any]:
+    """Advertise the tools for one domain, which are withheld from the listing by default.
+
+    Call this before browsing a domain's tools. Available domains include `gh`, `k8s`,
+    `pr`, `scan`, `docker`, `tf`, `argo`, `valkey`, `sandbox`, `telemetry` and `secrets`.
+    Pass the domain name alone, for example `k8s`.
+    """
+    key = domain.strip().lower().removesuffix("_")
+    if not key or key in CONST_MCP_EAGER_DOMAINS:
+        return {"domain": key, "hydrated": False, "detail": "always advertised"}
+    _HYDRATED_DOMAINS.add(key)
+    return {"domain": key, "hydrated": True, "advertised_domains": sorted(_HYDRATED_DOMAINS)}
+
+
+mcp.add_middleware(DomainGateMiddleware())

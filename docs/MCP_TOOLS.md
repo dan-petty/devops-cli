@@ -76,6 +76,11 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_views_audit`](#gh-views-audit) | Audit remote project views against standardized view template specifications. |
 | [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
+| [`hydrate_tool_domain`](#hydrate-tool-domain) | Advertise the tools for one domain, which are withheld from the listing by default.
+
+Call this before browsing a domain's tools. Available domains include `gh`, `k8s`,
+`pr`, `scan`, `docker`, `tf`, `argo`, `valkey`, `sandbox`, `telemetry` and `secrets`.
+Pass the domain name alone, for example `k8s`. |
 | [`k8s_audit`](#k8s-audit) | Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | Bootstrap minikube Kubernetes cluster and deploy infrastructure stack. |
 | [`k8s_chaos`](#k8s-chaos) | Inject or validate Kubernetes chaos engineering experiments and cluster resilience. |
@@ -933,6 +938,20 @@ List Grafana dashboards, optionally filtered by search query.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `query` | `string` | No | `` | - |
+
+### `hydrate_tool_domain`
+
+Advertise the tools for one domain, which are withheld from the listing by default.
+
+Call this before browsing a domain's tools. Available domains include `gh`, `k8s`,
+`pr`, `scan`, `docker`, `tf`, `argo`, `valkey`, `sandbox`, `telemetry` and `secrets`.
+Pass the domain name alone, for example `k8s`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `domain` | `string` | Yes | - | - |
 
 ### `k8s_audit`
 

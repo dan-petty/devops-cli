@@ -253,7 +253,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: Eliminates subprocess pipe deadlocks by adding daemon reader threads draining `stdout`/`stderr` into bounded ring buffers (`collections.deque(maxlen=1000)`), fulfilling the output contract for long-running commands.
 - [ ] **Structural Pre-Commit Hook Inversion (P0 - Critical)**:
   - *Context & Rationale*: Ports standalone AST invariant sentinels (complexity $\le 10$, depth $\le 5$) and documentation structural validators natively into `.pre-commit-config.yaml` as fast, independent `<200ms` quality gates preventing non-compliant commits locally.
-- [ ] **Lazy Domain-Gated MCP Tool Schema Hydration (P0 - Critical)**:
+- [x] **Lazy Domain-Gated MCP Tool Schema Hydration (P0 - Critical)** — delivered in #442:
   - *Context & Rationale*: Partitions FastMCP tools into a core eager set (~15 high-frequency tools) and lazy domain sets (`k8s_*`, `scan_*`, `gh_*`, `tf_*`, `docker_*`, `vault_*`) hydrated on-demand, preventing tool selection precision collapse and saving ~8,000 prompt tokens per turn.
 - [ ] **Capability-Gated Model Failover & AIMD Batch Recovery (P0 - Critical)**:
   - *Context & Rationale*: Replaces capability cliff degradations with strict minimum model tier requirements (reasoning $\ge 30\text{B}$, coding $\ge 7\text{B}$). Implements Additive Increase / Multiplicative Decrease (AIMD) for embedding batch sizing to prevent permanent throughput collapse on transient latency spikes.

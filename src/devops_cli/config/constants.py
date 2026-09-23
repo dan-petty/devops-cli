@@ -1506,3 +1506,9 @@ CONST_OUTPUT_FORMAT_YAML: Final[str] = "yaml"
 CONST_OUTPUT_FORMATS: Final[frozenset[str]] = frozenset(
     {CONST_OUTPUT_FORMAT_TABLE, CONST_OUTPUT_FORMAT_JSON, CONST_OUTPUT_FORMAT_YAML}
 )
+# MCP tool domains advertised on every turn. The server registers 155 tools, whose names,
+# signatures and summaries alone cost roughly 5,600 tokens in each request, before the
+# per-parameter JSON Schema that the protocol adds on top. A model choosing among 155
+# tools also chooses worse than one choosing among a few dozen. Domains outside this set
+# are withheld until a caller asks for them by name.
+CONST_MCP_EAGER_DOMAINS: Final[frozenset[str]] = frozenset({"ai", "review", "config", "workspace"})

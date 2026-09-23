@@ -367,7 +367,10 @@ class DocGenerator:
             from devops_cli.ai.mcp.server import mcp
 
             async def _get_tools() -> list[MCPToolDoc]:
-                tools = await asyncio.wait_for(mcp.list_tools(), timeout=10.0)
+                # The registry, not the client-facing listing: `docs/MCP_TOOLS.md` is
+                # the published catalogue, and `mcp.list_tools()` runs the domain gate,
+                # which would cut the reference to the eager domains alone.
+                tools = await asyncio.wait_for(mcp._list_tools(), timeout=10.0)
                 return [_mcp_tool_to_doc(tool) for tool in tools]
 
             try:
