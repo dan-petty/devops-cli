@@ -19,6 +19,7 @@ import typer
 from devops_cli.ai.instruction_generator import scaffold_agent_instructions
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
+    CONST_CLAUDE_MCP_JSON_NAME,
     CONST_DEVCONTAINER_DIR_NAME,
     CONST_DEVCONTAINER_IMAGE_PREFIX,
     CONST_DEVCONTAINER_JSON_NAME,
@@ -158,6 +159,19 @@ def init(
             render_json_template("mcp.json.j2", project_name=name),
         )
         print_success(MESSAGES.devcontainer.created_file.format(path=mcp_file))
+
+    # The Claude Code extension reads its own project-scoped file, and it is not a copy of
+    # the VS Code one: `${workspaceFolder}` is a VS Code substitution Claude Code does not
+    # expand, so sharing the file would put a literal `${workspaceFolder}` on the server's
+    # PATH. Claude Code already runs a stdio server with the project root as its working
+    # directory, so the Claude template needs neither that variable nor `cwd`.
+    claude_mcp_file = repo_path / CONST_CLAUDE_MCP_JSON_NAME
+    if not claude_mcp_file.exists() or force:
+        write_text_file(
+            claude_mcp_file,
+            render_json_template("claude_mcp.json.j2", project_name=name),
+        )
+        print_success(MESSAGES.devcontainer.created_file.format(path=claude_mcp_file))
 
     # Scaffold AI agent instruction files (AGENTS.md, CLAUDE.md, .github/copilot-instructions.md)
     agent_files = scaffold_agent_instructions(repo_path, force=force, template=True)
@@ -638,6 +652,16 @@ def _sync_mcp_configuration(workspace_dir: Path, *, dry_run: bool = False) -> li
                 render_json_template("mcp.json.j2", project_name=name),
             )
         actions.append(f"Scaffolded MCP configuration at {vscode_mcp}")
+
+    claude_mcp = workspace_dir / CONST_CLAUDE_MCP_JSON_NAME
+    if not claude_mcp.exists() and (workspace_dir / CONST_PYPROJECT_FILENAME).exists():
+        if not dry_run:
+            claude_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", workspace_dir.name)
+            write_text_file(
+                claude_mcp,
+                render_json_template("claude_mcp.json.j2", project_name=claude_name),
+            )
+        actions.append(f"Scaffolded Claude MCP configuration at {claude_mcp}")
 
     if vscode_mcp.exists():
         for mcp_dest in (

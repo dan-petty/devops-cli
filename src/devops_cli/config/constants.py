@@ -51,6 +51,11 @@ CONST_TESTS_DIR_NAME = "tests"
 CONST_TESTS_DIR_PATH = Path(CONST_TESTS_DIR_NAME)
 CONST_VSCODE_DIR_NAME = ".vscode"
 CONST_MCP_JSON_NAME = "mcp.json"
+# Claude Code reads project-scoped MCP servers from `.mcp.json` at the repository root.
+# VS Code's own MCP support reads `.vscode/mcp.json`, and the two are not interchangeable:
+# `${workspaceFolder}` is a VS Code substitution that Claude Code does not expand, so a
+# copy of the VS Code file would hand the server a literal `${workspaceFolder}` on PATH.
+CONST_CLAUDE_MCP_JSON_NAME = ".mcp.json"
 CONST_MCP_RESOURCE_SCHEME = "resource://"
 CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
     {
