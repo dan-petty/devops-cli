@@ -20,7 +20,7 @@ Compare standard `kubectl`, `helm`, and `kustomize` workflows with unified `devo
 | Action / Goal | Original Command (`kubectl`) | `devops-cli` Command | Key Enhancements in `devops-cli` |
 | :--- | :--- | :--- | :--- |
 | **List Stack Pods** | `kubectl get pods -A -l app.kubernetes.io/part-of=devops-cli-stack` | `devops k8s pods [-n <namespace>]` | Color-coded status tables highlighting crashloops, restart counts, and container resource limits. |
-| **Check Stack Health** | Multiple `kubectl get svc,deploy,ds,statefulsets` | `devops k8s status [-c <context>]` | Complete health audit evaluating DaemonSets (Ollama GPUs), deployments, and ingress reachability. |
+| **Check Stack Health** | Multiple `kubectl get svc,deploy,ds,statefulsets` | `devops k8s status [-c <context>]` | Complete health audit evaluating StatefulSets (Ollama GPUs), deployments, and ingress reachability. |
 | **Auto-Detect Service Endpoints** | `kubectl get svc -A -o jsonpath=...` | `devops k8s configure-urls [-c <context>]` | Discovers cluster IP/NodePort/hostPort targets and automatically updates local `devops config` settings. |
 
 ---

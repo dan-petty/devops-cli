@@ -24,7 +24,7 @@ graph TD
   - `gitops`: ArgoCD server, controller, and repo server in `argocd` namespace.
   - `tracing`: Jaeger distributed tracing query & collector in `otel` namespace.
   - `otel`: OpenTelemetry Collector DaemonSet/Deployment and Jaeger in `otel` namespace.
-  - `llm`: Local LLM stack (Ollama DaemonSet, Open-WebUI, Qdrant Vector DB, Valkey Cache) in `llm` namespace.
+  - `llm`: Local LLM stack (Ollama StatefulSet, Open-WebUI, Qdrant Vector DB, Valkey Cache) in `llm` namespace.
   - `all`: Bootstraps all stacks (`monitoring`, `gitops`, `otel`, `llm`) with automatic port-forwarding and service URL target detection.
 
 ---

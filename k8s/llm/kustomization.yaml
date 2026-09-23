@@ -6,7 +6,7 @@ resources:
   - networkpolicy.yaml
   - ca-configmap.yaml
   - valkey.yaml
-  - ollama-daemonset.yaml
+  - ollama.yaml
   - gateway/configmap.yaml
   - gateway/deployment.yaml
   - gateway/service.yaml

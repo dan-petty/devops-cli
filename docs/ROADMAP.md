@@ -314,6 +314,11 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: `api_base_url` outranked `gateway_url` and every task inherited the global value. A task on `provider: gateway` under a global OpenAI setup sent its requests and the gateway master key to OpenAI. Any task switching provider sent its key to the global provider's endpoint, and the pydantic-ai bridge resolved `litellm:` models the same way.
   - *Delivered*: Provider `gateway` always sends to `gateway_url`, and a gateway task's own `api_base_url` becomes that task's gateway address. The global `api_base_url` carries over only to tasks that keep the global provider. The bridge's `litellm:`, `portkey:` and `lightllm:` prefixes use `gateway_url`, `portkey_url` and `lightllm_url`.
 
+- [x] **One Gateway Deployment per Ollama Node (`#463`) (P2 - Medium)**:
+  - *Context & Rationale*: Through the `ollama` Service, LiteLLM's long-lived connections pinned all gateway traffic to one Ollama pod: in a full review, one node served 15 requests and the other 0. With one deployment covering every node, LiteLLM could neither match load to each node's single request slot nor cool down a failing node on its own.
+  - *Delivered*: Ollama runs as a StatefulSet (`k8s/llm/ollama.yaml`) with per-pod DNS through the headless `ollama-nodes` Service and one pod per GPU node. The gateway lists every pod for `devops-chat`, `devops-embedding`, the Ollama tier of `devops-review` and `ollama/*`. Embedding deployments are health-checked as embeddings, and the wildcard with a real model.
+  - *Remaining*: `replicas` and the gateway's per-pod entries are set by hand to match the number of Ollama GPU nodes; a test keeps them in step.
+
 ### Reactive Workstation Command Center, Interactive TUI & Unified Operations Hub (v0.2.24 - Scheduled)
 - [ ] **Reactive Multi-Workspace Textual TUI Architecture & Master-Detail Navigation (`devops dashboard`, `devops tui`) (P0 - Critical)**:
   - *Context & Rationale*: Modernizes the basic Textual dashboard from static read-only tables into a reactive, multi-workspace workstation command center with non-blocking async workers (`work()`), real-time push events, and master-detail ergonomic split screens (navigation tree/list on left, contextual detail inspector with YAML/logs/markdown on right).

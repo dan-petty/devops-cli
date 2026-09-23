@@ -23,7 +23,7 @@ from devops_cli.config.defaults import (
 GATEWAY_DIR = Path("k8s/llm/gateway")
 VLLM_DIR = Path("k8s/llm/vllm")
 VLLM_SINGLE_DIR = Path("k8s/llm/vllm-single")
-OLLAMA_DAEMONSET = Path("k8s/llm/ollama-daemonset.yaml")
+OLLAMA_MANIFEST = Path("k8s/llm/ollama.yaml")
 LLM_KUSTOMIZATION = Path("k8s/llm/kustomization.yaml")
 OPEN_WEBUI_VALUES = Path("k8s/llm/values-open-webui.yaml")
 
@@ -36,7 +36,6 @@ VLLM_ARCHITECTURES = ["ada-lovelace", "ampere", "blackwell", "hopper"]
 GPU_ARCHITECTURE_LABELS = ["nvidia.com/gpu.architecture", "nvidia.com/gpu.family"]
 CA_BUNDLE = "/etc/ssl/bundle/ca-certificates.crt"
 SQUID_PROXY = "http://squid.squid.svc.cluster.local:3128"
-OLLAMA_CLUSTER_URL = "http://ollama.llm.svc.cluster.local:11434"
 
 
 def _load_kind(path: Path, kind: str) -> dict[str, Any]:
@@ -53,6 +52,23 @@ def _flag(args: list[str], flag: str) -> str | None:
 def _vllm_container(dep: dict[str, Any]) -> dict[str, Any]:
     """Return the vLLM serving container of a Deployment."""
     return next(c for c in dep["spec"]["template"]["spec"]["containers"] if c["name"] == "vllm")
+
+
+def _ollama_pod_urls() -> list[str]:
+    """Return the per-pod URL of every Ollama StatefulSet replica, via its headless Service."""
+    sts = _load_kind(OLLAMA_MANIFEST, "StatefulSet")
+    service = sts["spec"]["serviceName"]
+    return [
+        f"http://ollama-{n}.{service}.llm.svc.cluster.local:11434"
+        for n in range(sts["spec"]["replicas"])
+    ]
+
+
+def _deployments(group: str) -> list[dict[str, Any]]:
+    """Return the gateway deployments of one model group, in configuration order."""
+    cm = _load_kind(GATEWAY_DIR / "configmap.yaml", "ConfigMap")
+    cfg = yaml.safe_load(cm["data"]["config.yaml"])
+    return [m for m in cfg["model_list"] if m["model_name"] == group]
 
 
 def _node_selector_terms(pod_spec: dict[str, Any]) -> list[dict[str, Any]]:
@@ -187,10 +203,11 @@ class TestK8sLLMGatewayManifests:
         }
         ollama_env = {
             e["name"]: e.get("value")
-            for e in _load_kind(OLLAMA_DAEMONSET, "DaemonSet")["spec"]["template"]["spec"][
+            for e in _load_kind(OLLAMA_MANIFEST, "StatefulSet")["spec"]["template"]["spec"][
                 "containers"
             ][0]["env"]
         }
+        ollama_window = int(ollama_env["OLLAMA_CONTEXT_LENGTH"] or 0)
         windows = {
             DEFAULT_VLLM_CLUSTER_URL: int(
                 _flag(
@@ -208,20 +225,65 @@ class TestK8sLLMGatewayManifests:
                 )
                 or 0
             ),
-            OLLAMA_CLUSTER_URL: int(ollama_env["OLLAMA_CONTEXT_LENGTH"] or 0),
+            **dict.fromkeys(_ollama_pod_urls(), ollama_window),
         }
-        passthrough = next(m for m in cfg["model_list"] if m["model_name"] == "ollama/*")
 
         assert (
             sorted(pool),
             all(m["litellm_params"]["max_parallel_requests"] >= 1 for m in pool.values()),
             all(m["model_info"]["max_input_tokens"] < windows[base] for base, m in pool.items()),
-            passthrough["litellm_params"]["api_base"],
         ) == (
             sorted(windows),
             True,
             True,
-            f"{OLLAMA_CLUSTER_URL}/v1",
+        )
+
+    def test_gateway_lists_one_deployment_per_ollama_pod(self) -> None:
+        """Verify each Ollama-backed group has one deployment per StatefulSet pod.
+
+        The `ollama` Service would pin all gateway traffic to one pod, because LiteLLM keeps its
+        connections open; per-pod deployments let LiteLLM balance and cool down each node.
+        """
+        ollama_env = {
+            e["name"]: e.get("value")
+            for e in _load_kind(OLLAMA_MANIFEST, "StatefulSet")["spec"]["template"]["spec"][
+                "containers"
+            ][0]["env"]
+        }
+        review_ollama = [
+            m for m in _deployments("devops-review") if "ollama" in m["litellm_params"]["model"]
+        ]
+
+        assert (
+            [m["litellm_params"]["api_base"] for m in _deployments("devops-chat")],
+            [m["litellm_params"]["api_base"] for m in _deployments("devops-embedding")],
+            [m["litellm_params"]["api_base"] for m in review_ollama],
+            [m["litellm_params"]["api_base"] for m in _deployments("ollama/*")],
+            {m["litellm_params"]["max_parallel_requests"] for m in review_ollama},
+        ) == (
+            _ollama_pod_urls(),
+            _ollama_pod_urls(),
+            _ollama_pod_urls(),
+            [f"{url}/v1" for url in _ollama_pod_urls()],
+            {int(ollama_env["OLLAMA_NUM_PARALLEL"] or 0)},
+        )
+
+    def test_gateway_health_checks_probe_each_deployment_the_way_it_is_called(self) -> None:
+        """Verify embedding deployments are probed as embeddings and the wildcard with a real model.
+
+        LiteLLM probes with a chat completion by default, which embedding-only models reject, and
+        probes a wildcard with a placeholder model name that no Ollama node has.
+        """
+        passthrough = _deployments("ollama/*")[0]
+        health_model = passthrough["model_info"]["health_check_model"]
+        chat_model = _deployments("devops-chat")[0]["litellm_params"]["model"].split("/", 1)[1]
+
+        assert (
+            {m.get("model_info", {}).get("mode") for m in _deployments("devops-embedding")},
+            health_model,
+        ) == (
+            {"embedding"},
+            f"openai/{chat_model}",
         )
 
     def test_gateway_service_and_network_policy(self) -> None:
@@ -417,10 +479,10 @@ class TestK8sLLMGatewayManifests:
             for label in GPU_ARCHITECTURE_LABELS
         ]
 
-    def test_ollama_daemonset_leaves_vllm_architectures_to_vllm(self) -> None:
+    def test_ollama_leaves_vllm_architectures_to_vllm(self) -> None:
         """Verify Ollama runs only on GPU nodes whose architecture is not reserved for vLLM."""
-        ds = _load_kind(OLLAMA_DAEMONSET, "DaemonSet")
-        spec = ds["spec"]["template"]["spec"]
+        sts = _load_kind(OLLAMA_MANIFEST, "StatefulSet")
+        spec = sts["spec"]["template"]["spec"]
         terms = _node_selector_terms(spec)
         expressions = sorted(
             (e["key"], e["operator"], sorted(e["values"]))
@@ -437,6 +499,32 @@ class TestK8sLLMGatewayManifests:
             1,
             [(label, "NotIn", VLLM_ARCHITECTURES) for label in GPU_ARCHITECTURE_LABELS],
         )
+
+    def test_ollama_pods_have_stable_names_one_per_gpu_node(self) -> None:
+        """Verify Ollama pods get per-pod DNS, one pod per node, and keep the shared Service."""
+        docs = [d for d in yaml.safe_load_all(OLLAMA_MANIFEST.read_text(encoding="utf-8")) if d]
+        sts = next(d for d in docs if d["kind"] == "StatefulSet")
+        services = {d["metadata"]["name"]: d["spec"] for d in docs if d["kind"] == "Service"}
+        pod_labels = sts["spec"]["template"]["metadata"]["labels"]
+        anti_affinity = sts["spec"]["template"]["spec"]["affinity"]["podAntiAffinity"][
+            "requiredDuringSchedulingIgnoredDuringExecution"
+        ]
+        headless = services[sts["spec"]["serviceName"]]
+
+        assert (
+            sts["spec"]["podManagementPolicy"],
+            [(t["topologyKey"], t["labelSelector"]["matchLabels"]) for t in anti_affinity],
+            headless["clusterIP"],
+            headless["selector"],
+            services["ollama"]["selector"],
+        ) == (
+            "Parallel",
+            [("kubernetes.io/hostname", sts["spec"]["selector"]["matchLabels"])],
+            "None",
+            sts["spec"]["selector"]["matchLabels"],
+            sts["spec"]["selector"]["matchLabels"],
+        )
+        assert sts["spec"]["selector"]["matchLabels"].items() <= pod_labels.items()
 
     @pytest.mark.parametrize("profile_dir", [VLLM_DIR, VLLM_SINGLE_DIR])
     def test_vllm_profiles_trust_squid_ca_and_persist_model_cache(self, profile_dir: Path) -> None:
@@ -560,7 +648,7 @@ class TestK8sLLMGatewayManifests:
             *GATEWAY_DIR.glob("*.yaml"),
             *VLLM_DIR.glob("*.yaml"),
             *VLLM_SINGLE_DIR.glob("*.yaml"),
-            OLLAMA_DAEMONSET,
+            OLLAMA_MANIFEST,
         ]
         private_ip_pattern = re.compile(
             r"\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b"

@@ -169,13 +169,11 @@ def test_squid_pvc_and_service_spec() -> None:
     assert ports.get("metrics") == 9301
 
 
-def test_ollama_daemonset_proxy_integration() -> None:
-    """Verify ollama-daemonset.yaml configures HTTP_PROXY, HTTPS_PROXY, and squid-ca mount."""
-    docs = list(
-        yaml.safe_load_all((K8S_DIR / "llm" / "ollama-daemonset.yaml").read_text(encoding="utf-8"))
-    )
-    daemonset_doc = next(d for d in docs if d and d.get("kind") == "DaemonSet")
-    containers = daemonset_doc["spec"]["template"]["spec"]["containers"]
+def test_ollama_proxy_integration() -> None:
+    """Verify ollama.yaml configures HTTP_PROXY, HTTPS_PROXY, and squid-ca mount."""
+    docs = list(yaml.safe_load_all((K8S_DIR / "llm" / "ollama.yaml").read_text(encoding="utf-8")))
+    statefulset_doc = next(d for d in docs if d and d.get("kind") == "StatefulSet")
+    containers = statefulset_doc["spec"]["template"]["spec"]["containers"]
     ollama_c = next(c for c in containers if c["name"] == "ollama")
 
     env_map = {e["name"]: e["value"] for e in ollama_c.get("env", []) if "value" in e}
@@ -187,7 +185,7 @@ def test_ollama_daemonset_proxy_integration() -> None:
     volume_mounts = {vm["name"]: vm["mountPath"] for vm in ollama_c.get("volumeMounts", [])}
     assert volume_mounts.get("squid-ca-cert") == "/etc/ssl/squid-ca"
 
-    volumes = {v["name"]: v for v in daemonset_doc["spec"]["template"]["spec"]["volumes"]}
+    volumes = {v["name"]: v for v in statefulset_doc["spec"]["template"]["spec"]["volumes"]}
     assert "squid-ca-cert" in volumes
     assert volumes["squid-ca-cert"].get("configMap", {}).get("optional") is False
 

@@ -1,5 +1,9 @@
+# Ollama serves GPUs older than Ampere, one pod per GPU node. A StatefulSet rather than a
+# DaemonSet gives each pod a stable DNS name (ollama-<n>.ollama-nodes), so the gateway can list
+# every node as its own deployment: through the `ollama` Service, LiteLLM's long-lived
+# connections pin all gateway traffic to one pod.
 apiVersion: apps/v1
-kind: DaemonSet
+kind: StatefulSet
 metadata:
   name: ollama
   namespace: llm
@@ -8,6 +12,12 @@ metadata:
     app.kubernetes.io/instance: ollama
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
+  # One per GPU node that Ollama may use. Keep one gateway deployment per replica in
+  # gateway/configmap.yaml (devops-chat, devops-embedding and the Ollama tier of devops-review).
+  replicas: 2
+  serviceName: ollama-nodes
+  # Start and replace pods independently, so a node that is offline never holds up the others.
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app.kubernetes.io/name: ollama
@@ -35,6 +45,14 @@ spec:
                   - key: nvidia.com/gpu.architecture
                     operator: NotIn
                     values: [ampere, ada-lovelace, hopper, blackwell]
+        # One pod per node: each owns the node's GPUs, host port and model directory.
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: ollama
+                  app.kubernetes.io/instance: ollama
       containers:
         - name: ollama
           image: ollama/ollama:0.32.14
@@ -122,6 +140,30 @@ spec:
             name: squid-ca-cert
             optional: false
 ---
+# Per-pod DNS for the gateway: ollama-<n>.ollama-nodes.llm.svc.cluster.local. Only ready pods
+# resolve, so the gateway's retries skip a pod that is down.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-nodes
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/instance: ollama
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/instance: ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+---
+# Any Ollama node, for clients that need no particular one (Open WebUI, port-forwards, the
+# gateway's ollama/* pass-through).
 apiVersion: v1
 kind: Service
 metadata:

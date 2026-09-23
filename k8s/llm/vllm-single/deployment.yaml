@@ -1,5 +1,5 @@
 # vLLM single-GPU continuous batching inference engine for nodes with one Ampere-or-newer GPU
-# (16 GiB or more). Older architectures run the Ollama DaemonSet instead.
+# (16 GiB or more). Older architectures run Ollama (../ollama.yaml) instead.
 ---
 apiVersion: apps/v1
 kind: Deployment
