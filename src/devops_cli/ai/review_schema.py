@@ -373,6 +373,11 @@ class Finding(BaseModel):
     verified_by: str | None = None  # "llm" | "human"
     verified_at: str | None = None
     confidence_score: float | None = None
+    # Why this finding carries no verdict, when the reason is that verification could not
+    # run at all. Set only by the verification pipeline; `parse_review_response` clears
+    # whatever a model supplies, because a model that could write here could announce its
+    # own verification outage and tell a reader to discard the findings below.
+    verification_note: str | None = None
     thinking: str | None = None
 
     @property
@@ -889,6 +894,20 @@ def _validate_raw_findings_list(data: list[Any]) -> list[Finding]:
     return parsed_findings
 
 
+def _strip_model_set_verification_state(result: ReviewResult) -> ReviewResult:
+    """Clear any verification note a model supplied in its own output.
+
+    `ReviewResult` is parsed directly from untrusted model text, so every field on it is
+    model-writable. `verification_note` exists to tell a reader the verifier never ran; a
+    model able to set it could announce a fabricated outage over findings that were
+    verified normally. Only the verification pipeline may write it, so it is cleared here
+    on the way in.
+    """
+    for finding in result.findings:
+        finding.verification_note = None
+    return result
+
+
 def parse_review_response(response: str | Any) -> ReviewResult | None:
     """Parse review LLM response, prioritizing standard Pydantic and pydantic_ai.messages structured output."""
     from devops_cli.ai.response_repair import fix_llm_response
@@ -897,7 +916,7 @@ def parse_review_response(response: str | Any) -> ReviewResult | None:
     if fixed.parsed_model is not None and isinstance(fixed.parsed_model, ReviewResult):
         if fixed.thinking and not fixed.parsed_model.thinking:
             fixed.parsed_model.thinking = fixed.thinking
-        return fixed.parsed_model
+        return _strip_model_set_verification_state(fixed.parsed_model)
 
     data = fixed.json_data or extract_json_block(fixed.content)
     if isinstance(data, list):

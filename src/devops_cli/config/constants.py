@@ -1532,3 +1532,11 @@ CONST_BLIND_EXCEPTION_TYPES: Final[frozenset[str]] = frozenset({"Exception", "Ba
 # neither escaped nor declared raw. Both defects read as correct tests, so they belong in
 # the lint selection rather than in a reviewer's memory.
 CONST_TEST_ASSERTION_LINT_RULES: Final[frozenset[str]] = frozenset({"B017", "RUF043"})
+
+# Who adjudicated a recorded finding when nothing says. The feedback exporter defaulted to
+# "human", which routed every finding the verifier never reached into the human
+# ground-truth bucket -- the one part of that dataset trusted because a person wrote it.
+CONST_VERIFIED_BY_UNKNOWN: Final[str] = "unknown"
+# Marks a finding the verifier never adjudicated because verification itself failed, as
+# opposed to one it considered and declined to confirm.
+CONST_VERIFICATION_UNAVAILABLE: Final[str] = "verification-unavailable"

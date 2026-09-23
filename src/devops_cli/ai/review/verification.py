@@ -14,6 +14,7 @@ from typing import Any
 
 from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.constants import CONST_VERIFICATION_UNAVAILABLE
 from devops_cli.config.defaults import (
     DEFAULT_DIFF_CONTEXT_LINES,
     DEFAULT_MAX_RELATED_FILES,
@@ -1290,8 +1291,21 @@ def _validate_segment_findings(
                 unresolved_idx += 1
                 validated.append(_apply_single_finding_verification(f, item, now_iso))
             return result.model_copy(update={"findings": validated}), proc_sec, b_info
-    except Exception:
-        pass
+    except Exception as exc:
+        # An infrastructure failure, a malformed response and a genuine refusal to verify
+        # all produced the same page of `*(unverified)*` findings, so a reader could not
+        # tell whether the verifier disagreed or never ran. The reason is recorded on the
+        # findings themselves rather than on `ReviewResult`, which is parsed straight from
+        # model output -- a field there would let a model write its own outage banner.
+        logger.warning("Verification did not complete: %s: %s", type(exc).__name__, exc)
+        reason = f"{CONST_VERIFICATION_UNAVAILABLE}: {type(exc).__name__}"
+        degraded = [
+            f.model_copy(update={"verification_note": reason})
+            if f.status not in {"INVALIDATED", "MITIGATED"}
+            else f
+            for f in result.findings
+        ]
+        return result.model_copy(update={"findings": degraded}), proc_sec, b_info
     return result, proc_sec, b_info
 
 
