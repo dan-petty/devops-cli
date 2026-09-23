@@ -319,6 +319,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Delivered*: Ollama runs as a StatefulSet (`k8s/llm/ollama.yaml`) with per-pod DNS through the headless `ollama-nodes` Service and one pod per GPU node. The gateway lists every pod for `devops-chat`, `devops-embedding`, the Ollama tier of `devops-review` and `ollama/*`. Embedding deployments are health-checked as embeddings, and the wildcard with a real model.
   - *Remaining*: `replicas` and the gateway's per-pod entries are set by hand to match the number of Ollama GPU nodes; a test keeps them in step.
 
+- [x] **Missing or Rejected API Keys Named as Such (`#465`) (P2 - Medium)**:
+  - *Context & Rationale*: With no API key configured, the OpenAI-compatible client sent `Authorization: Bearer ` with nothing after it. httpx refuses that header, so the request never left the machine, and the user saw only "Check network access, API endpoint, and credentials", four times over after retries. Nothing reached the server's logs.
+  - *Delivered*: `Authorization` is sent only with a key. A 401 or 403 raises `AICredentialsError`, which says whether the key is missing or was rejected and names `DEVOPS_CLI_AI_API_KEY` and `devops config set ai.api_key`. Chat retries stop at the first credentials failure.
+
 ### Reactive Workstation Command Center, Interactive TUI & Unified Operations Hub (v0.2.24 - Scheduled)
 - [ ] **Reactive Multi-Workspace Textual TUI Architecture & Master-Detail Navigation (`devops dashboard`, `devops tui`) (P0 - Critical)**:
   - *Context & Rationale*: Modernizes the basic Textual dashboard from static read-only tables into a reactive, multi-workspace workstation command center with non-blocking async workers (`work()`), real-time push events, and master-detail ergonomic split screens (navigation tree/list on left, contextual detail inspector with YAML/logs/markdown on right).

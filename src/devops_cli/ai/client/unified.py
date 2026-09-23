@@ -17,6 +17,7 @@ from devops_cli.ai.client import network
 from devops_cli.ai.client.claude import ClaudeProviderMixin
 from devops_cli.ai.client.models import (
     AIClientError,
+    AICredentialsError,
     LLMResponse,
     RequestPriority,
     _is_json_error_payload,
@@ -608,6 +609,10 @@ class LLMClient(
                 return self._handle_successful_chat_dispatch(
                     res, cache_key, system, out_messages, use_cache, context_tag, span_h
                 )
+            except AICredentialsError as exc:
+                # Retrying cannot fix missing or rejected credentials.
+                span_h.record_exception(exc)
+                raise
             except Exception as exc:
                 last_exc = exc
             if attempt < attempts:
