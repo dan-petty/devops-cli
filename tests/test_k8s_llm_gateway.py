@@ -36,6 +36,7 @@ VLLM_ARCHITECTURES = ["ada-lovelace", "ampere", "blackwell", "hopper"]
 GPU_ARCHITECTURE_LABELS = ["nvidia.com/gpu.architecture", "nvidia.com/gpu.family"]
 CA_BUNDLE = "/etc/ssl/bundle/ca-certificates.crt"
 SQUID_PROXY = "http://squid.squid.svc.cluster.local:3128"
+OLLAMA_CLUSTER_URL = "http://ollama.llm.svc.cluster.local:11434"
 
 
 def _load_kind(path: Path, kind: str) -> dict[str, Any]:
@@ -96,7 +97,7 @@ class TestK8sLLMGatewayManifests:
 
         raw_cfg = cm["data"]["config.yaml"]
         cfg = yaml.safe_load(raw_cfg)
-        models = [m["model_name"] for m in cfg["model_list"]]
+        models = list(dict.fromkeys(m["model_name"] for m in cfg["model_list"]))
 
         assert (
             cm["metadata"]["name"],
@@ -105,7 +106,14 @@ class TestK8sLLMGatewayManifests:
             len(cfg["router_settings"]["fallbacks"]),
         ) == (
             "llm-gateway-config",
-            ["devops-chat", "devops-coder", "devops-reasoning", "devops-embedding"],
+            [
+                "devops-chat",
+                "devops-coder",
+                "devops-reasoning",
+                "devops-embedding",
+                "devops-review",
+                "ollama/*",
+            ],
             "least-busy",
             2,
         )
@@ -136,7 +144,7 @@ class TestK8sLLMGatewayManifests:
         input_limits = {
             m["model_name"]: m["model_info"]["max_input_tokens"]
             for m in cfg["model_list"]
-            if "model_info" in m
+            if m["model_name"] in ("devops-coder", "devops-reasoning")
         }
         vllm_windows = {
             "devops-coder": _flag(
@@ -166,6 +174,54 @@ class TestK8sLLMGatewayManifests:
             {"devops-coder": ["devops-reasoning", "devops-chat"]},
             True,
             True,
+        )
+
+    def test_gateway_review_pool_spans_every_inference_backend(self) -> None:
+        """Verify devops-review load-balances over vLLM and Ollama within each backend's limits."""
+        cm = _load_kind(GATEWAY_DIR / "configmap.yaml", "ConfigMap")
+        cfg = yaml.safe_load(cm["data"]["config.yaml"])
+        pool = {
+            m["litellm_params"]["api_base"]: m
+            for m in cfg["model_list"]
+            if m["model_name"] == "devops-review"
+        }
+        ollama_env = {
+            e["name"]: e.get("value")
+            for e in _load_kind(OLLAMA_DAEMONSET, "DaemonSet")["spec"]["template"]["spec"][
+                "containers"
+            ][0]["env"]
+        }
+        windows = {
+            DEFAULT_VLLM_CLUSTER_URL: int(
+                _flag(
+                    _vllm_container(_load_kind(VLLM_DIR / "deployment.yaml", "Deployment"))["args"],
+                    "--max-model-len",
+                )
+                or 0
+            ),
+            DEFAULT_VLLM_SINGLE_CLUSTER_URL: int(
+                _flag(
+                    _vllm_container(_load_kind(VLLM_SINGLE_DIR / "deployment.yaml", "Deployment"))[
+                        "args"
+                    ],
+                    "--max-model-len",
+                )
+                or 0
+            ),
+            OLLAMA_CLUSTER_URL: int(ollama_env["OLLAMA_CONTEXT_LENGTH"] or 0),
+        }
+        passthrough = next(m for m in cfg["model_list"] if m["model_name"] == "ollama/*")
+
+        assert (
+            sorted(pool),
+            all(m["litellm_params"]["max_parallel_requests"] >= 1 for m in pool.values()),
+            all(m["model_info"]["max_input_tokens"] < windows[base] for base, m in pool.items()),
+            passthrough["litellm_params"]["api_base"],
+        ) == (
+            sorted(windows),
+            True,
+            True,
+            f"{OLLAMA_CLUSTER_URL}/v1",
         )
 
     def test_gateway_service_and_network_policy(self) -> None:

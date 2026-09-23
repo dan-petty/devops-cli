@@ -1183,3 +1183,44 @@ def test_orchestrator_worker_exception_isolation(tmp_path: Path) -> None:
             payloads[0].ai_scratchpad["stage"],
             "src/one.py" in orchestrator.errored_files,
         ) == ("failed", True)
+
+
+def test_review_page_chars_fit_the_context_window() -> None:
+    """Verify review pages leave room for prompts inside the window, within the page floor and cap."""
+    from devops_cli.ai.review.chunker import review_page_chars
+    from devops_cli.config.constants import (
+        CONST_REVIEW_CHARS_PER_TOKEN,
+        CONST_REVIEW_PAGE_WINDOW_SHARE,
+    )
+    from devops_cli.config.defaults import (
+        DEFAULT_REVIEW_MAX_DIFF_CHARS,
+        DEFAULT_REVIEW_MIN_DIFF_CHARS,
+    )
+
+    chars_per_window_token = CONST_REVIEW_CHARS_PER_TOKEN * CONST_REVIEW_PAGE_WINDOW_SHARE
+
+    assert (
+        review_page_chars(16384),
+        review_page_chars(32768),
+        review_page_chars(1_048_576),
+        review_page_chars(512),
+        review_page_chars(32768) < 32768 * CONST_REVIEW_CHARS_PER_TOKEN,
+    ) == (
+        int(16384 * chars_per_window_token),
+        int(32768 * chars_per_window_token),
+        DEFAULT_REVIEW_MAX_DIFF_CHARS,
+        DEFAULT_REVIEW_MIN_DIFF_CHARS,
+        True,
+    )
+
+
+def test_execute_page_review_steps_isolates_persona_history() -> None:
+    """Verify each page is reviewed without other files' conversation history."""
+    from devops_cli.ai.review.pipeline import _execute_page_review_steps
+
+    pipeline = MagicMock()
+    pipeline.run.return_value = MagicMock(steps=[])
+
+    count = _execute_page_review_steps(pipeline, "prompt", "a.py", 0, 1, {}, [], [], [])
+
+    assert (count, pipeline.run.call_args.kwargs["message_history"]) == (0, [])

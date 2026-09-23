@@ -30,11 +30,13 @@ if TYPE_CHECKING:
     from devops_cli.ai.agents.embeddings import Embedder
 
 from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_PROVIDER,
     CONST_ERROR_CODE_EMBEDDINGS,
     CONST_EXIT_FAILURE,
     CONST_VALKEY_EMBEDDING_PREFIX,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_AI_GATEWAY_URL,
     DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
     DEFAULT_RAG_EMBEDDING_BACKOFF_BASE_SECONDS,
     DEFAULT_RAG_EMBEDDING_BATCH_SIZE,
@@ -224,6 +226,11 @@ class EmbeddingsEngine:
 
         self.ai_config = base_config.for_task("embedding")
         self.api_key = api_key
+        # Kept apart from the merged config: a task-level api_base_url is an explicit choice for
+        # embeddings, while a global one usually belongs to another provider.
+        self._task_api_base_url = getattr(
+            getattr(base_config.tasks, "embedding", None), "api_base_url", None
+        )
         task_timeout = (
             getattr(getattr(base_config.tasks, "embedding", None), "timeout", None)
             or self.ai_config.timeout
@@ -466,7 +473,7 @@ class EmbeddingsEngine:
     def _dispatch_embed(self, prefixed_miss: list[str]) -> list[list[float]] | EmbeddingList:
         provider = self.ai_config.provider.lower()
         api_base = self.ai_config.api_base_url or ""
-        if provider in ("openai", "copilot"):
+        if provider in ("openai", "copilot", CONST_AI_GATEWAY_PROVIDER):
             return self._embed_openai(prefixed_miss)
         if provider == "ollama" or (not provider and ":11434" in api_base):
             return self._embed_ollama(prefixed_miss)
@@ -686,17 +693,32 @@ class EmbeddingsEngine:
             all_embs.extend(batch_res)
         return EmbeddingList(all_embs, is_fallback=any_fallback)
 
+    def _openai_compatible_base_url(self) -> str:
+        """Resolve the embeddings base URL: the embedding task's own api_base_url, then the
+        gateway for provider gateway, then the global api_base_url or OpenAI."""
+        if self._task_api_base_url:
+            return str(self._task_api_base_url)
+        if self.ai_config.provider.lower() == CONST_AI_GATEWAY_PROVIDER:
+            return self.ai_config.gateway_url or DEFAULT_AI_GATEWAY_URL
+        return self.ai_config.api_base_url or "https://api.openai.com/v1"
+
     def _embed_openai(self, texts: list[str]) -> list[list[float]] | EmbeddingList:
-        """Query OpenAI-compatible /v1/embeddings API."""
-        base_url = (self.ai_config.api_base_url or "https://api.openai.com/v1").rstrip("/")
-        validate_service_url(base_url, "OpenAI", allow=self.ai_config.allow_private_network)
+        """Query OpenAI-compatible /v1/embeddings API (OpenAI or the LLM gateway)."""
+        base_url = self._openai_compatible_base_url().rstrip("/")
+        is_gateway = self.ai_config.provider.lower() == CONST_AI_GATEWAY_PROVIDER
+        validate_service_url(
+            base_url,
+            "LLM gateway" if is_gateway else "OpenAI",
+            allow=self.ai_config.allow_private_network,
+        )
 
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         model = self.model
-        if model in ("all-minilm", "qwen3-embedding:0.6b"):
+        # Local Ollama defaults have no OpenAI equivalent; the gateway routes the name as given.
+        if not is_gateway and model in ("all-minilm", "qwen3-embedding:0.6b"):
             model = "text-embedding-3-small"
 
         payload: dict[str, Any] = {

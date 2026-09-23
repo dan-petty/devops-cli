@@ -54,6 +54,9 @@ spec:
                 secretKeyRef:
                   name: llm-gateway-secrets
                   key: master-key
+            # Use the bundled model cost map; egress is limited to the inference backends.
+            - name: LITELLM_LOCAL_MODEL_COST_MAP
+              value: "True"
             - name: LITELLM_REDIS_HOST
               value: "valkey.llm.svc.cluster.local"
             - name: LITELLM_REDIS_PORT

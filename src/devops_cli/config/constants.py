@@ -264,6 +264,12 @@ CONST_PROBE_MANIFEST_NAMES: Final[tuple[str, ...]] = (
 )
 
 # ── Code Review & Analysis ────────────────────────────────────────────────────
+# Characters per token for sizing review pages from a context window (source code averages
+# slightly under four; the lower figure leaves margin).
+CONST_REVIEW_CHARS_PER_TOKEN: Final[float] = 3.5
+# Share of the context window a review page's diff may fill; the rest holds the persona system
+# prompt, instructions and the model's reply.
+CONST_REVIEW_PAGE_WINDOW_SHARE: Final[float] = 0.6
 CONST_REVIEW_GENERATED_FILES = frozenset(
     {
         "uv.lock",
