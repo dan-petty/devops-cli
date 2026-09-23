@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import operator
 import os
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +28,9 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.constants import (
     CONST_PROJECT_CONFIG_FILENAME as PROJECT_CONFIG_FILENAME,
+)
+from devops_cli.config.constants import (
+    CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_CONTEXT_WINDOW,
@@ -611,19 +617,97 @@ def _resolve_data_config(raw_data: dict[str, Any], current_data_dir: Path) -> Da
     return DataConfig.model_validate(explicit_data)
 
 
-def load_settings() -> Settings:
-    """Load settings: global config → project config → env vars (each layer wins)."""
+_FileStamp = tuple[str, int, int]
+_ConfigCacheEntry = tuple[Path | None, tuple[_FileStamp, _FileStamp], dict[str, Any]]
+
+_CONFIG_CACHE_LOCK = threading.Lock()
+# Keyed on everything that selects which files are read -- the global path (tests rebind
+# it), DEVOPS_CLI_CONFIG, and the working directory the project lookup walks up from.
+_CONFIG_CACHE: dict[tuple[str, str, str], _ConfigCacheEntry] = {}
+
+
+def _file_stamp(path: Path | None) -> _FileStamp:
+    """Summarise a configuration file as its path, modification time and size.
+
+    A file that is absent stamps as zeroes rather than being omitted, so that creating it
+    later reads as a change instead of as the same "no file" it was before.
+    """
+    if path is None:
+        return ("", 0, 0)
+    try:
+        stat = path.stat()
+    except OSError:
+        return (str(path), 0, 0)
+    return (str(path), stat.st_mtime_ns, stat.st_size)
+
+
+def _stamps_are_settled(stamps: tuple[_FileStamp, _FileStamp]) -> bool:
+    """Report whether every stamped file has been still long enough to be trusted."""
+    cutoff_ns = (time.time() - CONST_SETTINGS_CACHE_SETTLE_SECONDS) * 1_000_000_000
+    return all(mtime_ns < cutoff_ns for _, mtime_ns, _ in stamps)
+
+
+def _read_config_layers(project_path: Path | None) -> dict[str, Any]:
+    """Merge the global configuration file with the project layer, the project winning."""
     raw: dict[str, Any] = {}
     if CONFIG_PATH.exists():
         raw = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
-
-    # DEVOPS_CLI_CONFIG env var or local/devcontainer project config lookup.
-    project_path = _find_project_config_path()
     if project_path and project_path.exists():
         project_raw: dict[str, Any] = yaml.safe_load(project_path.read_text(encoding="utf-8")) or {}
         _deep_merge(raw, project_raw)
+    return raw
+
+
+def _merged_config_data() -> dict[str, Any]:
+    """Return the merged file configuration, re-reading only when a source file changed.
+
+    Settings are consulted from per-request paths, yet each call otherwise walked the
+    directory tree hunting for a project config and re-parsed both YAML layers to arrive
+    at the identical mapping. Reuse is conditional on the files that supplied the values
+    still carrying the stamp they had when parsed, so an edit made by any process is
+    honoured on the next call rather than a snapshot living for the process lifetime.
+    Only the discovery walk is taken on trust: a project config file created after the
+    first load is picked up once the cache is reset, because a stamp of a file that did
+    not exist cannot report where a new one appeared.
+
+    The caller receives a copy, since the settings built from this mapping are mutable and
+    a caller editing one before saving must not rewrite what every later load sees.
+    """
+    cache_key = (str(CONFIG_PATH), os.environ.get(PROJECT_CONFIG_ENV, ""), os.getcwd())
+    with _CONFIG_CACHE_LOCK:
+        entry = _CONFIG_CACHE.get(cache_key)
+    if entry is not None:
+        cached_path, cached_stamps, cached_data = entry
+        if cached_stamps == (_file_stamp(CONFIG_PATH), _file_stamp(cached_path)):
+            return copy.deepcopy(cached_data)
+
+    # Stamped before the read, so a write that races the read leaves a stamp that looks
+    # older than the content held -- which costs a re-read, never a stale answer.
+    project_path = _find_project_config_path()
+    stamps = (_file_stamp(CONFIG_PATH), _file_stamp(project_path))
+    data = _read_config_layers(project_path)
+    if _stamps_are_settled(stamps):
+        with _CONFIG_CACHE_LOCK:
+            # A different key means a different working directory or configuration path,
+            # which strands the previous entry; keeping it would grow without bound.
+            _CONFIG_CACHE.clear()
+            _CONFIG_CACHE[cache_key] = (project_path, stamps, copy.deepcopy(data))
+    return data
+
+
+def reset_settings_cache() -> None:
+    """Discard parsed configuration so the next load reads the files from disk again."""
+    with _CONFIG_CACHE_LOCK:
+        _CONFIG_CACHE.clear()
+
+
+def load_settings() -> Settings:
+    """Load settings: global config → project config → env vars (each layer wins)."""
+    raw = _merged_config_data()
 
     settings = Settings.model_validate(raw)
+    # Environment overrides stay outside the cache: they cost microseconds to reapply, and
+    # a variable exported after the first load must still take effect.
     _apply_env_overrides(settings)
 
     raw_data = raw.get("data", {}) if isinstance(raw.get("data"), dict) else {}
@@ -725,6 +809,9 @@ def save_settings(settings: Settings, target_path: Path | None = None) -> None:
     tmp = dest_path.with_suffix(".yaml.tmp")
     tmp.write_text(content, encoding="utf-8")
     os.replace(tmp, dest_path)
+    # The writer knows the values changed, so it says so outright rather than leaving the
+    # next load to infer it from a timestamp the filesystem may not yet have advanced.
+    reset_settings_cache()
 
 
 # NOTE (Design Justification - AGENTS.md §4): Every credential resolves through the single

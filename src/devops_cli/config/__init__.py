@@ -413,6 +413,7 @@ _SETTINGS_EXPORTS: set[str] = {
     "get_grafana_token",
     "_keyring_has",
     "load_settings",
+    "reset_settings_cache",
     "save_settings",
 }
 
