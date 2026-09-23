@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -1557,7 +1558,7 @@ def test_warn_on_cache_busts_suite() -> None:
     from devops_cli.ai.harness import CacheBustWarning, WarnOnCacheBusts
 
     # 1. Test validation error on zero/negative collapse_ratio
-    with pytest.raises(ValueError, match="collapse_ratio must be greater than 0.0"):
+    with pytest.raises(ValueError, match=re.escape("collapse_ratio must be greater than 0.0")):
         WarnOnCacheBusts(collapse_ratio=0.0)
 
     # 2. Test normal operation and warnings
@@ -1749,7 +1750,7 @@ def test_harness_memory_suite(tmp_path: Path) -> None:
     assert file_store.delete("missing.md") is False
 
     # Path traversal protection
-    with pytest.raises(Exception, match="Path traversal"):
+    with pytest.raises(PermissionError, match="Path traversal"):
         file_store.read("../outside.md")
 
     # 3. Test SqliteMemoryStore
@@ -2057,7 +2058,7 @@ def test_skills_harness_suite(tmp_path: Path) -> None:
     assert "code-review" in inc_cap.skills
     assert "include=" in repr(inc_cap)
 
-    with pytest.raises(ValueError, match="Unknown skill.*specified in 'include'"):
+    with pytest.raises(ValueError, match=r"Unknown skill.*specified in 'include'"):
         Skills(lib_dir, include=["unknown-skill"])
 
     # 6. Exclude filter

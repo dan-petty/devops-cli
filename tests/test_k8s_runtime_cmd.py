@@ -22,7 +22,7 @@ def test_validate_k8s_identifier() -> None:
     _validate_k8s_identifier("my-pod-1", "pod")
     _validate_k8s_identifier("default", "namespace", namespace=True)
 
-    with pytest.raises(Exception):
+    with pytest.raises(typer.Exit):
         _validate_k8s_identifier("INVALID_POD_NAME!", "pod")
 
 

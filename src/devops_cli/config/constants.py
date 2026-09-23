@@ -1522,3 +1522,13 @@ CONST_OUTPUT_FORMATS: Final[frozenset[str]] = frozenset(
 # tools also chooses worse than one choosing among a few dozen. Domains outside this set
 # are withheld until a caller asks for them by name.
 CONST_MCP_EAGER_DOMAINS: Final[frozenset[str]] = frozenset({"ai", "review", "config", "workspace"})
+# The roots of the exception hierarchy. Naming one of these as the expected type of a
+# `pytest.raises` block asks nothing of the code under test: any failure at all satisfies
+# it, so the assertion keeps reporting green through the very regression it was written to
+# catch. A test that expects a failure has to say which one.
+CONST_BLIND_EXCEPTION_TYPES: Final[frozenset[str]] = frozenset({"Exception", "BaseException"})
+# The Ruff rules that keep the blind-assertion class from coming back: B017 for
+# `pytest.raises(Exception)`, RUF043 for a `match=` pattern whose metacharacters are
+# neither escaped nor declared raw. Both defects read as correct tests, so they belong in
+# the lint selection rather than in a reviewer's memory.
+CONST_TEST_ASSERTION_LINT_RULES: Final[frozenset[str]] = frozenset({"B017", "RUF043"})

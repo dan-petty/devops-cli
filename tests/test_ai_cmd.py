@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from devops_cli.ai.client import LLMClient
@@ -261,7 +262,7 @@ def test_ai_multi_server_test_and_agents_validation(tmp_path: Path) -> None:
             "devops_cli.commands.ai._test_single_ollama_endpoint",
             return_value=("http://example.com", False, "error", "0s"),
         ),
-        pytest.raises(Exception),
+        pytest.raises(typer.Exit),
     ):
         _run_ollama_server_tests(["http://example.com"], "sys", "user", st)
 

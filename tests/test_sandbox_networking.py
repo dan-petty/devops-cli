@@ -225,7 +225,7 @@ def test_sandbox_network_config_local_whitelist_validation_and_routing() -> None
         SandboxNetworkConfig(mode=SandboxNetworkMode.LOCAL_WHITELIST, local_whitelist=[])
 
     # Cloud metadata in local whitelist should raise ValueError
-    with pytest.raises(ValueError, match="Cloud metadata .* is forbidden"):
+    with pytest.raises(ValueError, match=r"Cloud metadata .* is forbidden"):
         SandboxNetworkConfig(
             mode=SandboxNetworkMode.LOCAL_WHITELIST,
             local_whitelist=["169.254.169.254"],

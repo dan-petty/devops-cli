@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from devops_cli.commands.release import (
@@ -773,7 +774,7 @@ def test_release_check_fails_on_empty_changelog(sample_project_dir: Path) -> Non
         "# Changelog\n\n## [0.1.7] - 2026-08-13\n\n## [0.1.6] - 2026-08-12\n\n### Added\n- Initial.\n",
         encoding="utf-8",
     )
-    with pytest.raises(Exception):
+    with pytest.raises(typer.Exit):
         _verify_release_versions(sample_project_dir)
 
     result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--skip-ci"])
