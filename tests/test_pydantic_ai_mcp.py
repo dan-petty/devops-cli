@@ -61,14 +61,32 @@ async def test_create_devops_mcp_toolset() -> None:
     # Discovered tools on in-process FastMCP server
     tools = await ts.list_tools()
     tool_names = {t.name for t in tools}
-    assert len(tools) >= 70
+    # The domain gate filters what a client is offered until it hydrates. The bridge is a
+    # client, so it sees the eager domains plus `hydrate_tool_domain`; calling a withheld
+    # tool by name still works, only the listing is narrowed.
+    from devops_cli.ai.mcp import server as mcp_server
+
+    assert 10 <= len(tools) < 70
+    assert any(t.name == "hydrate_tool_domain" for t in tools)
+
+    # Eager domains are offered without a round trip.
     assert "review_path" in tool_names
-    assert "k8s_pods" in tool_names
-    assert "docker_stats" in tool_names
     assert "config_show" in tool_names
-    assert "scan_trivy" in tool_names
-    assert "vault_set" in tool_names
     assert "ai_architecture" in tool_names
+
+    # Gated domains appear once hydrated, and are absent before.
+    gated = {
+        "k8s_pods": "k8s",
+        "docker_stats": "docker",
+        "scan_trivy": "scan",
+        "vault_set": "vault",
+    }
+    assert not (set(gated) & tool_names)
+    for domain in set(gated.values()):
+        mcp_server.hydrate_tool_domain(domain)
+    hydrated_names = {t.name for t in await ts.list_tools()}
+    mcp_server.reset_hydrated_domains()
+    assert set(gated).issubset(hydrated_names)
 
     # Discovered prompts and resources on in-process server
     prompts = await ts.list_prompts()
@@ -163,7 +181,7 @@ def test_agent_mcp_toolset_to_native() -> None:
 def test_mcp_bridge_dynamic_discovery() -> None:
     """Verify get_mcp_agent_tools returns dynamic tools from FastMCP rather than a static list."""
     tools = get_mcp_agent_tools()
-    assert len(tools) >= 50
+    assert len(tools) >= 10
     tool_names = {getattr(t, "__name__", getattr(t, "name", str(t))) for t in tools}
     assert "review_path" in tool_names
     assert "k8s_pods" in tool_names
