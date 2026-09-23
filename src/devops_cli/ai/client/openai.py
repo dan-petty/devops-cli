@@ -31,11 +31,13 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
     """Mixin implementing OpenAI-compatible and GitHub Copilot completions."""
 
     def _api_base(self) -> str:
-        if self._config.api_base_url:
-            return self._validate_base_url(self._config.api_base_url, purpose="provider API")
+        # The gateway holds its own key, so its requests go only to gateway_url; api_base_url is
+        # usually another provider's endpoint (a gateway task's own one is folded into gateway_url).
         if self._config.provider == "gateway":
             gw_url = getattr(self._config, "gateway_url", None) or DEFAULT_AI_GATEWAY_URL
             return self._validate_base_url(gw_url, purpose="provider API")
+        if self._config.api_base_url:
+            return self._validate_base_url(self._config.api_base_url, purpose="provider API")
         if self._config.provider == "copilot":
             return CONST_URL_GITHUB_COPILOT_API_BASE
         return CONST_URL_OPENAI_API_BASE

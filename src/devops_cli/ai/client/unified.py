@@ -219,7 +219,7 @@ class LLMClient(
         p = str(getattr(self._config, "provider", "ollama") or "ollama")
         if p == "ollama":
             return self._resolve_ollama_backend_host()
-        base_url = getattr(self._config, "api_base_url", None)
+        base_url = getattr(self._config, "api_base_url", None) if p != "gateway" else None
         if not isinstance(base_url, str) or not base_url:
             provider_defaults = {
                 "claude": CONST_URL_ANTHROPIC_API_BASE,

@@ -666,3 +666,22 @@ def test_gateway_embeddings_prefer_task_api_base_url(monkeypatch: pytest.MonkeyP
     EmbeddingsEngine(ai_cfg, api_key="sk-gateway").embed_texts(["hello"])
 
     assert calls[-1][0] == "http://example.com:9000/v1/embeddings"
+
+
+def test_gateway_embedding_task_ignores_global_openai_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify an embedding task on the gateway never embeds via another provider's base URL."""
+    calls = _capture_embedding_posts(monkeypatch)
+    ai_cfg = AIConfig(
+        provider="openai",
+        api_base_url="https://api.example.com/v1",
+        gateway_url="http://example.com:4000/v1",
+        allow_private_network=True,
+    )
+    ai_cfg.tasks.embedding.provider = "gateway"
+    ai_cfg.tasks.embedding.model = "devops-embedding"
+
+    EmbeddingsEngine(ai_cfg, api_key="sk-gateway").embed_texts(["hello"])
+
+    assert calls[-1][0] == "http://example.com:4000/v1/embeddings"
