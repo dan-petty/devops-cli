@@ -9,11 +9,14 @@ from devops_cli.ai.review.sanitization import _unique_preserve_order
 from devops_cli.config.constants import (
     CONST_BINARY_EXTENSIONS,
     CONST_MAX_FILE_SIZE_BYTES,
+    CONST_REVIEW_CHARS_PER_TOKEN,
     CONST_REVIEW_GENERATED_FILES,
+    CONST_REVIEW_PAGE_WINDOW_SHARE,
 )
 from devops_cli.config.defaults import (
     DEFAULT_MATCH_ALL_PATTERN,
     DEFAULT_REVIEW_MAX_DIFF_CHARS,
+    DEFAULT_REVIEW_MIN_DIFF_CHARS,
     DEFAULT_REVIEW_OVERLAP_FACTOR,
     DEFAULT_REVIEW_WINDOW_SIZE_FACTOR,
 )
@@ -234,6 +237,16 @@ def _is_generated_diff_block(block: str) -> bool:
     parts = first.split()
     filename = parts[2].removeprefix("a/") if len(parts) >= 4 else ""
     return Path(filename).name in CONST_REVIEW_GENERATED_FILES
+
+
+def review_page_chars(context_window: int) -> int:
+    """Return the diff characters one review page may hold within a model's context window.
+
+    The page fills a fixed share of the window so the persona prompt and the reply still fit,
+    bounded below so a small window cannot fragment a diff and above by the historical cap.
+    """
+    budget = int(context_window * CONST_REVIEW_CHARS_PER_TOKEN * CONST_REVIEW_PAGE_WINDOW_SHARE)
+    return max(DEFAULT_REVIEW_MIN_DIFF_CHARS, min(DEFAULT_REVIEW_MAX_DIFF_CHARS, budget))
 
 
 def diff_stream_chunks(

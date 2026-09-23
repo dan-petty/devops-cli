@@ -36,6 +36,46 @@ data:
           model: ollama/bge-m3
           api_base: http://ollama.llm.svc.cluster.local:11434
 
+      # devops-review: one virtual model spread over every inference server, so a review's
+      # parallel persona and verification calls use all of them. least-busy routing plus
+      # max_parallel_requests matches load to each server's capacity; pre-call checks keep a
+      # prompt off any deployment whose window it exceeds.
+      - model_name: devops-review
+        litellm_params:
+          model: openai/qwen2.5-coder-32b-instruct
+          api_base: http://vllm.llm.svc.cluster.local:8000/v1
+          api_key: none
+          # KV cache holds only a few full-length review prompts; vLLM queues the rest.
+          max_parallel_requests: 8
+        model_info:
+          max_input_tokens: 61440
+      - model_name: devops-review
+        litellm_params:
+          model: openai/qwen2.5-coder-14b-instruct
+          api_base: http://vllm-single.llm.svc.cluster.local:8000/v1
+          api_key: none
+          # ~20K tokens of KV cache on a 16 GiB GPU.
+          max_parallel_requests: 2
+        model_info:
+          max_input_tokens: 12288
+      - model_name: devops-review
+        litellm_params:
+          model: ollama_chat/gpt-oss:20b
+          api_base: http://ollama.llm.svc.cluster.local:11434
+          # One request per Ollama node (OLLAMA_NUM_PARALLEL=1); raise with the node count.
+          max_parallel_requests: 2
+        # OLLAMA_CONTEXT_LENGTH (48000) minus 4K tokens for the reply.
+        model_info:
+          max_input_tokens: 43904
+
+      # Pass-through: any model on the Ollama nodes by name, e.g. `ollama/gpt-oss:20b`. Ollama's
+      # OpenAI-compatible API serves both chat (with the model's own template) and embeddings.
+      - model_name: ollama/*
+        litellm_params:
+          model: openai/*
+          api_base: http://ollama.llm.svc.cluster.local:11434/v1
+          api_key: none
+
     router_settings:
       routing_strategy: least-busy
       num_retries: 2

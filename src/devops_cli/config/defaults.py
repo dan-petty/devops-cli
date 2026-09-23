@@ -360,6 +360,8 @@ DEFAULT_BASE_BRANCH: str = "main"
 DEFAULT_MATCH_ALL_PATTERN: str = "*"
 DEFAULT_REVIEW_PERSONA: str = "devsecops"
 DEFAULT_REVIEW_MAX_DIFF_CHARS: int = 128000
+# Smallest review page, so a tiny context window cannot split a diff into hundreds of calls.
+DEFAULT_REVIEW_MIN_DIFF_CHARS: int = 8000
 DEFAULT_REVIEW_LINE_OVERLAP_TOLERANCE: int = 2
 DEFAULT_REVIEW_TITLE_SIMILARITY_THRESHOLD: float = 0.5
 DEFAULT_REVIEW_MAX_TITLE_LENGTH: int = 200

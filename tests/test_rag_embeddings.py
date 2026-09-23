@@ -614,3 +614,55 @@ def test_init_valkey_skipped_during_pytest() -> None:
     ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
     engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
     assert engine._valkey is None
+
+
+def _capture_embedding_posts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
+    """Record (url, authorization, model) for each embeddings POST and answer with a vector."""
+    monkeypatch.setattr(
+        "devops_cli.ai.rag.embeddings.validate_service_url", lambda *args, **kwargs: None
+    )
+    calls: list[tuple[str, str, str]] = []
+
+    def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        headers = kwargs.get("headers") or {}
+        payload = kwargs.get("json") or {}
+        calls.append((url, headers.get("Authorization", ""), payload.get("model", "")))
+        return httpx2.Response(200, json={"data": [{"index": 0, "embedding": [0.5] * 8}]})
+
+    monkeypatch.setattr(httpx2.Client, "post", fake_post)
+    return calls
+
+
+def test_gateway_embeddings_use_gateway_url_not_global_api_base(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify provider gateway embeds via gateway_url with the model unchanged."""
+    calls = _capture_embedding_posts(monkeypatch)
+    ai_cfg = AIConfig(
+        provider="gateway",
+        gateway_url="http://example.com:4000/v1",
+        api_base_url="http://example.com:1234/v1",
+        allow_private_network=True,
+    )
+    ai_cfg.tasks.embedding.model = "devops-embedding"
+
+    embs = EmbeddingsEngine(ai_cfg, api_key="sk-gateway").embed_texts(["hello"])
+
+    assert (calls[-1], len(embs[0])) == (
+        ("http://example.com:4000/v1/embeddings", "Bearer sk-gateway", "devops-embedding"),
+        8,
+    )
+
+
+def test_gateway_embeddings_prefer_task_api_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify an embedding task's own api_base_url overrides the gateway URL."""
+    calls = _capture_embedding_posts(monkeypatch)
+    ai_cfg = AIConfig(
+        provider="gateway", gateway_url="http://example.com:4000/v1", allow_private_network=True
+    )
+    ai_cfg.tasks.embedding.model = "devops-embedding"
+    ai_cfg.tasks.embedding.api_base_url = "http://example.com:9000/v1"
+
+    EmbeddingsEngine(ai_cfg, api_key="sk-gateway").embed_texts(["hello"])
+
+    assert calls[-1][0] == "http://example.com:9000/v1/embeddings"

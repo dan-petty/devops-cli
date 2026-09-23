@@ -618,8 +618,15 @@ def _execute_page_review_steps(
     file_findings: list[SavedFinding],
 ) -> int:
     """Execute review pipeline on a page prompt and process step findings."""
+    # An empty history reviews each page on its own: cached persona agents would otherwise
+    # resend every earlier file they saw, overflowing small context windows.
     result = pipeline.run(
-        prompt, max_turns_per_agent=1, enable_thinking=False, parallel=True, skip_rag=True
+        prompt,
+        max_turns_per_agent=1,
+        enable_thinking=False,
+        parallel=True,
+        skip_rag=True,
+        message_history=[],
     )
     for step in result.steps:
         _process_pipeline_step_findings(
@@ -1496,18 +1503,15 @@ class ReviewPipelineOrchestrator:
                 )
                 return
 
-            from devops_cli.ai.review.chunker import diff_stream_chunks
-            from devops_cli.config.defaults import (
-                DEFAULT_AI_CONTEXT_WINDOW,
-                DEFAULT_REVIEW_MAX_DIFF_CHARS,
-            )
+            from devops_cli.ai.review.chunker import diff_stream_chunks, review_page_chars
+            from devops_cli.config.defaults import DEFAULT_AI_CONTEXT_WINDOW
 
             ctx_win = (
                 self.llm_client.get_context_window("analysis")
                 if hasattr(self.llm_client, "get_context_window")
                 else DEFAULT_AI_CONTEXT_WINDOW
             )
-            max_diff_chars = max(DEFAULT_REVIEW_MAX_DIFF_CHARS, int(ctx_win * 3.5))
+            max_diff_chars = review_page_chars(ctx_win)
 
             pages = (
                 list(diff_stream_chunks(content_or_diff, max_chars=max_diff_chars))

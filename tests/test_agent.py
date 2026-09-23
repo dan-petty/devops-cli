@@ -161,3 +161,26 @@ def test_get_persona_tools_selection() -> None:
     pm_tools = [t.__name__ for t in get_persona_tools(Persona.PM)]
     assert "repos_list" in pm_tools
     assert "repos_status" in pm_tools
+
+
+def test_multi_agent_pipeline_empty_history_sends_only_current_prompt() -> None:
+    """Verify message_history=[] keeps an agent's earlier runs out of the next request."""
+    from devops_cli.ai.agents import MultiAgentPipeline, PydanticAgent
+
+    sent: list[list[str]] = []
+
+    def _record(_system: str, messages: list[Any], **_kwargs: Any) -> str:
+        # Snapshot at call time: the agent appends its reply to the same list afterwards.
+        sent.append([m.content for m in messages])
+        return "ok"
+
+    client = MagicMock(spec=LLMClient)
+    client.chat_messages.side_effect = _record
+    agent = PydanticAgent(client=client, name="DevSecOps", system_prompt="Scan code")
+    pipeline = MultiAgentPipeline[Any](agents=[agent])
+
+    pipeline.run("Review file A", max_turns_per_agent=1, parallel=True)
+    pipeline.run("Review file B", max_turns_per_agent=1, parallel=True)
+    pipeline.run("Review file C", max_turns_per_agent=1, parallel=True, message_history=[])
+
+    assert (len(sent[1]) > 1, sent[2]) == (True, ["Review file C"])
