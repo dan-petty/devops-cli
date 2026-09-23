@@ -55,3 +55,11 @@ kubectl -n llm rollout restart deployment/llm-gateway
 ```
 
 Models stay on each node's `hostPath`, so nothing is downloaded again.
+
+## 3. Verification on a Live Cluster
+
+After the rollout, one pod ran on each Ollama node, and both still had their models. Gateway
+`/health` reported all 12 deployments healthy and none unhealthy. Before, `devops-embedding` and
+the wildcard were reported unhealthy. Of eight concurrent `devops-chat` requests, one node served
+five and the other three. Before the change, a full review sent 15 requests to one node and 0 to
+the other.
