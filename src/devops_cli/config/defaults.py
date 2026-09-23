@@ -194,6 +194,11 @@ DEFAULT_TOOL_DIFF_MAX_CHARS: int = 4000
 DEFAULT_TOOL_MAX_FILES: int = 100
 DEFAULT_TOOL_MAX_SEARCH_MATCHES: int = 50
 DEFAULT_TOOL_BUFFER_CHUNK_SIZE: int = 65536
+# Bounds the per-stream ring buffer that drains a backgrounded command's pipes. The pipes
+# must be drained continuously or the child blocks once the kernel buffer fills, and an
+# unbounded sink would then trade that deadlock for unbounded memory growth on a chatty
+# long-running process, so the retained window is capped instead.
+DEFAULT_SHELL_BG_OUTPUT_LINES: int = 1000
 DEFAULT_AGENT_MAX_TURNS: int = 10
 DEFAULT_MCP_SERVER_PORT: int = 8000
 DEFAULT_MCP_TRANSPORT = "stdio"
@@ -764,3 +769,8 @@ DEFAULT_HTTP_KEEPALIVE_EXPIRY_SECONDS: float = 30.0
 # every segment and prevents almost nothing.
 DEFAULT_HALLUCINATION_EXEMPLAR_COUNT: Final[int] = 8
 DEFAULT_HALLUCINATION_EXEMPLAR_CHARS: Final[int] = 160
+
+# How long a finished background command waits for its reader threads to bank the rest of
+# the pipe before its output is reported. `poll()` returns an exit status before the
+# readers have necessarily drained, so rendering immediately truncated the output.
+DEFAULT_SHELL_DRAIN_TIMEOUT_SECONDS: Final[float] = 2.0

@@ -2537,3 +2537,111 @@ def test_playwright_navigate_blocks_unsupported_schemes() -> None:
     fn = nav_tool.function if hasattr(nav_tool, "func") else nav_tool
     res = fn("javascript:alert(1)")
     assert "blocked" in res.lower() or "unsupported" in res.lower()
+
+
+def _await_background_finish(tools: dict[str, Any], cmd_id: str, budget: float = 20.0) -> str:
+    """Poll check_command until the process reports FINISHED or the budget expires.
+
+    The budget is what turns the deadlock into a test failure instead of a hung suite: an
+    undrained child never exits, so without a deadline the poll would spin forever.
+    """
+    import time
+
+    deadline = time.monotonic() + budget
+    result = tools["check_command"].function(command_id=cmd_id)  # type: ignore[union-attr]
+    while "FINISHED" not in result and time.monotonic() < deadline:
+        time.sleep(0.1)
+        result = tools["check_command"].function(command_id=cmd_id)  # type: ignore[union-attr]
+    return result
+
+
+def _start_background_python(shell: Shell, snippet: str) -> tuple[dict[str, Any], str]:
+    """Launch a Python snippet in the background and return the tool table plus its ID."""
+    import sys
+
+    tools: dict[str, Any] = {t.name: t for t in shell.get_tools()}
+    started = tools["start_command"].function(  # type: ignore[union-attr]
+        command=f'{sys.executable} -c "{snippet}"'
+    )
+    assert "Background command started with ID: " in started
+    return tools, started.split("ID: ")[1].strip()
+
+
+def _python_shell(tmp_path: Path, **kwargs: Any) -> Shell:
+    import sys
+
+    return Shell(cwd=tmp_path, allowed_commands=[Path(sys.executable).name], **kwargs)
+
+
+def test_shell_background_command_drains_pipes_without_deadlock(tmp_path: Path) -> None:
+    """A child writing past the kernel pipe buffer must still be able to run to completion."""
+    # Roughly 1 MiB per stream, far beyond the 64 KiB Linux pipe buffer that an undrained
+    # background process blocks on.
+    snippet = (
+        "import sys;"
+        "[print('y' * 1000) for _ in range(1000)];"
+        "[print('e' * 1000, file=sys.stderr) for _ in range(1000)]"
+    )
+    # The character cap keeps the tail of the report, so it is raised above the payload here;
+    # otherwise the stream labels at the head would be truncated away and prove nothing.
+    shell = _python_shell(tmp_path, max_output_chars=10_000_000)
+    tools, cmd_id = _start_background_python(shell, snippet)
+
+    result = _await_background_finish(tools, cmd_id)
+
+    assert ("FINISHED (exit code: 0)" in result, "[stdout]" in result, "[stderr]" in result) == (
+        True,
+        True,
+        True,
+    )
+
+
+def test_shell_check_command_reports_accumulated_output(tmp_path: Path) -> None:
+    """check_command advertises status AND output; before the ring buffers it returned only status."""
+    shell = _python_shell(tmp_path)
+    tools, cmd_id = _start_background_python(
+        shell, "import sys; print('bg_stdout_marker'); print('bg_stderr_marker', file=sys.stderr)"
+    )
+
+    result = _await_background_finish(tools, cmd_id)
+
+    assert (
+        "status:" in result,
+        "bg_stdout_marker" in result,
+        "bg_stderr_marker" in result,
+    ) == (True, True, True)
+
+
+def test_shell_background_output_ring_is_bounded(tmp_path: Path) -> None:
+    """The retained window is capped, and the caller is told how much scrollback was evicted."""
+    shell = _python_shell(tmp_path, max_bg_output_lines=5)
+    tools, cmd_id = _start_background_python(shell, "[print(f'line-{i}') for i in range(50)]")
+
+    result = _await_background_finish(tools, cmd_id)
+
+    assert (
+        "[... 45 earlier line(s) dropped ...]" in result,
+        "line-49" in result,
+        "line-45" in result,
+        "line-0\n" in result,
+    ) == (True, True, True, False)
+
+
+def test_a_background_command_survives_an_undecodable_byte(tmp_path: Path) -> None:
+    """One stray byte used to kill the command outright.
+
+    The pipes are read with `text=True`, so strict decoding raised `UnicodeDecodeError` in
+    the reader thread. That is a `ValueError`, so the drain handler treated it as a closed
+    pipe, left its `with stream:` block, and the child died of SIGPIPE on its next write.
+    A command is not wrong to emit a stray byte.
+    """
+    snippet = (
+        "import sys;"
+        "sys.stdout.write(chr(39) + 'start' + chr(39) and 'start\\n');sys.stdout.flush();"
+        "sys.stdout.buffer.write(b'\\xff\\xfe bad\\n');sys.stdout.flush();"
+        "sys.stdout.write('tail-marker\\n')"
+    )
+    shell = _python_shell(tmp_path)
+    tools, cmd_id = _start_background_python(shell, snippet)
+    report = _await_background_finish(tools, cmd_id)
+    assert ("FINISHED (exit code: 0)" in report, "tail-marker" in report) == (True, True)
