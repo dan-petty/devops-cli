@@ -53,6 +53,10 @@ class AIClientError(LLMInferenceError, RuntimeError):
     """Raised when an AI provider request fails with a user-actionable message."""
 
 
+class AICredentialsError(AIClientError):
+    """Raised when a provider rejects the request's credentials; retrying cannot help."""
+
+
 class LLMResponse(str):
     """String response from LLM with optional execution timing and backend metadata."""
 

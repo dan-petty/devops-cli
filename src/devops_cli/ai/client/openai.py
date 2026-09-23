@@ -10,7 +10,12 @@ from typing import Any
 import httpx2
 
 from devops_cli.ai.client.base import BaseLLMProviderMixin
-from devops_cli.ai.client.models import AIClientError, LLMResponse, is_reasoning_model
+from devops_cli.ai.client.models import (
+    AIClientError,
+    AICredentialsError,
+    LLMResponse,
+    is_reasoning_model,
+)
 from devops_cli.ai.client.network import read_limited_json
 from devops_cli.ai.client.streaming import (
     _consume_streaming_lines,
@@ -21,6 +26,8 @@ from devops_cli.config.constants import (
     CONST_URL_OPENAI_API_BASE,
 )
 from devops_cli.config.defaults import DEFAULT_AI_GATEWAY_URL
+from devops_cli.config.env import ENV_AI_API_KEY
+from devops_cli.config.options import AI_API_KEY
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import inject_trace_context
 
@@ -42,6 +49,29 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             return CONST_URL_GITHUB_COPILOT_API_BASE
         return CONST_URL_OPENAI_API_BASE
 
+    def _openai_compat_headers(self) -> dict[str, str]:
+        """Request headers; Authorization only when a key is set, since an empty bearer token is
+        an illegal header value that fails before the request is sent."""
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        return headers
+
+    def _provider_http_error(self, exc: httpx2.HTTPError, failure: str) -> AIClientError:
+        """Name missing or rejected credentials instead of reporting a generic request failure."""
+        status = exc.response.status_code if isinstance(exc, httpx2.HTTPStatusError) else None
+        if status not in (401, 403):
+            return AIClientError(failure)
+        problem = (
+            "rejected the configured API key"
+            if self._api_key
+            else "requires an API key, but no API key is configured"
+        )
+        return AICredentialsError(
+            f"The {self._config.provider} provider {problem} (HTTP {status}). "
+            f"Set {ENV_AI_API_KEY} or run `devops config set {AI_API_KEY}`."
+        )
+
     def _openai_compat_messages(
         self,
         system: str,
@@ -50,12 +80,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         enable_thinking: bool = True,
     ) -> LLMResponse:
         start_time = time.monotonic()
-        headers = inject_trace_context(
-            {
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            }
-        )
+        headers = inject_trace_context(self._openai_compat_headers())
         is_reasoning = is_reasoning_model(self._config.model)
         payload: dict[str, Any] = {
             "model": self._config.model,
@@ -132,8 +157,8 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
-            raise AIClientError(
-                "Provider request failed. Check network access, API endpoint, and credentials."
+            raise self._provider_http_error(
+                exc, "Provider request failed. Check network access, API endpoint, and credentials."
             ) from exc
 
     def _openai_compat_stream(
@@ -143,10 +168,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         *,
         enable_thinking: bool = True,
     ) -> Generator[str]:
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = self._openai_compat_headers()
         is_reasoning = is_reasoning_model(self._config.model)
         payload: dict[str, Any] = {
             "model": self._config.model,
@@ -178,14 +200,14 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
-            raise AIClientError(f"Provider streaming failed: {exc}") from exc
+            raise self._provider_http_error(exc, f"Provider streaming failed: {exc}") from exc
 
     def _openai_models(self) -> list[str]:
         try:
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
                 response = http_client.get(
                     f"{self._api_base()}/models",
-                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    headers=self._openai_compat_headers(),
                 )
                 response.raise_for_status()
                 return [
@@ -194,6 +216,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
-            raise AIClientError(
-                "Failed to list provider models. Check network access, API endpoint, and credentials."
+            raise self._provider_http_error(
+                exc,
+                "Failed to list provider models. Check network access, API endpoint, and credentials.",
             ) from exc
