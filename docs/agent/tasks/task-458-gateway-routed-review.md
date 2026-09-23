@@ -1,8 +1,8 @@
 # Task 458: Gateway-Routed Reviews and Embeddings Across Every Inference Backend
 
 **Issue**: [#458](https://github.com/dan-petty/devops-cli/issues/458)
-**PR**: None (Draft)
-**Status**: In Progress
+**PR**: [#459](https://github.com/dan-petty/devops-cli/pull/459)
+**Status**: In Review
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/ai`, `scope/review`, `priority/p2-medium`
