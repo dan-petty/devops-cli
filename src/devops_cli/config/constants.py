@@ -14,6 +14,11 @@ CONST_CONFIG_PATH = CONST_CONFIG_DIR / "config.yaml"
 CONST_KEYRING_SERVICE = CONST_APP_NAME
 CONST_PROJECT_CONFIG_FILENAME = "config.yaml"
 CONST_PROJECT_CONFIG_ENV = "DEVOPS_CLI_CONFIG"  # absolute path overrides CWD lookup
+# A configuration file is only eligible for caching once it has been still for this
+# long. The kernel stamps files from a coarse clock, so a file rewritten moments after
+# it was parsed can carry the identical modification time and size as the copy already
+# held, and a cache trusting that stamp would keep serving the superseded values.
+CONST_SETTINGS_CACHE_SETTLE_SECONDS: Final[float] = 2.0
 CONST_VSCODE_WORKSPACE_FILE = Path(".code-workspace")
 CONST_VSCODE_CLI = "code"
 CONST_AGENTS_MD_FILENAME = "AGENTS.md"

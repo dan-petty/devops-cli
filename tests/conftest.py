@@ -154,8 +154,12 @@ def protect_workspace_config():
 @pytest.fixture(autouse=True)
 def isolate_devops_cli_config(tmp_path_factory: pytest.TempPathFactory):
     """Ensure tests do not load or mutate local workspace config.yaml or ~/.config."""
+    from devops_cli.config.settings import reset_settings_cache
     from devops_cli.telemetry.tracer import reset_tracer
 
+    # Parsed configuration is held process-wide, so a test starts from disk rather than
+    # from whatever the previous test happened to leave behind.
+    reset_settings_cache()
     reset_tracer()
     config_dir = tmp_path_factory.mktemp("isolated_test_config")
     dummy_config = config_dir / "config.yaml"
@@ -175,6 +179,7 @@ def isolate_devops_cli_config(tmp_path_factory: pytest.TempPathFactory):
         patch("devops_cli.config.settings.CONFIG_PATH", dummy_config),
     ):
         yield dummy_config
+    reset_settings_cache()
     reset_tracer()
 
 
