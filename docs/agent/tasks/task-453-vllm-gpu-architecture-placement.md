@@ -1,8 +1,8 @@
 # Task 453: GPU-Architecture Inference Placement, vLLM Profiles & Authenticated LLM Gateway
 
 **Issue**: [#453](https://github.com/dan-petty/devops-cli/issues/453)
-**PR**: None (Draft)
-**Status**: In Progress
+**PR**: [#457](https://github.com/dan-petty/devops-cli/pull/457)
+**Status**: In Review
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/k8s`, `scope/ai`, `priority/p2-medium`
