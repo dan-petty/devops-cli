@@ -16,12 +16,12 @@ from devops_cli.docs.generator import (
 )
 
 __all__ = [
-    "DocGenerator",
-    "DocCompactor",
-    "DocCompactionRequest",
-    "DocCompactionResult",
     "CommandDoc",
     "CommandGroupDoc",
-    "ParamDoc",
+    "DocCompactionRequest",
+    "DocCompactionResult",
+    "DocCompactor",
+    "DocGenerator",
     "MCPToolDoc",
+    "ParamDoc",
 ]

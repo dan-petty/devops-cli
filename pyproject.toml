@@ -68,7 +68,12 @@ line-length = 100
 exclude = ["repos"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
+# RUF022/RUF068 guard the declared public surface: F822 would catch a name in
+# `__all__` that is defined nowhere, but a module-level `__getattr__` — which the
+# lazily re-exporting packages all define — suppresses it for the entire module.
+# Selected individually rather than as the whole RUF family, which is a separate
+# roadmap item with its own triage.
+select = ["E", "F", "I", "N", "W", "UP", "RUF022", "RUF068"]
 ignore = ["E501", "N818"]
 
 [tool.mypy]
