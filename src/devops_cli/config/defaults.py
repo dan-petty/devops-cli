@@ -769,3 +769,8 @@ DEFAULT_HTTP_KEEPALIVE_EXPIRY_SECONDS: float = 30.0
 # every segment and prevents almost nothing.
 DEFAULT_HALLUCINATION_EXEMPLAR_COUNT: Final[int] = 8
 DEFAULT_HALLUCINATION_EXEMPLAR_CHARS: Final[int] = 160
+
+# How long a finished background command waits for its reader threads to bank the rest of
+# the pipe before its output is reported. `poll()` returns an exit status before the
+# readers have necessarily drained, so rendering immediately truncated the output.
+DEFAULT_SHELL_DRAIN_TIMEOUT_SECONDS: Final[float] = 2.0

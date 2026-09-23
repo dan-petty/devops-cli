@@ -2625,3 +2625,23 @@ def test_shell_background_output_ring_is_bounded(tmp_path: Path) -> None:
         "line-45" in result,
         "line-0\n" in result,
     ) == (True, True, True, False)
+
+
+def test_a_background_command_survives_an_undecodable_byte(tmp_path: Path) -> None:
+    """One stray byte used to kill the command outright.
+
+    The pipes are read with `text=True`, so strict decoding raised `UnicodeDecodeError` in
+    the reader thread. That is a `ValueError`, so the drain handler treated it as a closed
+    pipe, left its `with stream:` block, and the child died of SIGPIPE on its next write.
+    A command is not wrong to emit a stray byte.
+    """
+    snippet = (
+        "import sys;"
+        "sys.stdout.write(chr(39) + 'start' + chr(39) and 'start\\n');sys.stdout.flush();"
+        "sys.stdout.buffer.write(b'\\xff\\xfe bad\\n');sys.stdout.flush();"
+        "sys.stdout.write('tail-marker\\n')"
+    )
+    shell = _python_shell(tmp_path)
+    tools, cmd_id = _start_background_python(shell, snippet)
+    report = _await_background_finish(tools, cmd_id)
+    assert ("FINISHED (exit code: 0)" in report, "tail-marker" in report) == (True, True)

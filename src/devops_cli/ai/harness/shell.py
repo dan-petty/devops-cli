@@ -21,7 +21,10 @@ from devops_cli.ai.harness.constants import (
     INTERACTIVE_COMMANDS,
     LLM_API_KEY_ENV_PATTERNS,
 )
-from devops_cli.config.defaults import DEFAULT_SHELL_BG_OUTPUT_LINES
+from devops_cli.config.defaults import (
+    DEFAULT_SHELL_BG_OUTPUT_LINES,
+    DEFAULT_SHELL_DRAIN_TIMEOUT_SECONDS,
+)
 from devops_cli.exceptions.ai import HarnessValidationError
 
 logger = logging.getLogger(__name__)
@@ -60,6 +63,18 @@ class _BackgroundCommand:
     process: subprocess.Popen[str]
     stdout: _OutputRing
     stderr: _OutputRing
+    readers: tuple[threading.Thread, ...] = ()
+
+    def settle(self, timeout: float = DEFAULT_SHELL_DRAIN_TIMEOUT_SECONDS) -> None:
+        """Wait for the reader threads once the process itself has exited.
+
+        `poll()` reports an exit status as soon as the child is reaped, which is before the
+        readers have necessarily banked what was still sitting in the pipes. Rendering at
+        that moment produced a report saying FINISHED beside truncated output, and the
+        missing lines never arrived because nothing read the rings again.
+        """
+        for reader in self.readers:
+            reader.join(timeout=timeout)
 
 
 def _drain_pipe(stream: IO[str] | None, sink: _OutputRing) -> None:
@@ -81,9 +96,11 @@ def _drain_pipe(stream: IO[str] | None, sink: _OutputRing) -> None:
         logger.debug("Background command pipe closed while draining", exc_info=True)
 
 
-def _spawn_reader(stream: IO[str] | None, sink: _OutputRing, name: str) -> None:
+def _spawn_reader(stream: IO[str] | None, sink: _OutputRing, name: str) -> threading.Thread:
     """Start the daemon thread that drains one pipe, so interpreter exit is never held up."""
-    threading.Thread(target=_drain_pipe, args=(stream, sink), name=name, daemon=True).start()
+    thread = threading.Thread(target=_drain_pipe, args=(stream, sink), name=name, daemon=True)
+    thread.start()
+    return thread
 
 
 class Shell(BaseCapability):
@@ -245,17 +262,27 @@ class Shell(BaseCapability):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            # A subprocess writes bytes, not text. Under strict decoding one undecodable
+            # byte raises `UnicodeDecodeError` inside the reader thread -- and that is a
+            # `ValueError`, so the handler below closed the pipe and the child died of
+            # SIGPIPE on its next write. A command is not wrong to emit a stray byte, so
+            # the byte is replaced rather than the command killed.
+            errors="replace",
             env=env,
             start_new_session=True,
         )
         record = _BackgroundCommand(process=proc, stdout=self._new_ring(), stderr=self._new_ring())
-        _spawn_reader(proc.stdout, record.stdout, f"{cmd_id}-stdout")
-        _spawn_reader(proc.stderr, record.stderr, f"{cmd_id}-stderr")
+        record.readers = (
+            _spawn_reader(proc.stdout, record.stdout, f"{cmd_id}-stdout"),
+            _spawn_reader(proc.stderr, record.stderr, f"{cmd_id}-stderr"),
+        )
         return record
 
     def _render_background_report(self, command_id: str, record: _BackgroundCommand) -> str:
         """Compose the status line together with whatever the reader threads have banked."""
         ret = record.process.poll()
+        if ret is not None:
+            record.settle()
         status = "RUNNING" if ret is None else f"FINISHED (exit code: {ret})"
         body = self._cap_output(
             "\n".join(self._label_streams(record.stdout.render(), record.stderr.render()))
