@@ -126,6 +126,8 @@ from devops_cli.output.streaming_serializer import (
 )
 
 __all__ = [
+    "RECOMMENDATION_COLOR_MAP",
+    "SEV_COLOR_MAP",
     "Console",
     "Group",
     "JustifyMethod",
@@ -140,10 +142,8 @@ __all__ = [
     "PrintRequest",
     "PrintResult",
     "ProgressStep",
-    "RECOMMENDATION_COLOR_MAP",
     "RenderableType",
     "RulePayload",
-    "SEV_COLOR_MAP",
     "StatusBadge",
     "SyntaxPayload",
     "Table",

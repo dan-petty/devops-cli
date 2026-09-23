@@ -261,13 +261,13 @@ def resolve_proxy_target(
 __all__ = [
     "ProxyConnection",
     "ProxyTarget",
-    "resolve_proxy_connection",
-    "reset_configuration_cache",
-    "discover_service",
     "ServiceAddressError",
     "ServiceRef",
+    "discover_service",
     "is_service_url",
     "parse_service_url",
+    "reset_configuration_cache",
+    "resolve_proxy_connection",
     "resolve_proxy_target",
 ]
 

@@ -374,6 +374,7 @@ def iter_provider_names(providers: Iterable[SecretProvider]) -> list[str]:
 
 
 __all__ = [
+    "CONST_SECRET_PROVIDER_TOOL",
     "CallableProvider",
     "EnvironmentProvider",
     "KeyringProvider",
@@ -386,12 +387,11 @@ __all__ = [
     "VaultProvider",
     "audit_entries",
     "build_default_resolver",
+    "build_secret_registry",
     "get_resolver",
     "iter_provider_names",
     "reset_resolver",
-    "build_secret_registry",
     "resolve_secret",
-    "CONST_SECRET_PROVIDER_TOOL",
 ]
 
 

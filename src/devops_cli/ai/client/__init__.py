@@ -41,10 +41,10 @@ from devops_cli.ai.client.unified import (
 
 __all__ = [
     "ALLOW_PRIVATE_NETWORK_ENV",
+    "MAX_STREAM_BYTES",
     "AIClientError",
     "LLMClient",
     "LLMResponse",
-    "MAX_STREAM_BYTES",
     "RequestPriority",
     "StreamingReasoningSanitizer",
     "StreamingTokenProcessor",

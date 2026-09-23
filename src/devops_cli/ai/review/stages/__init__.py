@@ -14,8 +14,8 @@ __all__ = [
     "run_adversarial_debate_stage",
     "run_persona_review_stage",
     "run_pre_analysis_stage",
-    "run_reranking_stage",
     "run_reporting_stage",
+    "run_reranking_stage",
     "run_static_scan_stage",
     "run_verification_stage",
 ]
