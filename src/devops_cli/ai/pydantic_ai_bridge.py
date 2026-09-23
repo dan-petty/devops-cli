@@ -33,6 +33,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_END_STRATEGY,
     DEFAULT_AI_GATEWAY_URL,
     DEFAULT_CURRENT_PATH,
+    DEFAULT_LIGHTLLM_URL,
     DEFAULT_PORTKEY_GATEWAY_URL,
 )
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
@@ -79,14 +80,15 @@ def _resolve_remote_provider_endpoint(
 ) -> tuple[str, str | None]:
     """Resolve target model string and base URL for remote gateway or inference providers."""
     prov, target = _extract_provider_and_target(model_str)
-    ai_base = getattr(active_settings.ai, "api_base_url", None)
-    if prov == "litellm":
-        return target, ai_base or DEFAULT_AI_GATEWAY_URL
-    if prov == "portkey":
-        return target, DEFAULT_PORTKEY_GATEWAY_URL
-    if prov == "lightllm":
-        return target, "http://localhost:8000/v1"
-    return model_str, ai_base
+    ai_cfg = active_settings.ai
+    gateway_urls = {
+        "litellm": ai_cfg.gateway_url or DEFAULT_AI_GATEWAY_URL,
+        "portkey": ai_cfg.portkey_url or DEFAULT_PORTKEY_GATEWAY_URL,
+        "lightllm": ai_cfg.lightllm_url or DEFAULT_LIGHTLLM_URL,
+    }
+    if prov in gateway_urls:
+        return target, gateway_urls[prov]
+    return model_str, ai_cfg.api_base_url
 
 
 def _resolve_remote_inferred_model(model_str: str, active_settings: Settings) -> Any:

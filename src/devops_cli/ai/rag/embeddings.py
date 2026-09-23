@@ -226,11 +226,6 @@ class EmbeddingsEngine:
 
         self.ai_config = base_config.for_task("embedding")
         self.api_key = api_key
-        # Kept apart from the merged config: a task-level api_base_url is an explicit choice for
-        # embeddings, while a global one usually belongs to another provider.
-        self._task_api_base_url = getattr(
-            getattr(base_config.tasks, "embedding", None), "api_base_url", None
-        )
         task_timeout = (
             getattr(getattr(base_config.tasks, "embedding", None), "timeout", None)
             or self.ai_config.timeout
@@ -694,10 +689,8 @@ class EmbeddingsEngine:
         return EmbeddingList(all_embs, is_fallback=any_fallback)
 
     def _openai_compatible_base_url(self) -> str:
-        """Resolve the embeddings base URL: the embedding task's own api_base_url, then the
-        gateway for provider gateway, then the global api_base_url or OpenAI."""
-        if self._task_api_base_url:
-            return str(self._task_api_base_url)
+        """Resolve the embeddings base URL: gateway_url for provider gateway (a gateway task's own
+        api_base_url is folded into it by ``for_task``), otherwise api_base_url or OpenAI."""
         if self.ai_config.provider.lower() == CONST_AI_GATEWAY_PROVIDER:
             return self.ai_config.gateway_url or DEFAULT_AI_GATEWAY_URL
         return self.ai_config.api_base_url or "https://api.openai.com/v1"

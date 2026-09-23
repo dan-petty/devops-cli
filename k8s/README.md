@@ -80,25 +80,23 @@ Two more routes make the gateway the single router for both engines:
 - `devops-review` spreads one model name over every inference server: both vLLM profiles and the Ollama nodes (`gpt-oss:20b`). Routing is least-busy, capped per deployment by `max_parallel_requests`, and pre-call checks keep a prompt off any deployment whose window it exceeds.
 - `ollama/<model>` reaches any model on the Ollama nodes by name, for chat and embeddings, through Ollama's OpenAI-compatible API (e.g. `ollama/gpt-oss:20b`, `ollama/embeddinggemma:300m`).
 
-Point devops-cli at the gateway per task, so reviews, chat and embeddings all go through it (the key comes from `DEVOPS_CLI_AI_API_KEY` or the keyring):
+Point devops-cli at the gateway, so reviews, chat and embeddings all go through it (the key comes from `DEVOPS_CLI_AI_API_KEY` or the keyring):
 ```yaml
 ai:
+  gateway_url: http://<node>:<node-port>/v1
   tasks:
     analysis:            # devops ai review
       provider: gateway
       model: devops-review
-      api_base_url: http://<node>:<node-port>/v1
       context_window: 16384   # sizes review pages to fit the smallest server
     chat:                # devops ai chat
       provider: gateway
       model: devops-coder
-      api_base_url: http://<node>:<node-port>/v1
     embedding:
       provider: gateway
       model: ollama/embeddinggemma:300m
-      api_base_url: http://<node>:<node-port>/v1
 ```
-Set `api_base_url` on each task: a global `ai.api_base_url` configured for another provider would otherwise take precedence over `ai.gateway_url`.
+Provider `gateway` always sends to `ai.gateway_url`, even when `ai.api_base_url` is set for another provider. To send one task to a different gateway, set `api_base_url` on that task.
 
 Open WebUI uses the same key: on a fresh install it connects to the gateway automatically. An existing installation keeps the connections stored in its database, so add `http://llm-gateway.llm.svc.cluster.local:4000/v1` under Admin Panel > Settings > Connections.
 

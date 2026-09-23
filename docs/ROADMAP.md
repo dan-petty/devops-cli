@@ -310,6 +310,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: Ollama downloads each blob from Cloudflare R2 as many parallel byte ranges. Squid's `range_offset_limit -1` fetched the whole object from byte 0 for each of those ranges, so they stalled and Ollama aborted them. In 54 minutes Squid logged 1,498 ranged requests, which delivered 0 bytes. No model could be pulled, and the gateway aliases served by Ollama (`devops-chat`, `devops-embedding`) failed with `model not found`.
   - *Delivered*: Ranged requests to `.r2.cloudflarestorage.com` are forwarded unchanged (`range_offset_limit 0` scoped by ACL ahead of the `-1` default), and other ranged requests still fetch and cache the whole object. A test pins the rule order.
 
+- [x] **Provider Gateway Talks Only to the Gateway (`#455`) (P1 - High)**:
+  - *Context & Rationale*: `api_base_url` outranked `gateway_url` and every task inherited the global value. A task on `provider: gateway` under a global OpenAI setup sent its requests and the gateway master key to OpenAI. Any task switching provider sent its key to the global provider's endpoint, and the pydantic-ai bridge resolved `litellm:` models the same way.
+  - *Delivered*: Provider `gateway` always sends to `gateway_url`, and a gateway task's own `api_base_url` becomes that task's gateway address. The global `api_base_url` carries over only to tasks that keep the global provider. The bridge's `litellm:`, `portkey:` and `lightllm:` prefixes use `gateway_url`, `portkey_url` and `lightllm_url`.
+
 ### Reactive Workstation Command Center, Interactive TUI & Unified Operations Hub (v0.2.24 - Scheduled)
 - [ ] **Reactive Multi-Workspace Textual TUI Architecture & Master-Detail Navigation (`devops dashboard`, `devops tui`) (P0 - Critical)**:
   - *Context & Rationale*: Modernizes the basic Textual dashboard from static read-only tables into a reactive, multi-workspace workstation command center with non-blocking async workers (`work()`), real-time push events, and master-detail ergonomic split screens (navigation tree/list on left, contextual detail inspector with YAML/logs/markdown on right).

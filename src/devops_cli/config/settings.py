@@ -18,6 +18,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import devops_cli.config.options as opt
 from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_PROVIDER,
+    CONST_SETTINGS_CACHE_SETTLE_SECONDS,
+)
+from devops_cli.config.constants import (
     CONST_CONFIG_PATH as CONFIG_PATH,
 )
 from devops_cli.config.constants import (
@@ -28,9 +32,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.constants import (
     CONST_PROJECT_CONFIG_FILENAME as PROJECT_CONFIG_FILENAME,
-)
-from devops_cli.config.constants import (
-    CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_CONTEXT_WINDOW,
@@ -393,13 +394,28 @@ class AIConfig(BaseModel):
                 "max_tokens": override.max_tokens,
                 "ollama_urls": override.ollama_urls,
                 "ollama_max_parallel": override.ollama_max_parallel,
-                "api_base_url": override.api_base_url,
                 "max_retries": override.max_retries,
                 "timeout": override.timeout,
             }.items()
             if v is not None
-        }
+        } | self._task_endpoint_updates(override)
         return self.model_copy(update=updates) if updates else self
+
+    def _task_endpoint_updates(self, override: AITaskOverride) -> dict[str, str | None]:
+        """Resolve a task's endpoints so no request reaches a base URL set for another provider.
+
+        A task's own api_base_url applies to its provider; on a gateway task it is that task's
+        gateway address. The global api_base_url carries over only to tasks that keep the global
+        provider.
+        """
+        provider = override.provider or self.provider
+        updates: dict[str, str | None] = {}
+        if override.api_base_url:
+            key = "gateway_url" if provider == CONST_AI_GATEWAY_PROVIDER else "api_base_url"
+            updates[key] = override.api_base_url
+        if provider != self.provider and "api_base_url" not in updates:
+            updates["api_base_url"] = None
+        return updates
 
 
 _DEFAULT_CHILD_DATA_PATHS: tuple[tuple[str, Path, Path], ...] = (

@@ -2770,7 +2770,7 @@ devops ai config [OPTIONS]
 | `--model`, `-m` | `string` | - | AI model identifier. |
 | `--ollama-urls` | `string` | - | Ollama server base URLs (comma-separated). |
 | `--ollama-max-parallel` | `integer` | - | Maximum number of simultaneous requests allowed per Ollama server node. |
-| `--api-base-url` | `string` | - | Override API base URL for any provider. |
+| `--api-base-url` | `string` | - | Override the provider's API base URL (provider gateway uses ai.gateway_url). |
 | `--api-key` | `string` | - | API key — stored in OS keyring, not config file. |
 | `--max-retries` | `integer` | - | Maximum retry count for AI requests upon failure. |
 

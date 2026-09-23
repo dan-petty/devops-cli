@@ -96,7 +96,9 @@ class AICommandHelp:
     cost: str = "Estimate LLM inference cost for token quantities."
     ollama_urls: str = "Ollama server base URLs (comma-separated)."
     max_parallel: str = "Maximum number of simultaneous requests allowed per Ollama server node."
-    api_base_url: str = "Override API base URL for any provider."
+    api_base_url: str = (
+        "Override the provider's API base URL (provider gateway uses ai.gateway_url)."
+    )
     api_key: str = "API key — stored in OS keyring, not config file."
     max_retries: str = "Maximum retry count for AI requests upon failure."
     prompt: str = "Test prompt to send to the provider."
