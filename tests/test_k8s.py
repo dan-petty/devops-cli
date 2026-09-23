@@ -809,12 +809,12 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
     repo_root = Path(__file__).resolve().parent.parent
 
-    # 1. Ollama DaemonSet: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup and liveness probes
-    ollama_path = repo_root / "k8s" / "llm" / "ollama-daemonset.yaml"
+    # 1. Ollama StatefulSet: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup and liveness probes
+    ollama_path = repo_root / "k8s" / "llm" / "ollama.yaml"
     assert ollama_path.is_file()
     ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
-    daemonset = next(d for d in ollama_docs if d and d.get("kind") == "DaemonSet")
-    container = daemonset["spec"]["template"]["spec"]["containers"][0]
+    statefulset = next(d for d in ollama_docs if d and d.get("kind") == "StatefulSet")
+    container = statefulset["spec"]["template"]["spec"]["containers"][0]
     resources = container.get("resources", {})
     assert "limits" not in resources or "memory" not in resources.get("limits", {})
     assert resources["requests"]["memory"] == "8Gi"
@@ -828,7 +828,7 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert container["startupProbe"]["failureThreshold"] == 60
 
     # Storage: verify hostPath contract for node-local model persistence
-    volumes = daemonset["spec"]["template"]["spec"]["volumes"]
+    volumes = statefulset["spec"]["template"]["spec"]["volumes"]
     ollama_vol = next(v for v in volumes if v["name"] == "ollama-data")
     assert ollama_vol["hostPath"]["path"] == "/var/lib/ollama"
     assert ollama_vol["hostPath"]["type"] == "DirectoryOrCreate"

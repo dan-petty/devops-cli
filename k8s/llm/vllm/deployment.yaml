@@ -1,5 +1,5 @@
 # vLLM Tensor-Parallel (TP=2) continuous batching inference engine for nodes with two or more
-# Ampere-or-newer GPUs. Older architectures run the Ollama DaemonSet instead.
+# Ampere-or-newer GPUs. Older architectures run Ollama (../ollama.yaml) instead.
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -10,11 +10,19 @@ metadata:
     app.kubernetes.io/part-of: devops-cli-stack
 data:
   config.yaml: |
+    # Ollama-backed groups list every Ollama pod (ollama-<n>.ollama-nodes, one per GPU node) as
+    # its own deployment, so LiteLLM balances load and cools down failures per node. Through the
+    # `ollama` Service its long-lived connections would pin all traffic to one pod. Keep one
+    # entry per replica of k8s/llm/ollama.yaml.
     model_list:
       - model_name: devops-chat
         litellm_params:
-          model: ollama/qwen2.5-coder:7b
-          api_base: http://ollama.llm.svc.cluster.local:11434
+          model: ollama_chat/qwen2.5-coder:7b
+          api_base: http://ollama-0.ollama-nodes.llm.svc.cluster.local:11434
+      - model_name: devops-chat
+        litellm_params:
+          model: ollama_chat/qwen2.5-coder:7b
+          api_base: http://ollama-1.ollama-nodes.llm.svc.cluster.local:11434
       - model_name: devops-coder
         litellm_params:
           model: openai/qwen2.5-coder-14b-instruct
@@ -31,10 +39,19 @@ data:
         # Prompt budget inside the 64K vLLM window, leaving 4K tokens for the reply.
         model_info:
           max_input_tokens: 61440
+      # mode: embedding makes health checks embed rather than generate, which bge-m3 rejects.
       - model_name: devops-embedding
         litellm_params:
           model: ollama/bge-m3
-          api_base: http://ollama.llm.svc.cluster.local:11434
+          api_base: http://ollama-0.ollama-nodes.llm.svc.cluster.local:11434
+        model_info:
+          mode: embedding
+      - model_name: devops-embedding
+        litellm_params:
+          model: ollama/bge-m3
+          api_base: http://ollama-1.ollama-nodes.llm.svc.cluster.local:11434
+        model_info:
+          mode: embedding
 
       # devops-review: one virtual model spread over every inference server, so a review's
       # parallel persona and verification calls use all of them. least-busy routing plus
@@ -58,23 +75,42 @@ data:
           max_parallel_requests: 2
         model_info:
           max_input_tokens: 12288
+      # One request at a time per Ollama node (OLLAMA_NUM_PARALLEL=1). max_input_tokens is
+      # OLLAMA_CONTEXT_LENGTH (48000) minus 4K tokens for the reply.
       - model_name: devops-review
         litellm_params:
           model: ollama_chat/gpt-oss:20b
-          api_base: http://ollama.llm.svc.cluster.local:11434
-          # One request per Ollama node (OLLAMA_NUM_PARALLEL=1); raise with the node count.
-          max_parallel_requests: 2
-        # OLLAMA_CONTEXT_LENGTH (48000) minus 4K tokens for the reply.
+          api_base: http://ollama-0.ollama-nodes.llm.svc.cluster.local:11434
+          max_parallel_requests: 1
+        model_info:
+          max_input_tokens: 43904
+      - model_name: devops-review
+        litellm_params:
+          model: ollama_chat/gpt-oss:20b
+          api_base: http://ollama-1.ollama-nodes.llm.svc.cluster.local:11434
+          max_parallel_requests: 1
         model_info:
           max_input_tokens: 43904
 
       # Pass-through: any model on the Ollama nodes by name, e.g. `ollama/gpt-oss:20b`. Ollama's
       # OpenAI-compatible API serves both chat (with the model's own template) and embeddings.
+      # A model pulled on only some nodes still answers: a node without it fails, and the retry
+      # moves to another node. Health checks need a concrete model; without one LiteLLM probes a
+      # placeholder that no node has.
       - model_name: ollama/*
         litellm_params:
           model: openai/*
-          api_base: http://ollama.llm.svc.cluster.local:11434/v1
+          api_base: http://ollama-0.ollama-nodes.llm.svc.cluster.local:11434/v1
           api_key: none
+        model_info:
+          health_check_model: openai/qwen2.5-coder:7b
+      - model_name: ollama/*
+        litellm_params:
+          model: openai/*
+          api_base: http://ollama-1.ollama-nodes.llm.svc.cluster.local:11434/v1
+          api_key: none
+        model_info:
+          health_check_model: openai/qwen2.5-coder:7b
 
     router_settings:
       routing_strategy: least-busy
