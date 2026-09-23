@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.config import app as config_app
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.config.settings import SecretStorageError, Settings
+from devops_cli.exceptions.config import ConfigurationError
 
 runner = CliRunner()
 
@@ -253,7 +254,7 @@ def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyP
     dotted_set(s, "ai.ollama_urls", "http://example.com:11434, http://example.com:11435")
     assert s.ai.ollama_urls == ["http://example.com:11434", "http://example.com:11435"]
 
-    with pytest.raises(Exception, match="Cannot set top-level"):
+    with pytest.raises(ConfigurationError, match="Cannot set top-level"):
         dotted_set(s, "ai", "invalid")
 
     # get_llm_client instantiation

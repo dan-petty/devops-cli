@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -709,7 +710,7 @@ def test_reading_a_file_that_is_not_json_reports_the_file(tmp_path: Path) -> Non
     """The error has to name what could not be read."""
     path = tmp_path / "broken.sarif"
     path.write_text("{not json")
-    with pytest.raises(SarifError, match="broken.sarif"):
+    with pytest.raises(SarifError, match=re.escape("broken.sarif")):
         read_sarif(path)
 
 
@@ -898,7 +899,7 @@ def test_a_suppressions_key_that_is_not_a_list_is_rejected(tmp_path: Path) -> No
 
 def test_invalid_yaml_reports_the_file(tmp_path: Path) -> None:
     """The error names the file so it can be fixed."""
-    with pytest.raises(SuppressionPolicyError, match="p.yml"):
+    with pytest.raises(SuppressionPolicyError, match=re.escape("p.yml")):
         load_policy(write_policy(tmp_path / "p.yml", "suppressions: [unclosed\n"))
 
 

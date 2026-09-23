@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.sandbox import app
 from devops_cli.exceptions.docker import DockerEngineError
 from devops_cli.exceptions.sandbox import SandboxNotFoundError
+from devops_cli.exceptions.security import SecurityError
 from devops_cli.sandbox.engine import WorkloadSandboxEngine
 from devops_cli.sandbox.logs import (
     archive_incident,
@@ -118,7 +119,7 @@ def test_archive_incident_path_traversal_rejection(tmp_path: Path) -> None:
         panic_type=PanicType.SEGFAULT,
         message="segfault",
     )
-    with pytest.raises(Exception):
+    with pytest.raises(SecurityError):
         archive_incident(incident, base_dir=tmp_path)
 
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from devops_cli.commands.workspace import app as workspace_app
@@ -174,7 +175,7 @@ def test_workspace_load_save_boundaries_and_outside_roots(tmp_path: Path) -> Non
         assert _load(bad_json) == {"folders": [], "settings": {}}
 
     # 4. _save unsafe filename extension
-    with pytest.raises(Exception):
+    with pytest.raises(typer.Exit):
         _save(tmp_path / "unsafe.txt", {"folders": []})
 
     # 5. Add folder outside permitted roots

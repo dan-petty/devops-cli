@@ -13,6 +13,7 @@ TDD specifications covering:
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -217,7 +218,7 @@ async def test_subprocess_telemetry_masks_secrets_in_error_sample(tmp_path: Path
             "-c",
             "import sys; sys.stderr.write('Error: password=SuperSecretPassword123\\n'); sys.exit(1)",
         ]
-        with pytest.raises(Exception):
+        with pytest.raises(subprocess.CalledProcessError):
             await run_subprocess_async(cmd, check=True)
 
         for call in span_mock.set_attribute.call_args_list:

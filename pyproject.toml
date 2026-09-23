@@ -73,7 +73,7 @@ exclude = ["repos"]
 # lazily re-exporting packages all define — suppresses it for the entire module.
 # Selected individually rather than as the whole RUF family, which is a separate
 # roadmap item with its own triage.
-select = ["E", "F", "I", "N", "W", "UP", "RUF022", "RUF068"]
+select = ["E", "F", "I", "N", "W", "UP", "B017", "RUF022", "RUF043", "RUF068"]
 ignore = ["E501", "N818"]
 
 [tool.mypy]

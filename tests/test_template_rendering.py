@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -147,7 +148,7 @@ def test_the_rejection_names_the_likely_cause(monkeypatch: pytest.MonkeyPatch) -
 
 def test_an_unknown_template_reports_the_name() -> None:
     """A renamed template should fail with something actionable."""
-    with pytest.raises(TemplateRenderError, match="absent.j2"):
+    with pytest.raises(TemplateRenderError, match=re.escape("absent.j2")):
         render_template("absent.j2")
 
 

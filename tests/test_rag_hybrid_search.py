@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -111,7 +112,7 @@ def test_bm25_ranking_is_deterministic_for_tied_scores() -> None:
 def test_lexical_match_is_immutable() -> None:
     """A scored match cannot be mutated after ranking."""
     match = LexicalMatch(index=0, score=1.0)
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         match.score = 2.0  # type: ignore[misc]
 
 

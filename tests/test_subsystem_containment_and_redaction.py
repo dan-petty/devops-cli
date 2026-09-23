@@ -18,6 +18,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -197,7 +198,7 @@ def test_validate_vault_path() -> None:
     _validate_vault_path("secret/data/myapp")
     _validate_vault_path("auth/tokens/ci_bot")
 
-    with pytest.raises(ValueError, match="cannot contain '..'"):
+    with pytest.raises(ValueError, match=re.escape("cannot contain '..'")):
         _validate_vault_path("../secret/data/myapp")
 
     with pytest.raises(ValueError, match="invalid characters"):

@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from devops_cli.commands.prometheus import app as prometheus_app
@@ -189,5 +190,5 @@ def test_prometheus_errors_and_edge_cases(monkeypatch: pytest.MonkeyPatch) -> No
     assert _parse_duration("1d") == 86400.0
     assert _parse_duration("") == 0.0
     assert _parse_duration("invalid") == 0.0
-    with pytest.raises(Exception):
+    with pytest.raises(typer.BadParameter):
         _parse_duration("400d")
