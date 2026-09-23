@@ -194,6 +194,11 @@ DEFAULT_TOOL_DIFF_MAX_CHARS: int = 4000
 DEFAULT_TOOL_MAX_FILES: int = 100
 DEFAULT_TOOL_MAX_SEARCH_MATCHES: int = 50
 DEFAULT_TOOL_BUFFER_CHUNK_SIZE: int = 65536
+# Bounds the per-stream ring buffer that drains a backgrounded command's pipes. The pipes
+# must be drained continuously or the child blocks once the kernel buffer fills, and an
+# unbounded sink would then trade that deadlock for unbounded memory growth on a chatty
+# long-running process, so the retained window is capped instead.
+DEFAULT_SHELL_BG_OUTPUT_LINES: int = 1000
 DEFAULT_AGENT_MAX_TURNS: int = 10
 DEFAULT_MCP_SERVER_PORT: int = 8000
 DEFAULT_MCP_TRANSPORT = "stdio"

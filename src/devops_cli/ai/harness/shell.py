@@ -6,9 +6,12 @@ import fnmatch
 import logging
 import os
 import subprocess
+import threading
+from collections import deque
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from pydantic import Field
 
@@ -18,9 +21,69 @@ from devops_cli.ai.harness.constants import (
     INTERACTIVE_COMMANDS,
     LLM_API_KEY_ENV_PATTERNS,
 )
+from devops_cli.config.defaults import DEFAULT_SHELL_BG_OUTPUT_LINES
 from devops_cli.exceptions.ai import HarnessValidationError
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class _OutputRing:
+    """A bounded line buffer handed off between a pipe reader thread and the tool caller.
+
+    The lock is not optional: a ``deque`` raises if it is mutated while being iterated, and
+    the reader thread appends continuously while the agent may call ``check_command`` at any
+    moment. ``seen`` outlives the evicted lines so the caller can be told how much scrollback
+    the cap discarded, rather than handed a truncated view that reads as the whole of it.
+    """
+
+    lines: deque[str]
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    seen: int = 0
+
+    def append(self, line: str) -> None:
+        with self.lock:
+            self.lines.append(line)
+            self.seen += 1
+
+    def render(self) -> str:
+        with self.lock:
+            dropped = self.seen - len(self.lines)
+            text = "".join(self.lines)
+        return f"[... {dropped} earlier line(s) dropped ...]\n{text}" if dropped else text
+
+
+@dataclass(slots=True)
+class _BackgroundCommand:
+    """A backgrounded process paired with the ring buffers its reader threads drain into."""
+
+    process: subprocess.Popen[str]
+    stdout: _OutputRing
+    stderr: _OutputRing
+
+
+def _drain_pipe(stream: IO[str] | None, sink: _OutputRing) -> None:
+    """Pump one pipe into its ring buffer until EOF.
+
+    A pipe nobody reads fills its kernel buffer (64 KiB on Linux) and then blocks the child
+    on its next write forever, so the process neither finishes nor releases its concurrency
+    slot. Errors are swallowed because this runs on a detached thread where a traceback would
+    reach the operator's terminal instead of the caller, and a closed or broken pipe simply
+    means the command is over.
+    """
+    if stream is None:
+        return
+    try:
+        with stream:
+            for line in stream:
+                sink.append(line)
+    except OSError, ValueError:
+        logger.debug("Background command pipe closed while draining", exc_info=True)
+
+
+def _spawn_reader(stream: IO[str] | None, sink: _OutputRing, name: str) -> None:
+    """Start the daemon thread that drains one pipe, so interpreter exit is never held up."""
+    threading.Thread(target=_drain_pipe, args=(stream, sink), name=name, daemon=True).start()
 
 
 class Shell(BaseCapability):
@@ -37,6 +100,7 @@ class Shell(BaseCapability):
     timeout: float = 60.0
     max_output_chars: int = 20000
     max_bg_processes: int = 10
+    max_bg_output_lines: int = DEFAULT_SHELL_BG_OUTPUT_LINES
 
     def __init__(
         self,
@@ -51,6 +115,7 @@ class Shell(BaseCapability):
         timeout: float = 60.0,
         max_output_chars: int = 20000,
         max_bg_processes: int = 10,
+        max_bg_output_lines: int = DEFAULT_SHELL_BG_OUTPUT_LINES,
     ) -> None:
         p = Path(cwd)
         if allowed_commands is not None and denied_commands is not None:
@@ -72,6 +137,7 @@ class Shell(BaseCapability):
             timeout=timeout,
             max_output_chars=max_output_chars,
             max_bg_processes=max_bg_processes,
+            max_bg_output_lines=max_bg_output_lines,
         )
 
     def _sanitize_env(self) -> dict[str, str]:
@@ -126,25 +192,96 @@ class Shell(BaseCapability):
 
         return True, "", parts
 
-    def _format_output(self, stdout: str, stderr: str, returncode: int) -> str:
+    def _label_streams(self, stdout: str, stderr: str) -> list[str]:
         parts: list[str] = []
         if stdout.strip():
             parts.append(f"[stdout]\n{stdout.strip()}")
         if stderr.strip():
             parts.append(f"[stderr]\n{stderr.strip()}")
+        return parts
+
+    def _cap_output(self, text: str) -> str:
+        if len(text) <= self.max_output_chars:
+            return text
+        return (
+            f"[... output truncated, showing last {self.max_output_chars} characters ...]\n"
+            + text[-self.max_output_chars :]
+        )
+
+    def _format_output(self, stdout: str, stderr: str, returncode: int) -> str:
+        parts = self._label_streams(stdout, stderr)
         if returncode != 0:
             parts.append(f"[exit code: {returncode}]")
-        full_text = "\n".join(parts) or f"[Command exited with return code {returncode}]"
-        if len(full_text) > self.max_output_chars:
-            full_text = (
-                f"[... output truncated, showing last {self.max_output_chars} characters ...]\n"
-                + full_text[-self.max_output_chars :]
-            )
-        return full_text
+        return self._cap_output(
+            "\n".join(parts) or f"[Command exited with return code {returncode}]"
+        )
+
+    def _new_ring(self) -> _OutputRing:
+        return _OutputRing(lines=deque(maxlen=self.max_bg_output_lines))
+
+    def _run_sync(self, parts: list[str], env: dict[str, str], exec_timeout: float) -> str:
+        proc = subprocess.run(
+            parts,
+            cwd=str(self.cwd.resolve()),
+            capture_output=True,
+            text=True,
+            timeout=exec_timeout,
+            env=env,
+            check=False,
+        )
+        return self._format_output(proc.stdout or "", proc.stderr or "", proc.returncode)
+
+    def _launch_background(
+        self, parts: list[str], env: dict[str, str], cmd_id: str
+    ) -> _BackgroundCommand:
+        """Spawn the process and immediately attach a reader thread to each of its pipes.
+
+        The readers are attached before the caller ever sees the tracking ID so there is no
+        window in which the child can fill a pipe that nobody is emptying.
+        """
+        proc = subprocess.Popen(
+            parts,
+            cwd=str(self.cwd.resolve()),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            start_new_session=True,
+        )
+        record = _BackgroundCommand(process=proc, stdout=self._new_ring(), stderr=self._new_ring())
+        _spawn_reader(proc.stdout, record.stdout, f"{cmd_id}-stdout")
+        _spawn_reader(proc.stderr, record.stderr, f"{cmd_id}-stderr")
+        return record
+
+    def _render_background_report(self, command_id: str, record: _BackgroundCommand) -> str:
+        """Compose the status line together with whatever the reader threads have banked."""
+        ret = record.process.poll()
+        status = "RUNNING" if ret is None else f"FINISHED (exit code: {ret})"
+        body = self._cap_output(
+            "\n".join(self._label_streams(record.stdout.render(), record.stderr.render()))
+        )
+        header = f"Command {command_id} status: {status}"
+        return f"{header}\n{body}" if body else header
+
+    def _terminate_process_group(self, proc: subprocess.Popen[str]) -> None:
+        """Signal the whole POSIX group, escalating to SIGKILL if the group ignores SIGTERM.
+
+        Killing only ``proc`` would leave any subshell it spawned running as an orphan
+        reparented to PID 1, which is why the process was given its own session to begin with.
+        """
+        import signal
+
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            proc.wait(timeout=3.0)
+        except Exception:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                pass
 
     def get_tools(self) -> list[AgentTool | Callable[..., Any]]:
-        bg_processes: dict[str, subprocess.Popen[str]] = {}
-        bg_outputs: dict[str, list[str]] = {}
+        bg_commands: dict[str, _BackgroundCommand] = {}
 
         def run_command(command: str, timeout_seconds: float | None = None) -> str:
             """Run a command synchronously and return labelled stdout/stderr plus exit code."""
@@ -155,16 +292,7 @@ class Shell(BaseCapability):
             env = self._sanitize_env()
             exec_timeout = timeout_seconds if timeout_seconds is not None else self.timeout
             try:
-                proc = subprocess.run(
-                    parts,
-                    cwd=str(self.cwd.resolve()),
-                    capture_output=True,
-                    text=True,
-                    timeout=exec_timeout,
-                    env=env,
-                    check=False,
-                )
-                return self._format_output(proc.stdout or "", proc.stderr or "", proc.returncode)
+                return self._run_sync(parts, env, exec_timeout)
             except subprocess.TimeoutExpired:
                 return f"Command '{command}' timed out after {exec_timeout}s"
             except Exception as exc:
@@ -172,7 +300,7 @@ class Shell(BaseCapability):
 
         def start_command(command: str) -> str:
             """Launch a long-running command in the background and return a tracking ID."""
-            active_count = sum(1 for p in bg_processes.values() if p.poll() is None)
+            active_count = sum(1 for c in bg_commands.values() if c.process.poll() is None)
             if active_count >= self.max_bg_processes:
                 return f"Maximum limit of concurrent background processes ({self.max_bg_processes}) reached. Blocked."
 
@@ -185,48 +313,25 @@ class Shell(BaseCapability):
             cmd_id = f"cmd_{uuid.uuid4().hex[:8]}"
             env = self._sanitize_env()
             try:
-                proc = subprocess.Popen(
-                    parts,
-                    cwd=str(self.cwd.resolve()),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    env=env,
-                    start_new_session=True,
-                )
-                bg_processes[cmd_id] = proc
-                bg_outputs[cmd_id] = []
+                bg_commands[cmd_id] = self._launch_background(parts, env, cmd_id)
                 return f"Background command started with ID: {cmd_id}"
             except Exception as exc:
                 return f"Failed to start background command: {exc}"
 
         def check_command(command_id: str) -> str:
             """Report status and accumulated output for a background command."""
-            proc = bg_processes.get(command_id)
-            if proc is None:
+            record = bg_commands.get(command_id)
+            if record is None:
                 return f"Error: background command ID '{command_id}' not found."
-
-            ret = proc.poll()
-            status = "RUNNING" if ret is None else f"FINISHED (exit code: {ret})"
-            return f"Command {command_id} status: {status}"
+            return self._render_background_report(command_id, record)
 
         def stop_command(command_id: str) -> str:
             """Terminate a background command process group."""
-            proc = bg_processes.pop(command_id, None)
-            if proc is None:
+            record = bg_commands.pop(command_id, None)
+            if record is None:
                 return f"Error: background command ID '{command_id}' not found."
 
-            import signal
-
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                proc.wait(timeout=3.0)
-            except Exception:
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                except Exception:
-                    pass
-
+            self._terminate_process_group(record.process)
             return f"Background command {command_id} terminated."
 
         return [
