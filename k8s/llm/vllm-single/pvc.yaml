@@ -1,0 +1,16 @@
+# Persistent Hugging Face cache so single-GPU vLLM restarts reuse downloaded model weights.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vllm-single-model-cache
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-single
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 32Gi

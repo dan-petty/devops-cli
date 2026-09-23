@@ -19,7 +19,7 @@ data:
           "virtual_key": "vllm-backend",
           "provider": "openai",
           "override_params": {
-            "model": "llama-3.3-70b-instruct"
+            "model": "qwen2.5-coder-32b-instruct"
           }
         },
         {

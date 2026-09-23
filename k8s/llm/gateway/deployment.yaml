@@ -29,7 +29,7 @@ spec:
 
       containers:
         - name: litellm
-          image: ghcr.io/berriai/litellm:v1.61.16
+          image: ghcr.io/berriai/litellm:v1.102.1
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -45,6 +45,15 @@ spec:
             - "--host"
             - "0.0.0.0"
           env:
+            # Clients authenticate with this key (`Authorization: Bearer <key>`). Create it once per
+            # cluster; it must start with `sk-`:
+            #   kubectl -n llm create secret generic llm-gateway-secrets \
+            #     --from-literal=master-key="sk-$(openssl rand -hex 24)"
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-gateway-secrets
+                  key: master-key
             - name: LITELLM_REDIS_HOST
               value: "valkey.llm.svc.cluster.local"
             - name: LITELLM_REDIS_PORT
@@ -54,7 +63,7 @@ spec:
             - name: HTTPS_PROXY
               value: "http://squid.squid.svc.cluster.local:3128"
             - name: NO_PROXY
-              value: "localhost,127.0.0.1,llm-gateway.llm.svc.cluster.local,ollama.llm.svc.cluster.local,vllm.llm.svc.cluster.local,valkey.llm.svc.cluster.local"
+              value: "localhost,127.0.0.1,llm-gateway.llm.svc.cluster.local,ollama.llm.svc.cluster.local,vllm.llm.svc.cluster.local,vllm-single.llm.svc.cluster.local,valkey.llm.svc.cluster.local"
           ports:
             - name: http
               containerPort: 4000

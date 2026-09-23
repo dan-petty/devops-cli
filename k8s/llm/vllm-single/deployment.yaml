@@ -1,13 +1,13 @@
-# vLLM Tensor-Parallel (TP=2) continuous batching inference engine for nodes with two or more
-# Ampere-or-newer GPUs. Older architectures run the Ollama DaemonSet instead.
+# vLLM single-GPU continuous batching inference engine for nodes with one Ampere-or-newer GPU
+# (16 GiB or more). Older architectures run the Ollama DaemonSet instead.
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: vllm
+  name: vllm-single
   namespace: llm
   labels:
-    app.kubernetes.io/name: vllm
+    app.kubernetes.io/name: vllm-single
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
   replicas: 1
@@ -16,11 +16,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: vllm
+      app.kubernetes.io/name: vllm-single
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: vllm
+        app.kubernetes.io/name: vllm-single
         app.kubernetes.io/part-of: devops-cli-stack
     spec:
       runtimeClassName: nvidia
@@ -36,14 +36,14 @@ spec:
                     operator: In
                     values: [ampere, ada-lovelace, hopper, blackwell]
                   - key: nvidia.com/gpu.count
-                    operator: Gt
+                    operator: In
                     values: ["1"]
               - matchExpressions:
                   - key: nvidia.com/gpu.architecture
                     operator: In
                     values: [ampere, ada-lovelace, hopper, blackwell]
                   - key: nvidia.com/gpu.count
-                    operator: Gt
+                    operator: In
                     values: ["1"]
       initContainers:
         # Squid re-signs HTTPS with its own CA; merge it with the system bundle for model downloads.
@@ -66,21 +66,20 @@ spec:
           imagePullPolicy: IfNotPresent
           command: ["vllm", "serve"]
           args:
-            - "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"
+            - "Qwen/Qwen2.5-Coder-14B-Instruct-AWQ"
             - "--served-model-name"
-            - "qwen2.5-coder-32b-instruct"
-            - "--tensor-parallel-size"
-            - "2"
-            # Qwen2.5-Coder is trained for 32K tokens; static YaRN (factor 2) extends it to 64K.
-            # vLLM reads the extended length from max_position_embeddings for YaRN models.
+            - "qwen2.5-coder-14b-instruct"
+            # ~10 GB of AWQ weights plus activation and CUDA graph memory leave under 2 GiB of a
+            # 16 GiB GPU for KV cache (1.39 GiB measured at 0.92). With an FP8 cache that holds one
+            # 16K-token sequence; longer prompts escalate to the dual-GPU profile via the gateway.
             - "--max-model-len"
-            - "65536"
-            - "--hf-overrides"
-            - '{"max_position_embeddings": 65536, "rope_parameters": {"rope_type": "yarn", "factor": 2.0, "original_max_position_embeddings": 32768, "rope_theta": 1000000}}'
+            - "16384"
+            - "--kv-cache-dtype"
+            - "fp8"
             - "--gpu-memory-utilization"
             - "0.95"
             - "--max-num-seqs"
-            - "64"
+            - "16"
             - "--host"
             - "0.0.0.0"
             - "--port"
@@ -96,7 +95,7 @@ spec:
             - name: HTTPS_PROXY
               value: "http://squid.squid.svc.cluster.local:3128"
             - name: NO_PROXY
-              value: "localhost,127.0.0.1,llm-gateway.llm.svc.cluster.local,ollama.llm.svc.cluster.local,vllm.llm.svc.cluster.local"
+              value: "localhost,127.0.0.1,llm-gateway.llm.svc.cluster.local,ollama.llm.svc.cluster.local,vllm-single.llm.svc.cluster.local"
             - name: SSL_CERT_FILE
               value: "/etc/ssl/bundle/ca-certificates.crt"
             - name: REQUESTS_CA_BUNDLE
@@ -104,15 +103,16 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          # Sized for 16 GiB-RAM worker nodes: weights stream from the cache into VRAM.
           resources:
             requests:
-              cpu: "4"
-              memory: 32Gi
-              nvidia.com/gpu: "2"
+              cpu: "2"
+              memory: 6Gi
+              nvidia.com/gpu: "1"
             limits:
-              cpu: "16"
-              memory: 48Gi
-              nvidia.com/gpu: "2"
+              cpu: "8"
+              memory: 12Gi
+              nvidia.com/gpu: "1"
           volumeMounts:
             - name: model-cache
               mountPath: /root/.cache/huggingface
@@ -121,7 +121,7 @@ spec:
             - name: ca-bundle
               mountPath: /etc/ssl/bundle
               readOnly: true
-          # First start downloads ~20 GB of weights and captures CUDA graphs. On a ~50 Mbps link shared
+          # First start downloads ~10 GB of weights and captures CUDA graphs. On a ~50 Mbps link shared
           # with other downloads that takes hours, so allow up to 3 hours; restarts lose partial files.
           startupProbe:
             httpGet:
@@ -142,11 +142,11 @@ spec:
       volumes:
         - name: model-cache
           persistentVolumeClaim:
-            claimName: vllm-model-cache
+            claimName: vllm-single-model-cache
         - name: shm
           emptyDir:
             medium: Memory
-            sizeLimit: 16Gi
+            sizeLimit: 2Gi
         - name: squid-ca-cert
           configMap:
             name: squid-ca-cert

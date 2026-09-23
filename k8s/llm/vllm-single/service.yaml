@@ -1,12 +1,12 @@
-# vLLM Tensor Parallelism Service.
+# vLLM single-GPU Service.
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: vllm
+  name: vllm-single
   namespace: llm
   labels:
-    app.kubernetes.io/name: vllm
+    app.kubernetes.io/name: vllm-single
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
   # Cluster-internal: clients reach vLLM through the authenticated llm-gateway.
@@ -17,4 +17,4 @@ spec:
       targetPort: 8000
       protocol: TCP
   selector:
-    app.kubernetes.io/name: vllm
+    app.kubernetes.io/name: vllm-single

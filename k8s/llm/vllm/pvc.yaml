@@ -1,0 +1,16 @@
+# Persistent Hugging Face cache so vLLM restarts reuse downloaded model weights.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vllm-model-cache
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 64Gi

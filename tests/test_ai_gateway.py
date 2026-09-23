@@ -18,6 +18,13 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
 )
+from devops_cli.config.defaults import (
+    DEFAULT_VLLM_CLUSTER_URL,
+    DEFAULT_VLLM_MODEL,
+    DEFAULT_VLLM_SERVED_MODEL_NAME,
+    DEFAULT_VLLM_SINGLE_CLUSTER_URL,
+    DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME,
+)
 from devops_cli.config.settings import AIConfig
 
 runner = CliRunner()
@@ -61,8 +68,8 @@ class TestGatewayRouter:
             True,
             "http://example.com/v1",
             False,
-            3,
-            1,
+            2,
+            2,
         )
 
     def test_probe_gateway_degraded_http_status(self) -> None:
@@ -136,7 +143,7 @@ class TestGatewayRouter:
         ) == (
             "devops-coder",
             True,
-            "llama-3.3-70b-instruct",
+            DEFAULT_VLLM_SERVED_MODEL_NAME,
         )
 
         executed = router.trigger_failover("devops-reasoning", simulate=False)
@@ -148,10 +155,22 @@ class TestGatewayRouter:
             router.list_routes()[2].backend_type,
         ) == (
             "devops-coder",
-            "qwen2.5-coder:14b",
+            DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME,
             False,
-            "qwen2.5-coder:14b",
-            "failover:ollama",
+            DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME,
+            "failover:vllm",
+        )
+
+    def test_default_routes_target_vllm_profiles(self) -> None:
+        """Verify reasoning and coder aliases route to the dual- and single-GPU vLLM profiles."""
+        routes = {
+            r.virtual_model: (r.target_model, r.backend_type, r.backend_url)
+            for r in GatewayRouter().list_routes()
+        }
+
+        assert (routes["devops-reasoning"], routes["devops-coder"]) == (
+            (DEFAULT_VLLM_SERVED_MODEL_NAME, "vllm", DEFAULT_VLLM_CLUSTER_URL),
+            (DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME, "vllm", DEFAULT_VLLM_SINGLE_CLUSTER_URL),
         )
 
     def test_trigger_failover_invalid_model_raises_value_error(self) -> None:
@@ -167,6 +186,8 @@ class TestGatewayRouter:
         custom_scale = router.scale_vllm(replicas=2, tensor_parallel_size=4)
 
         assert (
+            default_scale["model"],
+            default_scale["served_model_name"],
             default_scale["replicas"],
             default_scale["tensor_parallel_size"],
             default_scale["total_vram_gb"],
@@ -175,6 +196,8 @@ class TestGatewayRouter:
             custom_scale["total_vram_gb"],
             custom_scale["vram_per_replica_gb"],
         ) == (
+            DEFAULT_VLLM_MODEL,
+            DEFAULT_VLLM_SERVED_MODEL_NAME,
             1,
             2,
             48,

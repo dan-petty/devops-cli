@@ -22,6 +22,19 @@ spec:
       runtimeClassName: nvidia
       nodeSelector:
         nvidia.com/gpu.present: "true"
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            # Ampere-or-newer GPUs are served by vLLM (vllm/, vllm-single/); Ollama keeps older
+            # architectures. NotIn also matches nodes that carry neither GPU label scheme.
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: NotIn
+                    values: [ampere, ada-lovelace, hopper, blackwell]
+                  - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: [ampere, ada-lovelace, hopper, blackwell]
       containers:
         - name: ollama
           image: ollama/ollama:0.32.14
