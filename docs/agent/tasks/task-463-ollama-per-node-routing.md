@@ -1,7 +1,7 @@
 # Task 463: One Gateway Deployment per Ollama Node
 
 **Issue**: [#463](https://github.com/dan-petty/devops-cli/issues/463)
-**PR**: pending
+**PR**: [#464](https://github.com/dan-petty/devops-cli/pull/464)
 **Status**: In Review
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`
