@@ -15,9 +15,14 @@ resources:
   - portkey/deployment.yaml
   - portkey/service.yaml
   - portkey/networkpolicy.yaml
+  - vllm/pvc.yaml
   - vllm/deployment.yaml
   - vllm/service.yaml
   - vllm/networkpolicy.yaml
+  - vllm-single/pvc.yaml
+  - vllm-single/deployment.yaml
+  - vllm-single/service.yaml
+  - vllm-single/networkpolicy.yaml
   - lightllm/deployment.yaml
   - lightllm/service.yaml
   - lightllm/networkpolicy.yaml

@@ -17,13 +17,20 @@ data:
           api_base: http://ollama.llm.svc.cluster.local:11434
       - model_name: devops-coder
         litellm_params:
-          model: ollama/qwen2.5-coder:14b
-          api_base: http://ollama.llm.svc.cluster.local:11434
+          model: openai/qwen2.5-coder-14b-instruct
+          api_base: http://vllm-single.llm.svc.cluster.local:8000/v1
+          api_key: none
+        # Prompt budget inside the 16K vLLM window, leaving 4K tokens for the reply.
+        model_info:
+          max_input_tokens: 12288
       - model_name: devops-reasoning
         litellm_params:
-          model: openai/llama-3.3-70b-instruct
+          model: openai/qwen2.5-coder-32b-instruct
           api_base: http://vllm.llm.svc.cluster.local:8000/v1
           api_key: none
+        # Prompt budget inside the 64K vLLM window, leaving 4K tokens for the reply.
+        model_info:
+          max_input_tokens: 61440
       - model_name: devops-embedding
         litellm_params:
           model: ollama/bge-m3
@@ -31,12 +38,22 @@ data:
 
     router_settings:
       routing_strategy: least-busy
-      num_retries: 3
-      timeout: 60
+      num_retries: 2
+      # Long code reviews on the 32B model can generate for several minutes.
+      timeout: 600
+      # Check prompt size against max_input_tokens before calling a backend, so an oversized
+      # prompt moves straight to its context-window fallback instead of failing first.
+      enable_pre_call_checks: true
+      # Backend unavailable: prefer the larger vLLM model before the small Ollama model.
       fallbacks:
         - devops-reasoning: [devops-coder]
-        - devops-coder: [devops-chat]
+        - devops-coder: [devops-reasoning, devops-chat]
+      # Prompt too long for the model: escalate to a larger context window.
+      context_window_fallbacks:
+        - devops-chat: [devops-coder, devops-reasoning]
+        - devops-coder: [devops-reasoning]
 
     general_settings:
+      master_key: os.environ/LITELLM_MASTER_KEY
       store_model_in_db: false
       proxy_batch_write_at: 10

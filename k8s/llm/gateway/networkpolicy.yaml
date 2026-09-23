@@ -16,18 +16,10 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow incoming API requests to port 4000 from devops-cli stack workloads and monitoring
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: devops-cli
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/part-of: devops-cli-stack
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: monitoring
-      ports:
+    # The gateway is the authenticated entry point for LAN clients (via its NodePort), Open WebUI,
+    # devops-cli workloads and monitoring. LiteLLM rejects requests without the master key, so the
+    # API port admits any source; egress below stays limited to the inference backends.
+    - ports:
         - protocol: TCP
           port: 4000
   egress:
@@ -43,6 +35,13 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: vllm
+      ports:
+        - protocol: TCP
+          port: 8000
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vllm-single
       ports:
         - protocol: TCP
           port: 8000

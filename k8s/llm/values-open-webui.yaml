@@ -16,6 +16,13 @@ pipelines:
 
 ollamaUrls:
   - http://ollama.llm.svc.cluster.local:11434
+# OpenAI-compatible connection to the LiteLLM gateway (vLLM and Ollama models by virtual name),
+# authenticated with the gateway master key. Applies on first start; Open WebUI persists
+# connections in its database afterwards (Admin Panel > Settings > Connections).
+enableOpenaiApi: true
+openaiBaseApiUrl: "http://llm-gateway.llm.svc.cluster.local:4000/v1"
+openaiApiKeyExistingSecret: llm-gateway-secrets
+openaiApiKeyExistingSecretKey: master-key
 
 extraEnvVars:
   - name: OLLAMA_BASE_URL

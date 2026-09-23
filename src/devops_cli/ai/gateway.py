@@ -35,6 +35,11 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
     DEFAULT_AI_GATEWAY_URL,
     DEFAULT_PORTKEY_GATEWAY_URL,
+    DEFAULT_VLLM_CLUSTER_URL,
+    DEFAULT_VLLM_MODEL,
+    DEFAULT_VLLM_SERVED_MODEL_NAME,
+    DEFAULT_VLLM_SINGLE_CLUSTER_URL,
+    DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME,
 )
 from devops_cli.config.settings import AIConfig, load_settings
 from devops_cli.core.validation import validate_url_egress
@@ -52,15 +57,15 @@ DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
     },
     {
         "virtual_model": "devops-coder",
-        "target_model": "qwen2.5-coder:14b",
-        "backend_type": "ollama",
-        "backend_url": "http://ollama.llm.svc.cluster.local:11434",
+        "target_model": DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME,
+        "backend_type": "vllm",
+        "backend_url": DEFAULT_VLLM_SINGLE_CLUSTER_URL,
     },
     {
         "virtual_model": "devops-reasoning",
-        "target_model": "llama-3.3-70b-instruct",
+        "target_model": DEFAULT_VLLM_SERVED_MODEL_NAME,
         "backend_type": "vllm",
-        "backend_url": "http://vllm.llm.svc.cluster.local:8000/v1",
+        "backend_url": DEFAULT_VLLM_CLUSTER_URL,
     },
     {
         "virtual_model": "devops-embedding",
@@ -85,9 +90,9 @@ DEFAULT_PORTKEY_ROUTES: Final[tuple[dict[str, str], ...]] = (
     },
     {
         "virtual_model": "devops-reasoning",
-        "target_model": "llama-3.3-70b-instruct",
+        "target_model": DEFAULT_VLLM_SERVED_MODEL_NAME,
         "backend_type": "vllm",
-        "backend_url": "http://vllm.llm.svc.cluster.local:8000/v1",
+        "backend_url": DEFAULT_VLLM_CLUSTER_URL,
     },
     {
         "virtual_model": "devops-embedding",
@@ -511,8 +516,8 @@ class GatewayRouter:
 
             return {
                 "backend": "vllm",
-                "model": "casperhansen/llama-3.3-70b-instruct-awq",
-                "served_model_name": "llama-3.3-70b-instruct",
+                "model": DEFAULT_VLLM_MODEL,
+                "served_model_name": DEFAULT_VLLM_SERVED_MODEL_NAME,
                 "replicas": effective_replicas,
                 "tensor_parallel_size": effective_tp,
                 "vram_per_gpu_gb": 24,

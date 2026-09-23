@@ -59,7 +59,34 @@ minikube service qdrant -n llm --url
 
 # Valkey In-Memory Cache
 kubectl -n llm exec -it svc/valkey -- valkey-cli ping
+
+# LLM Gateway: authenticated OpenAI-compatible API for every model (vLLM and Ollama)
+minikube service llm-gateway -n llm --url
 ```
+
+### LLM Gateway (`llm-gateway`)
+The LiteLLM gateway is the single entry point to every inference server. It serves the virtual models `devops-chat`, `devops-coder`, `devops-reasoning` and `devops-embedding`, escalates a prompt too long for a model to the next larger context window (`devops-chat` → `devops-coder` 16K → `devops-reasoning` 64K) before calling any backend, falls back from an unavailable `devops-coder` to `devops-reasoning` before the small Ollama model, and rejects requests without its master key. Create the key once per cluster before deploying (it must start with `sk-`):
+```bash
+kubectl -n llm create secret generic llm-gateway-secrets \
+  --from-literal=master-key="sk-$(openssl rand -hex 24)"
+```
+The Service is a NodePort that Kubernetes assigns; find it with `kubectl -n llm get svc llm-gateway`, then call the API from any node address:
+```bash
+KEY=$(kubectl -n llm get secret llm-gateway-secrets -o jsonpath='{.data.master-key}' | base64 -d)
+curl -H "Authorization: Bearer $KEY" http://<node>:<node-port>/v1/models
+```
+Open WebUI uses the same key: on a fresh install it connects to the gateway automatically. An existing installation keeps the connections stored in its database, so add `http://llm-gateway.llm.svc.cluster.local:4000/v1` under Admin Panel > Settings > Connections.
+
+### GPU Placement: vLLM and Ollama
+Inference engines are placed by GPU architecture, using node labels from NVIDIA GPU Feature Discovery (`nvidia.com/gpu.family`) or an architecture labeler (`nvidia.com/gpu.architecture`):
+
+| Workload | Nodes | Model | Served as | Virtual model |
+| :--- | :--- | :--- | :--- | :--- |
+| `vllm` Deployment | 2+ Ampere-or-newer GPUs | Qwen2.5-Coder-32B-Instruct-AWQ, tensor parallel 2, 64K context (YaRN) | `qwen2.5-coder-32b-instruct` | `devops-reasoning` |
+| `vllm-single` Deployment | 1 Ampere-or-newer GPU with 16 GiB+ | Qwen2.5-Coder-14B-Instruct-AWQ, FP8 KV cache, 16K context | `qwen2.5-coder-14b-instruct` | `devops-coder` |
+| `ollama` DaemonSet | GPUs older than Ampere | Pulled on demand | Ollama model tags | `devops-chat`, `devops-embedding` |
+
+Both vLLM Deployments keep weights on a PersistentVolumeClaim (`vllm-model-cache`, `vllm-single-model-cache`), download through the Squid proxy (trusting its CA, with Hugging Face Xet transfers disabled because they fail through SSL bumping), and are reachable only inside the cluster, through the gateway. A vLLM pod stays `Pending` until a node carries matching GPU labels. The first start downloads the weights, which can take hours on a home connection; the startup probe allows 3 hours before restarting the pod. The Ollama-backed aliases expect `qwen2.5-coder:7b` and `bge-m3` on every Ollama node, since the `ollama` Service balances across them (`ollama pull qwen2.5-coder:7b`).
 
 ## Port Forwarding & Automated Configuration
 
@@ -111,6 +138,9 @@ k8s/
 │   ├── valkey.yaml           # Valkey Deployment + Service manifest
 │   ├── values-ollama.yaml    # Helm values for ollama/ollama
 │   ├── values-open-webui.yaml# Helm values for open-webui/open-webui
-│   └── values-qdrant.yaml    # Helm values for qdrant/qdrant
+│   ├── values-qdrant.yaml    # Helm values for qdrant/qdrant
+│   ├── gateway/              # LiteLLM gateway: Deployment, routing ConfigMap, NodePort Service, NetworkPolicy
+│   ├── vllm/                 # Dual-GPU vLLM (TP=2): Deployment, PVC, Service, NetworkPolicy
+│   └── vllm-single/          # Single-GPU vLLM: Deployment, PVC, Service, NetworkPolicy
 └── README.md                 # This file
 ```
