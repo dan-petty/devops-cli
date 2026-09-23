@@ -1142,3 +1142,69 @@ class TestDevcontainerCli:
             assert ok is False
             assert "ghp_secrettoken" not in msg
             assert "<masked-github-token>" in msg
+
+
+# =============================================================================
+# Claude Code MCP configuration
+# =============================================================================
+
+
+def test_the_claude_config_avoids_vscode_substitutions() -> None:
+    """`${workspaceFolder}` is a VS Code variable that Claude Code does not expand.
+
+    Copying `.vscode/mcp.json` would hand the server a literal `${workspaceFolder}` on its
+    PATH, so the two files are rendered from different templates rather than shared.
+    """
+    from devops_cli.core.templating import render_json_template
+
+    rendered = render_json_template("claude_mcp.json.j2", project_name="devops-cli")
+    assert "${workspaceFolder}" not in rendered and "${env:HOME}" not in rendered
+
+
+def test_both_configs_launch_the_same_server() -> None:
+    """Two files for two clients must not drift into describing different servers."""
+    import json
+
+    from devops_cli.core.templating import render_json_template
+
+    claude = json.loads(render_json_template("claude_mcp.json.j2", project_name="devops-cli"))
+    vscode = json.loads(render_json_template("mcp.json.j2", project_name="devops-cli"))
+    claude_server = claude["mcpServers"]["devops-cli"]
+    vscode_server = vscode["mcpServers"]["devops-cli"]
+    assert (claude_server["command"], claude_server["args"]) == (
+        vscode_server["command"],
+        vscode_server["args"],
+    )
+
+
+def test_the_claude_config_requests_a_stdio_transport() -> None:
+    """The extension speaks stdio; an sse server would never be reached."""
+    import json
+
+    from devops_cli.core.templating import render_json_template
+
+    server = json.loads(render_json_template("claude_mcp.json.j2", project_name="p"))["mcpServers"][
+        "p"
+    ]
+    assert server["args"][-2:] == ["--transport", "stdio"]
+
+
+def test_scaffolding_writes_the_claude_config(tmp_path: Path) -> None:
+    """The extension reads `.mcp.json` at the repository root, not `.vscode/`."""
+    from devops_cli.config.constants import CONST_CLAUDE_MCP_JSON_NAME
+    from devops_cli.core.templating import render_json_template
+    from devops_cli.output import write_text_file
+
+    write_text_file(
+        tmp_path / CONST_CLAUDE_MCP_JSON_NAME,
+        render_json_template("claude_mcp.json.j2", project_name=tmp_path.name),
+    )
+    assert (tmp_path / ".mcp.json").is_file()
+
+
+def test_this_repository_ships_a_claude_mcp_config() -> None:
+    """The devcontainer installs the Claude extension, which needs this file to find the server."""
+    import json
+
+    config = json.loads(Path(".mcp.json").read_text(encoding="utf-8"))
+    assert "devops-cli" in config["mcpServers"]
