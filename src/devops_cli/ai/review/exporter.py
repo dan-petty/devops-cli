@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.config.constants import (
     CONST_STATUS_INVALIDATED,
+    CONST_VERIFIED_BY_UNKNOWN,
 )
 from devops_cli.exceptions import SecurityError
 
@@ -54,7 +55,10 @@ def _build_feedback_record(f: dict[str, Any], session_id: str, f_status: str) ->
         fix=f.get("fix"),
         invalidation_reason=f.get("invalidation_reason"),
         verified_at=f.get("verified_at"),
-        verified_by=f.get("verified_by") or "human",
+        # A missing adjudicator is unknown, not human. Defaulting to "human" put every
+        # record the verifier never reached into the human ground-truth bucket -- the one
+        # part of this dataset that is trusted precisely because a person wrote it.
+        verified_by=f.get("verified_by") or CONST_VERIFIED_BY_UNKNOWN,
     )
 
 
