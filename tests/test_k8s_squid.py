@@ -227,3 +227,22 @@ def test_squid_networkpolicy_security_and_ca_distribution() -> None:
     assert ".initialized" in entrypoint_text
     assert "/etc/squid/ssl-ca" in entrypoint_text
     assert "FATAL: Pre-provisioned Root CA missing" in entrypoint_text
+
+
+def test_squid_forwards_ollama_blob_ranges_before_whole_object_default() -> None:
+    """Verify ranged Ollama blob requests pass through while other ranges still fetch whole objects.
+
+    Squid applies the first matching range_offset_limit line, so the Ollama exception must precede
+    the -1 default; otherwise each of Ollama's parallel ranges waits for the object from byte 0.
+    """
+    cm_doc = yaml.safe_load((SQUID_DIR / "configmap.yaml").read_text(encoding="utf-8"))
+    lines = [line.strip() for line in cm_doc["data"]["squid.conf"].splitlines()]
+    range_rules = [line for line in lines if line.startswith("range_offset_limit")]
+
+    assert (
+        "acl ollama_blob_storage dstdomain .r2.cloudflarestorage.com" in lines,
+        range_rules,
+    ) == (
+        True,
+        ["range_offset_limit 0 ollama_blob_storage", "range_offset_limit -1"],
+    )
