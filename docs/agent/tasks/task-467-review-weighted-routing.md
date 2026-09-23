@@ -1,7 +1,7 @@
 # Task 467: Review Routing Weighted by Backend Throughput
 
 **Issue**: [#467](https://github.com/dan-petty/devops-cli/issues/467)
-**PR**: pending
+**PR**: [#468](https://github.com/dan-petty/devops-cli/pull/468)
 **Status**: In Review
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`
@@ -59,3 +59,15 @@ through `/model/info`.
 | simple-shuffle 5/3/1/1, no caps | 13.1 s, 13.6 s | 8–11 |
 
 Under weighted shuffle, 12 concurrent requests took 5.1 s and 48 took 24.8 s.
+
+A real all-persona `devops ai review path` over 15 Ansible playbooks used the same code, with the
+response cache bypassed. Per-backend counts come from vLLM's `request_success_total` and
+Ollama's request log.
+
+| Routing | Wall time | Candidate findings | Dual-GPU vLLM | Single-GPU vLLM | Ollama nodes |
+|---|---|---|---|---|---|
+| least-busy + caps (before) | 4 min 31 s | 40 | 19 (23%) | 22 | 42 (28 + 14, 51%) |
+| simple-shuffle 5/3/1/1 | 3 min 36 s | 53 | 40 (45%) | 27 | 21 (12 + 9, 24%) |
+
+Under the caps, half of all calls went to the slowest servers. Weighted routing moved them to the
+dual-GPU vLLM and finished 20% sooner, despite 33% more candidate findings to verify.
