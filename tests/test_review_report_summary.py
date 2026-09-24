@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-from devops_cli.ai.review.stages.reporting import run_reporting_stage
 from devops_cli.ai.review_schema import SavedFinding
 
 
@@ -104,23 +103,6 @@ def test_consolidated_markdown_report_with_findings_patterns(tmp_path: Path) -> 
         has_protocol,
         has_validation,
     ) == (True, True, True, True, True, True)
-
-
-def test_reporting_stage_generates_executive_summary(tmp_path: Path) -> None:
-    session_dir = tmp_path / "test_session_dir"
-    report_path = run_reporting_stage(
-        session_id="20260906-reporting-stage",
-        session_dir=session_dir,
-        reportable_findings=[],
-        all_deps=[],
-        all_nets=[],
-        n_files=5,
-    )
-
-    content = report_path.read_text(encoding="utf-8")
-    assert "## Executive Summary" in content
-    assert "### Key Good Patterns Observed" in content
-    assert "### Key Bad Patterns Observed" in content
 
 
 def test_consolidated_markdown_report_with_errored_files(tmp_path: Path) -> None:

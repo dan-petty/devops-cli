@@ -90,6 +90,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
 )
 from devops_cli.core.binaries import check_binary
+from devops_cli.exceptions import SecurityError
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (
     DependencySpec,
@@ -512,6 +513,27 @@ def _page_imports(page_text: str) -> list[tuple[str, str | None]]:
     if any(line.startswith(("+", "-")) for line in text.splitlines()[:50]):
         return extract_imports_from_diff(text)
     return extract_imports_from_source(text)
+
+
+def _checked_session_dir(session_dir: Path) -> Path:
+    """A review session directory, refused when it escapes the places sessions may be written.
+
+    No `..` component, and inside the reviews directory, the working directory or the system
+    temporary directory.
+    """
+    import tempfile
+
+    if any(part == ".." for part in session_dir.parts):
+        raise SecurityError(f"Path traversal detected in session_dir: {session_dir}")
+    allowed = (
+        _get_reviews_base_dir().resolve(),
+        Path.cwd().resolve(),
+        Path(tempfile.gettempdir()).resolve(),
+    )
+    resolved = session_dir.resolve()
+    if not any(resolved.is_relative_to(root) for root in allowed):
+        raise SecurityError(f"Session directory {session_dir} is outside allowed root directories")
+    return session_dir
 
 
 def _build_page_review_prompt(
@@ -959,11 +981,9 @@ class ReviewPipelineOrchestrator:
         self.concurrency = concurrency
         self.parallel = parallel
         self.ground_contracts = ground_contracts
-        if session_dir is not None:
-            self.session_dir = session_dir
-        else:
-            base_dir = _get_reviews_base_dir().resolve()
-            self.session_dir = base_dir / self.session_id
+        self.session_dir = _checked_session_dir(
+            session_dir or _get_reviews_base_dir().resolve() / self.session_id
+        )
         self.files_dir = self.session_dir / "files"
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.files_dir.mkdir(parents=True, exist_ok=True)
@@ -975,34 +995,27 @@ class ReviewPipelineOrchestrator:
         self._conventions_by_dir: dict[Path, str] = {}
 
     def _resolve_file_path(self, fpath: str) -> Path:
-        """Resolve fpath to an existing filesystem Path within target_dir or repo root."""
+        """Resolve fpath to an existing file within target_dir or its repository, never outside.
+
+        A path naming a file outside both, absolute or through `..`, falls back to a sanitized
+        path inside the target, which scanners and verification then find missing.
+        """
         from devops_cli.core.repo import find_repo_root
 
         target_root = self.target_dir.resolve()
-        repo = find_repo_root(self.target_dir)
+        repo = find_repo_root(self.target_dir).resolve()
         p = Path(fpath)
-        if p.is_absolute() and p.exists():
-            return p.resolve()
-        if (target_root / p).exists():
-            return (target_root / p).resolve()
-        if (repo / p).exists():
-            return (repo / p).resolve()
-        if (target_root / p.name).exists():
-            return (target_root / p.name).resolve()
-
-        try:
-            candidate = p if p.is_absolute() else (target_root / p)
-            resolved = candidate.resolve()
-            if resolved.exists():
+        candidates = [p] if p.is_absolute() else [target_root / p, repo / p, target_root / p.name]
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+            except (ValueError, OSError) as exc:
+                logger.debug("Failed resolving path %s: %s", fpath, exc)
+                continue
+            inside = resolved.is_relative_to(target_root) or resolved.is_relative_to(repo)
+            if inside and resolved.exists():
                 return resolved
-            if (repo / p).resolve().exists():
-                return (repo / p).resolve()
-        except (ValueError, OSError) as exc:
-            logger.debug("Failed resolving path %s: %s", fpath, exc)
-
-        # Fallback to sanitized in-target path
-        safe_rel = Path(fpath.lstrip("/\\")).name
-        return target_root / safe_rel
+        return target_root / Path(fpath.lstrip("/\\")).name
 
     def _get_server_info(self, client: LLMClient | None = None) -> str:
         """Describe a client's provider, host and model; the analysis client by default."""
