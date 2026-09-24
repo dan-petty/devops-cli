@@ -137,14 +137,23 @@ class DefectTemplate:
 
 def _substitute(
     *rules: tuple[str, str | Callable[[re.Match[str]], str]],
+    code_only: re.Pattern[str] | None = None,
 ) -> Callable[[Lines], list[Site]]:
-    """Find lines a rule changes; the defect is the changed line itself."""
+    """Find lines a rule changes; the defect is the changed line itself.
+
+    With `code_only`, the literal and comment syntax of a language, a rule applies only where it
+    matches the same text once comments are blanked: never inside a comment.
+    """
     compiled = [(re.compile(pattern), replacement) for pattern, replacement in rules]
 
     def find(lines: Lines) -> list[Site]:
         sites: list[Site] = []
-        for index, line in enumerate(lines):
+        uncommented = _mask_lines(lines, code_only, blank_strings=False) if code_only else lines
+        for index, (line, code) in enumerate(zip(lines, uncommented)):
             for regex, replacement in compiled:
+                match = regex.search(line)
+                if match is None or (code_only and _span(regex, code) != match.span()):
+                    continue
                 mutated = regex.sub(replacement, line, count=1)
                 if mutated != line:
                     region = (index + 1, index + 1)
@@ -154,6 +163,11 @@ def _substitute(
         return sites
 
     return find
+
+
+def _span(regex: re.Pattern[str], text: str) -> tuple[int, int] | None:
+    match = regex.search(text)
+    return match.span() if match else None
 
 
 def _python_tree(lines: Lines) -> ast.Module | None:
@@ -301,9 +315,44 @@ _CONDITION_WORDS = frozenset(
 )
 
 
+def _blank(text: str) -> str:
+    """Spaces in place of every character but newlines, so columns and lines still line up."""
+    return re.sub(r"[^\n]", " ", text)
+
+
+def _is_comment(token: str) -> bool:
+    return token.startswith(("//", "/*", "#"))
+
+
+def _mask_lines(lines: Lines, noise: re.Pattern[str], blank_strings: bool) -> Lines:
+    """Lines with comments blanked, block comments spanning lines included, and literals too
+    when `blank_strings` is set. A `/*` inside a string opens no comment."""
+    masked: Lines = []
+    in_block = False
+    for line in lines:
+        head, rest = "", line
+        if in_block:
+            end = line.find("*/")
+            if end == -1:
+                masked.append(_blank(line))
+                continue
+            head, rest, in_block = _blank(line[: end + 2]), line[end + 2 :], False
+        code = noise.sub(lambda m: _blank(m.group(0)), rest)
+        body = (
+            code
+            if blank_strings
+            else noise.sub(lambda m: _blank(m[0]) if _is_comment(m[0]) else m[0], rest)
+        )
+        # Whole comments on the line are blanked already; a `/*` left in code opens one.
+        if (opened := code.find("/*")) != -1:
+            body, in_block = body[:opened] + _blank(body[opened:]), True
+        masked.append(head + body)
+    return masked
+
+
 def _code_only(lines: Lines, noise: re.Pattern[str] = _CODE_NOISE) -> Lines:
     """Lines with literals and comments blanked to spaces, so every column still lines up."""
-    return [noise.sub(lambda m: " " * len(m.group(0)), line) for line in lines]
+    return _mask_lines(lines, noise, blank_strings=True)
 
 
 def _closing(text: str, open_at: int) -> int | None:
@@ -932,6 +981,7 @@ TEMPLATES: tuple[DefectTemplate, ...] = (
                 _substitute(
                     (r"\b(rejectUnauthorized\s*:\s*)true\b", r"\g<1>false"),
                     (r"(\bnew\s+https\.Agent\(\s*\{)", r"\g<1> rejectUnauthorized: false,"),
+                    code_only=_CODE_NOISE,
                 ),
             ),
             (
@@ -942,6 +992,7 @@ TEMPLATES: tuple[DefectTemplate, ...] = (
                         r"(\btls\.Config\s*\{)(?!\s*InsecureSkipVerify)",
                         r"\g<1>InsecureSkipVerify: true, ",
                     ),
+                    code_only=_CODE_NOISE,
                 ),
             ),
             (
@@ -949,6 +1000,7 @@ TEMPLATES: tuple[DefectTemplate, ...] = (
                 _substitute(
                     (r"\b(danger_accept_invalid_certs\s*\(\s*)false\b", r"\g<1>true"),
                     (r"(\bClient::builder\(\))", r"\g<1>.danger_accept_invalid_certs(true)"),
+                    code_only=_RUST_CODE_NOISE,
                 ),
             ),
             (
@@ -959,6 +1011,7 @@ TEMPLATES: tuple[DefectTemplate, ...] = (
                         "new HttpClientHandler { ServerCertificateCustomValidationCallback = "
                         "HttpClientHandler.DangerousAcceptAnyServerCertificateValidator }",
                     ),
+                    code_only=_CODE_NOISE,
                 ),
             ),
             (SHELL + _CONTAINERFILES, _INSECURE_DOWNLOADS),
@@ -982,7 +1035,10 @@ TEMPLATES: tuple[DefectTemplate, ...] = (
                     (r"(mode:\s*[\"']?0?|mode=0o|chmod\([^,()]+,\s*0o)([1-7])00\b", _widen_mode)
                 ),
             ),
-            (TS_JS + GO + RUST + C_CPP, _substitute((_BRACE_MODE, _widen_mode))),
+            (
+                TS_JS + GO + RUST + C_CPP,
+                _substitute((_BRACE_MODE, _widen_mode), code_only=_CODE_NOISE),
+            ),
             (SHELL + _CONTAINERFILES, _substitute((_CHMOD, _widen_mode))),
             (MARKDOWN, _in_code_blocks(_substitute((_CHMOD, _widen_mode)))),
             (
@@ -991,7 +1047,8 @@ TEMPLATES: tuple[DefectTemplate, ...] = (
                     (
                         r"(PosixFilePermissions\.fromString\(\s*\")([r-][w-][x-])------(\")",
                         _widen_permissions,
-                    )
+                    ),
+                    code_only=_CODE_NOISE,
                 ),
             ),
         ),
@@ -1030,6 +1087,7 @@ TEMPLATES: tuple[DefectTemplate, ...] = (
                             r"\g<1>false",
                         ),
                         (r'^(\s*acl\s*=\s*")private(")', r"\g<1>public-read\g<2>"),
+                        code_only=_HCL_CODE_NOISE,
                     ),
                     _tf_variable_defaults(
                         re.compile(r"map_public_ip|publicly_accessible|associate_public_ip"),
@@ -1056,7 +1114,8 @@ TEMPLATES: tuple[DefectTemplate, ...] = (
                             r"|server_side_encryption_enabled|encryption_at_rest_enabled)"
                             r"\s*=\s*)true\b",
                             r"\g<1>false",
-                        )
+                        ),
+                        code_only=_HCL_CODE_NOISE,
                     ),
                     _tf_variable_defaults(re.compile(r"encrypt"), "true"),
                 ),

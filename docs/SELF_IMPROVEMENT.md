@@ -267,7 +267,9 @@ defect into each, recording where. It never writes into the sources. The templat
 Docs templates change example commands only inside fenced code blocks (and Hugo `highlight` or
 `codeFromInline` shortcodes); prose is left alone. A removed checksum in a Dockerfile must be a
 middle segment of a continued `RUN`, and in a shell script a statement of its own, so the chain
-still joins. A guard is removed only as a whole statement that fills its lines. Its body must only exit, no
+still joins. Code finders never touch comments: block comments spanning lines, and the code
+examples in them, are blanked before a site is chosen. A guard is removed only as a whole
+statement that fills its lines. Its body must only exit, no
 `else` may follow, and it may not be the body of a braceless `if` or loop, so the mutated file
 stays balanced and well formed. A Go error check is removed only when `err` is read again later,
 or the file would not compile.
