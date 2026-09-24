@@ -28,6 +28,7 @@ from devops_cli.core.repo import (
     find_top_level_repo_root,
     get_repo_origin_name,
     list_repo_files,
+    resolve_data_path,
 )
 from devops_cli.dry_run import is_dry_run
 from devops_cli.lang import HELP, MESSAGES
@@ -264,11 +265,7 @@ def analyze_path(
     from devops_cli.config.settings import load_settings
 
     settings = load_settings()
-    analysis_dir = settings.data.analysis_dir
-    if not analysis_dir.is_absolute():
-        analysis_dir = (top_root / analysis_dir).resolve()
-    else:
-        analysis_dir = analysis_dir.resolve()
+    analysis_dir = resolve_data_path(settings.data.analysis_dir, top_root).resolve()
     out_file_path = analysis_dir / f"path-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
@@ -361,11 +358,7 @@ def analyze_branch(
     from devops_cli.config.settings import load_settings
 
     settings = load_settings()
-    analysis_dir = settings.data.analysis_dir
-    if not analysis_dir.is_absolute():
-        analysis_dir = (top_root / analysis_dir).resolve()
-    else:
-        analysis_dir = analysis_dir.resolve()
+    analysis_dir = resolve_data_path(settings.data.analysis_dir, top_root).resolve()
     out_file_path = analysis_dir / f"branch-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():

@@ -149,7 +149,11 @@ class SpendLedger:
             self.db_path = Path(db_path)
         else:
             settings = load_settings()
-            self.db_path = settings.data.dir / "ai" / DEFAULT_AI_SPEND_DB_FILENAME
+            from devops_cli.core.repo import resolve_data_path
+
+            self.db_path = (
+                resolve_data_path(settings.data.dir) / "ai" / DEFAULT_AI_SPEND_DB_FILENAME
+            )
 
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()

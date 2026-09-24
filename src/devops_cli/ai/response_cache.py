@@ -17,7 +17,7 @@ from devops_cli.config.defaults import (
     DEFAULT_LLM_CACHE_MAX_ENTRIES,
     DEFAULT_LLM_CACHE_TTL_SECONDS,
 )
-from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.core.repo import resolve_data_path
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import record_metric
 
@@ -160,11 +160,7 @@ class LLMResponseCache:
 
     def _resolve_cache_dir(self) -> Path:
         """Resolve top-level repository cache directory."""
-        if self.cache_dir.is_absolute():
-            return self.cache_dir
-        top_root = find_top_level_repo_root(Path.cwd())
-        resolved = (top_root / self.cache_dir).resolve()
-        return resolved
+        return resolve_data_path(self.cache_dir, Path.cwd())
 
     @staticmethod
     def generate_key(

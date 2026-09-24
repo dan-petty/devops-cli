@@ -59,6 +59,38 @@ def find_top_level_repo_root(start_path: Path | str | None = None) -> Path:
     return current
 
 
+def main_worktree_root(start_path: Path | str | None = None) -> Path:
+    """The main worktree of the repository at `start_path`; a linked worktree resolves to it.
+
+    A linked worktree's `.git` is a file naming its git directory, whose `commondir` leads to
+    the repository's shared git directory, inside the main worktree. A submodule's git
+    directory has no `commondir` and stays its own repository.
+    """
+    root = find_top_level_repo_root(start_path)
+    marker = root / CONST_GIT_DIR_NAME
+    try:
+        text = marker.read_text(encoding="utf-8").strip() if marker.is_file() else ""
+    except OSError:
+        return root
+    if not text.startswith("gitdir:"):
+        return root
+    gitdir = (root / text.removeprefix("gitdir:").strip()).resolve()
+    try:
+        common = (gitdir / (gitdir / "commondir").read_text(encoding="utf-8").strip()).resolve()
+    except OSError:
+        return root
+    return common.parent if common.name == CONST_GIT_DIR_NAME else root
+
+
+def resolve_data_path(path: Path, start_path: Path | str | None = None) -> Path:
+    """A configured data path: as given when absolute, else under the main worktree.
+
+    Every worktree of a repository shares one data directory, so removing a worktree keeps the
+    reviews, benchmarks and evaluations recorded in it.
+    """
+    return path if path.is_absolute() else (main_worktree_root(start_path) / path).resolve()
+
+
 def read_gitignore_patterns(repo_root: Path) -> list[str]:
     """Dynamically read .gitignore patterns from the repository root at runtime."""
     gitignore_file = repo_root / ".gitignore"

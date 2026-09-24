@@ -98,12 +98,9 @@ def _resolve_audit_log_dest(log_file: Path | None) -> Path:
             )
         return candidate
     from devops_cli.config.settings import load_settings
-    from devops_cli.core.repo import find_top_level_repo_root
+    from devops_cli.core.repo import resolve_data_path
 
-    dest = load_settings().data.audit_log_path
-    if not dest.is_absolute():
-        dest = (find_top_level_repo_root() / dest).resolve()
-    return dest
+    return resolve_data_path(load_settings().data.audit_log_path)
 
 
 def stream_audit_records(destination_url: str, log_file: Path | None = None) -> int:
