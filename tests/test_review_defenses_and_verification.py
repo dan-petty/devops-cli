@@ -144,9 +144,10 @@ def test_common_hallucinations_missing_symbol_false_alarm(tmp_path: Path) -> Non
     sim = calculate_hallucination_similarity(finding, entry, file_path=py_file)
     assert sim.similarity_score > 0.6
 
-    # Ground truth verification should confirm symbol exists in module AST
+    # The deterministic missing-symbol check decides symbol claims with the claim's own
+    # evidence; a catalog match does not overrule it with a weaker test (#514).
     is_hallucination = verify_ground_truth_hallucination(finding, entry, py_file)
-    assert is_hallucination is True
+    assert is_hallucination is False
 
 
 def test_mask_secrets_unquoted_token_with_dots() -> None:
