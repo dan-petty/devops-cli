@@ -1192,20 +1192,10 @@ def _print_review(persona: PersonaDefinition, review: ReviewResult | str) -> Non
 
 
 def _nearest_conventions(start: Path) -> str:
-    """Return the nearest project conventions file, from the start directory up to its repo root.
+    """Return the nearest project conventions file, from the start directory up to its repo root."""
+    from devops_cli.ai.review.review_environment import nearest_conventions
 
-    The nearest file wins, as for AGENTS.md generally: a subproject's conventions override its
-    repository's. Outside a repository only the start directory is read.
-    """
-    start_resolved = start.resolve()
-    directory = start_resolved if start_resolved.is_dir() else start_resolved.parent
-    repo_root = _git_repo_root(directory)
-    for candidate in (directory, *directory.parents):
-        if content := _read_candidate_conventions_file(candidate):
-            return content
-        if repo_root is None or candidate == repo_root:
-            break
-    return ""
+    return nearest_conventions(start)
 
 
 def _load_agents_md(start: Path) -> str:

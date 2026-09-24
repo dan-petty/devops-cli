@@ -10,8 +10,9 @@ one a prompt can be tuned to find, and a reviewer tuned against this corpus gets
 defects. Every score carries that caveat.
 
 A corpus directory holds the mutated files under `files/`, the manifest of injections beside it
-(outside the reviewed tree, so the reviewer cannot read the answers) and a copy of the source
-project's conventions file, so the review sees the same conventions as a review of the source.
+(outside the reviewed tree, so the reviewer cannot read the answers) and copies of the source
+project's conventions and `.devops/review.md`, so the review sees the same conventions as a review
+of the source.
 """
 
 from __future__ import annotations
@@ -28,7 +29,10 @@ from pathlib import Path
 from pydantic import BaseModel, Field, computed_field
 
 from devops_cli.ai.review_schema import LINE_OVERLAP_TOLERANCE, SavedFinding, _parse_location
-from devops_cli.config.constants import REVIEW_GENERIC_SYMBOL_STOPWORDS
+from devops_cli.config.constants import (
+    CONST_REVIEW_CONVENTIONS_FILE,
+    REVIEW_GENERIC_SYMBOL_STOPWORDS,
+)
 
 CORPUS_MANIFEST = "manifest.json"
 CORPUS_FILES_DIR = "files"
@@ -41,6 +45,7 @@ SYNTHETIC_CAVEAT = (
 # Without a conventions file of its own, a corpus inside another repository would be reviewed
 # under that repository's conventions.
 _NO_CONVENTIONS = "# Project Conventions\n\nNo conventions file was found for the source files.\n"
+_NO_REVIEW_CONVENTIONS = "# Review Conventions\n\nNone were found for the source files.\n"
 # A dropped guard leaves no line behind; a report counts from the enclosing function's start to
 # this many lines past where the guard stood.
 _GUARD_REACH_LINES = 10
@@ -423,6 +428,7 @@ def generate_corpus(
     sources: Sequence[str],
     seed: int,
     conventions: str = "",
+    review_conventions: str = "",
     templates: Sequence[DefectTemplate] = TEMPLATES,
 ) -> DefectCorpus:
     """Write a corpus of the source files that take an injection, one defect in each.
@@ -437,6 +443,11 @@ def generate_corpus(
         if (injection := _inject(path, rel, files_dir, seed, templates)) is not None
     ]
     (corpus_dir / CORPUS_CONVENTIONS_FILE).write_text(conventions or _NO_CONVENTIONS, "utf-8")
+    # Always written, so the lookup stops at the corpus rather than climbing to the review
+    # conventions of the repository the corpus happens to sit in.
+    review_file = corpus_dir / CONST_REVIEW_CONVENTIONS_FILE
+    review_file.parent.mkdir(parents=True, exist_ok=True)
+    review_file.write_text(review_conventions or _NO_REVIEW_CONVENTIONS, "utf-8")
     corpus = DefectCorpus(
         sources=list(sources),
         seed=seed,

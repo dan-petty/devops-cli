@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 
-from devops_cli.config.constants import CONST_AGENTS_MD_FILENAME
+from devops_cli.config.constants import CONST_AGENTS_MD_FILENAME, CONST_REVIEW_CONVENTIONS_FILE
 
 _TARGET_CONVENTIONS_CANDIDATES: tuple[str, ...] = (
     CONST_AGENTS_MD_FILENAME,
@@ -14,6 +15,48 @@ _TARGET_CONVENTIONS_CANDIDATES: tuple[str, ...] = (
     ".cursorrules",
     ".cursor/rules",
 )
+
+
+def _repo_root(directory: Path) -> Path | None:
+    for candidate in (directory, *directory.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _nearest(start: Path, read: Callable[[Path], str]) -> str:
+    """The first non-empty `read` result from the start directory up to its repo root.
+
+    The nearest file wins, as for AGENTS.md generally: a subproject's conventions override its
+    repository's. Outside a repository only the start directory is read.
+    """
+    start_resolved = start.resolve()
+    directory = start_resolved if start_resolved.is_dir() else start_resolved.parent
+    repo_root = _repo_root(directory)
+    for candidate in (directory, *directory.parents):
+        if content := read(candidate):
+            return content
+        if repo_root is None or candidate == repo_root:
+            break
+    return ""
+
+
+def nearest_conventions(start: Path) -> str:
+    """The nearest general conventions file (AGENTS.md and its peers) for a review target."""
+    return _nearest(start, _read_candidate_conventions_file)
+
+
+def _read_review_conventions_file(directory: Path) -> str:
+    path = directory / CONST_REVIEW_CONVENTIONS_FILE
+    try:
+        return path.read_text(encoding="utf-8") if path.is_file() else ""
+    except OSError:
+        return ""
+
+
+def nearest_review_conventions(start: Path) -> str:
+    """The nearest `.devops/review.md`: rules a project keeps for reviews of its own code."""
+    return _nearest(start, _read_review_conventions_file).strip()
 
 
 def _read_candidate_conventions_file(directory: Path | None) -> str:

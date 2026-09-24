@@ -148,6 +148,9 @@ CONST_KEYRING_PROMPT_TIMEOUT_SECONDS: Final[int] = 60
 
 # ── Specifications, Load Testing & Chaos ──────────────────────────────────────
 CONST_SPECS_DIR_NAME = ".devops/specs"
+# Review-specific conventions a project keeps for devops ai review: read in full, beside the
+# general conventions file, by the personas and the verifier.
+CONST_REVIEW_CONVENTIONS_FILE = ".devops/review.md"
 CONST_SPECS_DIR_PATH = Path(CONST_SPECS_DIR_NAME)
 CONST_CHAOS_DIR_NAME = "k8s/chaos"
 CONST_CHAOS_DIR_PATH = Path(CONST_CHAOS_DIR_NAME)

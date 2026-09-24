@@ -220,6 +220,18 @@ same files several times with the response cache bypassed and saves the medians 
 `.data/reviews/benchmarks/`, with seconds per candidate finding and a digest of the reviewed files.
 Compare benchmarks only when their corpus digests match.
 
+### Project Review Conventions
+
+The shared review and verification prompts hold rules that are true of any project. What is
+intended in one project goes in that project's `.devops/review.md`. Examples include an internal
+connector allowed to reach private networks, output a CLI is meant to print, a type checker the
+project enforces, or house rules for its documentation.
+
+`devops ai review` reads the nearest `.devops/review.md` from the target up to its repository
+root, in full up to 8,000 characters. It gives the file to the persona reviewers and the verifier,
+beside the general conventions file (`AGENTS.md` or its peers), of which only the opening is used.
+This repository keeps its own rules in `.devops/review.md`.
+
 ### Synthetic Defect Corpora
 
 A review of a real repository cannot say what it missed, and the verifier labels what it found.

@@ -238,7 +238,8 @@ def test_generation_is_seeded_and_keeps_the_answers_outside_the_reviewed_tree(
         sorted(p.relative_to(files).as_posix() for p in files.rglob("*") if p.is_file()),
         {i.file: i.mutated for i in first.injections} == mutated,
         (tmp_path / "a" / CORPUS_MANIFEST).exists(),
-        (tmp_path / "a" / CORPUS_CONVENTIONS_FILE).exists(),
+        (tmp_path / "a" / CORPUS_CONVENTIONS_FILE).exists()
+        and (tmp_path / "a" / ".devops" / "review.md").exists(),
     ) == (
         [("roles/client.py", "drop-await"), ("site.yaml", "disable-tls-verify")],
         True,

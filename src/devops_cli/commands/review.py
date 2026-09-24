@@ -54,6 +54,7 @@ from devops_cli.ai.review.profile import (
     collect_profiles,
     summarize_profiles,
 )
+from devops_cli.ai.review.review_environment import nearest_review_conventions
 from devops_cli.ai.review.runner import (
     _build_path_prompt,
     _corpus_digest,
@@ -1198,8 +1199,9 @@ def corpus_generate(
         corpus_dir,
         sources=[str(source.resolve()) for source in sources],
         seed=seed,
-        # One conventions file serves the corpus: the first source's, as its review would read.
+        # One set of conventions serves the corpus: the first source's, as its review would read.
         conventions=_nearest_conventions(sources[0]),
+        review_conventions=nearest_review_conventions(sources[0]),
         templates=templates,
     )
     if not corpus.injections:
