@@ -1248,6 +1248,71 @@ def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, 
     return "UNVERIFIED", True
 
 
+# Words too common to tell one claim from another.
+_CLAIM_STOPWORDS = frozenset(
+    {"the", "a", "an", "of", "to", "in", "is", "are", "as", "for", "with", "that", "this"}
+    | {"and", "or", "be", "it", "its", "on", "by", "at", "still", "which", "verify", "check"}
+)
+# A reason that negates what it quotes may be a refutation; one that does not only restates.
+_NEGATION = re.compile(
+    r"\b(?:not|no|never|none|cannot|without|already|isn't|doesn't|don't|aren't|wasn't)\b|n't\b"
+)
+_RESTATEMENT_OVERLAP = 0.6
+
+
+def _claim_words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in _CLAIM_STOPWORDS}
+
+
+def _covers(text: str, claims: list[str]) -> float:
+    """The largest share of any claim's words that the text contains."""
+    words = _claim_words(text)
+    shares = [len(cw & words) / len(cw) for claim in claims if (cw := _claim_words(claim))]
+    return max(shares, default=0.0)
+
+
+def _restates_the_finding(criterion: str, f: Finding) -> bool:
+    """Whether a "matched invalidation criterion" only restates the defect or its fix.
+
+    Models file the finding's own verification criterion, or the fix, as the invalidation they
+    matched: "The FROM directive still uses 'latest' as the image tag." That confirms the
+    defect. A criterion closer to the finding's invalidation criteria than to its claim and fix
+    is a refutation.
+    """
+    claim = _covers(criterion, [*f.verification_criteria, f.title, f.fix])
+    refutation = _covers(criterion, list(f.invalidation_criteria))
+    return claim >= _RESTATEMENT_OVERLAP and claim > refutation
+
+
+def _reason_confirms(reason: str, f: Finding) -> bool:
+    """Whether the verdict's reason states the claimed condition without negating it."""
+    return (
+        bool(reason)
+        and not _NEGATION.search(reason.lower())
+        and _covers(reason, [*f.verification_criteria, f.title]) >= _RESTATEMENT_OVERLAP
+    )
+
+
+def _without_self_refutation(f: Finding, item: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """The verdict with its invalidation withdrawn when it rests only on the finding's own claim.
+
+    An invalidation whose matched criteria all restate the defect or its fix, or whose reason
+    confirms the claimed condition, names no evidence against the finding; it leaves the
+    finding unverified and in the report.
+    """
+    inv_matched = _verdict_list(item.get("invalidated_criteria_matched"))
+    genuine = [c for c in inv_matched if not _restates_the_finding(c, f)]
+    reason = str(item.get("reason") or "").strip()
+    if genuine and not _reason_confirms(reason, f):
+        return item, inv_matched
+    if not inv_matched and not _reason_confirms(reason, f):
+        return item, inv_matched
+    withdrawn = {**item, "invalidated": False}
+    if str(item.get("status") or "").strip().upper() == "INVALIDATED":
+        withdrawn["status"] = ""
+    return withdrawn, []
+
+
 def _apply_single_finding_verification(
     f: Finding, item: dict[str, Any] | None, now_iso: str
 ) -> Finding:
@@ -1256,7 +1321,7 @@ def _apply_single_finding_verification(
         return f
 
     ver_matched = _verdict_list(item.get("verified_criteria_matched"))
-    inv_matched = _verdict_list(item.get("invalidated_criteria_matched"))
+    item, inv_matched = _without_self_refutation(f, item)
     status_val, is_rep = _verdict_status(item, inv_matched)
     is_v = status_val == "VERIFIED"
     # A model's invalidation does not teach the hallucinations catalog: it is the judgement

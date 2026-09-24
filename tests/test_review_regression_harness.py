@@ -25,7 +25,10 @@ from typing import Any
 import pytest
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator
-from devops_cli.ai.review.verification import _deterministic_pre_verification
+from devops_cli.ai.review.verification import (
+    _apply_single_finding_verification,
+    _deterministic_pre_verification,
+)
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
     Finding,
@@ -114,3 +117,13 @@ def test_a_known_false_alarm_is_still_caught(case: dict[str, Any], project: Path
     result = _deterministic_pre_verification(finding, repo_root=project)
 
     assert (result.status, result.reportable) == ("INVALIDATED", False), result.invalidation_reason
+
+
+@pytest.mark.parametrize("case", _GOLDEN["misread_verdicts"], ids=lambda c: c["id"])
+def test_a_verdict_restating_the_defect_does_not_remove_it(case: dict[str, Any]) -> None:
+    """Verify a verifier reply that confirms the defect in its reason keeps the finding (#536)."""
+    finding = Finding(**case["finding"])
+
+    result = _apply_single_finding_verification(finding, case["verdict"], "2026-09-25T00:00:00Z")
+
+    assert (result.status in _DISMISSED, result.reportable) == (False, True)

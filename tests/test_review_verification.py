@@ -353,7 +353,8 @@ def test_format_related_file_block(tmp_path: Path) -> None:
         (None, "UNVERIFIED", True, False, None),
         (
             {
-                "invalidated_criteria_matched": ["Criterion 1"],
+                # A criterion the finding named as invalidating it, not its own claim (#536).
+                "invalidated_criteria_matched": ["Input validated upstream"],
                 "confidence_score": 0.95,
                 "severity": "LOW",
                 "location": "test.py:12",
@@ -407,6 +408,7 @@ def test_apply_single_finding_verification(
         severity="MEDIUM",
         status="UNVERIFIED",
         verification_criteria=["Criterion 1", "Criterion 2"],
+        invalidation_criteria=["Input validated upstream"],
     )
     now_iso = "2026-08-26T00:00:00"
 
