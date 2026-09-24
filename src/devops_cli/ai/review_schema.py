@@ -46,6 +46,23 @@ _SEVERITY_RANK: dict[str, int] = {
 }
 
 VALID_SEVERITIES: frozenset[str] = frozenset(_SEVERITY_RANK.keys())
+# Severity names models use outside the schema. Folding them all into MEDIUM turned a BLOCKER
+# into a request for changes and a suggestion into one.
+_SEVERITY_SYNONYMS: dict[str, str] = {
+    "BLOCKER": "CRITICAL",
+    "SEVERE": "CRITICAL",
+    "P0": "CRITICAL",
+    "P1": "HIGH",
+    "MAJOR": "HIGH",
+    "P2": "MEDIUM",
+    "MODERATE": "MEDIUM",
+    "P3": "LOW",
+    "MINOR": "LOW",
+    "TRIVIAL": "LOW",
+    "SUGGESTION": "INFO",
+    "INFORMATIONAL": "INFO",
+    "NOTE": "INFO",
+}
 VALID_STATUSES: frozenset[str] = frozenset({"UNVERIFIED", "VERIFIED", "INVALIDATED", "MITIGATED"})
 VALID_RECOMMENDATIONS: frozenset[str] = frozenset({"APPROVE", "REQUEST CHANGES", "BLOCK"})
 
@@ -107,10 +124,64 @@ def format_clean_text_field(val: Any) -> str:
     return str(val)
 
 
+# Words that open many unrelated findings ("Missing timeout", "Missing authorization check").
+# Counting them as shared words merges different defects.
+_TITLE_FILLER_WORDS = frozenset(
+    {
+        "missing",
+        "lack",
+        "lacks",
+        "lacking",
+        "absent",
+        "potential",
+        "possible",
+        "possibly",
+        "insecure",
+        "unsafe",
+        "improper",
+        "improperly",
+        "incorrect",
+        "inadequate",
+        "insufficient",
+        "weak",
+        "issue",
+        "issues",
+        "risk",
+        "risks",
+        "vulnerability",
+        "vulnerable",
+        "problem",
+        "use",
+        "uses",
+        "using",
+        "usage",
+        "without",
+        "not",
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "via",
+        "into",
+        "when",
+        "may",
+        "can",
+        "could",
+        "due",
+        "are",
+        "has",
+        "have",
+        "does",
+        "should",
+    }
+)
+
+
 def _tokenize_title(title: str) -> set[str]:
-    """Tokenize finding title into lowercase word tokens."""
+    """The words of a finding's text that tell it apart from other findings."""
     words = re.findall(r"\b[a-zA-Z0-9_]+\b", title.lower())
-    return {w for w in words if len(w) > 2}
+    return {w for w in words if len(w) > 2 and w not in _TITLE_FILLER_WORDS}
 
 
 def _parse_finding_references(raw_ref: Any) -> list[str]:
@@ -126,8 +197,9 @@ def _parse_finding_references(raw_ref: Any) -> list[str]:
     return [r.strip() for r in cleaned.split(",") if r.strip()]
 
 
+# A leaked prompt section ("Verification criteria: ..."), not a finding about criteria.
 _PROMPT_CRITERIA_SPLIT_REGEX = re.compile(
-    r"(?:Verification\s+criteria|Invalidation\s+criteria|:\s*line\s+where)",
+    r"(?:(?:Verification|Invalidation)\s+criteria\s*:|:\s*line\s+where)",
     re.IGNORECASE,
 )
 
@@ -189,18 +261,17 @@ def sanitize_finding_text(text: str) -> str:
         if val:
             val = val[0].upper() + val[1:]
 
-    # Strip leading chain-of-thought scratchpad sentences
-    while True:
-        m = _SCRATCHPAD_PREFIX_REGEX.match(val)
-        if not m:
-            break
+    # Strip leading chain-of-thought scratchpad sentences, but never the only sentence:
+    # "Checking of token expiry is missing." is the finding itself.
+    while (m := _SCRATCHPAD_PREFIX_REGEX.match(val)) and val[m.end() :].strip():
         val = val[m.end() :].strip()
     # Strip trailing prompt criteria leakage
     if _PROMPT_CRITERIA_SPLIT_REGEX.search(val):
         val = _PROMPT_CRITERIA_SPLIT_REGEX.split(val)[0].strip()
 
-    # Check for pure praise / no-issue confirmation
-    if _PRAISE_PREFIX_REGEX.match(val):
+    # Check for pure praise / no-issue confirmation; "Looks good overall, but the token is
+    # logged in plaintext" is a finding.
+    if _PRAISE_PREFIX_REGEX.match(val) and not _DEFECT_KEYWORD_REGEX.search(val):
         return ""
     if val.endswith(
         ("Good.", "Good", "Looks good.", "Looks solid.")
@@ -447,8 +518,10 @@ class Finding(BaseModel):
     @field_validator("severity", mode="before")
     @classmethod
     def _normalize_severity(cls, v: object) -> str:
-        s = str(v).upper().strip()
-        return s if s in VALID_SEVERITIES else "MEDIUM"
+        s = str(v).upper().replace("SEVERITY", "").strip(" :-_")
+        if s in VALID_SEVERITIES:
+            return s
+        return _SEVERITY_SYNONYMS.get(s, "MEDIUM")
 
     @field_validator("status", mode="before")
     @classmethod
@@ -561,63 +634,74 @@ def _share_distinctive_symbol(primary: Finding, candidate: Finding) -> bool:
     return overlap >= REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD
 
 
-def _are_findings_duplicate(primary: Finding, candidate: Finding) -> bool:
-    """Determine if two findings describe the same underlying issue across personas or segments."""
-    primary_file, primary_start, primary_end = _parse_location(primary.location)
-    candidate_file, candidate_start, candidate_end = _parse_location(candidate.location)
-    primary_title = primary.title.strip().lower()
-    candidate_title = candidate.title.strip().lower()
+_DISMISSED_STATUSES = frozenset({"INVALIDATED", "MITIGATED"})
 
-    if not primary_file or not candidate_file or primary_file != candidate_file:
-        return False
 
-    if primary_title == candidate_title:
-        return True
-
-    primary_tokens = _tokenize_title(primary_title)
-    candidate_tokens = _tokenize_title(candidate_title)
-
-    intersection = primary_tokens & candidate_tokens
-    union = primary_tokens | candidate_tokens
-    jaccard = len(intersection) / len(union) if union else 0.0
-
-    same_line_range = (
-        primary_start is not None
-        and primary_end is not None
-        and candidate_start is not None
-        and candidate_end is not None
-        and max(primary_start, candidate_start)
-        <= min(primary_end, candidate_end) + LINE_OVERLAP_TOLERANCE
+def _title_similarity(primary: Finding, candidate: Finding) -> tuple[float, float]:
+    """Jaccard and overlap coefficients of two findings' distinguishing title words."""
+    primary_terms = _tokenize_title(primary.title)
+    candidate_terms = _tokenize_title(candidate.title)
+    if not primary_terms or not candidate_terms:
+        return 0.0, 0.0
+    shared = len(primary_terms & candidate_terms)
+    return (
+        shared / len(primary_terms | candidate_terms),
+        shared / min(len(primary_terms), len(candidate_terms)),
     )
 
-    if (primary_start == candidate_start and primary_end == candidate_end) or (
-        primary_start is None and candidate_start is None
+
+def _are_findings_duplicate(primary: Finding, candidate: Finding) -> bool:
+    """Determine if two findings describe the same underlying issue across personas or segments.
+
+    A missed merge leaves a duplicate in the report; a wrong merge loses a defect, so merging
+    needs positive evidence. Findings at overlapping lines merge when their distinguishing title
+    words agree. Findings far apart merge only with near-identical titles naming the same code
+    symbol: personas do cite one defect at different lines, but two hardcoded secrets or two
+    unbounded requests in one file are separate defects.
+    """
+    primary_file, primary_start, primary_end = _parse_location(primary.location)
+    candidate_file, candidate_start, candidate_end = _parse_location(candidate.location)
+    if not primary_file or primary_file != candidate_file:
+        return False
+    if (primary.status in _DISMISSED_STATUSES) != (candidate.status in _DISMISSED_STATUSES):
+        return False
+
+    same_title = primary.title.strip().lower() == candidate.title.strip().lower()
+    jaccard, overlap = _title_similarity(primary, candidate)
+    if (
+        primary_start is None
+        or primary_end is None
+        or candidate_start is None
+        or candidate_end is None
     ):
-        if jaccard >= TITLE_SIMILARITY_THRESHOLD or (
-            primary_tokens
-            and candidate_tokens
-            and len(intersection) / min(len(primary_tokens), len(candidate_tokens)) >= 0.6
-        ):
-            return True
-    elif same_line_range:
-        if jaccard >= 0.4 or (
-            primary_tokens
-            and candidate_tokens
-            and len(intersection) / min(len(primary_tokens), len(candidate_tokens)) >= 0.5
-        ):
-            return True
+        return same_title or jaccard >= TITLE_SIMILARITY_THRESHOLD or overlap >= 0.6
 
-    # Personas frequently cite the same defect at different line ranges, because each
-    # reviews a different segment of the file or quotes the enclosing block rather than
-    # the offending line. Title wording alone therefore under-merges, so fall back to
-    # two range-independent signals.
-    if jaccard >= TITLE_SIMILARITY_THRESHOLD:
-        return True
+    overlapping = (
+        max(primary_start, candidate_start)
+        <= min(primary_end, candidate_end) + LINE_OVERLAP_TOLERANCE
+    )
+    if overlapping:
+        return (
+            same_title
+            or jaccard >= 0.4
+            or overlap >= 0.5
+            or _share_title_symbol_and_word(primary, candidate)
+        )
+    return (same_title or jaccard >= 0.8) and _share_distinctive_symbol(primary, candidate)
 
-    if same_line_range and _share_distinctive_symbol(primary, candidate):
-        return True
 
-    return False
+def _share_title_symbol_and_word(primary: Finding, candidate: Finding) -> bool:
+    """Both titles name the same code symbol and share one more distinguishing symbol or word.
+
+    "Uninitialized _watcher leads to ineffective stop()" and "`_watcher` never set, `stop()` may
+    not terminate" are one defect; "`parse_config` swallows exceptions" and "`parse_config`
+    reads without a size limit" are two defects in one function.
+    """
+    shared_symbols = _extract_code_symbols(primary.title) & _extract_code_symbols(candidate.title)
+    if not _is_distinctive_symbol_overlap(shared_symbols):
+        return False
+    shared_words = _tokenize_title(primary.title) & _tokenize_title(candidate.title)
+    return len(shared_words | shared_symbols) >= 2
 
 
 def _merge_two_findings[F: Finding](base: F, other: F) -> F:
@@ -894,6 +978,29 @@ def _validate_raw_findings_list(data: list[Any]) -> list[Finding]:
     return parsed_findings
 
 
+def reset_verification_state[F: Finding](finding: F) -> F:
+    """A copy of a model-written finding with every field only verification may set cleared.
+
+    A reviewer's reply is untrusted text parsed into the full finding schema, so it can mark
+    its own finding INVALIDATED or MITIGATED, which skips verification and drops the finding
+    from the report, or VERIFIED, which reports it unchecked.
+    """
+    return finding.model_copy(
+        update={
+            "status": DEFAULT_FINDING_STATUS,
+            "reportable": True,
+            "verified": False,
+            "mitigated": False,
+            "invalidation_reason": None,
+            "verified_criteria_matched": [],
+            "invalidated_criteria_matched": [],
+            "verified_by": None,
+            "verified_at": None,
+            "verification_note": None,
+        }
+    )
+
+
 def _strip_model_set_verification_state(result: ReviewResult) -> ReviewResult:
     """Clear any verification note a model supplied in its own output.
 
@@ -908,33 +1015,63 @@ def _strip_model_set_verification_state(result: ReviewResult) -> ReviewResult:
     return result
 
 
+# Keys models use for the findings list when they do not follow the schema exactly.
+_FINDINGS_KEYS = ("findings", "issues", "results", "vulnerabilities", "problems")
+
+
+def _findings_list(data: dict[str, Any]) -> list[Any] | None:
+    """The findings list of a reply, under the schema's key, a synonym, or one level down."""
+    for key in _FINDINGS_KEYS:
+        if isinstance(value := data.get(key), list):
+            return value
+    for value in data.values():
+        if isinstance(value, dict):
+            nested = next((v for k in _FINDINGS_KEYS if isinstance(v := value.get(k), list)), None)
+            if nested is not None:
+                return nested
+    return None
+
+
+def _review_result_from_dict(data: dict[str, Any]) -> ReviewResult | None:
+    """Validate a reply object, keeping every valid finding when other fields are malformed."""
+    if "findings" in data:
+        try:
+            return ReviewResult.model_validate(data)
+        except Exception:
+            pass
+    raw_findings = _findings_list(data)
+    if raw_findings is None:
+        try:
+            return ReviewResult.model_validate(data)
+        except Exception:
+            return None
+    summary = data.get("summary")
+    return ReviewResult(
+        findings=_validate_raw_findings_list(raw_findings),
+        summary=summary if isinstance(summary, str) else "",
+    )
+
+
 def parse_review_response(response: str | Any) -> ReviewResult | None:
-    """Parse review LLM response, prioritizing standard Pydantic and pydantic_ai.messages structured output."""
+    """Parse a review reply into its findings.
+
+    One malformed field must not cost the reply's valid findings: a reply whose object fails
+    validation keeps each finding that validates on its own, and findings under a synonym key
+    (`issues`, `results`) or one level down are found.
+    """
     from devops_cli.ai.response_repair import fix_llm_response
 
     fixed = fix_llm_response(response, schema=ReviewResult)
-    if fixed.parsed_model is not None and isinstance(fixed.parsed_model, ReviewResult):
-        if fixed.thinking and not fixed.parsed_model.thinking:
-            fixed.parsed_model.thinking = fixed.thinking
-        return _strip_model_set_verification_state(fixed.parsed_model)
-
     data = fixed.json_data or extract_json_block(fixed.content)
-    if isinstance(data, list):
-        parsed_findings = _validate_raw_findings_list(data)
-        if parsed_findings:
-            return ReviewResult(
-                findings=parsed_findings,
-                recommendation="APPROVE" if not parsed_findings else "REQUEST CHANGES",
-                summary=f"Extracted {len(parsed_findings)} finding(s)",
-                thinking=fixed.thinking,
-            )
-    elif isinstance(data, dict):
-        try:
-            res = ReviewResult.model_validate(data)
-            if fixed.thinking and not res.thinking:
-                res.thinking = fixed.thinking
-            return res
-        except Exception:
-            pass
-
-    return None
+    result: ReviewResult | None = None
+    if isinstance(data, dict):
+        result = _review_result_from_dict(data)
+    elif isinstance(fixed.parsed_model, ReviewResult):
+        result = fixed.parsed_model
+    elif isinstance(data, list) and (findings := _validate_raw_findings_list(data)):
+        result = ReviewResult(findings=findings, summary=f"Extracted {len(findings)} finding(s)")
+    if result is None:
+        return None
+    if fixed.thinking and not result.thinking:
+        result.thinking = fixed.thinking
+    return _strip_model_set_verification_state(result)

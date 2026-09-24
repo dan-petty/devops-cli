@@ -58,6 +58,7 @@ from devops_cli.ai.review_schema import (
     consolidate_duplicate_findings,
     format_clean_text_field,
     parse_review_response,
+    reset_verification_state,
     strip_outer_markdown_bold,
 )
 from devops_cli.ai.task_loader import load_task_prompt
@@ -228,7 +229,7 @@ def _process_pipeline_step_findings(
             continue
         loc = f.location.strip() or fpath
         saved = SavedFinding(
-            **f.model_dump(exclude={"location"}),
+            **reset_verification_state(f).model_dump(exclude={"location"}),
             location=loc,
             persona=p_val,
             persona_title=p_title,
@@ -319,6 +320,26 @@ def _scan_container_and_lockfiles(docker_lock_paths: list[Path]) -> list[SavedFi
     return findings
 
 
+_VERSION_RANGE_MARKERS = (">", "<", "~", "^", "!=", "*", ",", "|", " - ")
+# An npm-style wildcard component: 1.x, 2.X.0
+_VERSION_WILDCARD = re.compile(r"(?:^|\.)[xX](?:\.|$)")
+
+
+def _is_exact_version(version: str | None, ecosystem: str) -> bool:
+    """Whether a declared version names one release; Cargo reads a bare version as `^version`."""
+    if not version:
+        return False
+    if version.startswith("=="):
+        return bool(version.removeprefix("==").strip())
+    if (
+        ecosystem.lower() == "crates.io"
+        or any(marker in version for marker in _VERSION_RANGE_MARKERS)
+        or _VERSION_WILDCARD.search(version)
+    ):
+        return False
+    return bool(version.strip().lstrip("="))
+
+
 def _build_vulnerability_finding(
     fpath: str, dep: DependencySpec, v: VulnerabilityRecord
 ) -> SavedFinding:
@@ -346,7 +367,7 @@ def _build_vulnerability_finding(
 def _build_malicious_network_finding(
     fpath: str, net: NetworkReference, rep: NetworkReputationRecord
 ) -> SavedFinding:
-    """Build a verified SavedFinding for an identified suspicious external network target."""
+    """Build an unverified SavedFinding for an external network target flagged by threat intel."""
     ref_urls = [f"https://internetdb.shodan.io/{rep.ip}"] if rep.ip else []
     desc = f"External host '{net.target}' flagged by {rep.source}: {rep.reputation_summary}"
     return SavedFinding(
@@ -358,9 +379,7 @@ def _build_malicious_network_finding(
         references=ref_urls,
         verification_criteria=[f"Host '{net.target}' referenced in {fpath}"],
         invalidation_criteria=["Internal test fixture or isolated sandbox"],
-        verified_criteria_matched=[f"Host '{net.target}' referenced in {fpath}"],
-        status="VERIFIED",
-        verified=True,
+        # A host with published CVEs is not proof of a defect in this file; verification judges it.
         reportable=True,
         confidence_score=None,
         persona="devsecops",
@@ -1150,8 +1169,11 @@ class ReviewPipelineOrchestrator:
                 "nets_count": len(unique_nets),
             },
         ):
-            if unique_deps:
-                batch_results = osv_client.query_batch(list(unique_deps))
+            # Only an exact version can be looked up: a range makes OSV return every advisory
+            # the package has ever had.
+            pinned = [dep for dep in unique_deps if _is_exact_version(dep[1], dep[2])]
+            if pinned:
+                batch_results = osv_client.query_batch(pinned)
                 dep_cache.update(batch_results)
             if unique_nets:
                 domain_targets = [target for target, rtype in unique_nets if rtype != "ip"]
@@ -1536,6 +1558,9 @@ class ReviewPipelineOrchestrator:
                 }
             )
 
+            # Scanner and threat-intel findings seeded into the payload stay alongside the
+            # persona findings, including when a page fails part-way.
+            seeded_findings = list(payload.findings)
             file_findings: list[SavedFinding] = []
             if pipeline is None or persona_lookup is None:
                 target_conventions = self._read_target_conventions()
@@ -1619,14 +1644,18 @@ class ReviewPipelineOrchestrator:
                     _review_page(p_idx, page_content) for p_idx, page_content in enumerate(pages, 1)
                 )
 
-                payload.findings = consolidate_duplicate_findings(file_findings)
+                payload.findings = consolidate_duplicate_findings(
+                    [*seeded_findings, *file_findings]
+                )
                 payload.ai_scratchpad["thoughts"] = thoughts
                 payload.ai_scratchpad["stage"] = "reviewed"
                 payload.ai_scratchpad["step_count"] = total_step_count
 
             except Exception as exc:
                 err_desc = _format_error_detail("Review", exc)
-                payload.findings = []
+                payload.findings = consolidate_duplicate_findings(
+                    [*seeded_findings, *file_findings]
+                )
                 payload.ai_scratchpad["stage"] = "failed"
                 payload.ai_scratchpad["error"] = err_desc
                 payload.ai_scratchpad.setdefault("thoughts", []).append(
@@ -1727,7 +1756,6 @@ class ReviewPipelineOrchestrator:
         except Exception as exc:
             logger.error("Error reviewing file %s: %s", payload.file_path, exc)
             err_desc = _format_error_detail("Review", exc)
-            payload.findings = []
             payload.ai_scratchpad["stage"] = "failed"
             payload.ai_scratchpad["error"] = err_desc
             self.errored_files[payload.file_path] = err_desc
@@ -1861,7 +1889,6 @@ class ReviewPipelineOrchestrator:
                             payload.file_path,
                             type(res).__name__,
                         )
-                        payload.findings = []
                         payload.ai_scratchpad["stage"] = "failed"
                         payload.ai_scratchpad["error"] = err_desc
                         self.errored_files[payload.file_path] = err_desc
@@ -1876,7 +1903,6 @@ class ReviewPipelineOrchestrator:
                             payload.file_path,
                             type(exc).__name__,
                         )
-                        payload.findings = []
                         payload.ai_scratchpad["stage"] = "failed"
                         payload.ai_scratchpad["error"] = err_desc
                         self.errored_files[payload.file_path] = err_desc
