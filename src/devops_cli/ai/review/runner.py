@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from devops_cli.ai.analyze.cache import _load_file_analysis_metas
 from devops_cli.ai.client import AIClientError, LLMClient
+from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
 from devops_cli.ai.review.chunker import (
     _extract_header_filenames,
@@ -47,6 +48,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_REVIEW_MAX_DIFF_CHARS,
+    DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
@@ -697,11 +699,12 @@ def _execute_review_segment_attempt(
         seg_start = time.monotonic()
         proc_sec: float | None = None
         try:
-            res_obj = clients.analysis.chat(
-                system=analysis_system,
-                user=user_prompt,
-                validator=lambda text: parse_review_response(text) is not None,
-            )
+            with limit_completion_tokens(DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS):
+                res_obj = clients.analysis.chat(
+                    system=analysis_system,
+                    user=user_prompt,
+                    validator=lambda text: parse_review_response(text) is not None,
+                )
             result_text = str(res_obj)
             proc_sec = getattr(res_obj, "processing_seconds", None)
             res_backend = getattr(res_obj, "backend_info", None) or getattr(

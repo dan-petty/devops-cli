@@ -49,6 +49,21 @@ global_ollama_url_lock = threading.Lock()
 # in the caller's context, so its spend is recorded after the last chunk, not where headers arrive.
 stream_served_by: ContextVar[str | None] = ContextVar("stream_served_by", default=None)
 
+# A reply-token cap for the calls made inside `limit_completion_tokens`. It travels with the
+# context, like the request priority, so one call site can bound a reply without every layer
+# between it and the provider taking a parameter.
+completion_cap: ContextVar[int | None] = ContextVar("completion_cap", default=None)
+
+
+@contextmanager
+def limit_completion_tokens(limit: int) -> Generator[None]:
+    """Cap the reply of every LLM call made inside the block at ``limit`` tokens."""
+    token = completion_cap.set(limit)
+    try:
+        yield
+    finally:
+        completion_cap.reset(token)
+
 
 @contextmanager
 def request_priority_scope(priority: RequestPriority | str) -> Generator[None]:

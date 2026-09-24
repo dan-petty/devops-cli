@@ -30,6 +30,7 @@ from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.analyze.cache import load_cached_analysis
 from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.client import LLMClient
+from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS
 from devops_cli.ai.review.classification import (
     FileContextType,
@@ -66,7 +67,10 @@ from devops_cli.config.constants import (
     CONST_MAX_PROBE_FILE_SIZE_BYTES,
     CONST_PROBE_MANIFEST_NAMES,
 )
-from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
+from devops_cli.config.defaults import (
+    DEFAULT_CURRENT_PATH,
+    DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
+)
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (
     DependencySpec,
@@ -620,14 +624,15 @@ def _execute_page_review_steps(
     """Execute review pipeline on a page prompt and process step findings."""
     # An empty history reviews each page on its own: cached persona agents would otherwise
     # resend every earlier file they saw, overflowing small context windows.
-    result = pipeline.run(
-        prompt,
-        max_turns_per_agent=1,
-        enable_thinking=False,
-        parallel=True,
-        skip_rag=True,
-        message_history=[],
-    )
+    with limit_completion_tokens(DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS):
+        result = pipeline.run(
+            prompt,
+            max_turns_per_agent=1,
+            enable_thinking=False,
+            parallel=True,
+            skip_rag=True,
+            message_history=[],
+        )
     for step in result.steps:
         _process_pipeline_step_findings(
             step=step,

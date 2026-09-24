@@ -373,6 +373,12 @@ DEFAULT_REVIEW_PERSONA: str = "devsecops"
 DEFAULT_REVIEW_MAX_DIFF_CHARS: int = 128000
 # Smallest review page, so a tiny context window cannot split a diff into hundreds of calls.
 DEFAULT_REVIEW_MIN_DIFF_CHARS: int = 8000
+# Reply caps, so a runaway generation cannot stall a review: a persona's findings list, and a
+# verification verdict sized to the findings it covers (base plus a share per finding).
+DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS: int = 8192
+DEFAULT_REVIEW_VERIFICATION_REPLY_BASE_TOKENS: int = 2048
+DEFAULT_REVIEW_VERIFICATION_REPLY_TOKENS_PER_FINDING: int = 384
+DEFAULT_REVIEW_VERIFICATION_REPLY_MAX_TOKENS: int = 8192
 DEFAULT_REVIEW_LINE_OVERLAP_TOLERANCE: int = 2
 DEFAULT_REVIEW_TITLE_SIMILARITY_THRESHOLD: float = 0.5
 DEFAULT_REVIEW_MAX_TITLE_LENGTH: int = 200
