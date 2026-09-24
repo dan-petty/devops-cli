@@ -845,6 +845,47 @@ devops ai review corpus score [OPTIONS] <corpus_dir>
 | `--session`, `-s` | `string` | - | Review session to score (default: the latest review of the corpus). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
+### `devops ai review hallucinations`
+
+```bash
+devops ai review hallucinations COMMAND [ARGS]...
+```
+
+#### `devops ai review hallucinations list`
+
+**List catalog entries: builtin ones shipped with the tool, and learned ones from this workspace.**
+
+```bash
+devops ai review hallucinations list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--learned` | `boolean` | - | Show learned entries only. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+#### `devops ai review hallucinations remove`
+
+**Remove learned catalog entries; builtin entries cannot be removed.**
+
+```bash
+devops ai review hallucinations remove [OPTIONS] <ids>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<ids>` | `string` | No | Ids of learned entries to remove. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--all-learned` | `boolean` | - | Remove every learned entry. |
+
 ---
 
 ## `devops ai analyze`

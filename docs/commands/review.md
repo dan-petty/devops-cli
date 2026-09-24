@@ -356,3 +356,46 @@ devops review corpus score [OPTIONS] <corpus_dir>
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
+
+## `devops review hallucinations`
+
+```bash
+devops review hallucinations COMMAND [ARGS]...
+```
+
+### `devops review hallucinations list`
+
+**List catalog entries: builtin ones shipped with the tool, and learned ones from this workspace.**
+
+```bash
+devops review hallucinations list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--learned` | `boolean` | - | Show learned entries only. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+### `devops review hallucinations remove`
+
+**Remove learned catalog entries; builtin entries cannot be removed.**
+
+```bash
+devops review hallucinations remove [OPTIONS] <ids>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<ids>` | `string` | No | Ids of learned entries to remove. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--all-learned` | `boolean` | - | Remove every learned entry. |
+
+---

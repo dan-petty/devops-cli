@@ -17,6 +17,9 @@ import json
 import logging
 import os
 import re
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -378,6 +381,41 @@ def get_common_hallucinations_file_path() -> Path:
     return target
 
 
+# Whether invalidations teach the catalog in this context. Evaluation replays of recorded
+# findings turn it off: replaying a verdict is not new evidence.
+_LEARNING: ContextVar[bool] = ContextVar("hallucination_catalog_learning", default=True)
+
+# A claim that a file does not parse. The word "syntax" alone is not one: "f-string syntax
+# interpolates user input into SQL" and "bare `except` clause" describe code that parses.
+SYNTAX_CLAIM = re.compile(
+    r"\bsyntax\s*error\b|\bsyntaxerror\b|\binvalid\s+(?:python\s+)?syntax\b|\bparse\s+error\b"
+    r"|\b(?:fails?|failed|unable)\s+to\s+(?:parse|compile)\b|\bpython\s*2\s+(?:syntax|style)\b"
+    r"|\bdeprecated\s+syntax\b",
+    re.IGNORECASE,
+)
+
+# A CWE-400 finding about input the program does not control; reading it without a bound is a
+# real defect, whatever the call looks like.
+_UNTRUSTED_INPUT_CLAIM = re.compile(
+    r"\b(?:user|attacker|untrusted|external|upload\w*|request|client|remote|tenant)\b",
+    re.IGNORECASE,
+)
+
+
+@contextmanager
+def catalog_learning_disabled() -> Iterator[None]:
+    """Keep invalidations inside the block from teaching the catalog."""
+    token = _LEARNING.set(False)
+    try:
+        yield
+    finally:
+        _LEARNING.reset(token)
+
+
+def _builtin_ids() -> frozenset[str]:
+    return frozenset(b.id for b in _build_builtin_hallucinations())
+
+
 def load_common_hallucinations(
     target_file: Path | None = None, include_builtin: bool = True
 ) -> list[CommonHallucinationEntry]:
@@ -389,18 +427,32 @@ def load_common_hallucinations(
         for b in _build_builtin_hallucinations():
             entries_by_id[b.id] = b
 
-    if fpath.exists() and fpath.is_file():
-        try:
-            raw_data = json.loads(fpath.read_text(encoding="utf-8"))
-            if isinstance(raw_data, list):
-                for item in raw_data:
-                    if isinstance(item, dict):
-                        entry = CommonHallucinationEntry.model_validate(item)
-                        entries_by_id[entry.id] = entry
-        except Exception as exc:
-            logger.debug("Failed reading common hallucinations from %s: %s", fpath, exc)
+    # A learned copy of a builtin entry is ignored: learning used to widen builtin keywords
+    # and persist the copy, which then shadowed the shipped entry and its later fixes.
+    builtin_ids = _builtin_ids()
+    for entry in _read_ledger(fpath):
+        if entry.id not in builtin_ids:
+            entries_by_id[entry.id] = entry
 
     return list(entries_by_id.values())
+
+
+def _read_ledger(fpath: Path) -> list[CommonHallucinationEntry]:
+    """The valid entries persisted in a ledger file; a malformed record is skipped alone."""
+    if not (fpath.exists() and fpath.is_file()):
+        return []
+    try:
+        raw_data = json.loads(fpath.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.debug("Failed reading common hallucinations from %s: %s", fpath, exc)
+        return []
+    entries: list[CommonHallucinationEntry] = []
+    for item in raw_data if isinstance(raw_data, list) else []:
+        try:
+            entries.append(CommonHallucinationEntry.model_validate(item))
+        except ValidationError as exc:
+            logger.debug("Skipping malformed hallucination record in %s: %s", fpath, exc)
+    return entries
 
 
 def save_common_hallucinations(
@@ -419,7 +471,9 @@ def save_common_hallucinations(
 def register_common_hallucination(
     entry: CommonHallucinationEntry, target_file: Path | None = None
 ) -> CommonHallucinationEntry:
-    """Register or update a common hallucination entry in the persistent catalog."""
+    """Register or update a learned entry in the persistent catalog; builtin entries are fixed."""
+    if entry.id in _builtin_ids():
+        return entry
     file_entries = load_common_hallucinations(target_file=target_file, include_builtin=False)
     by_id = {e.id: e for e in file_entries}
 
@@ -629,6 +683,15 @@ def _verify_symbol_defined_in_ast_or_module(
     return False
 
 
+def _cited_lines(finding: Finding, file_path: Path, context: int = 1) -> str:
+    """The lines a finding cites, with `context` lines either side; "" without a line."""
+    numbers = [int(n) for n in re.findall(r"\d+", finding.location.partition(":")[2])]
+    if not numbers:
+        return ""
+    lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    return "\n".join(lines[max(0, min(numbers) - 1 - context) : max(numbers) + context])
+
+
 def verify_ground_truth_hallucination(
     finding: Finding, entry: CommonHallucinationEntry, file_path: Path | None
 ) -> bool:
@@ -648,32 +711,14 @@ def verify_ground_truth_hallucination(
             # Genuinely broken syntax! NEVER invalidate a real syntax error.
             return False
 
-        if "missing" in entry.id.lower() or "symbol" in entry.id.lower():
-            return _verify_symbol_defined_in_ast_or_module(finding, tree, file_path)
-
-        if "header" in entry.id.lower():
-            raw_text = file_path.read_text(encoding="utf-8", errors="replace")
-            has_auth = any(
-                pattern in raw_text
-                for pattern in (
-                    'headers["Authorization"]',
-                    "headers['Authorization']",
-                    '"Authorization":',
-                    "'Authorization':",
-                )
-            )
-            has_dispatch = any(
-                dispatch in raw_text
-                for dispatch in (
-                    "headers=headers",
-                    "headers = headers",
-                    "headers=self._headers",
-                    "headers=default_headers",
-                )
-            )
-            return has_auth and has_dispatch
-
-        return True
+        del tree
+        # Symbol and header claims have their own deterministic checks, which ran first with
+        # the claim's own evidence; a catalog match must not overrule them with a weaker test.
+        # What parsing proves is only that a syntax-error claim is false.
+        entry_id = entry.id.lower()
+        if any(word in entry_id for word in ("missing", "symbol", "header")):
+            return False
+        return bool(SYNTAX_CLAIM.search(f"{finding.title}\n{finding.description or ''}"))
 
     if entry.category == HallucinationCategory.SECRET_SCANNING:
         # Check if finding explicitly points to masked/redacted placeholder
@@ -708,12 +753,14 @@ def verify_ground_truth_hallucination(
         )
 
     if entry.category == HallucinationCategory.MUTABLE_DEFAULTS:
-        # Verify target file actually uses default_factory on that line
-        content = file_path.read_text(encoding="utf-8", errors="replace")
-        return "default_factory" in content
+        # default_factory at the cited lines, not anywhere in the module: a real `def f(x=[])`
+        # sits beside Pydantic fields in many files.
+        return "default_factory" in _cited_lines(finding, file_path)
 
     if entry.category == HallucinationCategory.BOUNDARY_ERRORS:
         finding_text = f"{finding.title} {finding.description or ''}".lower()
+        if _UNTRUSTED_INPUT_CLAIM.search(finding_text):
+            return False
         if any(pat in finding_text for pat in ("cwe-400", "cwe400", "read_text", "exhaustion")):
             loc = finding.location
             if ":" in loc:
@@ -969,7 +1016,14 @@ def auto_record_invalidated_finding(
     reason: str | None = None,
     target_file: Path | None = None,
 ) -> CommonHallucinationEntry | None:
-    """Automatically record an invalidated finding into the common hallucinations catalog."""
+    """Record a deterministically invalidated finding into the learned catalog.
+
+    Only invalidations with ground truth may teach: a parser, an AST or type check, a catalog
+    match that passed its own ground truth, or a person. An LLM verdict is not one; a wrongly
+    invalidated real defect learned here would be matched against future findings.
+    """
+    if not _LEARNING.get():
+        return None
     effective_reason = reason or finding.invalidation_reason or ""
     matches = find_similar_hallucinations(
         finding, threshold=0.5, file_path=file_path, target_file=target_file
@@ -978,6 +1032,9 @@ def auto_record_invalidated_finding(
     if matches:
         top_match = matches[0]
         entry = top_match.hallucination
+        if entry.source == "builtin":
+            # A builtin entry already covers this finding; its keywords are not widened.
+            return entry
         safe_hints = [
             h for h in _extract_keyword_hints(finding) if h not in _FORBIDDEN_COMMON_WORDS
         ]
@@ -1044,6 +1101,19 @@ def _extract_keyword_hints(finding: Finding, extra_text: str = "") -> list[str]:
     return list(dict.fromkeys(filtered))
 
 
+def remove_learned_hallucinations(
+    ids: Iterable[str] | None = None, target_file: Path | None = None
+) -> list[str]:
+    """Remove learned entries by id, or all of them when no ids are given; return the removed."""
+    learned = load_common_hallucinations(target_file=target_file, include_builtin=False)
+    wanted = set(ids) if ids is not None else {e.id for e in learned}
+    removed = [e.id for e in learned if e.id in wanted]
+    if removed:
+        kept = [e for e in learned if e.id not in wanted]
+        save_common_hallucinations(kept, target_file=target_file)
+    return removed
+
+
 def render_negative_exemplars(
     target_file: Path | None = None,
     limit: int = DEFAULT_HALLUCINATION_EXEMPLAR_COUNT,
@@ -1065,7 +1135,13 @@ def render_negative_exemplars(
     Returns an empty string when the ledger is empty, so a first run against an unfamiliar
     repository carries no block at all.
     """
-    entries = load_common_hallucinations(target_file=target_file, include_builtin=True)
+    # Only curated builtin entries: a learned entry may be a real defect that verification got
+    # wrong, and telling every reviewer not to raise it would hide it at the source.
+    entries = [
+        e
+        for e in load_common_hallucinations(target_file=target_file, include_builtin=True)
+        if e.source == "builtin"
+    ]
     ranked = sorted(entries, key=lambda e: e.occurrence_count, reverse=True)[: max(0, limit)]
     lines = [
         f"- {(entry.description or entry.name or '').strip()[:max_chars]}"

@@ -120,6 +120,7 @@ def _load_records(path: Path, persona: str) -> list[dict[str, Any]]:
 
 def _deterministic_verdict(record: dict[str, Any], repo_root: Path) -> str | None:
     """Return the status the deterministic layer assigns, or None if it cannot build one."""
+    from devops_cli.ai.review.common_hallucinations import catalog_learning_disabled
     from devops_cli.ai.review.verification import _deterministic_pre_verification
     from devops_cli.ai.review_schema import Finding
 
@@ -132,7 +133,9 @@ def _deterministic_verdict(record: dict[str, Any], repo_root: Path) -> str | Non
         )
     except Exception:
         return None
-    return str(_deterministic_pre_verification(finding, repo_root=repo_root).status)
+    # Replaying a recorded finding is not new evidence, so it must not teach the catalog.
+    with catalog_learning_disabled():
+        return str(_deterministic_pre_verification(finding, repo_root=repo_root).status)
 
 
 def evaluate_persona_prompts(

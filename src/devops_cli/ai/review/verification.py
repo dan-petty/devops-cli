@@ -282,16 +282,6 @@ def _build_validation_prompt(
     )
 
 
-# A claim that the file does not parse. The word "syntax" alone is not one: "f-string syntax
-# interpolates user input into SQL" and "bare `except` clause" describe code that parses.
-_SYNTAX_CLAIM = re.compile(
-    r"\bsyntax\s*error\b|\bsyntaxerror\b|\binvalid\s+(?:python\s+)?syntax\b|\bparse\s+error\b"
-    r"|\b(?:fails?|failed|unable)\s+to\s+(?:parse|compile)\b|\bpython\s*2\s+(?:syntax|style)\b"
-    r"|\bdeprecated\s+syntax\b",
-    re.IGNORECASE,
-)
-
-
 _HEADER_WINDOW_LINES = 25
 # A synthetic value: named as one ("changeme", "dummy") or marked inside ("ghp_fake123",
 # AWS's documented "...EXAMPLE" key).
@@ -325,7 +315,9 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
     if not (file_path.exists() and file_path.is_file()):
         return None
 
-    if not _SYNTAX_CLAIM.search(f"{finding.title}\n{finding.description or ''}"):
+    from devops_cli.ai.review.common_hallucinations import SYNTAX_CLAIM
+
+    if not SYNTAX_CLAIM.search(f"{finding.title}\n{finding.description or ''}"):
         return None
 
     suffix = file_path.suffix.lower()
@@ -1215,13 +1207,8 @@ def _apply_single_finding_verification(
     status_val, is_rep = _verdict_status(item, inv_matched)
     is_v = status_val == "VERIFIED"
     is_m = status_val in {"INVALIDATED", "MITIGATED"}
-    if status_val == "INVALIDATED":
-        try:
-            from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
-
-            auto_record_invalidated_finding(f, reason="; ".join(inv_matched) or None)
-        except Exception:
-            pass
+    # A model's invalidation does not teach the hallucinations catalog: it is the judgement
+    # under test, and a real defect it wrongly dismissed would be learned as a false alarm.
 
     # A confidence derived from `len(verified_criteria_matched) / len(verification_criteria)`
     # divides the model's claim about its criteria by the criteria the model wrote. It

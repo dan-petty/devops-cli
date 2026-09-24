@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
@@ -1325,6 +1326,87 @@ def corpus_score(
         write_stdout(score.model_dump_json(indent=2) + "\n")
         return
     _render_corpus_score(score)
+
+
+# =============================================================================
+# Commands: devops review hallucinations list | remove
+# =============================================================================
+
+hallucinations_app = new_typer(help=HELP.review.hallucinations, no_args_is_help=True)
+app.add_typer(hallucinations_app, name="hallucinations")
+
+
+@hallucinations_app.command("list")
+def hallucinations_list(
+    learned_only: Annotated[
+        bool,
+        typer.Option("--learned", help=HELP.review.hallucinations_learned_only),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+) -> None:
+    """List catalog entries: builtin ones shipped with the tool, and learned ones from this workspace."""
+    from devops_cli.ai.review.common_hallucinations import load_common_hallucinations
+
+    entries = load_common_hallucinations(include_builtin=not learned_only)
+    entries.sort(key=lambda e: (e.source == "builtin", -e.occurrence_count, e.id))
+    if json_output:
+        write_stdout(json.dumps([e.model_dump(mode="json") for e in entries], indent=2) + "\n")
+        return
+    print_table(
+        title=f"Hallucinations Catalog ({len(entries)} entries)",
+        columns=[
+            ("Id", "cyan"),
+            ("Source", ""),
+            ("Category", ""),
+            ("Seen", "right"),
+            ("Last Seen", "dim"),
+            ("Name", ""),
+        ],
+        rows=[
+            [
+                e.id,
+                e.source,
+                str(e.category),
+                str(e.occurrence_count),
+                e.last_seen[:10],
+                escape_text(e.name[:70]),
+            ]
+            for e in entries
+        ],
+    )
+
+
+@hallucinations_app.command("remove")
+def hallucinations_remove(
+    ids: Annotated[
+        list[str] | None,
+        typer.Argument(help=HELP.review.hallucination_ids),
+    ] = None,
+    all_learned: Annotated[
+        bool,
+        typer.Option("--all-learned", help=HELP.review.hallucinations_all_learned),
+    ] = False,
+) -> None:
+    """Remove learned catalog entries; builtin entries cannot be removed."""
+    from devops_cli.ai.review.common_hallucinations import (
+        _builtin_ids,
+        remove_learned_hallucinations,
+    )
+
+    if not ids and not all_learned:
+        print_error("Name the learned entries to remove, or pass --all-learned.")
+        raise typer.Exit(1)
+    if builtin := sorted(set(ids or ()) & _builtin_ids()):
+        print_error(f"Builtin entries ship with the tool and cannot be removed: {builtin}")
+        raise typer.Exit(1)
+    removed = remove_learned_hallucinations(None if all_learned else ids)
+    missing = sorted(set(ids or ()) - set(removed))
+    if missing:
+        print_warning(f"No learned entry with id: {missing}")
+    print_success(f"Removed {len(removed)} learned entr{'y' if len(removed) == 1 else 'ies'}.")
 
 
 # =============================================================================
