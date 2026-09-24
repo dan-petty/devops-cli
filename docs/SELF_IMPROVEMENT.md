@@ -206,6 +206,20 @@ The self-improvement loop is monitored via OpenTelemetry distributed tracing and
 
 Tracing spans decorated with `@trace_span("review.<phase>")` capture execution latency, prompt token counts, and completion budgets across the entire pipeline.
 
+### Review Profiles & Benchmarks
+
+Every review writes `profile.json` next to its `findings.json`: wall time per stage (pre-analysis,
+payloads, persona review, verification, re-ranking, report), the LLM calls, prompt and completion
+tokens made during each stage, the backends the gateway routed them to, and the candidate,
+verified and reported finding counts. The profile's session ID is an attribute of the session's
+`review.session` span, so a slow stage can be followed into its trace.
+
+A single review is not a measurement: identical runs produce different numbers of candidate
+findings, and verification time follows them. `devops review benchmark <targets> -n 3` reviews the
+same files several times with the response cache bypassed and saves the medians under
+`.data/reviews/benchmarks/`, with seconds per candidate finding and a digest of the reviewed files.
+Compare benchmarks only when their corpus digests match.
+
 ---
 
 ## 5. Loop Failure Modes & Calibration Guardrails
