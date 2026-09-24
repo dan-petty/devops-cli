@@ -26,6 +26,7 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_DEVCONTAINER_PUBLISHED_IMAGE,
     CONST_KEYRING_PACKAGES,
+    CONST_KEYRING_PROMPT_TIMEOUT_SECONDS,
     CONST_MCP_JSON_NAME,
     CONST_PYPROJECT_FILENAME,
     CONST_ROOT_DIR,
@@ -717,6 +718,25 @@ def _bootstrap_developer_tools(*, dry_run: bool = False) -> list[str]:
     return actions
 
 
+# Sourced by bash and zsh alike. It asks only while post-start's marker says the keyring is
+# still locked, and flock keeps several restored terminals from all prompting at once.
+_KEYRING_UNLOCK_HOOK_MARKER = "devops-cli keyring unlock"
+_KEYRING_UNLOCK_HOOK = (
+    f"\n# ── {_KEYRING_UNLOCK_HOOK_MARKER} ──────────────────────────────────────────────\n"
+    '_devops_kr="${DBUS_SESSION_BUS_ADDRESS#unix:path=}"\n'
+    '_devops_kr="${_devops_kr%/*}"\n'
+    'if [ -t 0 ] && [ -e "$_devops_kr/.keyring-unlock-pending" ] \\\n'
+    "  && command -v devops >/dev/null 2>&1; then\n"
+    "  if command -v flock >/dev/null 2>&1; then\n"
+    '    flock -n "$_devops_kr/.keyring-unlock.lock" devops devcontainer unlock-keyring || true\n'
+    "  else\n"
+    "    devops devcontainer unlock-keyring || true\n"
+    "  fi\n"
+    "fi\n"
+    "unset _devops_kr\n"
+)
+
+
 def _install_keyring_packages(*, dry_run: bool = False) -> list[str]:
     """Install gnome-keyring on images that lack it, so the configured bus can serve secrets.
 
@@ -784,6 +804,10 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
         )
         actions.append("Added shell completion and dot alias to ~/.bashrc")
 
+    if _KEYRING_UNLOCK_HOOK_MARKER not in bashrc_content:
+        bashrc_additions.append(_KEYRING_UNLOCK_HOOK)
+        actions.append("Added the keyring unlock prompt to ~/.bashrc")
+
     if bashrc_additions and not dry_run:
         with bashrc.open("a", encoding="utf-8") as file_handle:
             for addition in bashrc_additions:
@@ -804,6 +828,10 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
             "fi\n"
         )
         actions.append("Added shell completion and dot alias to ~/.zshrc")
+
+    if _KEYRING_UNLOCK_HOOK_MARKER not in zshrc_content:
+        zshrc_additions.append(_KEYRING_UNLOCK_HOOK)
+        actions.append("Added the keyring unlock prompt to ~/.zshrc")
 
     if zshrc_additions and not dry_run:
         with zshrc.open("a", encoding="utf-8") as file_handle:
@@ -1264,7 +1292,10 @@ def _start_session_bus(*, dry_run: bool = False) -> list[str]:
                 f"Warning: Failed to start D-Bus session bus (exit {res.returncode}): {res.stderr}"
             )
             return actions
-    # A fresh bus means a fresh keyring daemon, and that always starts locked.
+        # A fresh bus means a fresh keyring daemon, and that always starts locked. The marker
+        # tells post-start and the first interactive shell to ask for the password.
+        if shutil.which("gnome-keyring-daemon"):
+            _keyring_unlock_pending(socket_path).touch()
     actions.append(
         f"Started D-Bus session bus at {socket_path}; "
         "run `devops devcontainer unlock-keyring` to unlock the keyring"
@@ -1343,33 +1374,119 @@ def _keyring_is_locked() -> bool | None:
 @app.command("unlock-keyring")
 def unlock_keyring() -> None:
     """Create or unlock the gnome-keyring login keyring that gh, git and devops store secrets in."""
-    import getpass
+    if not _unlock_keyring(timeout=None):
+        raise typer.Exit(1)
 
+
+def _keyring_unlock_pending(socket_path: Path) -> Path:
+    """Return the marker post-start leaves while the keyring it started is still locked."""
+    return socket_path.parent / ".keyring-unlock-pending"
+
+
+def _stdin_is_terminal() -> bool:
+    """Report whether someone could be typing into stdin."""
+    import sys
+
+    return sys.stdin.isatty()
+
+
+def _read_password(prompt: str, timeout: int | None) -> str:
+    """Read a password without echo, giving up with TimeoutError after timeout seconds."""
+    import getpass
+    import signal
+
+    if timeout is None or not hasattr(signal, "SIGALRM"):
+        return getpass.getpass(prompt)
+
+    def expire(_signum: int, _frame: object) -> None:
+        raise TimeoutError
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.alarm(timeout)
+    try:
+        return getpass.getpass(prompt)  # getpass restores echo on the way out
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def _move_plaintext_gh_tokens() -> list[str]:
+    """Move each plaintext gh token into the unlocked keyring, reusing the same token.
+
+    Returns the hosts moved. Logging in again with the token already held mints nothing, unlike
+    `gh auth refresh`, which counts against GitHub's ten-tokens-per-app limit.
+    """
+    if any(os.getenv(name) for name in ("GH_TOKEN", "GITHUB_TOKEN", "DEVOPS_CLI_GITHUB_TOKEN")):
+        return []  # gh prefers an environment token and refuses to log in over it
+    # gh needs the bus to reach the keyring; without it the login falls back to plain text again.
+    gh_env = {"DBUS_SESSION_BUS_ADDRESS", "GH_CONFIG_DIR", "XDG_CONFIG_HOME"}
+    moved: list[str] = []
+    for host in _gh_plaintext_token_hosts():
+        token = run_subprocess(
+            ["gh", "auth", "token", "-h", host], extra_allowed_env=gh_env, check=False, quiet=True
+        )
+        if token.returncode != 0 or not token.stdout.strip():
+            continue
+        run_subprocess(
+            ["gh", "auth", "login", "-h", host, "--with-token"],
+            input=token.stdout.strip(),
+            extra_allowed_env=gh_env,
+            check=False,
+            quiet=True,
+        )
+        if host not in _gh_plaintext_token_hosts():
+            moved.append(host)
+    return moved
+
+
+def _unlock_keyring(*, timeout: int | None) -> bool:
+    """Prompt for the keyring password, unlock or create the keyring, and move gh tokens into it.
+
+    With a timeout, an unanswered prompt gives up instead of blocking the caller.
+    """
     socket_path = _session_bus_socket()
     if socket_path is None or not shutil.which("gnome-keyring-daemon"):
         print_error(ERRORS.devcontainer.keyring_unavailable)
-        raise typer.Exit(1)
+        return False
     _start_session_bus()  # a no-op once post-start has started it
+    pending = _keyring_unlock_pending(socket_path)
 
     first_time = not _login_keyring_file().exists()
-    password = getpass.getpass(
-        MESSAGES.devcontainer.keyring_new_password
-        if first_time
-        else MESSAGES.devcontainer.keyring_password
-    )
-    if not password:
-        # An empty password stores every secret in the keyring file as plain text.
-        print_error(ERRORS.devcontainer.keyring_empty_password)
-        raise typer.Exit(1)
-    if first_time and getpass.getpass(MESSAGES.devcontainer.keyring_repeat_password) != password:
-        print_error(ERRORS.devcontainer.keyring_password_mismatch)
-        raise typer.Exit(1)
+    # Checked only for an existing keyring: probing a missing one asks gnome-keyring to prompt.
+    if not first_time and _keyring_is_locked() is False:
+        pending.unlink(missing_ok=True)
+        print_info(MESSAGES.devcontainer.keyring_already_unlocked, prefix=False)
+        return True
+
+    try:
+        password = _read_password(
+            MESSAGES.devcontainer.keyring_new_password
+            if first_time
+            else MESSAGES.devcontainer.keyring_password,
+            timeout,
+        )
+        if not password:
+            # An empty password stores every secret in the keyring file as plain text.
+            print_error(ERRORS.devcontainer.keyring_empty_password)
+            return False
+        if (
+            first_time
+            and _read_password(MESSAGES.devcontainer.keyring_repeat_password, timeout) != password
+        ):
+            print_error(ERRORS.devcontainer.keyring_password_mismatch)
+            return False
+    except TimeoutError, EOFError, KeyboardInterrupt:
+        print_info(MESSAGES.devcontainer.keyring_unlock_skipped, prefix=False)
+        return False
 
     # --unlock reads the password from stdin and creates the login keyring when it is missing.
     # Only --replace reaches the daemon already running, and a wrong password still exits 0,
-    # so the lock state is read back afterwards.
+    # so the lock state is read back afterwards. The replacement daemon gets its own session:
+    # otherwise closing the terminal it was started from -- or the pty VS Code gives
+    # post-start -- hangs it up, and D-Bus activates a fresh, locked one on the next request.
+    new_session = ["setsid"] if shutil.which("setsid") else []
     run_subprocess(
-        ["gnome-keyring-daemon", "--replace", "--unlock", "--components=secrets"],
+        [*new_session, "gnome-keyring-daemon", "--replace", "--unlock", "--components=secrets"],
         input=password,
         env={"XDG_RUNTIME_DIR": str(socket_path.parent)},
         extra_allowed_env={"DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "WAYLAND_DISPLAY"},
@@ -1379,13 +1496,18 @@ def unlock_keyring() -> None:
     locked = _keyring_is_locked()
     if locked is None:
         print_error(ERRORS.devcontainer.keyring_not_created)
-        raise typer.Exit(1)
+        return False
     if locked:
         print_error(ERRORS.devcontainer.keyring_wrong_password)
-        raise typer.Exit(1)
+        return False
+
+    pending.unlink(missing_ok=True)
     print_success(MESSAGES.devcontainer.keyring_unlocked, prefix=False)
+    for host in _move_plaintext_gh_tokens():
+        print_success(MESSAGES.devcontainer.gh_token_moved.format(host=host), prefix=False)
     for warning in _gh_plaintext_token_warnings():
         print_warning(warning, prefix=False)
+    return True
 
 
 # =============================================================================
@@ -1443,6 +1565,13 @@ def post_start(
     actions = _run_post_start_lifecycle(ws, dry_run=False)
     for action in actions:
         print_info(f"  [green]✓[/green] {action}", prefix=False)
+
+    # VS Code runs lifecycle commands on a pty, so the keyring can be unlocked right here. If
+    # nobody answers in time, the first interactive terminal asks instead (post-create hook).
+    socket_path = _session_bus_socket()
+    pending = socket_path is not None and _keyring_unlock_pending(socket_path).exists()
+    if pending and _stdin_is_terminal():
+        _unlock_keyring(timeout=CONST_KEYRING_PROMPT_TIMEOUT_SECONDS)
     print_success(MESSAGES.devcontainer.post_start_ready, prefix=False)
 
 
