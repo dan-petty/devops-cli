@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 from pydantic import BaseModel
+from pydantic_ai import RunContext
 
+from devops_cli.ai.output import TextOutput
 from devops_cli.ai.response_repair import (
     extract_tool_invocations,
     fix_llm_response,
@@ -147,3 +151,25 @@ def test_repair_json_string_rejects_oversized_payload(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr("devops_cli.ai.response_repair.DEFAULT_JSON_REPAIR_MAX_LENGTH", 20)
     assert repair_json_string("{" + (" " * 30) + "}") is None
+
+
+def _shout(text: str) -> str:
+    return text.upper()
+
+
+def _with_context(ctx: RunContext[Any], text: str) -> str:
+    return text.upper()
+
+
+async def _async_shout(text: str) -> str:
+    return text.upper()
+
+
+def test_text_output_functions_run_only_when_they_take_the_text_alone() -> None:
+    """Verify a text-only function parses the reply, and context-taking or async ones are skipped."""
+    results = [
+        fix_llm_response("hello", schema=cast(Any, TextOutput(fn))).parsed_model
+        for fn in (_shout, _with_context, _async_shout)
+    ]
+
+    assert results == ["HELLO", None, None]
