@@ -3573,7 +3573,7 @@ devops ai review samples list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category. |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 
 ##### `devops ai review samples fetch`
 
@@ -3593,7 +3593,30 @@ devops ai review samples fetch [OPTIONS] <names>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category. |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+
+##### `devops ai review samples validate`
+
+**Run devops ai tooling over fetched samples and save a JSON report per category.**
+
+```bash
+devops ai review samples validate [OPTIONS] <names>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<names>` | `string` | No | Sample(s) to validate (default: every sample, or every one in --category). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
 
 #### `devops ai review hallucinations`
 
@@ -4825,7 +4848,7 @@ devops review samples list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category. |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
 
 #### `devops review samples fetch`
 
@@ -4845,7 +4868,30 @@ devops review samples fetch [OPTIONS] <names>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category. |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+
+#### `devops review samples validate`
+
+**Run devops ai tooling over fetched samples and save a JSON report per category.**
+
+```bash
+devops review samples validate [OPTIONS] <names>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<names>` | `string` | No | Sample(s) to validate (default: every sample, or every one in --category). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
 
 ### `devops review hallucinations`
 

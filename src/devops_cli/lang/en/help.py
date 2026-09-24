@@ -858,7 +858,14 @@ class ReviewCommandHelp:
     samples_list: str = "List the sample catalog: category, languages, licence, pinned commit and paths, and whether each is fetched."
     samples_fetch: str = "Fetch samples at their pinned commits into the samples data directory, verifying commit, licence and paths."
     samples_names: str = "Sample(s) to fetch (default: every sample, or every one in --category)."
-    samples_category: str = "Only samples of this category."
+    samples_category: str = "Only samples of this category (repeatable)."
+    samples_validate: str = (
+        "Run devops ai tooling over fetched samples and save a JSON report per category."
+    )
+    samples_validate_names: str = (
+        "Sample(s) to validate (default: every sample, or every one in --category)."
+    )
+    samples_review: str = "Also review each category's synthetic defect corpus and score it (calls the configured LLM)."
     hallucinations: str = (
         "Inspect and prune the hallucinations catalog that deterministic verification learns from."
     )

@@ -127,7 +127,7 @@ def test_selecting_by_name_and_category() -> None:
 
     selected = (
         [s.name for s in catalog.select(["cobra", "click"])],
-        {s.category for s in catalog.select(category=SampleCategory.C_CPP)},
+        {s.category for s in catalog.select(categories=[SampleCategory.C_CPP])},
     )
 
     assert selected == (["click", "cobra"], {SampleCategory.C_CPP})

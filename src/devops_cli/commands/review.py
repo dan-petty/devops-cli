@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 from urllib.parse import urlparse
@@ -69,8 +69,16 @@ from devops_cli.ai.review.runner import (
     _prepare_pr_content,
     _review_candidate_files,
 )
+from devops_cli.ai.review.sample_validation import (
+    CategoryReport,
+    CorpusReview,
+    review_problems,
+    sample_files,
+    validate_category,
+)
 from devops_cli.ai.review.samples import (
     SampleCategory,
+    SampleRepository,
     checkout_problems,
     fetch_sample,
     load_sample_catalog,
@@ -1355,16 +1363,29 @@ samples_app = new_typer(help=HELP.review.samples, no_args_is_help=True)
 app.add_typer(samples_app, name="samples")
 
 
+SAMPLE_VALIDATIONS_DIRNAME = "sample-validations"
+
+
+def _select_samples(
+    names: list[str] | None, categories: list[SampleCategory] | None
+) -> list[SampleRepository]:
+    try:
+        return load_sample_catalog().select(names, categories)
+    except ValueError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+
+
 @samples_app.command("list")
 def samples_list(
     category: Annotated[
-        SampleCategory | None,
+        list[SampleCategory] | None,
         typer.Option("--category", "-c", help=HELP.review.samples_category),
     ] = None,
 ) -> None:
     """List the sample catalog, and whether each sample is fetched at its commit."""
     root = samples_dir()
-    samples = load_sample_catalog().select(category=category)
+    samples = load_sample_catalog().select(categories=category)
     print_table(
         title=f"{len(samples)} Sample Repositories ({root})",
         columns=[
@@ -1398,16 +1419,12 @@ def samples_fetch(
         typer.Argument(help=HELP.review.samples_names, show_default=False),
     ] = None,
     category: Annotated[
-        SampleCategory | None,
+        list[SampleCategory] | None,
         typer.Option("--category", "-c", help=HELP.review.samples_category),
     ] = None,
 ) -> None:
     """Fetch samples at their pinned commits, verifying commit, licence files and paths."""
-    try:
-        samples = load_sample_catalog().select(names, category)
-    except ValueError as exc:
-        print_error(str(exc))
-        raise typer.Exit(1) from exc
+    samples = _select_samples(names, category)
     root = samples_dir()
     if is_dry_run():
         for sample in samples:
@@ -1423,6 +1440,140 @@ def samples_fetch(
             print_success(f"{sample.name} at {sample.commit[:12]} → {root / sample.name}")
     if failed:
         raise typer.Exit(1)
+
+
+def _by_category(samples: list[SampleRepository]) -> dict[str, list[SampleRepository]]:
+    groups: dict[str, list[SampleRepository]] = {}
+    for sample in samples:
+        groups.setdefault(sample.category.value, []).append(sample)
+    return groups
+
+
+def _scored_session(corpus: DefectCorpus, session_id: str) -> CorpusScore:
+    session_dir = runner._get_reviews_base_dir() / session_id
+    reported = _session_findings(session_dir / "findings.json")
+    candidates_file = session_dir / CONST_REVIEW_CANDIDATES_FILENAME
+    candidates = _session_findings(candidates_file) if candidates_file.exists() else reported
+    return score_corpus(corpus, candidates, reported, session_id=session_id)
+
+
+def _review_sample_corpus(
+    samples: list[SampleRepository], root: Path, corpus_dir: Path, seed: int, all_personas: bool
+) -> CorpusReview:
+    """Inject the category's defects into copies of its samples, review them and score it."""
+    files = [
+        (file, f"{sample.name}/{file.relative_to(root / sample.name).as_posix()}")
+        for sample in samples
+        for file in sample_files(sample, root / sample.name)
+    ]
+    corpus = generate_corpus(
+        files, corpus_dir, sources=[str(root / sample.name) for sample in samples], seed=seed
+    )
+    review = CorpusReview(corpus_dir=str(corpus_dir), injections=len(corpus.injections))
+    if not corpus.injections:
+        return review
+    try:
+        with collect_profiles() as profiles:
+            path(targets=[corpus_dir / CORPUS_FILES_DIR], all_personas=all_personas, no_cache=True)
+    except typer.Exit as exc:
+        return review.model_copy(update={"error": f"the review exited with {exc.exit_code}"})
+    if not profiles:
+        return review.model_copy(update={"error": "the review wrote no session"})
+    session_id = profiles[-1].session_id
+    return review.model_copy(
+        update={"session_id": session_id, "score": _scored_session(corpus, session_id)}
+    )
+
+
+def _review_cell(report: CategoryReport) -> str:
+    review = report.review
+    if review is None:
+        return "-"
+    if review.score is None:
+        return review.error or f"{review.injections} injected"
+    score = review.score
+    return f"{score.found}/{score.reported}/{score.injections}"
+
+
+def _render_validation(reports: list[CategoryReport], run_dir: Path) -> None:
+    print_table(
+        title="devops ai Tooling on the Sample Repositories",
+        columns=[
+            ("Category", "cyan"),
+            ("Files", "right"),
+            ("Parsers", ""),
+            ("Symbols", "right"),
+            ("Repomap files", "right"),
+            ("Review found/reported/injected", ""),
+            ("Problems", "right"),
+        ],
+        rows=[
+            [
+                report.category,
+                str(len(report.files)),
+                ", ".join(f"{name} {count}" for name, count in sorted(report.parsers.items())),
+                str(sum(result.symbols for result in report.files)),
+                str(sum(repomap.files_mapped for repomap in report.repomaps)),
+                _review_cell(report),
+                str(len(report.problems)),
+            ]
+            for report in reports
+        ],
+    )
+    for report in reports:
+        for problem in report.problems:
+            print_warning(f"{report.category}: {problem}", prefix=False)
+    print_success(f"Reports saved → [bold]{run_dir}[/bold]")
+
+
+@samples_app.command("validate")
+def samples_validate(
+    names: Annotated[
+        list[str] | None,
+        typer.Argument(help=HELP.review.samples_validate_names, show_default=False),
+    ] = None,
+    category: Annotated[
+        list[SampleCategory] | None,
+        typer.Option("--category", "-c", help=HELP.review.samples_category),
+    ] = None,
+    review: Annotated[
+        bool,
+        typer.Option("--review", help=HELP.review.samples_review),
+    ] = False,
+    all_personas: Annotated[
+        bool,
+        typer.Option("--all", help=HELP.options.all_personas),
+    ] = False,
+    seed: Annotated[
+        int,
+        typer.Option("--seed", help=HELP.review.corpus_seed),
+    ] = DEFAULT_REVIEW_CORPUS_SEED,
+) -> None:
+    """Run devops ai tooling over fetched samples and save a JSON report per category."""
+    samples = _select_samples(names, category)
+    root = samples_dir()
+    unfetched = [s.name for s in samples if checkout_problems(s, root / s.name)]
+    if unfetched:
+        print_error(
+            f"Not fetched at their pinned commits: {', '.join(unfetched)}. "
+            f"Run: devops review samples fetch {' '.join(unfetched)}"
+        )
+        raise typer.Exit(1)
+    run_dir = (
+        runner._get_reviews_base_dir()
+        / SAMPLE_VALIDATIONS_DIRNAME
+        / datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    )
+    reports: list[CategoryReport] = []
+    for category_name, group in _by_category(samples).items():
+        report = validate_category(category_name, group, root)
+        if review:
+            corpus_dir = run_dir / f"{category_name}-corpus"
+            report.review = _review_sample_corpus(group, root, corpus_dir, seed, all_personas)
+            report.problems += review_problems(report.review)
+        report.write(run_dir)
+        reports.append(report)
+    _render_validation(reports, run_dir)
 
 
 # =============================================================================

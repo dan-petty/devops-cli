@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
@@ -101,9 +102,11 @@ class SampleCatalog(BaseModel):
         return self
 
     def select(
-        self, names: list[str] | None = None, category: SampleCategory | None = None
+        self,
+        names: Sequence[str] | None = None,
+        categories: Sequence[SampleCategory] | None = None,
     ) -> list[SampleRepository]:
-        """The samples named, or all of them, within a category when one is given."""
+        """The samples named, or all of them, within the categories given, if any."""
         unknown = sorted(set(names or []) - {sample.name for sample in self.samples})
         if unknown:
             raise ValueError(f"no sample named {', '.join(unknown)}")
@@ -111,7 +114,7 @@ class SampleCatalog(BaseModel):
             sample
             for sample in self.samples
             if (not names or sample.name in names)
-            and (category is None or sample.category == category)
+            and (not categories or sample.category in categories)
         ]
 
 
