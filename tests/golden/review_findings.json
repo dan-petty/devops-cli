@@ -30,49 +30,321 @@
     "app/paths_only.py": "from pathlib import Path\n\n\ndef where(p):\n    return Path(p).resolve()\n"
   },
   "real_defects": [
-    {"id": "missing-containment", "location": "core/paths.py:4-8", "severity": "HIGH", "title": "safe_resolve_subpath allows traversal outside base_dir", "description": "No containment check follows resolve(); `../` segments escape base_dir. Symlink rejection does not stop them."},
-    {"id": "missing-depth-limit", "location": "security/suppression.py:4-10", "severity": "HIGH", "title": "Missing inheritance depth limit in load_policy", "description": "The `load_policy` function accepts a `_depth` parameter but never enforces CONST_SUPPRESSION_MAX_INHERITANCE_DEPTH, so a long extends chain recurses without bound."},
-    {"id": "world-writable-dir", "location": "crypto/known_hosts.py:5", "severity": "HIGH", "title": "Insecure directory creation permissions in append_entry", "description": "The parent directory of known_hosts is created with mode 0o777."},
-    {"id": "playbook-0777", "location": "playbooks/cluster_backup.yaml:7", "severity": "HIGH", "title": "Backup directory created world-writable (0777)", "description": "The backup directory is created with mode 0777."},
-    {"id": "unpinned-image", "location": "playbooks/gpu_validation.yaml:10", "severity": "MEDIUM", "title": "Unpinned image tag nvidia/cuda:latest", "description": "The smoke test pulls a moving tag."},
-    {"id": "unchecked-status", "location": "security/vault_lease.py:4-6", "severity": "MEDIUM", "title": "HTTP POST helper does not validate response status", "description": "`_post` parses the body of any response, so a 403 or 500 is treated as data."},
-    {"id": "unvalidated-dest", "location": "core/audit.py:5-6", "severity": "HIGH", "title": "Audit log destination from environment is not validated", "description": "AUDIT_LOG_DEST is resolved without a containment check."},
-    {"id": "dropped-await", "location": "core/process.py:5", "severity": "HIGH", "title": "wait_for coroutine is never awaited", "description": "`asyncio.wait_for` is called without await, so the timeout never applies."},
-    {"id": "fstring-sql", "location": "app/db.py:2-3", "severity": "CRITICAL", "title": "SQL injection via f-string", "description": "The f-string syntax interpolates the search term into the SQL query."},
-    {"id": "bare-except", "location": "app/errors.py:4", "severity": "MEDIUM", "title": "Bare `except` clause swallows KeyboardInterrupt", "description": "The bare except clause catches everything, including KeyboardInterrupt."},
-    {"id": "processed-timestamps", "location": "app/auth.py:1-2", "severity": "HIGH", "title": "Expired tokens are processed as valid", "description": "Naive and aware timestamps are compared, so expiry never applies."},
-    {"id": "if-none-of", "location": "app/auth.py:5-9", "severity": "CRITICAL", "title": "Authorization bypass in allowed", "description": "If none of the roles match, the loop falls through to return True."},
-    {"id": "not-properly", "location": "app/limit.py:1-2", "severity": "MEDIUM", "title": "Rate limiter not properly implemented for bursts", "description": "Every request is allowed."},
-    {"id": "api-need-to", "location": "app/api.py:1-2", "severity": "MEDIUM", "title": "Clients of the API need to send the token in the query string", "description": "Tokens in query strings reach access logs."},
-    {"id": "masked-live-key", "location": "app/keys.py:1", "severity": "CRITICAL", "title": "Live AWS key committed", "description": "`api_key=<masked-api-key>` is a live credential, not a placeholder."},
-    {"id": "real-secret-in-tests", "location": "tests/conftest.py:1", "severity": "HIGH", "title": "Hardcoded password in test configuration", "description": "A real staging password is committed."},
-    {"id": "cwe400-upload", "location": "app/upload.py:4-5", "severity": "HIGH", "title": "CWE-400: unbounded read_text() of user-uploaded file", "description": "handle_upload reads an attacker-supplied file with no size cap."},
-    {"id": "unbound-local", "location": "app/prompt.py:4", "severity": "MEDIUM", "title": "`system_prompt` may be unbound (UnboundLocalError) when the list is empty", "description": "If items is empty the loop never assigns system_prompt."},
-    {"id": "real-nameerror", "location": "app/retry.py:2", "severity": "HIGH", "title": "NameError: undefined variable `timeout` in retry", "description": "`timeout` is not defined anywhere in the module."},
-    {"id": "missing-auth-header", "location": "app/client.py:8-9", "severity": "HIGH", "title": "delete request sent without authentication", "description": "No Authorization header is sent by delete."},
-    {"id": "token-logged", "location": "app/logging.py:2", "severity": "HIGH", "title": "Looks good overall, but token is logged in plaintext", "description": "The login token is printed."},
-    {"id": "persona-self-dismissal", "location": "app/logging.py:1-2", "severity": "HIGH", "title": "Token printed during login", "description": "login prints the token to stdout.", "persona_fields": {"status": "INVALIDATED", "reportable": false, "mitigated": true}},
-    {"id": "miscounted-line", "location": "app/short.py:250", "severity": "MEDIUM", "title": "Unvalidated module constant", "description": "The line number is past the end of the file, as a model's own count can be."}
+    {
+      "id": "missing-containment",
+      "location": "core/paths.py:4-8",
+      "severity": "HIGH",
+      "title": "safe_resolve_subpath allows traversal outside base_dir",
+      "description": "No containment check follows resolve(); `../` segments escape base_dir. Symlink rejection does not stop them."
+    },
+    {
+      "id": "missing-depth-limit",
+      "location": "security/suppression.py:4-10",
+      "severity": "HIGH",
+      "title": "Missing inheritance depth limit in load_policy",
+      "description": "The `load_policy` function accepts a `_depth` parameter but never enforces CONST_SUPPRESSION_MAX_INHERITANCE_DEPTH, so a long extends chain recurses without bound."
+    },
+    {
+      "id": "world-writable-dir",
+      "location": "crypto/known_hosts.py:5",
+      "severity": "HIGH",
+      "title": "Insecure directory creation permissions in append_entry",
+      "description": "The parent directory of known_hosts is created with mode 0o777."
+    },
+    {
+      "id": "playbook-0777",
+      "location": "playbooks/cluster_backup.yaml:7",
+      "severity": "HIGH",
+      "title": "Backup directory created world-writable (0777)",
+      "description": "The backup directory is created with mode 0777."
+    },
+    {
+      "id": "unpinned-image",
+      "location": "playbooks/gpu_validation.yaml:10",
+      "severity": "MEDIUM",
+      "title": "Unpinned image tag nvidia/cuda:latest",
+      "description": "The smoke test pulls a moving tag."
+    },
+    {
+      "id": "unchecked-status",
+      "location": "security/vault_lease.py:4-6",
+      "severity": "MEDIUM",
+      "title": "HTTP POST helper does not validate response status",
+      "description": "`_post` parses the body of any response, so a 403 or 500 is treated as data."
+    },
+    {
+      "id": "unvalidated-dest",
+      "location": "core/audit.py:5-6",
+      "severity": "HIGH",
+      "title": "Audit log destination from environment is not validated",
+      "description": "AUDIT_LOG_DEST is resolved without a containment check."
+    },
+    {
+      "id": "dropped-await",
+      "location": "core/process.py:5",
+      "severity": "HIGH",
+      "title": "wait_for coroutine is never awaited",
+      "description": "`asyncio.wait_for` is called without await, so the timeout never applies."
+    },
+    {
+      "id": "fstring-sql",
+      "location": "app/db.py:2-3",
+      "severity": "CRITICAL",
+      "title": "SQL injection via f-string",
+      "description": "The f-string syntax interpolates the search term into the SQL query."
+    },
+    {
+      "id": "bare-except",
+      "location": "app/errors.py:4",
+      "severity": "MEDIUM",
+      "title": "Bare `except` clause swallows KeyboardInterrupt",
+      "description": "The bare except clause catches everything, including KeyboardInterrupt."
+    },
+    {
+      "id": "processed-timestamps",
+      "location": "app/auth.py:1-2",
+      "severity": "HIGH",
+      "title": "Expired tokens are processed as valid",
+      "description": "Naive and aware timestamps are compared, so expiry never applies."
+    },
+    {
+      "id": "if-none-of",
+      "location": "app/auth.py:5-9",
+      "severity": "CRITICAL",
+      "title": "Authorization bypass in allowed",
+      "description": "If none of the roles match, the loop falls through to return True."
+    },
+    {
+      "id": "not-properly",
+      "location": "app/limit.py:1-2",
+      "severity": "MEDIUM",
+      "title": "Rate limiter not properly implemented for bursts",
+      "description": "Every request is allowed."
+    },
+    {
+      "id": "api-need-to",
+      "location": "app/api.py:1-2",
+      "severity": "MEDIUM",
+      "title": "Clients of the API need to send the token in the query string",
+      "description": "Tokens in query strings reach access logs."
+    },
+    {
+      "id": "masked-live-key",
+      "location": "app/keys.py:1",
+      "severity": "CRITICAL",
+      "title": "Live AWS key committed",
+      "description": "`api_key=<masked-api-key>` is a live credential, not a placeholder."
+    },
+    {
+      "id": "real-secret-in-tests",
+      "location": "tests/conftest.py:1",
+      "severity": "HIGH",
+      "title": "Hardcoded password in test configuration",
+      "description": "A real staging password is committed."
+    },
+    {
+      "id": "cwe400-upload",
+      "location": "app/upload.py:4-5",
+      "severity": "HIGH",
+      "title": "CWE-400: unbounded read_text() of user-uploaded file",
+      "description": "handle_upload reads an attacker-supplied file with no size cap."
+    },
+    {
+      "id": "unbound-local",
+      "location": "app/prompt.py:4",
+      "severity": "MEDIUM",
+      "title": "`system_prompt` may be unbound (UnboundLocalError) when the list is empty",
+      "description": "If items is empty the loop never assigns system_prompt."
+    },
+    {
+      "id": "real-nameerror",
+      "location": "app/retry.py:2",
+      "severity": "HIGH",
+      "title": "NameError: undefined variable `timeout` in retry",
+      "description": "`timeout` is not defined anywhere in the module."
+    },
+    {
+      "id": "missing-auth-header",
+      "location": "app/client.py:8-9",
+      "severity": "HIGH",
+      "title": "delete request sent without authentication",
+      "description": "No Authorization header is sent by delete."
+    },
+    {
+      "id": "token-logged",
+      "location": "app/logging.py:2",
+      "severity": "HIGH",
+      "title": "Looks good overall, but token is logged in plaintext",
+      "description": "The login token is printed."
+    },
+    {
+      "id": "persona-self-dismissal",
+      "location": "app/logging.py:1-2",
+      "severity": "HIGH",
+      "title": "Token printed during login",
+      "description": "login prints the token to stdout.",
+      "persona_fields": {
+        "status": "INVALIDATED",
+        "reportable": false,
+        "mitigated": true
+      }
+    },
+    {
+      "id": "miscounted-line",
+      "location": "app/short.py:250",
+      "severity": "MEDIUM",
+      "title": "Unvalidated module constant",
+      "description": "The line number is past the end of the file, as a model's own count can be."
+    }
   ],
   "distinct_groups": [
-    {"id": "filler-word", "findings": [
-      {"location": "app/client.py:4-5", "severity": "HIGH", "title": "Missing timeout", "description": "requests.get has no timeout."},
-      {"location": "app/client.py:5", "severity": "HIGH", "title": "Missing authorization check", "description": "fetch is callable by anyone."}
-    ]},
-    {"id": "same-title-far-apart", "findings": [
-      {"location": "app/secrets.py:1", "severity": "CRITICAL", "title": "Hardcoded secret", "description": "`AWS_KEY` is committed."},
-      {"location": "app/secrets.py:90", "severity": "CRITICAL", "title": "Hardcoded secret", "description": "`DB_PASSWORD` is committed."}
-    ]}
+    {
+      "id": "filler-word",
+      "findings": [
+        {
+          "location": "app/client.py:4-5",
+          "severity": "HIGH",
+          "title": "Missing timeout",
+          "description": "requests.get has no timeout."
+        },
+        {
+          "location": "app/client.py:5",
+          "severity": "HIGH",
+          "title": "Missing authorization check",
+          "description": "fetch is callable by anyone."
+        }
+      ]
+    },
+    {
+      "id": "same-title-far-apart",
+      "findings": [
+        {
+          "location": "app/secrets.py:1",
+          "severity": "CRITICAL",
+          "title": "Hardcoded secret",
+          "description": "`AWS_KEY` is committed."
+        },
+        {
+          "location": "app/secrets.py:90",
+          "severity": "CRITICAL",
+          "title": "Hardcoded secret",
+          "description": "`DB_PASSWORD` is committed."
+        }
+      ]
+    }
   ],
   "known_hallucinations": [
-    {"id": "pep758", "location": "app/syntax.py:3", "severity": "HIGH", "title": "Syntax error: invalid Python 2 syntax in except clause", "description": "except ValueError, TypeError: is invalid syntax."},
-    {"id": "defined-symbol", "location": "app/helpers.py:1", "severity": "LOW", "title": "Missing `helper` function", "description": "`helper` is not defined in this module."},
-    {"id": "masked-syntax", "location": "app/keys.py:1", "severity": "HIGH", "title": "Syntax error: unquoted placeholder <masked-secret>", "description": "Unresolved identifier found in code snippet."},
-    {"id": "placeholder-cve", "location": "app/client.py:1", "severity": "HIGH", "title": "Vulnerable requests dependency", "description": "requests is affected by CVE-2023-xxxx."},
-    {"id": "below-floor", "location": "app/enum_use.py:1", "severity": "MEDIUM", "title": "StrEnum import is incompatible with Python 3.10", "description": "On Python 3.10 the import raises ImportError."},
-    {"id": "monologue", "location": "app/api.py:1", "severity": "LOW", "title": "Let's check the token handling", "description": "Reasoning leaked into a title."},
-    {"id": "compliment", "location": "app/api.py:1", "severity": "LOW", "title": "Implementation looks solid and clean", "description": "Positive remarks."},
-    {"id": "fixture-token", "location": "tests/test_login.py:1", "severity": "HIGH", "title": "Hardcoded token in test fixture", "description": "A hardcoded token is committed."},
-    {"id": "resolve-non-strict", "location": "app/paths_only.py:5", "severity": "LOW", "title": "Path.resolve() raises FileNotFoundError", "description": "resolve() raises FileNotFoundError when the path does not exist."}
+    {
+      "id": "pep758",
+      "location": "app/syntax.py:3",
+      "severity": "HIGH",
+      "title": "Syntax error: invalid Python 2 syntax in except clause",
+      "description": "except ValueError, TypeError: is invalid syntax."
+    },
+    {
+      "id": "defined-symbol",
+      "location": "app/helpers.py:1",
+      "severity": "LOW",
+      "title": "Missing `helper` function",
+      "description": "`helper` is not defined in this module."
+    },
+    {
+      "id": "masked-syntax",
+      "location": "app/keys.py:1",
+      "severity": "HIGH",
+      "title": "Syntax error: unquoted placeholder <masked-secret>",
+      "description": "Unresolved identifier found in code snippet."
+    },
+    {
+      "id": "placeholder-cve",
+      "location": "app/client.py:1",
+      "severity": "HIGH",
+      "title": "Vulnerable requests dependency",
+      "description": "requests is affected by CVE-2023-xxxx."
+    },
+    {
+      "id": "below-floor",
+      "location": "app/enum_use.py:1",
+      "severity": "MEDIUM",
+      "title": "StrEnum import is incompatible with Python 3.10",
+      "description": "On Python 3.10 the import raises ImportError."
+    },
+    {
+      "id": "monologue",
+      "location": "app/api.py:1",
+      "severity": "LOW",
+      "title": "Let's check the token handling",
+      "description": "Reasoning leaked into a title."
+    },
+    {
+      "id": "compliment",
+      "location": "app/api.py:1",
+      "severity": "LOW",
+      "title": "Implementation looks solid and clean",
+      "description": "Positive remarks."
+    },
+    {
+      "id": "fixture-token",
+      "location": "tests/test_login.py:1",
+      "severity": "HIGH",
+      "title": "Hardcoded token in test fixture",
+      "description": "A hardcoded token is committed."
+    },
+    {
+      "id": "resolve-non-strict",
+      "location": "app/paths_only.py:5",
+      "severity": "LOW",
+      "title": "Path.resolve() raises FileNotFoundError",
+      "description": "resolve() raises FileNotFoundError when the path does not exist."
+    }
+  ],
+  "misread_verdicts": [
+    {
+      "id": "latest-criterion-as-invalidation",
+      "finding": {
+        "location": "docker/Dockerfile:6",
+        "severity": "MEDIUM",
+        "title": "Unpinned base image tag",
+        "description": "`FROM alpine:latest` pulls whatever the tag points at when built.",
+        "fix": "Pin alpine to a specific version tag and digest.",
+        "verification_criteria": [
+          "The FROM directive uses the 'latest' tag"
+        ],
+        "invalidation_criteria": [
+          "The base image is pinned to a version or digest"
+        ]
+      },
+      "verdict": {
+        "status": "INVALIDATED",
+        "invalidated": true,
+        "reason": "Line 6 contains `FROM alpine:latest`, which uses the unpinned `latest` tag.",
+        "invalidated_criteria_matched": [
+          "The FROM directive still uses 'latest' as the image tag."
+        ]
+      }
+    },
+    {
+      "id": "fix-as-invalidation",
+      "finding": {
+        "location": "web/guestbook-go/Dockerfile:15",
+        "severity": "MEDIUM",
+        "title": "Unpinned base image tag (golang:latest)",
+        "description": "The build image is `golang:latest`.",
+        "fix": "Pin golang to a specific tag such as golang:1.22.3 and verify its checksum.",
+        "verification_criteria": [
+          "The Dockerfile uses the latest tag for the golang base image"
+        ],
+        "invalidation_criteria": [
+          "The golang image is pinned to a version or digest"
+        ]
+      },
+      "verdict": {
+        "status": "INVALIDATED",
+        "reason": "The Dockerfile uses the `latest` tag for the golang base image, which introduces non-deterministic builds.",
+        "invalidated_criteria_matched": [
+          "The Dockerfile contains a specific tag (e.g., `golang:1.22.3`) and a checksum."
+        ]
+      }
+    }
   ]
 }
