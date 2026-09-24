@@ -170,3 +170,85 @@ def test_ensure_keyring_backend_validation(monkeypatch: pytest.MonkeyPatch) -> N
     fake_secure = type("EncryptedKeyring", (), {"priority": 5})()
     monkeypatch.setattr(keyring, "get_keyring", lambda: fake_secure)
     assert _ensure_keyring_backend() is True
+
+
+def _chainer_of(*members: object) -> object:
+    """Build a ChainerBackend over the given backends, as keyring does when several are viable."""
+    from keyring.backends.chainer import ChainerBackend
+
+    return type("FakeChainer", (ChainerBackend,), {"backends": list(members), "priority": 10})()
+
+
+def test_a_chainer_hiding_a_plaintext_backend_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The chainer writes to the next backend when one fails, so a locked Secret Service
+    would hand the secret to the plaintext backend behind it."""
+    import keyring
+
+    from devops_cli.config.settings import _ensure_keyring_backend
+
+    secure = type("EncryptedKeyring", (), {"priority": 5})()
+    plaintext = type("PlaintextKeyring", (), {"priority": 0.5})()
+    monkeypatch.setattr(keyring, "get_keyring", lambda: _chainer_of(secure, plaintext))
+
+    assert _ensure_keyring_backend() is False
+
+
+def test_a_chainer_of_encrypted_backends_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rejecting every chainer would lock out hosts with two real keyrings installed."""
+    import keyring
+
+    from devops_cli.config.settings import _ensure_keyring_backend
+
+    first = type("EncryptedKeyring", (), {"priority": 5})()
+    second = type("OtherEncryptedKeyring", (), {"priority": 4})()
+    monkeypatch.setattr(keyring, "get_keyring", lambda: _chainer_of(first, second))
+
+    assert _ensure_keyring_backend() is True
+
+
+def _locked_keyring(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every keyring call fail the way SecretService does on a locked collection."""
+    import keyring
+    from keyring.errors import KeyringLocked
+
+    def locked(*_: object) -> None:
+        raise KeyringLocked("Failed to unlock the collection!")
+
+    # Other tests leave secrets in the in-process fallback store, which is consulted first.
+    monkeypatch.setattr("devops_cli.config.settings._EPHEMERAL_CI_SECRETS", {})
+    monkeypatch.setattr("devops_cli.config.settings._ensure_keyring_backend", lambda: True)
+    monkeypatch.setattr(keyring, "get_password", locked)
+    monkeypatch.setattr(keyring, "set_password", locked)
+
+
+def test_storing_into_a_locked_keyring_names_the_unlock_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A generic storage failure gave no hint that one command would fix it."""
+    from devops_cli.config.settings import KeyringLockedError, _keyring_set
+
+    monkeypatch.delenv("DEVOPS_CLI_HEADLESS_AUTH", raising=False)
+    _locked_keyring(monkeypatch)
+
+    with pytest.raises(KeyringLockedError, match="devops devcontainer unlock-keyring"):
+        _keyring_set("github_token", "FAKE-token")
+
+
+def test_reading_from_a_locked_keyring_names_the_unlock_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The secret is there, just locked; reporting it as missing sends people to re-enter it."""
+    from devops_cli.config import settings
+
+    _locked_keyring(monkeypatch)
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        settings.logger, "warning", lambda message, *args: warnings.append(message % args)
+    )
+
+    assert (settings._keyring_get("github_token"), settings._keyring_has("github_token")) == (
+        None,
+        False,
+    )
+    assert all("devops devcontainer unlock-keyring" in warning for warning in warnings)
+    assert len(warnings) == 2
