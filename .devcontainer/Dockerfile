@@ -8,7 +8,9 @@ ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1
 
-# Install Python 3.14 runtime, symlinks, and root certificates with BuildKit apt cache mounts
+# Install Python 3.14 runtime, symlinks, root certificates, and the gnome-keyring Secret Service
+# (dbus-x11 satisfies its session-bus dependency without pulling in systemd) with BuildKit apt
+# cache mounts. /run/user/1000 holds the container-local session bus; /tmp is shared.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
@@ -16,6 +18,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     python-is-python3 \
     ca-certificates \
     shellcheck \
+    gnome-keyring \
+    dbus-x11 \
+    && install -d -m 0700 -o 1000 -g 1000 /run/user/1000 \
     && sed -i 's/VERSION_CODENAME=forky/VERSION_CODENAME=trixie/' /etc/os-release \
     && rm -rf /var/lib/apt/lists/*
 

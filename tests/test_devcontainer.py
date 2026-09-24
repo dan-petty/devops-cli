@@ -1208,3 +1208,122 @@ def test_this_repository_ships_a_claude_mcp_config() -> None:
 
     config = json.loads(Path(".mcp.json").read_text(encoding="utf-8"))
     assert "devops-cli" in config["mcpServers"]
+
+
+def _record_subprocess_calls(
+    monkeypatch: pytest.MonkeyPatch, returncode: int = 0, stderr: str = ""
+) -> list[tuple[list[str], dict[str, object]]]:
+    """Replace run_subprocess in the devcontainer module and record each call."""
+    import subprocess
+
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def fake_run_subprocess(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append((cmd, kwargs))
+        return subprocess.CompletedProcess(cmd, returncode=returncode, stdout="", stderr=stderr)
+
+    monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", fake_run_subprocess)
+    monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
+    return calls
+
+
+def test_post_start_starts_the_session_bus_named_by_the_container_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """gnome-keyring is D-Bus activated, so gh and Python keyring need this bus to exist."""
+    from devops_cli.commands.devcontainer import _start_session_bus
+
+    socket_path = tmp_path / "run" / "bus"
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
+    calls = _record_subprocess_calls(monkeypatch)
+
+    actions = _start_session_bus()
+
+    cmd, kwargs = calls[-1]
+    assert cmd[:2] == ["dbus-daemon", "--session"]
+    assert f"--address=unix:path={socket_path}" in cmd
+    assert actions == [
+        f"Started D-Bus session bus at {socket_path} (gnome-keyring starts on demand)"
+    ]
+    assert kwargs["env"] == {"XDG_RUNTIME_DIR": str(socket_path.parent)}
+
+
+def test_the_session_bus_runtime_dir_is_private(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """gnome-keyring keeps its control socket here; other users must not reach it."""
+    from devops_cli.commands.devcontainer import _start_session_bus
+
+    socket_path = tmp_path / "run" / "bus"
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
+    _record_subprocess_calls(monkeypatch)
+
+    _start_session_bus()
+
+    assert socket_path.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_a_running_session_bus_is_left_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second daemon on the same path would unlink the live socket and orphan its clients."""
+    import socket
+
+    from devops_cli.commands.devcontainer import _start_session_bus
+
+    socket_path = tmp_path / "bus"
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
+    calls = _record_subprocess_calls(monkeypatch)
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+        listener.bind(str(socket_path))
+        listener.listen(1)
+        actions = _start_session_bus()
+
+    assert calls == []
+    assert actions == [f"D-Bus session bus is already running at {socket_path}"]
+
+
+def test_a_stale_bus_socket_is_replaced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """dbus-daemon refuses to bind over a leftover socket file from a stopped container."""
+    import socket
+
+    from devops_cli.commands.devcontainer import _start_session_bus
+
+    socket_path = tmp_path / "bus"
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
+    calls = _record_subprocess_calls(monkeypatch)
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as abandoned:
+        abandoned.bind(str(socket_path))
+
+    _start_session_bus()
+
+    assert not socket_path.exists()
+    assert calls[-1][0][0] == "dbus-daemon"
+
+
+def test_no_session_bus_is_started_without_a_configured_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Images without gnome-keyring leave DBUS_SESSION_BUS_ADDRESS unset and need no bus."""
+    from devops_cli.commands.devcontainer import _start_session_bus
+
+    calls = _record_subprocess_calls(monkeypatch)
+
+    assert _start_session_bus() == []
+    assert calls == []
+
+
+def test_a_failed_session_bus_start_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the bus gh silently stores its token in plain text, so the failure must show."""
+    from devops_cli.commands.devcontainer import _start_session_bus
+
+    socket_path = tmp_path / "bus"
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
+    _record_subprocess_calls(monkeypatch, returncode=1, stderr="address already in use")
+
+    assert _start_session_bus() == [
+        "Warning: Failed to start D-Bus session bus (exit 1): address already in use"
+    ]

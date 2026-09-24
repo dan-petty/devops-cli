@@ -1099,7 +1099,10 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     if auto_git_daemon:
         actions.extend(_start_git_daemon(workspace_dir, dry_run=dry_run))
 
-    # 8. Align kubectl with the configured context -- last, because the minikube supervisor
+    # 8. D-Bus session bus, on which gnome-keyring is activated for gh, git and Python keyring
+    actions.extend(_start_session_bus(dry_run=dry_run))
+
+    # 9. Align kubectl with the configured context -- last, because the minikube supervisor
     # above runs `minikube start`, and that rewrites current-context to "minikube". Aligning
     # any earlier is undone immediately, which is exactly how a container configured for one
     # cluster ends up pointing at another on every rebuild.
@@ -1176,6 +1179,70 @@ def _start_git_daemon(workspace_dir: Path, *, dry_run: bool = False) -> list[str
     else:
         actions.append(f"Started background Git daemon on port 9418 ({paths_str})")
 
+    return actions
+
+
+def _session_bus_socket() -> Path | None:
+    """Return the socket path named by a unix:path= DBUS_SESSION_BUS_ADDRESS, if one is set."""
+    address = os.getenv("DBUS_SESSION_BUS_ADDRESS", "")
+    if not address.startswith("unix:path="):
+        return None
+    return Path(address.removeprefix("unix:path=").split(",", 1)[0])
+
+
+def _is_session_bus_running(socket_path: Path) -> bool:
+    """Check whether a D-Bus daemon accepts connections on the socket."""
+    import socket
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.2)
+        try:
+            sock.connect(str(socket_path))
+        except OSError:
+            return False
+    return True
+
+
+def _start_session_bus(*, dry_run: bool = False) -> list[str]:
+    """Ensure the session bus that gnome-keyring is D-Bus activated on is running.
+
+    The socket and its runtime directory stay under /run, which is private to each container:
+    /tmp is a volume shared between containers, where one container's keyring daemon would
+    replace another's control socket.
+    """
+    actions: list[str] = []
+    socket_path = _session_bus_socket()
+    if socket_path is None or not shutil.which("dbus-daemon"):
+        return actions
+    if _is_session_bus_running(socket_path):
+        actions.append(f"D-Bus session bus is already running at {socket_path}")
+        return actions
+
+    runtime_dir = socket_path.parent
+    if not dry_run:
+        _safe_mkdir_path(runtime_dir)
+        _ensure_path_ownership(runtime_dir)
+        _safe_chmod_path(runtime_dir, 0o700, "700")
+        socket_path.unlink(missing_ok=True)  # a socket nobody answers on is stale
+        res = run_subprocess(
+            [
+                "dbus-daemon",
+                "--session",
+                "--fork",
+                "--nopidfile",
+                f"--address=unix:path={socket_path}",
+            ],
+            env={"XDG_RUNTIME_DIR": str(runtime_dir)},
+            extra_allowed_env={"DISPLAY", "WAYLAND_DISPLAY"},
+            check=False,
+            quiet=True,
+        )
+        if res.returncode != 0:
+            actions.append(
+                f"Warning: Failed to start D-Bus session bus (exit {res.returncode}): {res.stderr}"
+            )
+            return actions
+    actions.append(f"Started D-Bus session bus at {socket_path} (gnome-keyring starts on demand)")
     return actions
 
 

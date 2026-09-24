@@ -13,7 +13,6 @@
       "userGid": "1000",
       "upgradePackages": "true"
     },
-    "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/devcontainers/features/docker-in-docker:2": {
       "version": "latest",
       "moby": false,
@@ -26,7 +25,7 @@
     },
     "ghcr.io/devcontainers/features/copilot-cli:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers/features/node:2": {},
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
   },
   "mounts": [
@@ -44,6 +43,7 @@
     "DEVOPS_CLI_CONFIG": "${containerWorkspaceFolder}/config.yaml",
     "DEVOPS_K8S_AUTO_DEPLOY": "true",
     "DEVOPS_GIT_DAEMON_AUTOSTART": "true",
+    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
     "UV_MALWARE_CHECK": "1",
     "UV_CACHE_DIR": "${containerWorkspaceFolder}/.uv"
   },
@@ -125,6 +125,7 @@
         "ms-kubernetes-tools.vscode-kubernetes-tools",
         "Ollama.ollama",
         "anthropic.claude-code",
+        "google.google-antigravity",
         "github.vscode-github-actions"
       ],
       "settings": {
