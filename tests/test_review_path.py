@@ -57,6 +57,18 @@ def test_load_agents_md_reads_repo_root_file(tmp_path: Path) -> None:
     assert "Use latest Python." in agents_md
 
 
+def test_load_agents_md_prefers_the_nearest_conventions_file(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "AGENTS.md").write_text("## Root\nRoot rules.\n", encoding="utf-8")
+    subproject = tmp_path / "services" / "api"
+    (subproject / "src").mkdir(parents=True)
+    (subproject / "AGENTS.md").write_text("## API\nAPI rules.\n", encoding="utf-8")
+
+    conventions = _load_agents_md(subproject / "src")
+
+    assert ("API rules." in conventions, "Root rules." in conventions) == (True, False)
+
+
 def test_load_agents_md_reads_claude_md_fallback(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "CLAUDE.md").write_text("## Guidelines\nUse Go 1.23.\n", encoding="utf-8")

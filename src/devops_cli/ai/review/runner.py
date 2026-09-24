@@ -1191,16 +1191,26 @@ def _print_review(persona: PersonaDefinition, review: ReviewResult | str) -> Non
     print_markdown(review)
 
 
-def _load_agents_md(start: Path) -> str:
-    """Return sanitized project conventions from target repo, start dir, or CWD repo root."""
+def _nearest_conventions(start: Path) -> str:
+    """Return the nearest project conventions file, from the start directory up to its repo root.
+
+    The nearest file wins, as for AGENTS.md generally: a subproject's conventions override its
+    repository's. Outside a repository only the start directory is read.
+    """
     start_resolved = start.resolve()
-    target_repo = _git_repo_root(start_resolved)
-    raw_content = _read_candidate_conventions_file(target_repo) if target_repo else ""
+    directory = start_resolved if start_resolved.is_dir() else start_resolved.parent
+    repo_root = _git_repo_root(directory)
+    for candidate in (directory, *directory.parents):
+        if content := _read_candidate_conventions_file(candidate):
+            return content
+        if repo_root is None or candidate == repo_root:
+            break
+    return ""
 
-    if not raw_content:
-        base_dir = start_resolved if start_resolved.is_dir() else start_resolved.parent
-        raw_content = _read_candidate_conventions_file(base_dir)
 
+def _load_agents_md(start: Path) -> str:
+    """Return the sanitized nearest project conventions for a review target."""
+    raw_content = _nearest_conventions(start)
     if not raw_content:
         return ""
 
@@ -1210,8 +1220,6 @@ def _load_agents_md(start: Path) -> str:
     )
 
     return sanitize_prompt_boundary_tags(redact_text(raw_content))
-
-    return ""
 
 
 def _git_repo_root(path: Path) -> Path | None:
@@ -1285,14 +1293,22 @@ def _is_candidate_file_included(
     return rel.match(pattern)
 
 
+def _review_candidate_files(root: Path, pattern: str) -> list[Path]:
+    """The files under root that a path review reads, in review order."""
+    repo_root = _git_repo_root(root)
+    candidates, is_from_git, root_ignored = _list_git_tracked_candidates(root, repo_root)
+    return [
+        p
+        for p in sorted(candidates)
+        if _is_candidate_file_included(p, root, repo_root, is_from_git, root_ignored, pattern)
+    ]
+
+
 def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
     blocks: list[str] = []
     repo_root = _git_repo_root(root)
-    candidates, is_from_git, root_ignored = _list_git_tracked_candidates(root, repo_root)
 
-    for p in sorted(candidates):
-        if not _is_candidate_file_included(p, root, repo_root, is_from_git, root_ignored, pattern):
-            continue
+    for p in _review_candidate_files(root, pattern):
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError:

@@ -304,3 +304,55 @@ devops review auto-fix [OPTIONS] <finding_id>
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
+
+## `devops review corpus`
+
+```bash
+devops review corpus COMMAND [ARGS]...
+```
+
+### `devops review corpus generate`
+
+**Copy source files with one known defect injected into each, and record where.**
+
+```bash
+devops review corpus generate [OPTIONS] <sources>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<sources>` | `path` | Yes | Clean file(s) or directory(ies) to inject defects into; each becomes a folder of the corpus. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--out`, `-o` | `path` | - | Corpus directory to create (default: corpora/\<source\>-\<seed\> under the reviews directory). |
+| `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--template`, `-t` | `string` | - | Defect template to inject (repeatable; default: all). |
+
+### `devops review corpus score`
+
+**Score a review of a corpus: which injected defects it found, and what verification kept.**
+
+```bash
+devops review corpus score [OPTIONS] <corpus_dir>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<corpus_dir>` | `path` | Yes | Corpus directory created by `devops review corpus generate`. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--session`, `-s` | `string` | - | Review session to score (default: the latest review of the corpus). |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+---

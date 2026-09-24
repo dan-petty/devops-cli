@@ -90,6 +90,36 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert (orchestrator.session_dir / "review.md").exists()
 
 
+def test_consolidated_report_keeps_every_candidate_with_its_verification_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify candidates.json keeps invalidated findings that findings.json leaves out."""
+    import json
+
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+    orchestrator = ReviewPipelineOrchestrator(session_id="candidates", llm_client=MagicMock())
+    kept = SavedFinding(location="src/a.py:3", title="Kept", description="d", status="VERIFIED")
+    dropped = SavedFinding(
+        location="src/a.py:9",
+        title="Dropped",
+        description="d",
+        status="INVALIDATED",
+        reportable=False,
+    )
+    payload = FileReviewPayload(file_path="src/a.py", findings=[kept, dropped])
+
+    orchestrator.generate_consolidated_report([payload])
+
+    def titles(name: str) -> list[tuple[str, str]]:
+        data = json.loads((orchestrator.session_dir / name).read_text(encoding="utf-8"))
+        return [(f["title"], f["status"]) for f in data["findings"]]
+
+    assert (titles("findings.json"), titles("candidates.json")) == (
+        [("Kept", "VERIFIED")],
+        [("Kept", "VERIFIED"), ("Dropped", "INVALIDATED")],
+    )
+
+
 def test_get_server_info_formatting() -> None:
     """Test server info formatting under different LLM client configurations."""
     orchestrator = ReviewPipelineOrchestrator(session_id="test-info")
