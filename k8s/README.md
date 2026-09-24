@@ -95,6 +95,8 @@ ai:
       provider: gateway
       model: devops-review
       context_window: 16384   # sizes review pages to fit the smallest server
+    # verification:      # checks the findings analysis produced; unset, analysis verifies
+    #   model: devops-reasoning   # layered on analysis: same provider, gateway and window
     chat:                # devops ai chat
       provider: gateway
       model: devops-coder
@@ -103,6 +105,8 @@ ai:
       model: ollama/embeddinggemma:300m
 ```
 Provider `gateway` always sends to `ai.gateway_url`, even when `ai.api_base_url` is set for another provider. To send one task to a different gateway, set `api_base_url` on that task.
+
+`verification` applies on top of `analysis`, so it only has to name what differs. Leave it unset unless a comparison on your own reviews favors a split. On the homelab, verifying with the 32B model (`devops-reasoning`) made reviews slower, since every verification queued on one server. It also rejected nearly every candidate, while one top-severity false positive still passed.
 
 Open WebUI uses the same key: on a fresh install it connects to the gateway automatically. An existing installation keeps the connections stored in its database, so add `http://llm-gateway.llm.svc.cluster.local:4000/v1` under Admin Panel > Settings > Connections.
 
