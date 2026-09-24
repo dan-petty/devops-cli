@@ -1524,3 +1524,85 @@ def test_deterministic_checks_leave_real_findings_alone(
     result = _deterministic_pre_verification(finding, repo_root=tmp_path)
 
     assert (result.status, result.reportable) == ("UNVERIFIED", True), result.invalidation_reason
+
+
+_DEFINES_EVERYTHING = """
+from pathlib import Path
+
+
+def load_policy(path: Path, _depth: int = 0) -> dict:
+    return {}
+
+
+def safe_resolve_subpath(base_dir: Path, name: str) -> Path:
+    return (base_dir / name).resolve()
+
+
+def helper() -> None:
+    x = 1
+"""
+
+
+@pytest.mark.parametrize(
+    ("title", "description"),
+    [
+        (
+            "Missing inheritance depth limit in load_policy",
+            "The `load_policy` function accepts a `_depth` parameter but never enforces the "
+            "maximum inheritance depth, so a cyclic `extends` chain recurses without bound.",
+        ),
+        (
+            "Missing Path Containment Check",
+            "`safe_resolve_subpath` does not verify that the resolved path stays inside "
+            "`base_dir`, so `../` segments escape it.",
+        ),
+        (
+            "Missing validation function call in `load_policy`",
+            "Policies are loaded without their schema being checked.",
+        ),
+        (
+            "Result is undefined behaviour when the policy file is empty",
+            "`load_policy` returns an empty mapping that callers treat as permissive.",
+        ),
+    ],
+)
+def test_missing_symbol_check_leaves_findings_about_missing_protections(
+    tmp_path: Path, title: str, description: str
+) -> None:
+    """Verify a real "missing check" finding naming an existing function is not invalidated."""
+    from devops_cli.ai.review.verification import _check_missing_symbol_hallucination
+
+    module = tmp_path / "policy.py"
+    module.write_text(_DEFINES_EVERYTHING, encoding="utf-8")
+    finding = Finding(
+        severity="HIGH", location="policy.py:5", title=title, description=description, fix="f"
+    )
+
+    assert _check_missing_symbol_hallucination(finding, module) is None
+
+
+@pytest.mark.parametrize(
+    ("title", "description"),
+    [
+        ("Missing `helper` function", "`helper` is not defined in this module."),
+        ("NameError when calling helper", "Calling `helper` raises NameError at import."),
+        ("Missing _cluster_reachable import", "The import fails."),
+        ("Unresolved import", "`load_policy` cannot be imported from this module."),
+    ],
+)
+def test_missing_symbol_check_still_invalidates_claims_that_a_defined_name_is_undefined(
+    tmp_path: Path, title: str, description: str
+) -> None:
+    """Verify claims that a defined name is undefined or unimportable are still invalidated."""
+    from devops_cli.ai.review.verification import _check_missing_symbol_hallucination
+
+    module = tmp_path / "policy.py"
+    module.write_text(_DEFINES_EVERYTHING + "\n_cluster_reachable = True\n", encoding="utf-8")
+    finding = Finding(
+        severity="LOW", location="policy.py:1", title=title, description=description, fix="f"
+    )
+
+    result = _check_missing_symbol_hallucination(finding, module)
+
+    outcome = (result.status, result.reportable) if result else None
+    assert outcome == ("INVALIDATED", False)

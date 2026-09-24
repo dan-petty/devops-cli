@@ -362,20 +362,33 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
         return None
 
 
+# A claim that a name does not exist: an import or name error, or a symbol said to be undefined
+# or unimportable. The word "missing" alone is not one: a finding about a missing check, limit or
+# validation names the function that lacks it, and that function exists.
+_UNDEFINED_SYMBOL_CLAIM = re.compile(
+    r"\b(?:import|name|modulenotfound)error\b"
+    r"|\b(?:is|are|was|were)\s+(?:not|never)\s+(?:defined|declared|imported|exported)\b"
+    r"|\b(?:is|are)\s+undefined\b(?!\s+behaviou?r)"
+    r"|\bnot\s+defined\s+in\b"
+    r"|\b(?:does\s+not|doesn't|do\s+not)\s+(?:define|export)\b"
+    r"|\b(?:cannot|can't|could\s+not)\s+(?:be\s+)?import(?:ed)?\b"
+    r"|\b(?:missing|undefined|unresolved)\s+(?:import|symbol|name)s?\b"
+    # "missing `x` variable", "missing _helper import": the name must look like code.
+    r"|\b(?:missing|undefined|unresolved)\s+(?:`[\w.]+`|\w*_\w*)\s+"
+    r"(?:import|symbol|variable|function|class|constant|name|attribute|module)s?\b",
+    re.IGNORECASE,
+)
+
+
+def _claims_undefined_symbol(finding: Finding) -> bool:
+    return bool(_UNDEFINED_SYMBOL_CLAIM.search(f"{finding.title}\n{finding.description or ''}"))
+
+
 def _check_missing_symbol_hallucination(finding: Finding, file_path: Path) -> Finding | None:
-    """Deterministically invalidate false missing symbol or ImportError claims if symbol exists."""
+    """Deterministically invalidate a claim that a name is undefined, when the name is defined."""
     if not (file_path.exists() and file_path.is_file() and file_path.suffix.lower() == ".py"):
         return None
-    title_lower = finding.title.lower()
-    desc_lower = (finding.description or "").lower()
-    claim_indicators = (
-        "importerror",
-        "missing",
-        "not defined",
-        "undefined",
-        "never defined",
-    )
-    if not any(kw in title_lower or kw in desc_lower for kw in claim_indicators):
+    if not _claims_undefined_symbol(finding):
         return None
 
     try:
