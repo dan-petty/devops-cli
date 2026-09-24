@@ -1436,8 +1436,9 @@ def test_unlock_keyring_creates_the_keyring_on_first_use(
 
     assert result.exit_code == 0, result.output
     assert prompts == ["New keyring password: ", "Repeat keyring password: "]
-    unlock = keyring_container[-1]
+    unlock = next(call for call in keyring_container if "gnome-keyring-daemon" in call["cmd"])
     assert unlock["cmd"] == [
+        "setsid",
         "gnome-keyring-daemon",
         "--replace",
         "--unlock",
@@ -1458,7 +1459,8 @@ def test_unlock_keyring_keeps_the_daemon_off_the_shared_tmp(
 
     runner.invoke(app, ["unlock-keyring"])
 
-    assert keyring_container[-1]["env"] == {"XDG_RUNTIME_DIR": str(tmp_path)}
+    unlock = next(call for call in keyring_container if "gnome-keyring-daemon" in call["cmd"])
+    assert unlock["env"] == {"XDG_RUNTIME_DIR": str(tmp_path)}
 
 
 def test_unlock_keyring_asks_once_for_an_existing_keyring(
@@ -1472,7 +1474,10 @@ def test_unlock_keyring_asks_once_for_an_existing_keyring(
     keyring_file.parent.mkdir(parents=True)
     keyring_file.write_bytes(b"GnomeKeyring\n\r\x00\n")
     prompts = _answer_prompts(monkeypatch, "correct-horse")
-    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: False)
+    lock_states = iter([True, False])  # locked when asked, unlocked once the password is in
+    monkeypatch.setattr(
+        "devops_cli.commands.devcontainer._keyring_is_locked", lambda: next(lock_states)
+    )
 
     result = runner.invoke(app, ["unlock-keyring"])
 
@@ -1647,3 +1652,249 @@ def test_this_repositorys_manifest_validates() -> None:
     result = runner.invoke(app, ["validate", "--workspace", "."])
 
     assert result.exit_code == 0, result.output
+
+
+def _existing_keyring(tmp_path: Path) -> Path:
+    """Write a login keyring file, as a previous container of the same identity would have."""
+    keyring_file = tmp_path / "data" / "keyrings" / "login.keyring"
+    keyring_file.parent.mkdir(parents=True, exist_ok=True)
+    keyring_file.write_bytes(b"GnomeKeyring\n\r\x00\n")
+    return keyring_file
+
+
+def test_an_already_unlocked_keyring_is_not_asked_for_again(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every restored terminal runs the hook; only a locked keyring should cost a prompt."""
+    _existing_keyring(tmp_path)
+    pending = tmp_path / ".keyring-unlock-pending"
+    pending.touch()
+    prompts = _answer_prompts(monkeypatch)
+    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: False)
+
+    result = runner.invoke(app, ["unlock-keyring"])
+
+    assert (result.exit_code, prompts, keyring_container) == (0, [], [])
+    assert not pending.exists()
+
+
+def test_a_successful_unlock_clears_the_pending_marker(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The marker is what makes the next terminal ask; it must go once the keyring is open."""
+    pending = tmp_path / ".keyring-unlock-pending"
+    pending.touch()
+    _answer_prompts(monkeypatch, "correct-horse", "correct-horse")
+    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: False)
+
+    runner.invoke(app, ["unlock-keyring"])
+
+    assert not pending.exists()
+
+
+def test_an_unanswered_prompt_leaves_the_keyring_for_the_next_terminal(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """post-start's prompt times out when nobody watches it; the marker must survive that."""
+    pending = tmp_path / ".keyring-unlock-pending"
+    pending.touch()
+
+    def no_answer(prompt: str = "") -> str:
+        raise TimeoutError
+
+    monkeypatch.setattr("getpass.getpass", no_answer)
+
+    result = runner.invoke(app, ["unlock-keyring"])
+
+    assert (result.exit_code, keyring_container) == (1, [])
+    assert pending.exists()
+    assert "next terminal you open will ask again" in " ".join(result.output.split())
+
+
+def test_the_password_prompt_gives_up_after_its_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A lifecycle pty nobody types into would otherwise block post-start forever."""
+    import time
+
+    from devops_cli.commands.devcontainer import _read_password
+
+    monkeypatch.setattr("getpass.getpass", lambda prompt="": time.sleep(5) or "late")
+
+    start = time.monotonic()
+    with pytest.raises(TimeoutError):
+        _read_password("Keyring password: ", timeout=1)
+    assert time.monotonic() - start < 3
+
+
+def test_post_start_asks_for_the_keyring_password_on_a_terminal(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """VS Code runs lifecycle commands on a pty, so the container can unlock as it starts."""
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={tmp_path / 'bus'}")
+    (tmp_path / ".keyring-unlock-pending").touch()
+    monkeypatch.setattr(
+        "devops_cli.commands.devcontainer._run_post_start_lifecycle", lambda *a, **k: []
+    )
+    monkeypatch.setattr("devops_cli.commands.devcontainer._stdin_is_terminal", lambda: True)
+    timeouts: list[int | None] = []
+    monkeypatch.setattr(
+        "devops_cli.commands.devcontainer._unlock_keyring",
+        lambda *, timeout: timeouts.append(timeout) or True,
+    )
+
+    result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert timeouts == [60]
+
+
+def test_post_start_never_prompts_without_a_terminal(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scripted and CI runs of post-start have nobody to answer."""
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={tmp_path / 'bus'}")
+    (tmp_path / ".keyring-unlock-pending").touch()
+    monkeypatch.setattr(
+        "devops_cli.commands.devcontainer._run_post_start_lifecycle", lambda *a, **k: []
+    )
+    monkeypatch.setattr("devops_cli.commands.devcontainer._stdin_is_terminal", lambda: False)
+    calls: list[object] = []
+    monkeypatch.setattr(
+        "devops_cli.commands.devcontainer._unlock_keyring", lambda **kw: calls.append(kw)
+    )
+
+    result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path)])
+
+    assert (result.exit_code, calls) == (0, [])
+
+
+def test_a_fresh_bus_marks_the_keyring_as_waiting_to_be_unlocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A new bus means a new keyring daemon, and that always starts locked."""
+    from devops_cli.commands.devcontainer import _start_session_bus
+
+    socket_path = tmp_path / "run" / "bus"
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
+    _record_subprocess_calls(monkeypatch)
+
+    _start_session_bus()
+
+    assert (socket_path.parent / ".keyring-unlock-pending").exists()
+
+
+def test_post_create_adds_the_unlock_hook_to_each_shell_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The home volume outlives rebuilds, so post-create runs again on the same rc files."""
+    from devops_cli.commands.devcontainer import _run_post_create_lifecycle
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setattr(
+        "devops_cli.commands.devcontainer._bootstrap_developer_tools", lambda **k: []
+    )
+    monkeypatch.setattr(
+        "devops_cli.commands.devcontainer._install_keyring_packages", lambda **k: []
+    )
+
+    _run_post_create_lifecycle(tmp_path)
+    _run_post_create_lifecycle(tmp_path)
+
+    for rc in (".bashrc", ".zshrc"):
+        content = (fake_home / rc).read_text(encoding="utf-8")
+        assert content.count("devops devcontainer unlock-keyring") == 2  # flock and plain branch
+        assert content.count("devops-cli keyring unlock") == 1
+
+
+def test_the_unlock_hook_is_valid_in_bash_and_zsh(tmp_path: Path) -> None:
+    """A syntax error here would print on every terminal the user ever opens."""
+    import shutil
+    import subprocess
+
+    from devops_cli.commands.devcontainer import _KEYRING_UNLOCK_HOOK
+
+    hook = tmp_path / "hook.sh"
+    hook.write_text(_KEYRING_UNLOCK_HOOK, encoding="utf-8")
+    for shell in ("bash", "zsh", "sh"):
+        if shutil.which(shell):
+            checked = subprocess.run([shell, "-n", str(hook)], capture_output=True, text=True)
+            assert checked.returncode == 0, f"{shell}: {checked.stderr}"
+
+
+def test_the_unlock_hook_stays_quiet_once_the_keyring_is_open(tmp_path: Path) -> None:
+    """Without the marker the hook must not even start devops: every new shell pays for it."""
+    import subprocess
+
+    from devops_cli.commands.devcontainer import _KEYRING_UNLOCK_HOOK
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    ran = tmp_path / "devops-ran"
+    (fake_bin / "devops").write_text(f"#!/bin/sh\ntouch {ran}\n", encoding="utf-8")
+    (fake_bin / "devops").chmod(0o755)
+    hook = tmp_path / "hook.sh"
+    hook.write_text(_KEYRING_UNLOCK_HOOK, encoding="utf-8")
+    env = {
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "DBUS_SESSION_BUS_ADDRESS": f"unix:path={tmp_path / 'bus'}",
+    }
+
+    subprocess.run(["bash", str(hook)], env=env, stdin=subprocess.DEVNULL, check=True)
+
+    assert not ran.exists()
+
+
+def test_plaintext_gh_tokens_are_moved_once_the_keyring_opens(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Re-logging in with the token already held mints nothing, unlike `gh auth refresh`."""
+    import subprocess
+
+    from devops_cli.commands.devcontainer import _move_plaintext_gh_tokens
+
+    hosts_file = _write_gh_hosts(monkeypatch, tmp_path, "github.com:\n  oauth_token: FAKE-token\n")
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def fake_gh(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append((cmd, kwargs))
+        if cmd[:3] == ["gh", "auth", "login"]:
+            hosts_file.write_text("github.com:\n  users:\n    probe:\n  user: probe\n")
+        stdout = "FAKE-token\n" if cmd[:3] == ["gh", "auth", "token"] else ""
+        return subprocess.CompletedProcess(cmd, 0, stdout, "")
+
+    monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", fake_gh)
+
+    assert _move_plaintext_gh_tokens() == ["github.com"]
+    login_cmd, login_kwargs = calls[-1]
+    assert login_cmd == ["gh", "auth", "login", "-h", "github.com", "--with-token"]
+    assert login_kwargs["input"] == "FAKE-token"
+    assert "DBUS_SESSION_BUS_ADDRESS" in login_kwargs["extra_allowed_env"]  # type: ignore[operator]
+
+
+def test_an_environment_token_leaves_hosts_yml_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """gh prefers GH_TOKEN and refuses to log in over it, so the move would only fail."""
+    from devops_cli.commands.devcontainer import _move_plaintext_gh_tokens
+
+    _write_gh_hosts(monkeypatch, tmp_path, "github.com:\n  oauth_token: FAKE-token\n")
+    monkeypatch.setenv("GH_TOKEN", "FAKE-env-token")
+    calls = _record_subprocess_calls(monkeypatch)
+
+    assert (_move_plaintext_gh_tokens(), calls) == ([], [])
