@@ -1384,6 +1384,36 @@ devops ai gateway probe-backend [OPTIONS] <backend>
 | `--backend-url`, `-u` | `string` | - | Optional backend base URL override. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
+### `devops ai gateway tune`
+
+**Measure each deployment of a gateway model group and recommend routing weights.**
+
+Measure each deployment of a gateway model group and recommend routing weights.
+
+Each deployment is measured on its own from an ephemeral container attached to the gateway
+pod, since the backends admit only the gateway. Read-only: the gateway configuration is not
+changed.
+
+```bash
+devops ai gateway tune [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--model`, `-m` | `string` | `devops-review` | Gateway model group to measure. |
+| `--concurrency`, `-c` | `string` | `1,4,8` | Comma-separated concurrency levels to measure. |
+| `--rounds` | `integer` | `2` | Requests per worker at each concurrency level. |
+| `--prompt-tokens` | `integer` | - | Prompt size in tokens (default: one review page for the analysis task). |
+| `--max-tokens` | `integer` | `<masked>` | Completion tokens requested per call. |
+| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--namespace`, `-n` | `string` | `llm` | Namespace of the gateway deployment. |
+| `--deployment` | `string` | `llm-gateway` | Gateway deployment to run the sweep in. |
+| `--context` | `string` | - | Kubernetes context override. |
+| `--image` | `string` | `python:3.14-slim` | Python image for the sweep container. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
 ---
 
 ## `devops ai cost`

@@ -285,16 +285,15 @@ def _query_model_info(gateway_url: str, allow_private: bool, api_key: str | None
         return None
 
 
-def _fetch_remote_routes(
+def fetch_model_info(
     gateway_url: str, allow_private: bool, api_key: str | None = None
-) -> list[GatewayRoute] | None:
-    """Query the gateway's deployments; None when it is unreachable or lists nothing.
+) -> list[dict[str, Any]] | None:
+    """Return the gateway's `/model/info` entries; None when it is unreachable or lists nothing.
 
     Raises AICredentialsError when the gateway rejects the request, rather than letting the
-    caller fall back to default routes that do not describe the gateway.
+    caller fall back to defaults that do not describe the gateway.
     """
-    clean_url = gateway_url.rstrip("/")
-    resp = _query_model_info(clean_url, allow_private, api_key)
+    resp = _query_model_info(gateway_url.rstrip("/"), allow_private, api_key)
     if resp is None:
         return None
     if resp.status_code in (401, 403):
@@ -305,9 +304,15 @@ def _fetch_remote_routes(
         data = resp.json().get("data", [])
     except ValueError:
         return None
-    if not isinstance(data, list) or not data:
-        return None
-    return _parse_remote_model_items(data, clean_url) or None
+    return data if isinstance(data, list) and data else None
+
+
+def _fetch_remote_routes(
+    gateway_url: str, allow_private: bool, api_key: str | None = None
+) -> list[GatewayRoute] | None:
+    """Query the gateway's deployments as routes; None when it is unreachable or lists nothing."""
+    data = fetch_model_info(gateway_url, allow_private, api_key)
+    return _parse_remote_model_items(data, gateway_url.rstrip("/")) or None if data else None
 
 
 def _probe_gateway_http(
