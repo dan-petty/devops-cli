@@ -79,7 +79,7 @@ def _read_candidate_conventions_file(directory: Path | None) -> str:
 def _get_reviews_base_dir() -> Path:
     """Resolve and ensure the review data storage directory."""
     from devops_cli.config.settings import load_settings
-    from devops_cli.core.repo import find_top_level_repo_root
+    from devops_cli.core.repo import resolve_data_path
 
     env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_data_dir:
@@ -87,8 +87,6 @@ def _get_reviews_base_dir() -> Path:
     else:
         settings = load_settings()
         d = settings.data.reviews_dir
-    if not d.is_absolute():
-        d = find_top_level_repo_root() / d
-    d = d.resolve()
+    d = resolve_data_path(d)
     d.mkdir(parents=True, exist_ok=True)
     return d

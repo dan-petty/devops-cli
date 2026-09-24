@@ -115,12 +115,9 @@ def export_invalidated_feedback(
         out_path = output_file
     else:
         from devops_cli.config.settings import load_settings
-        from devops_cli.core.repo import find_top_level_repo_root
+        from devops_cli.core.repo import resolve_data_path
 
-        settings = load_settings()
-        out_path = settings.data.feedback_dataset_path
-        if not out_path.is_absolute():
-            out_path = (find_top_level_repo_root() / out_path).resolve()
+        out_path = resolve_data_path(load_settings().data.feedback_dataset_path)
 
     if output_file is not None:
         resolved_out = output_file.resolve()

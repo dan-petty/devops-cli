@@ -126,13 +126,11 @@ def load_sample_catalog(path: Path = CATALOG_PATH) -> SampleCatalog:
 def samples_dir() -> Path:
     """The directory samples are fetched into, one subdirectory per sample."""
     from devops_cli.config.settings import load_settings
-    from devops_cli.core.repo import find_top_level_repo_root
+    from devops_cli.core.repo import resolve_data_path
 
     env_data_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     directory = Path(env_data_dir) / "samples" if env_data_dir else load_settings().data.samples_dir
-    if not directory.is_absolute():
-        directory = find_top_level_repo_root() / directory
-    return directory.resolve()
+    return resolve_data_path(directory)
 
 
 def _git(checkout: Path, *args: str) -> tuple[int, str]:

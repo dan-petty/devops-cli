@@ -534,11 +534,9 @@ def clear_cmd(
     # Remove local cache
     from devops_cli.config.constants import CONST_INDEX_CACHE_FILENAME
     from devops_cli.config.settings import load_settings
-    from devops_cli.core.repo import find_top_level_repo_root
+    from devops_cli.core.repo import resolve_data_path
 
-    rag_dir = load_settings().data.rag_dir
-    if not rag_dir.is_absolute():
-        rag_dir = (find_top_level_repo_root() / rag_dir).resolve()
+    rag_dir = resolve_data_path(load_settings().data.rag_dir)
     cache_file = rag_dir / CONST_INDEX_CACHE_FILENAME
     if cache_file.exists():
         cache_file.unlink()

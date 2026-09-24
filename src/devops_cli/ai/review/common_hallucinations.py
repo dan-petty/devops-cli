@@ -370,10 +370,10 @@ def get_common_hallucinations_file_path() -> Path:
         target = DEFAULT_HALLUCINATIONS_FILE_PATH
 
     if not target.is_absolute():
-        from devops_cli.core.repo import find_top_level_repo_root
+        from devops_cli.core.repo import resolve_data_path
 
         try:
-            target = (find_top_level_repo_root() / target).resolve()
+            target = resolve_data_path(target)
         except Exception:
             target = target.resolve()
 
