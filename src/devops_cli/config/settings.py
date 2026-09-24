@@ -97,20 +97,33 @@ class SecretStorageError(RuntimeError):
     """Raised when a secret cannot be stored in the configured keyring backend."""
 
 
+class KeyringLockedError(SecretStorageError):
+    """Raised when the keyring exists but is locked, so nothing can be stored until unlocked."""
+
+
+_KEYRING_LOCKED_HINT = "the OS keyring is locked; run `devops devcontainer unlock-keyring`"
+
+
+def _is_unencrypted_backend(backend: object) -> bool:
+    """Report whether a backend keeps secrets in plain text."""
+    return "Plaintext" in type(backend).__name__ or "keyrings.alt" in type(backend).__module__
+
+
 def _ensure_keyring_backend() -> bool:
     """Ensure keyring has a usable, encrypted backend and reject unencrypted backends."""
     import keyring
+    from keyring.backends.chainer import ChainerBackend
     from keyring.backends.fail import Keyring as FailKeyring
 
     backend = keyring.get_keyring()
     if backend is None or isinstance(backend, FailKeyring):
         return False
 
-    # Check priority and reject known unencrypted/insecure backends
-    backend_class_name = type(backend).__name__
-    backend_module = type(backend).__module__
-
-    if "Plaintext" in backend_class_name or "keyrings.alt" in backend_module:
+    # keyring picks the chainer whenever several backends are viable, and the chainer falls
+    # through to the next one when a write fails -- a locked Secret Service would hand the
+    # secret to any plaintext backend behind it. Every backend it chains must be encrypted.
+    members = list(backend.backends) if isinstance(backend, ChainerBackend) else [backend]
+    if not members or any(_is_unencrypted_backend(member) for member in members):
         return False
 
     priority = getattr(backend, "priority", 0)
@@ -512,7 +525,7 @@ _EPHEMERAL_CI_SECRETS: dict[str, str] = {}
 
 def _keyring_get(key: str) -> str | None:
     import keyring
-    from keyring.errors import NoKeyringError
+    from keyring.errors import KeyringLocked, NoKeyringError
 
     if key in _EPHEMERAL_CI_SECRETS:
         return _EPHEMERAL_CI_SECRETS[key]
@@ -524,6 +537,9 @@ def _keyring_get(key: str) -> str | None:
         return keyring.get_password(KEYRING_SERVICE, key)
     except NoKeyringError:
         return None
+    except KeyringLocked:
+        logger.warning("Cannot read %s: %s", key, _KEYRING_LOCKED_HINT)
+        return None
     except Exception as exc:
         logger.warning("Failed to retrieve secret from OS Keyring: %s", type(exc).__name__)
         return None
@@ -532,7 +548,7 @@ def _keyring_get(key: str) -> str | None:
 def _keyring_has(key: str) -> bool:
     """Check whether a secret key exists in OS keyring or ephemeral store."""
     import keyring
-    from keyring.errors import NoKeyringError
+    from keyring.errors import KeyringLocked, NoKeyringError
 
     if key in _EPHEMERAL_CI_SECRETS:
         return True
@@ -543,6 +559,9 @@ def _keyring_has(key: str) -> bool:
     try:
         val = keyring.get_password(KEYRING_SERVICE, key)
         return bool(val is not None)
+    except KeyringLocked:
+        logger.warning("Cannot check %s: %s", key, _KEYRING_LOCKED_HINT)
+        return False
     except (NoKeyringError, Exception) as exc:
         logger.debug("Keyring check failed: %s", type(exc).__name__)
         return False
@@ -552,7 +571,7 @@ def _keyring_set(key: str, value: str) -> None:
     import os
 
     import keyring
-    from keyring.errors import NoKeyringError
+    from keyring.errors import KeyringLocked, NoKeyringError
 
     if os.environ.get("DEVOPS_CLI_HEADLESS_AUTH", "").lower() in ("true", "1", "yes"):
         _EPHEMERAL_CI_SECRETS[key] = value
@@ -566,6 +585,8 @@ def _keyring_set(key: str, value: str) -> None:
         keyring.set_password(KEYRING_SERVICE, key, value)
     except NoKeyringError:
         _EPHEMERAL_CI_SECRETS[key] = value
+    except KeyringLocked as exc:
+        raise KeyringLockedError(f"Cannot store {key}: {_KEYRING_LOCKED_HINT}") from exc
     except Exception as exc:
         raise SecretStorageError(f"Failed to store secret in keyring: {exc}") from exc
 

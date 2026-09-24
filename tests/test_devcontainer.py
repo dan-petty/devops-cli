@@ -1536,3 +1536,83 @@ def test_unlock_keyring_needs_gnome_keyring(
 
     assert result.exit_code == 1
     assert "No keyring in this container" in result.output
+
+
+def _write_gh_hosts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, content: str) -> Path:
+    """Point gh's config dir at tmp_path and write hosts.yml there."""
+    monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path / "gh"))
+    hosts_file = tmp_path / "gh" / "hosts.yml"
+    hosts_file.parent.mkdir(parents=True, exist_ok=True)
+    hosts_file.write_text(content, encoding="utf-8")
+    return hosts_file
+
+
+def test_a_plaintext_gh_token_is_flagged_with_the_move_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """gh falls back to hosts.yml while the keyring is locked, and that copy then wins."""
+    from devops_cli.commands.devcontainer import _gh_plaintext_token_warnings
+
+    hosts_file = _write_gh_hosts(
+        monkeypatch,
+        tmp_path,
+        "github.com:\n  users:\n    probe:\n      oauth_token: FAKE-token\n  user: probe\n",
+    )
+
+    assert _gh_plaintext_token_warnings() == [
+        f"Warning: gh keeps a plaintext token for github.com in {hosts_file}; once the keyring "
+        "is unlocked, move it with "
+        "`gh auth token -h github.com | gh auth login -h github.com --with-token`"
+    ]
+
+
+def test_the_plaintext_warning_never_repeats_the_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """post-start output lands in container logs that outlive the token's rotation."""
+    from devops_cli.commands.devcontainer import _gh_plaintext_token_warnings
+
+    _write_gh_hosts(monkeypatch, tmp_path, "github.com:\n  oauth_token: FAKE-token\n")
+
+    assert "FAKE-token" not in "".join(_gh_plaintext_token_warnings())
+
+
+def test_keyring_backed_gh_logins_are_not_flagged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """hosts.yml keeps the user list even when the token itself is in the keyring."""
+    from devops_cli.commands.devcontainer import _gh_plaintext_token_hosts
+
+    _write_gh_hosts(monkeypatch, tmp_path, "github.com:\n  users:\n    probe:\n  user: probe\n")
+
+    assert _gh_plaintext_token_hosts() == []
+
+
+def test_an_unreadable_gh_config_is_not_flagged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing or corrupt hosts.yml must not break post-start."""
+    from devops_cli.commands.devcontainer import _gh_plaintext_token_hosts
+
+    monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path / "absent"))
+    missing = _gh_plaintext_token_hosts()
+    _write_gh_hosts(monkeypatch, tmp_path, "github.com: [unterminated\n")
+
+    assert (missing, _gh_plaintext_token_hosts()) == ([], [])
+
+
+def test_unlock_keyring_points_at_plaintext_gh_tokens_once_unlocked(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Right after unlocking is the one moment the move command can succeed."""
+    _write_gh_hosts(monkeypatch, tmp_path, "github.com:\n  oauth_token: FAKE-token\n")
+    _answer_prompts(monkeypatch, "correct-horse", "correct-horse")
+    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: False)
+
+    result = runner.invoke(app, ["unlock-keyring"])
+
+    assert result.exit_code == 0
+    assert "gh auth login -h github.com --with-token" in " ".join(result.output.split())
