@@ -214,6 +214,18 @@ _PROMPT_PLACEHOLDER_BASENAMES: frozenset[str] = frozenset(
 
 _MARKDOWN_LINK_REGEX = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 
+# Characters a path segment may hold: letters and digits of any script, and the punctuation file
+# names use (`c++`, `@scope`, `logo@2x`, `~/.config`, `100%`). A narrower class cut a path at the
+# first other character and kept the fragment before it.
+_SEGMENT_CHARS = r"\w\-.+@~%"
+_PATH_CHARS = rf"{_SEGMENT_CHARS}/\\"
+_LOCATION_REGEX = re.compile(rf"^([{_PATH_CHARS}]+)(?::(\d+)(?:-(\d+))?)?$")
+_TARGET_LOCATION_REGEX = re.compile(rf"^([{_PATH_CHARS}]+):([{_PATH_CHARS}]+)$")
+_EMBEDDED_LOCATION_REGEX = re.compile(
+    rf"(?:^|[\s:\"'`])([{_PATH_CHARS}]+/[{_SEGMENT_CHARS}]+|[\w\-]+\.[\w\-]+)"
+    r"(?::(\d+)(?:-(\d+))?)?"
+)
+
 
 _SCRATCHPAD_PREFIX_REGEX = re.compile(
     r"^(?:(?:We|I)\s+(?:need to|must|should|will|have to)\b|Let's\b|Looking at\b|Reviewing\b|Checking\b|Based on\b)[^.\n]*[.?!:]\s*",
@@ -336,7 +348,7 @@ def canonicalize_finding_location(location: str) -> str:
     ):
         return ""
 
-    m_loc = re.match(r"^([a-zA-Z0-9_\-./\\]+)(?::(\d+)(?:-(\d+))?)?$", loc)
+    m_loc = _LOCATION_REGEX.match(loc)
     if m_loc:
         file_path = m_loc.group(1).replace("\\", "/")
         s_str = m_loc.group(2)
@@ -356,15 +368,12 @@ def canonicalize_finding_location(location: str) -> str:
         return f"{file_path}:{s_line}"
 
     # Match general target specifiers without spaces, e.g. uv.lock:jinja2, Dockerfile:cve-1, k8s/app.yaml:Deployment/app
-    m_target = re.match(r"^([a-zA-Z0-9_\-./\\]+):([a-zA-Z0-9_\-./\\]+)$", loc)
+    m_target = _TARGET_LOCATION_REGEX.match(loc)
     if m_target:
         return f"{m_target.group(1).replace('\\', '/')}:{m_target.group(2)}"
 
     # Extract embedded valid file location if present in conversational or scratchpad text
-    m_embedded = re.search(
-        r"(?:^|[\s:\"'`])([a-zA-Z0-9_\-./\\]+/[a-zA-Z0-9_\-.]+|[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+)(?::(\d+)(?:-(\d+))?)?",
-        loc,
-    )
+    m_embedded = _EMBEDDED_LOCATION_REGEX.search(loc)
     if m_embedded:
         candidate_file = m_embedded.group(1).replace("\\", "/").rstrip(".")
         if (
