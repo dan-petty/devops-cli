@@ -37,6 +37,7 @@ from devops_cli.config.metadata import get_project_python_version
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.serialization import strip_json_comments
 from devops_cli.core.templating import render_json_template
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.exceptions import DevOpsCLIError
@@ -215,18 +216,6 @@ def update(
 # =============================================================================
 
 
-_JSONC_STRING_OR_COMMENT = re.compile(r'("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/', re.DOTALL)
-
-
-def _strip_json_comments(text: str) -> str:
-    """Strip single-line and multi-line comments from JSON text (JSONC support).
-
-    Strings are matched first and kept whole, so a `//` inside one -- every URL -- is not
-    mistaken for the start of a comment.
-    """
-    return _JSONC_STRING_OR_COMMENT.sub(lambda match: match.group(1) or "", text)
-
-
 def _validate_manifest_content(data: object, base_dir: Path) -> list[str]:
     """Validate parsed DevContainer manifest dictionary structure and referenced paths."""
     errors: list[str] = []
@@ -323,7 +312,7 @@ def validate(
 
     try:
         raw_text = dc_file.read_text(encoding="utf-8")
-        clean_text = _strip_json_comments(raw_text)
+        clean_text = strip_json_comments(raw_text)
         data = json.loads(clean_text)
     except Exception as exc:
         print_error(ERRORS.devcontainer.parse_failed.format(path=dc_file, exc=exc), prefix=False)
@@ -449,7 +438,7 @@ def _extract_dc_mounts(dc_file: Path, workspace_dir: Path) -> list[tuple[Path, s
     """Extract mount specs from a devcontainer.json configuration."""
     results: list[tuple[Path, str]] = []
     try:
-        clean_text = _strip_json_comments(dc_file.read_text(encoding="utf-8"))
+        clean_text = strip_json_comments(dc_file.read_text(encoding="utf-8"))
         data = json.loads(clean_text)
         mounts = data.get("mounts", [])
         if isinstance(mounts, list):

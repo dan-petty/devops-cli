@@ -8,6 +8,16 @@ from typing import Any
 
 _MARKDOWN_CODEBLOCK_RE = re.compile(r"```(?:json)?\s*\n?([\s\S]*?)\n?\s*```")
 _JSON_UNSET = object()
+_JSONC_STRING_OR_COMMENT = re.compile(r'("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/', re.DOTALL)
+
+
+def strip_json_comments(text: str) -> str:
+    """Strip `//` and `/* */` comments from JSONC text, such as devcontainer.json.
+
+    Strings are matched first and kept whole, so a `//` inside one -- every URL -- is not
+    mistaken for the start of a comment.
+    """
+    return _JSONC_STRING_OR_COMMENT.sub(lambda match: match.group(1) or "", text)
 
 
 def extract_json_block(text: str, *, default: Any = _JSON_UNSET) -> Any:
