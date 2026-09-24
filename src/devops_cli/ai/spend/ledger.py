@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
+from collections.abc import Callable, Iterator
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from devops_cli.ai.spend.models import (
     BackendSpendSummary,
@@ -390,6 +393,30 @@ def get_spend_ledger(db_path: Path | str | None = None) -> SpendLedger:
     return _GLOBAL_LEDGER
 
 
+LLMCallObserver = Callable[[dict[str, Any]], None]
+
+# Callbacks shown every LLM call recorded in this context, e.g. a review profiler. The spend
+# ledger is the one place every call passes through, with its tokens and serving backend.
+_CALL_OBSERVERS: ContextVar[tuple[LLMCallObserver, ...]] = ContextVar(
+    "llm_call_observers", default=()
+)
+
+
+@contextlib.contextmanager
+def observe_llm_calls(observer: LLMCallObserver) -> Iterator[None]:
+    """Show ``observer`` every LLM call recorded inside the block, worker threads included."""
+    token = _CALL_OBSERVERS.set((*_CALL_OBSERVERS.get(), observer))
+    try:
+        yield
+    finally:
+        _CALL_OBSERVERS.reset(token)
+
+
+def _notify_call_observers(call: dict[str, Any]) -> None:
+    for observer in _CALL_OBSERVERS.get():
+        observer(call)
+
+
 def track_request_spend(
     *,
     provider: str,
@@ -427,6 +454,18 @@ def track_request_spend(
         )
     except Exception:
         rec = None
+    _notify_call_observers(
+        {
+            "provider": provider,
+            "model": model,
+            "served_by": served_by,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cached": cached,
+            "request_type": request_type,
+            "duration_seconds": duration_seconds,
+        }
+    )
     record_metric(
         "devops_cli_ai_estimated_cost_usd",
         cost,

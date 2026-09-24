@@ -323,6 +323,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops review findings [OPTIONS] <session>` | Inspect structured findings for a review session. |
 |  | `devops review verify [OPTIONS] <session>` | Validate or invalidate a review finding, persisting feedback reasons. |
 |  | `devops review stats [OPTIONS]` | Compute and display review accuracy statistics across saved sessions. |
+|  | `devops review benchmark [OPTIONS] <targets>` | Review the same files several times and report median time, LLM calls and tokens per stage. |
 |  | `devops review export-feedback [OPTIONS]` | Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning. |
 |  | `devops review apply-patch [OPTIONS] <session>` | Apply suggested LLM code fix for a verified finding. |
 |  | `devops review auto-fix [OPTIONS] <finding_id>` | Create a corrective topic branch with verified unit test patch for an approved finding. |

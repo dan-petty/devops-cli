@@ -832,6 +832,11 @@ class ReviewCommandHelp:
     pr_cmd: str = "Review a GitHub Pull Request."
     findings: str = "Manage and update review findings."
     stats: str = "Show review sessions and findings statistics."
+    benchmark: str = "Review the same files several times and report median time, LLM calls and tokens per stage."
+    benchmark_targets: str = (
+        "File(s) or directory(ies) to review on every run; keep them fixed to compare benchmarks."
+    )
+    benchmark_runs: str = "Number of reviews to run; the report takes medians across them."
     export_feedback: str = "Export review findings to structured feedback files."
     patch_cmd: str = "Inspect or apply suggested remediation patches from review findings."
     target_path: str = "File(s) or directory(ies) to review."

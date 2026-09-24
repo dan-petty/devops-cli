@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -21,6 +22,13 @@ from devops_cli.ai.review.chunker import (
     _split_source_file_blocks,
 )
 from devops_cli.ai.review.flags import ReviewStageFlags
+from devops_cli.ai.review.profile import (
+    ReviewProfiler,
+    active_profiler,
+    profiling,
+    report_profile,
+    review_stage,
+)
 from devops_cli.ai.review.review_environment import (
     _get_reviews_base_dir as _get_reviews_base_dir,
 )
@@ -1303,6 +1311,19 @@ def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
     return blocks
 
 
+def _corpus_digest(targets: list[Path], pattern: str) -> str:
+    """Fingerprint the files a path review reads, so benchmarks of the same corpus can be matched."""
+    digest = hashlib.sha256()
+    for target in targets:
+        resolved = target.resolve()
+        if resolved.is_file():
+            digest.update(resolved.read_bytes())
+            continue
+        for block in _collect_file_blocks(resolved, pattern):
+            digest.update(block.encode())
+    return digest.hexdigest()[:16]
+
+
 def _collect_files(root: Path, pattern: str) -> str:
     """Join collected file blocks into a single string."""
     return "\n\n".join(_collect_file_blocks(root, pattern))
@@ -1693,6 +1714,75 @@ def _prepare_pr_content(
     return pages, title, agents_md, pull, repo
 
 
+def _record_profile_findings(payloads: list[Any], candidates: int) -> None:
+    """Record candidate, verified and reported finding counts on the active review profile."""
+    profiler = active_profiler()
+    if profiler is None:
+        return
+    findings = [f for p in payloads for f in p.findings]
+    profiler.set_findings(
+        candidates=candidates,
+        verified=sum(1 for f in findings if f.verified),
+        reported=sum(1 for f in findings if f.reportable),
+    )
+
+
+def _write_review_profile(
+    profiler: ReviewProfiler, orchestrator: Any, target: str, files: int
+) -> None:
+    """Write the session's profile.json and summarise where the time went."""
+    profile = profiler.build(session_id=orchestrator.session_id, target=target, files=files)
+    path = profile.write(orchestrator.session_dir)
+    report_profile(profile)
+    stages = ", ".join(
+        f"{s.name} {format_duration(s.wall_seconds)} ({s.llm_calls} calls)"
+        for s in profile.stages
+        if s.wall_seconds >= 1 or s.llm_calls
+    )
+    print_info(
+        f"[dim]Profile: {format_duration(profile.total_wall_seconds)}, "
+        f"{profile.llm_calls} LLM calls; {stages} -> {path}[/dim]",
+        prefix=False,
+    )
+
+
+def _run_profiled_session(
+    orchestrator: Any,
+    all_files: list[str],
+    target_dir: Path,
+    pages: list[str],
+    active_p: list[str],
+    persona: Persona | None,
+    target_type: Literal["branch", "pr", "path"],
+    target_ref: str,
+    stage_flags: ReviewStageFlags | None,
+) -> list[tuple[PersonaDefinition, ReviewResult | str]] | None:
+    """Run the orchestrated review under a profiler; None when there are no files to review."""
+    with profiling() as profiler:
+        with review_stage("pre_analysis"):
+            metadata_by_path = orchestrator.run_pre_analysis_refresh(
+                target_dir=target_dir,
+                target_type=target_type,
+                target_ref=target_ref,
+                stage_flags=stage_flags,
+            )
+        if not all_files:
+            return None
+        results = _run_orchestrator_review(
+            orchestrator,
+            all_files,
+            metadata_by_path,
+            target_dir,
+            pages,
+            active_p,
+            persona,
+            stage_flags=stage_flags,
+        )
+        if not is_dry_run():
+            _write_review_profile(profiler, orchestrator, target_ref, len(all_files))
+        return results
+
+
 def _run_orchestrator_review(
     orchestrator: Any,
     all_files: list[str],
@@ -1704,18 +1794,25 @@ def _run_orchestrator_review(
     stage_flags: ReviewStageFlags | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Execute orchestrator pipeline review for all files."""
-    payloads = orchestrator.init_per_file_payloads(
-        all_files, metadata_by_path, target_dir=target_dir, stage_flags=stage_flags
-    )
+    with review_stage("payloads"):
+        payloads = orchestrator.init_per_file_payloads(
+            all_files, metadata_by_path, target_dir=target_dir, stage_flags=stage_flags
+        )
     if not is_dry_run():
         diff_map = {f: "\n".join([p for p in pages if f in p]) for f in all_files}
-        orchestrator.execute_multi_persona_review(
-            payloads, diff_text_by_file=diff_map, personas=active_p, stage_flags=stage_flags
-        )
-        orchestrator.execute_finding_verification(payloads, stage_flags=stage_flags)
-        orchestrator.execute_finding_reranking(payloads, stage_flags=stage_flags)
+        with review_stage("persona_review"):
+            orchestrator.execute_multi_persona_review(
+                payloads, diff_text_by_file=diff_map, personas=active_p, stage_flags=stage_flags
+            )
+        candidates = sum(len(p.findings) for p in payloads)
+        with review_stage("verification"):
+            orchestrator.execute_finding_verification(payloads, stage_flags=stage_flags)
+        with review_stage("reranking"):
+            orchestrator.execute_finding_reranking(payloads, stage_flags=stage_flags)
+        _record_profile_findings(payloads, candidates)
 
-    _, report_md = orchestrator.generate_consolidated_report(payloads, stage_flags=stage_flags)
+    with review_stage("report"):
+        _, report_md = orchestrator.generate_consolidated_report(payloads, stage_flags=stage_flags)
     p_def = PERSONAS[persona or Persona.DEVSECOPS]
     return [(p_def, report_md)]
 
@@ -1775,23 +1872,19 @@ def _execute_review_workflow(
                 f"for {n_af} file(s) via {server_info}...[/bold cyan]",
                 prefix=False,
             )
-            metadata_by_path = orchestrator.run_pre_analysis_refresh(
-                target_dir=target_dir,
-                target_type=target_type,
-                target_ref=target_ref,
-                stage_flags=stage_flags,
+            results = _run_profiled_session(
+                orchestrator,
+                all_files,
+                target_dir,
+                pages,
+                active_p,
+                persona,
+                target_type,
+                target_ref,
+                stage_flags,
             )
-            if all_files:
-                return _run_orchestrator_review(
-                    orchestrator,
-                    all_files,
-                    metadata_by_path,
-                    target_dir,
-                    pages,
-                    active_p,
-                    persona,
-                    stage_flags=stage_flags,
-                )
+            if results is not None:
+                return results
 
     if summary_only:
         print_info(f"[dim]{MESSAGES.review.generating_metadata}[/dim]", prefix=False)

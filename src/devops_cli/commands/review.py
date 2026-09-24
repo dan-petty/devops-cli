@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from devops_cli.config.settings import Settings
@@ -21,6 +22,7 @@ from devops_cli.config.defaults import (
     DEFAULT_APPLY_PATCH_INDEX,
     DEFAULT_CURRENT_PATH,
     DEFAULT_MATCH_ALL_PATTERN,
+    DEFAULT_REVIEW_BENCHMARK_RUNS,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, set_dry_run
@@ -35,8 +37,10 @@ __all__ = [
 from devops_cli.ai.review import runner
 from devops_cli.ai.review.exporter import export_invalidated_feedback
 from devops_cli.ai.review.patching import stage_finding_patch
+from devops_cli.ai.review.profile import BenchmarkSummary, collect_profiles, summarize_profiles
 from devops_cli.ai.review.runner import (
     _build_path_prompt,
+    _corpus_digest,
     _execute_review_workflow,
     _find_session_dir,
     _make_review_clients,
@@ -52,6 +56,7 @@ from devops_cli.ai.review_schema import (
 from devops_cli.config.settings import load_settings
 from devops_cli.output import (
     escape_text,
+    format_duration,
     print_error,
     print_info,
     print_panel,
@@ -996,6 +1001,114 @@ def review_stats(
             ],
             rows=persona_rows,
         )
+
+
+# =============================================================================
+# Command: devops review benchmark
+# =============================================================================
+
+
+def _backend_host(served_by: str) -> str:
+    """Shorten a serving backend's API base to its host, and an in-cluster host to its pod or service."""
+    host = urlparse(served_by).hostname or served_by
+    return host.split(".", 1)[0] if host.endswith(".svc.cluster.local") else host
+
+
+def _render_benchmark(summary: BenchmarkSummary, saved: Path) -> None:
+    """Show the median review and the median of each stage."""
+    per_candidate = summary.median_seconds_per_candidate
+    print_section(" Review Benchmark ", style="bold cyan")
+    median = format_duration(summary.median_wall_seconds)
+    print_info(
+        f"[bold]{summary.runs} run(s)[/bold] over {escape_text(summary.target)} "
+        f"({summary.files} files, corpus {summary.corpus_digest}): median {median}, "
+        f"{summary.median_llm_calls:g} LLM calls, {summary.median_candidate_findings:g} candidate "
+        f"and {summary.median_reported_findings:g} reported findings"
+        + (f", {per_candidate:.1f}s per candidate" if per_candidate else ""),
+        prefix=False,
+    )
+    rows = [
+        [
+            stage.name,
+            f"{stage.median_wall_seconds:.1f}",
+            f"{stage.median_llm_calls:g}",
+            f"{stage.median_prompt_tokens:g}",
+            f"{stage.median_completion_tokens:g}",
+            ", ".join(
+                f"{_backend_host(backend)} {calls}"
+                for backend, calls in sorted(stage.backends.items(), key=lambda item: -item[1])
+            ),
+        ]
+        for stage in summary.stages
+    ]
+    print_table(
+        title="Median per Stage",
+        columns=[
+            ("Stage", "cyan"),
+            ("Wall (s)", "right"),
+            ("LLM Calls", "right"),
+            ("Prompt Tokens", "right"),
+            ("Completion Tokens", "right"),
+            ("Backends (calls, all runs)", "magenta"),
+        ],
+        rows=rows,
+    )
+    print_success(f"Saved benchmark → [bold]{saved}[/bold]")
+
+
+@app.command("benchmark")
+def benchmark(
+    targets: Annotated[
+        list[Path],
+        typer.Argument(help=HELP.review.benchmark_targets),
+    ],
+    runs: Annotated[
+        int,
+        typer.Option("--runs", "-n", min=1, help=HELP.review.benchmark_runs),
+    ] = DEFAULT_REVIEW_BENCHMARK_RUNS,
+    pattern: Annotated[
+        str,
+        typer.Option("--pattern", "-g", help=HELP.options.pattern),
+    ] = DEFAULT_MATCH_ALL_PATTERN,
+    persona: Annotated[
+        Persona | None,
+        typer.Option("--persona", "-p", help=HELP.options.persona),
+    ] = None,
+    all_personas: Annotated[
+        bool,
+        typer.Option("--all", help=HELP.options.all_personas),
+    ] = False,
+    no_pre_analysis: Annotated[
+        bool,
+        typer.Option("--no-pre-analysis", help=HELP.review.no_pre_analysis),
+    ] = False,
+    concurrency: Annotated[
+        int | None,
+        typer.Option("--concurrency", "-c", help=HELP.review.concurrency),
+    ] = None,
+) -> None:
+    """Review the same files several times and report median time, LLM calls and tokens per stage."""
+    # Each run bypasses the response cache and writes its session's profile.json. Findings vary
+    # between identical runs, so the summary takes medians, and time per candidate finding
+    # normalises for runs that happen to verify more findings.
+    with collect_profiles() as profiles:
+        for run in range(1, runs + 1):
+            print_section(f" Benchmark Run {run}/{runs} ", style="bold cyan")
+            path(
+                targets=targets,
+                pattern=pattern,
+                persona=persona,
+                all_personas=all_personas,
+                no_pre_analysis=no_pre_analysis,
+                no_cache=True,
+                concurrency=concurrency,
+            )
+    if not profiles:
+        print_warning("No review was profiled; check that the targets contain files to review.")
+        raise typer.Exit(1)
+    summary = summarize_profiles(profiles)
+    summary.corpus_digest = _corpus_digest(targets, pattern)
+    _render_benchmark(summary, summary.write(runner._get_reviews_base_dir()))
 
 
 # =============================================================================

@@ -3420,6 +3420,31 @@ devops ai review stats [OPTIONS]
 |---|---|---|---|
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
 
+#### `devops ai review benchmark`
+
+**Review the same files several times and report median time, LLM calls and tokens per stage.**
+
+```bash
+devops ai review benchmark [OPTIONS] <targets>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<targets>` | `path` | Yes | File(s) or directory(ies) to review on every run; keep them fixed to compare benchmarks. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
+
 #### `devops ai review export-feedback`
 
 **Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning.**
@@ -4515,6 +4540,31 @@ devops review stats [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
+
+### `devops review benchmark`
+
+**Review the same files several times and report median time, LLM calls and tokens per stage.**
+
+```bash
+devops review benchmark [OPTIONS] <targets>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<targets>` | `path` | Yes | File(s) or directory(ies) to review on every run; keep them fixed to compare benchmarks. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
 
 ### `devops review export-feedback`
 
