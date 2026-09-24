@@ -442,6 +442,7 @@ class LLMClient(
             model=self._config.model,
             server=srv,
             backend_info=res.backend_info or self.backend_info,
+            served_by=getattr(res, "served_by", None),
             prompt_tokens=p_tokens,
             completion_tokens=c_tokens,
             cached=res.cached,
@@ -786,6 +787,7 @@ class LLMClient(
                 "gen_ai.sanitize": sanitize,
             },
         ) as span_h:
+            network.stream_served_by.set(None)
             try:
                 gen = self._dispatch_stream(
                     system, messages, enable_thinking=enable_thinking, priority=resolved_p
@@ -834,6 +836,7 @@ class LLMClient(
             model=self._config.model,
             server=srv,
             backend_info=self.backend_info,
+            served_by=network.stream_served_by.get(),
             prompt_tokens=p_tokens,
             completion_tokens=c_tokens,
             cached=False,

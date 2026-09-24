@@ -16,12 +16,13 @@ from devops_cli.ai.client.models import (
     credentials_error,
     is_reasoning_model,
 )
-from devops_cli.ai.client.network import read_limited_json
+from devops_cli.ai.client.network import read_limited_json, stream_served_by
 from devops_cli.ai.client.streaming import (
     _consume_streaming_lines,
     _extract_openai_stream_chunk,
 )
 from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_SERVED_BY_HEADER,
     CONST_URL_GITHUB_COPILOT_API_BASE,
     CONST_URL_OPENAI_API_BASE,
 )
@@ -145,6 +146,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     total_tokens=total_tokens,
+                    served_by=response.headers.get(CONST_AI_GATEWAY_SERVED_BY_HEADER),
                 )
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
@@ -186,6 +188,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                 if response.status_code >= 400:
                     response.read()
                 response.raise_for_status()
+                stream_served_by.set(response.headers.get(CONST_AI_GATEWAY_SERVED_BY_HEADER))
                 yield from _consume_streaming_lines(
                     response, _extract_openai_stream_chunk, "Provider"
                 )

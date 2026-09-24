@@ -32,6 +32,8 @@ class SpendRecord(BaseModel):
     provider: str
     server: str
     backend_info: str | None = None
+    # The backend a gateway routed the call to (its api_base); None without a gateway.
+    served_by: str | None = None
     model: str
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -87,6 +89,19 @@ class ProviderSpendSummary(BaseModel):
     server_count: int = 1
 
 
+class BackendSpendSummary(BaseModel):
+    """Usage of one backend that a gateway routed calls to."""
+
+    served_by: str
+    models: list[str] = Field(default_factory=list)
+    request_count: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    completion_tokens_per_request: float = 0.0
+    mean_duration_seconds: float = 0.0
+
+
 class LifetimeSpendReport(BaseModel):
     """Consolidated lifetime spend and usage report across all backends."""
 
@@ -105,3 +120,4 @@ class LifetimeSpendReport(BaseModel):
     servers: list[ServerSpendSummary] = Field(default_factory=list)
     models: list[ModelSpendSummary] = Field(default_factory=list)
     providers: list[ProviderSpendSummary] = Field(default_factory=list)
+    backends: list[BackendSpendSummary] = Field(default_factory=list)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated
+from urllib.parse import urlparse
 
 import typer
 import yaml
@@ -131,6 +132,36 @@ def _render_providers_table(report: LifetimeSpendReport) -> None:
     print_table(title="AI Spend & Usage by Provider", columns=cols, rows=rows)
 
 
+def _render_backends_table(report: LifetimeSpendReport) -> None:
+    """Render gateway calls by the backend that served them."""
+    if not report.backends:
+        print_info("No gateway calls with a recorded serving backend.")
+        return
+
+    cols = [
+        ("Serving Backend", "cyan"),
+        ("Models", "yellow"),
+        ("Requests", "blue"),
+        ("In Tokens", "magenta"),
+        ("Out Tokens", "magenta"),
+        ("Out Tokens / Request", "magenta"),
+        ("Mean Seconds", "bold green"),
+    ]
+    rows: list[list[str]] = [
+        [
+            urlparse(b.served_by).netloc or b.served_by,
+            ", ".join(b.models),
+            f"{b.request_count:,}",
+            f"{b.prompt_tokens:,}",
+            f"{b.completion_tokens:,}",
+            f"{b.completion_tokens_per_request:,.1f}",
+            f"{b.mean_duration_seconds:,.2f}",
+        ]
+        for b in report.backends
+    ]
+    print_table(title="Gateway Calls by Serving Backend", columns=cols, rows=rows)
+
+
 def _render_report_tables(report: LifetimeSpendReport, by: str) -> None:
     """Dispatch table rendering based on grouping selection."""
     _render_report_summary_table(report)
@@ -140,6 +171,8 @@ def _render_report_tables(report: LifetimeSpendReport, by: str) -> None:
         _render_models_table(report)
     if by in ("provider", "all"):
         _render_providers_table(report)
+    if by in ("backend", "all"):
+        _render_backends_table(report)
 
 
 @app.callback(invoke_without_command=True)
@@ -150,7 +183,7 @@ def cost_default(
         typer.Option(
             "--by",
             "-b",
-            help="Breakdown grouping dimension: server, model, provider, all.",
+            help="Breakdown grouping dimension: server, model, provider, backend, all.",
         ),
     ] = "server",
     days: Annotated[
@@ -207,7 +240,7 @@ def cost_report(
         typer.Option(
             "--by",
             "-b",
-            help="Breakdown grouping dimension: server, model, provider, all.",
+            help="Breakdown grouping dimension: server, model, provider, backend, all.",
         ),
     ] = "server",
     days: Annotated[
