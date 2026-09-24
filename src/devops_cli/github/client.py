@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import urllib.parse
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
@@ -15,6 +16,8 @@ from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.models.ssh import SSHKeyInfo
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from github.PullRequest import PullRequest
@@ -133,6 +136,17 @@ class GitHubClient:
     def get_pull(self, repo: str, number: int) -> PullRequest:
         """Return a PyGithub PullRequest object."""
         return self._gh.get_repo(repo).get_pull(number)
+
+    def get_file_at(self, repo: str, path: str, ref: str) -> str | None:
+        """A file's text at a commit; None when it is absent, binary or too large to fetch."""
+        try:
+            content = self._gh.get_repo(repo).get_contents(path, ref=ref)
+            if isinstance(content, list):
+                return None
+            return content.decoded_content.decode("utf-8")
+        except Exception as exc:
+            logger.debug("Could not fetch %s@%s from %s: %s", path, ref, repo, exc)
+            return None
 
     def get_pr_diff(self, repo: str, number: int) -> str:
         """Fetch the raw unified diff for a pull request."""

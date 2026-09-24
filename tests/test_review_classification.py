@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from devops_cli.ai.review.classification import (
     FileContextType,
     build_context_review_prompt,
@@ -22,10 +24,12 @@ def test_classify_by_shebang_and_header() -> None:
     r_html = classify_file_context("page.html", html_doc)
     r_xml = classify_file_context("data.xml", xml_doc)
 
+    # HTML is markup a browser executes: reviewed as code, so template injection and XSS are
+    # in scope rather than excused as documentation (#515).
     assert (r_bash, r_py, r_html, r_xml) == (
         FileContextType.CODE,
         FileContextType.CODE,
-        FileContextType.DOCUMENTATION,
+        FileContextType.CODE,
         FileContextType.CONFIGURATION,
     )
 
@@ -155,3 +159,25 @@ def test_build_context_review_prompt_code() -> None:
         "[Contract Grounding]" in prompt,
         "Code Content / Diff:" in prompt,
     ) == (True, True, True, True, True)
+
+
+@pytest.mark.parametrize(
+    ("path", "content", "expected"),
+    [
+        ("app.py", "# Copyright 2026 Example\nimport os\n", FileContextType.CODE),
+        ("deploy.yaml", "---\napiVersion: v1\nkind: Pod\n", FileContextType.CONFIGURATION),
+        ("requirements.txt", "requests==2.32.3\n", FileContextType.CONFIGURATION),
+        ("requirements-dev.txt", "pytest\n", FileContextType.CONFIGURATION),
+        ("CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)\n", FileContextType.CONFIGURATION),
+        ("Makefile", "build:\n\tgo build ./...\n", FileContextType.CONFIGURATION),
+        ("templates/index.html", "<h1>{{ name }}</h1>\n", FileContextType.CODE),
+        ("templates/mail.j2", "Hello {{ user }}\n", FileContextType.CODE),
+        ("docs/guide.md", "# Guide\n", FileContextType.DOCUMENTATION),
+        ("NOTES", "# Notes\nSome text.\n", FileContextType.DOCUMENTATION),
+    ],
+)
+def test_a_known_name_decides_before_the_content_is_sniffed(
+    path: str, content: str, expected: FileContextType
+) -> None:
+    """Verify code and configuration are never reviewed as documentation by their first line."""
+    assert classify_file_context(path, content) == expected

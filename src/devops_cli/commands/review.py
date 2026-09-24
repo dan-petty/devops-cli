@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
@@ -650,23 +651,27 @@ def pr(
         cache_enabled=False if (no_cache or force) else None,
         append_cache=append_cache,
     )
-    pages, title, agents_md, pull, repo_name = _prepare_pr_content(number, repo, token)
-    reviews = _execute_review_workflow(
-        pages,
-        title,
-        _build_prompt,
-        agents_md,
-        all_personas,
-        persona,
-        summary,
-        clients,
-        target_type="pr",
-        target_ref=str(number),
-        target_dir=Path.cwd(),
-        stage_flags=stage_flags,
-        concurrency=concurrency,
-        parallel=parallel,
-    )
+    # The review reads the PR head's files, not the local checkout's version of them.
+    with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_dir:
+        pages, title, agents_md, pull, repo_name = _prepare_pr_content(
+            number, repo, token, head_dir=Path(head_dir)
+        )
+        reviews = _execute_review_workflow(
+            pages,
+            title,
+            _build_prompt,
+            agents_md,
+            all_personas,
+            persona,
+            summary,
+            clients,
+            target_type="pr",
+            target_ref=str(number),
+            target_dir=Path(head_dir),
+            stage_flags=stage_flags,
+            concurrency=concurrency,
+            parallel=parallel,
+        )
 
     if post_comment and reviews:
         from devops_cli.ai.review.runner import _review_to_markdown

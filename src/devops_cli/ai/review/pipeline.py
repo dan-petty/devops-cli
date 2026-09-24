@@ -65,6 +65,7 @@ from devops_cli.config.constants import (
     CONST_MAX_PROBE_FILE_SIZE_BYTES,
     CONST_PROBE_MANIFEST_NAMES,
     CONST_REVIEW_CANDIDATES_FILENAME,
+    CONST_REVIEW_GENERATED_FILES,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -272,6 +273,40 @@ def _wrap_static_findings(findings: list[Finding]) -> list[SavedFinding]:
     ]
 
 
+# Manifests whose pins a lockfile beside them resolves; a lockfile's findings attach to one.
+_DEPENDENCY_MANIFESTS = frozenset(
+    {
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt",
+        "pipfile",
+        "package.json",
+        "go.mod",
+        "cargo.toml",
+        "gemfile",
+        "composer.json",
+    }
+)
+
+
+def _sibling_file(loc_path: str, file_paths: list[str]) -> str | None:
+    """A reviewed file in the same directory as `loc_path`, a dependency manifest first.
+
+    Lockfiles are left out of the persona review for their size, so no payload carries their
+    path; a finding in one attaches to the manifest beside it rather than being dropped.
+    """
+    parent = Path(loc_path).parent.as_posix()
+    siblings = [
+        fp
+        for fp in file_paths
+        if Path(fp).parent.as_posix() == parent or parent.endswith(f"/{Path(fp).parent.as_posix()}")
+    ]
+    manifests = [fp for fp in siblings if Path(fp).name.lower() in _DEPENDENCY_MANIFESTS]
+    candidates = manifests or siblings
+    return candidates[0] if candidates else None
+
+
 def _match_static_findings_to_files(
     findings: list[SavedFinding], file_paths: list[str]
 ) -> dict[str, list[SavedFinding]]:
@@ -286,10 +321,22 @@ def _match_static_findings_to_files(
                 if fp == loc_path or loc_path.endswith(fp) or fp.endswith(loc_path)
             ),
             None,
-        )
+        ) or _sibling_file(loc_path, file_paths)
         if matched:
             by_file.setdefault(matched, []).append(sf)
     return by_file
+
+
+def _lockfiles_beside(paths: list[Path]) -> list[Path]:
+    """Lockfiles in the directories of the reviewed files.
+
+    The persona review leaves lockfiles out for their size, and the scanners saw only reviewed
+    files, so no lockfile ever reached Trivy: a vulnerable or tampered pin went unchecked.
+    """
+    dirs = {path.parent for path in paths}
+    return sorted(
+        {d / name for d in dirs for name in CONST_REVIEW_GENERATED_FILES if (d / name).is_file()}
+    )
 
 
 def _scan_kubernetes_manifests(yaml_paths: list[Path]) -> list[SavedFinding]:
@@ -1005,12 +1052,15 @@ class ReviewPipelineOrchestrator:
                 all_static_findings.extend(_scan_kubernetes_manifests(yaml_paths))
 
                 # 3. Aqua Trivy scan for Dockerfiles and lockfiles
-                docker_lock_paths = [
-                    p
-                    for p in all_resolved
-                    if p.name.lower() in ("dockerfile", "containerfile")
-                    or p.suffix in (".lock", ".lockb")
-                ]
+                docker_lock_paths = sorted(
+                    {
+                        p
+                        for p in all_resolved
+                        if p.name.lower() in ("dockerfile", "containerfile")
+                        or p.suffix in (".lock", ".lockb")
+                    }
+                    | set(_lockfiles_beside(all_resolved))
+                )
                 all_static_findings.extend(_scan_container_and_lockfiles(docker_lock_paths))
 
                 # 4. Gitleaks & Semgrep scans
