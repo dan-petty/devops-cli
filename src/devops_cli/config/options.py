@@ -83,6 +83,7 @@ DATA_MODELS_DIR = "data.models_dir"
 DATA_CACHE_DIR = "data.cache_dir"
 DATA_BENCHMARKS_DIR = "data.benchmarks_dir"
 DATA_RAG_DIR = "data.rag_dir"
+DATA_SAMPLES_DIR = "data.samples_dir"
 DATA_TLS_DIR = "data.tls_dir"
 DATA_AUDIT_LOG_PATH = "data.audit_log_path"
 DATA_FEEDBACK_DATASET_PATH = "data.feedback_dataset_path"
@@ -160,6 +161,7 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     DATA_CACHE_DIR,
     DATA_BENCHMARKS_DIR,
     DATA_RAG_DIR,
+    DATA_SAMPLES_DIR,
     DATA_TLS_DIR,
     DATA_AUDIT_LOG_PATH,
     DATA_FEEDBACK_DATASET_PATH,

@@ -75,6 +75,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_TOP_K,
     DEFAULT_REPOS_BASE_DIR,
     DEFAULT_REVIEWS_DATA_DIR,
+    DEFAULT_SAMPLES_DATA_DIR,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_KEY_PREFIX,
@@ -442,6 +443,7 @@ _DEFAULT_CHILD_DATA_PATHS: tuple[tuple[str, Path, Path], ...] = (
     ("cache_dir", DEFAULT_CACHE_DATA_DIR, Path("cache")),
     ("benchmarks_dir", DEFAULT_BENCHMARKS_DATA_DIR, Path("benchmarks")),
     ("rag_dir", DEFAULT_RAG_DATA_DIR, Path("rag")),
+    ("samples_dir", DEFAULT_SAMPLES_DATA_DIR, Path("samples")),
     ("tls_dir", DEFAULT_TLS_DATA_DIR, Path("tls")),
     ("audit_log_path", DEFAULT_AUDIT_LOG_PATH, Path("logs/audit.jsonl")),
     ("feedback_dataset_path", DEFAULT_FEEDBACK_DATASET_PATH, Path("feedback_dataset.jsonl")),
@@ -455,6 +457,7 @@ _CHILD_DATA_ENV_MAP: dict[str, str] = {
     "cache_dir": "DEVOPS_CLI_DATA_CACHE_DIR",
     "benchmarks_dir": "DEVOPS_CLI_DATA_BENCHMARKS_DIR",
     "rag_dir": "DEVOPS_CLI_DATA_RAG_DIR",
+    "samples_dir": "DEVOPS_CLI_DATA_SAMPLES_DIR",
     "tls_dir": "DEVOPS_CLI_DATA_TLS_DIR",
     "audit_log_path": "DEVOPS_CLI_DATA_AUDIT_LOG_PATH",
     "feedback_dataset_path": "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH",
@@ -468,6 +471,7 @@ _DEFAULT_CHILD_DATA_MAP: dict[str, Path] = {
     "cache_dir": DEFAULT_CACHE_DATA_DIR,
     "benchmarks_dir": DEFAULT_BENCHMARKS_DATA_DIR,
     "rag_dir": DEFAULT_RAG_DATA_DIR,
+    "samples_dir": DEFAULT_SAMPLES_DATA_DIR,
     "tls_dir": DEFAULT_TLS_DATA_DIR,
     "audit_log_path": DEFAULT_AUDIT_LOG_PATH,
     "feedback_dataset_path": DEFAULT_FEEDBACK_DATASET_PATH,
@@ -485,6 +489,7 @@ class DataConfig(BaseModel):
     cache_dir: Path = Field(default_factory=lambda: DEFAULT_CACHE_DATA_DIR)
     benchmarks_dir: Path = Field(default_factory=lambda: DEFAULT_BENCHMARKS_DATA_DIR)
     rag_dir: Path = Field(default_factory=lambda: DEFAULT_RAG_DATA_DIR)
+    samples_dir: Path = Field(default_factory=lambda: DEFAULT_SAMPLES_DATA_DIR)
     tls_dir: Path = Field(default_factory=lambda: DEFAULT_TLS_DATA_DIR)
     audit_log_path: Path = Field(default_factory=lambda: DEFAULT_AUDIT_LOG_PATH)
     feedback_dataset_path: Path = Field(default_factory=lambda: DEFAULT_FEEDBACK_DATASET_PATH)
