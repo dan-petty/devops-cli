@@ -538,7 +538,7 @@ def _keyring_get(key: str) -> str | None:
     except NoKeyringError:
         return None
     except KeyringLocked:
-        logger.warning("Cannot read %s: %s", key, _KEYRING_LOCKED_HINT)
+        logger.warning("Cannot read a secret: %s", _KEYRING_LOCKED_HINT)
         return None
     except Exception as exc:
         logger.warning("Failed to retrieve secret from OS Keyring: %s", type(exc).__name__)
@@ -560,7 +560,7 @@ def _keyring_has(key: str) -> bool:
         val = keyring.get_password(KEYRING_SERVICE, key)
         return bool(val is not None)
     except KeyringLocked:
-        logger.warning("Cannot check %s: %s", key, _KEYRING_LOCKED_HINT)
+        logger.warning("Cannot check for a secret: %s", _KEYRING_LOCKED_HINT)
         return False
     except (NoKeyringError, Exception) as exc:
         logger.debug("Keyring check failed: %s", type(exc).__name__)

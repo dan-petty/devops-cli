@@ -215,11 +215,16 @@ def update(
 # =============================================================================
 
 
+_JSONC_STRING_OR_COMMENT = re.compile(r'("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/', re.DOTALL)
+
+
 def _strip_json_comments(text: str) -> str:
-    """Strip single-line and multi-line comments from JSON text (JSONC support)."""
-    text = re.sub(r"//.*", "", text)
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    return text
+    """Strip single-line and multi-line comments from JSON text (JSONC support).
+
+    Strings are matched first and kept whole, so a `//` inside one -- every URL -- is not
+    mistaken for the start of a comment.
+    """
+    return _JSONC_STRING_OR_COMMENT.sub(lambda match: match.group(1) or "", text)
 
 
 def _validate_manifest_content(data: object, base_dir: Path) -> list[str]:

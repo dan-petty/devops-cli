@@ -1616,3 +1616,34 @@ def test_unlock_keyring_points_at_plaintext_gh_tokens_once_unlocked(
 
     assert result.exit_code == 0
     assert "gh auth login -h github.com --with-token" in " ".join(result.output.split())
+
+
+def test_a_url_inside_a_string_is_not_read_as_a_comment() -> None:
+    """Treating `//` in `https://` as a comment cut the string and failed every manifest
+    that routed git credentials by URL."""
+    from devops_cli.commands.devcontainer import _strip_json_comments
+
+    text = '{"KEY": "credential.https://github.com.helper", "glob": "a/*b*/c"}'
+
+    assert json.loads(_strip_json_comments(text)) == {
+        "KEY": "credential.https://github.com.helper",
+        "glob": "a/*b*/c",
+    }
+
+
+def test_comments_outside_strings_are_still_stripped() -> None:
+    """devcontainer.json is JSONC; VS Code accepts both comment styles."""
+    from devops_cli.commands.devcontainer import _strip_json_comments
+
+    text = '// header\n{\n  "a": 1, // trailing\n  /* block\n  spanning */ "b": "say \\"hi\\""\n}'
+
+    assert json.loads(_strip_json_comments(text)) == {"a": 1, "b": 'say "hi"'}
+
+
+def test_this_repositorys_manifest_validates() -> None:
+    """CI's smoke test runs the same validation; a failure here would fail every pull request."""
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["validate", "--workspace", "."])
+
+    assert result.exit_code == 0, result.output
