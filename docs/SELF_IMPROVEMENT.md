@@ -246,13 +246,28 @@ defect into each, recording where. It never writes into the sources. The templat
 | `drop-await` | Removes an `await`, leaving a coroutine, promise or task that is never awaited. | Python, TS/JS, C# |
 | `unpin-image-tag` | Replaces a pinned image tag or digest with `latest`. | YAML, Dockerfile |
 | `unpin-action-ref` | Replaces a pinned GitHub Action ref with `main`. | YAML |
-| `disable-tls-verify` | Turns off certificate verification: `validate_certs`, `verify=`, `rejectUnauthorized`, `InsecureSkipVerify`, `danger_accept_invalid_certs`, an accept-any certificate callback. | Python, YAML, TS/JS, Go, Rust, C# |
+| `disable-tls-verify` | Turns off certificate verification: `validate_certs`, `verify=`, `rejectUnauthorized`, `InsecureSkipVerify`, `danger_accept_invalid_certs`, an accept-any certificate callback, `curl --insecure`, `wget --no-check-certificate`. | Python, YAML, TS/JS, Go, Rust, C#, Dockerfile, shell, docs |
 | `log-secrets` | Turns Ansible `no_log` off. | YAML |
-| `widen-file-mode` | Widens a private file mode such as `0600` to `0666`, or `rw-------` to `rw-rw-rw-`. | Python, YAML, TS/JS, Go, Rust, Java, C/C++ |
+| `widen-file-mode` | Widens a private file mode such as `0600` to `0666`, or `rw-------` to `rw-rw-rw-`, including `chmod`. | Python, YAML, TS/JS, Go, Rust, Java, C/C++, Dockerfile, shell, docs |
 | `weaken-pod-security` | Flips `runAsNonRoot`, `readOnlyRootFilesystem`, `allowPrivilegeEscalation` or `privileged`. | YAML |
 | `unbounded-string-copy` | Replaces `strncpy`, `strncat`, `snprintf` or `vsnprintf` with the unbounded form. | C/C++ |
+| `expose-public-access` | Sets `publicly_accessible` or `map_public_ip_on_launch` true, turns S3 public access blocks off, makes an ACL `public-read`, or flips such a variable's default. | Terraform |
+| `disable-encryption` | Sets `encrypted`, `storage_encrypted` and similar to false, or flips an encryption variable's default. | Terraform |
+| `open-ingress` | Opens an ingress rule's source range to `0.0.0.0/0`. | Terraform |
+| `run-as-root` | Changes `USER` to root. | Dockerfile |
+| `unverified-download` | Drops `ADD --checksum`, or a `sha256sum -c` or `gpg --verify` check of a download. | Dockerfile, shell |
+| `pipe-to-shell` | Pipes a downloaded install script into `sh` instead of saving it. | Dockerfile, shell, docs |
+| `drop-strict-mode` | Removes `set -e`, `set -eu` or `set -euo pipefail`. | shell |
+| `unquote-expansion` | Unquotes `"$var"` in a command, so the value splits. | shell |
+| `enable-host-network` | Adds `hostNetwork: true` to a pod spec. | YAML |
+| `mount-host-path` | Replaces an `emptyDir: {}` volume with the node's root (`hostPath`). | YAML |
+| `drop-resource-limits` | Removes a container's `resources.limits`. | YAML |
+| `contradict-documented-default` | Changes a documented default (`true`/`false`, a number), so the page contradicts the code. | docs |
 
-A guard is removed only as a whole statement that fills its lines. Its body must only exit, no
+Docs templates change example commands only inside fenced code blocks (and Hugo `highlight` or
+`codeFromInline` shortcodes); prose is left alone. A removed checksum in a Dockerfile must be a
+middle segment of a continued `RUN`, and in a shell script a statement of its own, so the chain
+still joins. A guard is removed only as a whole statement that fills its lines. Its body must only exit, no
 `else` may follow, and it may not be the body of a braceless `if` or loop, so the mutated file
 stays balanced and well formed. A Go error check is removed only when `err` is read again later,
 or the file would not compile.
