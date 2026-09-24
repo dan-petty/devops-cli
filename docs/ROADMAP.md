@@ -382,9 +382,9 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **A Shipped Release Closes Its Epic While the Roadmap Header Lags (P2 - Medium, Issue #521)**:
   - *Context & Rationale*: Release epic #297 stayed open after v0.2.22 shipped, with its tag, GitHub release and closed milestone. The epic sync closed an epic only when its roadmap header said Completed, and each release had marked the previous one done, one step late. Eight delivered v0.2.22 entries were also left unticked.
   - *Delivered*: The epic sync treats a closed milestone as a completed release. The roadmap marks v0.2.22 Completed and v0.2.23 the active release, and ticks the eight delivered entries with their PRs. Running the sync closed #297 at 20 of 20 deliverables.
-- [ ] **Finding Locations Keep Paths With `+`, `@`, `~` or `%` (P2 - Medium, Issue #498)**:
+- [x] **Finding Locations Keep Paths With `+`, `@`, `~` or `%` (P2 - Medium, Issue #498)**:
   - *Context & Rationale*: `canonicalize_finding_location` matches paths with `[a-zA-Z0-9_\-./\\]`. A path outside that class falls through to a fallback that keeps its first path-like fragment, so every finding on files under a corpus named `playbooks+core+...` was saved as `.data/reviews/corpora/playbooks`, with no file and no lines.
-  - *Deliverable*: Accept the characters file names legitimately use, with regression tests for each, line ranges included.
+  - *Delivered*: The location patterns share one path character class that accepts letters and digits of any script and `+`, `@`, `~` and `%`. Paths such as `include/c++/`, `node_modules/@scope/`, `logo@2x.svg`, `~/.config/` and `100%-coverage.md` keep their file and lines: alone, as ranges, normalized from `#L` anchors and `, lines`, and extracted from prose.
 
 ### Reactive Workstation Command Center, Interactive TUI & Unified Operations Hub (v0.2.24 - Scheduled)
 - [ ] **Reactive Multi-Workspace Textual TUI Architecture & Master-Detail Navigation (`devops dashboard`, `devops tui`) (P0 - Critical)**:
