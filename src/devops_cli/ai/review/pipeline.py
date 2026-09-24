@@ -46,6 +46,7 @@ from devops_cli.ai.review.classification import (
     get_default_personas_for_context,
 )
 from devops_cli.ai.review.flags import ReviewStageFlags
+from devops_cli.ai.review.profile import active_profiler
 from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.ai.review.sanitization import (
     _sanitize_filename,
@@ -67,6 +68,14 @@ from devops_cli.ai.review_schema import (
 )
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.ai.thinking_stream import extract_think_blocks
+from devops_cli.config.commands import (
+    BIN_BANDIT,
+    BIN_GITLEAKS,
+    BIN_KUBELINTER,
+    BIN_PLUTO,
+    BIN_SEMGREP,
+    BIN_TRIVY,
+)
 from devops_cli.config.constants import (
     CONST_MAX_FILE_SIZE_BYTES,
     CONST_MAX_PROBE_FILE_SIZE_BYTES,
@@ -79,6 +88,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS,
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
 )
+from devops_cli.core.binaries import check_binary
 from devops_cli.models.ai import FileAnalysisMeta
 from devops_cli.models.vulnerability import (
     DependencySpec,
@@ -777,6 +787,58 @@ def _collect_paths_to_analyze(
     return paths_to_analyze
 
 
+# How a static analyzer took part in a review. A scan that found nothing is clean only for the
+# analyzers that ran; one that is not installed is skipped by its scanner without an error.
+ANALYZER_RAN = "ran"
+ANALYZER_BUILTIN_PATTERNS = "built-in patterns"
+ANALYZER_NOT_INSTALLED = "not installed"
+ANALYZER_NO_FILES = "no files"
+
+# (name, binary, the kind of file it scans). Gitleaks falls back to built-in secret patterns.
+_STATIC_ANALYZERS: tuple[tuple[str, str, str], ...] = (
+    ("Bandit", BIN_BANDIT, "python"),
+    ("Kube-linter", BIN_KUBELINTER, "yaml"),
+    ("Pluto", BIN_PLUTO, "yaml"),
+    ("Trivy", BIN_TRIVY, "container"),
+    ("Semgrep", BIN_SEMGREP, "any"),
+    ("Gitleaks", BIN_GITLEAKS, "any"),
+)
+_ANALYZERS_WITH_BUILTIN_PATTERNS = frozenset({"Gitleaks"})
+
+
+def _static_analyzer_states(files_by_kind: dict[str, list[Path]]) -> dict[str, str]:
+    """How each static analyzer takes part: runs, uses built-in patterns, is missing, or has no files."""
+    states: dict[str, str] = {}
+    for name, binary, kind in _STATIC_ANALYZERS:
+        if not files_by_kind.get(kind):
+            states[name] = ANALYZER_NO_FILES
+        elif check_binary(binary):
+            states[name] = ANALYZER_RAN
+        elif name in _ANALYZERS_WITH_BUILTIN_PATTERNS:
+            states[name] = ANALYZER_BUILTIN_PATTERNS
+        else:
+            states[name] = ANALYZER_NOT_INSTALLED
+    return states
+
+
+def _static_analyzer_summary(states: dict[str, str], findings: int) -> list[str]:
+    """Console lines naming the analyzers that ran and those skipped for not being installed."""
+    ran = [
+        f"{name} (built-in patterns)" if state == ANALYZER_BUILTIN_PATTERNS else name
+        for name, state in states.items()
+        if state in (ANALYZER_RAN, ANALYZER_BUILTIN_PATTERNS)
+    ]
+    missing = [name for name, state in states.items() if state == ANALYZER_NOT_INSTALLED]
+    lines = (
+        [f"    [dim]✓ Static analyzers found {findings} finding(s): {', '.join(ran)} ran[/dim]"]
+        if ran
+        else ["    [yellow]! No static analyzer ran[/yellow]"]
+    )
+    if missing:
+        lines.append(f"    [yellow]! Not installed, so not run: {', '.join(missing)}[/yellow]")
+    return lines
+
+
 def _scan_gitleaks_and_semgrep(all_resolved: list[Path]) -> list[SavedFinding]:
     """Run Gitleaks secret and Semgrep AST static analysis."""
     if not all_resolved:
@@ -883,6 +945,7 @@ class ReviewPipelineOrchestrator:
         # Checks the findings llm_client produced; the same client unless one is given.
         self.verification_client = verification_client or self.llm_client
         self.errored_files: dict[str, str] = {}
+        self.static_analyzers: dict[str, str] = {}
         self._conventions_by_dir: dict[Path, str] = {}
 
     def _resolve_file_path(self, fpath: str) -> Path:
@@ -1065,11 +1128,7 @@ class ReviewPipelineOrchestrator:
         try:
             from devops_cli.security.bandit import run_bandit_scan
 
-            print_info(
-                "  • Running static security analyzers "
-                "(Bandit, Kube-linter, Pluto, Trivy, Semgrep, Gitleaks)...",
-                prefix=False,
-            )
+            print_info("  • Running static security analyzers...", prefix=False)
 
             with trace_span(
                 "security.static_scanners", attributes={"file_count": n_paths}
@@ -1099,6 +1158,14 @@ class ReviewPipelineOrchestrator:
 
                 # 4. Gitleaks & Semgrep scans
                 all_static_findings.extend(_scan_gitleaks_and_semgrep(all_resolved))
+                self._record_static_analyzers(
+                    {
+                        "python": py_paths,
+                        "yaml": yaml_paths,
+                        "container": docker_lock_paths,
+                        "any": all_resolved,
+                    }
+                )
 
                 static_findings_by_file = _match_static_findings_to_files(
                     all_static_findings, file_paths
@@ -1112,15 +1179,18 @@ class ReviewPipelineOrchestrator:
                 }
                 sc_span.set_attributes(sc_attrs)
 
-            print_info(
-                f"    [dim]✓ Static analyzers completed "
-                f"({len(all_static_findings)} finding(s) detected)[/dim]",
-                prefix=False,
-            )
+            for line in _static_analyzer_summary(self.static_analyzers, len(all_static_findings)):
+                print_info(line, prefix=False)
         except Exception as exc:
             logger.debug("Static security scanning failed or skipped: %s", exc)
 
         return static_findings_by_file
+
+    def _record_static_analyzers(self, files_by_kind: dict[str, list[Path]]) -> None:
+        """Keep how each analyzer took part, for the report and the review's profile."""
+        self.static_analyzers = _static_analyzer_states(files_by_kind)
+        if profiler := active_profiler():
+            profiler.set_static_analyzers(self.static_analyzers)
 
     def _extract_dependencies_and_network_references(
         self, file_paths: list[str]
@@ -2497,6 +2567,8 @@ class ReviewPipelineOrchestrator:
         lines.extend(self._build_dependencies_table(all_deps))
         lines.extend(self._build_network_table(all_nets))
 
+        lines.extend(self._build_static_analyzers_section())
+
         if self.errored_files:
             lines.append("## Skipped / Errored Files")
             lines.append("| File Path | Stage / Error Reason |")
@@ -2508,6 +2580,13 @@ class ReviewPipelineOrchestrator:
             lines.append("")
 
         return "\n".join(lines)
+
+    def _build_static_analyzers_section(self) -> list[str]:
+        """Which static analyzers ran, so a scan with no findings is not read as clean."""
+        if not self.static_analyzers:
+            return []
+        rows = [f"| {name} | {state} |" for name, state in self.static_analyzers.items()]
+        return ["## Static Analyzers", "| Analyzer | Result |", "|---|---|", *rows, ""]
 
     def _render_console_findings_table(
         self, console: Any, reportable_findings: list[SavedFinding]

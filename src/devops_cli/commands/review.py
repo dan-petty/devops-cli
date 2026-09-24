@@ -1053,6 +1053,11 @@ def _render_benchmark(summary: BenchmarkSummary, saved: Path) -> None:
         + (f", {per_candidate:.1f}s per candidate" if per_candidate else ""),
         prefix=False,
     )
+    if summary.static_analyzers:
+        analyzers = ", ".join(
+            f"{name} {' / '.join(states)}" for name, states in summary.static_analyzers.items()
+        )
+        print_info(f"Static analyzers: {escape_text(analyzers)}", prefix=False)
     rows = [
         [
             stage.name,
