@@ -674,6 +674,11 @@ def _are_findings_duplicate(primary: Finding, candidate: Finding) -> bool:
         or candidate_start is None
         or candidate_end is None
     ):
+        # Without lines to compare, the code each finding names is the only other evidence:
+        # "Hardcoded secret: `AWS_KEY`" and "Hardcoded secret: `DB_PASSWORD`" are two findings,
+        # even after verification has dropped a miscounted line from one of them.
+        if _name_different_symbols(primary, candidate):
+            return False
         return same_title or jaccard >= TITLE_SIMILARITY_THRESHOLD or overlap >= 0.6
 
     overlapping = (
@@ -688,6 +693,13 @@ def _are_findings_duplicate(primary: Finding, candidate: Finding) -> bool:
             or _share_title_symbol_and_word(primary, candidate)
         )
     return (same_title or jaccard >= 0.8) and _share_distinctive_symbol(primary, candidate)
+
+
+def _name_different_symbols(primary: Finding, candidate: Finding) -> bool:
+    """Both findings name code symbols, and none of them in common."""
+    primary_symbols = _extract_code_symbols(f"{primary.title} {primary.description}")
+    candidate_symbols = _extract_code_symbols(f"{candidate.title} {candidate.description}")
+    return bool(primary_symbols and candidate_symbols) and not primary_symbols & candidate_symbols
 
 
 def _share_title_symbol_and_word(primary: Finding, candidate: Finding) -> bool:
