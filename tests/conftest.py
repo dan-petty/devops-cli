@@ -148,6 +148,12 @@ def isolate_session_bus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
+def isolate_gh_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Keep tests from reading the developer's gh login, which may hold a plaintext token."""
+    monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path / "gh-config"))
+
+
+@pytest.fixture(autouse=True)
 def protect_workspace_config():
     """Ensure workspace config.yaml is never modified during test execution."""
     workspace_config = (Path(__file__).parent.parent / "config.yaml").resolve()

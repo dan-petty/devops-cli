@@ -345,12 +345,15 @@ On Windows (WSL2 9P filesystem) and macOS (VirtioFS), bind-mounting directories 
 Containers scaffolded by `devops devcontainer init` run Debian's `gnome-keyring` as their Secret Service. Without it, `gh auth login` saves its token to `~/.config/gh/hosts.yml` in plain text, and `devops` has nowhere to store secrets.
 - **Where it runs**: `containerEnv` sets `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus`, and `devops devcontainer post-start` starts that session bus. gnome-keyring then starts on the first secret request. The bus lives under `/run`, which is private to each container, not on the shared `/tmp` volume.
 - **Other images**: the published image ships gnome-keyring. On any other image, `devops devcontainer post-create` installs `gnome-keyring` and `dbus-x11` with apt.
-- **Unlocking**: the keyring starts locked every time a container starts. Unlock it from any terminal:
+- **Unlocking**: the keyring starts locked every time a container starts, and the container asks for the password on its own:
+  1. `devops devcontainer post-start` prompts in the terminal VS Code shows while the container starts.
+  2. If nobody answers within 60 seconds, the first interactive terminal you open asks instead. Only one terminal asks at a time, and none do once the keyring is unlocked.
+
+  The first time, you choose the password, so it is asked for twice. Empty passwords are refused, because they would store every secret in plain text. Once the keyring is unlocked, any plaintext `gh` token is moved into it automatically. You can also unlock by hand at any time:
   ```bash
   devops devcontainer unlock-keyring
   ```
-  The first run creates the keyring, so it asks for the new password twice. Empty passwords are refused, because they would store every secret in plain text.
-- **Moving an existing token in**: after unlocking, move a plaintext `gh` token into the keyring without minting a new one:
+- **Moving an existing token in by hand**: if the automatic move is skipped (for example because `GH_TOKEN` is set), move a plaintext `gh` token into the keyring without minting a new one:
   ```bash
   gh auth token -h github.com | gh auth login -h github.com --with-token
   ```

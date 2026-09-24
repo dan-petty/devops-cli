@@ -701,6 +701,12 @@ class DevcontainerMessages:
     keyring_repeat_password: str = "Repeat keyring password: "
     keyring_password: str = "Keyring password: "
     keyring_unlocked: str = "✓ Keyring unlocked; gh, git and devops can store secrets."
+    keyring_already_unlocked: str = "Keyring is already unlocked."
+    keyring_unlock_skipped: str = (
+        "Keyring left locked; the next terminal you open will ask again, or run "
+        "`devops devcontainer unlock-keyring`."
+    )
+    gh_token_moved: str = "✓ Moved the gh token for {host} from hosts.yml into the keyring."
 
 
 @dataclass(frozen=True)
