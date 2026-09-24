@@ -47,6 +47,22 @@ def _mask_credential_like_value(match: re.Match[str]) -> str:
 # callable where the match also covers surrounding text that must survive.
 _Replacement = str | Callable[[re.Match[str]], str]
 
+# A value that is code rather than a credential: a call, index or collection expression, or a
+# dotted attribute path (`hashlib.md5(pw).hexdigest()`, `os.environ[...]`, `req.query.token`).
+_CODE_VALUE = re.compile(r"[(\[{]|^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$")
+
+
+def _mask_literal(match: re.Match[str], masked: str) -> str:
+    """Mask an assigned credential, leaving an unquoted code expression as written.
+
+    Rewriting code before review hides defects: an MD5-hashed password or a token read from
+    the query string turn into what look like harmless redactions.
+    """
+    if not match.group("quote") and _CODE_VALUE.search(match.group("value")):
+        return match.group(0)
+    return masked
+
+
 _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], _Replacement], ...] = (
     (
         re.compile(
@@ -56,10 +72,11 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], _Replacement], ...] = (
     ),
     (
         re.compile(
-            r"\b(?:password|passwd|pwd)\s*[:=]\s*[\"']?(?!<masked-)[^\s\"',;]{8,}[\"']?",
+            r"\b(?:password|passwd|pwd)\s*[:=]\s*(?P<quote>[\"']?)(?!<masked-)"
+            r"(?P<value>[^\s\"',;]{8,})[\"']?",
             re.IGNORECASE,
         ),
-        "password=<masked-password>",
+        lambda match: _mask_literal(match, "password=<masked-password>"),
     ),
     (
         re.compile(
@@ -76,10 +93,11 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], _Replacement], ...] = (
     (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "<masked-aws-key-id>"),
     (
         re.compile(
-            r"\b(?:token|auth_token)\s*[:=]\s*[\"']?(?!<masked-)[^\s\"',;]{8,}[\"']?",
+            r"\b(?:token|auth_token)\s*[:=]\s*(?P<quote>[\"']?)(?!<masked-)"
+            r"(?P<value>[^\s\"',;]{8,})[\"']?",
             re.IGNORECASE,
         ),
-        "token=<masked-token>",
+        lambda match: _mask_literal(match, "token=<masked-token>"),
     ),
     (
         re.compile(
@@ -129,10 +147,12 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], _Replacement], ...] = (
             r"-----BEGIN (?:[A-Z0-9_-]+\s+)?PRIVATE KEY-----"
             r"[\s\S]+?-----END (?:[A-Z0-9_-]+\s+)?PRIVATE KEY-----"
         ),
-        "<masked-private-key>",
+        # Keep the key's line count, so line numbers after it still match the file.
+        lambda match: "<masked-private-key>" + "\n" * match.group(0).count("\n"),
     ),
     (
-        re.compile(r"https?://[^:\s]+:([^@\s]+)@"),
+        # user:password@ only; "host:8080/path?email=a@b.com" holds no credentials.
+        re.compile(r"https?://[^:/\s@]+:[^@/\s?#]+@"),
         "https://<masked-user>:<masked-password>@",
     ),
     (

@@ -44,39 +44,48 @@ _TOOL_EXTRACT_PAGE_SIZE = DEFAULT_TOOL_EXTRACT_PAGE_SIZE
 _TOOL_EXTRACT_OVERLAP = DEFAULT_TOOL_EXTRACT_OVERLAP
 
 
+# A ```json or bare ``` fence; a fence naming another language holds code, not the answer.
+_JSON_FENCE = re.compile(r"```(?:json)?[ \t]*\n([\s\S]*?)```", re.IGNORECASE)
+
+
 def repair_json_string(text: str, *, max_length: int | None = None) -> Any:
     """Extract and repair valid or partially-malformed JSON from text using json-repair."""
     effective_max = DEFAULT_JSON_REPAIR_MAX_LENGTH if max_length is None else max_length
     if not text or not text.strip() or len(text) > effective_max:
         return None
 
-    from devops_cli.ai.thinking_stream import strip_think_blocks
-
-    cleaned = strip_think_blocks(normalize_unicode_text(text)).strip()
+    cleaned = _strip_reasoning(normalize_unicode_text(text))
     if not cleaned:
         return None
 
-    # 1. First pass: use standard json_repair to parse JSON, objects, lists, or markdown fences
-    try:
-        data = json_repair.loads(cleaned)
-        if data != "" and data is not None:
+    # 1. A fenced JSON block is the model's explicit answer; prose before it can hold stray
+    #    braces that a whole-text repair would take instead.
+    for block in _JSON_FENCE.findall(cleaned):
+        data = _repair_loads(block.strip())
+        if isinstance(data, dict | list) and data:
             return data
+
+    # 2. Otherwise repair the whole text: bare JSON, or JSON inside prose.
+    data = _repair_loads(cleaned)
+    return data if data != "" and data is not None else None
+
+
+def _strip_reasoning(text: str) -> str:
+    """Remove <think> blocks from a complete reply.
+
+    An unclosed <think> counts as reasoning cut off mid-stream only when it opens the reply;
+    anywhere else it is literal text, such as a finding that quotes the tag, and must not
+    truncate the reply.
+    """
+    clean = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    return "" if clean.startswith("<think>") else clean
+
+
+def _repair_loads(text: str) -> Any:
+    try:
+        return json_repair.loads(text)
     except Exception:
-        pass
-
-    # 2. If surrounded by markdown fences, extract and repair candidate block
-    for pattern in (r"```(?:json)?\s*([\s\S]*?)```",):
-        matched_block = re.search(pattern, cleaned, re.DOTALL)
-        if matched_block:
-            candidate = matched_block.group(1).strip()
-            try:
-                data = json_repair.loads(candidate)
-                if data != "" and data is not None:
-                    return data
-            except Exception:
-                pass
-
-    return None
+        return None
 
 
 class ExtractedToolCall(BaseModel):
@@ -245,9 +254,7 @@ def parse_model_response(
             parts.append(ThinkingPart(content=think_clean))
 
     # Clean text outside <think> tags
-    clean_text = re.sub(r"<think>.*?</think>", "", norm_text, flags=re.DOTALL).strip()
-    if "<think>" in clean_text:
-        clean_text = re.sub(r"<think>[\s\S]*$", "", clean_text).strip()
+    clean_text = _strip_reasoning(norm_text)
 
     # Extract tool calls from clean text, or fall back to full normalized text if tool calls were inside reasoning
     tool_calls = extract_tool_invocations(clean_text)
