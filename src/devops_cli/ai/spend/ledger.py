@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from devops_cli.ai.spend.models import (
+    BackendSpendSummary,
     LifetimeSpendReport,
     ModelSpendSummary,
     ProviderSpendSummary,
@@ -24,6 +25,7 @@ CREATE TABLE IF NOT EXISTS ai_spend_records (
     provider TEXT NOT NULL,
     server TEXT NOT NULL,
     backend_info TEXT,
+    served_by TEXT,
     model TEXT NOT NULL,
     prompt_tokens INTEGER NOT NULL DEFAULT 0,
     completion_tokens INTEGER NOT NULL DEFAULT 0,
@@ -40,13 +42,19 @@ _QUERY_IDX_TIMESTAMP = (
 _QUERY_IDX_SERVER = "CREATE INDEX IF NOT EXISTS idx_spend_server ON ai_spend_records(server);"
 _QUERY_IDX_MODEL = "CREATE INDEX IF NOT EXISTS idx_spend_model ON ai_spend_records(model);"
 _QUERY_IDX_PROVIDER = "CREATE INDEX IF NOT EXISTS idx_spend_provider ON ai_spend_records(provider);"
+_QUERY_IDX_SERVED_BY = (
+    "CREATE INDEX IF NOT EXISTS idx_spend_served_by ON ai_spend_records(served_by);"
+)
+# Ledgers created before served_by existed gain the column in place, keeping their rows.
+_QUERY_TABLE_COLUMNS = "PRAGMA table_info(ai_spend_records);"
+_QUERY_ADD_SERVED_BY = "ALTER TABLE ai_spend_records ADD COLUMN served_by TEXT;"
 
 _QUERY_INSERT_RECORD = """
 INSERT INTO ai_spend_records (
-    timestamp, provider, server, backend_info, model,
+    timestamp, provider, server, backend_info, served_by, model,
     prompt_tokens, completion_tokens, total_tokens,
     cost_usd, cached, request_type, duration_seconds
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 """
 
 _QUERY_OVERALL_SUMMARY = """
@@ -111,6 +119,21 @@ GROUP BY provider
 ORDER BY p_cost DESC;
 """
 
+_QUERY_BACKEND_BREAKDOWN = """
+SELECT
+    served_by,
+    GROUP_CONCAT(DISTINCT model) as model_list,
+    COUNT(*) as req_count,
+    COALESCE(SUM(prompt_tokens), 0) as p_tokens,
+    COALESCE(SUM(completion_tokens), 0) as c_tokens,
+    COALESCE(SUM(total_tokens), 0) as t_tokens,
+    COALESCE(AVG(duration_seconds), 0.0) as mean_duration
+FROM ai_spend_records
+WHERE served_by IS NOT NULL AND (? IS NULL OR timestamp >= datetime('now', ?))
+GROUP BY served_by
+ORDER BY req_count DESC, t_tokens DESC;
+"""
+
 _QUERY_COUNT_RECORDS = "SELECT COUNT(*) FROM ai_spend_records;"
 _QUERY_DELETE_RECORDS = "DELETE FROM ai_spend_records;"
 
@@ -140,6 +163,10 @@ class SpendLedger:
         """Initialize spend table schema and indexes if not already present."""
         with contextlib.closing(self._get_connection()) as conn, conn:
             conn.execute(_QUERY_CREATE_TABLE)
+            columns = {row["name"] for row in conn.execute(_QUERY_TABLE_COLUMNS).fetchall()}
+            if "served_by" not in columns:
+                conn.execute(_QUERY_ADD_SERVED_BY)
+            conn.execute(_QUERY_IDX_SERVED_BY)
             conn.execute(_QUERY_IDX_TIMESTAMP)
             conn.execute(_QUERY_IDX_SERVER)
             conn.execute(_QUERY_IDX_MODEL)
@@ -157,6 +184,7 @@ class SpendLedger:
         cached: bool = False,
         request_type: str = "chat",
         backend_info: str | None = None,
+        served_by: str | None = None,
         duration_seconds: float = 0.0,
         timestamp: str | None = None,
     ) -> SpendRecord | None:
@@ -174,6 +202,7 @@ class SpendLedger:
                         provider,
                         server,
                         backend_info,
+                        served_by,
                         model,
                         prompt_tokens,
                         completion_tokens,
@@ -191,6 +220,7 @@ class SpendLedger:
                     provider=provider,
                     server=server,
                     backend_info=backend_info,
+                    served_by=served_by,
                     model=model,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
@@ -221,10 +251,12 @@ class SpendLedger:
             servers = self._query_server_breakdown(conn, params)
             models = self._query_model_breakdown(conn, params)
             providers = self._query_provider_breakdown(conn, params)
+            backends = self._query_backend_breakdown(conn, params)
 
         summary.servers = servers
         summary.models = models
         summary.providers = providers
+        summary.backends = backends
         return summary
 
     def _query_overall_summary(
@@ -307,6 +339,30 @@ class SpendLedger:
             )
         return results
 
+    def _query_backend_breakdown(
+        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
+    ) -> list[BackendSpendSummary]:
+        """Aggregate gateway calls by the backend that served them."""
+        results: list[BackendSpendSummary] = []
+        for r in conn.execute(_QUERY_BACKEND_BREAKDOWN, params).fetchall():
+            requests = int(r["req_count"] or 0)
+            completion = int(r["c_tokens"] or 0)
+            results.append(
+                BackendSpendSummary(
+                    served_by=r["served_by"],
+                    models=[m.strip() for m in (r["model_list"] or "").split(",") if m.strip()],
+                    request_count=requests,
+                    prompt_tokens=int(r["p_tokens"] or 0),
+                    completion_tokens=completion,
+                    total_tokens=int(r["t_tokens"] or 0),
+                    completion_tokens_per_request=round(completion / requests, 2)
+                    if requests
+                    else 0.0,
+                    mean_duration_seconds=round(float(r["mean_duration"] or 0.0), 3),
+                )
+            )
+        return results
+
     def reset_ledger(self) -> int:
         """Truncate all spend records in the ledger and return count of removed items."""
         with contextlib.closing(self._get_connection()) as conn:
@@ -340,6 +396,7 @@ def track_request_spend(
     model: str,
     server: str,
     backend_info: str | None = None,
+    served_by: str | None = None,
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     cached: bool = False,
@@ -363,6 +420,7 @@ def track_request_spend(
             completion_tokens=completion_tokens,
             cost_usd=cost,
             backend_info=backend_info,
+            served_by=served_by,
             cached=cached,
             request_type=request_type,
             duration_seconds=duration_seconds,

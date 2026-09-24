@@ -1089,6 +1089,8 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
     "devops-embedding",
 )
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
+# Response header in which the LiteLLM gateway names the backend (api_base) that served a call.
+CONST_AI_GATEWAY_SERVED_BY_HEADER: Final[str] = "x-litellm-model-api-base"
 CONST_AI_GATEWAY_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey")
 CONST_AI_GATEWAY_PROVIDER_LITELLM: Final[str] = "litellm"
 CONST_AI_GATEWAY_PROVIDER_PORTKEY: Final[str] = "portkey"

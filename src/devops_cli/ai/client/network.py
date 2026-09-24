@@ -45,6 +45,10 @@ current_request_priority: ContextVar[RequestPriority] = ContextVar(
 global_ollama_url_index: int = 0
 global_ollama_url_lock = threading.Lock()
 
+# The backend a gateway named in a streamed response's headers. A stream is a generator consumed
+# in the caller's context, so its spend is recorded after the last chunk, not where headers arrive.
+stream_served_by: ContextVar[str | None] = ContextVar("stream_served_by", default=None)
+
 
 @contextmanager
 def request_priority_scope(priority: RequestPriority | str) -> Generator[None]:
