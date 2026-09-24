@@ -111,6 +111,7 @@ CONST_FEEDBACK_DATASET_NAME = "feedback_dataset.jsonl"
 CONST_EMBEDDING_REPORT_FILENAME = "embedding_report.json"
 CONST_TLS_DIR_NAME = "tls"
 CONST_RAG_DIR_NAME = "rag"
+CONST_SAMPLES_DIR_NAME = "samples"
 CONST_INDEX_CACHE_FILENAME = "index_cache.json"
 CONST_HALLUCINATIONS_FILE_NAME = "common_hallucinations.json"
 

@@ -845,6 +845,46 @@ devops ai review corpus score [OPTIONS] <corpus_dir>
 | `--session`, `-s` | `string` | - | Review session to score (default: the latest review of the corpus). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
+### `devops ai review samples`
+
+```bash
+devops ai review samples COMMAND [ARGS]...
+```
+
+#### `devops ai review samples list`
+
+**List the sample catalog, and whether each sample is fetched at its commit.**
+
+```bash
+devops ai review samples list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category. |
+
+#### `devops ai review samples fetch`
+
+**Fetch samples at their pinned commits, verifying commit, licence files and paths.**
+
+```bash
+devops ai review samples fetch [OPTIONS] <names>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<names>` | `string` | No | Sample(s) to fetch (default: every sample, or every one in --category). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category. |
+
 ### `devops ai review hallucinations`
 
 ```bash

@@ -357,6 +357,48 @@ devops review corpus score [OPTIONS] <corpus_dir>
 
 ---
 
+## `devops review samples`
+
+```bash
+devops review samples COMMAND [ARGS]...
+```
+
+### `devops review samples list`
+
+**List the sample catalog, and whether each sample is fetched at its commit.**
+
+```bash
+devops review samples list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category. |
+
+### `devops review samples fetch`
+
+**Fetch samples at their pinned commits, verifying commit, licence files and paths.**
+
+```bash
+devops review samples fetch [OPTIONS] <names>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<names>` | `string` | No | Sample(s) to fetch (default: every sample, or every one in --category). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category. |
+
+---
+
 ## `devops review hallucinations`
 
 ```bash

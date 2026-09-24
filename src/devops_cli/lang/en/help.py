@@ -854,6 +854,11 @@ class ReviewCommandHelp:
     corpus_template: str = "Defect template to inject (repeatable; default: all)."
     corpus_dir: str = "Corpus directory created by `devops review corpus generate`."
     corpus_session: str = "Review session to score (default: the latest review of the corpus)."
+    samples: str = "Open-source sample repositories pinned by commit, across languages and infrastructure formats."
+    samples_list: str = "List the sample catalog: category, languages, licence, pinned commit and paths, and whether each is fetched."
+    samples_fetch: str = "Fetch samples at their pinned commits into the samples data directory, verifying commit, licence and paths."
+    samples_names: str = "Sample(s) to fetch (default: every sample, or every one in --category)."
+    samples_category: str = "Only samples of this category."
     hallucinations: str = (
         "Inspect and prune the hallucinations catalog that deterministic verification learns from."
     )

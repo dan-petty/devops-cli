@@ -80,6 +80,7 @@ ENV_DATA_MODELS_DIR = "DEVOPS_CLI_DATA_MODELS_DIR"
 ENV_DATA_CACHE_DIR = "DEVOPS_CLI_DATA_CACHE_DIR"
 ENV_DATA_BENCHMARKS_DIR = "DEVOPS_CLI_DATA_BENCHMARKS_DIR"
 ENV_DATA_RAG_DIR = "DEVOPS_CLI_DATA_RAG_DIR"
+ENV_DATA_SAMPLES_DIR = "DEVOPS_CLI_DATA_SAMPLES_DIR"
 ENV_DATA_TLS_DIR = "DEVOPS_CLI_DATA_TLS_DIR"
 ENV_DATA_AUDIT_LOG_PATH = "DEVOPS_CLI_DATA_AUDIT_LOG_PATH"
 ENV_DATA_FEEDBACK_DATASET_PATH = "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH"
@@ -148,6 +149,7 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.DATA_CACHE_DIR: ENV_DATA_CACHE_DIR,
     opt.DATA_BENCHMARKS_DIR: ENV_DATA_BENCHMARKS_DIR,
     opt.DATA_RAG_DIR: ENV_DATA_RAG_DIR,
+    opt.DATA_SAMPLES_DIR: ENV_DATA_SAMPLES_DIR,
     opt.DATA_TLS_DIR: ENV_DATA_TLS_DIR,
     opt.DATA_AUDIT_LOG_PATH: ENV_DATA_AUDIT_LOG_PATH,
     opt.DATA_FEEDBACK_DATASET_PATH: ENV_DATA_FEEDBACK_DATASET_PATH,
@@ -526,6 +528,12 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.DATA_RAG_DIR,
             False,
             "Storage directory for local vector embedding index cache and retrieval data",
+        ),
+        EnvVarSpec(
+            ENV_DATA_SAMPLES_DIR,
+            opt.DATA_SAMPLES_DIR,
+            False,
+            "Storage directory for open-source sample repositories fetched at their pinned commits",
         ),
         EnvVarSpec(
             ENV_DATA_TLS_DIR,

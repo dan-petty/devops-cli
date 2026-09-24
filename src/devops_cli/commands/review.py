@@ -69,6 +69,13 @@ from devops_cli.ai.review.runner import (
     _prepare_pr_content,
     _review_candidate_files,
 )
+from devops_cli.ai.review.samples import (
+    SampleCategory,
+    checkout_problems,
+    fetch_sample,
+    load_sample_catalog,
+    samples_dir,
+)
 from devops_cli.ai.review.sanitization import _build_prompt
 from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
@@ -1338,6 +1345,84 @@ def corpus_score(
         write_stdout(score.model_dump_json(indent=2) + "\n")
         return
     _render_corpus_score(score)
+
+
+# =============================================================================
+# Commands: devops review samples list | fetch
+# =============================================================================
+
+samples_app = new_typer(help=HELP.review.samples, no_args_is_help=True)
+app.add_typer(samples_app, name="samples")
+
+
+@samples_app.command("list")
+def samples_list(
+    category: Annotated[
+        SampleCategory | None,
+        typer.Option("--category", "-c", help=HELP.review.samples_category),
+    ] = None,
+) -> None:
+    """List the sample catalog, and whether each sample is fetched at its commit."""
+    root = samples_dir()
+    samples = load_sample_catalog().select(category=category)
+    print_table(
+        title=f"{len(samples)} Sample Repositories ({root})",
+        columns=[
+            ("Name", "cyan"),
+            ("Category", ""),
+            ("Languages", ""),
+            ("Licence", ""),
+            ("Commit", "dim"),
+            ("Paths", ""),
+            ("Fetched", ""),
+        ],
+        rows=[
+            [
+                sample.name,
+                sample.category.value,
+                ", ".join(sample.languages),
+                sample.license,
+                sample.commit[:12],
+                ", ".join(sample.paths),
+                "no" if checkout_problems(sample, root / sample.name) else "yes",
+            ]
+            for sample in samples
+        ],
+    )
+
+
+@samples_app.command("fetch")
+def samples_fetch(
+    names: Annotated[
+        list[str] | None,
+        typer.Argument(help=HELP.review.samples_names, show_default=False),
+    ] = None,
+    category: Annotated[
+        SampleCategory | None,
+        typer.Option("--category", "-c", help=HELP.review.samples_category),
+    ] = None,
+) -> None:
+    """Fetch samples at their pinned commits, verifying commit, licence files and paths."""
+    try:
+        samples = load_sample_catalog().select(names, category)
+    except ValueError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+    root = samples_dir()
+    if is_dry_run():
+        for sample in samples:
+            print_info(f"Would fetch {sample.repository} at {sample.commit} → {root / sample.name}")
+        return
+    failed = 0
+    for sample in samples:
+        problems = fetch_sample(sample, root)
+        if problems:
+            failed += 1
+            print_error(f"{sample.name}: {'; '.join(problems)}")
+        else:
+            print_success(f"{sample.name} at {sample.commit[:12]} → {root / sample.name}")
+    if failed:
+        raise typer.Exit(1)
 
 
 # =============================================================================
