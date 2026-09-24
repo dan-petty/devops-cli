@@ -215,11 +215,16 @@ def update(
 # =============================================================================
 
 
+_JSONC_STRING_OR_COMMENT = re.compile(r'("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/', re.DOTALL)
+
+
 def _strip_json_comments(text: str) -> str:
-    """Strip single-line and multi-line comments from JSON text (JSONC support)."""
-    text = re.sub(r"//.*", "", text)
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    return text
+    """Strip single-line and multi-line comments from JSON text (JSONC support).
+
+    Strings are matched first and kept whole, so a `//` inside one -- every URL -- is not
+    mistaken for the start of a comment.
+    """
+    return _JSONC_STRING_OR_COMMENT.sub(lambda match: match.group(1) or "", text)
 
 
 def _validate_manifest_content(data: object, base_dir: Path) -> list[str]:
@@ -1125,8 +1130,10 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     if auto_git_daemon:
         actions.extend(_start_git_daemon(workspace_dir, dry_run=dry_run))
 
-    # 8. D-Bus session bus, on which gnome-keyring is activated for gh, git and Python keyring
+    # 8. D-Bus session bus, on which gnome-keyring is activated for gh, git and Python keyring,
+    # and any gh token that fell back to plain text while the keyring was unavailable
     actions.extend(_start_session_bus(dry_run=dry_run))
+    actions.extend(_gh_plaintext_token_warnings())
 
     # 9. Align kubectl with the configured context -- last, because the minikube supervisor
     # above runs `minikube start`, and that rewrites current-context to "minikube". Aligning
@@ -1276,6 +1283,50 @@ def _start_session_bus(*, dry_run: bool = False) -> list[str]:
     return actions
 
 
+def _gh_hosts_file() -> Path:
+    """Return the file gh keeps per-host login state in."""
+    config_home = os.getenv("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(os.getenv("GH_CONFIG_DIR") or Path(config_home) / "gh") / "hosts.yml"
+
+
+def _gh_plaintext_token_hosts() -> list[str]:
+    """Return the hosts gh keeps a plaintext token for instead of using the keyring.
+
+    gh falls back to hosts.yml whenever the keyring is locked or unreachable at login, and
+    a token there wins over the keyring, so a fallback stays in effect until moved.
+    """
+    import yaml
+
+    try:
+        hosts = yaml.safe_load(_gh_hosts_file().read_text(encoding="utf-8"))
+    except OSError, yaml.YAMLError:
+        return []
+    if not isinstance(hosts, dict):
+        return []
+
+    found: list[str] = []
+    for host, entry in hosts.items():
+        if not isinstance(entry, dict):
+            continue
+        users = entry.get("users")
+        user_entries = users.values() if isinstance(users, dict) else []
+        if entry.get("oauth_token") or any(
+            isinstance(user, dict) and user.get("oauth_token") for user in user_entries
+        ):
+            found.append(str(host))
+    return found
+
+
+def _gh_plaintext_token_warnings() -> list[str]:
+    """Explain how to move each plaintext gh token into the keyring without minting a new one."""
+    hosts_file = _gh_hosts_file()
+    return [
+        f"Warning: gh keeps a plaintext token for {host} in {hosts_file}; once the keyring is "
+        f"unlocked, move it with `gh auth token -h {host} | gh auth login -h {host} --with-token`"
+        for host in _gh_plaintext_token_hosts()
+    ]
+
+
 def _login_keyring_file() -> Path:
     """Return the file gnome-keyring keeps the login keyring in."""
     data_home = os.getenv("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
@@ -1344,6 +1395,8 @@ def unlock_keyring() -> None:
         print_error(ERRORS.devcontainer.keyring_wrong_password)
         raise typer.Exit(1)
     print_success(MESSAGES.devcontainer.keyring_unlocked, prefix=False)
+    for warning in _gh_plaintext_token_warnings():
+        print_warning(warning, prefix=False)
 
 
 # =============================================================================
