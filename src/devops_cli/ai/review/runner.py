@@ -1519,7 +1519,7 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
         )
         suffix = target_resolved.suffix.lstrip(".") or "text"
         content = target_resolved.read_text(encoding="utf-8", errors="replace")
-        blocks = [f"### File: {file_label}\n```{suffix}\n{content}\n```"]
+        blocks = _split_source_file_blocks(Path(file_label), suffix, content, _MAX_DIFF_CHARS)
         title = str(file_label)
     else:
         collecting_msg = MESSAGES.review.collecting_files.format(

@@ -32,6 +32,13 @@ from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS
+from devops_cli.ai.review.chunker import (
+    _split_source_file_blocks,
+    number_source_lines,
+    review_page_chars,
+    split_review_pages,
+    strip_line_numbers,
+)
 from devops_cli.ai.review.classification import (
     FileContextType,
     build_context_review_prompt,
@@ -442,6 +449,33 @@ def _create_initial_scratchpad(fpath: str, initial_findings_count: int) -> dict[
         "stage": "initialized",
         "thoughts": thoughts,
     }
+
+
+def _numbered_file_text(fpath: str) -> str:
+    """A file read from disk, as the numbered source blocks a path review would give it."""
+    path = Path(fpath)
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+    except OSError as exc:
+        logger.debug("Failed reading file content for %s: %s", fpath, exc)
+        return ""
+    if not text:
+        return ""
+    suffix = path.suffix.lstrip(".") or "text"
+    return "\n".join(_split_source_file_blocks(path, suffix, text))
+
+
+def _page_imports(page_text: str) -> list[tuple[str, str | None]]:
+    """The imports a review page shows: added ones for a diff, all of them for source."""
+    from devops_cli.ai.review.ast_imports import (
+        extract_imports_from_diff,
+        extract_imports_from_source,
+    )
+
+    text = strip_line_numbers(page_text)
+    if any(line.startswith(("+", "-")) for line in text.splitlines()[:50]):
+        return extract_imports_from_diff(text)
+    return extract_imports_from_source(text)
 
 
 def _build_page_review_prompt(
@@ -1570,12 +1604,7 @@ class ReviewPipelineOrchestrator:
         """Run multi-persona review for a single file across chunked diff pages."""
         fpath = payload.file_path
         ext = Path(fpath).suffix.lower()
-        content_or_diff = diff_text_by_file.get(fpath, "")
-        if not content_or_diff and Path(fpath).exists():
-            try:
-                content_or_diff = Path(fpath).read_text(encoding="utf-8", errors="replace")
-            except Exception as exc:
-                logger.debug("Failed reading file content for %s: %s", fpath, exc)
+        content_or_diff = diff_text_by_file.get(fpath, "") or _numbered_file_text(fpath)
 
         resolved_context = context_type or classify_file_context(fpath, content_or_diff)
         with trace_span(
@@ -1598,7 +1627,6 @@ class ReviewPipelineOrchestrator:
                 )
                 return
 
-            from devops_cli.ai.review.chunker import diff_stream_chunks, review_page_chars
             from devops_cli.config.defaults import DEFAULT_AI_CONTEXT_WINDOW
 
             ctx_win = (
@@ -1608,11 +1636,7 @@ class ReviewPipelineOrchestrator:
             )
             max_diff_chars = review_page_chars(ctx_win)
 
-            pages = (
-                list(diff_stream_chunks(content_or_diff, max_chars=max_diff_chars))
-                if len(content_or_diff) > max_diff_chars
-                else [content_or_diff]
-            )
+            pages = split_review_pages(content_or_diff, max_chars=max_diff_chars)
             total_pages = len(pages)
             file_span.set_attributes(
                 {
@@ -1649,23 +1673,12 @@ class ReviewPipelineOrchestrator:
             contract_context_str = ""
             if self.ground_contracts and ext in (".py", ".pyi"):
                 try:
-                    from devops_cli.ai.review.ast_imports import (
-                        extract_imports_from_diff,
-                        extract_imports_from_source,
-                    )
                     from devops_cli.ai.review.contract_grounding import (
                         format_contract_grounding_for_prompt,
                         resolve_grounded_contracts,
                     )
 
-                    file_imports = (
-                        extract_imports_from_diff(content_or_diff)
-                        if any(
-                            line.startswith(("+", "-"))
-                            for line in content_or_diff.splitlines()[:50]
-                        )
-                        else extract_imports_from_source(content_or_diff)
-                    )
+                    file_imports = _page_imports(content_or_diff)
                     grounded = resolve_grounded_contracts(file_imports)
                     contract_context_str = format_contract_grounding_for_prompt(grounded)
                     if grounded:
@@ -2032,7 +2045,8 @@ class ReviewPipelineOrchestrator:
                 payload.linked_files, self._resolve_file_path
             )
             linked_str = "\n\n".join(linked_snippets) if linked_snippets else ""
-            context = file_code + ("\n\n" + linked_str if linked_str else "")
+            # Numbered as the reviewers saw it, so a finding's lines can be checked against it.
+            context = number_source_lines(file_code) + ("\n\n" + linked_str if linked_str else "")
             findings_to_verify = [Finding(**f.model_dump()) for f in payload.findings]
 
             t_start = time.monotonic()
