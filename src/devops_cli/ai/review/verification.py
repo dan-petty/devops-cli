@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import CONST_VERIFICATION_UNAVAILABLE
@@ -19,6 +20,9 @@ from devops_cli.config.defaults import (
     DEFAULT_DIFF_CONTEXT_LINES,
     DEFAULT_MAX_RELATED_FILES,
     DEFAULT_RELATED_FILE_MAX_CHARS,
+    DEFAULT_REVIEW_VERIFICATION_REPLY_BASE_TOKENS,
+    DEFAULT_REVIEW_VERIFICATION_REPLY_MAX_TOKENS,
+    DEFAULT_REVIEW_VERIFICATION_REPLY_TOKENS_PER_FINDING,
     DEFAULT_TYPECHECK_PROBE_TIMEOUT_SECONDS,
 )
 from devops_cli.security.sanitizer import (
@@ -1230,6 +1234,15 @@ def _bind_verdicts_to_findings(
     return bound
 
 
+def _verification_reply_cap(finding_count: int) -> int:
+    """Reply tokens a verdict on ``finding_count`` findings may take, reasoning included."""
+    return min(
+        DEFAULT_REVIEW_VERIFICATION_REPLY_MAX_TOKENS,
+        DEFAULT_REVIEW_VERIFICATION_REPLY_BASE_TOKENS
+        + finding_count * DEFAULT_REVIEW_VERIFICATION_REPLY_TOKENS_PER_FINDING,
+    )
+
+
 def _validate_segment_findings(
     result: ReviewResult,
     all_segments: list[str],
@@ -1264,9 +1277,11 @@ def _validate_segment_findings(
     proc_sec: float | None = None
     b_info: str | None = None
     try:
-        res_obj = client.chat(
-            system=_VALIDATION_SYSTEM, user=prompt, enable_thinking=enable_thinking
-        )
+        # Uncapped, one runaway reply held a review for over ten minutes.
+        with limit_completion_tokens(_verification_reply_cap(len(unresolved_findings))):
+            res_obj = client.chat(
+                system=_VALIDATION_SYSTEM, user=prompt, enable_thinking=enable_thinking
+            )
         response = str(res_obj)
         proc_sec = getattr(res_obj, "processing_seconds", None)
         b_info = getattr(res_obj, "backend_info", None)

@@ -86,15 +86,15 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             effort = self._config.reasoning_effort or ("medium" if enable_thinking else "low")
             if effort:
                 payload["reasoning_effort"] = effort
-            max_tok = getattr(self._config, "max_tokens", None)
+            max_tok = self._completion_limit()
             if max_tok is not None:
-                payload["max_completion_tokens"] = int(max_tok)
+                payload["max_completion_tokens"] = max_tok
         else:
             if self._config.reasoning_effort:
                 payload["reasoning_effort"] = self._config.reasoning_effort
-            max_tok = getattr(self._config, "max_tokens", None)
+            max_tok = self._completion_limit()
             if max_tok is not None:
-                payload["max_tokens"] = int(max_tok)
+                payload["max_tokens"] = max_tok
             openai_temp = getattr(self._config, "temperature", None)
             if openai_temp is not None:
                 payload["temperature"] = float(openai_temp)
@@ -178,6 +178,9 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                 payload["reasoning_effort"] = effort
         elif self._config.reasoning_effort:
             payload["reasoning_effort"] = self._config.reasoning_effort
+        stream_limit = self._completion_limit()
+        if stream_limit is not None:
+            payload["max_completion_tokens" if is_reasoning else "max_tokens"] = stream_limit
         try:
             with (
                 httpx2.Client(timeout=self._request_timeout()) as http_client,

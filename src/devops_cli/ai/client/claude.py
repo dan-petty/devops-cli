@@ -50,7 +50,7 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
         supports_thinking = "claude-3-7" in model_name.lower() or ":thinking" in model_name.lower()
         use_thinking = enable_thinking and supports_thinking
 
-        max_tok = getattr(self._config, "max_tokens", None) or 8192
+        max_tok = self._completion_limit() or 8192
         payload: dict[str, Any] = {
             "model": clean_model,
             "max_tokens": int(max_tok),
@@ -138,7 +138,7 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
         supports_thinking = "claude-3-7" in model_name.lower() or ":thinking" in model_name.lower()
         use_thinking = enable_thinking and supports_thinking
 
-        max_tok = getattr(self._config, "max_tokens", None) or 8192
+        max_tok = self._completion_limit() or 8192
         payload: dict[str, Any] = {
             "model": clean_model,
             "max_tokens": int(max_tok),

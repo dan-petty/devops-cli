@@ -53,6 +53,13 @@ class BaseLLMProviderMixin:
     def _connection_error(self, exc: Exception) -> AIClientError:
         raise NotImplementedError
 
+    def _completion_limit(self) -> int | None:
+        """Reply token limit: the smaller of the configured `max_tokens` and the call's cap."""
+        from devops_cli.ai.client.network import completion_cap
+
+        limits = [v for v in (getattr(self._config, "max_tokens", None), completion_cap.get()) if v]
+        return int(min(limits)) if limits else None
+
     def _strip_think_blocks(self, text: str) -> str:
         raise NotImplementedError
 
