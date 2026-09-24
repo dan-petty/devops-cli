@@ -80,6 +80,12 @@ Two more routes make the gateway the single router for both engines:
 - `devops-review` spreads one model name over every inference server: both vLLM profiles and the Ollama nodes (`gpt-oss:20b`). Each deployment takes a share of requests weighted by its throughput (dual-GPU vLLM 5, single-GPU vLLM 3, each Ollama node 1), and pre-call checks keep a prompt off any deployment whose window it exceeds. No deployment is capped with `max_parallel_requests`: LiteLLM waits on the cap only after routing, so queued requests pile up behind it while larger servers idle, and the backends queue excess requests themselves.
 - `ollama/<model>` reaches any model on the Ollama nodes by name, for chat and embeddings, through Ollama's OpenAI-compatible API (e.g. `ollama/gpt-oss:20b`, `ollama/embeddinggemma:300m`).
 
+Recheck the `devops-review` weights whenever a backend, model or node changes. `devops ai gateway tune` measures each deployment on its own, from an ephemeral Python container attached to the gateway pod (`kubectl debug`), since the backends admit only the gateway. It recommends each weight as capacity (fixed-length tokens per second) divided by cost (the tokens the model writes per request), and lists each backend's GPUs and engine. It changes nothing; copy the recommended weights into `litellm_params.weight`:
+```bash
+devops ai gateway tune                      # devops-review at concurrency 1, 4 and 8
+devops ai gateway tune --model devops-chat --format json
+```
+
 Point devops-cli at the gateway, so reviews, chat and embeddings all go through it (the key comes from `DEVOPS_CLI_AI_API_KEY` or the keyring):
 ```yaml
 ai:

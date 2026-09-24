@@ -270,6 +270,47 @@ CONST_PROBE_MANIFEST_NAMES: Final[tuple[str, ...]] = (
 # Characters per token for sizing review pages from a context window (source code averages
 # slightly under four; the lower figure leaves margin).
 CONST_REVIEW_CHARS_PER_TOKEN: Final[float] = 3.5
+# Memory bandwidth (GB/s) by GPU model, matched against `nvidia-smi` names (longest key first).
+# Token generation reads every active weight once per token, so it is bandwidth-bound; this is
+# the hardware input to `devops ai gateway tune`'s capacity estimates.
+CONST_GPU_MEMORY_BANDWIDTH_GBPS: Final[dict[str, float]] = {
+    "h100 sxm": 3350.0,
+    "h100": 2000.0,
+    "a100 80gb": 2039.0,
+    "a100": 1555.0,
+    "l40s": 864.0,
+    "l4": 300.0,
+    "a10g": 600.0,
+    "a10": 600.0,
+    "t4": 320.0,
+    "v100": 900.0,
+    "pg500-216": 900.0,  # V100 SXM2 32 GB board
+    "titan v": 653.0,
+    "p100": 732.0,
+    "p40": 346.0,
+    "p6000": 432.0,
+    "rtx a6000": 768.0,
+    "rtx a5000": 768.0,
+    "rtx a4000": 448.0,
+    "rtx 5090": 1792.0,
+    "rtx 5080": 960.0,
+    "rtx 5070 ti": 896.0,
+    "rtx 5070": 672.0,
+    "rtx 4090": 1008.0,
+    "rtx 4080": 717.0,
+    "rtx 4070 ti": 504.0,
+    "rtx 4060 ti": 288.0,
+    "rtx 3090 ti": 1008.0,
+    "rtx 3090": 936.0,
+    "rtx 3080": 760.0,
+    "rtx 3070": 448.0,
+    "rtx 3060": 360.0,
+    "titan rtx": 672.0,
+    "gtx 1080 ti": 484.0,
+    "gtx 1080": 320.0,
+    "gtx 1070": 256.0,
+    "gtx 1050 ti": 112.0,
+}
 # Share of the context window a review page's diff may fill; the rest holds the persona system
 # prompt, instructions and the model's reply.
 CONST_REVIEW_PAGE_WINDOW_SHARE: Final[float] = 0.6

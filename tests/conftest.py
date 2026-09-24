@@ -99,13 +99,22 @@ def prevent_external_network_calls():
         yield
 
 
+# Rich reads COLUMNS once, when a console is built, and `devops_cli.output.console` caches one per
+# process. Set the terminal before any test module is imported, so a console built during
+# collection is not left at the 80-column non-terminal default for its whole xdist worker.
+_TERMINAL_ENV = {"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"}
+os.environ.update(_TERMINAL_ENV)
+
+
 @pytest.fixture(autouse=True)
 def reset_dry_run_state():
-    """Ensure dry-run environment variable is cleared and terminal width/color is standardized."""
-    os.environ["COLUMNS"] = "250"
-    os.environ["NO_COLOR"] = "1"
-    os.environ["TERM"] = "dumb"
+    """Clear dry-run state and give each test a freshly built, standard-width console."""
+    import devops_cli.output.console as console_module
+
+    os.environ.update(_TERMINAL_ENV)
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
+    console_module._CONSOLE = None
+    console_module._STDERR_CONSOLE = None
     yield
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
 

@@ -91,6 +91,17 @@ DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME: str = "qwen2.5-coder-14b-instruct"
 DEFAULT_AI_GATEWAY_ENABLED: bool = False
 DEFAULT_AI_GATEWAY_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS: float = 5.0
+# `devops ai gateway tune`: the sweep runs in an ephemeral container attached to the gateway pod,
+# since the inference backends admit traffic only from the gateway. The image tracks this
+# project's Python.
+DEFAULT_AI_GATEWAY_DEPLOYMENT: str = "llm-gateway"
+DEFAULT_GATEWAY_TUNE_IMAGE: str = "python:3.14-slim"
+DEFAULT_GATEWAY_TUNE_MODEL_GROUP: str = "devops-review"
+DEFAULT_GATEWAY_TUNE_CONCURRENCY: str = "1,4,8"
+DEFAULT_GATEWAY_TUNE_ROUNDS: int = 2
+# Reply length for the capacity pass, and the cap on natural replies in the cost pass.
+DEFAULT_GATEWAY_TUNE_MAX_TOKENS: int = 200
+DEFAULT_GATEWAY_TUNE_REQUEST_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_STRUCTURED_OUTPUT_MAX_RETRIES: int = 2
 DEFAULT_STRUCTURED_RETRY_BACKOFF_SECONDS: float = 0.5
 DEFAULT_AI_DURABLE_ENGINE: str = "sqlite"
