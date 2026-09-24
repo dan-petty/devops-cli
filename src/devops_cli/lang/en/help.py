@@ -512,6 +512,9 @@ class DevcontainerCommandHelp:
         "Execute DevContainer post-create setup tasks (history, shell completions, config prep)."
     )
     post_start: str = "Execute DevContainer post-start lifecycle tasks."
+    unlock_keyring: str = (
+        "Create or unlock the gnome-keyring login keyring that gh, git and devops store secrets in."
+    )
     setup: str = "Execute DevContainer lifecycle tasks (post-create, post-start, or all)."
     repo_path: str = "Path to the repository."
     project_name: str = "Project name."

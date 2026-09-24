@@ -697,6 +697,10 @@ class DevcontainerMessages:
     temp_dir_permissions_configured: str = (
         "Configured temporary directory permissions (1777) at {path}"
     )
+    keyring_new_password: str = "New keyring password: "
+    keyring_repeat_password: str = "Repeat keyring password: "
+    keyring_password: str = "Keyring password: "
+    keyring_unlocked: str = "✓ Keyring unlocked; gh, git and devops can store secrets."
 
 
 @dataclass(frozen=True)

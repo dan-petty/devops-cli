@@ -1208,3 +1208,331 @@ def test_this_repository_ships_a_claude_mcp_config() -> None:
 
     config = json.loads(Path(".mcp.json").read_text(encoding="utf-8"))
     assert "devops-cli" in config["mcpServers"]
+
+
+def _record_subprocess_calls(
+    monkeypatch: pytest.MonkeyPatch, returncode: int = 0, stderr: str = ""
+) -> list[tuple[list[str], dict[str, object]]]:
+    """Replace run_subprocess in the devcontainer module and record each call."""
+    import subprocess
+
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def fake_run_subprocess(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append((cmd, kwargs))
+        return subprocess.CompletedProcess(cmd, returncode=returncode, stdout="", stderr=stderr)
+
+    monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", fake_run_subprocess)
+    monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
+    return calls
+
+
+def test_post_start_starts_the_session_bus_named_by_the_container_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """gnome-keyring is D-Bus activated, so gh and Python keyring need this bus to exist."""
+    from devops_cli.commands.devcontainer import _start_session_bus
+
+    socket_path = tmp_path / "run" / "bus"
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
+    calls = _record_subprocess_calls(monkeypatch)
+
+    actions = _start_session_bus()
+
+    cmd, kwargs = calls[-1]
+    assert cmd[:2] == ["dbus-daemon", "--session"]
+    assert f"--address=unix:path={socket_path}" in cmd
+    assert actions == [
+        f"Started D-Bus session bus at {socket_path}; "
+        "run `devops devcontainer unlock-keyring` to unlock the keyring"
+    ]
+    assert kwargs["env"] == {"XDG_RUNTIME_DIR": str(socket_path.parent)}
+
+
+def test_the_session_bus_runtime_dir_is_private(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """gnome-keyring keeps its control socket here; other users must not reach it."""
+    from devops_cli.commands.devcontainer import _start_session_bus
+
+    socket_path = tmp_path / "run" / "bus"
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
+    _record_subprocess_calls(monkeypatch)
+
+    _start_session_bus()
+
+    assert socket_path.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_a_running_session_bus_is_left_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second daemon on the same path would unlink the live socket and orphan its clients."""
+    import socket
+
+    from devops_cli.commands.devcontainer import _start_session_bus
+
+    socket_path = tmp_path / "bus"
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
+    calls = _record_subprocess_calls(monkeypatch)
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+        listener.bind(str(socket_path))
+        listener.listen(1)
+        actions = _start_session_bus()
+
+    assert calls == []
+    assert actions == [f"D-Bus session bus is already running at {socket_path}"]
+
+
+def test_a_stale_bus_socket_is_replaced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """dbus-daemon refuses to bind over a leftover socket file from a stopped container."""
+    import socket
+
+    from devops_cli.commands.devcontainer import _start_session_bus
+
+    socket_path = tmp_path / "bus"
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
+    calls = _record_subprocess_calls(monkeypatch)
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as abandoned:
+        abandoned.bind(str(socket_path))
+
+    _start_session_bus()
+
+    assert not socket_path.exists()
+    assert calls[-1][0][0] == "dbus-daemon"
+
+
+def test_no_session_bus_is_started_without_a_configured_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Images without gnome-keyring leave DBUS_SESSION_BUS_ADDRESS unset and need no bus."""
+    from devops_cli.commands.devcontainer import _start_session_bus
+
+    calls = _record_subprocess_calls(monkeypatch)
+
+    assert _start_session_bus() == []
+    assert calls == []
+
+
+def test_a_failed_session_bus_start_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the bus gh silently stores its token in plain text, so the failure must show."""
+    from devops_cli.commands.devcontainer import _start_session_bus
+
+    socket_path = tmp_path / "bus"
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={socket_path}")
+    _record_subprocess_calls(monkeypatch, returncode=1, stderr="address already in use")
+
+    assert _start_session_bus() == [
+        "Warning: Failed to start D-Bus session bus (exit 1): address already in use"
+    ]
+
+
+def test_post_create_installs_the_keyring_on_images_that_lack_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A project scaffolded onto a plain image would otherwise have no Secret Service."""
+    import subprocess
+
+    from devops_cli.commands.devcontainer import _install_keyring_packages
+
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
+    monkeypatch.setattr(
+        "shutil.which", lambda prog: None if prog == "gnome-keyring-daemon" else f"/usr/bin/{prog}"
+    )
+    monkeypatch.setattr("os.geteuid", lambda: 1000)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "devops_cli.commands.devcontainer.run_subprocess",
+        lambda cmd, **_: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""),
+    )
+
+    actions = _install_keyring_packages()
+
+    assert calls[-1][:4] == ["sudo", "env", "DEBIAN_FRONTEND=noninteractive", "apt-get"]
+    assert calls[-1][-2:] == ["gnome-keyring", "dbus-x11"]
+    assert actions == ["Installed gnome-keyring, dbus-x11 for the container's keyring"]
+
+
+def test_post_create_leaves_an_installed_keyring_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The published image already ships gnome-keyring; reinstalling would cost minutes."""
+    from devops_cli.commands.devcontainer import _install_keyring_packages
+
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
+    calls = _record_subprocess_calls(monkeypatch)
+
+    assert (_install_keyring_packages(), calls) == ([], [])
+
+
+def test_post_create_skips_the_keyring_without_a_configured_bus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without DBUS_SESSION_BUS_ADDRESS no client would ever find the keyring."""
+    from devops_cli.commands.devcontainer import _install_keyring_packages
+
+    monkeypatch.setattr("shutil.which", lambda prog: None)
+
+    assert _install_keyring_packages() == []
+
+
+def test_post_create_warns_when_the_keyring_cannot_be_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """gh would silently store its token in plain text, so the missing keyring must show."""
+    from devops_cli.commands.devcontainer import _install_keyring_packages
+
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
+    monkeypatch.setattr("shutil.which", lambda prog: None)
+
+    assert _install_keyring_packages() == [
+        "Warning: gnome-keyring is not installed and apt-get is unavailable"
+    ]
+
+
+@pytest.fixture
+def keyring_container(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
+    """A container with gnome-keyring installed and its bus already running."""
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", f"unix:path={tmp_path / 'bus'}")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr("shutil.which", lambda prog: f"/usr/bin/{prog}")
+    monkeypatch.setattr("devops_cli.commands.devcontainer._start_session_bus", lambda: [])
+    calls: list[dict[str, object]] = []
+
+    def fake_run_subprocess(cmd: list[str], **kwargs: object) -> object:
+        import subprocess
+
+        calls.append({"cmd": cmd, **kwargs})
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", fake_run_subprocess)
+    return calls
+
+
+def _answer_prompts(monkeypatch: pytest.MonkeyPatch, *answers: str) -> list[str]:
+    """Feed getpass the given answers and record each prompt it showed."""
+    prompts: list[str] = []
+    replies = iter(answers)
+
+    def fake_getpass(prompt: str = "") -> str:
+        prompts.append(prompt)
+        return next(replies)
+
+    monkeypatch.setattr("getpass.getpass", fake_getpass)
+    return prompts
+
+
+def test_unlock_keyring_creates_the_keyring_on_first_use(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first password becomes the keyring's, so it is asked for twice."""
+    prompts = _answer_prompts(monkeypatch, "correct-horse", "correct-horse")
+    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: False)
+
+    result = runner.invoke(app, ["unlock-keyring"])
+
+    assert result.exit_code == 0, result.output
+    assert prompts == ["New keyring password: ", "Repeat keyring password: "]
+    unlock = keyring_container[-1]
+    assert unlock["cmd"] == [
+        "gnome-keyring-daemon",
+        "--replace",
+        "--unlock",
+        "--components=secrets",
+    ]
+    assert unlock["input"] == "correct-horse"
+
+
+def test_unlock_keyring_keeps_the_daemon_off_the_shared_tmp(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """VS Code points XDG_RUNTIME_DIR at /tmp, a volume other containers mount too."""
+    _answer_prompts(monkeypatch, "correct-horse", "correct-horse")
+    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: False)
+
+    runner.invoke(app, ["unlock-keyring"])
+
+    assert keyring_container[-1]["env"] == {"XDG_RUNTIME_DIR": str(tmp_path)}
+
+
+def test_unlock_keyring_asks_once_for_an_existing_keyring(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Another container of the same identity may have created it on the shared home."""
+    keyring_file = tmp_path / "data" / "keyrings" / "login.keyring"
+    keyring_file.parent.mkdir(parents=True)
+    keyring_file.write_bytes(b"GnomeKeyring\n\r\x00\n")
+    prompts = _answer_prompts(monkeypatch, "correct-horse")
+    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: False)
+
+    result = runner.invoke(app, ["unlock-keyring"])
+
+    assert (result.exit_code, prompts) == (0, ["Keyring password: "])
+
+
+def test_unlock_keyring_refuses_an_empty_password(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """gnome-keyring stores every secret in plain text under an empty password."""
+    _answer_prompts(monkeypatch, "")
+
+    result = runner.invoke(app, ["unlock-keyring"])
+
+    assert result.exit_code == 1
+    assert keyring_container == []
+
+
+def test_unlock_keyring_refuses_mismatched_first_passwords(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A typo in the only copy of the password would lock the user out of every secret."""
+    _answer_prompts(monkeypatch, "correct-horse", "correct-hrose")
+
+    result = runner.invoke(app, ["unlock-keyring"])
+
+    assert result.exit_code == 1
+    assert keyring_container == []
+
+
+def test_unlock_keyring_reports_a_wrong_password(
+    runner: CliRunner,
+    keyring_container: list[dict[str, object]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """gnome-keyring-daemon --unlock exits 0 on a wrong password, so only the lock state tells."""
+    keyring_file = tmp_path / "data" / "keyrings" / "login.keyring"
+    keyring_file.parent.mkdir(parents=True)
+    keyring_file.write_bytes(b"GnomeKeyring\n\r\x00\n")
+    _answer_prompts(monkeypatch, "wrong-horse")
+    monkeypatch.setattr("devops_cli.commands.devcontainer._keyring_is_locked", lambda: True)
+
+    result = runner.invoke(app, ["unlock-keyring"])
+
+    assert result.exit_code == 1
+    assert "Wrong password" in result.output
+
+
+def test_unlock_keyring_needs_gnome_keyring(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the daemon or the bus address there is nothing to unlock."""
+    monkeypatch.setattr("shutil.which", lambda prog: None)
+
+    result = runner.invoke(app, ["unlock-keyring"])
+
+    assert result.exit_code == 1
+    assert "No keyring in this container" in result.output

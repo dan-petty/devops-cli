@@ -132,6 +132,13 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
+def isolate_session_bus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Keep tests off the devcontainer's session bus, where gnome-keyring holds real secrets."""
+    monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))  # the bus fallback is $XDG_RUNTIME_DIR/bus
+
+
+@pytest.fixture(autouse=True)
 def protect_workspace_config():
     """Ensure workspace config.yaml is never modified during test execution."""
     workspace_config = (Path(__file__).parent.parent / "config.yaml").resolve()

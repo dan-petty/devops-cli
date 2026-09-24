@@ -175,3 +175,14 @@ def test_the_sandbox_blocks_attribute_escapes() -> None:
     template = template_environment().from_string("{{ ''.__class__.__mro__ }}")
     with pytest.raises(SecurityError):
         template.render()
+
+
+# =============================================================================
+# Container Environment
+# =============================================================================
+
+
+def test_clients_are_pointed_at_the_container_local_session_bus() -> None:
+    """/tmp is a volume shared between containers; the keyring bus must live under /run."""
+    env = json.loads(devcontainer())["containerEnv"]
+    assert env["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/run/user/1000/bus"

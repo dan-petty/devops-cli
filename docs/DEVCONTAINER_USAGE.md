@@ -341,6 +341,23 @@ On Windows (WSL2 9P filesystem) and macOS (VirtioFS), bind-mounting directories 
 > [!WARNING]
 > Bind-mounting the entire host `.ssh` directory exposes your private keys to processes running inside the container. In shared or zero-trust environments, prefer SSH Agent forwarding or dedicate a container-specific key pair (`~/.ssh/id_ed25519_devcontainer`).
 
+### Keyring for `gh`, git and `devops` Secrets
+Containers scaffolded by `devops devcontainer init` run Debian's `gnome-keyring` as their Secret Service. Without it, `gh auth login` saves its token to `~/.config/gh/hosts.yml` in plain text, and `devops` has nowhere to store secrets.
+- **Where it runs**: `containerEnv` sets `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus`, and `devops devcontainer post-start` starts that session bus. gnome-keyring then starts on the first secret request. The bus lives under `/run`, which is private to each container, not on the shared `/tmp` volume.
+- **Other images**: the published image ships gnome-keyring. On any other image, `devops devcontainer post-create` installs `gnome-keyring` and `dbus-x11` with apt.
+- **Unlocking**: the keyring starts locked every time a container starts. Unlock it from any terminal:
+  ```bash
+  devops devcontainer unlock-keyring
+  ```
+  The first run creates the keyring, so it asks for the new password twice. Empty passwords are refused, because they would store every secret in plain text.
+- **Moving an existing token in**: after unlocking, move a plaintext `gh` token into the keyring without minting a new one:
+  ```bash
+  gh auth token -h github.com | gh auth login -h github.com --with-token
+  ```
+
+> [!WARNING]
+> `gh` still falls back to a plaintext `hosts.yml` token if you log in while the keyring is locked (cli/cli#10108). Unlock first.
+
 ### Zero-Root Principle
 The published Dev Container executes by default as non-root user `vscode` (UID 1000, GID 1000) with passwordless `sudo` privileges if required. Always ensure custom scripts and daily development commands execute under `vscode` to prevent permission collisions on host-mounted files.
 

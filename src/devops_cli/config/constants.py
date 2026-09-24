@@ -139,6 +139,9 @@ CONST_DEVCONTAINER_CLAUDE_EXTENSION: Final[str] = "anthropic.claude-code"
 CONST_DEVCONTAINER_CLAUDE_FEATURE: Final[str] = (
     "ghcr.io/anthropics/devcontainer-features/claude-code:1"
 )
+# The Secret Service gh, git and Python keyring use; dbus-x11 satisfies gnome-keyring's
+# session-bus dependency without pulling in systemd. Mirrors .devcontainer/Dockerfile.
+CONST_KEYRING_PACKAGES: Final[tuple[str, ...]] = ("gnome-keyring", "dbus-x11")
 
 # ── Specifications, Load Testing & Chaos ──────────────────────────────────────
 CONST_SPECS_DIR_NAME = ".devops/specs"

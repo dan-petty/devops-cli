@@ -177,6 +177,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops devcontainer update [OPTIONS] <repo_path>` | Update the Python image version in an existing devcontainer.json. |
 |  | `devops devcontainer validate [OPTIONS]` | Validate .devcontainer/devcontainer.json manifest syntax and configuration schema. |
 |  | `devops devcontainer list [OPTIONS]` | List repos with their devcontainer status. |
+|  | `devops devcontainer unlock-keyring` | Create or unlock the gnome-keyring login keyring that gh, git and devops store secrets in. |
 |  | `devops devcontainer post-create [OPTIONS]` | Execute DevContainer post-create setup tasks (history, shell completions, config prep). |
 |  | `devops devcontainer post-start [OPTIONS]` | Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync). |
 |  | `devops devcontainer run-lifecycle [OPTIONS]` | Run specified DevContainer lifecycle hook tasks natively in Python. |
