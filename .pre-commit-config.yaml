@@ -9,6 +9,7 @@ repos:
         args: [--branch, main, --pattern, '^release/.*']
         stages: [pre-commit]
       - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md, --markdown-linebreak-ext=markdown]
         stages: [pre-commit]
       - id: end-of-file-fixer
         stages: [pre-commit]
