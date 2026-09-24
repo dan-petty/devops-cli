@@ -282,22 +282,42 @@ def _build_validation_prompt(
     )
 
 
-_SYNTAX_CLAIM_PATTERNS: tuple[str, ...] = (
-    "syntax",
-    "parse error",
-    "syntaxerror",
-    "invalid syntax",
-    "except clause",
-    "exception clause",
-    "except statement",
-    "cannot be imported",
-    "fails to import",
-    "prevents module import",
-    "breaks import",
-    "python 2 syntax",
-    "python 2 style",
-    "deprecated syntax",
+# A claim that the file does not parse. The word "syntax" alone is not one: "f-string syntax
+# interpolates user input into SQL" and "bare `except` clause" describe code that parses.
+_SYNTAX_CLAIM = re.compile(
+    r"\bsyntax\s*error\b|\bsyntaxerror\b|\binvalid\s+(?:python\s+)?syntax\b|\bparse\s+error\b"
+    r"|\b(?:fails?|failed|unable)\s+to\s+(?:parse|compile)\b|\bpython\s*2\s+(?:syntax|style)\b"
+    r"|\bdeprecated\s+syntax\b",
+    re.IGNORECASE,
 )
+
+
+_HEADER_WINDOW_LINES = 25
+# A synthetic value: named as one ("changeme", "dummy") or marked inside ("ghp_fake123",
+# AWS's documented "...EXAMPLE" key).
+_PLACEHOLDER_SECRET = re.compile(
+    r"^(?:secret|password|pass|token|foo|bar|none|null)[\w.-]{0,8}$"
+    r"|fake|dummy|mock|example|sample|changeme|change-me|placeholder|xxxx|test",
+    re.IGNORECASE,
+)
+_SECRET_EXPOSURE_CLAIM = re.compile(
+    r"\b(?:live|real|valid|actual|committed|hardcoded|hard-coded|exposed|leaked)\b[^.\n]{0,40}"
+    r"\b(?:secret|credential|key|token|password)\b|\bnot\s+a\s+placeholder\b"
+)
+
+
+def _cited_window(finding: Finding, file_path: Path, context: int) -> str:
+    """The cited lines of a finding with `context` lines either side; "" without a line."""
+    start = _extract_location_line(finding.location)
+    if not start:
+        return ""
+    numbers = [int(n) for n in re.findall(r"\d+", finding.location.split(":", 1)[1])]
+    end = max(numbers) if numbers else start
+    try:
+        lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    return "\n".join(lines[max(0, start - 1 - context) : end + context])
 
 
 def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Finding | None:
@@ -305,10 +325,7 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
     if not (file_path.exists() and file_path.is_file()):
         return None
 
-    title_lower = finding.title.lower()
-    desc_lower = (finding.description or "").lower()
-    is_syntax_claim = any(kw in title_lower or kw in desc_lower for kw in _SYNTAX_CLAIM_PATTERNS)
-    if not is_syntax_claim:
+    if not _SYNTAX_CLAIM.search(f"{finding.title}\n{finding.description or ''}"):
         return None
 
     suffix = file_path.suffix.lower()
@@ -419,7 +436,11 @@ def _check_missing_header_hallucination(finding: Finding, file_path: Path) -> Fi
         return None
 
     try:
-        content = file_path.read_text(encoding="utf-8", errors="replace")
+        # The header has to be set where the request is made, not anywhere in the module:
+        # a client whose other methods authenticate can still send one request without it.
+        content = _cited_window(finding, file_path, _HEADER_WINDOW_LINES)
+        if not content:
+            return None
         has_auth = any(
             pattern in content
             for pattern in (
@@ -513,49 +534,32 @@ def _resolve_target_file(loc_file: str, repo_root: Path | None) -> Path | None:
     return None
 
 
-def _check_line_boundaries(finding: Finding, file_path: Path) -> Finding | None:
-    """Invalidate findings referencing line numbers beyond total file length."""
-    if not (file_path.exists() and file_path.is_file()):
-        return None
-    if ":" not in finding.location:
-        return None
-    try:
-        line_part = finding.location.split(":", 1)[1].strip()
-        nums = [int(x) for x in line_part.replace("-", " ").split() if x.isdigit()]
-        if not nums:
-            return None
-        target_line = nums[0]
-        total_lines = len(file_path.read_text(encoding="utf-8", errors="replace").splitlines())
-        if target_line > max(1, total_lines):
-            res = finding.model_copy(
-                update={
-                    "verified": False,
-                    "mitigated": False,
-                    "reportable": False,
-                    "status": "INVALIDATED",
-                    "invalidation_reason": f"Line {target_line} exceeds total file lines ({total_lines})",
-                }
-            )
-            try:
-                from devops_cli.ai.review.common_hallucinations import (
-                    auto_record_invalidated_finding,
-                )
+def _drop_out_of_range_lines(finding: Finding, file_path: Path) -> Finding:
+    """Remove a line range that points past the end of the file, keeping the finding.
 
-                auto_record_invalidated_finding(
-                    res, file_path=file_path, reason=res.invalidation_reason
-                )
-            except Exception:
-                pass
-            return res
-    except Exception:
-        pass
-    return None
+    Review pages carry no line numbers (#499), so a cited line is the model's own count and
+    can overshoot on a long file. That is a wrong location, not a wrong finding.
+    """
+    target_line = _extract_location_line(finding.location)
+    if not target_line:
+        return finding
+    try:
+        total_lines = len(file_path.read_text(encoding="utf-8", errors="replace").splitlines())
+    except OSError:
+        return finding
+    if target_line <= max(1, total_lines):
+        return finding
+    logger.debug(
+        "Dropping line %d past the end of %s (%d lines)", target_line, file_path, total_lines
+    )
+    return finding.model_copy(update={"location": finding.location.split(":", 1)[0]})
 
 
 def _check_pathlib_resolve_hallucination(finding: Finding) -> Finding | None:
     """Invalidate claims that Path.resolve() raises FileNotFoundError on non-existent paths."""
     text = (finding.title + " " + (finding.description or "")).lower()
-    if "filenotfounderror" in text and "resolve" in text:
+    # resolve(strict=True) does raise FileNotFoundError; only the non-strict claim is false.
+    if "filenotfounderror" in text and "resolve(" in text and "strict" not in text:
         return finding.model_copy(
             update={
                 "verified": False,
@@ -657,18 +661,18 @@ _UNSUPPORTED_RUNTIME_PATTERN = re.compile(
 )
 
 
-def _check_unsupported_runtime_hallucination(finding: Finding) -> Finding | None:
-    """Invalidate a compatibility claim about a Python the project does not support.
+def _check_unsupported_runtime_hallucination(finding: Finding, file_path: Path) -> Finding | None:
+    """Invalidate a compatibility claim about a Python the reviewed project does not support.
 
     `requires-python` is the declared support floor. A finding that a module breaks on an
     interpreter below it describes a configuration that cannot occur: the installer refuses
-    it before any import runs.
+    it before any import runs. The floor is the reviewed project's, found from the file.
     """
     text = f"{finding.title} {finding.description or ''}".lower()
     if not any(word in text for word in ("incompatible", "compatib", "importerror", "raises")):
         return None
 
-    floor = _declared_python_floor()
+    floor = _declared_python_floor(_nearest_pyproject(file_path))
     if floor is None:
         return None
 
@@ -690,27 +694,44 @@ def _check_unsupported_runtime_hallucination(finding: Finding) -> Finding | None
     )
 
 
-@functools.lru_cache(maxsize=1)
-def _declared_python_floor() -> int | None:
-    """Return the minor version of this project's `requires-python` floor."""
-    root = Path(__file__).resolve().parents[3].parent
+def _nearest_pyproject(file_path: Path) -> Path | None:
+    """The pyproject.toml of the project a file belongs to."""
+    for directory in file_path.resolve().parents:
+        candidate = directory / "pyproject.toml"
+        if candidate.is_file():
+            return candidate
+        if (directory / ".git").exists():
+            return None
+    return None
+
+
+@functools.lru_cache(maxsize=32)
+def _declared_python_floor(pyproject: Path | None) -> int | None:
+    """Return the minor version of a project's `requires-python` floor."""
+    if pyproject is None:
+        return None
     try:
-        raw = (root / "pyproject.toml").read_text(encoding="utf-8")
+        raw = pyproject.read_text(encoding="utf-8")
     except OSError:
         return None
     match = re.search(r'requires-python\s*=\s*"[^"]*?3\.(\d+)', raw)
     return int(match.group(1)) if match else None
 
 
+# Whole words: "sse" inside "processed" or "health" inside "healthy" is not a protocol.
+_HEALTH_ENDPOINT = re.compile(r"\bhealth(?:z|check)?\b|\bliveness\b|\breadiness\b")
+_EVENT_STREAM = re.compile(r"\bsse\b|\bserver-sent\b|\bevent[- ]stream\b|\bwebsockets?\b")
+
+
 def _is_health_endpoint_version_claim(title_desc: str, loc: str) -> bool:
-    return "version" in title_desc and any(
-        k in loc or k in title_desc for k in ("health", "healthz", "health.py")
+    return bool(re.search(r"\bversion\b", title_desc)) and bool(
+        _HEALTH_ENDPOINT.search(loc) or _HEALTH_ENDPOINT.search(title_desc)
     )
 
 
 def _is_stream_event_timestamp_claim(title_desc: str, loc: str) -> bool:
-    return "timestamp" in title_desc and any(
-        k in loc or k in title_desc for k in ("sse", "stream", "websocket", "stream.py")
+    return bool(re.search(r"\btimestamps?\b", title_desc)) and bool(
+        _EVENT_STREAM.search(loc) or _EVENT_STREAM.search(title_desc)
     )
 
 
@@ -769,20 +790,26 @@ def _check_test_fixture_credential_hallucination(
         "hardcoded vault token",
         "hardcoded password",
     )
-    if any(kw in title_lower or kw in desc_lower for kw in keywords):
-        return finding.model_copy(
-            update={
-                "verified": False,
-                "mitigated": False,
-                "reportable": False,
-                "status": "INVALIDATED",
-                "invalidation_reason": (
-                    "Matches verified common hallucination [HALLUCINATION-TEST-MOCK-CRED]: "
-                    "Test fixtures and mock suites legitimately use synthetic credentials"
-                ),
-            }
-        )
-    return None
+    if not any(kw in title_lower or kw in desc_lower for kw in keywords):
+        return None
+    # A real credential committed to a test directory is still a leak. Only a cited value that
+    # is plainly synthetic ("test-token", "changeme", "dummy") is a fixture.
+    window = _cited_window(finding, file_path, 2)
+    values = re.findall(r"[\"']([^\"'\n]{3,})[\"']", window)
+    if not values or not all(_PLACEHOLDER_SECRET.search(value) for value in values):
+        return None
+    return finding.model_copy(
+        update={
+            "verified": False,
+            "mitigated": False,
+            "reportable": False,
+            "status": "INVALIDATED",
+            "invalidation_reason": (
+                "Matches verified common hallucination [HALLUCINATION-TEST-MOCK-CRED]: "
+                "the cited test credential is a synthetic placeholder"
+            ),
+        }
+    )
 
 
 def _is_var_assigned_before(
@@ -819,15 +846,21 @@ def _extract_location_line(location: str) -> int:
 
 
 def _find_enclosing_fn_assignment(tree: ast.AST, var_name: str, target_line: int) -> int | None:
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            fn_start = getattr(node, "lineno", 0)
-            fn_end = getattr(node, "end_lineno", fn_start + 1000)
-            if fn_start <= target_line <= fn_end:
-                assign_line = _is_var_assigned_before(node, var_name, target_line)
-                if assign_line is not None:
-                    return assign_line
-    return None
+    """An assignment before the line in the innermost function containing it.
+
+    An outer function's assignment does not bind the name in a nested one: `count += 1` in a
+    closure without `nonlocal count` raises UnboundLocalError.
+    """
+    enclosing = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.lineno <= target_line <= (node.end_lineno or node.lineno)
+    ]
+    if not enclosing:
+        return None
+    innermost = max(enclosing, key=lambda node: node.lineno)
+    return _is_var_assigned_before(innermost, var_name, target_line)
 
 
 def _is_uninitialized_claim(title_lower: str, desc_lower: str) -> bool:
@@ -878,17 +911,26 @@ def _check_uninitialized_variable_hallucination(
     return None
 
 
+# Reasoning that opens a title; inside a title the same words describe a defect ("Clients of
+# the API need to send the token in the query"). Praise counts anywhere unless negated ("Rate
+# limiter not properly implemented").
+_MONOLOGUE_TITLE = re.compile(
+    r"^(?:we need to|let's check|let's verify|first, let's|i need to|looking at the code|"
+    r"based on the above)\b"
+)
+_COMPLIMENT_PHRASE = re.compile(
+    r"\b(?:looks solid|properly implemented|no vulnerabilities found|clean code|well structured|"
+    r"all clear)\b"
+)
+# A negation or defect word turns praise wording into a finding.
+_COMPLIMENT_NEGATION = re.compile(
+    r"\b(?:not|never|isn't|aren't|no longer|improperly|but|however|except|missing|fails?|"
+    r"lacks?|without)\b"
+)
+
+
 def _check_conversational_monologue(title_lower: str, finding: Finding) -> Finding | None:
-    phrases = (
-        "we need to",
-        "let's check",
-        "let's verify",
-        "first, let's",
-        "i need to",
-        "looking at the code",
-        "based on the above",
-    )
-    if any(phrase in title_lower for phrase in phrases):
+    if _MONOLOGUE_TITLE.match(title_lower.strip()):
         return finding.model_copy(
             update={
                 "verified": False,
@@ -902,15 +944,7 @@ def _check_conversational_monologue(title_lower: str, finding: Finding) -> Findi
 
 
 def _check_benign_compliment(title_lower: str, finding: Finding) -> Finding | None:
-    phrases = (
-        "looks solid",
-        "properly implemented",
-        "no vulnerabilities found",
-        "clean code",
-        "well structured",
-        "all clear",
-    )
-    if any(phrase in title_lower for phrase in phrases):
+    if _COMPLIMENT_PHRASE.search(title_lower) and not _COMPLIMENT_NEGATION.search(title_lower):
         return finding.model_copy(
             update={
                 "verified": False,
@@ -934,12 +968,15 @@ def _check_masked_placeholder_syntax_error(
     )
     if not has_marker:
         return None
+    # A claim that the redacted value is a live secret is about the value behind the marker,
+    # which the source still holds; only a claim about the marker's own syntax is false.
+    if _SECRET_EXPOSURE_CLAIM.search(f"{title_lower} {desc_lower}"):
+        return None
     phrases = (
         "syntax error",
         "invalid syntax",
         "undefined variable",
         "nameerror",
-        "placeholder",
         "unquoted placeholder",
         "unresolved identifier",
     )
@@ -959,15 +996,11 @@ def _check_masked_placeholder_syntax_error(
     return None
 
 
-_NONE_DEREFERENCE_CLAIM_PATTERNS: tuple[str, ...] = (
-    "attributeerror",
-    "nonetype",
-    "none dereference",
-    "null dereference",
-    "null pointer",
-    "is none",
-    "when none",
-    "if none",
+# A claim about Python's None, spelled as code. English "if none of the roles match" is not.
+_NONE_DEREFERENCE_CLAIM = re.compile(
+    r"\bNoneType\b|\bNone\b[^\n]{0,60}\b(?:attribute|dereference|access|AttributeError)"
+    r"|\b(?:AttributeError|[Dd]ereferenc\w*|access\w*)\b[^\n]{0,80}\bNone\b"
+    r"|(?i:\bnull\s+(?:pointer|dereference)\b)"
 )
 
 
@@ -1008,8 +1041,7 @@ def _check_none_dereference_hallucination(finding: Finding, file_path: Path) -> 
     if not (file_path.exists() and file_path.is_file() and file_path.suffix.lower() == ".py"):
         return None
 
-    haystack = f"{finding.title} {finding.description or ''}".lower()
-    if not any(pattern in haystack for pattern in _NONE_DEREFERENCE_CLAIM_PATTERNS):
+    if not _NONE_DEREFERENCE_CLAIM.search(f"{finding.title} {finding.description or ''}"):
         return None
 
     try:
@@ -1045,8 +1077,8 @@ def _check_code_file_hallucinations(finding: Finding, file_path: Path) -> Findin
     for checker in (
         _check_test_fixture_credential_hallucination,
         _check_uninitialized_variable_hallucination,
-        _check_line_boundaries,
         _check_syntax_error_hallucination,
+        _check_unsupported_runtime_hallucination,
         _check_missing_symbol_hallucination,
         _check_missing_header_hallucination,
         _check_none_dereference_hallucination,
@@ -1102,7 +1134,6 @@ def _deterministic_pre_verification(
         _check_benign_compliment(title_lower, finding),
         _check_masked_placeholder_syntax_error(finding, title_lower, desc_lower),
         _check_placeholder_advisory_hallucination(finding),
-        _check_unsupported_runtime_hallucination(finding),
         _check_scanned_clean_dependency(finding, dependencies or ()),
     ]
     for res in early_results:
@@ -1118,11 +1149,58 @@ def _deterministic_pre_verification(
     if file_path is None:
         return finding
 
+    finding = _drop_out_of_range_lines(finding, file_path)
     code_res = _check_code_file_hallucinations(finding, file_path)
     if code_res:
         return code_res
 
     return _check_catalog_hallucination(finding, file_path)
+
+
+_NO_VALUES = frozenset({"", "none", "null", "n/a", "na", "[]", "-"})
+
+
+def _verdict_bool(value: object) -> bool | None:
+    """A verdict flag as the model meant it; the string "false" is not true."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"true", "yes", "1"}:
+            return True
+        if text in {"false", "no", "0"} or text in _NO_VALUES:
+            return False
+    return None
+
+
+def _verdict_list(value: object) -> list[str]:
+    """Matched criteria as a list; "none" or a bare string is not a list of characters."""
+    items = value if isinstance(value, list) else [value] if isinstance(value, str) else []
+    return [str(x).strip() for x in items if str(x).strip().lower() not in _NO_VALUES]
+
+
+def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, bool]:
+    """The status and reportability a verdict supports.
+
+    Only clear evidence removes a finding. A verdict that both confirms and refutes it, or that
+    declines to confirm it without naming invalidating evidence, leaves it unverified and in
+    the report, as a finding with no verdict is.
+    """
+    verified = _verdict_bool(item.get("verified"))
+    status = str(item.get("status") or "").strip().upper()
+    refuted = bool(inv_matched) or _verdict_bool(item.get("invalidated")) or status == "INVALIDATED"
+    confirmed = verified is True or status == "VERIFIED"
+    if refuted and confirmed:
+        return "UNVERIFIED", True
+    if refuted:
+        return "INVALIDATED", False
+    if _verdict_bool(item.get("mitigated")) or status == "MITIGATED":
+        return "MITIGATED", False
+    if confirmed:
+        return "VERIFIED", _verdict_bool(item.get("reportable")) is not False
+    return "UNVERIFIED", True
 
 
 def _apply_single_finding_verification(
@@ -1132,31 +1210,18 @@ def _apply_single_finding_verification(
     if not isinstance(item, dict):
         return f
 
-    ver_matched = [str(x) for x in item.get("verified_criteria_matched", []) if str(x)]
-    inv_matched = [str(x) for x in item.get("invalidated_criteria_matched", []) if str(x)]
-    is_v = bool(item.get("verified", False))
-    is_m = bool(item.get("mitigated", False))
-
-    if inv_matched:
-        is_v = False
-        is_m = True
-        status_val = "INVALIDATED"
-        is_rep = False
+    ver_matched = _verdict_list(item.get("verified_criteria_matched"))
+    inv_matched = _verdict_list(item.get("invalidated_criteria_matched"))
+    status_val, is_rep = _verdict_status(item, inv_matched)
+    is_v = status_val == "VERIFIED"
+    is_m = status_val in {"INVALIDATED", "MITIGATED"}
+    if status_val == "INVALIDATED":
         try:
             from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
 
-            auto_record_invalidated_finding(f, reason="; ".join(inv_matched))
+            auto_record_invalidated_finding(f, reason="; ".join(inv_matched) or None)
         except Exception:
             pass
-    elif is_m:
-        status_val = "MITIGATED"
-        is_rep = False
-    elif is_v:
-        status_val = "VERIFIED"
-        is_rep = bool(item.get("reportable", True))
-    else:
-        status_val = "UNVERIFIED"
-        is_rep = False
 
     # A confidence derived from `len(verified_criteria_matched) / len(verification_criteria)`
     # divides the model's claim about its criteria by the criteria the model wrote. It
@@ -1213,25 +1278,37 @@ def _bind_verdicts_to_findings(
     index, and a finding that matches nothing keeps the status it already had.
     """
     bound: dict[int, dict[str, Any]] = {}
-    claimed: set[int] = set()
-
     for item in items:
         if not isinstance(item, dict):
             continue
         title = str(item.get("title") or "").lower().strip()
         location = str(item.get("location") or "").lower().strip()
-        if not title and not location:
-            continue
-        for index, finding in enumerate(unresolved):
-            if index in claimed:
-                continue
-            if _is_matching_finding(finding, title, location):
-                bound[index] = item
-                claimed.add(index)
-                break
-        else:
+        index = _best_verdict_target(unresolved, bound, title, location)
+        if index is None:
             logger.debug("Verification verdict matched no finding: %r / %r", title, location)
+            continue
+        bound[index] = item
     return bound
+
+
+def _best_verdict_target(
+    unresolved: list[Finding], bound: dict[int, dict[str, Any]], title: str, location: str
+) -> int | None:
+    """The unclaimed finding a verdict names: by title, with the location breaking ties.
+
+    A location alone never binds: two findings at one line would swap verdicts, a real SQL
+    injection taking the invalidation meant for a style note beside it.
+    """
+    best: tuple[int, int] | None = None
+    for index, finding in enumerate(unresolved):
+        if index in bound or not _is_matching_finding(finding, title, location):
+            continue
+        score = (finding.title.lower().strip() == title) * 2 + (
+            bool(location) and finding.location.lower().strip() == location
+        )
+        if best is None or score > best[0]:
+            best = (score, index)
+    return best[1] if best else None
 
 
 def _verification_reply_cap(finding_count: int) -> int:
@@ -1336,14 +1413,18 @@ def _merge_segment_results(results: list[ReviewResult | None]) -> ReviewResult |
 
 
 def _is_matching_finding(candidate: Finding, target_title: str, target_location: str) -> bool:
-    """Check if candidate finding matches the target finding by title or location."""
+    """Whether a finding is the one a title names; a shared location alone is not enough.
+
+    `target_location` is accepted for callers that pass it, but it never decides a match: two
+    different findings routinely share a line.
+    """
     candidate_title = candidate.title.lower().strip()
-    candidate_loc = candidate.location.lower().strip()
+    if not target_title or not candidate_title:
+        return False
     return (
         candidate_title == target_title
-        or bool(target_location and candidate_loc == target_location)
-        or (len(target_title) > 5 and candidate_title in target_title)
-        or (len(candidate_title) > 5 and target_title in candidate_title)
+        or (len(target_title) > 5 and target_title in candidate_title)
+        or (len(candidate_title) > 5 and candidate_title in target_title)
     )
 
 

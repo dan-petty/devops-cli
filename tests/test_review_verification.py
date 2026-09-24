@@ -262,11 +262,8 @@ def test_deterministic_pre_verification_line_boundary_context(tmp_path: Path) ->
     )
 
     result = _deterministic_pre_verification(finding, repo_root=tmp_path)
-    assert result.status == "INVALIDATED"
-    assert result.verified is False
-    assert result.reportable is False
-    assert result.invalidation_reason is not None
-    assert "exceeds total file lines" in result.invalidation_reason
+    # A miscounted line is a wrong location, not a wrong finding (#513).
+    assert (result.location, result.status, result.reportable) == ("app.py", "UNVERIFIED", True)
 
 
 def test_extract_location_context() -> None:
@@ -384,9 +381,11 @@ def test_format_related_file_block(tmp_path: Path) -> None:
             None,
         ),
         (
+            # Declining to confirm without naming invalidating evidence is not a refutation:
+            # the finding stays in the report as unverified, as one with no verdict does (#513).
             {"verified": False, "confidence_score": "invalid"},
             "UNVERIFIED",
-            False,
+            True,
             False,
             None,
         ),
@@ -516,7 +515,7 @@ def test_deterministic_pre_verification_invalidates_hallucinated_syntax_errors(
 
 
 def test_deterministic_pre_verification_line_boundaries(tmp_path: Path) -> None:
-    """Verify that findings referencing line numbers beyond total lines are invalidated."""
+    """Verify a line number past the end of the file is dropped and the finding kept."""
     from devops_cli.ai.review.verification import _deterministic_pre_verification
 
     short_file = tmp_path / "short.py"
@@ -531,8 +530,7 @@ def test_deterministic_pre_verification_line_boundaries(tmp_path: Path) -> None:
     )
 
     checked = _deterministic_pre_verification(out_of_bounds_finding, repo_root=tmp_path)
-    assert checked.status == "INVALIDATED"
-    assert "exceeds total file lines" in (checked.invalidation_reason or "")
+    assert (checked.location, checked.status) == ("short.py", "UNVERIFIED")
 
 
 def test_validate_segment_findings_bypasses_llm_when_deterministic(tmp_path: Path) -> None:
@@ -992,7 +990,9 @@ def test_a_failure_on_an_uninstallable_python_is_invalidated() -> None:
         title="StrEnum import is incompatible with Python <3.11",
         description="StrEnum arrived in 3.11; on Python 3.10 the import raises ImportError.",
     )
-    result = _check_unsupported_runtime_hallucination(finding)
+    result = _check_unsupported_runtime_hallucination(
+        finding, Path("src/devops_cli/models/prometheus.py")
+    )
     assert result is not None and result.status == "INVALIDATED"
 
 
@@ -1006,7 +1006,33 @@ def test_a_failure_on_a_supported_python_survives() -> None:
         title="Incompatible with Python 3.14",
         description="This construct raises ImportError on Python 3.14.",
     )
-    assert _check_unsupported_runtime_hallucination(finding) is None
+    assert (
+        _check_unsupported_runtime_hallucination(
+            finding, Path("src/devops_cli/models/prometheus.py")
+        )
+        is None
+    )
+
+
+def test_the_runtime_floor_is_the_reviewed_projects_own(tmp_path: Path) -> None:
+    """Verify a project supporting Python 3.9 keeps a finding that code breaks on 3.10.
+
+    The floor was read from devops-cli's own pyproject, so every project was judged by 3.14.
+    """
+    from devops_cli.ai.review.verification import _check_unsupported_runtime_hallucination
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nrequires-python = ">=3.9"\n', "utf-8")
+    module = tmp_path / "pkg" / "app.py"
+    module.parent.mkdir()
+    module.write_text("from enum import StrEnum\n", encoding="utf-8")
+    finding = Finding(
+        severity="MEDIUM",
+        location="pkg/app.py:1",
+        title="StrEnum import is incompatible with Python 3.10",
+        description="On Python 3.10 the import raises ImportError.",
+    )
+
+    assert _check_unsupported_runtime_hallucination(finding, module) is None
 
 
 def test_a_dependency_this_run_scanned_clean_is_not_reported_vulnerable() -> None:
@@ -1308,3 +1334,191 @@ def test_an_unadjudicated_finding_is_not_exported_as_human_reviewed() -> None:
         {"title": "A defect", "location": "a.py:1"}, "sess", "UNVERIFIED"
     )
     assert record.verified_by == "unknown"
+
+
+@pytest.mark.parametrize(
+    ("item", "expected"),
+    [
+        ({"verified": "false", "mitigated": "false"}, ("UNVERIFIED", True)),
+        ({"verified": "true"}, ("VERIFIED", True)),
+        ({"verified": True, "invalidated_criteria_matched": "none"}, ("VERIFIED", True)),
+        ({"verified": True, "invalidated_criteria_matched": ["n/a"]}, ("VERIFIED", True)),
+        (
+            {"verified": True, "invalidated_criteria_matched": ["Guard present"]},
+            ("UNVERIFIED", True),
+        ),
+        ({"status": "INVALIDATED", "reason": "The guard is on line 4."}, ("INVALIDATED", False)),
+        ({"invalidated": "true"}, ("INVALIDATED", False)),
+        ({"status": "MITIGATED"}, ("MITIGATED", False)),
+    ],
+)
+def test_verdicts_are_read_as_the_model_meant_them(
+    item: dict[str, Any], expected: tuple[str, bool]
+) -> None:
+    """Verify string flags, "none" criteria and contradictions never discard a finding by accident."""
+    from devops_cli.ai.review.verification import _apply_single_finding_verification
+
+    finding = Finding(title="SQL injection in search", location="app.py:10", severity="HIGH")
+    result = _apply_single_finding_verification(finding, item, "2026-09-24T00:00:00")
+
+    assert (result.status, result.reportable) == expected
+
+
+def test_verdicts_bind_by_title_not_by_a_shared_line() -> None:
+    """Verify two findings at one line keep their own verdicts, and a title-less verdict binds to none."""
+    from devops_cli.ai.review.verification import _bind_verdicts_to_findings
+
+    findings = [
+        Finding(title="Missing type hints", location="views.py:57", severity="LOW"),
+        Finding(title="SQL injection in get_user", location="views.py:57", severity="CRITICAL"),
+    ]
+    verdicts = [
+        {"title": "SQL injection in get_user", "location": "views.py:57", "verified": True},
+        {"title": "Missing type hints", "location": "views.py:57", "status": "INVALIDATED"},
+        {"location": "views.py:57", "status": "INVALIDATED"},
+    ]
+
+    bound = _bind_verdicts_to_findings(findings, verdicts)
+
+    assert {findings[i].title: v.get("status", "VERIFIED") for i, v in bound.items()} == {
+        "SQL injection in get_user": "VERIFIED",
+        "Missing type hints": "INVALIDATED",
+    }
+
+
+_CLIENT = (
+    """import requests
+
+HEADERS = {"Authorization": "Bearer token"}
+
+
+def list_users():
+    return requests.get("https://api.example.com/users", headers=headers)
+"""
+    + "\n" * 40
+    + """
+
+def delete_user(user_id):
+    return requests.delete(f"https://api.example.com/users/{user_id}")
+"""
+)
+
+_CLOSURE = """def outer():
+    count = 0
+
+    def inc():
+        count += 1
+        return count
+
+    return inc
+"""
+
+
+@pytest.mark.parametrize(
+    ("filename", "source", "location", "title", "description"),
+    [
+        (
+            "app.py",
+            "try:\n    run()\nexcept:\n    pass\n",
+            "app.py:3",
+            "Bare `except` clause swallows KeyboardInterrupt",
+            "Catches everything.",
+        ),
+        (
+            "db.py",
+            "q = f'SELECT * FROM t WHERE id={user_id}'\n",
+            "db.py:1",
+            "SQL injection via f-string",
+            "The f-string syntax interpolates user_id into SQL.",
+        ),
+        (
+            "client.py",
+            _CLIENT,
+            "client.py:51",
+            "delete_user request sent without authentication",
+            "No Authorization header.",
+        ),
+        (
+            "cfg.py",
+            "p = Path(cfg).resolve(strict=True)\n",
+            "cfg.py:1",
+            "Unhandled FileNotFoundError",
+            "resolve(strict=True) raises FileNotFoundError.",
+        ),
+        (
+            "auth.py",
+            "ok = token_time > now\n",
+            "auth.py:1",
+            "Expired tokens are processed as valid",
+            "Naive and aware timestamps are compared.",
+        ),
+        (
+            "pods.py",
+            "healthy = int(ratio) > 0\n",
+            "pods.py:1",
+            "Integer conversion marks unhealthy pods healthy",
+            "The version of the check truncates.",
+        ),
+        (
+            "tests/conftest.py",
+            "DB_PASSWORD = 'Zq8#pL2v!mW9xR4t'\n",
+            "tests/conftest.py:1",
+            "Hardcoded password in test configuration",
+            "A real staging password is committed.",
+        ),
+        (
+            "counter.py",
+            _CLOSURE,
+            "counter.py:5",
+            "UnboundLocalError: 'count' is uninitialized in inc",
+            "count needs nonlocal.",
+        ),
+        (
+            "api.py",
+            "token = request.args['token']\n",
+            "api.py:1",
+            "Clients of the API need to send the token in the query string",
+            "It is logged.",
+        ),
+        (
+            "limit.py",
+            "def allow():\n    return True\n",
+            "limit.py:1",
+            "Rate limiter not properly implemented for bursts",
+            "Every request is allowed.",
+        ),
+        (
+            "keys.py",
+            "API_KEY = 'AKIA...'\n",
+            "keys.py:1",
+            "Live AWS key committed",
+            "`api_key=<masked-api-key>` is a live credential, not a placeholder.",
+        ),
+        (
+            "roles.py",
+            "def check(roles):\n    return True\n",
+            "roles.py:1",
+            "Authorization bypass",
+            "If none of the roles match, the check falls through to True.",
+        ),
+    ],
+)
+def test_deterministic_checks_leave_real_findings_alone(
+    tmp_path: Path,
+    filename: str,
+    source: str,
+    location: str,
+    title: str,
+    description: str,
+) -> None:
+    """Verify each check fires only on the claim it is for, never on a real finding's wording (#513)."""
+    from devops_cli.ai.review.verification import _deterministic_pre_verification
+
+    target = tmp_path / filename
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(source, encoding="utf-8")
+    finding = Finding(severity="HIGH", location=location, title=title, description=description)
+
+    result = _deterministic_pre_verification(finding, repo_root=tmp_path)
+
+    assert (result.status, result.reportable) == ("UNVERIFIED", True), result.invalidation_reason
