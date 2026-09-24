@@ -1,7 +1,7 @@
 # Task 487: SSH Key Prefix Reads devcontainer.json Holding URLs
 
 **Issue**: [#487](https://github.com/dan-petty/devops-cli/issues/487)
-**PR**: pending
+**PR**: [#488](https://github.com/dan-petty/devops-cli/pull/488)
 **Status**: In Review
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`
