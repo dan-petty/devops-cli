@@ -111,18 +111,28 @@ class Site:
     evidence: tuple[str, ...] = ()
 
 
+Finder = Callable[[Lines], list[Site]]
+
+
 @dataclass(frozen=True)
 class DefectTemplate:
-    """A kind of defect, and how to find the places it can be injected."""
+    """A kind of defect, and how to find the places it can be injected in each language.
+
+    `finders` pairs file suffixes with the finder for files ending in one of them, so one
+    template name covers a defect across languages.
+    """
 
     name: str
     description: str
     severity: str
-    suffixes: tuple[str, ...]
-    find: Callable[[Lines], list[Site]]
+    finders: tuple[tuple[tuple[str, ...], Finder], ...]
+
+    def finder_for(self, path: str) -> Finder | None:
+        lowered = path.lower()
+        return next((find for suffixes, find in self.finders if lowered.endswith(suffixes)), None)
 
     def applies_to(self, path: str) -> bool:
-        return path.lower().endswith(self.suffixes)
+        return self.finder_for(path) is not None
 
 
 def _substitute(
@@ -249,6 +259,276 @@ def _drop_awaits(lines: Lines) -> list[Site]:
     return sites
 
 
+# ── Brace languages: TypeScript/JavaScript, Go, Rust, Java, C#, C/C++ ─────────────────────
+
+TS_JS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+GO = (".go",)
+RUST = (".rs",)
+JAVA = (".java",)
+CSHARP = (".cs",)
+C_CPP = (".c", ".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx")
+# Languages whose `if` may govern a single statement without braces.
+_BRACELESS_IF = TS_JS + JAVA + CSHARP + C_CPP
+
+# String and character literals and comments on one line. Rust's `'a` lifetimes are not
+# literals, so a Rust character literal holds one character or one escape.
+_LITERALS = r'"(?:[^"\\\n]|\\.)*"|`(?:[^`\\\n]|\\.)*`|//.*|/\*.*?\*/'
+_CODE_NOISE = re.compile(rf"{_LITERALS}|'(?:[^'\\\n]|\\.)*'")
+_RUST_CODE_NOISE = re.compile(rf"{_LITERALS}|'(?:[^'\\\n]|\\[^'\n]{{1,8}})'")
+_GUARD_MAX_LINES = 8
+_EXIT_STATEMENT = re.compile(
+    r"\s*(?:return\b|throw\b|panic!?\s*\(|bail!\s*\(|goto\b|abort\s*\(|std::abort\s*\(|"
+    r"exit\s*\(|os\.Exit\s*\()"
+)
+_CONTROL_HEAD = re.compile(
+    r"^\s*(?:\}\s*)?(?:if|else|for|foreach|while|switch|match|loop|try|catch|finally|do|"
+    r"case|default|select|unsafe)\b"
+)
+_ORDERING = re.compile(r"(?<![<>=!\-])(?:<=?|>=?)(?![<>=])")
+_ERROR_CHECK = re.compile(
+    r"\berr\s*!=\s*nil\b|==?=\s*(?:null|nullptr|NULL|nil|undefined)\b"
+    r"|\b(?:null|nullptr|NULL|nil|undefined)\s*==?=|^\s*!\s*[A-Za-z_][\w.>-]*\s*$"
+    r"|\.is_(?:none|err)\(\)|\b(?:rc|ret|res|status|result|error|err)\s*!=\s*0\b"
+)
+# Keywords and built-ins of the brace languages; a finding naming one is not about this code.
+_CONDITION_WORDS = frozenset(
+    {"null", "nullptr", "NULL", "nil", "undefined", "None", "true", "false", "sizeof", "this"}
+    | {"self", "length", "Length", "size", "Size", "count", "Count", "is_none", "is_err"}
+    | {"typeof", "instanceof", "nameof", "Array", "isArray", "Object", "String", "Number"}
+    | {"Math", "Double", "Integer", "Float", "isNaN", "isFinite", "strlen", "Some", "Ok", "Err"}
+)
+
+
+def _code_only(lines: Lines, rust: bool = False) -> Lines:
+    """Lines with literals and comments blanked to spaces, so every column still lines up."""
+    noise = _RUST_CODE_NOISE if rust else _CODE_NOISE
+    return [noise.sub(lambda m: " " * len(m.group(0)), line) for line in lines]
+
+
+def _closing(text: str, open_at: int) -> int | None:
+    """Index of the bracket closing the one at `open_at`, or None when it does not close."""
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    stack = [pairs[text[open_at]]]
+    for index in range(open_at + 1, len(text)):
+        char = text[index]
+        if char in pairs:
+            stack.append(pairs[char])
+        elif char in ")]}":
+            if char != stack.pop():
+                return None
+            if not stack:
+                return index
+    return None
+
+
+def _guard_condition(window: str, braces_required: bool) -> tuple[str, int] | None:
+    """An `if` statement's condition and where its body starts, in a code-only window."""
+    head = re.match(r"\s*if\b\s*", window)
+    if not head:
+        return None
+    start = head.end()
+    if not braces_required and window.startswith("(", start):
+        close = _closing(window, start)
+        return (window[start + 1 : close], close + 1) if close is not None else None
+    brace = window.find("{", start)
+    if brace == -1 or "\n" in window[start:brace]:
+        return None
+    return window[start:brace], brace
+
+
+def _guard_body(window: str, at: int, braces_required: bool) -> tuple[str, int] | None:
+    """A guard's body and the index ending it: a braced block, its brace on the same line or
+    the next (Allman style), or one statement on the same line without braces."""
+    same_line = at + len(window[at:]) - len(window[at:].lstrip(" \t"))
+    next_token = at + len(window[at:]) - len(window[at:].lstrip())
+    if window.startswith("{", next_token) and window[at:next_token].count("\n") <= 1:
+        close = _closing(window, next_token)
+        return (window[next_token + 1 : close], close) if close is not None else None
+    if braces_required or window.startswith("\n", same_line):
+        return None
+    semicolon = window.find(";", same_line)
+    if semicolon == -1 or "\n" in window[same_line:semicolon]:
+        return None
+    return window[same_line : semicolon + 1], semicolon
+
+
+def _brace_guard(
+    code: Lines, start: int, braces_required: bool, test_matches: Callable[[str], bool]
+) -> tuple[int, str] | None:
+    """(end line, condition) of a guard at `start`: `if <test>` whose body only exits.
+
+    The statement must fill whole lines and have no `else`, so removing its lines leaves
+    balanced, well-formed code.
+    """
+    window = "".join(code[start : start + _GUARD_MAX_LINES])
+    parsed = _guard_condition(window, braces_required)
+    if parsed is None or not test_matches(parsed[0]):
+        return None
+    body = _guard_body(window, parsed[1], braces_required)
+    if body is None or not _EXIT_STATEMENT.match(body[0]) or body[0].strip().count(";") > 1:
+        return None
+    rest = window[body[1] + 1 :]
+    if rest.split("\n", 1)[0].strip() or re.match(r"\s*else\b", rest):
+        return None
+    return start + window[: body[1]].count("\n") + 1, parsed[0]
+
+
+def _follows_braceless_header(code: Lines, start: int) -> bool:
+    """Whether the statement at `start` is the body of an `if`, `for` or `else` without braces."""
+    previous = next((line for line in reversed(code[:start]) if line.strip()), "")
+    return bool(_CONTROL_HEAD.match(previous)) and not previous.rstrip().endswith(("{", "}", ";"))
+
+
+def _owner_start(code: Lines, index: int) -> int:
+    """0-based line of the function enclosing line `index`: the nearest less-indented opener."""
+    indent = len(code[index]) - len(code[index].lstrip())
+    for above in range(index - 1, max(-1, index - 80), -1):
+        line = code[above]
+        if not line.strip() or len(line) - len(line.lstrip()) >= indent:
+            continue
+        if line.rstrip().endswith("{") and not _CONTROL_HEAD.match(line):
+            return above
+    return max(0, index - _GUARD_REACH_LINES)
+
+
+def _go_error_read_later(code: Lines, end: int) -> bool:
+    """Whether `err` is read after line `end` in the function, so Go still compiles without the check."""
+    for line in code[end : end + 60]:
+        if line.startswith("func "):
+            return False
+        read = re.sub(r"^[\s\w,]*:?=(?!=)", "", line)
+        if re.search(r"\berr\b", read):
+            return True
+    return False
+
+
+def _condition_names(condition: str) -> tuple[str, ...]:
+    names = re.findall(r"[A-Za-z_]\w*", condition)
+    return tuple(dict.fromkeys(n for n in names if _distinctive(n) and n not in _CONDITION_WORDS))
+
+
+def _drop_brace_guards(test_matches: Callable[[str], bool], suffixes: tuple[str, ...]) -> Finder:
+    """Find guards in a brace language whose removal leaves balanced code; the defect is the missing check."""
+    braces_required = suffixes in (GO, RUST)
+
+    def find(lines: Lines) -> list[Site]:
+        code = _code_only(lines, rust=suffixes == RUST)
+        sites: list[Site] = []
+        for start, line in enumerate(code):
+            if not re.match(r"\s*if\b", line) or (
+                not braces_required and _follows_braceless_header(code, start)
+            ):
+                continue
+            guard = _brace_guard(code, start, braces_required, test_matches)
+            if guard is None:
+                continue
+            end, condition = guard
+            if suffixes == GO and re.search(r"\berr\b", condition):
+                if not _go_error_read_later(code, end):
+                    continue
+            region = (_owner_start(code, start) + 1, start + 1 + _GUARD_REACH_LINES)
+            sites.append(Site(start, end, (), region, _condition_names(condition)))
+        return sites
+
+    return find
+
+
+def _orders_text(condition: str) -> bool:
+    return bool(_ORDERING.search(condition))
+
+
+def _checks_error_text(condition: str) -> bool:
+    # A guard with an init statement (`if err := f(); err != nil`) would take the call with it.
+    return ";" not in condition and ":=" not in condition and bool(_ERROR_CHECK.search(condition))
+
+
+def _brace_guard_finders(
+    test_matches: Callable[[str], bool],
+) -> tuple[tuple[tuple[str, ...], Finder], ...]:
+    return tuple(
+        (suffixes, _drop_brace_guards(test_matches, suffixes))
+        for suffixes in (TS_JS, GO, RUST, JAVA, CSHARP, C_CPP)
+    )
+
+
+_AWAIT = re.compile(r"\bawait\s+(?!foreach\b|using\b|for\b)(?=[\w$(])")
+
+
+def _drop_await_keyword(lines: Lines) -> list[Site]:
+    """Find `await` in TypeScript/JavaScript or C#; without it the promise or task is never awaited."""
+    sites: list[Site] = []
+    for index, (line, code) in enumerate(zip(lines, _code_only(lines))):
+        match = _AWAIT.search(code)
+        if not match or re.search(r"\bfor\s+await\b", code):
+            continue
+        callee = re.match(r"[\w$.]+", code[match.end() :])
+        chain = callee.group(0) if callee else ""
+        evidence = tuple(
+            dict.fromkeys(t for t in (chain, chain.rsplit(".", 1)[-1]) if _distinctive(t))
+        )
+        mutated = line[: match.start()] + line[match.end() :]
+        sites.append(Site(index, index + 1, (mutated,), (index + 1,) * 2, evidence))
+    return sites
+
+
+# The bounded C string functions and their unbounded forms, which drop the size argument.
+_UNBOUNDED = {
+    "strncpy": "strcpy",
+    "strncat": "strcat",
+    "snprintf": "sprintf",
+    "vsnprintf": "vsprintf",
+}
+
+
+def _call_arguments(code: str, open_at: int) -> tuple[list[tuple[int, int]], int] | None:
+    """Spans of a call's top-level arguments and its closing parenthesis, on one line."""
+    close = _closing(code, open_at)
+    if close is None:
+        return None
+    spans: list[tuple[int, int]] = []
+    depth, begin = 0, open_at + 1
+    for index in range(open_at + 1, close):
+        char = code[index]
+        depth += (char in "([{") - (char in ")]}")
+        if char == "," and depth == 0:
+            spans.append((begin, index))
+            begin = index + 1
+    return [*spans, (begin, close)], close
+
+
+def _unbounded_copies(lines: Lines) -> list[Site]:
+    """Find bounded string calls in C/C++; the unbounded form can overflow its buffer."""
+    sites: list[Site] = []
+    for index, (line, code) in enumerate(zip(lines, _code_only(lines))):
+        match = re.search(rf"\b({'|'.join(_UNBOUNDED)})\s*\(", code)
+        parsed = _call_arguments(code, match.end() - 1) if match else None
+        if match is None or parsed is None:
+            continue
+        spans, close = parsed
+        args = [line[a:b].strip() for a, b in spans]
+        size_at = 2 if match.group(1) in ("strncpy", "strncat") else 1
+        if len(args) <= size_at or (size_at == 2 and len(args) != 3):
+            continue
+        unbounded = _UNBOUNDED[match.group(1)]
+        kept = ", ".join(arg for position, arg in enumerate(args) if position != size_at)
+        mutated = f"{line[: match.start()]}{unbounded}({kept}){line[close + 1 :]}"
+        evidence = tuple(t for t in (unbounded, args[0]) if _distinctive(t) or t == unbounded)
+        sites.append(Site(index, index + 1, (mutated,), (index + 1,) * 2, evidence))
+    return sites
+
+
+def _widen_permissions(match: re.Match[str]) -> str:
+    """A POSIX permission string opened to everyone: rw------- becomes rw-rw-rw-."""
+    return f"{match.group(1)}{match.group(2) * 3}{match.group(3)}"
+
+
+# A mode given to a file-creating call or option: 0600, 0o700.
+_BRACE_MODE = (
+    r"((?:\bmode:\s*|\bmode\(|\bfrom_mode\(|\b(?:MkdirAll|Mkdir|WriteFile|OpenFile|mkdirSync"
+    r"|mkdir|chmodSync|chmod|fchmod|openSync|open|creat)\([^()]*,\s*)0o?)([1-7])00\b"
+)
+
+
 def _widen_mode(match: re.Match[str]) -> str:
     owner = match.group(2)
     return f"{match.group(1)}{owner * 3}"
@@ -257,84 +537,170 @@ def _widen_mode(match: re.Match[str]) -> str:
 _IMAGE = r"[\w.-]+(?::\d+)?(?:/[\w.-]+)*"
 _PINNED = r"(?::(?!latest\b)\w[\w.-]*|@sha256:[0-9a-f]{64})"
 
+_YAML = (".yaml", ".yml")
+_CONTAINERFILES = ("dockerfile", "containerfile")
+
 TEMPLATES: tuple[DefectTemplate, ...] = (
     DefectTemplate(
         "drop-bounds-check",
         "Removed a guard that rejects out-of-range values.",
         "HIGH",
-        (".py",),
-        _drop_guards(_orders_values),
+        (((".py",), _drop_guards(_orders_values)), *_brace_guard_finders(_orders_text)),
+    ),
+    DefectTemplate(
+        "drop-error-check",
+        "Removed a check that stops on an error or a missing value.",
+        "HIGH",
+        _brace_guard_finders(_checks_error_text),
     ),
     DefectTemplate(
         "drop-path-containment",
         "Removed a guard that keeps a path inside its base directory.",
         "HIGH",
-        (".py",),
-        _drop_guards(_checks_containment),
+        (((".py",), _drop_guards(_checks_containment)),),
     ),
     DefectTemplate(
         "drop-await",
-        "Removed an await, so the coroutine is created and never run.",
+        "Removed an await, so the coroutine, promise or task is never awaited.",
         "HIGH",
-        (".py",),
-        _drop_awaits,
+        (((".py",), _drop_awaits), (TS_JS + CSHARP, _drop_await_keyword)),
     ),
     DefectTemplate(
         "unpin-image-tag",
         "Replaced a pinned image tag or digest with latest.",
         "MEDIUM",
-        (".yaml", ".yml", "dockerfile", "containerfile"),
-        _substitute(
-            (rf"^(\s*-?\s*image:\s*[\"']?)({_IMAGE}){_PINNED}", r"\g<1>\g<2>:latest"),
-            (rf"^(FROM\s+(?:--platform=\S+\s+)?)({_IMAGE}){_PINNED}", r"\g<1>\g<2>:latest"),
+        (
+            (
+                _YAML + _CONTAINERFILES,
+                _substitute(
+                    (rf"^(\s*-?\s*image:\s*[\"']?)({_IMAGE}){_PINNED}", r"\g<1>\g<2>:latest"),
+                    (
+                        rf"^(FROM\s+(?:--platform=\S+\s+)?)({_IMAGE}){_PINNED}",
+                        r"\g<1>\g<2>:latest",
+                    ),
+                ),
+            ),
         ),
     ),
     DefectTemplate(
         "unpin-action-ref",
         "Replaced a pinned action ref with a moving branch.",
         "MEDIUM",
-        (".yaml", ".yml"),
-        _substitute(
-            (r"^(\s*-?\s*uses:\s*[\w.-]+/[\w./-]+@)(?!main\b|master\b)[\w.-]+", r"\g<1>main")
+        (
+            (
+                _YAML,
+                _substitute(
+                    (
+                        r"^(\s*-?\s*uses:\s*[\w.-]+/[\w./-]+@)(?!main\b|master\b)[\w.-]+",
+                        r"\g<1>main",
+                    )
+                ),
+            ),
         ),
     ),
     DefectTemplate(
         "disable-tls-verify",
         "Turned off TLS certificate verification.",
         "HIGH",
-        (".py", ".yaml", ".yml"),
-        _substitute(
+        (
             (
-                r"^(\s*(?:validate_certs|tls_verify|verify_ssl):\s*)(?:true|yes|True)\b",
-                r"\g<1>false",
+                (".py", *_YAML),
+                _substitute(
+                    (
+                        r"^(\s*(?:validate_certs|tls_verify|verify_ssl):\s*)(?:true|yes|True)\b",
+                        r"\g<1>false",
+                    ),
+                    (
+                        r"^(\s*(?:insecure_skip_tls_verify|insecureSkipVerify):\s*)false\b",
+                        r"\g<1>true",
+                    ),
+                    (r"\b((?:ssl_)?verify=)True\b", r"\g<1>False"),
+                ),
             ),
-            (r"^(\s*(?:insecure_skip_tls_verify|insecureSkipVerify):\s*)false\b", r"\g<1>true"),
-            (r"\b((?:ssl_)?verify=)True\b", r"\g<1>False"),
+            (
+                TS_JS,
+                _substitute(
+                    (r"\b(rejectUnauthorized\s*:\s*)true\b", r"\g<1>false"),
+                    (r"(\bnew\s+https\.Agent\(\s*\{)", r"\g<1> rejectUnauthorized: false,"),
+                ),
+            ),
+            (
+                GO,
+                _substitute(
+                    (r"\b(InsecureSkipVerify\s*:\s*)false\b", r"\g<1>true"),
+                    (
+                        r"(\btls\.Config\s*\{)(?!\s*InsecureSkipVerify)",
+                        r"\g<1>InsecureSkipVerify: true, ",
+                    ),
+                ),
+            ),
+            (
+                RUST,
+                _substitute(
+                    (r"\b(danger_accept_invalid_certs\s*\(\s*)false\b", r"\g<1>true"),
+                    (r"(\bClient::builder\(\))", r"\g<1>.danger_accept_invalid_certs(true)"),
+                ),
+            ),
+            (
+                CSHARP,
+                _substitute(
+                    (
+                        r"\bnew\s+HttpClientHandler\(\)(?!\s*\{)",
+                        "new HttpClientHandler { ServerCertificateCustomValidationCallback = "
+                        "HttpClientHandler.DangerousAcceptAnyServerCertificateValidator }",
+                    ),
+                ),
+            ),
         ),
     ),
     DefectTemplate(
         "log-secrets",
         "Let a task log its secrets by turning no_log off.",
         "HIGH",
-        (".yaml", ".yml"),
-        _substitute((r"^(\s*no_log:\s*)(?:true|yes|True)\b", r"\g<1>false")),
+        ((_YAML, _substitute((r"^(\s*no_log:\s*)(?:true|yes|True)\b", r"\g<1>false"))),),
     ),
     DefectTemplate(
         "widen-file-mode",
         "Made a private file or directory readable or writable by everyone.",
         "HIGH",
-        (".py", ".yaml", ".yml"),
-        _substitute((r"(mode:\s*[\"']?0?|mode=0o|chmod\([^,()]+,\s*0o)([1-7])00\b", _widen_mode)),
+        (
+            (
+                (".py", *_YAML),
+                _substitute(
+                    (r"(mode:\s*[\"']?0?|mode=0o|chmod\([^,()]+,\s*0o)([1-7])00\b", _widen_mode)
+                ),
+            ),
+            (TS_JS + GO + RUST + C_CPP, _substitute((_BRACE_MODE, _widen_mode))),
+            (
+                JAVA,
+                _substitute(
+                    (
+                        r"(PosixFilePermissions\.fromString\(\s*\")([r-][w-][x-])------(\")",
+                        _widen_permissions,
+                    )
+                ),
+            ),
+        ),
     ),
     DefectTemplate(
         "weaken-pod-security",
         "Weakened a container's security context.",
         "HIGH",
-        (".yaml", ".yml"),
-        _substitute(
-            (r"^(\s*(?:runAsNonRoot|readOnlyRootFilesystem):\s*)true\b", r"\g<1>false"),
-            (r"^(\s*(?:allowPrivilegeEscalation|privileged):\s*)false\b", r"\g<1>true"),
+        (
+            (
+                _YAML,
+                _substitute(
+                    (r"^(\s*(?:runAsNonRoot|readOnlyRootFilesystem):\s*)true\b", r"\g<1>false"),
+                    (r"^(\s*(?:allowPrivilegeEscalation|privileged):\s*)false\b", r"\g<1>true"),
+                ),
+            ),
         ),
+    ),
+    DefectTemplate(
+        "unbounded-string-copy",
+        "Replaced a bounded C string call with its unbounded form, which can overflow the buffer.",
+        "HIGH",
+        ((C_CPP, _unbounded_copies),),
     ),
 )
 
@@ -393,7 +759,9 @@ def _inject(
         lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
     except OSError, UnicodeDecodeError:
         return None
-    candidates = [(t, sites) for t in templates if t.applies_to(rel) and (sites := t.find(lines))]
+    candidates = [
+        (t, sites) for t in templates if (find := t.finder_for(rel)) and (sites := find(lines))
+    ]
     if not candidates:
         return None
     # Seeded per file, so adding a file does not change the injections in the others. The

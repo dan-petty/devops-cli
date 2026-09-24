@@ -47,9 +47,10 @@ def _inject(
     template: str, filename: str, text: str
 ) -> tuple[str, tuple[int, int], tuple[str, ...]]:
     (chosen,) = select_templates([template])
-    assert chosen.applies_to(filename)
+    find = chosen.finder_for(filename)
+    assert find is not None
     lines = text.splitlines(keepends=True)
-    site = chosen.find(lines)[0]
+    site = find(lines)[0]
     mutated = "".join([*lines[: site.start], *site.replacement, *lines[site.end :]])
     return mutated, site.region, site.evidence
 
@@ -193,7 +194,9 @@ def test_templates_skip_places_without_the_defect_to_inject(
     """Verify no site where removal breaks the code, or where the protection is already absent."""
     (chosen,) = select_templates([template])
 
-    assert chosen.find(text.splitlines(keepends=True)) == []
+    find = chosen.finder_for(filename)
+
+    assert find is not None and find(text.splitlines(keepends=True)) == []
 
 
 def test_unknown_templates_are_rejected_by_name() -> None:

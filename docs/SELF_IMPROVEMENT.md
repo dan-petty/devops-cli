@@ -238,17 +238,24 @@ A review of a real repository cannot say what it missed, and the verifier labels
 `devops review corpus generate <sources>` copies the files a review would read and injects one known
 defect into each, recording where. It never writes into the sources. The templates:
 
-| Template | Injection |
-| :--- | :--- |
-| `drop-bounds-check` | Removes an `if <ordering test>: raise` guard (Python). |
-| `drop-path-containment` | Removes an `if not ...is_relative_to(...): raise` style guard (Python). |
-| `drop-await` | Removes an `await`, leaving a coroutine that never runs (Python). |
-| `unpin-image-tag` | Replaces a pinned image tag or digest with `latest` (YAML, Dockerfile). |
-| `unpin-action-ref` | Replaces a pinned GitHub Action ref with `main`. |
-| `disable-tls-verify` | Turns off certificate verification (`validate_certs`, `verify=`). |
-| `log-secrets` | Turns Ansible `no_log` off. |
-| `widen-file-mode` | Widens a private file mode such as `0600` to `0666`. |
-| `weaken-pod-security` | Flips `runAsNonRoot`, `readOnlyRootFilesystem`, `allowPrivilegeEscalation` or `privileged`. |
+| Template | Injection | Languages |
+| :--- | :--- | :--- |
+| `drop-bounds-check` | Removes a guard on an ordering test that raises, throws or returns early. | Python, TS/JS, Go, Rust, Java, C#, C/C++ |
+| `drop-error-check` | Removes a guard that stops on an error or a missing value (`err != nil`, `== null`, `!ptr`, `is_none()`). | TS/JS, Go, Rust, Java, C#, C/C++ |
+| `drop-path-containment` | Removes an `if not ...is_relative_to(...): raise` style guard. | Python |
+| `drop-await` | Removes an `await`, leaving a coroutine, promise or task that is never awaited. | Python, TS/JS, C# |
+| `unpin-image-tag` | Replaces a pinned image tag or digest with `latest`. | YAML, Dockerfile |
+| `unpin-action-ref` | Replaces a pinned GitHub Action ref with `main`. | YAML |
+| `disable-tls-verify` | Turns off certificate verification: `validate_certs`, `verify=`, `rejectUnauthorized`, `InsecureSkipVerify`, `danger_accept_invalid_certs`, an accept-any certificate callback. | Python, YAML, TS/JS, Go, Rust, C# |
+| `log-secrets` | Turns Ansible `no_log` off. | YAML |
+| `widen-file-mode` | Widens a private file mode such as `0600` to `0666`, or `rw-------` to `rw-rw-rw-`. | Python, YAML, TS/JS, Go, Rust, Java, C/C++ |
+| `weaken-pod-security` | Flips `runAsNonRoot`, `readOnlyRootFilesystem`, `allowPrivilegeEscalation` or `privileged`. | YAML |
+| `unbounded-string-copy` | Replaces `strncpy`, `strncat`, `snprintf` or `vsnprintf` with the unbounded form. | C/C++ |
+
+A guard is removed only as a whole statement that fills its lines. Its body must only exit, no
+`else` may follow, and it may not be the body of a braceless `if` or loop, so the mutated file
+stays balanced and well formed. A Go error check is removed only when `err` is read again later,
+or the file would not compile.
 
 The mutated files sit under `files/`, and the manifest sits beside that directory rather than in it,
 so the reviewer cannot read the answers. After `devops review path <corpus>/files --all`, run
@@ -266,8 +273,8 @@ A finding matches an injection when it names the file and either:
 - names the injection's evidence: the changed value, the key it was set on, or the guard's
   identifiers.
 
-Review pages do not number their lines yet (#499), so reported line ranges drift on long files and
-most matches come from the evidence. Both kinds of match can be wrong, so the score lists each
+Review pages number their lines (#499), so a reported range can be matched to the region; the
+evidence covers reports whose lines are still off. Both kinds of match can be wrong, so the score lists each
 injection with the titles of the findings it matched. Every review also writes `candidates.json`:
 all findings with their verification status, including the invalidated ones that `findings.json`
 leaves out.
