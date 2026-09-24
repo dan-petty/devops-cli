@@ -6,6 +6,7 @@ import ast
 import json
 import re
 from collections.abc import Hashable, Iterable
+from pathlib import PurePosixPath
 from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -305,6 +306,43 @@ def unique_items[T: Hashable](items: Iterable[T]) -> list[T]:
             seen.add(item)
             result.append(item)
     return result
+
+
+# A bare file name: a name with an extension, which only the file under review may carry.
+_FILE_NAME = re.compile(r"\.[A-Za-z0-9]{1,8}$")
+# The name a bare location starts with, and a line range after a space when it has no colon:
+# `getBodySize:18-24`, `nvm_alias_path() { 1368-1374`.
+_BARE_NAME = re.compile(r"\s*([\w.$-]+)")
+_SPACED_LINES = re.compile(r"\s(\d+(?:-\d+)?)\s*$")
+
+
+def anchor_location(location: str, file_path: str, page_text: str = "") -> str:
+    """Tie a location that names no directory to the file under review, keeping its lines.
+
+    A model may name the file alone (`Dockerfile:7`) or a function in it (`getBodySize:18-24`).
+    The location becomes the reviewed file's path when it names that file, or a symbol the page
+    under review shows. Otherwise it is left as it is: it may name another file.
+    """
+    loc = location.strip()
+    if not loc:
+        return file_path
+    head, _, tail = loc.partition(":")
+    name_match = _BARE_NAME.match(head)
+    if "/" in head or "\\" in head or not name_match:
+        return loc
+    name = name_match.group(1)
+    if _FILE_NAME.search(name) or name.lower() == PurePosixPath(file_path).name.lower():
+        names_this_file = name.lower() == PurePosixPath(file_path).name.lower()
+    else:
+        names_this_file = bool(
+            page_text and re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", page_text)
+        )
+    if not names_this_file:
+        return loc
+    if tail.strip():
+        return f"{file_path}:{tail.strip()}"
+    lines = _SPACED_LINES.search(head)
+    return f"{file_path}:{lines.group(1)}" if lines else file_path
 
 
 def canonicalize_finding_location(location: str) -> str:

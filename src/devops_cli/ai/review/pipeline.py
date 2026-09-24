@@ -60,6 +60,7 @@ from devops_cli.ai.review_schema import (
     ReviewResult,
     ReviewSessionPayload,
     SavedFinding,
+    anchor_location,
     consolidate_duplicate_findings,
     format_clean_text_field,
     parse_review_response,
@@ -252,6 +253,31 @@ def _process_pipeline_step_findings(
         )
         if not saved.is_empty:
             file_findings.append(saved)
+
+
+def _anchor_page_findings(
+    file_findings: list[SavedFinding],
+    first_new: int,
+    fpath: str,
+    page_content: str,
+    payload: FileReviewPayload,
+) -> None:
+    """Tie the page's findings located by a bare file or symbol name to the file under review.
+
+    The payload's scratchpad lists the locations tied (`anchored_locations`, as the model wrote
+    them) and those naming neither this file nor a symbol on the page, which may name another
+    file and are kept (`unanchored_locations`).
+    """
+    anchored: list[str] = payload.ai_scratchpad.setdefault("anchored_locations", [])
+    unanchored: list[str] = payload.ai_scratchpad.setdefault("unanchored_locations", [])
+    for index in range(first_new, len(file_findings)):
+        finding = file_findings[index]
+        location = anchor_location(finding.location, fpath, page_content)
+        if location != finding.location:
+            anchored.append(finding.location)
+            file_findings[index] = finding.model_copy(update={"location": location})
+        elif (head := location.split(":", 1)[0]) != fpath and "/" not in head:
+            unanchored.append(location)
 
 
 def _try_reuse_cached_analysis_meta(
@@ -1773,7 +1799,8 @@ class ReviewPipelineOrchestrator:
                     contract_context_str,
                     context_type=resolved_context,
                 )
-                return _execute_page_review_steps(
+                first_new = len(file_findings)
+                steps = _execute_page_review_steps(
                     pipeline,
                     prompt,
                     fpath,
@@ -1784,6 +1811,8 @@ class ReviewPipelineOrchestrator:
                     actual_servers,
                     file_findings,
                 )
+                _anchor_page_findings(file_findings, first_new, fpath, page_content, payload)
+                return steps
 
             try:
                 total_step_count = sum(
