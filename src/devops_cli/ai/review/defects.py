@@ -22,7 +22,7 @@ import builtins
 import random
 import re
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -275,6 +275,8 @@ _BRACELESS_IF = TS_JS + JAVA + CSHARP + C_CPP
 _LITERALS = r'"(?:[^"\\\n]|\\.)*"|`(?:[^`\\\n]|\\.)*`|//.*|/\*.*?\*/'
 _CODE_NOISE = re.compile(rf"{_LITERALS}|'(?:[^'\\\n]|\\.)*'")
 _RUST_CODE_NOISE = re.compile(rf"{_LITERALS}|'(?:[^'\\\n]|\\[^'\n]{{1,8}})'")
+# HCL: double-quoted strings, and `#` comments besides `//` and `/* */`.
+_HCL_CODE_NOISE = re.compile(rf"{_LITERALS}|#.*")
 _GUARD_MAX_LINES = 8
 _EXIT_STATEMENT = re.compile(
     r"\s*(?:return\b|throw\b|panic!?\s*\(|bail!\s*\(|goto\b|abort\s*\(|std::abort\s*\(|"
@@ -299,9 +301,8 @@ _CONDITION_WORDS = frozenset(
 )
 
 
-def _code_only(lines: Lines, rust: bool = False) -> Lines:
+def _code_only(lines: Lines, noise: re.Pattern[str] = _CODE_NOISE) -> Lines:
     """Lines with literals and comments blanked to spaces, so every column still lines up."""
-    noise = _RUST_CODE_NOISE if rust else _CODE_NOISE
     return [noise.sub(lambda m: " " * len(m.group(0)), line) for line in lines]
 
 
@@ -412,7 +413,7 @@ def _drop_brace_guards(test_matches: Callable[[str], bool], suffixes: tuple[str,
     braces_required = suffixes in (GO, RUST)
 
     def find(lines: Lines) -> list[Site]:
-        code = _code_only(lines, rust=suffixes == RUST)
+        code = _code_only(lines, _RUST_CODE_NOISE if suffixes == RUST else _CODE_NOISE)
         sites: list[Site] = []
         for start, line in enumerate(code):
             if not re.match(r"\s*if\b", line) or (
@@ -537,6 +538,315 @@ def _widen_mode(match: re.Match[str]) -> str:
 _IMAGE = r"[\w.-]+(?::\d+)?(?:/[\w.-]+)*"
 _PINNED = r"(?::(?!latest\b)\w[\w.-]*|@sha256:[0-9a-f]{64})"
 
+# ── Infrastructure code and documentation ─────────────────────────────────────────────────
+
+TERRAFORM = (".tf",)
+SHELL = (".sh", ".bash", ".envsh")
+MARKDOWN = (".md", ".markdown", ".rst")
+_OPEN_CIDR = '"0.0.0.0/0"'
+
+
+def _combine(*finders: Finder) -> Finder:
+    """Every site any of the finders finds, one per line."""
+
+    def find(lines: Lines) -> list[Site]:
+        sites: dict[int, Site] = {}
+        for finder in finders:
+            for site in finder(lines):
+                sites.setdefault(site.start, site)
+        return [sites[start] for start in sorted(sites)]
+
+    return find
+
+
+def _with_evidence(finder: Finder, evidence: tuple[str, ...]) -> Finder:
+    """A finder whose sites are named by fixed evidence, for changes without telling tokens."""
+
+    def find(lines: Lines) -> list[Site]:
+        return [replace(site, evidence=evidence) for site in finder(lines)]
+
+    return find
+
+
+def _hcl_blocks(lines: Lines) -> list[tuple[int, int, str]]:
+    """(start, end, header) of every HCL block: its opening and closing lines and header text."""
+    blocks: list[tuple[int, int, str]] = []
+    stack: list[tuple[int, str]] = []
+    for index, line in enumerate(_code_only(lines, _HCL_CODE_NOISE)):
+        for column, char in enumerate(line):
+            if char == "{":
+                # The header comes from the source line: its quoted labels are blanked here.
+                stack.append((index, lines[index][:column].strip()))
+            elif char == "}" and stack:
+                start, header = stack.pop()
+                blocks.append((start, index, header))
+    return sorted(blocks)
+
+
+def _tf_variable_defaults(names: re.Pattern[str], secure: str) -> Finder:
+    """Flip the boolean default of variables whose names match, when it is the secure value."""
+    insecure = "false" if secure == "true" else "true"
+    default = re.compile(rf"^(\s*default\s*=\s*){secure}\b")
+
+    def find(lines: Lines) -> list[Site]:
+        sites: list[Site] = []
+        for start, end, header in _hcl_blocks(lines):
+            variable = re.match(r'variable\s+"(\w+)"', header)
+            if not variable or not names.search(variable.group(1)):
+                continue
+            for index in range(start + 1, end):
+                mutated = default.sub(rf"\g<1>{insecure}", lines[index], count=1)
+                if mutated != lines[index]:
+                    region = (index + 1, index + 1)
+                    sites.append(Site(index, index + 1, (mutated,), region, (variable.group(1),)))
+        return sites
+
+    return find
+
+
+_INGRESS_RESOURCE = re.compile(
+    r'resource\s+"aws_(?:security_group_rule|network_acl_rule|vpc_security_group_ingress_rule)"'
+)
+_INGRESS_MARKER = re.compile(r'^\s*(?:type\s*=\s*"ingress"|egress\s*=\s*false)\b')
+_CIDR_ATTRIBUTE = re.compile(r"^(\s*(cidr_blocks|cidr_block|cidr_ipv4)\s*=\s*)(.+?)\s*$")
+
+
+def _is_ingress(lines: Lines, start: int, end: int, header: str) -> bool:
+    """An `ingress` block, or a rule resource that admits traffic in."""
+    if re.fullmatch(r'ingress|dynamic\s+"ingress"', header):
+        return True
+    if not _INGRESS_RESOURCE.match(header):
+        return False
+    return "ingress_rule" in header or any(
+        _INGRESS_MARKER.match(line) for line in lines[start + 1 : end]
+    )
+
+
+def _open_ingress(lines: Lines) -> list[Site]:
+    """Find the source ranges of ingress rules; the defect admits the whole internet."""
+    sites: list[Site] = []
+    code = _code_only(lines, _HCL_CODE_NOISE)
+    for start, end, header in _hcl_blocks(lines):
+        if not _is_ingress(lines, start, end, header):
+            continue
+        for index in range(start + 1, end):
+            match = _CIDR_ATTRIBUTE.match(lines[index].rstrip("\n"))
+            value = code[index][len(match.group(1)) :].strip() if match else ""
+            if not match or "0.0.0.0/0" in match.group(3) or value.count("[") != value.count("]"):
+                continue
+            opened = f"[{_OPEN_CIDR}]" if match.group(2) == "cidr_blocks" else _OPEN_CIDR
+            mutated = f"{match.group(1)}{opened}\n"
+            sites.append(Site(index, index + 1, (mutated,), (index + 1,) * 2, ("0.0.0.0/0",)))
+    return sites
+
+
+# A checksum or signature check that is its own command: `sha256sum -c`, `gpg --verify`.
+_VERIFICATION = re.compile(
+    r"^\s*(?:&&\s*|;\s*)?(?:echo\s[^|]*\|\s*)?(?:(?:sha(?:1|224|256|384|512)|md5)sum|shasum)\b"
+    r".*(?:\s-c\b|--check)|^\s*(?:&&\s*)?gpg\b.*--verify\b"
+)
+_CONTINUED = ("\\", "&&", "||", "|")
+
+
+def _verification_tool(line: str) -> re.Match[str] | None:
+    """The checksum or signature tool a line runs as a check of its own, or None.
+
+    A check whose result drives an `||`, `&&`, `if` or a block is control flow, not a statement
+    that can go alone.
+    """
+    if not _VERIFICATION.match(line) or re.match(r"\s*(?:&&\s*)?if\b", line):
+        return None
+    tool = re.search(r"\b(sha\d+sum|md5sum|shasum|gpg)\b", line)
+    rest = line[tool.end() :] if tool else ""
+    return None if re.search(r"\|\||&&|[{(]\s*\\?\s*$|\bthen\b|\bdo\b", rest) else tool
+
+
+def _drop_verification(inside_continuation: bool) -> Finder:
+    """Find a download's checksum or signature check; without it, anything downloaded runs.
+
+    In a Dockerfile the check must be a middle segment of a continued `RUN`, so the lines around
+    it still join; in a shell script it must be a statement of its own.
+    """
+
+    def find(lines: Lines) -> list[Site]:
+        sites: list[Site] = []
+        for index, line in enumerate(lines):
+            tool = _verification_tool(line)
+            if tool is None:
+                continue
+            previous = lines[index - 1].rstrip() if index else ""
+            joined = line.rstrip().endswith("\\") and previous.endswith("\\")
+            alone = not line.rstrip().endswith(_CONTINUED) and not previous.endswith(_CONTINUED)
+            if joined if inside_continuation else alone:
+                evidence = ("checksum", tool.group(1))
+                sites.append(Site(index, index + 1, (), (index + 1,) * 2, evidence))
+        return sites
+
+    return find
+
+
+# set -e, set -eu, set -euo pipefail, set -e -o pipefail, set -o errexit.
+_STRICT_MODE = re.compile(
+    r"^\s*set\s+(?:-[a-zA-Z]*e[a-zA-Z]*(?:\s+pipefail)?|-o\s+errexit)(?:\s+-o\s+\w+)*\s*$"
+)
+
+
+def _drop_strict_mode(lines: Lines) -> list[Site]:
+    """Find `set -e` style lines; without them a failed command no longer stops the script."""
+    sites: list[Site] = []
+    for index, line in enumerate(lines):
+        if _STRICT_MODE.match(line):
+            evidence = (line.strip(), "set -e", "errexit") + (
+                ("pipefail",) if "pipefail" in line else ()
+            )
+            sites.append(Site(index, index + 1, (), (index + 1,) * 2, evidence))
+    return sites
+
+
+# A double-quoted string holding nothing but one expansion: "$name", "${name}", "$@".
+_QUOTED_EXPANSION = re.compile(r'(?<![\w\'"\\=])"(\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*)|[@*]))"')
+# Lines where quoting does not stop word splitting, or does not matter.
+_NO_SPLITTING = re.compile(
+    r"^\s*(?:#|(?:local|export|readonly|declare)\b|[A-Za-z_]\w*=|case\b)|\[\["
+)
+
+
+def _unquote_expansions(lines: Lines) -> list[Site]:
+    """Find quoted expansions in commands; unquoted, a value with spaces or globs splits."""
+    sites: list[Site] = []
+    for index, line in enumerate(lines):
+        match = _QUOTED_EXPANSION.search(line)
+        if not match or _NO_SPLITTING.search(line) or "#" in line[: match.start()]:
+            continue
+        mutated = line[: match.start()] + match.group(1) + line[match.end() :]
+        name = match.group(2) or match.group(3) or ""
+        evidence = (match.group(1),) + ((name,) if _distinctive(name) else ())
+        sites.append(Site(index, index + 1, (mutated,), (index + 1,) * 2, evidence))
+    return sites
+
+
+def _pipe_downloaded_script(match: re.Match[str]) -> str:
+    """`curl -fsSL URL -o install.sh` becomes `curl -fsSL URL | sh`: the script runs unread."""
+    command = f"{match.group(1)}{match.group(2)}".rstrip()
+    if re.search(r"\bwget\b", match.group(1)):
+        command = re.sub(r"\bwget\b", "wget -qO-", command, count=1)
+    return f"{command} | sh"
+
+
+# A download saved to a script file, the whole command on one line: curl ... -o x.sh URL.
+_SCRIPT_DOWNLOAD = (
+    r"^(\s*(?:RUN\s+)?(?:curl|wget)\b[^|;&#\n\\]*?)\s+(?:-o|-O|--output)\s+\S+\.(?:sh|bash)\b"
+    r"([^|;&#\n\\]*)$"
+)
+
+
+def _yaml_pod_specs(lines: Lines) -> list[int]:
+    """Lines of `containers:` keys in files that never set hostNetwork."""
+    if any(re.match(r"\s*hostNetwork:", line) for line in lines):
+        return []
+    return [index for index, line in enumerate(lines) if re.fullmatch(r"\s*containers:\s*", line)]
+
+
+def _enable_host_network(lines: Lines) -> list[Site]:
+    """Put a pod on the node's network namespace, beside its containers."""
+    sites: list[Site] = []
+    for index in _yaml_pod_specs(lines):
+        indent = lines[index][: len(lines[index]) - len(lines[index].lstrip())]
+        replacement = (f"{indent}hostNetwork: true\n", lines[index])
+        sites.append(Site(index, index + 1, replacement, (index + 1,) * 2, ("hostNetwork",)))
+    return sites
+
+
+def _yaml_block_end(lines: Lines, index: int) -> int:
+    """The line after the key at `index` and every more-indented line under it."""
+    indent = len(lines[index]) - len(lines[index].lstrip())
+    end = index + 1
+    while end < len(lines) and (
+        not lines[end].strip() or len(lines[end]) - len(lines[end].lstrip()) > indent
+    ):
+        end += 1
+    while end > index + 1 and not lines[end - 1].strip():
+        end -= 1
+    return end
+
+
+def _drop_resource_limits(lines: Lines) -> list[Site]:
+    """Find a container's resource limits; without them it can starve the node."""
+    sites: list[Site] = []
+    for index, line in enumerate(lines):
+        if not re.match(r"\s*limits:", line):
+            continue
+        indent = len(line) - len(line.lstrip())
+        parent = next(
+            (
+                above
+                for above in reversed(lines[:index])
+                if above.strip() and len(above) - len(above.lstrip()) < indent
+            ),
+            "",
+        )
+        if re.fullmatch(r"\s*resources:\s*", parent):
+            end = _yaml_block_end(lines, index)
+            sites.append(Site(index, end, (), (index, index + 1), ("limits", "resource limits")))
+    return sites
+
+
+# Markdown fences, and the code shortcodes of Hugo sites: {{< highlight bash >}}, codeFromInline.
+_FENCE = re.compile(r"^\s*(?:```|~~~|\{\{[<%]\s*/?\s*(?:highlight|codeFromInline)\b)")
+
+
+def _in_code_blocks(finder: Finder) -> Finder:
+    """Run a finder on a document's fenced code blocks only; prose is left alone."""
+
+    def find(lines: Lines) -> list[Site]:
+        inside, code = False, []
+        for line in lines:
+            fence = bool(_FENCE.match(line))
+            code.append(line if inside and not fence else "\n")
+            inside ^= fence
+        return finder(code)
+
+    return find
+
+
+# A documented default: "default: true", "defaults to 30", "(default 4096".
+_DOCUMENTED_DEFAULT = re.compile(
+    r"(\b[Dd]efaults?(?:\s+(?:to|is))?:?\s+`?)(true|false|enabled|disabled|\d+)(?=[`\s.,;:)]|$)"
+)
+_OPPOSITES = {"true": "false", "false": "true", "enabled": "disabled", "disabled": "enabled"}
+
+
+def _contradict_defaults(lines: Lines) -> list[Site]:
+    """Find documented defaults and change them, so the page contradicts the code it describes."""
+    sites: list[Site] = []
+    for index, line in enumerate(lines):
+        match = _DOCUMENTED_DEFAULT.search(line)
+        if not match:
+            continue
+        value = match.group(2)
+        changed = _OPPOSITES.get(value) or str(int(value) * 2 or 1)
+        mutated = f"{line[: match.start(2)]}{changed}{line[match.end(2) :]}"
+        evidence = ("default", changed) if changed.isdigit() else ("default",)
+        sites.append(Site(index, index + 1, (mutated,), (index + 1,) * 2, evidence))
+    return sites
+
+
+_CHMOD = r"(\bchmod\s+(?:-R\s+)?0?)([1-7])00\b"
+# curl or wget fetching an https URL: a command of its own, chained, or in a RUN.
+_TLS_CURL = (
+    r"((?:^\s*|[;&|(]\s*|\bRUN\s+|\bcommand\s+)curl)\s+(?=[^\n]*https://)"
+    r"(?!(?:[^\n]*\s)?-[a-zA-Z]*k[a-zA-Z]*\b)(?![^\n]*--insecure)"
+)
+_TLS_WGET = (
+    r"((?:^\s*|[;&|(]\s*|\bRUN\s+|\bcommand\s+)wget)\s+(?=[^\n]*https://)"
+    r"(?![^\n]*--no-check-certificate)"
+)
+_INSECURE_DOWNLOADS = _with_evidence(
+    _substitute((_TLS_CURL, r"\g<1> --insecure "), (_TLS_WGET, r"\g<1> --no-check-certificate ")),
+    ("insecure", "no-check-certificate"),
+)
+
+
 _YAML = (".yaml", ".yml")
 _CONTAINERFILES = ("dockerfile", "containerfile")
 
@@ -651,6 +961,8 @@ TEMPLATES: tuple[DefectTemplate, ...] = (
                     ),
                 ),
             ),
+            (SHELL + _CONTAINERFILES, _INSECURE_DOWNLOADS),
+            (MARKDOWN, _in_code_blocks(_INSECURE_DOWNLOADS)),
         ),
     ),
     DefectTemplate(
@@ -671,6 +983,8 @@ TEMPLATES: tuple[DefectTemplate, ...] = (
                 ),
             ),
             (TS_JS + GO + RUST + C_CPP, _substitute((_BRACE_MODE, _widen_mode))),
+            (SHELL + _CONTAINERFILES, _substitute((_CHMOD, _widen_mode))),
+            (MARKDOWN, _in_code_blocks(_substitute((_CHMOD, _widen_mode)))),
             (
                 JAVA,
                 _substitute(
@@ -695,6 +1009,156 @@ TEMPLATES: tuple[DefectTemplate, ...] = (
                 ),
             ),
         ),
+    ),
+    DefectTemplate(
+        "expose-public-access",
+        "Made a resource reachable from the internet: public IPs, public ACLs, or public access blocks off.",
+        "HIGH",
+        (
+            (
+                TERRAFORM,
+                _combine(
+                    _substitute(
+                        (
+                            r"^(\s*(?:publicly_accessible|map_public_ip_on_launch"
+                            r"|associate_public_ip_address)\s*=\s*)false\b",
+                            r"\g<1>true",
+                        ),
+                        (
+                            r"^(\s*(?:block_public_acls|block_public_policy|ignore_public_acls"
+                            r"|restrict_public_buckets)\s*=\s*)true\b",
+                            r"\g<1>false",
+                        ),
+                        (r'^(\s*acl\s*=\s*")private(")', r"\g<1>public-read\g<2>"),
+                    ),
+                    _tf_variable_defaults(
+                        re.compile(r"map_public_ip|publicly_accessible|associate_public_ip"),
+                        "false",
+                    ),
+                    _tf_variable_defaults(
+                        re.compile(r"block_public|ignore_public|restrict_public"), "true"
+                    ),
+                ),
+            ),
+        ),
+    ),
+    DefectTemplate(
+        "disable-encryption",
+        "Turned off encryption at rest.",
+        "HIGH",
+        (
+            (
+                TERRAFORM,
+                _combine(
+                    _substitute(
+                        (
+                            r"^(\s*(?:encrypted|storage_encrypted|kms_encrypted|enable_key_rotation"
+                            r"|server_side_encryption_enabled|encryption_at_rest_enabled)"
+                            r"\s*=\s*)true\b",
+                            r"\g<1>false",
+                        )
+                    ),
+                    _tf_variable_defaults(re.compile(r"encrypt"), "true"),
+                ),
+            ),
+        ),
+    ),
+    DefectTemplate(
+        "open-ingress",
+        "Opened an ingress rule to the whole internet (0.0.0.0/0).",
+        "HIGH",
+        ((TERRAFORM, _open_ingress),),
+    ),
+    DefectTemplate(
+        "run-as-root",
+        "Made the container run as root.",
+        "HIGH",
+        ((_CONTAINERFILES, _substitute((r"^(USER\s+)(?!root\b|0\b)\S+", r"\g<1>root"))),),
+    ),
+    DefectTemplate(
+        "unverified-download",
+        "Removed the checksum or signature check of something downloaded.",
+        "HIGH",
+        (
+            (
+                _CONTAINERFILES,
+                _combine(
+                    _with_evidence(
+                        _substitute((r"^(ADD\s+(?:--\S+\s+)*?)--checksum=\S+\s+", r"\g<1>")),
+                        ("checksum",),
+                    ),
+                    _drop_verification(inside_continuation=True),
+                ),
+            ),
+            (SHELL, _drop_verification(inside_continuation=False)),
+        ),
+    ),
+    DefectTemplate(
+        "pipe-to-shell",
+        "Piped a downloaded script straight into a shell.",
+        "HIGH",
+        (
+            (
+                SHELL + _CONTAINERFILES,
+                _with_evidence(
+                    _substitute((_SCRIPT_DOWNLOAD, _pipe_downloaded_script)),
+                    ("| sh", "piping", "piped"),
+                ),
+            ),
+            (
+                MARKDOWN,
+                _in_code_blocks(
+                    _with_evidence(
+                        _substitute((_SCRIPT_DOWNLOAD, _pipe_downloaded_script)),
+                        ("| sh", "piping", "piped"),
+                    )
+                ),
+            ),
+        ),
+    ),
+    DefectTemplate(
+        "drop-strict-mode",
+        "Removed `set -e`, so a failing command no longer stops the script.",
+        "MEDIUM",
+        ((SHELL, _drop_strict_mode),),
+    ),
+    DefectTemplate(
+        "unquote-expansion",
+        "Unquoted a variable expansion, so a value with spaces or globs splits.",
+        "MEDIUM",
+        ((SHELL, _unquote_expansions),),
+    ),
+    DefectTemplate(
+        "enable-host-network",
+        "Put a pod on its node's network (hostNetwork: true).",
+        "HIGH",
+        ((_YAML, _enable_host_network),),
+    ),
+    DefectTemplate(
+        "mount-host-path",
+        "Replaced a scratch volume with the node's root filesystem (hostPath).",
+        "HIGH",
+        (
+            (
+                _YAML,
+                _with_evidence(
+                    _substitute((r"^(\s*)emptyDir:\s*\{\}[ \t]*$", r"\g<1>hostPath: {path: /}")),
+                    ("hostPath",),
+                ),
+            ),
+        ),
+    ),
+    DefectTemplate(
+        "drop-resource-limits",
+        "Removed a container's resource limits.",
+        "MEDIUM",
+        ((_YAML, _drop_resource_limits),),
+    ),
+    DefectTemplate(
+        "contradict-documented-default",
+        "Changed a documented default so the page contradicts the code.",
+        "MEDIUM",
+        ((MARKDOWN, _contradict_defaults),),
     ),
     DefectTemplate(
         "unbounded-string-copy",
