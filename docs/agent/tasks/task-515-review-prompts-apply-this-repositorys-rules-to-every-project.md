@@ -85,15 +85,68 @@ it on a mitigation it asserts, and records that reasoning as invalidation eviden
 
 Part 2 separates refutation from mitigation.
 
-### Parts 2 and 3 (Backlog)
+### Part 2: Mitigation and Persona Prompts (Done)
 
-- [ ] Verifier: a confirmed defect with an asserted mitigation is not a refutation. Mitigation must
-  cite the line that provides it, and a mitigated finding is reported with the mitigation stated
-  rather than dropped.
-- [ ] Persona and shared review prompts: PEP 758 as universal, the unnamed "this repository"
-  section, house rules (split timeouts, symlink-safe walks, RFC 1918 in docs, `http://` in
-  config), and roadmap mandates emitted as findings. Absence bans that assume linked context the
-  generation prompt never receives.
+- [x] **Refuted or mitigated**:
+  - The verifier prompt now defines refutation as the shown code contradicting the claim, with
+    the line cited. A mitigation must name its mechanism and cite the line providing it.
+  - A verdict whose own reasoning confirms the defect is at most mitigated.
+  - A mitigated finding stays in the report, with its mitigation shown in the console panel and
+    in `review.md`. It does not drive the recommendation.
+  - A mitigation verdict without a reason leaves the finding unverified.
+- [x] **Persona and shared prompts hold only general rules**. Moved to this repository's
+  `.devops/review.md`:
+  - house rules: symlink-skipping walks, split HTTP timeouts, quota and `RLock` rules, sandbox
+    network defaults, tool-wrapper masking, RFC 1918 addresses in docs, pre-1.0 legacy hygiene;
+  - the "When the target is this repository" section;
+  - the internal-connector, console-output and CLI-memory exemptions in the devsecops persona.
+- [x] **Rules removed from the prompts**:
+  - The instruction to drop findings matching the hallucinations catalog; the model never sees
+    the catalog.
+  - "Drop the already-mitigated": personas now report a limited defect with its mitigation and
+    a lower severity.
+  - Roadmap mandates in the shared, path, diff, architect and PM prompts: improvements go in
+    `summary`, never in `findings`.
+- [x] **Absence rules match the context given**: "omit a missing-check finding unless linked
+  context confirms it" applied to context the generation prompt never receives. Personas now
+  report it with the unchecked assumption and a lower confidence, and verification settles it.
+- [x] **Missing tests**: QA reports a missing regression test only when reviewing a change, not
+  for files whose tests it was not shown.
+- [x] **Automated Tests & Quality Gates**:
+  - `tests/test_review_project_conventions.py`:
+    - no shared review or persona prompt carries a project rule (roadmap, homelab, `RLock`,
+      Valkey, catalog);
+    - this repository's conventions hold them;
+    - a mitigated finding is reported with its mitigation.
+  - `tests/test_personas.py` and `tests/test_review_verification.py`: rule coverage is split
+    between the shared prompt, `.devops/review.md`, and rules removed on purpose.
+  - 100% passing status across Gated CI validation suite (`uv run devops ci`).
+
+#### Part 2 on a Live Cluster
+
+The #415 corpus, against part 1's run on the same release:
+
+| | Part 1 | Part 2 |
+| :--- | ---: | ---: |
+| Injections still reported | 6 | 6 |
+| Candidates invalidated by the verifier | 39 | 16 |
+| Reported as mitigated, reason shown | 0 | 16 |
+| Reported as verified | few | 24 |
+
+- The verifier now reports what it had dropped as refuted. Some of the mitigations it states are
+  wrong, and they are wrong in plain view:
+  - `load_policy` "includes a depth check using the `_depth` parameter", the check the corpus
+    removed;
+  - `resolve_safe_subpath` "includes a check to ensure the resolved target path is within the
+    root dir", also removed.
+
+  Before, both findings were silently invalidated.
+- Several SSRF mitigations misread `allow_private_network=True`, which enables private access
+  rather than limiting it.
+- The verifier model's reasoning is #475's to measure.
+
+### Part 3 (Backlog)
+
 - [ ] Scope:
   - lockfiles excluded from review and never passed to Trivy;
   - `requirements.txt`, `CMakeLists.txt` and HTML templates classified as documentation;

@@ -1213,7 +1213,12 @@ def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, 
     if refuted:
         return "INVALIDATED", False
     if _verdict_bool(item.get("mitigated")) or status == "MITIGATED":
-        return "MITIGATED", False
+        # A mitigation is a claim about the code too: without a reason naming the mechanism it
+        # proves nothing. With one, the finding stays in the report beside it, and the reader
+        # judges whether it holds; mitigated findings do not drive the recommendation.
+        if not str(item.get("reason") or "").strip():
+            return "UNVERIFIED", True
+        return "MITIGATED", True
     if confirmed:
         return "VERIFIED", _verdict_bool(item.get("reportable")) is not False
     return "UNVERIFIED", True
@@ -1230,7 +1235,6 @@ def _apply_single_finding_verification(
     inv_matched = _verdict_list(item.get("invalidated_criteria_matched"))
     status_val, is_rep = _verdict_status(item, inv_matched)
     is_v = status_val == "VERIFIED"
-    is_m = status_val in {"INVALIDATED", "MITIGATED"}
     # A model's invalidation does not teach the hallucinations catalog: it is the judgement
     # under test, and a real defect it wrongly dismissed would be learned as a false alarm.
 
@@ -1250,7 +1254,7 @@ def _apply_single_finding_verification(
 
     updates: dict[str, object] = {
         "verified": is_v,
-        "mitigated": is_m,
+        "mitigated": status_val == "MITIGATED",
         "status": status_val,
         "reportable": is_rep,
         "confidence_score": conf,
@@ -1259,6 +1263,9 @@ def _apply_single_finding_verification(
         "verified_by": "llm",
         "verified_at": now_iso,
     }
+    reason = str(item.get("reason") or "").strip()
+    if status_val in {"MITIGATED", "INVALIDATED"} and reason:
+        updates["invalidation_reason"] = reason
     new_sev = str(item.get("severity", "")).upper().strip()
     if new_sev and new_sev in _SEVERITY_RANK:
         updates["severity"] = new_sev

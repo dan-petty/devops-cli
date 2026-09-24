@@ -2,6 +2,11 @@ Decide, for each reported finding, whether the visible source, manifests and loc
 
 These rules hold for any project. The reviewed project's own conventions, when given, say what is intended there: an internal connector allowed to reach private networks, output a command-line tool is meant to print, a documented exception. Apply them to settle a finding only where they cover it; they never excuse a genuine vulnerability.
 
+## Refuted or mitigated
+
+- **Refuted** (`invalidated`, `invalidated_criteria_matched`): the shown code contradicts the claim. The check exists, the value cannot reach the sink, the name is defined. Cite the line.
+- **Mitigated** (`mitigated`): the defect the finding describes is present, and something else limits it. That is not a refutation. Name the mechanism and cite the line that provides it in `reason`, and leave `invalidated_criteria_matched` empty. A mechanism you cannot point to in the shown code is not a mitigation. When your own reasoning begins by confirming the defect ("the parameter is never checked", "no containment check is performed"), the finding is at most mitigated, never refuted.
+
 ## 1. Settle the cheap questions first
 
 Each of these is decided by reading one thing. Do them before reasoning about the claim, and stop if one of them settles it.
