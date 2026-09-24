@@ -7,6 +7,7 @@ import pytest
 from devops_cli.ai.review.common_hallucinations import (
     CommonHallucinationEntry,
     HallucinationCategory,
+    _build_builtin_hallucinations,
     auto_record_invalidated_finding,
     calculate_hallucination_similarity,
     find_similar_hallucinations,
@@ -146,8 +147,12 @@ def test_register_common_hallucination_updates_existing(tmp_path: Path) -> None:
     assert "extra" in loaded[0].pattern_keywords
 
 
-def test_auto_record_invalidated_finding_updates_existing(tmp_path: Path) -> None:
-    """Auto-recording an invalidated finding that matches an existing pattern increments count."""
+def test_a_finding_matching_a_builtin_entry_leaves_it_unchanged(tmp_path: Path) -> None:
+    """A builtin entry is never widened or persisted by learning (#514).
+
+    Learning used to add the finding's words to the builtin entry and persist the copy, which
+    then shadowed the shipped entry and matched ever more real findings.
+    """
     data_file = tmp_path / "hallucinations.json"
 
     finding = Finding(
@@ -158,17 +163,15 @@ def test_auto_record_invalidated_finding_updates_existing(tmp_path: Path) -> Non
         status="INVALIDATED",
         invalidation_reason="Valid Python 3.14 PEP 758 syntax",
     )
+    builtin = next(
+        e for e in _build_builtin_hallucinations() if e.id == "HALLUCINATION-PEP758-EXCEPT"
+    )
 
     recorded = auto_record_invalidated_finding(
         finding, target_file=data_file, reason="Valid Python 3.14 PEP 758 syntax"
     )
-    assert recorded is not None
-    assert recorded.id == "HALLUCINATION-PEP758-EXCEPT"
-    assert recorded.occurrence_count >= 2
 
-    # Verify persisted in file
-    loaded = load_common_hallucinations(target_file=data_file, include_builtin=False)
-    assert any(e.id == "HALLUCINATION-PEP758-EXCEPT" for e in loaded)
+    assert (recorded, data_file.exists()) == (builtin, False)
 
 
 def test_auto_record_invalidated_finding_creates_new_entry(tmp_path: Path) -> None:

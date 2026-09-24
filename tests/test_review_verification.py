@@ -667,7 +667,8 @@ def test_check_missing_symbol_hallucination_with_cross_module_ast() -> None:
     match = is_common_hallucination(finding, threshold=0.7, file_path=init_path)
     assert match is not None
     assert match.hallucination.id == "HALLUCINATION-MISSING-SYMBOL-FALSE-ALARM"
-    assert verify_ground_truth_hallucination(finding, match.hallucination, init_path)
+    # Header and symbol claims are decided by their deterministic checks below (#514).
+    assert not verify_ground_truth_hallucination(finding, match.hallucination, init_path)
 
     symbol_res = _check_missing_symbol_hallucination(finding, init_path)
     assert symbol_res is not None
@@ -707,7 +708,8 @@ def test_check_missing_header_hallucination_requires_assignment_and_dispatch() -
     match = is_common_hallucination(finding, threshold=0.6, file_path=openai_path)
     assert match is not None
     assert match.hallucination.id == "HALLUCINATION-UNVERIFIED-HEADER-MISSING"
-    assert verify_ground_truth_hallucination(finding, match.hallucination, openai_path)
+    # Header and symbol claims are decided by their deterministic checks below (#514).
+    assert not verify_ground_truth_hallucination(finding, match.hallucination, openai_path)
 
     header_res = _check_missing_header_hallucination(finding, openai_path)
     assert header_res is not None

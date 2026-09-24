@@ -854,6 +854,16 @@ class ReviewCommandHelp:
     corpus_template: str = "Defect template to inject (repeatable; default: all)."
     corpus_dir: str = "Corpus directory created by `devops review corpus generate`."
     corpus_session: str = "Review session to score (default: the latest review of the corpus)."
+    hallucinations: str = (
+        "Inspect and prune the hallucinations catalog that deterministic verification learns from."
+    )
+    hallucinations_list: str = "List catalog entries: builtin ones shipped with the tool, and learned ones from this workspace."
+    hallucinations_remove: str = (
+        "Remove learned catalog entries; builtin entries cannot be removed."
+    )
+    hallucination_ids: str = "Ids of learned entries to remove."
+    hallucinations_learned_only: str = "Show learned entries only."
+    hallucinations_all_learned: str = "Remove every learned entry."
     export_feedback: str = "Export review findings to structured feedback files."
     patch_cmd: str = "Inspect or apply suggested remediation patches from review findings."
     target_path: str = "File(s) or directory(ies) to review."
