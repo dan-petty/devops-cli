@@ -188,7 +188,10 @@ def test_deterministic_pre_verification_syntax_hallucination(tmp_path: Path) -> 
 
 
 def test_deterministic_pre_verification_line_boundary_out_of_bounds(tmp_path: Path) -> None:
-    """_deterministic_pre_verification invalidates findings referencing lines beyond file length."""
+    """A line past the end of the file is dropped from the location; the finding is kept.
+
+    Pages carry no line numbers (#499), so the line is the model's own count (#513).
+    """
     from devops_cli.ai.review.verification import _deterministic_pre_verification
     from devops_cli.ai.review_schema import Finding
 
@@ -203,9 +206,7 @@ def test_deterministic_pre_verification_line_boundary_out_of_bounds(tmp_path: Pa
         fix="Fix line 250",
     )
     result = _deterministic_pre_verification(finding, repo_root=tmp_path)
-    assert result.verified is False
-    assert result.status == "INVALIDATED"
-    assert "exceeds total file lines" in str(result.invalidation_reason)
+    assert (result.location, result.status, result.reportable) == ("main.py", "UNVERIFIED", True)
 
 
 def test_consolidated_report_findings_sorted_by_severity_and_confidence(
