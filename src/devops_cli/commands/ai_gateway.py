@@ -6,9 +6,10 @@ from typing import Annotated, Any
 
 import typer
 
+from devops_cli.ai.client import AICredentialsError
 from devops_cli.ai.gateway import GatewayRoute, GatewayRouter
 from devops_cli.config.constants import CONST_AI_GATEWAY_VIRTUAL_MODELS, CONST_OUTPUT_FORMAT_TABLE
-from devops_cli.config.settings import load_settings
+from devops_cli.config.settings import get_ai_api_key, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.output import (
     print_error,
@@ -115,8 +116,12 @@ def routes_cmd(
 ) -> None:
     """List registered virtual models and target backend inference instances."""
     settings = load_settings()
-    router = GatewayRouter(settings.ai, provider=provider)
-    routes = router.list_routes(gateway_url)
+    router = GatewayRouter(settings.ai, provider=provider, api_key=get_ai_api_key(settings))
+    try:
+        routes = router.list_routes(gateway_url or router.gateway_url)
+    except AICredentialsError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
 
     resolved = normalize_format(output_format)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:

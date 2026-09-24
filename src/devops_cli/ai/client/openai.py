@@ -12,8 +12,8 @@ import httpx2
 from devops_cli.ai.client.base import BaseLLMProviderMixin
 from devops_cli.ai.client.models import (
     AIClientError,
-    AICredentialsError,
     LLMResponse,
+    credentials_error,
     is_reasoning_model,
 )
 from devops_cli.ai.client.network import read_limited_json
@@ -26,8 +26,6 @@ from devops_cli.config.constants import (
     CONST_URL_OPENAI_API_BASE,
 )
 from devops_cli.config.defaults import DEFAULT_AI_GATEWAY_URL
-from devops_cli.config.env import ENV_AI_API_KEY
-from devops_cli.config.options import AI_API_KEY
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import inject_trace_context
 
@@ -62,14 +60,8 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         status = exc.response.status_code if isinstance(exc, httpx2.HTTPStatusError) else None
         if status not in (401, 403):
             return AIClientError(failure)
-        problem = (
-            "rejected the configured API key"
-            if self._api_key
-            else "requires an API key, but no API key is configured"
-        )
-        return AICredentialsError(
-            f"The {self._config.provider} provider {problem} (HTTP {status}). "
-            f"Set {ENV_AI_API_KEY} or run `devops config set {AI_API_KEY}`."
+        return credentials_error(
+            f"The {self._config.provider} provider", has_key=bool(self._api_key), status=status
         )
 
     def _openai_compat_messages(

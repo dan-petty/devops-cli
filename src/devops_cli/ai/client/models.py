@@ -6,6 +6,8 @@ import json
 from enum import StrEnum
 from typing import Any
 
+from devops_cli.config.env import ENV_AI_API_KEY
+from devops_cli.config.options import AI_API_KEY
 from devops_cli.exceptions import LLMInferenceError
 
 MAX_STREAM_BYTES = 50 * 1024 * 1024  # 50MB maximum streamed response size
@@ -55,6 +57,22 @@ class AIClientError(LLMInferenceError, RuntimeError):
 
 class AICredentialsError(AIClientError):
     """Raised when a provider rejects the request's credentials; retrying cannot help."""
+
+
+def credentials_error(subject: str, *, has_key: bool, status: int) -> AICredentialsError:
+    """Build the error for a 401/403, naming whether the key is missing and where it comes from.
+
+    ``subject`` names what refused the request, e.g. "The gateway provider".
+    """
+    problem = (
+        "rejected the configured API key"
+        if has_key
+        else "requires an API key, but no API key is configured"
+    )
+    return AICredentialsError(
+        f"{subject} {problem} (HTTP {status}). "
+        f"Set {ENV_AI_API_KEY} or run `devops config set {AI_API_KEY}`."
+    )
 
 
 class LLMResponse(str):

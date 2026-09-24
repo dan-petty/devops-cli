@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx2
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai.client import AICredentialsError
 from devops_cli.ai.gateway import (
     GatewayRouter,
 )
@@ -434,3 +436,128 @@ class TestRouterAndClientGatewayIntegration:
             True,
             True,
         )
+
+
+GATEWAY_URL = "http://gateway.example.com:4000/v1"
+
+
+def _model_info(status: int = 200) -> tuple[list[dict[str, str]], Any]:
+    """Serve a LiteLLM /model/info with two deployments and one expanded wildcard."""
+    requests: list[dict[str, str]] = []
+    wildcard = [
+        {
+            "model_name": name,
+            "litellm_params": {"model": name, "api_base": "http://ollama.example.com:11434/v1"},
+            "model_info": {"id": "wild"},
+        }
+        for name in ("ollama/gpt-4", "ollama/gpt-4o", "ollama/o3")
+    ]
+    data = [
+        {
+            "model_name": "devops-review",
+            "litellm_params": {
+                "model": "openai/qwen2.5-coder-32b-instruct",
+                "api_base": "http://vllm.example.com:8000/v1",
+            },
+            "model_info": {"id": "a"},
+        },
+        {
+            "model_name": "devops-review",
+            "litellm_params": {
+                "model": "ollama_chat/gpt-oss:20b",
+                "api_base": "http://ollama.example.com:11434",
+            },
+            "model_info": {"id": "b"},
+        },
+        *wildcard,
+    ]
+
+    def fake_get(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        requests.append({"url": url, **(kwargs.get("headers") or {})})
+        body = {"data": data} if status == 200 else {"error": {"message": "No api key"}}
+        return httpx2.Response(status, json=body, request=httpx2.Request("GET", url))
+
+    return requests, fake_get
+
+
+class TestGatewayRouteDiscovery:
+    """Live route discovery authenticates and reports the gateway's real deployments."""
+
+    def test_discovery_authenticates_and_collapses_wildcard_expansions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify /model/info is read with the key and a wildcard's expansions become one route."""
+        requests, fake_get = _model_info()
+        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        router = GatewayRouter(AIConfig(allow_private_network=True), api_key="sk-gateway")
+
+        routes = router.list_routes(GATEWAY_URL)
+
+        assert (
+            [(r.virtual_model, r.target_model) for r in routes],
+            [(r["url"], r.get("Authorization")) for r in requests],
+        ) == (
+            [
+                ("devops-review", "openai/qwen2.5-coder-32b-instruct"),
+                ("devops-review", "ollama_chat/gpt-oss:20b"),
+                ("ollama/*", "ollama/*"),
+            ],
+            [(f"{GATEWAY_URL}/model/info", "Bearer sk-gateway")],
+        )
+
+    @pytest.mark.parametrize(
+        ("api_key", "expected"),
+        [(None, "no API key is configured"), ("sk-wrong", "rejected the configured API key")],
+    )
+    def test_rejected_discovery_names_the_key_instead_of_showing_defaults(
+        self, monkeypatch: pytest.MonkeyPatch, api_key: str | None, expected: str
+    ) -> None:
+        """Verify a 401 raises a credentials error rather than falling back to default routes."""
+        requests, fake_get = _model_info(status=401)
+        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        router = GatewayRouter(AIConfig(allow_private_network=True), api_key=api_key)
+
+        with pytest.raises(AICredentialsError) as exc_info:
+            router.list_routes(GATEWAY_URL)
+
+        assert (
+            expected in str(exc_info.value),
+            "DEVOPS_CLI_AI_API_KEY" in str(exc_info.value),
+            [r.get("Authorization") for r in requests],
+        ) == (True, True, [f"Bearer {api_key}" if api_key else None])
+
+    def test_routes_command_queries_the_configured_gateway(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify `routes` reads the configured gateway, with its key, without --gateway-url."""
+        requests, fake_get = _model_info()
+        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        settings = MagicMock()
+        settings.ai = AIConfig(gateway_url=GATEWAY_URL, allow_private_network=True)
+        monkeypatch.setattr("devops_cli.commands.ai_gateway.load_settings", lambda: settings)
+        monkeypatch.setattr("devops_cli.commands.ai_gateway.get_ai_api_key", lambda _s: "sk-gw")
+
+        result = runner.invoke(gateway_cli_app, ["routes", "--format", "json"])
+
+        assert (
+            result.exit_code,
+            [r["target_model"] for r in json.loads(result.output)],
+            [r.get("Authorization") for r in requests],
+        ) == (
+            0,
+            ["openai/qwen2.5-coder-32b-instruct", "ollama_chat/gpt-oss:20b", "ollama/*"],
+            ["Bearer sk-gw"],
+        )
+
+    def test_routes_command_reports_missing_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify `routes` exits non-zero and names the key when the gateway rejects it."""
+        _requests, fake_get = _model_info(status=401)
+        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        settings = MagicMock()
+        settings.ai = AIConfig(gateway_url=GATEWAY_URL, allow_private_network=True)
+        monkeypatch.setattr("devops_cli.commands.ai_gateway.load_settings", lambda: settings)
+        monkeypatch.setattr("devops_cli.commands.ai_gateway.get_ai_api_key", lambda _s: None)
+
+        result = runner.invoke(gateway_cli_app, ["routes"])
+
+        assert (result.exit_code, "DEVOPS_CLI_AI_API_KEY" in result.output) == (1, True)
