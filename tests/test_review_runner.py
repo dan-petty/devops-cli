@@ -29,7 +29,6 @@ from devops_cli.ai.review.runner import (
     _prepare_branch_content,
     _prepare_path_content,
     _prepare_pr_content,
-    _resolve_review_clients,
     _review_session_dir,
     _run_persona_loop,
     _run_review,
@@ -190,16 +189,6 @@ def test_runner_session_persistence(tmp_path: Path) -> None:
 
     _write_summary("Test Title", session_dir, ["page 1"], [(pd, res)])
     assert (session_dir / "summary.md").exists()
-
-
-def test_make_and_resolve_review_clients() -> None:
-    """Verify review client factory functions."""
-    st = Settings()
-    clients = _make_review_clients(st)
-    assert isinstance(clients, ReviewClients)
-
-    res_clients = _resolve_review_clients(st)
-    assert res_clients is not None
 
 
 def test_prepare_content_helpers(tmp_path: Path) -> None:
@@ -544,7 +533,6 @@ def test_review_to_markdown() -> None:
 
 def test_make_review_clients() -> None:
     """Verify creation of analysis and compose review clients."""
-    from devops_cli.ai.review.runner import _make_review_clients
     from devops_cli.config.settings import Settings
 
     st = Settings()

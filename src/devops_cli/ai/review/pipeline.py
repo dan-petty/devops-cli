@@ -760,6 +760,7 @@ class ReviewPipelineOrchestrator:
         concurrency: int | None = None,
         parallel: bool = True,
         ground_contracts: bool = True,
+        verification_client: LLMClient | None = None,
     ) -> None:
         self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self.target_dir = target_dir
@@ -775,6 +776,8 @@ class ReviewPipelineOrchestrator:
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.files_dir.mkdir(parents=True, exist_ok=True)
         self.llm_client = llm_client or LLMClient()
+        # Checks the findings llm_client produced; the same client unless one is given.
+        self.verification_client = verification_client or self.llm_client
         self.errored_files: dict[str, str] = {}
 
     def _resolve_file_path(self, fpath: str) -> Path:
@@ -807,12 +810,13 @@ class ReviewPipelineOrchestrator:
         safe_rel = Path(fpath.lstrip("/\\")).name
         return target_root / safe_rel
 
-    def _get_server_info(self) -> str:
-        """Return formatted string describing target AI/LLM provider, host, and model."""
-        if not self.llm_client:
+    def _get_server_info(self, client: LLMClient | None = None) -> str:
+        """Describe a client's provider, host and model; the analysis client by default."""
+        target = client or self.llm_client
+        if not target:
             return "LLM server"
-        backend_info = getattr(self.llm_client, "backend_info", "")
-        config = getattr(self.llm_client, "_config", None)
+        backend_info = getattr(target, "backend_info", "")
+        config = getattr(target, "_config", None)
         model = getattr(config, "model", None) if config else None
 
         if backend_info and model:
@@ -1940,7 +1944,7 @@ class ReviewPipelineOrchestrator:
             review_res, proc_sec, actual_backend = _validate_segment_findings(
                 result=ReviewResult(findings=findings_to_verify),
                 all_segments=[context],
-                client=self.llm_client,
+                client=self.verification_client,
                 repo_root=self.target_dir,
             )
             elapsed_sec = proc_sec if proc_sec is not None else (time.monotonic() - t_start)
@@ -2014,7 +2018,7 @@ class ReviewPipelineOrchestrator:
             return
 
         total_files = len(file_payloads)
-        server_info = self._get_server_info()
+        server_info = self._get_server_info(self.verification_client)
 
         with trace_span(
             "review.verification",

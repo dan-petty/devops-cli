@@ -324,6 +324,9 @@ class AITasksConfig(BaseModel):
     chat: AITaskOverride = AITaskOverride()
     metadata: AITaskOverride = AITaskOverride()
     analysis: AITaskOverride = AITaskOverride()
+    # Review verification: layered on `analysis`, so only what differs needs setting. Unset,
+    # reviews verify with the analysis model.
+    verification: AITaskOverride = AITaskOverride()
     compose: AITaskOverride = AITaskOverride()
     embedding: AITaskOverride = Field(
         default_factory=lambda: AITaskOverride(model=DEFAULT_RAG_EMBEDDING_MODEL)

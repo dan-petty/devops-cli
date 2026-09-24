@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from devops_cli.ai.analyze.cache import _load_file_analysis_metas
 from devops_cli.ai.client import AIClientError, LLMClient
@@ -84,12 +84,23 @@ _PATH_REVIEW_PROMPT_TEMPLATE = load_task_prompt("path_review_prompt.md")
 
 
 class ReviewClients(BaseModel):
-    """LLM clients resolved per review task, each potentially using a different model."""
+    """LLM clients resolved per review task, each potentially using a different model.
+
+    ``verification`` checks the findings ``analysis`` produced. It defaults to the analysis
+    client, so generation and verification share a model unless verification is configured.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     analysis: Any
     compose: Any
+    verification: Any = None
+
+    @model_validator(mode="after")
+    def _verify_with_analysis_by_default(self) -> ReviewClients:
+        if self.verification is None:
+            self.verification = self.analysis
+        return self
 
 
 def _personas_to_run(all_personas: bool, persona: Persona | None) -> list[PersonaDefinition]:
@@ -822,7 +833,7 @@ def _validate_single_segment_findings(
     validated, proc_sec, _ = _validate_segment_findings(
         parsed,
         pages,
-        clients.analysis,
+        clients.verification,
         analysis_metas=file_analysis_metas,
         repo_root=repo_target,
     )
@@ -1169,23 +1180,6 @@ def _print_review(persona: PersonaDefinition, review: ReviewResult | str) -> Non
     print_markdown(review)
 
 
-def _resolve_review_clients(settings: Settings | None = None) -> ReviewClients:
-    cfg = settings or load_settings()
-    api_key = get_ai_api_key(cfg)
-
-    def _make(task: str) -> LLMClient:
-        return LLMClient(
-            cfg.ai,
-            api_key=api_key,
-            request_timeout_seconds=float(DEFAULT_REVIEW_TIMEOUT_SECONDS),
-        )
-
-    return ReviewClients(
-        analysis=_make("analysis"),
-        compose=_make("compose"),
-    )
-
-
 def _load_agents_md(start: Path) -> str:
     """Return sanitized project conventions from target repo, start dir, or CWD repo root."""
     start_resolved = start.resolve()
@@ -1346,16 +1340,34 @@ def _make_review_clients(
     cache_enabled: bool | None = None,
     append_cache: bool | None = None,
 ) -> ReviewClients:
-    """Build unified LLM clients for analysis and compose tasks."""
+    """Build LLM clients for the analysis, compose and verification review tasks.
+
+    Verification overrides apply on top of the analysis task, so `ai.tasks.verification` need only
+    name what differs, such as a stronger model on the same gateway.
+    """
     api_key = get_ai_api_key(settings)
-    return ReviewClients(
-        analysis=LLMClient(
-            settings.ai.for_task("analysis"),
+    analysis_config = settings.ai.for_task("analysis")
+    analysis = LLMClient(
+        analysis_config,
+        api_key=api_key,
+        request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+        cache_enabled=cache_enabled,
+        append_cache=append_cache,
+    )
+    verification = (
+        LLMClient(
+            analysis_config.for_task("verification"),
             api_key=api_key,
             request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
             cache_enabled=cache_enabled,
             append_cache=append_cache,
-        ),
+        )
+        if settings.ai.tasks.verification.model_dump(exclude_none=True)
+        else analysis
+    )
+    return ReviewClients(
+        analysis=analysis,
+        verification=verification,
         compose=LLMClient(
             settings.ai.for_task("compose"),
             api_key=api_key,
@@ -1733,6 +1745,7 @@ def _execute_review_workflow(
     all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
     orchestrator = ReviewPipelineOrchestrator(
         llm_client=clients.analysis,
+        verification_client=clients.verification,
         target_dir=target_dir,
         concurrency=concurrency,
         parallel=parallel,
