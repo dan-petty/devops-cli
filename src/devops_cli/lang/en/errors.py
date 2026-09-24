@@ -107,6 +107,16 @@ class DevcontainerErrorMessages:
     validation_failed: str = "DevContainer manifest validation failed for {path}:"
     no_devcontainer_found: str = "No devcontainer.json found: {path}"
     invalid_json: str = "Invalid JSON in {path}: {exc}"
+    keyring_unavailable: str = (
+        "No keyring in this container: DBUS_SESSION_BUS_ADDRESS is unset or "
+        "gnome-keyring is not installed. Rebuild the devcontainer."
+    )
+    keyring_empty_password: str = (
+        "Refusing an empty password: the keyring would store every secret in plain text."
+    )
+    keyring_password_mismatch: str = "Passwords do not match; the keyring was not created."
+    keyring_wrong_password: str = "Wrong password; the keyring is still locked."
+    keyring_not_created: str = "The keyring could not be created or reached over D-Bus."
 
 
 @dataclass(frozen=True)

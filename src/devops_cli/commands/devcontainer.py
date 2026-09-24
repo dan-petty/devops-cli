@@ -25,6 +25,7 @@ from devops_cli.config.constants import (
     CONST_DEVCONTAINER_JSON_NAME,
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_DEVCONTAINER_PUBLISHED_IMAGE,
+    CONST_KEYRING_PACKAGES,
     CONST_MCP_JSON_NAME,
     CONST_PYPROJECT_FILENAME,
     CONST_ROOT_DIR,
@@ -722,6 +723,30 @@ def _bootstrap_developer_tools(*, dry_run: bool = False) -> list[str]:
     return actions
 
 
+def _install_keyring_packages(*, dry_run: bool = False) -> list[str]:
+    """Install gnome-keyring on images that lack it, so the configured bus can serve secrets.
+
+    The published image ships it; a project scaffolded onto another image gets the same
+    Secret Service here instead of gh falling back to a plaintext token.
+    """
+    if dry_run or _session_bus_socket() is None or shutil.which("gnome-keyring-daemon"):
+        return []
+    if not shutil.which("apt-get"):
+        return ["Warning: gnome-keyring is not installed and apt-get is unavailable"]
+
+    get_euid = getattr(os, "geteuid", None)
+    as_root = [] if get_euid is not None and get_euid() == 0 else ["sudo"]
+    apt = [*as_root, "env", "DEBIAN_FRONTEND=noninteractive", "apt-get"]
+    for cmd in (
+        [*apt, "update"],
+        [*apt, "install", "-y", "--no-install-recommends", *CONST_KEYRING_PACKAGES],
+    ):
+        res = run_subprocess(cmd, check=False, quiet=True, timeout=900)
+        if res.returncode != 0:
+            return [f"Warning: Failed to install gnome-keyring (exit {res.returncode})"]
+    return [f"Installed {', '.join(CONST_KEYRING_PACKAGES)} for the container's keyring"]
+
+
 def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
     """Execute DevContainer post-create setup tasks in pure Python."""
     actions: list[str] = []
@@ -729,8 +754,9 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
     # 1. Volume mount permissions & ownership
     actions.extend(_setup_volume_mount_permissions(workspace_dir, dry_run=dry_run))
 
-    # 2. Bootstrap tools if not present
+    # 2. Bootstrap tools if not present, including the keyring on images that lack it
     actions.extend(_bootstrap_developer_tools(dry_run=dry_run))
+    actions.extend(_install_keyring_packages(dry_run=dry_run))
 
     # 3. Persistent bash history
     hist_file = Path.home() / ".bash_history"
@@ -1242,8 +1268,82 @@ def _start_session_bus(*, dry_run: bool = False) -> list[str]:
                 f"Warning: Failed to start D-Bus session bus (exit {res.returncode}): {res.stderr}"
             )
             return actions
-    actions.append(f"Started D-Bus session bus at {socket_path} (gnome-keyring starts on demand)")
+    # A fresh bus means a fresh keyring daemon, and that always starts locked.
+    actions.append(
+        f"Started D-Bus session bus at {socket_path}; "
+        "run `devops devcontainer unlock-keyring` to unlock the keyring"
+    )
     return actions
+
+
+def _login_keyring_file() -> Path:
+    """Return the file gnome-keyring keeps the login keyring in."""
+    data_home = os.getenv("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(data_home) / "keyrings" / "login.keyring"
+
+
+def _keyring_is_locked() -> bool | None:
+    """Report whether the default Secret Service collection is locked; None if it is missing."""
+    import contextlib
+
+    import secretstorage
+
+    try:
+        with contextlib.closing(secretstorage.dbus_init()) as connection:
+            return bool(secretstorage.get_default_collection(connection).is_locked())
+    except secretstorage.exceptions.SecretStorageException:
+        return None
+
+
+# =============================================================================
+# Command: devops devcontainer unlock-keyring
+# =============================================================================
+
+
+@app.command("unlock-keyring")
+def unlock_keyring() -> None:
+    """Create or unlock the gnome-keyring login keyring that gh, git and devops store secrets in."""
+    import getpass
+
+    socket_path = _session_bus_socket()
+    if socket_path is None or not shutil.which("gnome-keyring-daemon"):
+        print_error(ERRORS.devcontainer.keyring_unavailable)
+        raise typer.Exit(1)
+    _start_session_bus()  # a no-op once post-start has started it
+
+    first_time = not _login_keyring_file().exists()
+    password = getpass.getpass(
+        MESSAGES.devcontainer.keyring_new_password
+        if first_time
+        else MESSAGES.devcontainer.keyring_password
+    )
+    if not password:
+        # An empty password stores every secret in the keyring file as plain text.
+        print_error(ERRORS.devcontainer.keyring_empty_password)
+        raise typer.Exit(1)
+    if first_time and getpass.getpass(MESSAGES.devcontainer.keyring_repeat_password) != password:
+        print_error(ERRORS.devcontainer.keyring_password_mismatch)
+        raise typer.Exit(1)
+
+    # --unlock reads the password from stdin and creates the login keyring when it is missing.
+    # Only --replace reaches the daemon already running, and a wrong password still exits 0,
+    # so the lock state is read back afterwards.
+    run_subprocess(
+        ["gnome-keyring-daemon", "--replace", "--unlock", "--components=secrets"],
+        input=password,
+        env={"XDG_RUNTIME_DIR": str(socket_path.parent)},
+        extra_allowed_env={"DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "WAYLAND_DISPLAY"},
+        check=False,
+        quiet=True,
+    )
+    locked = _keyring_is_locked()
+    if locked is None:
+        print_error(ERRORS.devcontainer.keyring_not_created)
+        raise typer.Exit(1)
+    if locked:
+        print_error(ERRORS.devcontainer.keyring_wrong_password)
+        raise typer.Exit(1)
+    print_success(MESSAGES.devcontainer.keyring_unlocked, prefix=False)
 
 
 # =============================================================================
