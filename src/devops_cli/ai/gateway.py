@@ -18,6 +18,7 @@ from typing import Any, Final
 import httpx2
 from pydantic import BaseModel, ConfigDict, Field
 
+from devops_cli.ai.client.models import credentials_error
 from devops_cli.ai.router import TaskComplexity
 from devops_cli.config.constants import (
     CONST_AI_BACKEND_LIGHTLLM,
@@ -233,16 +234,34 @@ def _resolve_fallback_physical_route(
     return "qwen2.5-coder:7b", "ollama", "http://ollama.llm.svc.cluster.local:11434"
 
 
+def _wildcard_pattern(items: list[dict[str, Any]]) -> str:
+    """Name a wildcard deployment from the models it expanded into, e.g. `ollama/*`."""
+    prefix = os.path.commonprefix([str(i.get("model_name") or "") for i in items])
+    return f"{prefix[: prefix.rfind('/') + 1]}*"
+
+
 def _parse_remote_model_items(data: list[dict[str, Any]], clean_url: str) -> list[GatewayRoute]:
-    """Parse list of remote model objects into GatewayRoutes."""
-    routes: list[GatewayRoute] = []
+    """Parse remote model objects into GatewayRoutes, one per gateway deployment.
+
+    LiteLLM lists a wildcard deployment once for every model it can serve, all under the
+    wildcard's own deployment id; those entries collapse back into one `<provider>/*` route.
+    """
+    by_deployment: dict[str, list[dict[str, Any]]] = {}
     for item in data:
-        m_name = item.get("model_name") or item.get("id") or "unknown"
-        params = item.get("litellm_params", {})
+        deployment_id = (item.get("model_info") or {}).get("id") or f"item-{id(item)}"
+        by_deployment.setdefault(str(deployment_id), []).append(item)
+
+    routes: list[GatewayRoute] = []
+    for items in by_deployment.values():
+        params = items[0].get("litellm_params", {})
+        m_name = items[0].get("model_name") or items[0].get("id") or "unknown"
+        target = params.get("model", m_name)
+        if len(items) > 1:
+            m_name = target = _wildcard_pattern(items)
         routes.append(
             GatewayRoute(
                 virtual_model=m_name,
-                target_model=params.get("model", m_name),
+                target_model=target,
                 backend_type="remote",
                 backend_url=params.get("api_base", clean_url),
                 healthy=True,
@@ -251,25 +270,44 @@ def _parse_remote_model_items(data: list[dict[str, Any]], clean_url: str) -> lis
     return routes
 
 
-def _fetch_remote_routes(gateway_url: str, allow_private: bool) -> list[GatewayRoute] | None:
-    """Attempt live query against LiteLLM models API to discover runtime routes."""
+def _query_model_info(gateway_url: str, allow_private: bool, api_key: str | None) -> Any:
+    """GET the gateway's /model/info (falling back to /models); None when unreachable."""
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     try:
         validate_url_egress(gateway_url, purpose="AI gateway", allow_private=allow_private)
-        clean_url = gateway_url.rstrip("/")
         with httpx2.Client(timeout=2.0) as client:
-            resp = client.get(f"{clean_url}/model/info")
-            if resp.status_code != 200:
-                resp = client.get(f"{clean_url}/models")
-            if resp.status_code >= 400:
-                return None
-            data = resp.json().get("data", [])
-            if not isinstance(data, list) or not data:
-                return None
-            routes = _parse_remote_model_items(data, clean_url)
-            return routes or None
+            resp = client.get(f"{gateway_url}/model/info", headers=headers)
+            if resp.status_code not in (200, 401, 403):
+                resp = client.get(f"{gateway_url}/models", headers=headers)
+            return resp
     except Exception as exc:
         logger.debug("Failed to query live models API at %s: %s", gateway_url, exc)
         return None
+
+
+def _fetch_remote_routes(
+    gateway_url: str, allow_private: bool, api_key: str | None = None
+) -> list[GatewayRoute] | None:
+    """Query the gateway's deployments; None when it is unreachable or lists nothing.
+
+    Raises AICredentialsError when the gateway rejects the request, rather than letting the
+    caller fall back to default routes that do not describe the gateway.
+    """
+    clean_url = gateway_url.rstrip("/")
+    resp = _query_model_info(clean_url, allow_private, api_key)
+    if resp is None:
+        return None
+    if resp.status_code in (401, 403):
+        raise credentials_error("The LLM gateway", has_key=bool(api_key), status=resp.status_code)
+    if resp.status_code >= 400:
+        return None
+    try:
+        data = resp.json().get("data", [])
+    except ValueError:
+        return None
+    if not isinstance(data, list) or not data:
+        return None
+    return _parse_remote_model_items(data, clean_url) or None
 
 
 def _probe_gateway_http(
@@ -320,8 +358,10 @@ class GatewayRouter:
         config: AIConfig | None = None,
         state_file: Path | str | None = None,
         provider: str | None = None,
+        api_key: str | None = None,
     ) -> None:
         self.config = config or AIConfig()
+        self._api_key = api_key
         self.provider: str = provider or self.config.gateway_provider
         self.state_file = Path(state_file) if state_file else _resolve_state_file()
         cb_active, loaded_routes = _load_gateway_state(self.state_file)
@@ -340,7 +380,9 @@ class GatewayRouter:
     def list_routes(self, gateway_url: str | None = None) -> list[GatewayRoute]:
         """Return configured or live queried virtual model routes."""
         if gateway_url:
-            remote = _fetch_remote_routes(gateway_url, self.config.allow_private_network)
+            remote = _fetch_remote_routes(
+                gateway_url, self.config.allow_private_network, self._api_key
+            )
             if remote is not None:
                 return remote
         return list(self._active_routes)
