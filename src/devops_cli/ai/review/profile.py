@@ -66,6 +66,9 @@ class ReviewProfile(BaseModel):
     candidate_findings: int = 0
     verified_findings: int = 0
     reported_findings: int = 0
+    # How each static analyzer took part: ran, built-in patterns, not installed or no files. A
+    # scan that found nothing is clean only for the analyzers that ran.
+    static_analyzers: dict[str, str] = Field(default_factory=dict)
     stages: list[StageProfile] = Field(default_factory=list)
 
     @property
@@ -98,6 +101,7 @@ class ReviewProfiler:
         self._started = time.monotonic()
         self._stages: dict[str, StageProfile] = {}
         self._findings = (0, 0, 0)
+        self._static_analyzers: dict[str, str] = {}
 
     def observe(self, call: dict[str, Any]) -> None:
         """Credit an LLM call to the stage running in the caller's context.
@@ -125,6 +129,9 @@ class ReviewProfiler:
     def set_findings(self, *, candidates: int, verified: int, reported: int) -> None:
         self._findings = (candidates, verified, reported)
 
+    def set_static_analyzers(self, states: dict[str, str]) -> None:
+        self._static_analyzers = dict(states)
+
     def build(self, *, session_id: str, target: str, files: int = 0) -> ReviewProfile:
         """Assemble the profile of everything recorded so far."""
         with self._lock:
@@ -144,6 +151,7 @@ class ReviewProfiler:
             candidate_findings=candidates,
             verified_findings=verified,
             reported_findings=reported,
+            static_analyzers=dict(self._static_analyzers),
             stages=stages,
         )
 
@@ -223,6 +231,8 @@ class BenchmarkSummary(BaseModel):
     median_candidate_findings: float
     median_reported_findings: float
     median_seconds_per_candidate: float | None = None
+    # Every state each static analyzer had across the runs; runs that differ show more than one.
+    static_analyzers: dict[str, list[str]] = Field(default_factory=dict)
     stages: list[StageSummary] = Field(default_factory=list)
     sessions: list[str] = Field(default_factory=list)
 
@@ -238,6 +248,16 @@ class BenchmarkSummary(BaseModel):
 
 def _median(values: list[float]) -> float:
     return round(float(statistics.median(values)), 3) if values else 0.0
+
+
+def _analyzer_states_across(profiles: list[ReviewProfile]) -> dict[str, list[str]]:
+    """The states each static analyzer had across runs, in the order they first appeared."""
+    states: dict[str, list[str]] = {}
+    for profile in profiles:
+        for name, state in profile.static_analyzers.items():
+            if state not in states.setdefault(name, []):
+                states[name].append(state)
+    return states
 
 
 def summarize_profiles(profiles: list[ReviewProfile]) -> BenchmarkSummary:
@@ -270,6 +290,7 @@ def summarize_profiles(profiles: list[ReviewProfile]) -> BenchmarkSummary:
         median_candidate_findings=_median([float(p.candidate_findings) for p in profiles]),
         median_reported_findings=_median([float(p.reported_findings) for p in profiles]),
         median_seconds_per_candidate=_median(per_candidate) if per_candidate else None,
+        static_analyzers=_analyzer_states_across(profiles),
         stages=stages,
         sessions=[p.session_id for p in profiles],
     )

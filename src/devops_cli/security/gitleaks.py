@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.review_schema import Finding
-from devops_cli.config.commands import build_gitleaks_cmd
+from devops_cli.config.commands import BIN_GITLEAKS, build_gitleaks_cmd
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -174,7 +174,7 @@ class GitleaksScanner(BaseSecurityScanner):
     """Declarative security scanner adapter for Gitleaks secret detection."""
 
     name: str = "gitleaks"
-    binary_name: str = "gitleaks"
+    binary_name: str = BIN_GITLEAKS
 
     def build_command(
         self,
