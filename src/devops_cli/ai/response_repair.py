@@ -6,8 +6,10 @@ and normalizes responses across all LLM providers using standard pydantic_ai.mes
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
+from collections.abc import Callable
 from typing import Any, cast
 
 import json_repair
@@ -273,6 +275,21 @@ def extract_model_response_parts(
     return clean_text, thinking_text, tool_calls
 
 
+def _text_only_function(function: Callable[..., object]) -> Callable[[str], object] | None:
+    """The text output function when it can run here: synchronous, taking the text alone.
+
+    A text output function may also take a `RunContext`, or be async; without a run context or
+    an event loop, the reply is left to the schema-free path rather than called wrongly.
+    """
+    if inspect.iscoroutinefunction(function):
+        return None
+    try:
+        parameters = inspect.signature(function).parameters
+    except TypeError, ValueError:
+        return None
+    return cast(Callable[[str], object], function) if len(parameters) == 1 else None
+
+
 def fix_llm_response[T = Any](
     raw_response: str | Any,
     schema: type[T] | None = None,
@@ -303,10 +320,12 @@ def fix_llm_response[T = Any](
         from devops_cli.ai.output import TextOutput, unwrap_output_spec
 
         if isinstance(schema, TextOutput):
-            try:
-                parsed_model = cast(T, schema.output_function(final_content))
-            except Exception:
-                pass
+            parse_text = _text_only_function(schema.output_function)
+            if parse_text is not None:
+                try:
+                    parsed_model = cast(T, parse_text(final_content))
+                except Exception:
+                    pass
         else:
             unwrapped = unwrap_output_spec(schema)
             target_schema = unwrapped[0] if unwrapped else schema
