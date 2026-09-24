@@ -1,7 +1,6 @@
 # Task 425: Outward-Facing Capability & Upstream Maturity Survey
 
 **Issue**: [#425](https://github.com/dan-petty/devops-cli/issues/425)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`

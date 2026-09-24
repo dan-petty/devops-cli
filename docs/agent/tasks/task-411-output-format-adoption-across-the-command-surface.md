@@ -1,7 +1,6 @@
 # Task 411: Output Format Adoption Across the Command Surface
 
 **Issue**: [#411](https://github.com/dan-petty/devops-cli/issues/411)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`

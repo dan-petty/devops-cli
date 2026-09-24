@@ -1,7 +1,6 @@
 # Task 414: Generator-Side Rule Pruning Measured Against Verifier Overlap
 
 **Issue**: [#414](https://github.com/dan-petty/devops-cli/issues/414)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`

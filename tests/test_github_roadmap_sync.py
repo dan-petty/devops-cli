@@ -392,7 +392,13 @@ def test_sync_roadmap_live_execution(
         len(result.task_files_created),
         created_task_file.is_file(),
     ) == (1, 1, True)
-    assert "# Task 999" in created_task_file.read_text(encoding="utf-8")
+    content = created_task_file.read_text(encoding="utf-8")
+    # A task file links its issue only; the issue links the pull request.
+    assert ("# Task 999" in content, "**PR**" in content, "**Status**: Backlog" in content) == (
+        True,
+        False,
+        True,
+    )
 
 
 @patch("devops_cli.github.roadmap_sync.create_repository_issue")

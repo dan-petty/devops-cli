@@ -1,8 +1,7 @@
 # Task 465: Missing or Rejected API Keys Named as Such
 
 **Issue**: [#465](https://github.com/dan-petty/devops-cli/issues/465)
-**PR**: [#466](https://github.com/dan-petty/devops-cli/pull/466)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/ai`, `priority/p2-medium`

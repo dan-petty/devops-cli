@@ -1,7 +1,6 @@
 # Task 418: In-Flight Work, PR Stagnation & Blocker Radar (`devops gh pm inflight`)
 
 **Issue**: [#418](https://github.com/dan-petty/devops-cli/issues/418)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p0-critical`

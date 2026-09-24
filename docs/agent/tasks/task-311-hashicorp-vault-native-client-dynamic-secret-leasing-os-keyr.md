@@ -1,8 +1,7 @@
 # Task 311: HashiCorp Vault Native Client, Dynamic Secret Leasing & OS Keyring Envelope Encryption Research
 
 **Issue**: [#311](https://github.com/dan-petty/devops-cli/issues/311)
-**PR**: [#353](https://github.com/dan-petty/devops-cli/pull/353)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.22`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/security`, `priority/p1-high`

@@ -1,7 +1,6 @@
 # Task 420: Extend the Ruff Rule Set to the Correctness Families
 
 **Issue**: [#420](https://github.com/dan-petty/devops-cli/issues/420)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`

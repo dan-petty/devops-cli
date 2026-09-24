@@ -1,8 +1,7 @@
 # Task 426: POSIX Process Group Sandbox Enforcement
 
 **Issue**: [#426](https://github.com/dan-petty/devops-cli/issues/426)
-**PR**: None (Draft)
-**Status**: Backlog
+**Status**: Done
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/cli`, `priority/p0-critical`

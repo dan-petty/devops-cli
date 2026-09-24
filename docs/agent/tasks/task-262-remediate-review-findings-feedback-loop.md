@@ -1,8 +1,7 @@
 # Task 262: Remediate Review Findings, Harden Defensive Boundaries & Improve Feedback Loop
 
 **Issue**: [#262](https://github.com/dan-petty/devops-cli/issues/262)
-**PR**: [#263](https://github.com/dan-petty/devops-cli/pull/263)
-**Status**: Closed (Merged in PR #263)
+**Status**: Done
 **Milestone**: `v0.2.20`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/ai`

@@ -1,7 +1,6 @@
 # Task 431: Anti-Brittle Constant Elimination
 
 **Issue**: [#431](https://github.com/dan-petty/devops-cli/issues/431)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`

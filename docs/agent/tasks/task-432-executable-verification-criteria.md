@@ -1,7 +1,6 @@
 # Task 432: Executable Verification Criteria
 
 **Issue**: [#432](https://github.com/dan-petty/devops-cli/issues/432)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p0-critical`

@@ -1,8 +1,7 @@
 # Task 422: Attribute Verification Failure in AI Review
 
 **Issue**: [#422](https://github.com/dan-petty/devops-cli/issues/422)
-**PR**: None (Draft)
-**Status**: Backlog
+**Status**: Done
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/ai`, `priority/p2-medium`

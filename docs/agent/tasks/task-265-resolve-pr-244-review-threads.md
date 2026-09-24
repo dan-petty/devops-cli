@@ -1,8 +1,7 @@
 # Task 265: Resolve PR #244 Review Threads & Harden Markdown Fence/Asterisk Handling
 
 **Issue**: [#265](https://github.com/dan-petty/devops-cli/issues/265)
-**PR**: [#266](https://github.com/dan-petty/devops-cli/pull/266)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.20`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/review`

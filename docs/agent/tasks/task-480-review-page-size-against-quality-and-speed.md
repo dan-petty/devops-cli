@@ -1,7 +1,6 @@
 # Task 480: Review Page Size Against Quality and Speed
 
 **Issue**: [#480](https://github.com/dan-petty/devops-cli/issues/480)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`

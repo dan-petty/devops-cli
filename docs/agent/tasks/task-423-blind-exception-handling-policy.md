@@ -1,7 +1,6 @@
 # Task 423: Blind Exception Handling Policy
 
 **Issue**: [#423](https://github.com/dan-petty/devops-cli/issues/423)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`

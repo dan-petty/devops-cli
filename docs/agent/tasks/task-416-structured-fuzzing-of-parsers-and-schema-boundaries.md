@@ -1,7 +1,6 @@
 # Task 416: Structured Fuzzing of Parsers and Schema Boundaries
 
 **Issue**: [#416](https://github.com/dan-petty/devops-cli/issues/416)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`

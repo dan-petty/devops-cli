@@ -277,7 +277,6 @@ def _generate_task_file_content(
     return (
         f"# Task {issue_number}: {item.title}\n\n"
         f"**Issue**: [#{issue_number}](https://github.com/{repo}/issues/{issue_number})\n"
-        f"**PR**: None (Draft)\n"
         f"**Status**: Backlog\n"
         f"**Milestone**: `{item.milestone}`\n"
         f"**Priority**: `{item.priority}`\n"

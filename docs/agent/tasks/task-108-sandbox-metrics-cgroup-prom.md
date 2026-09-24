@@ -1,7 +1,6 @@
 # Task 108: Cgroup v2 Metrics Collection & Prometheus Application Scraping
 
 **Issue**: [#108](https://github.com/dan-petty/devops-cli/issues/108)
-**PR**: [#164](https://github.com/dan-petty/devops-cli/pull/164)
 **Status**: Done
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`

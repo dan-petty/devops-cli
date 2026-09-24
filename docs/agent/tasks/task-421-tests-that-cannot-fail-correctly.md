@@ -1,8 +1,7 @@
 # Task 421: Tests That Cannot Fail Correctly
 
 **Issue**: [#421](https://github.com/dan-petty/devops-cli/issues/421)
-**PR**: None (Draft)
-**Status**: Backlog
+**Status**: Done
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`

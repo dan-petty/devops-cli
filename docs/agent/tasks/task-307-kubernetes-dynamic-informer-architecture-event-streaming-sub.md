@@ -1,7 +1,6 @@
 # Task 307: Kubernetes Dynamic Informer Architecture, Event Streaming & Subprocess Elimination Research
 
 **Issue**: [#307](https://github.com/dan-petty/devops-cli/issues/307)
-**PR**: [#336](https://github.com/dan-petty/devops-cli/pull/336)
 **Status**: Done
 **Milestone**: `v0.2.22`
 **Priority**: `priority/p0-critical`

@@ -1,8 +1,7 @@
 # Task 272: Multi-Scale Semantic Outline & Inspectional Scanner (`devops ai read --inspect`)
 
 **Issue**: [#272](https://github.com/dan-petty/devops-cli/issues/272)
-**PR**: [#282](https://github.com/dan-petty/devops-cli/pull/282)
-**Status**: Merged
+**Status**: Done
 **Milestone**: `v0.2.21`
 **Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/ai`, `priority/p0-critical`

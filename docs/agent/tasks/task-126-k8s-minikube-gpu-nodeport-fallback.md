@@ -1,8 +1,7 @@
 # Task 126: Minikube GPU Detection & Dynamic Service NodePort Reachability Fallback
 
 **Issue**: [#126](https://github.com/dan-petty/devops-cli/issues/126)
-**PR**: [#239](https://github.com/dan-petty/devops-cli/pull/239)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/k8s`, `scope/cli`

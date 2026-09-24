@@ -1,7 +1,6 @@
 # Task 273: Syntopical Dialectical Synthesis Engine (`devops ai research syntopical`)
 
 **Issue**: [#273](https://github.com/dan-petty/devops-cli/issues/273)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.3.2`
 **Priority**: `priority/p0-critical`

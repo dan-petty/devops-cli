@@ -1,7 +1,6 @@
 # Task 410: Local-Path Provisioner Volume Reclaim Failures
 
 **Issue**: [#410](https://github.com/dan-petty/devops-cli/issues/410)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`

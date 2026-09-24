@@ -1,8 +1,7 @@
 # Task 424: Public Re-Export Surface Consolidation
 
 **Issue**: [#424](https://github.com/dan-petty/devops-cli/issues/424)
-**PR**: None (Draft)
-**Status**: Backlog
+**Status**: Done
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/cli`, `priority/p2-medium`

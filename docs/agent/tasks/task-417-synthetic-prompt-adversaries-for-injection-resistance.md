@@ -1,7 +1,6 @@
 # Task 417: Synthetic Prompt Adversaries for Injection Resistance
 
 **Issue**: [#417](https://github.com/dan-petty/devops-cli/issues/417)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`

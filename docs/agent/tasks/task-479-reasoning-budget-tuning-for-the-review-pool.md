@@ -1,7 +1,6 @@
 # Task 479: Reasoning Budget Tuning for the Review Pool
 
 **Issue**: [#479](https://github.com/dan-petty/devops-cli/issues/479)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`

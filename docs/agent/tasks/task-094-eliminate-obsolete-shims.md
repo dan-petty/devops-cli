@@ -1,7 +1,6 @@
 # Task: Eliminate Obsolete Shims, Aliases, Proxy Wrappers, and Compatibility Remnants (#94)
 
-**Issue**: #94
-**PR**: #95
+**Issue**: [#94](https://github.com/dan-petty/devops-cli/issues/94)
 **Status**: Done
 **Milestone**: v0.2.15
 **Priority**: priority/p1-high

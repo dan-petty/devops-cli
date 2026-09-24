@@ -126,7 +126,11 @@ def load_project_template(
 
 
 def _determine_section_status(heading: str) -> str | None:
-    """Map a task markdown section heading to a standardized project status."""
+    """Map a task markdown section heading to a standardized project status.
+
+    Task files carry no review state: a project card takes `In Review` from the pull request
+    that closes its issue (`infer_item_status`), never from the file.
+    """
     clean = heading.lower().replace("-", " ")
     if "completed" in clean or "done" in clean:
         return "Done"
@@ -134,8 +138,6 @@ def _determine_section_status(heading: str) -> str | None:
         return "In Progress"
     if "pending" in clean or "backlog" in clean:
         return "Backlog"
-    if "review" in clean:
-        return "In Review"
     if "ready" in clean:
         return "Ready"
     return None

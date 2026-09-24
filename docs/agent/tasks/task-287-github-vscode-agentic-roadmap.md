@@ -1,8 +1,7 @@
 # Task 287 / 289: Strategic Roadmap Evolution for GitHub, VS Code & Grafana Observability
 
 **Issue**: [#287](https://github.com/dan-petty/devops-cli/issues/287), [#289](https://github.com/dan-petty/devops-cli/issues/289)
-**PR**: [#288](https://github.com/dan-petty/devops-cli/pull/288)
-**Status**: Merged
+**Status**: Done
 **Milestone**: `v0.2.21`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/ai`, `scope/docs`, `scope/ide`, `scope/telemetry`

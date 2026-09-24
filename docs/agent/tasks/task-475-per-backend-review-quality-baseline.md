@@ -1,7 +1,6 @@
 # Task 475: Per-Backend Review Quality Baseline
 
 **Issue**: [#475](https://github.com/dan-petty/devops-cli/issues/475)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`

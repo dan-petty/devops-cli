@@ -1,8 +1,7 @@
 # Task 339: Eliminate Duplicated Issue Text from Automatic GitHub Issue Reference Expansion in Release Epics
 
 **Issue**: [#339](https://github.com/dan-petty/devops-cli/issues/339)
-**PR**: Tracking PR targeting `release/v0.2.22`
-**Status**: Completed
+**Status**: Done
 **Milestone**: `v0.2.22`
 **Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/github`, `priority/p1-high`

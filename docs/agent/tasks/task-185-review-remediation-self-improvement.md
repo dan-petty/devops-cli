@@ -1,7 +1,6 @@
 # Task 185: Remediate Session 20260913-060209 Findings and Enhance Review Self-Improvement Loop
 
 **Issue**: [#185](https://github.com/dan-petty/devops-cli/issues/185)
-**PR**: [#186](https://github.com/dan-petty/devops-cli/pull/186)
 **Status**: Done
 **Milestone**: `v0.2.17`
 **Taxonomy**: `type/bug`, `scope/security`, `priority/high`, `status/done`
