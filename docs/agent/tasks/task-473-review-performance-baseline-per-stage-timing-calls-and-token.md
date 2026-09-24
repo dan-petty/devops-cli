@@ -1,7 +1,6 @@
 # Task 473: Review Performance Baseline Per-Stage Timing, Calls and Tokens on a Fixed Corpus
 
 **Issue**: [#473](https://github.com/dan-petty/devops-cli/issues/473)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`

@@ -1,7 +1,6 @@
 # Task 220: Support Main Branch Diffing and Base Resolution in Review Branch
 
 **Issue**: [#220](https://github.com/dan-petty/devops-cli/issues/220)
-**PR**: [#221](https://github.com/dan-petty/devops-cli/pull/221)
 **Status**: Done
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p1-high`

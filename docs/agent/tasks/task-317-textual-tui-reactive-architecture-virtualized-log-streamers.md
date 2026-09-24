@@ -1,7 +1,6 @@
 # Task 317: Textual TUI Reactive Architecture, Virtualized Log Streamers & Component Decoupling Research
 
 **Issue**: [#317](https://github.com/dan-petty/devops-cli/issues/317)
-**PR**: [#361](https://github.com/dan-petty/devops-cli/pull/361)
 **Status**: Done
 **Milestone**: `v0.2.22`
 **Priority**: `priority/p1-high`

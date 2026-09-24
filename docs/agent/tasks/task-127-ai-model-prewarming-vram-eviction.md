@@ -1,8 +1,7 @@
 # Task 127: Proactive Model Prewarming & VRAM Eviction Governance
 
 **Issue**: [#127](https://github.com/dan-petty/devops-cli/issues/127)
-**PR**: [#240](https://github.com/dan-petty/devops-cli/pull/240) (Merged)
-**Status**: Completed
+**Status**: Done
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p2-medium`
 **Scope**: `scope/ai`, `scope/cli`

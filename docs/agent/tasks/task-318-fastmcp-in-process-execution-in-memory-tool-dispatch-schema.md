@@ -1,8 +1,7 @@
 # Task 318: FastMCP In-Process Execution, In-Memory Tool Dispatch & Schema Caching Acceleration Research
 
 **Issue**: [#318](https://github.com/dan-petty/devops-cli/issues/318)
-**PR**: Tracking PR targeting `release/v0.2.22`
-**Status**: Completed
+**Status**: Done
 **Milestone**: `v0.2.22`
 **Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/mcp`, `priority/p0-critical`

@@ -1,8 +1,7 @@
 # Task 237: Rate Limit Quota Accuracy, Error Propagation, and GitHub CLI Hardening
 
 **Issue**: [#237](https://github.com/dan-petty/devops-cli/issues/237)
-**PR**: [#238](https://github.com/dan-petty/devops-cli/pull/238)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/github`, `scope/cli`

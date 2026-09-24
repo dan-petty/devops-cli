@@ -1,7 +1,6 @@
 # Task 158: Automatically Apply Formatting and Linting Across CLI and CI Commands
 
 **Issue**: [#158](https://github.com/dan-petty/devops-cli/issues/158)
-**PR**: [#159](https://github.com/dan-petty/devops-cli/pull/159)
 **Status**: Done
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p1-high`

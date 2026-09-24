@@ -1,8 +1,7 @@
 # Task 199: Deterministic Async Memory & Connection Pool Profiler
 
 **Issue**: [#199](https://github.com/dan-petty/devops-cli/issues/199)
-**PR**: [#200](https://github.com/dan-petty/devops-cli/pull/200)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p2-medium`
 **Scope**: `scope/test`

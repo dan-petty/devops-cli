@@ -1,8 +1,7 @@
 # Task 342: GitHub Projects v2 Built-In Workflows Inspection & Linking, Decommission Bot Project-Automation Workflow
 
 **Issue**: [#342](https://github.com/dan-petty/devops-cli/issues/342)
-**PR**: Tracking PR targeting `release/v0.2.22`
-**Status**: Completed
+**Status**: Done
 **Milestone**: `v0.2.22`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/github`, `priority/p1-high`

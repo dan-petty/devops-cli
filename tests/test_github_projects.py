@@ -85,7 +85,7 @@ def test_parse_tasks_to_project_items_from_directory(tmp_path: Path) -> None:
     task3 = tasks_dir / "task-003-audit.md"
     task3.write_text(
         "# Task: Security Egress Audit\n\n"
-        "- **Status**: In Review\n"
+        "- **Status**: Ready\n"
         "- **Issue**: #105\n\n"
         "Performing security audit.\n",
         encoding="utf-8",
@@ -111,7 +111,7 @@ def test_parse_tasks_to_project_items_from_directory(tmp_path: Path) -> None:
     assert items[3].status == "Done"
     # From task3
     assert items[4].title == "Security Egress Audit"
-    assert items[4].status == "In Review"
+    assert items[4].status == "Ready"
 
 
 def test_parse_tasks_to_project_items_nonexistent_raises(tmp_path: Path) -> None:

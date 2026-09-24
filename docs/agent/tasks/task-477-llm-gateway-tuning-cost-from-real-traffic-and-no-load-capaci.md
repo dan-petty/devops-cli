@@ -1,7 +1,6 @@
 # Task 477: LLM Gateway Tuning Cost From Real Traffic and No-Load Capacity Estimates
 
 **Issue**: [#477](https://github.com/dan-petty/devops-cli/issues/477)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`

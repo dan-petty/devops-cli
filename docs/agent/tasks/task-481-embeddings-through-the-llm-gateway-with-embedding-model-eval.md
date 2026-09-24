@@ -1,7 +1,6 @@
 # Task 481: Embeddings Through the LLM Gateway, With Embedding Model Evaluation
 
 **Issue**: [#481](https://github.com/dan-petty/devops-cli/issues/481)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`

@@ -1,8 +1,7 @@
 # Task 321: Security Scanners Unified SARIF Engine, Cross-Tool Deduplication & AST Autofix Synthesis Research
 
 **Issue**: [#321](https://github.com/dan-petty/devops-cli/issues/321)
-**PR**: [#363](https://github.com/dan-petty/devops-cli/pull/363)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.22`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/security`, `priority/p1-high`

@@ -1,7 +1,6 @@
 # Task 278: Living Mental Model Synthesizer & Causal Graph Distiller (`devops ai research model`)
 
 **Issue**: [#278](https://github.com/dan-petty/devops-cli/issues/278)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.21`
 **Priority**: `priority/p1-high`

@@ -1,8 +1,7 @@
 # Task 312: Valkey & Redis RESP3 Connection Pooling, Pipeline Batching & Tiered L1/L2 Cache Architecture Research
 
 **Issue**: [#312](https://github.com/dan-petty/devops-cli/issues/312)
-**PR**: [#356](https://github.com/dan-petty/devops-cli/pull/356)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.22`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`

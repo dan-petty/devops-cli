@@ -1,8 +1,7 @@
 # Task 460: Forward Ollama's Ranged Blob Requests Through Squid Unchanged
 
 **Issue**: [#460](https://github.com/dan-petty/devops-cli/issues/460)
-**PR**: [#461](https://github.com/dan-petty/devops-cli/pull/461)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/k8s`, `priority/p1-high`

@@ -1,7 +1,6 @@
 # Task 419: Publish Scanner Findings to Code Scanning
 
 **Issue**: [#419](https://github.com/dan-petty/devops-cli/issues/419)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`

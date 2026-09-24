@@ -1,8 +1,7 @@
 # Task 122: Distributed Threat Intelligence Valkey L2 Cache & Radar Batching
 
 **Issue**: [#122](https://github.com/dan-petty/devops-cli/issues/122)
-**PR**: [#215](https://github.com/dan-petty/devops-cli/pull/215)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.18`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/security`, `scope/valkey`

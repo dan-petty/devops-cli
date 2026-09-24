@@ -1,8 +1,7 @@
 # Task 139: Format AI Chat Responses as Rich Markdown When Syntax Detected
 
 **Issue**: [#139](https://github.com/dan-petty/devops-cli/issues/139)
-**PR**: TBD
-**Status**: In Progress
+**Status**: Done
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p2-medium`
 **Scope**: `scope/ai`

@@ -1,6 +1,6 @@
 # Task: Modularize Agent Task Tracking to Eliminate Merge Conflicts (#101)
 
-**Issue**: #101
+**Issue**: [#101](https://github.com/dan-petty/devops-cli/issues/101)
 **Status**: Done
 **Milestone**: v0.2.15
 **Priority**: priority/p1-high

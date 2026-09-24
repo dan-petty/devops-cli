@@ -1,7 +1,6 @@
 # Task 430: Capability-Gated Model Failover & AIMD Batch Recovery
 
 **Issue**: [#430](https://github.com/dan-petty/devops-cli/issues/430)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p0-critical`

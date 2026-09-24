@@ -1,8 +1,7 @@
 # Task 285: AI Request Priority Classification (Interactive, Regular, As-Available)
 
 **Issue**: [#285](https://github.com/dan-petty/devops-cli/issues/285)
-**PR**: [#286](https://github.com/dan-petty/devops-cli/pull/286)
-**Status**: Merged
+**Status**: Done
 **Milestone**: `v0.2.21`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/ai`, `scope/cli`, `scope/scheduler`

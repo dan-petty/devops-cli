@@ -1,8 +1,7 @@
 # Task 121: Centralized Logging Perimeter Hardening & Fluent Bit Namespace Scoping
 
 **Issue**: [#121](https://github.com/dan-petty/devops-cli/issues/121)
-**PR**: None
-**Status**: In Progress
+**Status**: Done
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/k8s`

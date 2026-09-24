@@ -1,7 +1,6 @@
 # Task 277: Cross-Domain Analogical Pattern Retriever (`devops ai research analogies`)
 
 **Issue**: [#277](https://github.com/dan-petty/devops-cli/issues/277)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.21`
 **Priority**: `priority/p1-high`

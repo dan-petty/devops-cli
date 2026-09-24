@@ -1,8 +1,7 @@
 # Task 245: Handle JSON Array Timeline Payload in PR Copilot State Parser
 
 **Issue**: [#245](https://github.com/dan-petty/devops-cli/issues/245)
-**PR**: [#246](https://github.com/dan-petty/devops-cli/pull/246)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.20`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/cli`, `scope/github`

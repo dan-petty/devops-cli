@@ -1,8 +1,7 @@
 # Task 407: Settings Load Caching
 
 **Issue**: [#407](https://github.com/dan-petty/devops-cli/issues/407)
-**PR**: None (Draft)
-**Status**: Backlog
+**Status**: Done
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/config`, `priority/p2-medium`

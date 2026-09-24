@@ -1,8 +1,7 @@
 # Task 280: Harden Exception Handling, Optimize Telemetry and Clean Data Tier
 
 **Issue**: [#280](https://github.com/dan-petty/devops-cli/issues/280)
-**PR**: [#281](https://github.com/dan-petty/devops-cli/pull/281)
-**Status**: Merged
+**Status**: Done
 **Milestone**: `v0.2.21`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/cli`, `scope/ai`

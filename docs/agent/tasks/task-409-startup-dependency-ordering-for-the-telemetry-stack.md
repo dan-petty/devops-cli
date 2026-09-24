@@ -1,7 +1,6 @@
 # Task 409: Startup Dependency Ordering for the Telemetry Stack
 
 **Issue**: [#409](https://github.com/dan-petty/devops-cli/issues/409)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`

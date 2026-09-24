@@ -1,8 +1,7 @@
 # Task 467: Review Routing Weighted by Backend Throughput
 
 **Issue**: [#467](https://github.com/dan-petty/devops-cli/issues/467)
-**PR**: [#468](https://github.com/dan-petty/devops-cli/pull/468)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`
 **Scope**: `type/bug`, `scope/k8s`, `scope/ai`, `priority/p2-medium`

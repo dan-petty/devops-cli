@@ -1,7 +1,6 @@
 # Task 438: OCI Container Image Packaging, Standardized Metadata & GHCR Package Integration
 
 **Issue**: [#438](https://github.com/dan-petty/devops-cli/issues/438)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`

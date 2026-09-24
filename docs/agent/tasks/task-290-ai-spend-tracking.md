@@ -1,8 +1,7 @@
 # Task 290: Track Approximate Lifetime Spend for AI/LLM Requests Per Backend Service/Server
 
 **Issue**: [#290](https://github.com/dan-petty/devops-cli/issues/290)
-**PR**: [#291](https://github.com/dan-petty/devops-cli/pull/291)
-**Status**: Merged
+**Status**: Done
 **Milestone**: `v0.2.21`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/ai`, `scope/telemetry`

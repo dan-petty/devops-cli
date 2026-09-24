@@ -1,7 +1,6 @@
 # Task 482: LLM Cache Effectiveness During Reviews Response Cache and Prefix Cache
 
 **Issue**: [#482](https://github.com/dan-petty/devops-cli/issues/482)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`

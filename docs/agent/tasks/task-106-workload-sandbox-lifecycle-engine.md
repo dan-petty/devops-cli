@@ -1,8 +1,7 @@
 # Task 106: Long-Running Workload Sandbox Lifecycle Engine
 
 **Issue**: [#106](https://github.com/dan-petty/devops-cli/issues/106)
-**PR**: [#157](https://github.com/dan-petty/devops-cli/pull/157)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.16`
 **Priority**: `priority/p0-critical`
 **Scope**: `scope/cli`

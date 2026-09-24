@@ -1,8 +1,7 @@
 # Task 330: Query All Milestone Issue States and Standalone PRs for Release PR Deliverables
 
 **Issue**: [#330](https://github.com/dan-petty/devops-cli/issues/330)
-**PR**: None (Merged)
-**Status**: Merged
+**Status**: Done
 **Milestone**: `v0.2.21`
 **Priority**: `priority/p1-high`
 **Scope**: `type/bug`, `scope/release`, `priority/p1-high`

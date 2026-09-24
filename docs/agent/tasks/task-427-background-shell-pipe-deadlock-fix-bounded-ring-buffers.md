@@ -1,8 +1,7 @@
 # Task 427: Background Shell Pipe Deadlock Fix & Bounded Ring Buffers
 
 **Issue**: [#427](https://github.com/dan-petty/devops-cli/issues/427)
-**PR**: None (Draft)
-**Status**: Backlog
+**Status**: Done
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`

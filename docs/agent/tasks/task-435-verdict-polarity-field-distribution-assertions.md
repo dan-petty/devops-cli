@@ -1,7 +1,6 @@
 # Task 435: Verdict Polarity & Field Distribution Assertions
 
 **Issue**: [#435](https://github.com/dan-petty/devops-cli/issues/435)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`

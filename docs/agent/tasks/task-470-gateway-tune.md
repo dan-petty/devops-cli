@@ -1,8 +1,7 @@
 # Task 470: Gateway Tuning, Slice 1: Measure Capacity and Cost per Backend, Recommend Weights
 
 **Issue**: [#470](https://github.com/dan-petty/devops-cli/issues/470)
-**PR**: [#484](https://github.com/dan-petty/devops-cli/pull/484)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/ai`, `scope/k8s`, `priority/p2-medium`

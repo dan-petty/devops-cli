@@ -1,8 +1,7 @@
 # Task 267: Replace Inconsistent N-Gate References with Gated Across Codebase and Docs
 
 **Issue**: [#267](https://github.com/dan-petty/devops-cli/issues/267)
-**PR**: [#268](https://github.com/dan-petty/devops-cli/pull/268)
-**Status**: In Progress
+**Status**: Done
 **Milestone**: `v0.2.20`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/cli`

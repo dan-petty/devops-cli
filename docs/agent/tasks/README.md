@@ -8,8 +8,9 @@ Historically, a monolithic `docs/agent/task.md` file was used for task tracking 
 
 1. **Zero Merge Conflicts**: Each topic or feature branch creates and edits **only its dedicated task file** (`docs/agent/tasks/task-<issue>-<slug>.md`). Because git treats distinct files independently, merging branches introduces zero conflicts.
 2. **Decommissioned Monolithic Index**: Centralized task visualization, roadmap tracking, and sprint management are managed natively through GitHub Projects v2 (`https://github.com/dan-petty/devops-cli/projects`) and GitHub Issues views (`https://github.com/dan-petty/devops-cli/issues/views`). No central index markdown file is maintained.
-3. **Commit Context Rule**: Updates to task tracking files **MUST ONLY** occur in the context of the commits delivering the feature/fix, or when merging/closing the PR. Standalone task-tracking commits are strictly prohibited.
-4. **Automated Project Synchronization**: `devops gh project sync` (and FastMCP `gh_project_sync`) natively inspects `docs/agent/tasks/` and synchronizes all task cards into GitHub Projects v2.
+3. **Commit Context Rule**: Updates to task tracking files **MUST ONLY** occur in the commit that delivers the feature or fix, written as the file should read once merged (`**Status**: Done`). Standalone task-tracking commits, including follow-ups that only add a pull request number, are strictly prohibited.
+4. **Issue-Only Linking**: A task file links its GitHub issue and nothing else. The issue links the pull request that closes it (`Closes #<issue>`), and GitHub shows that pull request on the issue. Task files never carry a pull request number or a review state: the number is unknown until the pull request exists, so recording it takes a second commit that re-runs every check.
+5. **Automated Project Synchronization**: `devops gh project sync` (and FastMCP `gh_project_sync`) natively inspects `docs/agent/tasks/` and synchronizes all task cards into GitHub Projects v2.
 
 ---
 
@@ -36,9 +37,8 @@ Each task file should follow this standard format:
 ```markdown
 # Task: <Feature / Bug / Refactor Title> (#<issue>)
 
-**Issue**: #<issue_number>
-**PR**: #<pr_number>
-**Status**: <Backlog | Ready | In Progress | In Review | Done>
+**Issue**: [#<issue_number>](https://github.com/dan-petty/devops-cli/issues/<issue_number>)
+**Status**: <Backlog | Ready | In Progress | Done>
 **Milestone**: v<version>
 **Priority**: <priority/p0-critical | priority/p1-high | priority/p2-medium | priority/p3-low>
 **Scope**: <scope/*>
@@ -59,12 +59,13 @@ Each task file should follow this standard format:
 
 ## Lifecycle States
 
-Task statuses align with GitHub Projects v2 and Kanban board views:
+A task file records one of four statuses. `tests/test_agent_task_files.py` enforces them, together with the issue link and the absence of a pull request field:
 - **Backlog**: Queued deliverable, awaiting assignment or active milestone start.
 - **Ready**: Scoped with concrete acceptance criteria and tests designed.
 - **In Progress (WIP)**: Active work item currently being authored. If an early PR is opened to share work, it must be a Draft Pull Request (`--draft`).
-- **In Review**: Pull Request opened and marked ready for review (or converted from draft via `devops pr ready`), with automated review and CI running.
-- **Done**: Pull Request merged, remote CI checks green, and issue closed.
+- **Done**: Written by the delivering pull request, which merges with the work and closes the issue.
+
+Review is not a task-file status. A GitHub Projects v2 card shows **In Review** while the pull request that closes its issue is open and ready for review; `devops gh project sync` derives it from GitHub (`infer_item_status`).
 
 ---
 

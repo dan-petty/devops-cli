@@ -1,8 +1,7 @@
 # Task 256: Fast CI Execution Caching & Pre-Commit File Change Tracking Integration
 
 **Issue**: [#256](https://github.com/dan-petty/devops-cli/issues/256)
-**PR**: [#257](https://github.com/dan-petty/devops-cli/pull/257)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.20`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/cli`

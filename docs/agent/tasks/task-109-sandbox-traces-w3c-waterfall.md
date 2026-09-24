@@ -1,8 +1,7 @@
 # Task 109: W3C Traceparent Propagation & Distributed Trace Correlation (`devops sandbox traces`)
 
 **Issue**: [#109](https://github.com/dan-petty/devops-cli/issues/109)
-**PR**: [#178](https://github.com/dan-petty/devops-cli/pull/178)
-**Status**: In Progress
+**Status**: Done
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/telemetry`
