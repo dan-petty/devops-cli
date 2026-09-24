@@ -36,7 +36,6 @@ _DOCS_MIME_TYPES: Final[frozenset[str]] = frozenset(
         "text/plain",
         "text/asciidoc",
         "text/x-tex",
-        "text/html",
     }
 )
 
@@ -182,48 +181,42 @@ def _classify_by_parser(content: str) -> FileContextType | None:
     return None
 
 
-def _classify_by_filename_and_ext(file_path: Path) -> FileContextType:
-    """Classify file context by canonical filename patterns and standard extensions."""
+def _classify_by_known_name(file_path: Path) -> FileContextType | None:
+    """Classify a file by a name or extension whose kind is known; None for any other."""
     name_lower = file_path.name.lower()
     suffix_lower = file_path.suffix.lower()
 
-    if name_lower in CONST_DOC_FILENAMES or suffix_lower in CONST_DOC_EXTENSIONS:
-        return FileContextType.DOCUMENTATION
-
     if (
         name_lower in CONST_CONFIG_FILENAMES
-        or name_lower.startswith(".env")
+        or name_lower.startswith((".env", "requirements"))
         or suffix_lower in CONST_CONFIG_EXTENSIONS
     ):
         return FileContextType.CONFIGURATION
-
     if suffix_lower in CONST_CODE_EXTENSIONS:
         return FileContextType.CODE
-
-    return FileContextType.CODE
+    if name_lower in CONST_DOC_FILENAMES or suffix_lower in CONST_DOC_EXTENSIONS:
+        return FileContextType.DOCUMENTATION
+    return None
 
 
 def classify_file_context(file_path: str | Path, content: str = "") -> FileContextType:
     """Classify file into Documentation, Configuration, or Code using multi-layered detection.
 
-    Applies shebang inspection, official MIME types, structural language parsers (Python AST,
-    JSON, YAML, TOML), and canonical filename/extension mappings.
+    A known name or extension decides first: content sniffing read a Python file opening with a
+    `# Copyright` comment, or a YAML document opening with `---`, as documentation, and the
+    documentation prompt tells reviewers not to flag the vulnerabilities a text describes. For
+    other files, a shebang, the MIME type, a structural parse and finally the opening lines
+    decide, and anything still unknown is reviewed as code.
     """
     p = Path(file_path) if isinstance(file_path, str) else file_path
-
-    by_shebang = _classify_by_shebang_and_header(content)
-    if by_shebang is not None:
-        return by_shebang
-
-    by_mime = _classify_by_mime(p)
-    if by_mime is not None:
-        return by_mime
-
-    by_parser = _classify_by_parser(content)
-    if by_parser is not None:
-        return by_parser
-
-    return _classify_by_filename_and_ext(p)
+    kind = (
+        _classify_by_known_name(p)
+        or (FileContextType.CODE if content.lstrip().startswith("#!") else None)
+        or _classify_by_mime(p)
+        or _classify_by_parser(content)
+        or _classify_by_shebang_and_header(content)
+    )
+    return kind or FileContextType.CODE
 
 
 def get_default_personas_for_context(context_type: FileContextType) -> list[str]:

@@ -1255,6 +1255,20 @@ CONST_CONFIG_FILENAMES: Final[frozenset[str]] = frozenset(
         "chart.yaml",
         "values.yaml",
         "kustomization.yaml",
+        "requirements.txt",
+        "constraints.txt",
+        "cmakelists.txt",
+        "makefile",
+        "gnumakefile",
+        "justfile",
+        "go.mod",
+        "go.sum",
+        "gemfile",
+        "pipfile",
+        "procfile",
+        "jenkinsfile",
+        "vagrantfile",
+        "brewfile",
     }
 )
 
@@ -1285,6 +1299,19 @@ CONST_CODE_EXTENSIONS: Final[frozenset[str]] = frozenset(
         ".zsh",
         ".sql",
         ".lua",
+        ".html",
+        ".htm",
+        ".j2",
+        ".jinja",
+        ".jinja2",
+        ".tmpl",
+        ".tpl",
+        ".hbs",
+        ".ejs",
+        ".vue",
+        ".svelte",
+        ".cmake",
+        ".mk",
     }
 )
 

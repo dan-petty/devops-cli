@@ -1715,9 +1715,42 @@ def _prepare_pr_content(
     pull = gh.get_pull(repo, number)
     diff = gh.get_pr_diff(repo, number)
     title = f"PR #{number}: {pull.title}"
-    agents_md = _load_agents_md(Path.cwd())
+    head_dir: Path | None = kwargs.get("head_dir")
+    if head_dir is not None:
+        _materialize_pr_head(gh, repo, pull, head_dir)
+    agents_md = _load_agents_md(head_dir or Path.cwd())
     pages = [redact_text(p) for p in diff_pages(diff, _MAX_DIFF_CHARS)]
     return pages, title, agents_md, pull, repo
+
+
+def _materialize_pr_head(gh: Any, repo: str, pull: Any, dest: Path) -> int:
+    """Write the PR head's version of each changed file, and its conventions, under `dest`.
+
+    A PR review's pages come from the PR's diff, but verification, the scanners and dependency
+    extraction read files from the review's target directory. That was the local checkout, which
+    holds another version of those files, or none, or another repository's under `--repo`.
+    Returns the number of files written.
+    """
+    from devops_cli.ai.review.review_environment import _TARGET_CONVENTIONS_CANDIDATES
+    from devops_cli.config.constants import CONST_REVIEW_CONVENTIONS_FILE
+
+    head_repo = getattr(getattr(pull.head, "repo", None), "full_name", None) or repo
+    changed = [f.filename for f in pull.get_files() if getattr(f, "status", "") != "removed"]
+    root = dest.resolve()
+    written = 0
+    for rel in dict.fromkeys(
+        [*changed, *_TARGET_CONVENTIONS_CANDIDATES, CONST_REVIEW_CONVENTIONS_FILE]
+    ):
+        target = (root / rel).resolve()
+        if not target.is_relative_to(root):
+            continue
+        text = gh.get_file_at(head_repo, rel, pull.head.sha)
+        if text is None:
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        written += 1
+    return written
 
 
 def _record_profile_findings(payloads: list[Any], candidates: int) -> None:
@@ -1805,7 +1838,11 @@ def _run_orchestrator_review(
             all_files, metadata_by_path, target_dir=target_dir, stage_flags=stage_flags
         )
     if not is_dry_run():
-        diff_map = {f: "\n".join([p for p in pages if f in p]) for f in all_files}
+        # Each file gets the pages whose headers name it; a substring match gave `a.py` the
+        # pages of `data.py` as well.
+        diff_map = {
+            f: "\n".join(p for p in pages if f in _extract_header_filenames(p)) for f in all_files
+        }
         with review_stage("persona_review"):
             orchestrator.execute_multi_persona_review(
                 payloads, diff_text_by_file=diff_map, personas=active_p, stage_flags=stage_flags
