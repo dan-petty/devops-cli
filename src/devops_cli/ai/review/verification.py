@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.client.network import limit_completion_tokens
+from devops_cli.ai.review.chunker import page_line_number
 from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import CONST_VERIFICATION_UNAVAILABLE
@@ -48,45 +49,68 @@ def _is_secret_path(path_str: str) -> bool:
     )
 
 
-def _extract_location_context(
-    segment: str, location: str, context_lines: int = DEFAULT_DIFF_CONTEXT_LINES
-) -> str:
-    """Extract the referenced file+line range from a segment's markdown code blocks."""
+def _parse_location(location: str) -> tuple[str, tuple[int, int] | None]:
+    """A finding location's file and line range, when it names one."""
     file_part = location.split(":")[0].strip()
-    line_range: tuple[int, int] | None = None
-    if ":" in location:
-        try:
-            nums = [int(x) for x in location.split(":", 1)[1].replace("-", " ").split()]
-            if nums:
-                line_range = (nums[0], nums[-1])
-        except ValueError:
-            pass
+    if ":" not in location:
+        return file_part, None
+    try:
+        nums = [int(x) for x in location.split(":", 1)[1].replace("-", " ").split()]
+    except ValueError:
+        return file_part, None
+    return file_part, (nums[0], nums[-1]) if nums else None
 
-    header = f"### File: {file_part}"
-    header_idx = segment.find(header)
-    if header_idx == -1:
-        basename = Path(file_part).name
-        for seg_line in segment.splitlines():
-            if seg_line.startswith("### File: ") and basename in seg_line:
-                header_idx = segment.find(seg_line)
-                break
-    if header_idx == -1:
-        return ""
 
+def _file_header_indexes(segment: str, file_part: str) -> list[int]:
+    """Offsets of the `### File:` headers of every part of one file in the segment.
+
+    The file is matched by path, or failing that by the first header containing its name.
+    """
+    headers = [
+        (m.start(), m[1].split(" (part ", 1)[0].strip())
+        for m in re.finditer(r"^### File: (.*)$", segment, re.MULTILINE)
+    ]
+    labels = [label for _, label in headers]
+    basename = Path(file_part).name
+    label = file_part if file_part in labels else next((x for x in labels if basename in x), None)
+    return [idx for idx, x in headers if x == label]
+
+
+def _fenced_code(segment: str, header_idx: int) -> str:
+    """The code inside the fence that follows a file header."""
     fence_open = segment.find("```", header_idx)
     if fence_open == -1:
         return segment[header_idx : header_idx + 2000]
     code_start = segment.find("\n", fence_open) + 1
     fence_close = segment.find("\n```", code_start)
-    code = segment[code_start : fence_close if fence_close != -1 else code_start + 4000]
+    return segment[code_start : fence_close if fence_close != -1 else code_start + 4000]
 
-    if line_range is None:
-        return code
 
-    lines = code.splitlines()
-    lo = max(0, line_range[0] - 1 - context_lines)
-    hi = min(len(lines), line_range[1] + context_lines)
-    return "\n".join(lines[lo:hi])
+def _extract_location_context(
+    segment: str, location: str, context_lines: int = DEFAULT_DIFF_CONTEXT_LINES
+) -> str:
+    """Extract the referenced file+line range from a segment's markdown code blocks.
+
+    Page lines carry their line numbers in the file, so the range is found by number across
+    every part of the file in the segment. Code without numbers is counted from its first line.
+    """
+    file_part, line_range = _parse_location(location)
+    codes = [_fenced_code(segment, idx) for idx in _file_header_indexes(segment, file_part)]
+    if not codes or line_range is None:
+        return codes[0] if codes else ""
+
+    lo, hi = line_range[0] - context_lines, line_range[1] + context_lines
+    numbered = [
+        (number, line)
+        for code in codes
+        for line in code.splitlines()
+        if (number := page_line_number(line)) is not None
+    ]
+    if numbered:
+        # Overlapping parts repeat lines; each is shown once, in file order.
+        return "\n".join(dict(sorted(p for p in numbered if lo <= p[0] <= hi)).values())
+    lines = codes[0].splitlines()
+    return "\n".join(lines[max(0, lo - 1) : min(len(lines), hi)])
 
 
 def _match_dep_to_filepath(dep: str, all_paths: set[str]) -> str | None:
