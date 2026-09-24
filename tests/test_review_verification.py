@@ -1088,7 +1088,6 @@ def test_a_dependency_the_scan_flagged_still_reports() -> None:
 _VERIFIER_PROMPT_RULES: tuple[str, ...] = (
     "PEP 758",
     "ImportError",
-    "mypy --strict",
     "CVE-2023-xxxx",
     "requires-python",
     "Authorization",
@@ -1098,8 +1097,6 @@ _VERIFIER_PROMPT_RULES: tuple[str, ...] = (
     "off-by-one",
     "CWE-400",
     "CWE-209",
-    "allow_private_network",
-    "CWE-200",
     "<masked-secret>",
     "__import__",
     "cacheFrom",
@@ -1111,12 +1108,25 @@ _VERIFIER_PROMPT_RULES: tuple[str, ...] = (
 )
 
 
+# Rules true of this repository only; they moved from the shared prompt to its own review
+# conventions, which the verifier receives when it checks this repository (#515).
+_OWN_REVIEW_CONVENTION_RULES: tuple[str, ...] = (
+    "mypy --strict",
+    "allow_private_network",
+    "CWE-200",
+)
+
+
 def test_the_verifier_prompt_still_carries_every_falsification_rule() -> None:
     """A rule dropped here reappears as a class of false positive nobody traces back."""
     from devops_cli.ai.task_loader import load_task_prompt
 
     prompt = load_task_prompt("verify_finding_system.md")
-    assert [rule for rule in _VERIFIER_PROMPT_RULES if rule not in prompt] == []
+    own = (Path(__file__).resolve().parents[1] / ".devops/review.md").read_text(encoding="utf-8")
+    assert (
+        [rule for rule in _VERIFIER_PROMPT_RULES if rule not in prompt],
+        [rule for rule in _OWN_REVIEW_CONVENTION_RULES if rule not in own],
+    ) == ([], [])
 
 
 # =============================================================================

@@ -39,10 +39,7 @@ from devops_cli.ai.review.classification import (
     get_default_personas_for_context,
 )
 from devops_cli.ai.review.flags import ReviewStageFlags
-from devops_cli.ai.review.review_environment import (
-    _get_reviews_base_dir,
-    _read_candidate_conventions_file,
-)
+from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.ai.review.sanitization import (
     _sanitize_filename,
     balance_markdown_fences,
@@ -71,6 +68,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
+    DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS,
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
 )
 from devops_cli.models.ai import FileAnalysisMeta
@@ -804,6 +802,7 @@ class ReviewPipelineOrchestrator:
         # Checks the findings llm_client produced; the same client unless one is given.
         self.verification_client = verification_client or self.llm_client
         self.errored_files: dict[str, str] = {}
+        self._conventions_by_dir: dict[Path, str] = {}
 
     def _resolve_file_path(self, fpath: str) -> Path:
         """Resolve fpath to an existing filesystem Path within target_dir or repo root."""
@@ -1427,22 +1426,36 @@ class ReviewPipelineOrchestrator:
 
     # ── Multi-Persona Code Content Review ──────────────────────────────────────
     def _read_target_conventions(self) -> str:
-        """Read and sanitize conventions from target repository."""
-        raw_conventions = _read_candidate_conventions_file(self.target_dir)
-        if not raw_conventions:
-            return ""
+        """The reviewed project's conventions, general and review-specific, sanitized once.
 
-        try:
-            from devops_cli.security.sanitizer import (
-                mask_secrets,
-                sanitize_prompt_boundary_tags,
-            )
+        Both are the nearest from the target up to its repository root, so a subproject's
+        conventions apply to it. The general file is trimmed to its opening; `.devops/review.md`
+        exists for review rules and is read in full up to its own cap.
+        """
+        if (cached := self._conventions_by_dir.get(self.target_dir)) is not None:
+            return cached
+        from devops_cli.ai.review.review_environment import (
+            nearest_conventions,
+            nearest_review_conventions,
+        )
+        from devops_cli.security.sanitizer import mask_secrets, sanitize_prompt_boundary_tags
 
-            clean_c_text = sanitize_prompt_boundary_tags(mask_secrets(raw_conventions[:3000]))
-            return f"\n\nTarget Repository Conventions:\n{clean_c_text}\n"
-        except Exception as exc:
-            logger.debug("Failed reading conventions: %s", exc)
-            return ""
+        sections = [
+            ("Target Repository Conventions", nearest_conventions(self.target_dir), 3000),
+            (
+                "Review Conventions (.devops/review.md)",
+                nearest_review_conventions(self.target_dir),
+                DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS,
+            ),
+        ]
+        rendered = [
+            f"{title}:\n{sanitize_prompt_boundary_tags(mask_secrets(text[:limit]))}"
+            for title, text, limit in sections
+            if text.strip()
+        ]
+        conventions = "\n\n" + "\n\n".join(rendered) + "\n" if rendered else ""
+        self._conventions_by_dir[self.target_dir] = conventions
+        return conventions
 
     def _build_multi_persona_pipeline(
         self, active_personas: list[str], target_conventions: str
@@ -1978,6 +1991,7 @@ class ReviewPipelineOrchestrator:
                 all_segments=[context],
                 client=self.verification_client,
                 repo_root=self.target_dir,
+                conventions=self._read_target_conventions(),
             )
             elapsed_sec = proc_sec if proc_sec is not None else (time.monotonic() - t_start)
             verified_list = review_res.findings
