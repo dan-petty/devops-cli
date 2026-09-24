@@ -54,11 +54,46 @@ def test_the_shared_verifier_prompt_holds_no_project_specific_rule(phrase: str) 
     assert phrase.lower() not in _SHARED_PROMPT.read_text(encoding="utf-8").lower()
 
 
+_AI_DIR = Path(__file__).resolve().parents[1] / "src/devops_cli/ai"
+_SHARED_REVIEW_PROMPTS = [
+    *(_AI_DIR / "tasks").glob("*review*.md"),
+    _AI_DIR / "tasks/verify_finding_system.md",
+    *(_AI_DIR / "personas").glob("*/prompt.md"),
+]
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "docs/ROADMAP.md",
+        "this repository",
+        "allow_private_network",
+        "homelab",
+        "RLock",
+        "Valkey",
+        "mypy --strict",
+        "catalogued false alarm",
+    ],
+)
+def test_no_shared_review_prompt_carries_a_project_rule(phrase: str) -> None:
+    """Verify persona and review prompts hold only rules true of any project (#515)."""
+    carriers = [
+        p.relative_to(_AI_DIR).as_posix()
+        for p in _SHARED_REVIEW_PROMPTS
+        if phrase.lower() in p.read_text(encoding="utf-8").lower()
+    ]
+
+    assert carriers == []
+
+
 def test_devops_cli_keeps_its_own_rules_in_its_review_conventions() -> None:
     """Verify the rules moved out of the shared prompt still apply to this repository."""
     own = _OWN_CONVENTIONS.read_text(encoding="utf-8")
 
-    assert all(phrase in own for phrase in ("mypy --strict", "allow_private_network", "RFC 1918"))
+    assert all(
+        phrase in own
+        for phrase in ("mypy --strict", "allow_private_network", "RFC 1918", "RLock", "is_symlink")
+    )
 
 
 def test_the_nearest_review_conventions_win(tmp_path: Path) -> None:
@@ -114,3 +149,29 @@ def test_the_verifier_prompt_shows_conventions_only_when_there_are_some() -> Non
         "<untrusted_project_conventions>\nRule A." in with_conventions,
         "untrusted_project_conventions" in without,
     ) == (True, False)
+
+
+def test_a_mitigated_finding_is_reported_with_its_mitigation() -> None:
+    """Verify a confirmed defect the verifier calls mitigated stays in the report, reason shown."""
+    from devops_cli.ai.review.verification import _apply_single_finding_verification
+
+    finding = Finding(
+        severity="HIGH",
+        location="paths.py:40",
+        title="safe_resolve_subpath allows traversal outside base_dir",
+        description="No containment check after resolve().",
+    )
+    verdict = {
+        "title": finding.title,
+        "mitigated": True,
+        "reason": "Symlinks are rejected at line 31, which limits but does not stop `../`.",
+    }
+
+    result = _apply_single_finding_verification(finding, verdict, "t")
+    saved = SavedFinding(**result.model_dump(), persona="devsecops")
+    section = ReviewPipelineOrchestrator._build_detailed_findings_section([saved])
+
+    assert (
+        (result.status, result.reportable),
+        any(line.startswith("- **Mitigation**: Symlinks are rejected") for line in section),
+    ) == (("MITIGATED", True), True)

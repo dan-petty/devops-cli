@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from devops_cli.ai.personas import PERSONAS, Persona
 
 
@@ -75,25 +77,35 @@ _REVIEW_PROMPT_RULES: tuple[str, ...] = (
     "headers = {}",
     "CWE-22",
     "CWE-59",
-    "is_symlink()",
     "DNS rebinding",
     "CWE-400",
     "CWE-209",
-    "threading.RLock",
-    "192.0.2.0/24",
-    "NetworkPolicy",
-    "PEP 758",
-    "OpenMetrics",
-    "common_hallucinations.json",
-    "feedback_dataset.jsonl",
     "NotImplementedError",
     "verification_criteria",
     "invalidation_criteria",
-    "ROADMAP.md",
     "APPROVE",
+)
+
+
+# Rules true of this repository only, moved from the shared prompt to its `.devops/review.md`,
+# which the reviewers receive when they review this repository (#515).
+_OWN_REVIEW_CONVENTION_RULES: tuple[str, ...] = (
+    "is_symlink()",
+    "threading.RLock",
+    "NetworkPolicy",
+    "PEP 758",
+    "OpenMetrics",
     "sanitize_prompt_injection",
     "mergeable_state",
     "response_repair.py",
+)
+# Removed on purpose (#515): the model never sees the catalog or the feedback dataset, an
+# improvement is not a finding, and private-address rules for documentation are a project's own.
+_REMOVED_REVIEW_PROMPT_RULES: tuple[str, ...] = (
+    "common_hallucinations.json",
+    "feedback_dataset.jsonl",
+    "ROADMAP.md",
+    "192.0.2.0/24",
 )
 
 
@@ -102,18 +114,28 @@ def test_the_review_prompt_still_carries_every_rule() -> None:
     from devops_cli.ai.personas import _TASKS_DIR, _load
 
     prompt = _load(_TASKS_DIR / "review.md")
-    assert [rule for rule in _REVIEW_PROMPT_RULES if rule not in prompt] == []
+    own = (Path(__file__).resolve().parents[1] / ".devops/review.md").read_text(encoding="utf-8")
+    assert (
+        [rule for rule in _REVIEW_PROMPT_RULES if rule not in prompt],
+        [rule for rule in _OWN_REVIEW_CONVENTION_RULES if rule not in own],
+        [rule for rule in _REMOVED_REVIEW_PROMPT_RULES if rule in prompt],
+    ) == ([], [], [])
 
 
-def test_host_specific_rules_are_marked_as_host_specific() -> None:
-    """The prompt forbids imposing this CLI's assumptions on another repository.
+def test_host_specific_rules_live_in_this_repositorys_conventions() -> None:
+    """The shared prompt forbids imposing one project's rules on another.
 
-    It then named `SqlitePlanStore`, `response_repair.py` and this repo's CI workflow among
-    its general inspection rules, so it contradicted itself on every target that is not
-    this one. Those rules are still there, under a heading that scopes them.
+    It once carried this repository's rules under a heading asking the model to ignore them
+    elsewhere, which every other target still received. They now live in this repository's
+    `.devops/review.md`, given to reviewers only when this repository is reviewed (#515).
     """
     from devops_cli.ai.personas import _TASKS_DIR, _load
 
     prompt = _load(_TASKS_DIR / "review.md")
-    scoped = prompt[prompt.index("### 4. When the target is this repository") :]
-    assert all(marker in scoped for marker in ("response_repair.py", "mergeable_state"))
+    own = (Path(__file__).resolve().parents[1] / ".devops/review.md").read_text(encoding="utf-8")
+    markers = ("response_repair.py", "mergeable_state")
+    assert (
+        [m for m in markers if m in prompt],
+        [m for m in markers if m not in own],
+        "When the target is this repository" in prompt,
+    ) == ([], [], False)

@@ -2315,6 +2315,8 @@ class ReviewPipelineOrchestrator:
             lines.append(f"- **Location**: `{clean_loc}`")
             lines.append(f"- **Persona**: {f.persona_title}")
             lines.append(f"- **Status**: {f.status}")
+            if f.status == "MITIGATED" and f.invalidation_reason:
+                lines.append(f"- **Mitigation**: {f.invalidation_reason.strip()}")
             desc_line = ReviewPipelineOrchestrator._format_markdown_description(f.description)
             if desc_line:
                 lines.append(desc_line)
@@ -2522,7 +2524,8 @@ class ReviewPipelineOrchestrator:
             panel_lines.extend(["", "[bold]Suggested Fix:[/bold]", clean_fix])
         if finding.invalidation_reason:
             clean_inv = escape_text(finding.invalidation_reason.strip())
-            panel_lines.extend(["", f"[bold yellow]Invalidation Reason:[/bold yellow] {clean_inv}"])
+            label = "Mitigation" if finding.status == "MITIGATED" else "Invalidation Reason"
+            panel_lines.extend(["", f"[bold yellow]{label}:[/bold yellow] {clean_inv}"])
         if finding.references:
             refs_list = (
                 finding.references

@@ -364,9 +364,10 @@ def test_format_related_file_block(tmp_path: Path) -> None:
             0.95,
         ),
         (
-            {"mitigated": True, "verified": False},
+            # A mitigation that names its mechanism stays in the report beside it (#515).
+            {"mitigated": True, "verified": False, "reason": "Input is bounded at line 12."},
             "MITIGATED",
-            False,
+            True,
             False,
             None,
         ),
@@ -1361,7 +1362,8 @@ def test_an_unadjudicated_finding_is_not_exported_as_human_reviewed() -> None:
         ),
         ({"status": "INVALIDATED", "reason": "The guard is on line 4."}, ("INVALIDATED", False)),
         ({"invalidated": "true"}, ("INVALIDATED", False)),
-        ({"status": "MITIGATED"}, ("MITIGATED", False)),
+        ({"status": "MITIGATED"}, ("UNVERIFIED", True)),
+        ({"status": "MITIGATED", "reason": "Quota checked at line 40."}, ("MITIGATED", True)),
     ],
 )
 def test_verdicts_are_read_as_the_model_meant_them(
