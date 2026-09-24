@@ -16,6 +16,7 @@ from devops_cli.ai.personas import Persona
 from devops_cli.ai.review.flags import resolve_stage_flags
 from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
+    CONST_REVIEW_CANDIDATES_FILENAME,
     CONST_STATUS_INVALIDATED,
 )
 from devops_cli.config.defaults import (
@@ -23,6 +24,7 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_MATCH_ALL_PATTERN,
     DEFAULT_REVIEW_BENCHMARK_RUNS,
+    DEFAULT_REVIEW_CORPUS_SEED,
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, set_dry_run
@@ -35,22 +37,39 @@ __all__ = [
 ]
 
 from devops_cli.ai.review import runner
+from devops_cli.ai.review.defects import (
+    CORPUS_FILES_DIR,
+    CorpusScore,
+    DefectCorpus,
+    InjectionOutcome,
+    generate_corpus,
+    score_corpus,
+    select_templates,
+)
 from devops_cli.ai.review.exporter import export_invalidated_feedback
 from devops_cli.ai.review.patching import stage_finding_patch
-from devops_cli.ai.review.profile import BenchmarkSummary, collect_profiles, summarize_profiles
+from devops_cli.ai.review.profile import (
+    BenchmarkSummary,
+    ReviewProfile,
+    collect_profiles,
+    summarize_profiles,
+)
 from devops_cli.ai.review.runner import (
     _build_path_prompt,
     _corpus_digest,
     _execute_review_workflow,
     _find_session_dir,
     _make_review_clients,
+    _nearest_conventions,
     _prepare_branch_content,
     _prepare_path_content,
     _prepare_pr_content,
+    _review_candidate_files,
 )
 from devops_cli.ai.review.sanitization import _build_prompt
 from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
+    SavedFinding,
     format_clean_text_field,
 )
 from devops_cli.config.settings import load_settings
@@ -1109,6 +1128,203 @@ def benchmark(
     summary = summarize_profiles(profiles)
     summary.corpus_digest = _corpus_digest(targets, pattern)
     _render_benchmark(summary, summary.write(runner._get_reviews_base_dir()))
+
+
+# =============================================================================
+# Commands: devops review corpus generate | score
+# =============================================================================
+
+corpus_app = new_typer(help=HELP.review.corpus, no_args_is_help=True)
+app.add_typer(corpus_app, name="corpus")
+
+CORPORA_DIRNAME = "corpora"
+
+
+def _corpus_sources(sources: list[Path], pattern: str) -> list[tuple[Path, str]]:
+    """The files a review of each source reads, under the source's name in the corpus."""
+    files: list[tuple[Path, str]] = []
+    for source in sources:
+        root = source.resolve()
+        if root.is_file():
+            files.append((root, root.name))
+            continue
+        files.extend(
+            (path, f"{root.name}/{path.relative_to(root).as_posix()}")
+            for path in _review_candidate_files(root, pattern)
+        )
+    return files
+
+
+@corpus_app.command("generate")
+def corpus_generate(
+    sources: Annotated[list[Path], typer.Argument(help=HELP.review.corpus_source)],
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", "-o", help=HELP.review.corpus_out),
+    ] = None,
+    seed: Annotated[
+        int,
+        typer.Option("--seed", help=HELP.review.corpus_seed),
+    ] = DEFAULT_REVIEW_CORPUS_SEED,
+    pattern: Annotated[
+        str,
+        typer.Option("--pattern", "-g", help=HELP.options.pattern),
+    ] = DEFAULT_MATCH_ALL_PATTERN,
+    template: Annotated[
+        list[str] | None,
+        typer.Option("--template", "-t", help=HELP.review.corpus_template),
+    ] = None,
+) -> None:
+    """Copy source files with one known defect injected into each, and record where."""
+    try:
+        templates = select_templates(template)
+    except ValueError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+    names = [source.resolve().name for source in sources]
+    corpus_dir = out or runner._get_reviews_base_dir() / CORPORA_DIRNAME / (
+        f"{'-'.join(names)}-{seed}"
+    )
+    if corpus_dir.exists() and any(corpus_dir.iterdir()):
+        print_error(f"{corpus_dir} already exists; choose another --seed or --out.")
+        raise typer.Exit(1)
+    if len(set(names)) < len(names):
+        print_error(
+            f"Sources must have distinct names, since each is a folder of the corpus: {names}"
+        )
+        raise typer.Exit(1)
+    corpus = generate_corpus(
+        _corpus_sources(sources, pattern),
+        corpus_dir,
+        sources=[str(source.resolve()) for source in sources],
+        seed=seed,
+        # One conventions file serves the corpus: the first source's, as its review would read.
+        conventions=_nearest_conventions(sources[0]),
+        templates=templates,
+    )
+    if not corpus.injections:
+        print_warning("No source file had a place for the selected defect templates.")
+        raise typer.Exit(1)
+    counts: dict[str, int] = {}
+    for injection in corpus.injections:
+        counts[injection.template] = counts.get(injection.template, 0) + 1
+    print_table(
+        title=f"{len(corpus.injections)} Injected Defect(s)",
+        columns=[("Template", "cyan"), ("Injections", "right")],
+        rows=[[name, str(count)] for name, count in sorted(counts.items())],
+    )
+    files_dir = corpus_dir / CORPUS_FILES_DIR
+    print_success(f"Corpus written → [bold]{corpus_dir}[/bold]")
+    print_info(f"Review it:  devops review path {files_dir} --all", prefix=False)
+    print_info(f"Score it:   devops review corpus score {corpus_dir}", prefix=False)
+    print_info(f"[dim]{corpus.caveat}[/dim]", prefix=False)
+
+
+def _corpus_session_dir(files_dir: Path, session: str | None) -> Path | None:
+    """The named session, or the latest one whose profile shows it reviewed the corpus."""
+    if session:
+        return _find_session_dir(session)
+    reviews_dir = runner._get_reviews_base_dir()
+    if not reviews_dir.exists():
+        return None
+    target = str(files_dir.resolve())
+    reviews = [
+        d
+        for d in reviews_dir.iterdir()
+        if (d / "findings.json").exists()
+        and (profile := ReviewProfile.load(d)) is not None
+        and profile.target == target
+    ]
+    return max(reviews, key=lambda d: d.name, default=None)
+
+
+def _session_findings(path: Path) -> list[SavedFinding]:
+    return ReviewSessionPayload.model_validate_json(path.read_text(encoding="utf-8")).findings
+
+
+def _injection_outcome(outcome: InjectionOutcome) -> str:
+    if outcome.reported:
+        return "reported"
+    if outcome.found:
+        return "found, then " + "/".join(sorted(set(outcome.statuses))).lower()
+    return "named the file elsewhere" if outcome.in_file else "missed"
+
+
+def _render_corpus_score(score: CorpusScore) -> None:
+    print_section(f" Synthetic Defect Recall: {score.session_id} ", style="bold cyan")
+    print_info(
+        f"Found: [bold]{score.found}/{score.injections}[/bold] ({score.recall_found:.0%}; "
+        f"{score.found_by_line} at their line); still reported after verification: "
+        f"[bold]{score.reported}/{score.injections}[/bold] ({score.recall_reported:.0%}); "
+        f"found then dropped: {score.dropped}; reported findings beyond the injections: "
+        f"{score.unmatched_findings}",
+        prefix=False,
+    )
+    print_table(
+        title="By Template",
+        columns=[
+            ("Template", "cyan"),
+            ("Injections", "right"),
+            ("Found", "right"),
+            ("Reported", "right"),
+        ],
+        rows=[
+            [name, str(t.injections), str(t.found), str(t.reported)]
+            for name, t in sorted(score.by_template.items())
+        ],
+    )
+    print_table(
+        title="Injections",
+        columns=[
+            ("Injection", "magenta"),
+            ("Template", "cyan"),
+            ("Outcome", ""),
+            ("Matched Findings", "dim"),
+        ],
+        rows=[
+            [
+                escape_text(f"{o.file}:{o.line}"),
+                o.template,
+                _injection_outcome(o),
+                escape_text("; ".join(dict.fromkeys(o.titles))),
+            ]
+            for o in score.outcomes
+        ],
+    )
+    print_info(f"[dim]{score.caveat}[/dim]", prefix=False)
+
+
+@corpus_app.command("score")
+def corpus_score(
+    corpus_dir: Annotated[Path, typer.Argument(help=HELP.review.corpus_dir)],
+    session: Annotated[
+        str | None,
+        typer.Option("--session", "-s", help=HELP.review.corpus_session),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+) -> None:
+    """Score a review of a corpus: which injected defects it found, and what verification kept."""
+    try:
+        corpus = DefectCorpus.load(corpus_dir)
+    except (OSError, ValueError) as exc:
+        print_error(f"No corpus manifest in {corpus_dir}: {exc}")
+        raise typer.Exit(1) from exc
+    files_dir = corpus_dir / CORPUS_FILES_DIR
+    session_dir = _corpus_session_dir(files_dir, session)
+    if session_dir is None or not (session_dir / "findings.json").exists():
+        print_error(f"No review of {files_dir} found; run: devops review path {files_dir}")
+        raise typer.Exit(1)
+    reported = _session_findings(session_dir / "findings.json")
+    candidates_file = session_dir / CONST_REVIEW_CANDIDATES_FILENAME
+    candidates = _session_findings(candidates_file) if candidates_file.exists() else reported
+    score = score_corpus(corpus, candidates, reported, session_id=session_dir.name)
+    if json_output:
+        write_stdout(score.model_dump_json(indent=2) + "\n")
+        return
+    _render_corpus_score(score)
 
 
 # =============================================================================

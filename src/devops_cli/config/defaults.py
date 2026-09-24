@@ -381,6 +381,8 @@ DEFAULT_REVIEW_VERIFICATION_REPLY_TOKENS_PER_FINDING: int = 384
 DEFAULT_REVIEW_VERIFICATION_REPLY_MAX_TOKENS: int = 8192
 # Runs per review benchmark; findings vary between identical runs, so medians need several.
 DEFAULT_REVIEW_BENCHMARK_RUNS: int = 3
+# Seed for synthetic defect corpora; the same seed and files give the same injections.
+DEFAULT_REVIEW_CORPUS_SEED: int = 1
 DEFAULT_REVIEW_LINE_OVERLAP_TOLERANCE: int = 2
 DEFAULT_REVIEW_TITLE_SIMILARITY_THRESHOLD: float = 0.5
 DEFAULT_REVIEW_MAX_TITLE_LENGTH: int = 200

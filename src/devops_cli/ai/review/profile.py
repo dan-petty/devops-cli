@@ -81,6 +81,14 @@ class ReviewProfile(BaseModel):
         path.write_text(self.model_dump_json(indent=2), encoding="utf-8")
         return path
 
+    @classmethod
+    def load(cls, session_dir: Path) -> ReviewProfile | None:
+        """The session's profile; None when it has none or it cannot be read."""
+        try:
+            return cls.model_validate_json((session_dir / PROFILE_FILENAME).read_text("utf-8"))
+        except OSError, ValueError:
+            return None
+
 
 class ReviewProfiler:
     """Collects stage timings and the LLM calls made during each stage."""

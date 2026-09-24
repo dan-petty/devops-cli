@@ -837,6 +837,23 @@ class ReviewCommandHelp:
         "File(s) or directory(ies) to review on every run; keep them fixed to compare benchmarks."
     )
     benchmark_runs: str = "Number of reviews to run; the report takes medians across them."
+    corpus: str = "Synthetic defect corpora: inject known defects into clean files and score reviews against them."
+    corpus_generate: str = (
+        "Copy source files with one known defect injected into each, and record where."
+    )
+    corpus_score: str = (
+        "Score a review of a corpus: which injected defects it found, and what verification kept."
+    )
+    corpus_source: str = "Clean file(s) or directory(ies) to inject defects into; each becomes a folder of the corpus."
+    corpus_out: str = (
+        "Corpus directory to create (default: corpora/<source>-<seed> under the reviews directory)."
+    )
+    corpus_seed: str = (
+        "Seed choosing each file's defect; the same seed and files give the same corpus."
+    )
+    corpus_template: str = "Defect template to inject (repeatable; default: all)."
+    corpus_dir: str = "Corpus directory created by `devops review corpus generate`."
+    corpus_session: str = "Review session to score (default: the latest review of the corpus)."
     export_feedback: str = "Export review findings to structured feedback files."
     patch_cmd: str = "Inspect or apply suggested remediation patches from review findings."
     target_path: str = "File(s) or directory(ies) to review."

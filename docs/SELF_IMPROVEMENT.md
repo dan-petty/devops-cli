@@ -220,6 +220,49 @@ same files several times with the response cache bypassed and saves the medians 
 `.data/reviews/benchmarks/`, with seconds per candidate finding and a digest of the reviewed files.
 Compare benchmarks only when their corpus digests match.
 
+### Synthetic Defect Corpora
+
+A review of a real repository cannot say what it missed, and the verifier labels what it found.
+`devops review corpus generate <sources>` copies the files a review would read and injects one known
+defect into each, recording where. It never writes into the sources. The templates:
+
+| Template | Injection |
+| :--- | :--- |
+| `drop-bounds-check` | Removes an `if <ordering test>: raise` guard (Python). |
+| `drop-path-containment` | Removes an `if not ...is_relative_to(...): raise` style guard (Python). |
+| `drop-await` | Removes an `await`, leaving a coroutine that never runs (Python). |
+| `unpin-image-tag` | Replaces a pinned image tag or digest with `latest` (YAML, Dockerfile). |
+| `unpin-action-ref` | Replaces a pinned GitHub Action ref with `main`. |
+| `disable-tls-verify` | Turns off certificate verification (`validate_certs`, `verify=`). |
+| `log-secrets` | Turns Ansible `no_log` off. |
+| `widen-file-mode` | Widens a private file mode such as `0600` to `0666`. |
+| `weaken-pod-security` | Flips `runAsNonRoot`, `readOnlyRootFilesystem`, `allowPrivilegeEscalation` or `privileged`. |
+
+The mutated files sit under `files/`, and the manifest sits beside that directory rather than in it,
+so the reviewer cannot read the answers. After `devops review path <corpus>/files --all`, run
+`devops review corpus score <corpus>`. It reports:
+
+- how many injections some finding matched, before verification;
+- how many were still reported after verification;
+- how many were found and then dropped;
+- the reported findings that match no injection.
+
+A finding matches an injection when it names the file and either:
+
+- points into the injection's region, within the line tolerance. A dropped guard leaves no line
+  behind, so its region runs from the enclosing function's start to ten lines past the guard.
+- names the injection's evidence: the changed value, the key it was set on, or the guard's
+  identifiers.
+
+Review pages do not number their lines yet (#499), so reported line ranges drift on long files and
+most matches come from the evidence. Both kinds of match can be wrong, so the score lists each
+injection with the titles of the findings it matched. Every review also writes `candidates.json`:
+all findings with their verification status, including the invalidated ones that `findings.json`
+leaves out.
+
+The score measures regression, not capability. A prompt can be tuned to find exactly the defects
+this generator knows how to inject, so every score carries that caveat.
+
 ---
 
 ## 5. Loop Failure Modes & Calibration Guardrails

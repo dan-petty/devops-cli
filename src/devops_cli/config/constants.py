@@ -317,6 +317,9 @@ CONST_GPU_MEMORY_BANDWIDTH_GBPS: Final[dict[str, float]] = {
 # Share of the context window a review page's diff may fill; the rest holds the persona system
 # prompt, instructions and the model's reply.
 CONST_REVIEW_PAGE_WINDOW_SHARE: Final[float] = 0.6
+# Every finding a review session produced, each with its verification status; findings.json keeps
+# only those still reported.
+CONST_REVIEW_CANDIDATES_FILENAME = "candidates.json"
 CONST_REVIEW_GENERATED_FILES = frozenset(
     {
         "uv.lock",

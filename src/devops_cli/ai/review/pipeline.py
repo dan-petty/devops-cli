@@ -66,6 +66,7 @@ from devops_cli.config.constants import (
     CONST_MAX_FILE_SIZE_BYTES,
     CONST_MAX_PROBE_FILE_SIZE_BYTES,
     CONST_PROBE_MANIFEST_NAMES,
+    CONST_REVIEW_CANDIDATES_FILENAME,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -2742,6 +2743,13 @@ class ReviewPipelineOrchestrator:
 
         findings_json_path = self.session_dir / "findings.json"
         findings_json_path.write_text(payload_out.model_dump_json(indent=2), encoding="utf-8")
+        candidates = ReviewSessionPayload(
+            generated_at=payload_out.generated_at,
+            findings=[f for payload in file_payloads for f in payload.findings],
+        )
+        (self.session_dir / CONST_REVIEW_CANDIDATES_FILENAME).write_text(
+            candidates.model_dump_json(indent=2), encoding="utf-8"
+        )
 
         reportable_findings = [
             f for f in all_findings if f.reportable and not f.is_empty and f.location.strip()
