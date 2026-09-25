@@ -13,6 +13,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.ci import CheckResult, app
+from devops_cli.core.repo import find_top_level_repo_root
 
 runner = CliRunner()
 
@@ -874,3 +875,106 @@ def test_image_change_detection_skips_unrelated_changes(image_change_repo: Path)
     code, _, output = _run_image_change_detection(image_change_repo, "main")
 
     assert (code, "changed=false" in output) == (0, True)
+
+
+def test_gate_checks_nested_worktree_not_main_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A gate run from a nested linked worktree checks that worktree, not the main checkout (#582).
+
+    A lint error present only in the worktree fails the gate, and one present
+    only in the main checkout passes the gate. The resolved root is also printed in the header.
+    """
+    from devops_cli.commands.ci import _get_project_root
+
+    main = tmp_path / "main_repo"
+    main.mkdir()
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(main),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "init",
+            "--quiet",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    (main / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    (main / "src").mkdir()
+    (main / "src" / "valid.py").write_text("VALID = 1\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(main), "add", "."], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(main),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "commit",
+            "--quiet",
+            "-m",
+            "initial",
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    nested_wt = main / ".claude" / "worktrees" / "branch-1"
+    subprocess.run(
+        ["git", "-C", str(main), "worktree", "add", "--quiet", "-b", "branch-1", str(nested_wt)],
+        check=True,
+        capture_output=True,
+    )
+
+    # 1. Project root resolution
+    monkeypatch.chdir(nested_wt)
+    assert (_get_project_root(), find_top_level_repo_root(nested_wt)) == (
+        nested_wt.resolve(),
+        main.resolve(),
+    )
+
+    called_cwds: list[Path] = []
+
+    async def mock_run_async(cmd, cwd=None, **kwargs):
+        cwd_path = Path(cwd) if cwd else Path.cwd()
+        called_cwds.append(cwd_path)
+        has_error = (cwd_path / "src" / "error.py").exists()
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=1 if has_error else 0,
+            stdout="" if not has_error else "SyntaxError: invalid syntax",
+            stderr="",
+        )
+
+    monkeypatch.setattr("devops_cli.core.process.run_subprocess_async", mock_run_async)
+    monkeypatch.setattr("devops_cli.commands.ci._verify_python_314_environment", lambda: True)
+
+    # 2. Error present ONLY in the worktree fails the gate
+    (nested_wt / "src" / "error.py").write_text("def broken(:\n", encoding="utf-8")
+    res_wt_fail = runner.invoke(app, ["--no-cache"])
+    assert (
+        res_wt_fail.exit_code != 0
+        and str(nested_wt.resolve()) in res_wt_fail.output
+        and all(c == nested_wt.resolve() for c in called_cwds)
+    )
+
+    # 3. Error present ONLY in the main checkout passes the gate when run from the worktree
+    (nested_wt / "src" / "error.py").unlink()
+    (main / "src" / "error.py").write_text("def broken(:\n", encoding="utf-8")
+    called_cwds.clear()
+
+    res_wt_pass = runner.invoke(app, ["--no-cache"])
+    assert (
+        res_wt_pass.exit_code == 0
+        and str(nested_wt.resolve()) in res_wt_pass.output
+        and all(c == nested_wt.resolve() for c in called_cwds)
+    )
