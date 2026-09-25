@@ -47,6 +47,7 @@ class Mechanism(StrEnum):
     GATEWAY_TUNE = "gateway-tune"
     PROMPT_EVAL = "prompt-eval"
     AI_BENCHMARK = "ai-benchmark"
+    TEMPLATE_SWEEP = "template-sweep"
 
 
 def digest(value: Any) -> str:
@@ -568,6 +569,10 @@ def extract_metrics(record: RunRecord) -> tuple[dict[str, float], dict[str, floa
     calls = res.get("median_llm_calls") or res.get("llm_calls") or res.get("total_calls")
     if isinstance(calls, (int, float)):
         metrics["llm_calls"] = round(float(calls), 1)
+    for key in ("total_sites", "parse_failures", "comment_collisions", "tested_mutations"):
+        val = res.get(key)
+        if isinstance(val, (int, float)):
+            metrics[key] = round(float(val), 1)
 
     return metrics, _extract_backend_shares(res)
 
@@ -680,8 +685,12 @@ def _evaluate_recall_verdict(m: MetricDiff, max_drop: float) -> MetricVerdict:
 def _evaluate_increase_verdict(
     m: MetricDiff, metric_name: str, max_increase: float
 ) -> MetricVerdict:
-    inc = (m.current_value - m.base_value) / m.base_value if m.base_value > 0 else 0.0
-    passed = inc <= max_increase
+    if m.base_value > 0:
+        inc = (m.current_value - m.base_value) / m.base_value
+        passed = inc <= max_increase
+    else:
+        inc = 1.0 if m.current_value > 0.0 else 0.0
+        passed = m.current_value <= 0.0
     reason = (
         f"{metric_name} increased by {inc:.1%}, exceeds tolerance {max_increase:.1%}"
         if not passed
@@ -716,6 +725,16 @@ def check_regression(
         verdicts.append(
             _evaluate_increase_verdict(
                 comparison.metrics["prompt_tokens"], "prompt_tokens", tol.max_tokens_increase
+            )
+        )
+    if "parse_failures" in comparison.metrics:
+        verdicts.append(
+            _evaluate_increase_verdict(comparison.metrics["parse_failures"], "parse_failures", 0.0)
+        )
+    if "comment_collisions" in comparison.metrics:
+        verdicts.append(
+            _evaluate_increase_verdict(
+                comparison.metrics["comment_collisions"], "comment_collisions", 0.0
             )
         )
     return RegressionReport(

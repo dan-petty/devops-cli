@@ -422,6 +422,64 @@ devops review samples validate [OPTIONS] <names>
 
 ---
 
+## `devops review templates`
+
+```bash
+devops review templates COMMAND [ARGS]...
+```
+
+### `devops review templates list`
+
+**List registered synthetic defect templates and their supported languages.**
+
+```bash
+devops review templates list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops review templates sweep`
+
+**Sweep synthetic defect templates over sample repositories, validating syntax and comment isolation.**
+
+```bash
+devops review templates sweep [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
+| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops review templates check`
+
+**Sweep synthetic defect templates over sample repositories, validating syntax and comment isolation.**
+
+```bash
+devops review templates check [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
+| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+---
+
 ## `devops review hallucinations`
 
 ```bash

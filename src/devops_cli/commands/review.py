@@ -18,6 +18,7 @@ from devops_cli.ai.personas import Persona
 from devops_cli.ai.review.flags import resolve_stage_flags
 from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
+    CONST_OUTPUT_FORMAT_TABLE,
     CONST_REVIEW_CANDIDATES_FILENAME,
     CONST_STATUS_INVALIDATED,
 )
@@ -31,6 +32,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, set_dry_run
 from devops_cli.lang import HELP, MESSAGES
+from devops_cli.output.serialization import emit_serialized, normalize_format
 
 __all__ = [
     "app",
@@ -41,8 +43,10 @@ __all__ = [
 from devops_cli.ai.review import runner
 from devops_cli.ai.review.defects import (
     CORPUS_FILES_DIR,
+    TEMPLATES,
     CorpusScore,
     DefectCorpus,
+    DefectTemplate,
     InjectionOutcome,
     generate_corpus,
     score_corpus,
@@ -86,6 +90,11 @@ from devops_cli.ai.review.samples import (
     samples_dir,
 )
 from devops_cli.ai.review.sanitization import _build_prompt
+from devops_cli.ai.review.template_sweep import (
+    TemplateSweepReport,
+    save_sweep_run,
+    sweep_templates,
+)
 from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
     SavedFinding,
@@ -1634,8 +1643,205 @@ def samples_validate(
 
 
 # =============================================================================
-# Commands: devops review hallucinations list | remove
+# Commands: devops review templates list | check | sweep
 # =============================================================================
+
+templates_app = new_typer(help=HELP.review.templates, no_args_is_help=True)
+app.add_typer(templates_app, name="templates")
+
+
+def _render_templates_table(templates: tuple[DefectTemplate, ...]) -> None:
+    rows = []
+    for t in templates:
+        suffixes = sorted({s for sfx_group, _ in t.finders for s in sfx_group})
+        rows.append([t.name, t.severity, ", ".join(suffixes), t.description])
+    print_table(
+        title="Synthetic Defect Templates",
+        columns=[
+            ("Template", "cyan"),
+            ("Severity", "magenta"),
+            ("Suffixes / Languages", "green"),
+            ("Description", "white"),
+        ],
+        rows=rows,
+    )
+
+
+def _render_sweep_summary(report: TemplateSweepReport) -> None:
+    status_str = "[green]✓ Pass[/green]" if report.passed else "[red]✗ Fail[/red]"
+    rows = [
+        ["Samples Checked", str(report.samples_checked)],
+        ["Files Checked", str(report.files_checked)],
+        ["Total Sites Found", str(report.total_sites)],
+        ["Tested Mutations", str(sum(report.checkers_run.values()))],
+        ["Untested Sites (Missing Checkers)", str(sum(report.checkers_not_run.values()))],
+        ["Parse Failures", str(len(report.parse_failures))],
+        ["Comment Collisions", str(len(report.comment_collisions))],
+        ["Overall Verdict", status_str],
+    ]
+    print_table(
+        title="Defect Template Sweep Summary",
+        columns=[("Metric", "cyan"), ("Value", "white")],
+        rows=rows,
+    )
+
+
+def _render_sweep_breakdowns(report: TemplateSweepReport) -> None:
+    if report.sites_per_template:
+        t_rows = [
+            [t, str(c)] for t, c in sorted(report.sites_per_template.items(), key=lambda x: -x[1])
+        ]
+        print_table(
+            title="Sites per Template",
+            columns=[("Template", "cyan"), ("Sites", "right")],
+            rows=t_rows,
+        )
+    if report.sites_per_category:
+        c_rows = [
+            [c, str(n)] for c, n in sorted(report.sites_per_category.items(), key=lambda x: -x[1])
+        ]
+        print_table(
+            title="Sites per Category",
+            columns=[("Category", "magenta"), ("Sites", "right")],
+            rows=c_rows,
+        )
+    ch_rows = [
+        [ch, str(n), "[green]Run[/green]"] for ch, n in sorted(report.checkers_run.items())
+    ] + [
+        [ch, str(n), "[yellow]Not Run (missing tool)[/yellow]"]
+        for ch, n in sorted(report.checkers_not_run.items())
+    ]
+    if ch_rows:
+        print_table(
+            title="Checker Execution Status",
+            columns=[("Checker", "cyan"), ("Mutations", "right"), ("Status", "white")],
+            rows=ch_rows,
+        )
+
+
+def _render_sweep_failures(report: TemplateSweepReport) -> None:
+    if report.parse_failures:
+        p_rows = [
+            [
+                f["template"],
+                f["sample"],
+                f"{f['file']}:{f['line']}",
+                f["checker"],
+                f.get("error", "") or "—",
+            ]
+            for f in report.parse_failures
+        ]
+        print_table(
+            title="[red]Syntax Parse Failures[/red]",
+            columns=[
+                ("Template", "cyan"),
+                ("Sample", "magenta"),
+                ("Location", "yellow"),
+                ("Checker", "white"),
+                ("Error", "red"),
+            ],
+            rows=p_rows,
+        )
+    if report.comment_collisions:
+        cc_rows = [
+            [c["template"], c["sample"], f"{c['file']}:{c['line']}"]
+            for c in report.comment_collisions
+        ]
+        print_table(
+            title="[red]Comment Collisions[/red]",
+            columns=[("Template", "cyan"), ("Sample", "magenta"), ("Location", "yellow")],
+            rows=cc_rows,
+        )
+
+
+@templates_app.command("list")
+def templates_list(
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format: table or json."),
+    ] = "table",
+) -> None:
+    """List registered synthetic defect templates and their supported languages."""
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        data = [
+            {
+                "name": t.name,
+                "severity": t.severity,
+                "description": t.description,
+                "suffixes": sorted({s for sfx_group, _ in t.finders for s in sfx_group}),
+            }
+            for t in TEMPLATES
+        ]
+        emit_serialized(data, resolved)
+        return
+    _render_templates_table(TEMPLATES)
+
+
+@templates_app.command("check")
+@templates_app.command("sweep")
+def templates_check(
+    template: Annotated[
+        list[str] | None,
+        typer.Option("--template", "-t", help=HELP.review.templates_names),
+    ] = None,
+    category: Annotated[
+        list[SampleCategory] | None,
+        typer.Option("--category", "-c", help=HELP.review.samples_category),
+    ] = None,
+    sample: Annotated[
+        list[str] | None,
+        typer.Option("--sample", "-s", help="Specific sample name(s) to check."),
+    ] = None,
+    save: Annotated[
+        bool,
+        typer.Option("--save/--no-save", help=HELP.review.templates_save),
+    ] = True,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format: table or json."),
+    ] = "table",
+) -> None:
+    """Sweep synthetic defect templates over sample repositories, validating syntax and comment isolation."""
+    try:
+        templates = select_templates(template)
+        samples = _select_samples(sample, category)
+    except ValueError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
+
+    root = samples_dir()
+    unfetched = [s.name for s in samples if checkout_problems(s, root / s.name)]
+    if unfetched:
+        print_error(
+            f"Not fetched at their pinned commits: {', '.join(unfetched)}. "
+            f"Run: devops review samples fetch {' '.join(unfetched)}"
+        )
+        raise typer.Exit(1)
+
+    report = sweep_templates(samples=samples, templates=templates, root=root)
+
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(mode="json"), resolved)
+    else:
+        _render_sweep_summary(report)
+        _render_sweep_breakdowns(report)
+        _render_sweep_failures(report)
+
+    if save:
+        saved = save_sweep_run(report, templates, samples, root=None)
+        announce_run(saved, to_stderr=(resolved != CONST_OUTPUT_FORMAT_TABLE))
+
+    if not report.passed:
+        print_error(
+            "Defect template sweep failed: one or more mutations failed syntax checks or collided with comments."
+        )
+        raise typer.Exit(1)
+
+    if resolved == CONST_OUTPUT_FORMAT_TABLE:
+        print_success("Defect template well-formedness sweep passed across all evaluated samples.")
+
 
 hallucinations_app = new_typer(help=HELP.review.hallucinations, no_args_is_help=True)
 app.add_typer(hallucinations_app, name="hallucinations")
