@@ -1,0 +1,23 @@
+# Task 602: AI Review Honours an Inline Intent Marker With a Quoted Reason
+
+**Issue**: [#602](https://github.com/dan-petty/devops-cli/issues/602)
+**Status**: Backlog
+**Milestone**: `v0.2.23`
+**Priority**: `priority/p2-medium`
+**Scope**: `type/feature`, `scope/ai`, `priority/p2-medium`
+
+---
+
+## 1. Description & Objectives
+
+Intent is read only by prompts (`ai/tasks/review.md:9`, `ai/personas/challenger/prompt.md:4`, `ai/tasks/verify_finding_system.md:33`); `AGENTS.md:401` forbids flagging fixtures, tutorials and explanatory comments. The one deterministic case, `_check_test_fixture_credential_hallucination` (`ai/review/verification.py:812`), invalidates a credential claim under a `tests`/`fixtures` path only when every cited value matches `_PLACEHOLDER_SECRET`. Nothing in `_deterministic_pre_verification` (`:1179`) reads a docstring or comment, so a finding on code that declares itself a negative fixture stays reportable. #435 added observed/expected polarity, not intent. vibes flagged an unused `stopCh` in a function commented "Flawed pattern: infinite loop without select on stopCh". That free-text comment would not match the marker proposed here: the value depends on repos adopting it, the trade-off `noqa` and `nosec` make.
+
+#### Key Deliverables:
+- Context & Rationale*: Intent is read only by prompts (`ai/tasks/review.md:9`, `ai/personas/challenger/prompt.md:4`, `ai/tasks/verify_finding_system.md:33`); `AGENTS.md:401` forbids flagging fixtures, tutorials and explanatory comments. The one deterministic case, `_check_test_fixture_credential_hallucination` (`ai/review/verification.py:812`), invalidates a credential claim under a `tests`/`fixtures` path only when every cited value matches `_PLACEHOLDER_SECRET`. Nothing in `_deterministic_pre_verification` (`:1179`) reads a docstring or comment, so a finding on code that declares itself a negative fixture stays reportable. #435 added observed/expected polarity, not intent. vibes flagged an unused `stopCh` in a function commented "Flawed pattern: infinite loop without select on stopCh". That free-text comment would not match the marker proposed here: the value depends on repos adopting it, the trade-off `noqa` and `nosec` make.
+- Deliverable*: Honour one project marker carrying a non-empty reason, and nothing else; AI findings carry no rule id, so `# nosec` cannot be matched. It counts only on the cited line, the line above, or the enclosing def's docstring, found with `construct_validator.collect_ast_constructs` and read via `_cited_window`. Python first; other languages later through tree-sitter comment nodes from grammars already pinned (`pyproject.toml:42-54`). A marked finding becomes MITIGATED with the marker line quoted in `invalidation_reason`, which reports already render as "Mitigation" (`ai/review/pipeline.py:2770`); no new status. Add golden cases (`tests/golden/review_findings.json`): a marked negative fixture comes out MITIGATED; an unmarked `shell=True` beside the word "deliberate" stays in `real_defects`. A second PR adds the diff guard and corpus check below.
+- Constraint*: `derive_recommendation` (`ai/review_schema.py:1103`) excludes MITIGATED from the merge verdict, so in `devops review pr` the diff author would control suppression. A marker on a line the diff adds or changes must not move the finding and is itself reported. A path or free-text keyword must never decide: `verify_finding_system.md:55` forbids invalidating a real vulnerability for where it lives, and matching "deliberate" repeats the single-word risk the catalog refuses (`common_hallucinations.py:1074`). `generate_corpus` (`ai/review/defects.py:1315`) must reject output carrying the marker, or measured recall inflates. SARIF is out of scope: `security/sarif.py` serves only `devops scan` (`commands/scan.py:839`).
+- Measured*: `.venv/bin/python probe/probe.py probe/value_intent_root` (scratch fixtures): of 3 findings, 2 on code whose docstring and comment declare it deliberate stayed UNVERIFIED with `reportable=True`; only the placeholder credential, which has no comment, was invalidated. `python3 -c "import json,collections; d=json.load(open('src/devops_cli/ai/review/common_hallucinations.json')); print(len(d), collections.Counter(i['category'] for i in d))"`: 1 of 27 builtin entries is `test_mocks`.
+- Source*: vibes `artifacts/prompts/multi-persona-code-reviewer.md`, vibes `patterns/findings-must-carry-their-own-falsification.md`
+- Unit and integration test coverage with structural tuple equality assertions.
+- Maintain cyclomatic complexity $M \le 10$ and nesting depth $\le 5$.
+- 100% passing across Gated CI validation suite (`uv run devops ci`).

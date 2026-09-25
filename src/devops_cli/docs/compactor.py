@@ -22,7 +22,7 @@ _SERIES_SUMMARY_TITLES: dict[str, str] = {
 _SERIES_ROADMAP_BULLETS: dict[str, list[str]] = {
     "v0.2": [
         "- [x] **Distributed Observability & Telemetry**: Prometheus client metrics, Jaeger distributed tracing waterfalls, Loki LogQL live log streaming, and OpenTelemetry traceparent propagation.",
-        "- [x] **Next-Gen PydanticAI Agent Architecture**: PydanticAI native subsystems, multi-turn reasoning buffers, prompt mutation testing, and human-in-the-loop feedback dataset export.",
+        "- [x] **Next-Gen PydanticAI Agent Architecture**: PydanticAI native subsystems, multi-turn reasoning buffers, and human-in-the-loop feedback dataset export.",
         "- [x] **Valkey Distributed Caching & Rate Limiting**: Pure-Python RESP3 wire protocol client, token-bucket rate limiter, and vector cache slashing LLM latency.",
         "- [x] **Code Intelligence, Tree-Sitter & Ingestion Engine**: Polyglot CST parser, library contract introspector, API drift auditor, and AST context packing.",
         "- [x] **Workload Sandboxing & Dynamic Runtime Security**: Rootless container sandbox, endpoint health probing, dynamic fuzzing, and base security scanner consolidation.",
@@ -32,7 +32,7 @@ _SERIES_ROADMAP_BULLETS: dict[str, list[str]] = {
 _SERIES_RELEASE_NOTES_BULLETS: dict[str, list[str]] = {
     "v0.2": [
         "- **Distributed Observability & Telemetry Triad**: Prometheus client metrics, Jaeger distributed tracing waterfalls, Loki LogQL terminal log streaming, and OpenTelemetry traceparent propagation.",
-        "- **PydanticAI Standardized Agent Framework**: 18 modernized agent subsystems, multi-turn reasoning buffers, prompt mutation testing, and human-in-the-loop feedback dataset export.",
+        "- **PydanticAI Standardized Agent Framework**: 18 modernized agent subsystems, multi-turn reasoning buffers, and human-in-the-loop feedback dataset export.",
         "- **Valkey Workstation Management & High-Performance Distributed Caching**: Pure-Python RESP3 wire protocol client, token-bucket rate limiter, and vector cache slashing LLM latency.",
         "- **Tree-Sitter Multilingual AST Graph & Polyglot Code Intelligence**: CST parsing across Python, TypeScript, Go, Rust, Java, and HCL with S-expression query resolution.",
         "- **Ephemeral Workload Sandboxing & Dynamic Probing**: Rootless container test harness, cgroup v2 metrics, protocol-agnostic health probing, and OpenAPI dynamic API fuzzing.",
