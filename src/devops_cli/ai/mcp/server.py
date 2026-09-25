@@ -2931,7 +2931,10 @@ _ARCHITECTURE_ANALYSIS_PROMPT_TEMPLATE = load_task_prompt("architecture_analysis
 @mcp.prompt()
 def code_review_prompt(persona: str = "devsecops", target: str = ".") -> str:
     """Prompt template for performing an AI code review with a specialized persona."""
-    return _CODE_REVIEW_PROMPT_TEMPLATE.format(persona=persona, target=target)
+    rendered = _CODE_REVIEW_PROMPT_TEMPLATE.format(target=target)
+    if persona:
+        return f"Persona: {persona}\n\n{rendered}"
+    return rendered
 
 
 @mcp.prompt()

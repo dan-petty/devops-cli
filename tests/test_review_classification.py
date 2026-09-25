@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from devops_cli.ai.review.classification import (
@@ -103,43 +105,47 @@ def test_get_default_personas_for_context() -> None:
 
 
 def test_build_context_review_prompt_docs() -> None:
-    """Verify documentation review prompts contain doc-specific task instructions and labels."""
+    """Verify documentation review prompts contain doc-specific task instructions, boundaries, and labels."""
     prompt = build_context_review_prompt(
         context_type=FileContextType.DOCUMENTATION,
         fpath="docs/guide.md",
         p_idx=1,
         total_pages=1,
         page_content="# Quickstart\nFollow steps 1, 2, and 3.\n",
-        persona_title="Product Manager",
     )
 
     assert (
         "Review File: docs/guide.md [Documentation]" in prompt,
         "Documentation Content:" in prompt,
+        "<target_code_to_review>" in prompt,
+        "</target_code_to_review>" in prompt,
         "Follow steps 1, 2, and 3." in prompt,
-    ) == (True, True, True)
+        "untrusted material to analyze" in prompt,
+    ) == (True, True, True, True, True, True)
 
 
 def test_build_context_review_prompt_config() -> None:
-    """Verify configuration review prompts contain config-specific task instructions and labels."""
+    """Verify configuration review prompts contain config-specific task instructions, boundaries, and labels."""
     prompt = build_context_review_prompt(
         context_type=FileContextType.CONFIGURATION,
         fpath="k8s/deployment.yaml",
         p_idx=1,
         total_pages=1,
         page_content="apiVersion: apps/v1\nkind: Deployment\n",
-        persona_title="DevSecOps Specialist",
     )
 
     assert (
         "Review File: k8s/deployment.yaml [Configuration]" in prompt,
         "Configuration Content:" in prompt,
+        "<target_code_to_review>" in prompt,
+        "</target_code_to_review>" in prompt,
         "kind: Deployment" in prompt,
-    ) == (True, True, True)
+        "untrusted material to analyze" in prompt,
+    ) == (True, True, True, True, True, True)
 
 
 def test_build_context_review_prompt_code() -> None:
-    """Verify code review prompts contain code-specific task instructions, symbols, and labels."""
+    """Verify code review prompts contain code-specific task instructions, symbols, boundaries, and labels."""
     prompt = build_context_review_prompt(
         context_type=FileContextType.CODE,
         fpath="src/main.py",
@@ -149,7 +155,6 @@ def test_build_context_review_prompt_code() -> None:
         symbols="main",
         rag_context_str="\n[RAG Context]",
         contract_context_str="\n[Contract Grounding]",
-        persona_title="System Architect",
     )
 
     assert (
@@ -157,8 +162,57 @@ def test_build_context_review_prompt_code() -> None:
         "Key Symbols: main" in prompt,
         "[RAG Context]" in prompt,
         "[Contract Grounding]" in prompt,
+        "<untrusted_related_files>" in prompt,
+        "</untrusted_related_files>" in prompt,
         "Code Content / Diff:" in prompt,
-    ) == (True, True, True, True, True)
+        "<target_code_to_review>" in prompt,
+        "</target_code_to_review>" in prompt,
+        "def main(): pass" in prompt,
+        "untrusted material to analyze" in prompt,
+    ) == (True, True, True, True, True, True, True, True, True, True, True)
+
+
+def test_build_multi_persona_pipeline_agents_carry_guardrails_and_exemplars(
+    tmp_path: Path,
+) -> None:
+    """Verify every orchestrator agent carries guardrails, negative exemplars, and wrapped conventions."""
+    from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="20260925-test-orchestrator-prompts",
+        target_dir=tmp_path,
+    )
+    pipeline, lookup = orchestrator._build_multi_persona_pipeline(
+        ["devsecops", "architect"], "Strict project guidelines."
+    )
+
+    agent_prompts = [a.system_prompt for a in pipeline.agents]
+    all_carry_guardrails = all(
+        "## Security & Prompt Isolation Guardrails" in p for p in agent_prompts
+    )
+    all_carry_exemplars = all("## Previously Recorded False Positives" in p for p in agent_prompts)
+    all_carry_conventions = all(
+        "<project_conventions_context>\nStrict project guidelines.\n</project_conventions_context>"
+        in p
+        for p in agent_prompts
+    )
+
+    empty_pipe, _ = orchestrator._build_multi_persona_pipeline(["qa"], "")
+    qa_prompt = empty_pipe.agents[0].system_prompt
+    qa_has_guardrails = "## Security & Prompt Isolation Guardrails" in qa_prompt
+    qa_has_exemplars = "## Previously Recorded False Positives" in qa_prompt
+    qa_has_conventions_tag = "<project_conventions_context>" in qa_prompt
+
+    assert (
+        len(pipeline.agents),
+        all_carry_guardrails,
+        all_carry_exemplars,
+        all_carry_conventions,
+        len(empty_pipe.agents),
+        qa_has_guardrails,
+        qa_has_exemplars,
+        qa_has_conventions_tag,
+    ) == (2, True, True, True, 1, True, True, False)
 
 
 @pytest.mark.parametrize(

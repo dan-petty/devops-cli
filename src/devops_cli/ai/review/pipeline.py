@@ -70,7 +70,6 @@ from devops_cli.ai.review_schema import (
     reset_verification_state,
     strip_outer_markdown_bold,
 )
-from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.ai.thinking_stream import extract_think_blocks
 from devops_cli.config.commands import (
     BIN_BANDIT,
@@ -126,8 +125,6 @@ from devops_cli.telemetry import ContextPropagatingThreadPoolExecutor as ThreadP
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
-
-_REVIEW_PIPELINE_EVAL = load_task_prompt("review_pipeline_eval.md")
 
 _UNIVERSAL_MODULES: set[str] = {
     "__future__",
@@ -1658,6 +1655,7 @@ class ReviewPipelineOrchestrator:
     ) -> tuple[MultiAgentPipeline[ReviewResult], dict[str, tuple[str, str]]]:
         """Build multi-agent pipeline with configured persona agents."""
         from devops_cli.ai.personas import Persona
+        from devops_cli.ai.review.classification import _persona_system_prompt
 
         pipeline = MultiAgentPipeline[ReviewResult](output_schema=ReviewResult)
         persona_lookup: dict[str, tuple[str, str]] = {}
@@ -1673,11 +1671,7 @@ class ReviewPipelineOrchestrator:
             p_def = PERSONAS.get(persona_enum, PERSONAS[Persona.DEVSECOPS])
             persona_lookup[p_def.title] = (p_val, p_def.title)
             persona_lookup[p_val] = (p_val, p_def.title)
-            sys_prompt = (
-                f"You are {p_def.title}.\n{p_def.system_prompt}\n\n"
-                f"{_REVIEW_PIPELINE_EVAL}\n"
-                f"{target_conventions}"
-            )
+            sys_prompt = _persona_system_prompt(p_def, target_conventions)
             agent = PydanticAgent[ReviewResult](
                 client=self.llm_client,
                 name=p_def.title,
@@ -1693,7 +1687,7 @@ class ReviewPipelineOrchestrator:
             agent = PydanticAgent[ReviewResult](
                 client=self.llm_client,
                 name=p_def.title,
-                system_prompt=f"You are {p_def.title}.\n{p_def.system_prompt}\n\n{_REVIEW_PIPELINE_EVAL}\n{target_conventions}",
+                system_prompt=_persona_system_prompt(p_def, target_conventions),
                 output_type=ReviewResult,
             )
             pipeline.add_agent(agent)

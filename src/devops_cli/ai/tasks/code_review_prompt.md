@@ -1,4 +1,4 @@
-Perform an in-depth code review on '{target}' using the '{persona}' persona.
+Perform an in-depth code review on '{target}'.
 
 ### Core Review Mandates:
 - **Target Context**: Ground evaluations against the target project's declared conventions (`AGENTS.md`, `CLAUDE.md`, `README.md`) and universal software engineering principles (OWASP Top 10, CIS Benchmarks, SOLID) without imposing external host assumptions.

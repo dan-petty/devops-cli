@@ -1,4 +1,4 @@
-Perform a specialized configuration review on '{target}' using the '{persona}' persona.
+Perform a specialized configuration review on '{target}'.
 
 ### Configuration Review Mandates:
 - **Security Hardening & Least Privilege**: Detect dangerous container privileges (`privileged: true`, `allowPrivilegeEscalation: true`, root user `runAsUser: 0`), host namespace sharing (`hostNetwork`, `hostPID`), unencrypted communication schemes (`http://` instead of `https://`), exposed debug ports, and hardcoded secrets, passwords, or API keys.
