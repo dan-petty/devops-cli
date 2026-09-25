@@ -1,4 +1,4 @@
-Perform a specialized documentation review on '{target}' using the '{persona}' persona.
+Perform a specialized documentation review on '{target}'.
 
 ### Documentation Review Mandates:
 - **Technical Accuracy & Consistency**: Verify that CLI subcommands, options, configuration keys, API parameters, and environment variables cited in the documentation accurately match actual code implementations without drift or missing options.

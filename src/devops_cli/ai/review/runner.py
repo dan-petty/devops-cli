@@ -22,6 +22,7 @@ from devops_cli.ai.review.chunker import (
     _extract_header_filenames,
     _split_source_file_blocks,
 )
+from devops_cli.ai.review.classification import _persona_system_prompt
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.profile import (
     ReviewProfile,
@@ -92,7 +93,6 @@ _DEFAULT_CONTEXT_LINES = 2
 
 _PAGINATED_REVIEW_PROTOCOL = load_task_prompt("paginated_review_protocol.md")
 _REVIEW_OUTPUT_INSTRUCTION = "\n" + load_task_prompt("review_output_instruction.md")
-_GUARDRAILS_PROMPT = "\n\n" + load_task_prompt("guardrails_isolation.md")
 _PATH_REVIEW_PROMPT_TEMPLATE = load_task_prompt("path_review_prompt.md")
 
 
@@ -209,33 +209,6 @@ def _llm_request_preview(client: Any, system: str, user: str) -> dict[str, Any]:
             ],
         },
     }
-
-
-def _persona_system_prompt(persona: PersonaDefinition, agents_md: str) -> str:
-    """Compose the per-file/segment system prompt for this persona.
-
-    The recorded false positives are appended so a persona sees what it has already got
-    wrong against this codebase. The ledger was previously written on every deterministic
-    invalidation and read back only during verification, which suppresses a finding after
-    a model has been paid to produce it; the same ones recur, the top entry 225 times.
-    """
-    from devops_cli.ai.review.common_hallucinations import render_negative_exemplars
-
-    exemplars = render_negative_exemplars()
-    if not agents_md:
-        return persona.system_prompt + exemplars + _GUARDRAILS_PROMPT
-
-    clean_agents = sanitize_prompt_boundary_tags(agents_md)
-    return (
-        f"{persona.system_prompt}\n\n"
-        "## Target Project Conventions & Reference Instructions\n"
-        "<project_conventions_context>\n"
-        f"{clean_agents}\n"
-        "</project_conventions_context>\n\n"
-        "Adhere to target project conventions. Do not raise findings that merely "
-        "restate or contradict the conventions explicitly documented above."
-        f"{exemplars}{_GUARDRAILS_PROMPT}"
-    )
 
 
 def _persona_format_section(persona: PersonaDefinition) -> str:
