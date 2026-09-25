@@ -6,7 +6,6 @@ import ast
 from pathlib import Path
 
 from devops_cli.ai.review.construct_validator import (
-    AstConstruct,
     collect_ast_constructs,
     extract_finding_construct_candidates,
     validate_construct_location,
