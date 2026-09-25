@@ -7,6 +7,7 @@ from typing import Annotated
 
 import typer
 
+from devops_cli.config.constants import CONST_OTEL_COLLECTOR_NAMESPACE, CONST_OTEL_COLLECTOR_SERVICE
 from devops_cli.config.defaults import DEFAULT_TELEMETRY_TEST_NAME
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
@@ -17,12 +18,14 @@ from devops_cli.output import (
     format_latency,
     format_link,
     format_status_badge,
+    print_error,
     print_info,
     print_success,
     print_table,
     render_dry_run_result,
 )
 from devops_cli.telemetry.tracer import (
+    OTelTelemetryClient,
     get_tracer,
     record_metric,
     trace_span,
@@ -125,6 +128,46 @@ def telemetry_status_cmd() -> None:
 # =============================================================================
 # Command: devops telemetry logfire
 # =============================================================================
+
+
+@app.command("connect")
+def telemetry_connect_cmd(
+    context: Annotated[
+        str | None, typer.Option("--context", help=HELP.telemetry.connect_context)
+    ] = None,
+    namespace: Annotated[
+        str, typer.Option("--namespace", "-n", help=HELP.telemetry.connect_namespace)
+    ] = CONST_OTEL_COLLECTOR_NAMESPACE,
+    service: Annotated[
+        str, typer.Option("--service", help=HELP.telemetry.connect_service)
+    ] = CONST_OTEL_COLLECTOR_SERVICE,
+    save: Annotated[
+        bool, typer.Option("--save/--no-save", help=HELP.telemetry.connect_save)
+    ] = True,
+) -> None:
+    """Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there."""
+    from devops_cli.config.settings import load_settings, save_settings
+    from devops_cli.telemetry.collector import CollectorNotFoundError, collector_endpoint
+
+    try:
+        endpoint = collector_endpoint(context, namespace, service)
+    except CollectorNotFoundError as exc:
+        print_error(f"Cannot find the collector: {exc}", prefix=False)
+        raise typer.Exit(1) from exc
+    reachable, health, latency_ms = OTelTelemetryClient(endpoint=endpoint).test_connection(
+        timeout=3.0
+    )
+    if not reachable:
+        print_error(f"The collector at {endpoint} does not answer: {health}", prefix=False)
+        raise typer.Exit(1)
+    if not save:
+        print_success(f"Collector at {endpoint} answers ({format_latency(latency_ms)})")
+        return
+    settings = load_settings()
+    settings.telemetry.endpoint = endpoint
+    settings.telemetry.enabled = True
+    save_settings(settings)
+    print_success(f"Telemetry now goes to {endpoint} ({format_latency(latency_ms)})")
 
 
 @app.command("logfire")
