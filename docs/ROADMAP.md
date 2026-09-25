@@ -234,7 +234,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Deliverable, in order*: First make criteria executable -- constrain the persona prompts and the finding schema so a criterion is either a command from a closed read-only allowlist or is explicitly marked unexecutable. Only then execute them in the bounded subprocess sandbox (`review_environment`), attach the captured output to the finding, and derive confidence from the outcomes.
   - *Constraint*: The second half is worthless without the first and cannot be tested against real data until it exists. Sequencing them the other way round is what put this at P0 on an assumption nobody measured.
   - *Already done*: the self-agreement confidence score is removed. `confidence_score` was computed as `len(verified_criteria_matched) / len(verification_criteria)` -- the model's claim about its own criteria, divided by the criteria it wrote -- which is why findings carried 0.95 while being refutable by reading one file. An absent score now stays absent, per the project rule that a score must come from a tool's rating or a structured model response.
-- [ ] **Construct-Aware Location Validation (P1 - High)**:
+- [x] **Construct-Aware Location Validation (P1 - High)**:
   - *Context & Rationale*: `_check_line_boundaries` invalidates a finding only when its line number exceeds the file length. A location that is in-bounds but points at unrelated code passes untouched, so a finding can describe a real defect while sending the reader — or an auto-fix stage — to the wrong construct. Observed: a genuine SSRF finding cited an HTML tag handler roughly 170 lines from the vulnerable function.
   - *Remediation*: After bounds checking, verify the cited span actually contains the construct the finding names (symbol, call, decorator, or literal) using the AST utilities already used by `_check_missing_symbol_hallucination`. On mismatch, attempt relocation by symbol search and record the correction; invalidate only when the construct is absent from the file entirely. Wrong-but-recoverable locations should be repaired, not discarded.
 - [ ] **False-Positive Rate Tracking Across Runs (P2 - Medium)**:
@@ -758,7 +758,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Mutation-Driven GitHub Cache Invalidation Hooks | Disk Cache / SQLite | High | Low | v0.3.5 | 📋 Scheduled (P1) |
 | **Major Projects** | Identity-Bound AI Review Verification Verdicts | Pydantic / Finding Reconciliation | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
 |  | Executable Verification Criteria | Bounded Subprocess Sandbox | High | High | v0.2.23 | 📋 Scheduled (P1) |
-|  | Construct-Aware Finding Location Validation | Python AST / Symbol Search | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
+|  | Construct-Aware Finding Location Validation | Python AST / Symbol Search | High | Medium | v0.2.23 | ✅ Completed (P1) |
 |  | Closed-Loop Hallucination Ledger & False-Positive Rate | JSON Ledger / Prompt Exemplars | High | Medium | v0.2.23 | 📋 Scheduled (P1) |
 |  | Verdict Polarity & Field Distribution Assertions | Pydantic Schema / Self-Test | Medium | Low | v0.2.23 | 📋 Scheduled (P2) |
 | **Major Projects** | LightLLM & Portkey AI Routing Services Integration | Portkey Gateway / LightLLM | High | High | v0.2.21 | ✅ Completed (P0) |

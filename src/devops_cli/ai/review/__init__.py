@@ -19,6 +19,12 @@ from devops_cli.ai.review.common_hallucinations import (
     register_common_hallucination,
     save_common_hallucinations,
 )
+from devops_cli.ai.review.construct_validator import (
+    AstConstruct,
+    collect_ast_constructs,
+    extract_finding_construct_candidates,
+    validate_construct_location,
+)
 from devops_cli.ai.review.contract_grounding import (
     format_contract_grounding_for_prompt,
     resolve_grounded_contracts,
@@ -49,6 +55,7 @@ from devops_cli.ai.review_schema import (
 )
 
 __all__ = [
+    "AstConstruct",
     "CommonHallucinationEntry",
     "CriterionExecutionResult",
     "FeedbackRecord",
@@ -66,12 +73,14 @@ __all__ = [
     "TokenBucketRateLimiter",
     "VerificationCriterion",
     "auto_record_invalidated_finding",
+    "collect_ast_constructs",
     "consolidate_duplicate_findings",
     "diff_pages",
     "diff_stream_chunks",
     "execute_criterion_command",
     "execute_finding_criteria",
     "export_invalidated_feedback",
+    "extract_finding_construct_candidates",
     "extract_imports_from_diff",
     "extract_imports_from_source",
     "extract_json_block",
@@ -88,5 +97,6 @@ __all__ = [
     "resolve_stage_flags",
     "save_common_hallucinations",
     "stage_finding_patch",
+    "validate_construct_location",
     "validate_criteria_command",
 ]

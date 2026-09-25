@@ -14,6 +14,7 @@ from typing import Any
 
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.review.chunker import page_line_number
+from devops_cli.ai.review.construct_validator import validate_construct_location
 from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import CONST_VERIFICATION_UNAVAILABLE
@@ -1193,6 +1194,10 @@ def _deterministic_pre_verification(
     code_res = _check_code_file_hallucinations(finding, file_path)
     if code_res:
         return code_res
+
+    finding = validate_construct_location(finding, file_path)
+    if finding.status in {"INVALIDATED", "MITIGATED"}:
+        return finding
 
     finding = _check_catalog_hallucination(finding, file_path)
     if finding.status in {"INVALIDATED", "MITIGATED"}:
