@@ -31,8 +31,7 @@ from devops_cli.ai.agents.capabilities import (
 from devops_cli.ai.agents.context import _check_path_traversal
 from devops_cli.ai.harness.filesystem import FileSystem
 from devops_cli.ai.repomap import generate_repo_map, parse_file_symbols
-from devops_cli.ai.review.stages.reporting import run_reporting_stage
-from devops_cli.ai.review.stages.static_scan import _resolve_target_path
+from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.commands.vault import _validate_vault_path
 from devops_cli.exceptions import SecurityError
 from devops_cli.output.console import print_dry_run_result
@@ -116,48 +115,46 @@ def test_parse_file_symbols_skips_giant_files(tmp_path: Path) -> None:
 
 
 # 4. Reporting stage session_dir containment verification
-def test_reporting_stage_rejects_session_dir_outside_root(tmp_path: Path) -> None:
-    outside_dir = Path("/opt/unauthorized_reviews/session_1")
+def test_review_session_dir_outside_root_is_refused(tmp_path: Path) -> None:
+    """A session directory outside the reviews, working or temporary directory, or through
+    `..`, is refused before anything is written there."""
     with pytest.raises(SecurityError, match="outside allowed root"):
-        run_reporting_stage(
-            session_id="20260904-999999",
-            session_dir=outside_dir,
-            reportable_findings=[],
-            all_deps=[],
-            all_nets=[],
-            n_files=0,
+        ReviewPipelineOrchestrator(
+            session_id="20260904-999999", session_dir=Path("/opt/unauthorized_reviews/session_1")
         )
 
-    traversal_dir = tmp_path / ".." / "traversal_reviews"
     with pytest.raises(SecurityError, match="Path traversal detected"):
-        run_reporting_stage(
-            session_id="20260904-999999",
-            session_dir=traversal_dir,
-            reportable_findings=[],
-            all_deps=[],
-            all_nets=[],
-            n_files=0,
+        ReviewPipelineOrchestrator(
+            session_id="20260904-999999", session_dir=tmp_path / ".." / "traversal_reviews"
         )
 
 
-# 5. Static scan target path resolution containment
-def test_resolve_target_path_rejects_outside_paths(tmp_path: Path) -> None:
+# 5. Review file path resolution containment
+def test_review_file_paths_stay_inside_the_target_and_repository(tmp_path: Path) -> None:
+    """Files named outside the review target and its repository, absolute or through `..`,
+    resolve to a missing in-target path rather than being read."""
     target_dir = tmp_path / "workspace"
     target_dir.mkdir()
-    repo_dir = tmp_path / "repo"
-    repo_dir.mkdir()
-
-    # Legitimate inside target_dir
     inside_file = target_dir / "main.py"
     inside_file.write_text("print('ok')", encoding="utf-8")
-    assert _resolve_target_path("main.py", target_dir, repo_dir) == inside_file.resolve()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="20260904-999999", target_dir=target_dir, session_dir=tmp_path / "session"
+    )
 
-    # Outside paths
-    with pytest.raises(SecurityError, match="outside allowed boundaries"):
-        _resolve_target_path("/etc/passwd", target_dir, repo_dir)
+    resolved = (
+        orchestrator._resolve_file_path("main.py"),
+        orchestrator._resolve_file_path(str(outside)),
+        orchestrator._resolve_file_path("../outside.txt"),
+    )
 
-    with pytest.raises(SecurityError, match="outside allowed boundaries"):
-        _resolve_target_path("../../outside.txt", target_dir, repo_dir)
+    assert resolved == (
+        inside_file.resolve(),
+        target_dir.resolve() / "outside.txt",
+        target_dir.resolve() / "outside.txt",
+    )
+    assert not resolved[1].exists()
 
 
 # 6. Context path traversal sequence rejection
