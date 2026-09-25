@@ -445,6 +445,122 @@ def canonicalize_finding_location(location: str) -> str:
     return loc
 
 
+class VerificationCriterion(BaseModel):
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    command: str | None = Field(
+        default=None,
+        description="Read-only allowlisted command to execute for verification or invalidation.",
+    )
+    description: str = Field(
+        default="",
+        description="Human-readable description of the condition or rationale if unexecutable.",
+    )
+    executable: bool = Field(
+        default=False,
+        description="Whether this criterion is an executable command from the allowlist.",
+    )
+
+    def __str__(self) -> str:
+        return self.command if (self.executable and self.command) else self.description
+
+    def __hash__(self) -> int:
+        return hash((self.command, self.description, self.executable))
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, str):
+            return other in (self.command, self.description)
+        if isinstance(other, VerificationCriterion):
+            return (self.command, self.description, self.executable) == (
+                other.command,
+                other.description,
+                other.executable,
+            )
+        return False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_criterion(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            text = data.strip()
+            from devops_cli.ai.review.review_environment import validate_criteria_command
+
+            is_valid, _, _ = validate_criteria_command(text)
+            if is_valid:
+                return {"command": text, "description": text, "executable": True}
+            return {"command": None, "description": text, "executable": False}
+        if isinstance(data, dict):
+            cmd = data.get("command")
+            cmd_str = str(cmd).strip() if cmd else None
+            desc = data.get("description") or (cmd_str if cmd_str else "")
+            is_exec = bool(data.get("executable", False))
+            if is_exec:
+                if not cmd_str:
+                    raise ValueError("Executable criterion requires a non-empty command")
+                from devops_cli.ai.review.review_environment import validate_criteria_command
+
+                is_valid, reason, _ = validate_criteria_command(cmd_str)
+                if not is_valid:
+                    raise ValueError(
+                        f"Criterion marked executable but command is not in closed read-only allowlist: {reason}"
+                    )
+            return {
+                "command": cmd_str,
+                "description": str(desc).strip(),
+                "executable": is_exec,
+            }
+        return data
+
+
+class CriterionExecutionResult(BaseModel):
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    command: str | None = None
+    description: str = ""
+    executable: bool = False
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    duration_seconds: float = 0.0
+    passed: bool = False
+    error: str | None = None
+
+    def __hash__(self) -> int:
+        return hash((self.command, self.exit_code, self.passed, self.error))
+
+
+def _parse_single_criterion(raw: Any) -> VerificationCriterion | None:
+    if isinstance(raw, VerificationCriterion):
+        return raw
+    try:
+        return VerificationCriterion.model_validate(raw)
+    except Exception:
+        if isinstance(raw, dict):
+            desc = str(raw.get("description") or raw.get("command") or "").strip()
+            return VerificationCriterion(command=None, description=desc, executable=False)
+        if isinstance(raw, str) and raw.strip():
+            return VerificationCriterion(command=None, description=raw.strip(), executable=False)
+        return None
+
+
+def _parse_finding_criteria(raw: Any) -> list[VerificationCriterion]:
+    """Parse criteria from list, stringified collection, or string."""
+    if isinstance(raw, list):
+        items = raw
+    elif isinstance(raw, str):
+        coll = _parse_stringified_collection(raw.strip())
+        items = coll if coll is not None else [raw.strip()]
+    else:
+        return []
+
+    result: list[VerificationCriterion] = []
+    for item in items:
+        crit = _parse_single_criterion(item)
+        if crit is not None and (crit.command or crit.description):
+            result.append(crit)
+    return result
+
+
 class Finding(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -474,12 +590,13 @@ class Finding(BaseModel):
         ),
     )
     references: list[str] = Field(default_factory=list)
-    verification_criteria: list[str] = Field(
+    verification_criteria: list[VerificationCriterion] = Field(
         default_factory=list, validation_alias=AliasChoices("verification_criteria", "verification")
     )
-    invalidation_criteria: list[str] = Field(
+    invalidation_criteria: list[VerificationCriterion] = Field(
         default_factory=list, validation_alias=AliasChoices("invalidation_criteria", "invalidation")
     )
+    criteria_execution_results: list[CriterionExecutionResult] = Field(default_factory=list)
     verified_criteria_matched: list[str] = Field(default_factory=list)
     invalidated_criteria_matched: list[str] = Field(default_factory=list)
     reportable: bool = True
@@ -552,8 +669,6 @@ class Finding(BaseModel):
 
     @field_validator(
         "references",
-        "verification_criteria",
-        "invalidation_criteria",
         "verified_criteria_matched",
         "invalidated_criteria_matched",
         mode="before",
@@ -561,6 +676,15 @@ class Finding(BaseModel):
     @classmethod
     def _clean_references(cls, v: object) -> list[str]:
         return _parse_finding_references(v)
+
+    @field_validator(
+        "verification_criteria",
+        "invalidation_criteria",
+        mode="before",
+    )
+    @classmethod
+    def _clean_criteria(cls, v: object) -> list[VerificationCriterion]:
+        return _parse_finding_criteria(v)
 
     @field_validator("severity", mode="before")
     @classmethod
@@ -805,6 +929,9 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
     inv_match = list(
         dict.fromkeys(base.invalidated_criteria_matched + other.invalidated_criteria_matched)
     )
+    crit_results = list(
+        dict.fromkeys(base.criteria_execution_results + other.criteria_execution_results)
+    )
     if not verified and (base.mitigated or other.mitigated):
         reportable = base.reportable and other.reportable
     else:
@@ -821,6 +948,7 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         "references": refs,
         "verification_criteria": ver_crit,
         "invalidation_criteria": inv_crit,
+        "criteria_execution_results": crit_results,
         "verified_criteria_matched": ver_match,
         "invalidated_criteria_matched": inv_match,
         "reportable": reportable,

@@ -28,13 +28,20 @@ from devops_cli.ai.review.flags import ReviewStageFlags, resolve_stage_flags
 from devops_cli.ai.review.patching import stage_finding_patch
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review.pool import ReviewWorkerPool, TokenBucketRateLimiter
+from devops_cli.ai.review.review_environment import (
+    execute_criterion_command,
+    execute_finding_criteria,
+    validate_criteria_command,
+)
 from devops_cli.ai.review.runner import ReviewClients
 from devops_cli.ai.review_schema import (
+    CriterionExecutionResult,
     FileReviewPayload,
     Finding,
     ReviewResult,
     ReviewSessionPayload,
     SavedFinding,
+    VerificationCriterion,
     consolidate_duplicate_findings,
     extract_json_block,
     normalize_unicode_text,
@@ -43,6 +50,7 @@ from devops_cli.ai.review_schema import (
 
 __all__ = [
     "CommonHallucinationEntry",
+    "CriterionExecutionResult",
     "FeedbackRecord",
     "FileReviewPayload",
     "Finding",
@@ -56,10 +64,13 @@ __all__ = [
     "ReviewWorkerPool",
     "SavedFinding",
     "TokenBucketRateLimiter",
+    "VerificationCriterion",
     "auto_record_invalidated_finding",
     "consolidate_duplicate_findings",
     "diff_pages",
     "diff_stream_chunks",
+    "execute_criterion_command",
+    "execute_finding_criteria",
     "export_invalidated_feedback",
     "extract_imports_from_diff",
     "extract_imports_from_source",
@@ -77,4 +88,5 @@ __all__ = [
     "resolve_stage_flags",
     "save_common_hallucinations",
     "stage_finding_patch",
+    "validate_criteria_command",
 ]

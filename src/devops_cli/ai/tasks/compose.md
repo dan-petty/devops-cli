@@ -36,8 +36,12 @@ Return ONLY a valid JSON object matching:
       "title": "Concise issue title",
       "description": "Root cause and impact analysis.",
       "fix": "Drop-in code or configuration remediation.",
-      "verification_criteria": ["Observable condition proving defect."],
-      "invalidation_criteria": ["Observable condition disproving defect."],
+      "verification_criteria": [
+        {"command": "git grep -n 'pattern' path/to/file.ext", "executable": true}
+      ],
+      "invalidation_criteria": [
+        {"description": "Observable condition disproving defect.", "executable": false}
+      ],
       "references": ["CWE-XXX", "OWASP-XXX"]
     }
   ],
