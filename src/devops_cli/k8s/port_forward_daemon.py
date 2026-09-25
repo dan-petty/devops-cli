@@ -72,7 +72,9 @@ class PortForwardDaemonManager:
     """Manages the lifecycle and state persistence of background kubectl port-forwards."""
 
     def __init__(self, state_file: Path | None = None) -> None:
-        self.state_file = state_file or _DEFAULT_STATE_FILE
+        from devops_cli.core.repo import resolve_data_path
+
+        self.state_file = resolve_data_path(state_file or _DEFAULT_STATE_FILE)
 
     def save_forwards(self, forwards: list[PortForwardInfo]) -> None:
         """Persist active forwards list to JSON file."""

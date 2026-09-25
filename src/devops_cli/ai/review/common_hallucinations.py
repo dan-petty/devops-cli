@@ -145,26 +145,24 @@ def get_common_hallucinations_file_path() -> Path:
     Respects DEVOPS_CLI_DATA_DIR environment override.
     """
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
+    from devops_cli.core.repo import resolve_data_path
+
     if env_dir:
-        from devops_cli.core.paths import safe_resolve_subpath
-        from devops_cli.core.repo import find_top_level_repo_root
+        from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+        from devops_cli.exceptions import SecurityError
 
         try:
-            repo_root = find_top_level_repo_root()
-            safe_dir = safe_resolve_subpath(repo_root, env_dir)
-            target = safe_dir / CONST_HALLUCINATIONS_FILE_NAME
+            validated = validate_no_path_traversal(env_dir, label="DEVOPS_CLI_DATA_DIR")
+            target_path = Path(validated) / CONST_HALLUCINATIONS_FILE_NAME
+            target = resolve_data_path(target_path)
+            if is_forbidden_system_path(target):
+                raise SecurityError(
+                    f"Hallucination catalog path outside allowed workspace: {target}"
+                )
         except Exception:
-            target = (Path(env_dir) / CONST_HALLUCINATIONS_FILE_NAME).resolve()
+            target = resolve_data_path(Path(env_dir) / CONST_HALLUCINATIONS_FILE_NAME)
     else:
-        target = DEFAULT_HALLUCINATIONS_FILE_PATH
-
-    if not target.is_absolute():
-        from devops_cli.core.repo import resolve_data_path
-
-        try:
-            target = resolve_data_path(target)
-        except Exception:
-            target = target.resolve()
+        target = resolve_data_path(DEFAULT_HALLUCINATIONS_FILE_PATH)
 
     target.parent.mkdir(parents=True, exist_ok=True)
     return target

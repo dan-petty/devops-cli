@@ -68,11 +68,13 @@ class PricingRegistry:
     """Registry maintaining AI model pricing with open-source updates and overrides."""
 
     def __init__(self, data_dir: Path | None = None) -> None:
+        from devops_cli.core.repo import resolve_data_path
+
         if data_dir is not None:
-            self.data_dir = data_dir
+            self.data_dir = resolve_data_path(data_dir)
         else:
             settings = load_settings()
-            self.data_dir = settings.data.dir
+            self.data_dir = resolve_data_path(settings.data.dir)
         self.ai_dir = self.data_dir / "ai"
         self.catalog_path = self.ai_dir / DEFAULT_AI_PRICING_CATALOG_FILENAME
         self.overrides_path = self.ai_dir / DEFAULT_AI_PRICING_OVERRIDES_FILENAME

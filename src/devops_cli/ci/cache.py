@@ -64,14 +64,16 @@ class CICacheEntry(BaseModel):
 def resolve_ci_cache_path() -> Path:
     """Resolve CI cache JSON file path honoring configuration and data directory."""
     from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
 
     try:
         settings = load_settings()
-        cache_dir = settings.data.cache_dir
+        raw_cache_dir = settings.data.cache_dir
     except Exception:
         env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
         base_dir = Path(env_dir) if env_dir else DEFAULT_DATA_DIR
-        cache_dir = base_dir / CONST_CACHE_DIR_NAME
+        raw_cache_dir = base_dir / CONST_CACHE_DIR_NAME
+    cache_dir = resolve_data_path(raw_cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir / CONST_CI_CACHE_FILENAME
 

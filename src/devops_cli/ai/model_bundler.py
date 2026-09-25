@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from devops_cli import __version__
-from devops_cli.config.defaults import DEFAULT_BUNDLE_MODELS, DEFAULT_MODELS_DATA_DIR
+from devops_cli.config.defaults import DEFAULT_BUNDLE_MODELS
 from devops_cli.exceptions.ai import ModelBundleError
 
 
@@ -31,22 +31,19 @@ def bundle_ollama_models(
     """
     if output_dir is not None:
         from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+        from devops_cli.core.repo import resolve_data_path
 
         target = validate_no_path_traversal(
             output_dir, error_cls=ModelBundleError, label="output directory"
         )
-        if target.is_absolute():
-            if is_forbidden_system_path(target):
-                raise ModelBundleError(f"Output directory outside allowed workspace: {output_dir}")
-            target = target.resolve()
-        else:
-            from devops_cli.core.paths import safe_resolve_subpath
-            from devops_cli.core.repo import find_top_level_repo_root
-
-            repo_root = find_top_level_repo_root()
-            target = safe_resolve_subpath(repo_root, target, error_cls=ModelBundleError)
+        target = target.resolve() if target.is_absolute() else resolve_data_path(target)
+        if is_forbidden_system_path(target):
+            raise ModelBundleError(f"Output directory outside allowed workspace: {output_dir}")
     else:
-        target = DEFAULT_MODELS_DATA_DIR
+        from devops_cli.config.settings import load_settings
+        from devops_cli.core.repo import resolve_data_path
+
+        target = resolve_data_path(load_settings().data.models_dir)
     target.mkdir(parents=True, exist_ok=True)
 
     model_list = models or list(DEFAULT_BUNDLE_MODELS)

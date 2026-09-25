@@ -42,7 +42,9 @@ def ingest_library(
     introspector = PackageIntrospector()
     try:
         contract = introspector.introspect_package(package_name, max_depth=max_depth)
-        target_dir = output_dir or Path(".data/libraries")
+        from devops_cli.core.repo import resolve_data_path
+
+        target_dir = resolve_data_path(output_dir or Path(".data/libraries"))
         saved_file = introspector.save_to_dir(contract, target_dir)
     except Exception as exc:
         print_error(f"Failed to ingest library '{package_name}': {exc}")
@@ -113,13 +115,15 @@ def ingest_docs(
 
 def _load_local_contracts(contracts_dir: Path) -> list[LibraryContract]:
     """Load all valid LibraryContract instances from a local directory."""
+    from devops_cli.core.repo import resolve_data_path
     from devops_cli.models.library import LibraryContract
 
     contracts: list[LibraryContract] = []
-    if not contracts_dir.exists():
+    target_dir = resolve_data_path(contracts_dir)
+    if not target_dir.exists():
         return contracts
 
-    for filepath in sorted(contracts_dir.glob("*.json")):
+    for filepath in sorted(target_dir.glob("*.json")):
         try:
             contract = LibraryContract.model_validate_json(filepath.read_text(encoding="utf-8"))
             contracts.append(contract)
@@ -258,9 +262,11 @@ def _build_runtime_vector_store(
 ) -> LibraryVectorStore:
     """Construct LibraryVectorStore wired with Qdrant, embedder, and Valkey clients if available."""
     from devops_cli.ai.rag.library_store import LibraryVectorStore
+    from devops_cli.core.repo import resolve_data_path
 
+    target_dir = resolve_data_path(contracts_dir)
     if dry_run:
-        return LibraryVectorStore(local_contracts_dir=contracts_dir)
+        return LibraryVectorStore(local_contracts_dir=target_dir)
 
     valkey_client = _resolve_runtime_valkey_client()
     qdrant_client, embedder = (
@@ -271,7 +277,7 @@ def _build_runtime_vector_store(
         qdrant_client=qdrant_client,
         valkey_client=valkey_client,
         embedder=embedder,
-        local_contracts_dir=contracts_dir,
+        local_contracts_dir=target_dir,
     )
 
 

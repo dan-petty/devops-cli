@@ -15,7 +15,7 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_MAX_CACHED_ANALYSES,
 )
-from devops_cli.core.repo import find_top_level_repo_root, resolve_data_path
+from devops_cli.core.repo import resolve_data_path
 from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions import SecurityError
 from devops_cli.lang import MESSAGES
@@ -55,11 +55,10 @@ def save_analysis_metadata(
 ) -> Path:
     """Save or update analysis metadata file under .data/analysis/."""
     sanitized_ref = sanitize_reference(target_reference, repo_root)
-    top_root = find_top_level_repo_root(repo_root)
     from devops_cli.config.settings import load_settings
 
     settings = load_settings()
-    analysis_dir = resolve_data_path(settings.data.analysis_dir, top_root).resolve()
+    analysis_dir = resolve_data_path(settings.data.analysis_dir, repo_root).resolve()
     if not is_dry_run():
         analysis_dir.mkdir(parents=True, exist_ok=True)
     out_file = (analysis_dir / f"{target_type}-{sanitized_ref}-metadata.json").resolve()
@@ -158,11 +157,10 @@ def _render_analysis_summary(payload: AnalysisMetadata, out_path: Path) -> None:
 
 def load_cached_analysis(repo_root: Path = DEFAULT_CURRENT_PATH) -> AnalysisMetadata | None:
     """Load latest cached AnalysisMetadata from top-level .data/analysis/ if present."""
-    top_root = find_top_level_repo_root(repo_root)
     from devops_cli.config.settings import load_settings
 
     settings = load_settings()
-    analysis_dir = resolve_data_path(settings.data.analysis_dir, top_root).resolve()
+    analysis_dir = resolve_data_path(settings.data.analysis_dir, repo_root).resolve()
     if not analysis_dir.is_dir():
         return None
     json_files = sorted(

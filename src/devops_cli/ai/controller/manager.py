@@ -63,12 +63,16 @@ devops_cli_ai_resumptions_total = _MetricCounterStub(_METRIC_RESUME_EVENTS)
 
 def _resolve_data_dir(custom_dir: Path | str | None = None) -> Path:
     """Resolve data directory adhering to environment and configuration overrides."""
+    from devops_cli.core.repo import resolve_data_path
+
     if custom_dir:
-        candidate = Path(custom_dir).resolve()
+        raw_path = Path(custom_dir)
     elif env_override := os.environ.get("DEVOPS_CLI_DATA_DIR"):
-        candidate = Path(env_override).resolve()
+        raw_path = Path(env_override)
     else:
-        candidate = load_settings().data.dir.resolve()
+        raw_path = load_settings().data.dir
+
+    candidate = resolve_data_path(raw_path)
 
     if is_forbidden_system_path(candidate):
         raise SecurityError(

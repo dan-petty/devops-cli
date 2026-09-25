@@ -174,7 +174,9 @@ def _get_baseline_cache_file(paths: Sequence[Path | str]) -> Path:
     key_source = "|".join(sorted(str(Path(p).resolve()) for p in paths))
     key_hash = hashlib.sha256(key_source.encode()).hexdigest()[:16]
     settings = load_settings()
-    cache_dir = Path(settings.data.dir).resolve() / "gitops"
+    from devops_cli.core.repo import resolve_data_path
+
+    cache_dir = resolve_data_path(settings.data.dir) / "gitops"
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir / f"manifest_baseline_{key_hash}.json"
 

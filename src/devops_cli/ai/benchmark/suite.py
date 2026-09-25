@@ -46,13 +46,16 @@ def _get_rank_badge(rank: int) -> str:
 
 def _resolve_suite_dataset_path(dataset_path: Path | None) -> Path:
     """Safely validate and resolve feedback dataset JSONL path."""
-    top_root = find_top_level_repo_root(Path.cwd())
+    from devops_cli.core.repo import main_worktree_root, resolve_data_path
+
+    main_root = main_worktree_root(Path.cwd())
     if dataset_path is None:
         settings = load_settings()
-        ds = settings.data.feedback_dataset_path
-        target_path = ds if ds.is_absolute() else (top_root / ds)
+        target_path = resolve_data_path(settings.data.feedback_dataset_path)
     else:
-        target_path = dataset_path if dataset_path.is_absolute() else (top_root / dataset_path)
+        target_path = (
+            dataset_path if dataset_path.is_absolute() else resolve_data_path(dataset_path)
+        )
 
     if target_path.is_symlink():
         raise SecurityError(f"dataset_path must not be a symbolic link: {target_path}")
@@ -61,7 +64,8 @@ def _resolve_suite_dataset_path(dataset_path: Path | None) -> Path:
     import tempfile
 
     allowed_roots = [
-        top_root.resolve(),
+        main_root.resolve(),
+        find_top_level_repo_root(Path.cwd()).resolve(),
         Path.cwd().resolve(),
         Path(tempfile.gettempdir()).resolve(),
     ]

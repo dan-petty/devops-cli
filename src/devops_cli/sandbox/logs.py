@@ -92,17 +92,20 @@ def resolve_incident_dir(base_dir: Path | None = None) -> Path:
             raise SecurityError(f"Incident base dir must not be a symlink: {base_dir}")
         return resolved
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
+    from devops_cli.core.repo import resolve_data_path
+
     if env_dir:
         validated_env = validate_no_path_traversal(env_dir, label="DEVOPS_CLI_DATA_DIR")
-        resolved_env = Path(validated_env).resolve()
+        target = Path(validated_env) / "sandbox" / "incidents"
+        resolved_env = resolve_data_path(target)
         if is_forbidden_system_path(resolved_env):
             raise SecurityError(
                 f"DEVOPS_CLI_DATA_DIR {resolved_env} resolves to a forbidden system path"
             )
         if Path(env_dir).is_symlink():
             raise SecurityError(f"DEVOPS_CLI_DATA_DIR must not be a symlink: {env_dir}")
-        return resolved_env / "sandbox" / "incidents"
-    return DEFAULT_SANDBOX_INCIDENTS_DIR
+        return resolved_env
+    return resolve_data_path(DEFAULT_SANDBOX_INCIDENTS_DIR)
 
 
 def archive_incident(incident: PanicIncident, base_dir: Path | None = None) -> Path:

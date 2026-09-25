@@ -21,10 +21,13 @@ logger = logging.getLogger(__name__)
 
 def get_default_sandbox_registry_path() -> Path:
     """Resolve default sandbox registry file path honoring DEVOPS_CLI_DATA_DIR."""
+    from devops_cli.core.repo import resolve_data_path
+
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
-    if env_dir:
-        return Path(env_dir) / "sandbox" / "instances.json"
-    return DEFAULT_SANDBOX_INSTANCES_FILE
+    target = (
+        Path(env_dir) / "sandbox" / "instances.json" if env_dir else DEFAULT_SANDBOX_INSTANCES_FILE
+    )
+    return resolve_data_path(target)
 
 
 class SandboxRegistry:

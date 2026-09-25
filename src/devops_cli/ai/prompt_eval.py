@@ -83,16 +83,22 @@ class PromptEvalBenchmarkResult(BaseModel):
         }
 
 
-def _resolve_dataset_path(dataset_path: Path | None, top_root: Path) -> Path:
+def _resolve_dataset_path(dataset_path: Path | None, main_root: Path) -> Path:
     """Resolve the dataset location, refusing anything outside the repository."""
+    from devops_cli.core.repo import resolve_data_path
+
     if dataset_path is None:
         configured = load_settings().data.feedback_dataset_path
-        target = configured if configured.is_absolute() else (top_root / configured)
+        target = resolve_data_path(configured, main_root)
     else:
         from devops_cli.core.paths import validate_no_path_traversal
 
         validate_no_path_traversal(dataset_path, label="dataset_path")
-        target = dataset_path if dataset_path.is_absolute() else (top_root / dataset_path)
+        target = (
+            dataset_path
+            if dataset_path.is_absolute()
+            else resolve_data_path(dataset_path, main_root)
+        )
 
     if target.is_symlink():
         raise SecurityError(f"dataset_path must not be a symbolic link: {target}")
@@ -153,8 +159,11 @@ def evaluate_persona_prompts(
     over-suppresses, or that verdict was itself a false positive. Both counts are reported
     rather than netted, because they are not interchangeable.
     """
-    top_root = find_top_level_repo_root(Path.cwd())
-    records = _load_records(_resolve_dataset_path(dataset_path, top_root), persona)
+    from devops_cli.core.repo import main_worktree_root
+
+    worktree_root = find_top_level_repo_root(Path.cwd())
+    main_root = main_worktree_root(worktree_root)
+    records = _load_records(_resolve_dataset_path(dataset_path, main_root), persona)
 
     labelled_invalidated = 0
     labelled_verified = 0
@@ -163,7 +172,7 @@ def evaluate_persona_prompts(
 
     for record in records:
         label = str(record.get("status") or "")
-        verdict = _deterministic_verdict(record, top_root)
+        verdict = _deterministic_verdict(record, worktree_root)
         suppressed = verdict == CONST_STATUS_INVALIDATED
         if label == CONST_STATUS_INVALIDATED:
             labelled_invalidated += 1

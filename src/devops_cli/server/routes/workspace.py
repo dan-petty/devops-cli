@@ -9,7 +9,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from devops_cli.config.settings import Settings
-from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.core.repo import main_worktree_root
 
 router = APIRouter(prefix="/api/v1", tags=["Workspaces & Config"])
 
@@ -78,10 +78,14 @@ def _discover_workspace_repositories(repos_dir: Path) -> list[RepositoryInfo]:
     return repos
 
 
-@router.get("/workspaces", response_model=WorkspacesResponse, summary="List workspace repositories")
+@router.get(
+    "/workspaces",
+    response_model=WorkspacesResponse,
+    summary="List workspace repositories",
+)
 async def list_workspaces() -> WorkspacesResponse:
     """Discover repositories and devcontainer configurations in the current workspace."""
-    root = find_top_level_repo_root()
+    root = main_worktree_root()
     return WorkspacesResponse(
         workspace_root=str(root.resolve()),
         repositories=_discover_workspace_repositories(root / "repos"),

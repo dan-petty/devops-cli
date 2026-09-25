@@ -259,7 +259,9 @@ class LibraryDriftAuditor:
     """Audits workspace call sites against indexed library contracts to detect drift."""
 
     def __init__(self, contracts_dir: Path | None = None) -> None:
-        self.contracts_dir = contracts_dir or Path(".data/libraries")
+        from devops_cli.core.repo import resolve_data_path
+
+        self.contracts_dir = resolve_data_path(contracts_dir or Path(".data/libraries"))
 
     def _load_contracts(self, package_filter: str | None = None) -> dict[str, LibraryContract]:
         contracts: dict[str, LibraryContract] = {}

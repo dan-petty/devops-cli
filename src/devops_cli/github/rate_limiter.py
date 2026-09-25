@@ -1137,9 +1137,11 @@ _GLOBAL_LOCK = threading.RLock()
 
 def resolve_quota_cache_path() -> Path:
     """Resolve GitHub quota cache path honoring DEVOPS_CLI_DATA_DIR."""
+    from devops_cli.core.repo import resolve_data_path
+
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     base_dir = Path(env_dir) if env_dir else DEFAULT_DATA_DIR
-    return base_dir / CONST_CACHE_DIR_NAME / CONST_GH_QUOTA_CACHE_FILENAME
+    return resolve_data_path(base_dir / CONST_CACHE_DIR_NAME / CONST_GH_QUOTA_CACHE_FILENAME)
 
 
 def reset_github_rate_limiter() -> None:

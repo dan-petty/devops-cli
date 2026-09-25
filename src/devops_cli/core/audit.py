@@ -89,9 +89,11 @@ def _resolve_audit_log_dest(log_file: Path | None) -> Path:
     if "DEVOPS_CLI_AUDIT_LOG_DEST" in os.environ:
         candidate = Path(os.environ["DEVOPS_CLI_AUDIT_LOG_DEST"]).resolve()
         data_dir_env = os.environ.get("DEVOPS_CLI_DATA_DIR")
-        allowed_roots = [DEFAULT_DATA_DIR.resolve()]
+        from devops_cli.core.repo import resolve_data_path
+
+        allowed_roots = [resolve_data_path(DEFAULT_DATA_DIR)]
         if data_dir_env:
-            allowed_roots.append(Path(data_dir_env).resolve())
+            allowed_roots.append(resolve_data_path(Path(data_dir_env)))
         if not any(candidate.is_relative_to(root) for root in allowed_roots):
             raise SecurityError(
                 f"DEVOPS_CLI_AUDIT_LOG_DEST must be within {allowed_roots[0]}; got {candidate}"

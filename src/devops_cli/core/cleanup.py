@@ -9,8 +9,6 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from devops_cli.config.defaults import DEFAULT_DATA_DIR
-from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -25,23 +23,48 @@ class CleanupSummary(BaseModel):
     dry_run: bool = False
 
 
+def _is_dedicated_data_dir(data_dir: Path, main_root: Path, repo_root: Path) -> bool:
+    """Predicate verifying target directory is a safe, dedicated data storage tier."""
+    if not data_dir.exists() or not data_dir.is_dir():
+        return False
+    from devops_cli.core.paths import is_forbidden_system_path
+
+    resolved_data = data_dir.resolve()
+    resolved_main = main_root.resolve()
+    resolved_repo = Path(repo_root).resolve()
+
+    if is_forbidden_system_path(resolved_data) or resolved_data in {
+        Path("/"),
+        Path.home().resolve(),
+    }:
+        return False
+    if resolved_data == resolved_main or resolved_data == resolved_repo:
+        return False
+    return resolved_data.name in {".data", "data"} or resolved_data.is_relative_to(resolved_main)
+
+
 def _prune_single_item(
     item: Path,
-    top_root: Path,
+    data_dir: Path,
+    main_root: Path,
     cutoff_time: float,
     dry_run: bool,
     summary: CleanupSummary,
 ) -> None:
     """Helper to evaluate and prune a single expired file or directory."""
     try:
-        if item.is_symlink() or not item.resolve().is_relative_to(top_root.resolve()):
+        if item.is_symlink() or not item.resolve().is_relative_to(data_dir.resolve()):
             return
 
         mtime = item.stat().st_mtime
         if mtime >= cutoff_time:
             return
 
-        rel_path = str(item.relative_to(top_root))
+        rel_path = (
+            str(item.relative_to(main_root))
+            if item.is_relative_to(main_root)
+            else str(item.relative_to(data_dir))
+        )
         if item.is_file():
             size = item.stat().st_size
             if not dry_run:
@@ -65,19 +88,15 @@ def cleanup_data_tier(
     dry_run: bool = False,
 ) -> CleanupSummary:
     """Prune stale review runs, temporary metadata, and cached traces under .data/."""
-    top_root = find_top_level_repo_root(repo_root)
-    data_dir = (
-        (top_root / DEFAULT_DATA_DIR).resolve()
-        if top_root != Path(".")
-        else DEFAULT_DATA_DIR.resolve()
-    )
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import main_worktree_root, resolve_data_path
+
+    main_root = main_worktree_root(repo_root)
+    settings = load_settings()
+    data_dir = resolve_data_path(settings.data.dir, repo_root)
     summary = CleanupSummary(dry_run=dry_run)
 
-    if (
-        not data_dir.exists()
-        or not data_dir.is_dir()
-        or not data_dir.resolve().is_relative_to(top_root.resolve())
-    ):
+    if not _is_dedicated_data_dir(data_dir, main_root, repo_root):
         return summary
 
     cutoff_time = time.time() - older_than_seconds
@@ -88,6 +107,6 @@ def cleanup_data_tier(
         if not target_sub.exists() or not target_sub.is_dir():
             continue
         for item in target_sub.iterdir():
-            _prune_single_item(item, top_root, cutoff_time, dry_run, summary)
+            _prune_single_item(item, data_dir, main_root, cutoff_time, dry_run, summary)
 
     return summary

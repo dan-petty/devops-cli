@@ -663,9 +663,11 @@ class GitHubGraphQLClient:
         cache: RFC7234ETagCache | None = None,
         http_client: httpx2.Client | None = None,
     ) -> None:
+        from devops_cli.core.repo import resolve_data_path
+
         self._token = resolve_github_token(token)
         self._cache = cache or RFC7234ETagCache(
-            cache_file=Path(DEFAULT_DATA_DIR) / CONST_GH_ETAG_CACHE_FILENAME
+            cache_file=resolve_data_path(Path(DEFAULT_DATA_DIR) / CONST_GH_ETAG_CACHE_FILENAME)
         )
         self._http_client = http_client
         self._rate_limiter = GraphQLTokenBucket()

@@ -295,6 +295,7 @@ def clean_workspace(
 
     _get("print_muted")(f"Pruning artifacts older than {older_than_days} days under .data/...")
     summary = _get("cleanup_data_tier")(
+        repo_root=Path.cwd(),
         older_than_seconds=float(older_than_days * 86400),
         dry_run=False,
     )

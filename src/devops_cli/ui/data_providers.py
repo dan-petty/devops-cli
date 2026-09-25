@@ -429,8 +429,10 @@ def _reviews_root() -> Path | None:
             logger.debug("Failed loading settings for data.dir: %s", exc)
             raw_data_dir = "./.data"
     try:
+        from devops_cli.core.repo import resolve_data_path
+
         validate_no_path_traversal(raw_data_dir, label="DEVOPS_CLI_DATA_DIR")
-        data_path = Path(raw_data_dir).resolve()
+        data_path = resolve_data_path(Path(raw_data_dir))
         if is_forbidden_system_path(data_path):
             return None
     except (DevOpsCLIError, OSError, ValueError) as exc:

@@ -1573,10 +1573,13 @@ def audit_library_usage_cmd(
         return
 
     from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
 
     auditor = LibraryDriftAuditor(contracts_dir=contracts_dir)
     ws_dir = target_dir or Path.cwd()
-    default_report_path = load_settings().data.analysis_dir / "api_drift_report.json"
+    default_report_path = (
+        resolve_data_path(load_settings().data.analysis_dir) / "api_drift_report.json"
+    )
     report = auditor.audit_workspace(
         ws_dir, package_filter=package, save_report_path=default_report_path
     )
