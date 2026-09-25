@@ -287,6 +287,23 @@ class RunIndex:
         raw = self._client.get(f"{INDEX_PREFIX}:record:{mechanism.value}:{run_id}")
         return RunRecord.model_validate_json(raw) if raw else None
 
+    def get_by_id(self, run_id: str) -> RunRecord | None:
+        """Find a record across all mechanisms in the index."""
+        for m in Mechanism:
+            record = self.get(m, run_id)
+            if record is not None:
+                return record
+        return None
+
+    def set_baseline(self, mechanism: Mechanism, subject_key: str, run_id: str) -> None:
+        """Record the baseline run ID for a subject in Valkey."""
+        self._client.set(f"{INDEX_PREFIX}:baseline:{mechanism.value}:{subject_key}", run_id)
+
+    def get_baseline(self, mechanism: Mechanism, subject_key: str) -> str | None:
+        """Get the baseline run ID for a subject in Valkey."""
+        raw = self._client.get(f"{INDEX_PREFIX}:baseline:{mechanism.value}:{subject_key}")
+        return raw.strip() if raw else None
+
 
 @dataclass(frozen=True)
 class SavedRun:
@@ -334,23 +351,413 @@ def record_run(
     return keep_runs([new_run(mechanism, setup=setup, subject=subject, results=results)])[0]
 
 
+def get_run(
+    run_id: str, mechanism: Mechanism | None = None, root: Path | None = None
+) -> RunRecord | None:
+    """Find a run by exact ID or prefix, searching local files then the shared index."""
+    base = root or runs_dir()
+    pattern = f"{mechanism.value}/{run_id}*.json" if mechanism else f"*/{run_id}*.json"
+    matches = sorted(base.glob(pattern), key=lambda p: len(p.stem))
+    if matches:
+        exact = [p for p in matches if p.stem == run_id]
+        chosen = exact[0] if exact else matches[0]
+        try:
+            return RunRecord.model_validate_json(chosen.read_text(encoding="utf-8"))
+        except OSError, ValueError:
+            pass
+
+    try:
+        with RunIndex.from_settings() as index:
+            if mechanism:
+                return index.get(mechanism, run_id)
+            return index.get_by_id(run_id)
+    except RunIndexNotConfiguredError, ValkeyError:
+        pass
+
+    return None
+
+
+class BaselineRecord(BaseModel):
+    """The explicit baseline run designated for a subject."""
+
+    mechanism: Mechanism
+    subject_key: str
+    run_id: str
+    set_at: datetime
+    subject: dict[str, Any] = Field(default_factory=dict)
+
+
+def baselines_dir(root: Path | None = None) -> Path:
+    """The directory holding baseline run references."""
+    return (root or runs_dir()) / "baselines"
+
+
+def set_baseline(record: RunRecord, root: Path | None = None) -> BaselineRecord:
+    """Designate a run as the explicit baseline for its subject."""
+    from devops_cli.output.file_writer import write_json_file
+
+    b_record = BaselineRecord(
+        mechanism=record.mechanism,
+        subject_key=record.subject_key,
+        run_id=record.run_id,
+        set_at=datetime.now(UTC),
+        subject=record.subject,
+    )
+    path = baselines_dir(root) / record.mechanism.value / f"{record.subject_key}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json_file(path, b_record.model_dump(mode="json"))
+
+    try:
+        with RunIndex.from_settings() as index:
+            index.set_baseline(record.mechanism, record.subject_key, record.run_id)
+    except RunIndexNotConfiguredError, ValkeyError:
+        pass
+
+    return b_record
+
+
+def get_baseline(
+    mechanism: Mechanism, subject_key: str, root: Path | None = None
+) -> RunRecord | None:
+    """Retrieve the baseline RunRecord for a subject, if set."""
+    path = baselines_dir(root) / mechanism.value / f"{subject_key}.json"
+    if path.exists():
+        try:
+            b_record = BaselineRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            run = get_run(b_record.run_id, mechanism=mechanism, root=root)
+            if run is not None:
+                return run
+        except OSError, ValueError:
+            pass
+
+    try:
+        with RunIndex.from_settings() as index:
+            run_id = index.get_baseline(mechanism, subject_key)
+            if run_id:
+                return get_run(run_id, mechanism=mechanism, root=root)
+    except RunIndexNotConfiguredError, ValkeyError:
+        pass
+
+    return None
+
+
+def list_baselines(root: Path | None = None) -> list[BaselineRecord]:
+    """List all configured baselines, newest first."""
+    base = baselines_dir(root)
+    records = []
+    for path in base.glob("*/*.json"):
+        try:
+            records.append(BaselineRecord.model_validate_json(path.read_text(encoding="utf-8")))
+        except OSError, ValueError:
+            continue
+    return sorted(records, key=lambda b: b.set_at, reverse=True)
+
+
+def diff_setup(run_a: RunRecord, run_b: RunRecord) -> dict[str, tuple[Any, Any]]:
+    """Return keys where setup differs between run_a and run_b."""
+    all_keys = sorted(set(run_a.setup) | set(run_b.setup))
+    return {
+        k: (run_a.setup.get(k), run_b.setup.get(k))
+        for k in all_keys
+        if run_a.setup.get(k) != run_b.setup.get(k)
+    }
+
+
+def _extract_wall_seconds(results: dict[str, Any]) -> float | None:
+    for key in (
+        "median_wall_seconds",
+        "wall_seconds",
+        "total_wall_seconds",
+        "duration_seconds",
+        "duration",
+    ):
+        val = results.get(key)
+        if isinstance(val, (int, float)):
+            return float(val)
+    return None
+
+
+def _extract_stage_token_sum(stages: list[Any], key: str) -> float | None:
+    tokens: list[float] = []
+    for s in stages:
+        if isinstance(s, dict):
+            val = s.get(key)
+            if isinstance(val, (int, float)):
+                tokens.append(float(val))
+    return sum(tokens) if tokens else None
+
+
+def _extract_prompt_tokens(results: dict[str, Any]) -> float | None:
+    stages = results.get("stages")
+    if isinstance(stages, list) and stages:
+        stage_sum = _extract_stage_token_sum(stages, "median_prompt_tokens")
+        if stage_sum is not None:
+            return stage_sum
+    for key in ("prompt_tokens", "total_prompt_tokens", "total_input_tokens"):
+        val = results.get(key)
+        if isinstance(val, (int, float)):
+            return float(val)
+    return None
+
+
+def _extract_completion_tokens(results: dict[str, Any]) -> float | None:
+    stages = results.get("stages")
+    if isinstance(stages, list) and stages:
+        stage_sum = _extract_stage_token_sum(stages, "median_completion_tokens")
+        if stage_sum is not None:
+            return stage_sum
+    for key in ("completion_tokens", "total_completion_tokens", "total_output_tokens"):
+        val = results.get(key)
+        if isinstance(val, (int, float)):
+            return float(val)
+    return None
+
+
+def _extract_recall(results: dict[str, Any]) -> float | None:
+    for key in (
+        "recall_found",
+        "recall_reported",
+        "recall",
+        "overall_recall",
+        "match_rate",
+        "agreement_rate",
+    ):
+        val = results.get(key)
+        if isinstance(val, (int, float)):
+            return float(val)
+    return None
+
+
+def _merge_stage_shares(shares: dict[str, float], stage: Any) -> None:
+    if not isinstance(stage, dict):
+        return
+    busy = stage.get("backend_busy_share", {})
+    if not isinstance(busy, dict):
+        return
+    for backend, share in busy.items():
+        if isinstance(share, (int, float)):
+            shares[str(backend)] = max(shares.get(str(backend), 0.0), float(share))
+
+
+def _extract_backend_shares(results: dict[str, Any]) -> dict[str, float]:
+    shares: dict[str, float] = {}
+    stages = results.get("stages")
+    if not isinstance(stages, list):
+        return shares
+    for stage in stages:
+        _merge_stage_shares(shares, stage)
+    return shares
+
+
+def extract_metrics(record: RunRecord) -> tuple[dict[str, float], dict[str, float]]:
+    """Extract standard metrics and backend busy shares from run results."""
+    res = record.results
+    metrics: dict[str, float] = {}
+    wall = _extract_wall_seconds(res)
+    if wall is not None:
+        metrics["wall_seconds"] = round(wall, 3)
+    p_tokens = _extract_prompt_tokens(res)
+    if p_tokens is not None:
+        metrics["prompt_tokens"] = round(p_tokens, 1)
+    c_tokens = _extract_completion_tokens(res)
+    if c_tokens is not None:
+        metrics["completion_tokens"] = round(c_tokens, 1)
+    recall = _extract_recall(res)
+    if recall is not None:
+        metrics["recall"] = round(recall, 4)
+    calls = res.get("median_llm_calls") or res.get("llm_calls") or res.get("total_calls")
+    if isinstance(calls, (int, float)):
+        metrics["llm_calls"] = round(float(calls), 1)
+
+    return metrics, _extract_backend_shares(res)
+
+
+class MetricDiff(BaseModel):
+    """The difference in one metric between two runs."""
+
+    name: str
+    base_value: float
+    current_value: float
+    absolute_change: float
+    percent_change: float | None = None
+
+
+class RunComparison(BaseModel):
+    """Comparison of two runs: setup diff, metrics diff, and backend shares."""
+
+    base_run: RunRecord
+    current_run: RunRecord
+    same_fingerprint: bool
+    setup_diff: dict[str, tuple[Any, Any]]
+    metrics: dict[str, MetricDiff]
+    backend_shares: dict[str, MetricDiff]
+
+
+def _calc_metric_diff(name: str, base_val: float, curr_val: float) -> MetricDiff:
+    diff = round(curr_val - base_val, 4)
+    pct = round((diff / base_val) * 100, 2) if base_val != 0 else None
+    return MetricDiff(
+        name=name,
+        base_value=base_val,
+        current_value=curr_val,
+        absolute_change=diff,
+        percent_change=pct,
+    )
+
+
+def compare_runs(base: RunRecord, current: RunRecord) -> RunComparison:
+    """Compare a current run against a base run (or baseline)."""
+    setup_diff = diff_setup(base, current)
+    base_m, base_backends = extract_metrics(base)
+    curr_m, curr_backends = extract_metrics(current)
+
+    metrics = {
+        k: _calc_metric_diff(k, base_m.get(k, 0.0), curr_m.get(k, 0.0))
+        for k in sorted(set(base_m) | set(curr_m))
+    }
+    backend_shares = {
+        b: _calc_metric_diff(b, base_backends.get(b, 0.0), curr_backends.get(b, 0.0))
+        for b in sorted(set(base_backends) | set(curr_backends))
+    }
+    return RunComparison(
+        base_run=base,
+        current_run=current,
+        same_fingerprint=(base.fingerprint == current.fingerprint),
+        setup_diff=setup_diff,
+        metrics=metrics,
+        backend_shares=backend_shares,
+    )
+
+
+class RegressionTolerances(BaseModel):
+    """Allowable regressions before a run check fails."""
+
+    max_recall_drop: float = 0.0
+    max_duration_increase: float = 0.15
+    max_tokens_increase: float = 0.20
+
+
+class MetricVerdict(BaseModel):
+    """Verification verdict for a single metric against tolerance."""
+
+    metric: str
+    base_value: float
+    current_value: float
+    change_pct: float | None
+    tolerance_pct: float
+    passed: bool
+    reason: str
+
+
+class RegressionReport(BaseModel):
+    """Overall report assessing whether a run regressed past tolerances."""
+
+    passed: bool
+    base_run_id: str
+    current_run_id: str
+    verdicts: list[MetricVerdict]
+
+
+def _evaluate_recall_verdict(m: MetricDiff, max_drop: float) -> MetricVerdict:
+    drop = (m.base_value - m.current_value) / m.base_value if m.base_value > 0 else 0.0
+    passed = drop <= max_drop
+    reason = (
+        f"Recall dropped by {drop:.1%}, exceeds tolerance {max_drop:.1%}"
+        if not passed
+        else f"Recall within tolerance ({drop:.1%} <= {max_drop:.1%})"
+    )
+    return MetricVerdict(
+        metric="recall",
+        base_value=m.base_value,
+        current_value=m.current_value,
+        change_pct=m.percent_change,
+        tolerance_pct=round(max_drop * 100, 2),
+        passed=passed,
+        reason=reason,
+    )
+
+
+def _evaluate_increase_verdict(
+    m: MetricDiff, metric_name: str, max_increase: float
+) -> MetricVerdict:
+    inc = (m.current_value - m.base_value) / m.base_value if m.base_value > 0 else 0.0
+    passed = inc <= max_increase
+    reason = (
+        f"{metric_name} increased by {inc:.1%}, exceeds tolerance {max_increase:.1%}"
+        if not passed
+        else f"{metric_name} within tolerance ({inc:.1%} <= {max_increase:.1%})"
+    )
+    return MetricVerdict(
+        metric=metric_name,
+        base_value=m.base_value,
+        current_value=m.current_value,
+        change_pct=m.percent_change,
+        tolerance_pct=round(max_increase * 100, 2),
+        passed=passed,
+        reason=reason,
+    )
+
+
+def check_regression(
+    comparison: RunComparison, tolerances: RegressionTolerances | None = None
+) -> RegressionReport:
+    """Check whether current run regressed past configured limits relative to baseline."""
+    tol = tolerances or RegressionTolerances()
+    verdicts: list[MetricVerdict] = []
+    if "recall" in comparison.metrics:
+        verdicts.append(_evaluate_recall_verdict(comparison.metrics["recall"], tol.max_recall_drop))
+    if "wall_seconds" in comparison.metrics:
+        verdicts.append(
+            _evaluate_increase_verdict(
+                comparison.metrics["wall_seconds"], "wall_seconds", tol.max_duration_increase
+            )
+        )
+    if "prompt_tokens" in comparison.metrics:
+        verdicts.append(
+            _evaluate_increase_verdict(
+                comparison.metrics["prompt_tokens"], "prompt_tokens", tol.max_tokens_increase
+            )
+        )
+    return RegressionReport(
+        passed=all(v.passed for v in verdicts),
+        base_run_id=comparison.base_run.run_id,
+        current_run_id=comparison.current_run.run_id,
+        verdicts=verdicts,
+    )
+
+
 __all__ = [
     "INDEX_PREFIX",
+    "BaselineRecord",
     "Mechanism",
+    "MetricDiff",
+    "MetricVerdict",
+    "RegressionReport",
+    "RegressionTolerances",
+    "RunComparison",
     "RunIndex",
     "RunIndexNotConfiguredError",
     "RunRecord",
     "SavedRun",
+    "baselines_dir",
+    "check_regression",
+    "compare_runs",
+    "diff_setup",
     "digest",
+    "extract_metrics",
     "file_digest",
     "gateway_pool",
+    "get_baseline",
+    "get_run",
     "keep_runs",
+    "list_baselines",
     "load_runs",
     "new_run",
     "record_run",
     "review_setup",
     "runs_dir",
     "save_run",
+    "set_baseline",
     "share_runs",
     "source_commit",
 ]
