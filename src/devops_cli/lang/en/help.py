@@ -94,6 +94,7 @@ class AICommandHelp:
     bundle: str = "Bundle local AI model artifacts and instruction context."
     tokens: str = "Calculate token counts and context budget consumption."
     cost: str = "Estimate LLM inference cost for token quantities."
+    config_task: str = "Set these for one task (chat, metadata, analysis, verification, compose, embedding) instead of every AI call."
     ollama_urls: str = "Ollama server base URLs (comma-separated)."
     max_parallel: str = "Maximum number of simultaneous requests allowed per Ollama server node."
     api_base_url: str = (

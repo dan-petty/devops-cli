@@ -158,7 +158,9 @@ def ai_main(
 # Constants & File Targets
 # =============================================================================
 
-_PROVIDERS = ("ollama", "claude", "copilot", "openai")
+_PROVIDERS = ("ollama", "claude", "copilot", "openai", "gateway")
+# The tasks a provider and model can be set for on their own (`ai.tasks.<task>`).
+_AI_TASKS = ("chat", "metadata", "analysis", "verification", "compose", "embedding")
 
 _AGENT_FILES: dict[str, str] = {
     CONST_AGENTS_MD_FILENAME: "Canonical agent instructions (single source of truth)",
@@ -344,6 +346,19 @@ def _parse_pyproject(repo: Path) -> Any:
 # =============================================================================
 
 
+def _print_task_override(task: str, override: Any) -> None:
+    """Show the settings one task overrides; unset ones fall back to the AI settings."""
+    rows = [
+        [name, "(from ai)" if value is None else str(value)]
+        for name, value in override.model_dump().items()
+    ]
+    print_table(
+        title=f"AI Configuration: {task} task",
+        columns=[("Setting", "cyan"), "Value"],
+        rows=rows,
+    )
+
+
 @app.command()
 def config(
     provider: Annotated[
@@ -377,9 +392,16 @@ def config(
         int | None,
         typer.Option("--max-retries", help=HELP.ai.max_retries),
     ] = None,
+    task: Annotated[
+        str | None,
+        typer.Option("--task", "-t", help=HELP.ai.config_task),
+    ] = None,
 ) -> None:
     """Show or update AI provider configuration."""
     settings = load_settings()
+    if task is not None and task not in _AI_TASKS:
+        print_error(f"Unknown task {task!r}. Choose: {', '.join(_AI_TASKS)}", prefix=False)
+        raise typer.Exit(1)
 
     if not any(
         [
@@ -392,6 +414,9 @@ def config(
             max_retries is not None,
         ]
     ):
+        if task:
+            _print_task_override(task, getattr(settings.ai.tasks, task))
+            return
         import os
 
         from devops_cli.config.options import KEYRING_KEYS
@@ -420,23 +445,19 @@ def config(
         )
         return
 
-    if provider:
-        if provider not in _PROVIDERS:
-            print_error(
-                f"Unknown provider {provider!r}. Choose: {', '.join(_PROVIDERS)}", prefix=False
-            )
-            raise typer.Exit(1)
-        settings.ai.provider = provider
-    if model:
-        settings.ai.model = model
-    if ollama_urls:
-        settings.ai.ollama_urls = [u.strip() for u in ollama_urls.split(",") if u.strip()]
-    if ollama_max_parallel is not None:
-        settings.ai.ollama_max_parallel = max(1, ollama_max_parallel)
-    if api_base_url:
-        settings.ai.api_base_url = api_base_url
-    if max_retries is not None:
-        settings.ai.max_retries = max_retries
+    if provider and provider not in _PROVIDERS:
+        print_error(f"Unknown provider {provider!r}. Choose: {', '.join(_PROVIDERS)}", prefix=False)
+        raise typer.Exit(1)
+    target = getattr(settings.ai.tasks, task) if task else settings.ai
+    _apply_ai_settings(
+        target,
+        provider=provider,
+        model=model,
+        ollama_urls=ollama_urls,
+        ollama_max_parallel=ollama_max_parallel,
+        api_base_url=api_base_url,
+        max_retries=max_retries,
+    )
     if api_key:
         try:
             dotted_set(settings, AI_API_KEY, api_key)
@@ -452,7 +473,32 @@ def config(
             raise typer.Exit(1)
 
     save_settings(settings)
-    print_success("AI configuration saved")
+    print_success(f"AI configuration saved{f' for the {task} task' if task else ''}")
+
+
+def _apply_ai_settings(
+    target: Any,
+    *,
+    provider: str | None,
+    model: str | None,
+    ollama_urls: str | None,
+    ollama_max_parallel: int | None,
+    api_base_url: str | None,
+    max_retries: int | None,
+) -> None:
+    """Set the given fields on the AI settings or on one task's override of them."""
+    if provider:
+        target.provider = provider
+    if model:
+        target.model = model
+    if ollama_urls:
+        target.ollama_urls = [u.strip() for u in ollama_urls.split(",") if u.strip()]
+    if ollama_max_parallel is not None:
+        target.ollama_max_parallel = max(1, ollama_max_parallel)
+    if api_base_url:
+        target.api_base_url = api_base_url
+    if max_retries is not None:
+        target.max_retries = max_retries
 
 
 # =============================================================================
