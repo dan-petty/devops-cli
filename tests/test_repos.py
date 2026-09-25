@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,7 +21,9 @@ from devops_cli.core.repo import (
     find_worktree_root,
     get_repo_origin_name,
     is_ignored_by_git,
+    is_stale_linked_worktree,
     list_repo_files,
+    main_worktree_root,
     read_gitignore_patterns,
 )
 from devops_cli.main import app
@@ -286,7 +292,8 @@ def test_core_repo_find_roots(tmp_path: Path) -> None:
 
 
 def test_find_worktree_root_nested_worktree_and_submodules(tmp_path: Path) -> None:
-    """Verify find_worktree_root stops at nearest worktree, but passes through submodules."""
+    """Verify find_worktree_root stops at nearest worktree, but passes through submodules,
+    and a directory with no repository markers resolves to itself."""
     main = tmp_path / "main"
     main_git = main / ".git"
     main_git.mkdir(parents=True)
@@ -311,6 +318,8 @@ def test_find_worktree_root_nested_worktree_and_submodules(tmp_path: Path) -> No
     standalone.mkdir()
     (standalone / "pyproject.toml").write_text("[project]\nname='pkg'\n", encoding="utf-8")
     (standalone / "src").mkdir()
+    plain = tmp_path / "plain"
+    plain.mkdir()
 
     resolved = (
         find_worktree_root(main),
@@ -319,6 +328,7 @@ def test_find_worktree_root_nested_worktree_and_submodules(tmp_path: Path) -> No
         find_worktree_root(submod),
         find_worktree_root(submod / "src"),
         find_worktree_root(standalone / "src"),
+        find_worktree_root(plain),
     )
     expected = (
         main.resolve(),
@@ -327,8 +337,312 @@ def test_find_worktree_root_nested_worktree_and_submodules(tmp_path: Path) -> No
         main.resolve(),
         main.resolve(),
         standalone.resolve(),
+        plain.resolve(),
     )
     assert resolved == expected
+
+
+# #582: Claude Code puts linked worktrees under `<checkout>/.claude/worktrees/`. A linked
+# worktree checks itself, while the main checkout, its submodules, repositories cloned under
+# `repos/` and the worktrees of such a clone resolve to the workspace, and a stale worktree
+# still checks itself. The data directory always stays the workspace's.
+
+
+class Workspace(NamedTuple):
+    """A checkout with every kind of nested repository a workspace can hold."""
+
+    main: Path
+    nested: Path
+    outside: Path
+    submodule: Path
+    clone: Path
+
+
+@pytest.fixture
+def workspace_with_worktrees(tmp_path: Path, git: Callable[..., None]) -> Workspace:
+    """A checkout with a nested and an outside linked worktree, a submodule and a clone."""
+    main = tmp_path / "main"
+    main.mkdir()
+    git(main, "init", "--quiet")
+    (main / ".gitignore").write_text(".claude/\nrepos/\n", encoding="utf-8")
+    (main / "pyproject.toml").write_text('[project]\nname = "main"\n', encoding="utf-8")
+    git(main, "add", ".")
+    git(main, "commit", "--quiet", "-m", "first")
+
+    library = tmp_path / "library"
+    library.mkdir()
+    git(library, "init", "--quiet")
+    (library / "README.md").write_text("library\n", encoding="utf-8")
+    git(library, "add", ".")
+    git(library, "commit", "--quiet", "-m", "first")
+
+    nested = main / ".claude" / "worktrees" / "wt"
+    git(main, "worktree", "add", "--quiet", "-b", "nested", str(nested))
+    outside = tmp_path / "worktrees" / "outside"
+    git(main, "worktree", "add", "--quiet", "-b", "outside", str(outside))
+    git(main, "-c", "protocol.file.allow=always", "submodule", "add", str(library), "libs/sub")
+    git(main, "commit", "--quiet", "-m", "submodule")
+    clone = main / "repos" / "org" / "name"
+    git(tmp_path, "clone", "--quiet", str(library), str(clone))
+    return Workspace(main, nested, outside, main / "libs" / "sub", clone)
+
+
+def test_a_worktree_outside_the_checkout_checks_itself(
+    workspace_with_worktrees: Workspace,
+) -> None:
+    """Verify a linked worktree outside the checkout and its subdirectory resolve to it."""
+    outside = workspace_with_worktrees.outside
+    (outside / "src").mkdir()
+
+    roots = (find_worktree_root(outside), find_worktree_root(outside / "src"))
+
+    assert roots == (outside.resolve(),) * 2
+
+
+def test_a_submodule_shares_the_workspace_data(workspace_with_worktrees: Workspace) -> None:
+    """Verify a real submodule, whose git directory has no `commondir`, resolves its workspace
+    root and data directory to the checkout that holds it."""
+    submodule = workspace_with_worktrees.submodule
+
+    roots = (find_top_level_repo_root(submodule), main_worktree_root(submodule))
+
+    assert roots == (workspace_with_worktrees.main.resolve(),) * 2
+
+
+def test_a_clone_under_repos_resolves_to_the_workspace(
+    workspace_with_worktrees: Workspace,
+) -> None:
+    """Verify a repository cloned under `repos/` still resolves to the devops-cli workspace."""
+    clone = workspace_with_worktrees.clone
+    (clone / "docs").mkdir()
+
+    roots = (
+        find_worktree_root(clone),
+        find_worktree_root(clone / "docs"),
+        find_top_level_repo_root(clone),
+    )
+
+    assert roots == (workspace_with_worktrees.main.resolve(),) * 3
+
+
+def test_a_clone_inside_a_nested_worktree_resolves_to_that_worktree(
+    workspace_with_worktrees: Workspace, tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """Verify the nearest linked worktree wins over the checkout around it."""
+    nested = workspace_with_worktrees.nested
+    clone = nested / "repos" / "org" / "x"
+    git(tmp_path, "clone", "--quiet", str(tmp_path / "library"), str(clone))
+
+    assert find_worktree_root(clone) == nested.resolve()
+
+
+def test_a_file_path_resolves_to_its_worktree(workspace_with_worktrees: Workspace) -> None:
+    """Verify a file inside a nested worktree resolves to that worktree."""
+    nested = workspace_with_worktrees.nested
+    module = nested / "module.py"
+    module.write_text("VALUE = 1\n", encoding="utf-8")
+
+    assert find_worktree_root(module) == nested.resolve()
+
+
+def test_a_worktree_with_a_relative_gitdir_checks_itself(
+    workspace_with_worktrees: Workspace, git: Callable[..., None]
+) -> None:
+    """Verify a worktree added with `--relative-paths` resolves to itself."""
+    main = workspace_with_worktrees.main
+    relative = main / ".claude" / "worktrees" / "rel"
+    try:
+        git(main, "worktree", "add", "--quiet", "--relative-paths", "-b", "rel", str(relative))
+    except subprocess.CalledProcessError:
+        pytest.skip("git does not support `worktree add --relative-paths`")
+
+    assert find_worktree_root(relative) == relative.resolve()
+
+
+def test_the_top_level_root_still_climbs_out_of_a_nested_worktree(
+    workspace_with_worktrees: Workspace,
+) -> None:
+    """Verify the workspace resolver keeps its top-most rule; only verifying commands differ."""
+    nested = workspace_with_worktrees.nested
+
+    assert find_top_level_repo_root(nested) == workspace_with_worktrees.main.resolve()
+
+
+def test_worktrees_of_a_clone_under_repos_resolve_to_the_workspace(
+    workspace_with_worktrees: Workspace, git: Callable[..., None]
+) -> None:
+    """Verify a clone's own worktrees, beside it or nested in it, resolve with the clone."""
+    clone = workspace_with_worktrees.clone
+    beside = clone.parent / "name-wt"
+    nested = clone / ".claude" / "worktrees" / "x"
+    git(clone, "worktree", "add", "--quiet", "-b", "beside", str(beside))
+    git(clone, "worktree", "add", "--quiet", "-b", "nested", str(nested))
+
+    roots = (find_worktree_root(beside), find_worktree_root(nested))
+
+    assert roots == (workspace_with_worktrees.main.resolve(),) * 2
+
+
+def test_a_pruned_nested_worktree_still_checks_itself(
+    workspace_with_worktrees: Workspace,
+) -> None:
+    """Verify a nested worktree whose git directory was deleted is flagged, not climbed out of."""
+    main, nested = workspace_with_worktrees.main, workspace_with_worktrees.nested
+    shutil.rmtree(main / ".git" / "worktrees" / "wt")
+
+    assert (
+        find_worktree_root(nested),
+        is_stale_linked_worktree(nested),
+        main_worktree_root(nested),
+    ) == (nested.resolve(), True, main.resolve())
+
+
+def test_a_nested_worktree_of_a_moved_checkout_still_checks_itself(
+    workspace_with_worktrees: Workspace, tmp_path: Path
+) -> None:
+    """Verify a nested worktree whose `.git` file names the checkout's old path checks itself,
+    as when a checkout's path differs between a devcontainer and its host, and shares the moved
+    checkout's data directory."""
+    moved = tmp_path / "moved"
+    workspace_with_worktrees.main.rename(moved)
+    nested = moved / ".claude" / "worktrees" / "wt"
+
+    assert (
+        find_worktree_root(nested),
+        is_stale_linked_worktree(nested),
+        main_worktree_root(nested),
+    ) == (nested.resolve(), True, moved.resolve())
+
+
+def test_live_worktrees_submodules_and_checkouts_are_not_stale(
+    workspace_with_worktrees: Workspace,
+) -> None:
+    """Verify only a `.git` file naming a missing worktree git directory counts as stale."""
+    workspace = workspace_with_worktrees
+    roots = (workspace.main, workspace.nested, workspace.outside, workspace.submodule)
+
+    assert [is_stale_linked_worktree(root) for root in roots] == [False] * 4
+
+
+def test_a_submodule_with_a_missing_git_directory_resolves_to_the_workspace(
+    workspace_with_worktrees: Workspace,
+) -> None:
+    """Verify only a missing `worktrees/<name>` directory marks a stale worktree; a submodule
+    whose module directory is gone keeps climbing to the workspace."""
+    main, submodule = workspace_with_worktrees.main, workspace_with_worktrees.submodule
+    shutil.rmtree(main / ".git" / "modules" / "libs" / "sub")
+
+    assert (find_worktree_root(submodule), is_stale_linked_worktree(submodule)) == (
+        main.resolve(),
+        False,
+    )
+
+
+def test_worktrees_of_a_bare_repository_check_themselves(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """Verify the worktrees of a `.bare` clone, whose container's `.git` file names it,
+    resolve to themselves rather than to the container, which holds no project."""
+    source = tmp_path / "source"
+    source.mkdir()
+    git(source, "init", "--quiet")
+    git(source, "commit", "--quiet", "--allow-empty", "-m", "first")
+    container = tmp_path / "proj"
+    git(tmp_path, "clone", "--quiet", "--bare", str(source), str(container / ".bare"))
+    (container / ".git").write_text("gitdir: ./.bare\n", encoding="utf-8")
+    feature, other = container / "feature", container / "other"
+    git(container, "worktree", "add", "--quiet", "-b", "feature", str(feature))
+    git(container, "worktree", "add", "--quiet", "-b", "other", str(other))
+    (feature / "src").mkdir()
+
+    roots = [find_worktree_root(path) for path in (feature, feature / "src", other)]
+
+    assert roots == [feature.resolve(), feature.resolve(), other.resolve()]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="#582 known limit: a directory holding .git or pyproject.toml above the checkout",
+)
+def test_a_worktree_of_a_checkout_inside_another_repository_checks_itself(
+    tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """Verify a nested worktree of a checkout that lies below another repository, such as a
+    dotfiles repository at `$HOME`, checks itself. Today the top-most rule resolves the
+    checkout to that outer directory, and its worktree with it, as a `repos/` clone's does."""
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    git(outer, "init", "--quiet")
+    checkout = outer / "src" / "proj"
+    checkout.mkdir(parents=True)
+    git(checkout, "init", "--quiet")
+    git(checkout, "commit", "--quiet", "--allow-empty", "-m", "first")
+    nested = checkout / ".claude" / "worktrees" / "wt"
+    git(checkout, "worktree", "add", "--quiet", "-b", "nested", str(nested))
+
+    assert find_worktree_root(nested) == nested.resolve()
+
+
+def test_a_worktree_of_a_repository_outside_the_workspace_checks_itself(
+    workspace_with_worktrees: Workspace, tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """Verify a live worktree of an external repository, nested in the workspace, and its
+    subdirectory check that worktree, while the data directory stays the workspace's: the data
+    root starts from the top-most root, not from the tree the gate checks."""
+    main = workspace_with_worktrees.main
+    external = main / ".claude" / "worktrees" / "lib"
+    git(tmp_path / "library", "worktree", "add", "--quiet", "-b", "ext", str(external))
+    (external / "sub").mkdir()
+
+    roots = (
+        find_worktree_root(external),
+        find_worktree_root(external / "sub"),
+        main_worktree_root(external),
+        main_worktree_root(external / "sub"),
+    )
+
+    assert roots == (external.resolve(),) * 2 + (main.resolve(),) * 2
+
+
+def test_an_undecodable_git_file_resolves_to_the_workspace(
+    workspace_with_worktrees: Workspace,
+) -> None:
+    """Verify a `.git` file, or a `commondir` it leads to, holding bytes that are not UTF-8
+    names no worktree, so the climb continues to the workspace instead of raising."""
+    main = workspace_with_worktrees.main
+    garbled = main / ".claude" / "worktrees" / "garbled"
+    garbled.mkdir(parents=True)
+    (garbled / ".git").write_bytes(b"gitdir: \xff\xfe\n")
+    bad_gitdir = main / ".git" / "worktrees" / "bad"
+    bad_gitdir.mkdir()
+    (bad_gitdir / "commondir").write_bytes(b"\xff\n")
+    bad_common = main / ".claude" / "worktrees" / "bad"
+    bad_common.mkdir()
+    (bad_common / ".git").write_text(f"gitdir: {bad_gitdir}\n", encoding="utf-8")
+
+    roots = (find_worktree_root(garbled), find_worktree_root(bad_common))
+
+    assert roots == (main.resolve(),) * 2
+
+
+def test_a_worktree_whose_path_is_not_utf8_checks_itself(
+    workspace_with_worktrees: Workspace, git: Callable[..., None]
+) -> None:
+    """Verify a worktree at a path holding Latin-1 bytes, which git writes into its `.git`
+    file unchanged, is still recognised as a live linked worktree of its main checkout."""
+    latin1 = workspace_with_worktrees.main / ".claude" / "worktrees" / os.fsdecode(b"caf\xe9")
+    try:
+        latin1.mkdir(parents=True)
+    except OSError:
+        pytest.skip("the filesystem rejects file names that are not UTF-8")
+    latin1.rmdir()
+    git(workspace_with_worktrees.main, "worktree", "add", "--quiet", "-b", "latin1", str(latin1))
+
+    assert (
+        find_worktree_root(latin1),
+        is_stale_linked_worktree(latin1),
+        main_worktree_root(latin1),
+    ) == (latin1.resolve(), False, workspace_with_worktrees.main.resolve())
 
 
 def test_core_repo_gitignore_and_files(tmp_path: Path) -> None:

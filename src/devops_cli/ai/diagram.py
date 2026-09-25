@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.core.repo import find_worktree_root
 
 
 class DiagramResult(BaseModel):
@@ -29,7 +29,7 @@ class DiagramResult(BaseModel):
 
 def generate_architecture_diagram(root_dir: Path | None = None) -> DiagramResult:
     """Analyze repository modules and generate Mermaid architecture topology diagram."""
-    base_root = root_dir or find_top_level_repo_root(Path.cwd())
+    base_root = root_dir or find_worktree_root(Path.cwd())
     src_dir = base_root / "src" / "devops_cli"
 
     components: list[dict[str, Any]] = (

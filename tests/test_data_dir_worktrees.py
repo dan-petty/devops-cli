@@ -2,12 +2,15 @@
 
 A relative data directory resolved against the current worktree, so each worktree kept its own
 reviews, benchmarks and evaluations, and removing it deleted them: the first full sample
-validation (#505) was lost that way. Linked worktrees now resolve to the main worktree.
+validation (#505) was lost that way. Linked worktrees now resolve to the main worktree, and
+repositories cloned under the workspace's `repos/` keep sharing the workspace's (#582).
 """
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -16,25 +19,17 @@ from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.core.repo import main_worktree_root, resolve_data_path
 
 
-def _git(repo: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
-        check=True,
-        capture_output=True,
-    )
-
-
 @pytest.fixture
-def repo_with_worktree(tmp_path: Path) -> tuple[Path, Path]:
+def repo_with_worktree(tmp_path: Path, git: Callable[..., None]) -> tuple[Path, Path]:
     """A repository and a linked worktree of it, outside the repository's own tree."""
     main = tmp_path / "project"
     main.mkdir()
-    _git(main, "init", "--quiet")
+    git(main, "init", "--quiet")
     (main / "README.md").write_text("project\n", encoding="utf-8")
-    _git(main, "add", ".")
-    _git(main, "commit", "--quiet", "-m", "first")
+    git(main, "add", ".")
+    git(main, "commit", "--quiet", "-m", "first")
     linked = tmp_path / "worktrees" / "feature"
-    _git(main, "worktree", "add", "--quiet", "-b", "feature", str(linked))
+    git(main, "worktree", "add", "--quiet", "-b", "feature", str(linked))
     return main, linked
 
 
@@ -54,18 +49,12 @@ def test_a_linked_worktree_resolves_to_the_main_worktree(
     assert roots == (main.resolve(),) * 3
 
 
-def test_nested_linked_worktree_resolves_to_the_main_worktree(tmp_path: Path) -> None:
+def test_nested_linked_worktree_resolves_to_the_main_worktree(
+    nested_worktree: tuple[Path, Path],
+) -> None:
     """Verify a linked worktree nested inside the main checkout resolves to the main worktree."""
-    main = tmp_path / "project"
-    main.mkdir()
-    _git(main, "init", "--quiet")
-    (main / "README.md").write_text("project\n", encoding="utf-8")
-    _git(main, "add", ".")
-    _git(main, "commit", "--quiet", "-m", "first")
-
-    nested = main / ".claude" / "worktrees" / "nested-feature"
-    _git(main, "worktree", "add", "--quiet", "-b", "nested-feature", str(nested))
-    (nested / "src").mkdir(parents=True)
+    main, nested = nested_worktree
+    (nested / "src").mkdir()
 
     roots = (
         main_worktree_root(nested),
@@ -78,6 +67,74 @@ def test_nested_linked_worktree_resolves_to_the_main_worktree(tmp_path: Path) ->
         (main / ".data" / "reviews").resolve(),
     )
     assert roots == expected
+
+
+def test_a_nested_worktree_with_a_relative_gitdir_resolves_to_the_main_worktree(
+    nested_worktree: tuple[Path, Path], git: Callable[..., None]
+) -> None:
+    """Verify a nested worktree added with `--relative-paths` shares the main worktree."""
+    main, _ = nested_worktree
+    relative = main / ".claude" / "worktrees" / "relative"
+    try:
+        git(main, "worktree", "add", "--quiet", "--relative-paths", "-b", "rel", str(relative))
+    except subprocess.CalledProcessError:
+        pytest.skip("git does not support `worktree add --relative-paths`")
+
+    assert main_worktree_root(relative) == main.resolve()
+
+
+def test_a_pruned_nested_worktree_shares_the_main_worktree(
+    nested_worktree: tuple[Path, Path],
+) -> None:
+    """Verify a nested worktree whose git directory was pruned still shares the main worktree."""
+    main, nested = nested_worktree
+    shutil.rmtree(main / ".git" / "worktrees" / "wt")
+
+    assert main_worktree_root(nested) == main.resolve()
+
+
+def test_a_pruned_worktree_outside_the_checkout_shares_the_main_worktree(
+    repo_with_worktree: tuple[Path, Path],
+) -> None:
+    """Verify a worktree outside the checkout whose git directory was pruned still shares the
+    main worktree's data, found through the shared git directory its `.git` file names."""
+    main, linked = repo_with_worktree
+    shutil.rmtree(main / ".git" / "worktrees" / "feature")
+
+    roots = (main_worktree_root(linked), resolve_data_path(Path(".data"), linked))
+
+    assert roots == (main.resolve(), (main / ".data").resolve())
+
+
+def test_a_pruned_worktree_of_a_moved_checkout_keeps_its_own_data(
+    repo_with_worktree: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """Verify a stale worktree whose main checkout is gone resolves to itself rather than to a
+    directory that no longer holds the repository."""
+    main, linked = repo_with_worktree
+    main.rename(tmp_path / "moved")
+
+    assert main_worktree_root(linked) == linked.resolve()
+
+
+def test_a_clone_under_repos_and_its_worktree_share_the_workspace_data(
+    nested_worktree: tuple[Path, Path], tmp_path: Path, git: Callable[..., None]
+) -> None:
+    """Verify a repository cloned under `repos/`, and a linked worktree of that clone, keep
+    resolving to the workspace's data directory rather than to a directory of their own."""
+    main, _ = nested_worktree
+    clone = main / "repos" / "org" / "clone"
+    git(tmp_path, "clone", "--quiet", str(main), str(clone))
+    clone_worktree = main / "repos" / "org" / "clone-wt"
+    git(clone, "worktree", "add", "--quiet", "-b", "clone-wt", str(clone_worktree))
+
+    roots = (
+        main_worktree_root(clone),
+        main_worktree_root(clone_worktree),
+        resolve_data_path(Path(".data/reviews"), clone_worktree),
+    )
+
+    assert roots == (main.resolve(), main.resolve(), (main / ".data" / "reviews").resolve())
 
 
 def test_relative_data_paths_are_shared_and_absolute_ones_kept(

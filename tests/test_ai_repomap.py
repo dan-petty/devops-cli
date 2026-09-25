@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
-from devops_cli.ai.repomap import parse_file_symbols, render_repo_map_text
+from devops_cli.ai.repomap import generate_repo_map, parse_file_symbols, render_repo_map_text
 from devops_cli.commands.ai import app as ai_app
 
 runner = CliRunner()
@@ -48,3 +49,19 @@ def test_repomap_cli(tmp_path: Path) -> None:
     assert res_json.exit_code == 0
     data = json.loads(res_json.output)
     assert (data.get("files_count") == 1, len(data.get("files", [])) == 1) == (True, True)
+
+
+def test_repomap_maps_the_nested_worktree_it_runs_in(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `devops ai repomap` from a worktree under `.claude/worktrees/` maps that worktree's
+    sources, not the checkout around it (#582)."""
+    main, nested = nested_worktree
+    for tree, module in ((main, "main_only"), (nested, "worktree_only")):
+        (tree / "src").mkdir()
+        (tree / "src" / f"{module}.py").write_text("def size() -> int:\n    return 1\n")
+    monkeypatch.chdir(nested)
+
+    mapped = [node.path for node in generate_repo_map()]
+
+    assert mapped == ["src/worktree_only.py"]

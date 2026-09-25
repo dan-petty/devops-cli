@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from devops_cli.commands.scan import scan_trivy as scan_main
 from devops_cli.security.kubelinter import parse_kubelinter_json, run_kubelinter_scan
 from devops_cli.security.pluto import parse_pluto_json, run_pluto_scan
@@ -260,3 +262,20 @@ def test_secops_scanners_dry_run(tmp_path: Path) -> None:
 
     with patch("devops_cli.security.popeye.is_dry_run", return_value=True):
         assert len(run_popeye_scan()) == 1
+
+
+def test_kubelinter_locations_are_relative_to_the_nested_worktree(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a finding scanned from a worktree under `.claude/worktrees/` names the manifest
+    inside that worktree, not a path through the checkout around it (#582)."""
+    _, nested = nested_worktree
+    manifest = nested / "k8s" / "deployment.yaml"
+    manifest.parent.mkdir()
+    manifest.write_text("kind: Deployment\n", encoding="utf-8")
+    report = {"Object": {"K8sObject": {"GroupVersionKind": {"Kind": "Deployment"}, "Name": "web"}}}
+    monkeypatch.chdir(nested)
+
+    findings = parse_kubelinter_json({"Reports": [report]}, target_path=str(manifest))
+
+    assert [finding.location for finding in findings] == ["k8s/deployment.yaml:Deployment/web"]

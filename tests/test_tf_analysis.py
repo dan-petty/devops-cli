@@ -15,6 +15,7 @@ from devops_cli.tf.analysis import (
     compute_blast_radius,
     detect_drift,
     extract_references,
+    holds_local_resource_state,
     load_state,
     parse_hcl_directory,
     resolve_state_file,
@@ -299,6 +300,36 @@ def test_load_state_projects_typed_records(tf_dir_with_state: Path) -> None:
 def test_load_state_returns_none_without_a_state_file(tf_dir: Path) -> None:
     """A configuration that has never been applied has no state to load."""
     assert (load_state(tf_dir), resolve_state_file(tf_dir)) == (None, None)
+
+
+@pytest.mark.parametrize(
+    ("state_files", "expected"),
+    [
+        ({}, False),
+        ({"terraform.tfstate": '{"version": 4, "resources": []}'}, True),
+        ({".terraform/terraform.tfstate": '{"version": 4, "resources": []}'}, True),
+        ({".terraform/terraform.tfstate": '{"version": 3, "backend": {"type": "s3"}}'}, False),
+        ({".terraform/terraform.tfstate": "{not json"}, True),
+        (
+            {
+                ".terraform/terraform.tfstate": '{"version": 3, "backend": {"type": "local"}}',
+                "terraform.tfstate": '{"version": 4, "resources": []}',
+            },
+            True,
+        ),
+    ],
+    ids=["none", "beside-config", "legacy-dot-terraform", "backend-cache", "unreadable", "local"],
+)
+def test_local_resource_state_excludes_the_backend_configuration_cache(
+    tf_dir: Path, state_files: dict[str, str], expected: bool
+) -> None:
+    """`init` caches a configured backend in `.terraform/terraform.tfstate`; that file holds
+    no resources, so only a state file without a `backend` section counts as local state."""
+    for name, text in state_files.items():
+        (tf_dir / name).parent.mkdir(parents=True, exist_ok=True)
+        (tf_dir / name).write_text(text, encoding="utf-8")
+
+    assert holds_local_resource_state(tf_dir) is expected
 
 
 def test_load_state_tolerates_malformed_json(tf_dir: Path) -> None:
