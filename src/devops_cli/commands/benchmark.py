@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+from pydantic import BaseModel
 
 from devops_cli.config.defaults import (
     DEFAULT_BENCHMARK_CONCURRENCY,
@@ -63,6 +64,43 @@ def _parse_server_list(servers: str | None) -> list[str] | None:
     return server_list or None
 
 
+def _record_benchmark(
+    kind: str,
+    report: BaseModel,
+    *,
+    setup: dict[str, Any],
+    subject: dict[str, Any],
+    format_type: str,
+) -> None:
+    """Keep a benchmark run in the run store, announcing on stderr beside JSON or Markdown."""
+    from devops_cli.ai.run_store import Mechanism, record_run
+    from devops_cli.commands.ai_runs import announce_run
+
+    saved = record_run(
+        Mechanism.AI_BENCHMARK,
+        setup=setup,
+        subject={"kind": kind} | subject,
+        results=report.model_dump(mode="json"),
+    )
+    announce_run(saved, to_stderr=format_type.lower() in ("json", "markdown"))
+
+
+def _benchmark_setup(
+    model_list: list[str],
+    settings: Any,
+    provider: str | None,
+    safe_concurrency: int,
+    server_list: list[str] | None,
+) -> dict[str, Any]:
+    """What a benchmark's results depend on besides its subject."""
+    return {
+        "models": sorted(model_list),
+        "provider": provider or settings.ai.provider,
+        "servers": sorted(server_list or []),
+        "concurrency": safe_concurrency,
+    }
+
+
 def _execute_embedding_benchmark(
     model_list: list[str],
     settings: Any,
@@ -89,6 +127,16 @@ def _execute_embedding_benchmark(
         sample_count=samples,
     )
     embed_report = embed_runner.run()
+    if not dry_run:
+        from devops_cli.ai.run_store import file_digest
+
+        _record_benchmark(
+            "embedding",
+            embed_report,
+            setup=_benchmark_setup(model_list, settings, provider, safe_concurrency, server_list),
+            subject={"document": file_digest(document) if document else None, "samples": samples},
+            format_type=format_type,
+        )
 
     if output:
         resolved_output = output.resolve()
@@ -123,6 +171,18 @@ def _execute_suite_benchmark(
         quiet=format_type.lower() in ("json", "markdown"),
     )
     suite_report = suite_runner.run()
+    if not dry_run:
+        from devops_cli.ai.benchmark.suite import load_feedback_benchmark_dataset
+        from devops_cli.ai.run_store import digest
+
+        cases = [case.model_dump(mode="json") for case in load_feedback_benchmark_dataset(dataset)]
+        _record_benchmark(
+            "suite",
+            suite_report,
+            setup=_benchmark_setup(model_list, settings, provider, safe_concurrency, server_list),
+            subject={"dataset_digest": digest(cases), "cases": len(cases)},
+            format_type=format_type,
+        )
 
     if output:
         resolved_output = output.resolve()
@@ -171,6 +231,14 @@ def _execute_tasks_benchmark(
     )
 
     report = runner.execute()
+    if not dry_run:
+        _record_benchmark(
+            "tasks",
+            report,
+            setup=_benchmark_setup(model_list, settings, provider, safe_concurrency, server_list),
+            subject={"tasks": sorted(task.id for task in task_list)},
+            format_type=format_type,
+        )
 
     if output:
         resolved_output = output.resolve()

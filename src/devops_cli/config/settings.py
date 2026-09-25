@@ -75,6 +75,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_TOP_K,
     DEFAULT_REPOS_BASE_DIR,
     DEFAULT_REVIEWS_DATA_DIR,
+    DEFAULT_RUNS_DATA_DIR,
     DEFAULT_SAMPLES_DATA_DIR,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
     DEFAULT_SSH_KEY_DIR,
@@ -217,6 +218,15 @@ def _normalize_valkey_host(raw_host: str, raw_port: Any, data: dict[str, Any]) -
             return
     if raw_port is not None:
         data["host"] = f"{clean}:{raw_port}"
+
+
+class RunsConfig(BaseModel):
+    """The evaluation run store's shared index; records stay in `data.runs_dir` without it."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    # A Valkey URL such as `valkey://host:port`; unset keeps runs on this workstation only.
+    index_url: str | None = None
 
 
 class ValkeyConfig(BaseModel):
@@ -444,6 +454,7 @@ _DEFAULT_CHILD_DATA_PATHS: tuple[tuple[str, Path, Path], ...] = (
     ("benchmarks_dir", DEFAULT_BENCHMARKS_DATA_DIR, Path("benchmarks")),
     ("rag_dir", DEFAULT_RAG_DATA_DIR, Path("rag")),
     ("samples_dir", DEFAULT_SAMPLES_DATA_DIR, Path("samples")),
+    ("runs_dir", DEFAULT_RUNS_DATA_DIR, Path("runs")),
     ("tls_dir", DEFAULT_TLS_DATA_DIR, Path("tls")),
     ("audit_log_path", DEFAULT_AUDIT_LOG_PATH, Path("logs/audit.jsonl")),
     ("feedback_dataset_path", DEFAULT_FEEDBACK_DATASET_PATH, Path("feedback_dataset.jsonl")),
@@ -458,6 +469,7 @@ _CHILD_DATA_ENV_MAP: dict[str, str] = {
     "benchmarks_dir": "DEVOPS_CLI_DATA_BENCHMARKS_DIR",
     "rag_dir": "DEVOPS_CLI_DATA_RAG_DIR",
     "samples_dir": "DEVOPS_CLI_DATA_SAMPLES_DIR",
+    "runs_dir": "DEVOPS_CLI_DATA_RUNS_DIR",
     "tls_dir": "DEVOPS_CLI_DATA_TLS_DIR",
     "audit_log_path": "DEVOPS_CLI_DATA_AUDIT_LOG_PATH",
     "feedback_dataset_path": "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH",
@@ -472,6 +484,7 @@ _DEFAULT_CHILD_DATA_MAP: dict[str, Path] = {
     "benchmarks_dir": DEFAULT_BENCHMARKS_DATA_DIR,
     "rag_dir": DEFAULT_RAG_DATA_DIR,
     "samples_dir": DEFAULT_SAMPLES_DATA_DIR,
+    "runs_dir": DEFAULT_RUNS_DATA_DIR,
     "tls_dir": DEFAULT_TLS_DATA_DIR,
     "audit_log_path": DEFAULT_AUDIT_LOG_PATH,
     "feedback_dataset_path": DEFAULT_FEEDBACK_DATASET_PATH,
@@ -490,6 +503,7 @@ class DataConfig(BaseModel):
     benchmarks_dir: Path = Field(default_factory=lambda: DEFAULT_BENCHMARKS_DATA_DIR)
     rag_dir: Path = Field(default_factory=lambda: DEFAULT_RAG_DATA_DIR)
     samples_dir: Path = Field(default_factory=lambda: DEFAULT_SAMPLES_DATA_DIR)
+    runs_dir: Path = Field(default_factory=lambda: DEFAULT_RUNS_DATA_DIR)
     tls_dir: Path = Field(default_factory=lambda: DEFAULT_TLS_DATA_DIR)
     audit_log_path: Path = Field(default_factory=lambda: DEFAULT_AUDIT_LOG_PATH)
     feedback_dataset_path: Path = Field(default_factory=lambda: DEFAULT_FEEDBACK_DATASET_PATH)
@@ -519,6 +533,7 @@ class Settings(BaseSettings):
     argocd: ArgoCDConfig = ArgoCDConfig()
     qdrant: QdrantConfig = QdrantConfig()
     valkey: ValkeyConfig = ValkeyConfig()
+    runs: RunsConfig = RunsConfig()
     jaeger: JaegerConfig = JaegerConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
     k8s: KubernetesConfig = KubernetesConfig()
@@ -936,6 +951,11 @@ def get_qdrant_api_key(settings: Settings) -> str | None:
 def get_valkey_password(settings: Settings) -> str | None:
     """Resolve the Valkey password."""
     return _resolve(opt.VALKEY_PASSWORD, settings)
+
+
+def get_runs_index_password(settings: Settings) -> str | None:
+    """Resolve the password of the Valkey holding the shared run index."""
+    return _resolve(opt.RUNS_INDEX_PASSWORD, settings)
 
 
 def get_logfire_token(settings: Settings) -> str | None:

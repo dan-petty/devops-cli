@@ -7,7 +7,7 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 | Stack | Components | Namespaces | Default Ports |
 | :--- | :--- | :--- | :--- |
 | **`infra`** *(Default)* | ArgoCD (backed by Valkey), Prometheus Stack (Prometheus + Grafana), NVIDIA DCGM Exporter, OpenTelemetry Collector | `argocd`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus) |
-| **`llm`** | Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
+| **`llm`** | Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache, Valkey Run Index | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
 | **`all`** | All components from both stacks | `argocd`, `monitoring`, `otel`, `llm` | All ports above |
 
 ## Prerequisites
@@ -59,6 +59,11 @@ minikube service qdrant -n llm --url
 
 # Valkey In-Memory Cache
 kubectl -n llm exec -it svc/valkey -- valkey-cli ping
+
+# Valkey Run Index: benchmark and evaluation runs shared by workstations. Create its password
+# before the first apply (never commit it), then point devops-cli at it through its NodePort.
+kubectl -n llm create secret generic valkey-runs-auth --from-literal=password="$(openssl rand -hex 32)"
+devops ai runs connect
 
 # LLM Gateway: authenticated OpenAI-compatible API for every model (vLLM and Ollama)
 minikube service llm-gateway -n llm --url
@@ -170,6 +175,7 @@ k8s/
 │   ├── kustomization.yaml    # Kustomize overlay for LLM stack base
 │   ├── namespace.yaml        # llm namespace
 │   ├── valkey.yaml           # Valkey Deployment + Service manifest
+│   ├── valkey-runs.yaml      # Run index Valkey: PVC, Deployment, NodePort Service, NetworkPolicy
 │   ├── values-ollama.yaml    # Helm values for ollama/ollama
 │   ├── values-open-webui.yaml# Helm values for open-webui/open-webui
 │   ├── values-qdrant.yaml    # Helm values for qdrant/qdrant

@@ -16,6 +16,8 @@ from devops_cli.ai.gateway_tune import (
     tune_pool,
 )
 from devops_cli.ai.pool_load import PoolLoad, pool_load, prometheus_query
+from devops_cli.ai.run_store import Mechanism, record_run
+from devops_cli.commands.ai_runs import announce_run
 from devops_cli.config.constants import CONST_AI_GATEWAY_VIRTUAL_MODELS, CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_DEPLOYMENT,
@@ -439,10 +441,35 @@ def tune_cmd(
         print_error(str(exc))
         raise typer.Exit(1) from exc
 
+    saved = record_run(
+        Mechanism.GATEWAY_TUNE,
+        setup={
+            "levels": levels,
+            "rounds": max(1, rounds),
+            "prompt_tokens": report.prompt_tokens,
+            "max_tokens": report.max_tokens,
+            "pool": sorted(
+                (
+                    {
+                        "backend": d.backend,
+                        "model": d.model,
+                        "weight": d.current_weight,
+                        "engine": d.engine,
+                        "gpus": [gpu.name for gpu in d.gpus],
+                    }
+                    for d in report.deployments
+                ),
+                key=lambda d: (d["backend"], d["model"]),
+            ),
+        },
+        subject={"model_group": report.model_group},
+        results=report.model_dump(mode="json"),
+    )
     if not as_table:
         emit_serialized(report.model_dump(), resolved)
-        return
-    _render_tune_report(report)
+    else:
+        _render_tune_report(report)
+    announce_run(saved, to_stderr=not as_table)
 
 
 def _share(value: float | None) -> str:

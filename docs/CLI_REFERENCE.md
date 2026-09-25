@@ -2989,7 +2989,7 @@ devops ai repomap [OPTIONS]
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
 | `--max-files`, `-n` | `integer` | `100` | Maximum source files to include. |
 | `--include-tests` | `boolean` | - | Include test modules in symbol map. |
-| `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, Go, Rust, Java, and HCL. |
+| `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3423,7 +3423,7 @@ devops ai review stats [OPTIONS]
 
 #### `devops ai review benchmark`
 
-**Review the same files several times and report median time, LLM calls and tokens per stage.**
+**Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage.**
 
 ```bash
 devops ai review benchmark [OPTIONS] <targets>
@@ -4308,6 +4308,45 @@ devops ai gateway load [OPTIONS]
 | `--window`, `-w` | `string` | `1h` | How far back to look, e.g. 30m, 2h or 1d. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
+### `devops ai runs`
+
+**Benchmark and evaluation runs, kept in the data directory and shared through Valkey.**
+
+```bash
+devops ai runs COMMAND [ARGS]...
+```
+
+#### `devops ai runs reindex`
+
+**Rebuild the shared run index in Valkey from the run records in the data directory.**
+
+```bash
+devops ai runs reindex [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark)` | - | Only index runs of this mechanism. |
+
+#### `devops ai runs connect`
+
+**Find the cluster's run index, check it answers, share runs through it, and index them.**
+
+```bash
+devops ai runs connect [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context` | `string` | - | Kubernetes context (default: current). |
+| `--namespace`, `-n` | `string` | `llm` | Namespace of the run index. |
+| `--service` | `string` | `valkey-runs` | Service of the run index's Valkey. |
+| `--secret` | `string` | `<masked>` | Secret holding the Valkey password. |
+
 ### `devops ai cost`
 
 **Track approximate lifetime spend and manage model pricing.**
@@ -4718,7 +4757,7 @@ devops review stats [OPTIONS]
 
 ### `devops review benchmark`
 
-**Review the same files several times and report median time, LLM calls and tokens per stage.**
+**Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage.**
 
 ```bash
 devops review benchmark [OPTIONS] <targets>

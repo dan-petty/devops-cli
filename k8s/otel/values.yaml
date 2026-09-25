@@ -55,6 +55,12 @@ config:
       limit_mib: 400
       spike_limit_mib: 100
 
+    # devops-cli runs each command as its own short-lived process, so it sends counters and
+    # histograms as deltas. This keeps each series' running total, which Prometheus needs; a
+    # series idle for max_stale starts again from zero, read by rate() as a counter reset.
+    deltatocumulative:
+      max_stale: 1h
+
   exporters:
     # Debug exporter for local development visibility.
     # In production environments, remove 'debug' from service.pipelines or gate verbosity.
@@ -89,7 +95,7 @@ config:
 
       metrics:
         receivers: [otlp]
-        processors: [memory_limiter, batch]
+        processors: [memory_limiter, deltatocumulative, batch]
         exporters: [debug, prometheusremotewrite]
 
       logs:

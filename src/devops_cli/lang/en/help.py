@@ -171,9 +171,7 @@ class AICommandHelp:
     contracts_dir: str = "Path to directory containing exported library contract JSON files."
     exact_lookup: str = "Perform exact qualified symbol lookup instead of semantic vector search."
     package_name: str = "Filter by package distribution name."
-    multilingual: str = (
-        "Enable multilingual polyglot scanning across Python, TypeScript, Go, Rust, Java, and HCL."
-    )
+    multilingual: str = "Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown."
     ast: str = "Tree-Sitter multilingual AST concrete syntax tree parsing and code graph synthesis."
     ast_parse: str = "Parse source file concrete syntax tree and extract structural symbols."
     ast_graph: str = "Synthesize whole-repository symbol dependency and reference graph."
@@ -833,7 +831,7 @@ class ReviewCommandHelp:
     pr_cmd: str = "Review a GitHub Pull Request."
     findings: str = "Manage and update review findings."
     stats: str = "Show review sessions and findings statistics."
-    benchmark: str = "Review the same files several times and report median time, LLM calls and tokens per stage."
+    benchmark: str = "Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage."
     benchmark_targets: str = (
         "File(s) or directory(ies) to review on every run; keep them fixed to compare benchmarks."
     )

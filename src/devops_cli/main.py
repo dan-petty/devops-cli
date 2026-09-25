@@ -95,7 +95,8 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
         )
         return
 
-    from devops_cli.telemetry import record_metric, trace_span
+    from devops_cli.telemetry import trace_span
+    from devops_cli.telemetry.instruments import COMMAND_DURATION, COMMAND_TOTAL, emit
 
     args_summary = " ".join(effective_args) if effective_args else ""
     start_time = time.perf_counter()
@@ -128,20 +129,15 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
                 "command_completed",
                 {"command": command_name, "exit_code": exit_code, "duration_seconds": dur},
             )
-            record_metric(
-                "devops_cli_command_total",
+            emit(
+                COMMAND_TOTAL,
                 1.0,
-                attributes={
+                {
                     "command": command_name,
                     "status": "ok" if exit_code == 0 else "error",
                 },
             )
-            record_metric(
-                "devops_cli_command_duration_seconds",
-                dur,
-                unit="s",
-                attributes={"command": command_name},
-            )
+            emit(COMMAND_DURATION, dur, {"command": command_name})
             if exit_code != 0:
                 raise typer.Exit(exit_code)
         except click.ClickException as exc:
@@ -156,17 +152,8 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
                 "command_failed",
                 {"command": command_name, "error": str(exc), "exit_code": code},
             )
-            record_metric(
-                "devops_cli_command_total",
-                1.0,
-                attributes={"command": command_name, "status": "error"},
-            )
-            record_metric(
-                "devops_cli_command_duration_seconds",
-                dur,
-                unit="s",
-                attributes={"command": command_name},
-            )
+            emit(COMMAND_TOTAL, 1.0, {"command": command_name, "status": "error"})
+            emit(COMMAND_DURATION, dur, {"command": command_name})
             exc.show()
             raise typer.Exit(code) from exc
         except SystemExit as exc:  # pragma: no cover - defensive for wrapped click exits
@@ -179,17 +166,12 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
                 "command_exited",
                 {"command": command_name, "exit_code": code, "duration_seconds": dur},
             )
-            record_metric(
-                "devops_cli_command_total",
+            emit(
+                COMMAND_TOTAL,
                 1.0,
-                attributes={"command": command_name, "status": "ok" if code == 0 else "error"},
+                {"command": command_name, "status": "ok" if code == 0 else "error"},
             )
-            record_metric(
-                "devops_cli_command_duration_seconds",
-                dur,
-                unit="s",
-                attributes={"command": command_name},
-            )
+            emit(COMMAND_DURATION, dur, {"command": command_name})
             raise typer.Exit(code) from exc
 
 

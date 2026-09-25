@@ -40,6 +40,42 @@ _STAGE: ContextVar[str | None] = ContextVar("review_stage", default=None)
 _COLLECTED: ContextVar[list[ReviewProfile] | None] = ContextVar("review_profiles", default=None)
 
 
+class BackendActivity(BaseModel):
+    """How busy one backend was during a stage: how long it served calls, and how many at once."""
+
+    calls: int = 0
+    # Time with at least one call in flight; overlapping calls count once.
+    busy_seconds: float = 0.0
+    # Time summed over calls; above busy_seconds when calls overlapped.
+    call_seconds: float = 0.0
+    peak_concurrency: int = 0
+
+    @property
+    def mean_concurrency(self) -> float:
+        """Calls in flight on average while the backend was busy."""
+        return self.call_seconds / self.busy_seconds if self.busy_seconds else 0.0
+
+
+def backend_activity(intervals: list[tuple[float, float]]) -> BackendActivity:
+    """Activity from each call's (start, end): busy time is their union, peak their overlap."""
+    # An end sorts before a start at the same instant: back-to-back calls do not overlap.
+    events = sorted([(start, 1) for start, _ in intervals] + [(end, -1) for _, end in intervals])
+    busy, active, peak, since = 0.0, 0, 0, 0.0
+    for instant, delta in events:
+        if active == 0 and delta == 1:
+            since = instant
+        active += delta
+        peak = max(peak, active)
+        if active == 0 and delta == -1:
+            busy += instant - since
+    return BackendActivity(
+        calls=len(intervals),
+        busy_seconds=round(busy, 3),
+        call_seconds=round(sum(end - start for start, end in intervals), 3),
+        peak_concurrency=peak,
+    )
+
+
 class StageProfile(BaseModel):
     """One stage of a review."""
 
@@ -50,6 +86,14 @@ class StageProfile(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     backends: dict[str, int] = Field(default_factory=dict)
+    activity: dict[str, BackendActivity] = Field(default_factory=dict)
+
+    def busy_share(self, backend: str) -> float:
+        """The share of the stage's wall time the backend had a call in flight."""
+        activity = self.activity.get(backend)
+        if activity is None or not self.wall_seconds:
+            return 0.0
+        return min(1.0, activity.busy_seconds / self.wall_seconds)
 
 
 class ReviewProfile(BaseModel):
@@ -100,6 +144,8 @@ class ReviewProfiler:
         self._lock = threading.Lock()
         self._started = time.monotonic()
         self._stages: dict[str, StageProfile] = {}
+        # Each served call's (start, end) on the monotonic clock, by stage and backend.
+        self._intervals: dict[str, dict[str, list[tuple[float, float]]]] = {}
         self._findings = (0, 0, 0)
         self._static_analyzers: dict[str, str] = {}
 
@@ -120,6 +166,11 @@ class ReviewProfiler:
             served_by = call.get("served_by")
             if served_by:
                 stage.backends[served_by] = stage.backends.get(served_by, 0) + 1
+                # Observers run as a call finishes, so it started its duration ago.
+                end = time.monotonic()
+                duration = max(0.0, float(call.get("duration_seconds") or 0.0))
+                by_backend = self._intervals.setdefault(name, {})
+                by_backend.setdefault(served_by, []).append((end - duration, end))
 
     def add_stage_time(self, name: str, seconds: float) -> None:
         with self._lock:
@@ -136,8 +187,13 @@ class ReviewProfiler:
         """Assemble the profile of everything recorded so far."""
         with self._lock:
             stages = [s.model_copy(deep=True) for s in self._stages.values()]
+            intervals = {k: {b: list(v) for b, v in d.items()} for k, d in self._intervals.items()}
         for stage in stages:
             stage.wall_seconds = round(stage.wall_seconds, 3)
+            stage.activity = {
+                backend: backend_activity(calls)
+                for backend, calls in intervals.get(stage.name, {}).items()
+            }
         candidates, verified, reported = self._findings
         return ReviewProfile(
             session_id=session_id,
@@ -216,6 +272,10 @@ class StageSummary(BaseModel):
     median_prompt_tokens: float
     median_completion_tokens: float
     backends: dict[str, int] = Field(default_factory=dict)
+    # Median share of the stage's wall time each backend had a call in flight.
+    backend_busy_share: dict[str, float] = Field(default_factory=dict)
+    # Most calls any run had in flight at once on each backend.
+    backend_peak_concurrency: dict[str, int] = Field(default_factory=dict)
 
 
 class BenchmarkSummary(BaseModel):
@@ -270,6 +330,12 @@ def summarize_profiles(profiles: list[ReviewProfile]) -> BenchmarkSummary:
         backends: Counter[str] = Counter()
         for stage in runs:
             backends.update(stage.backends)
+        active = sorted({b for stage in runs for b in stage.activity})
+        busy_share = {b: _median([stage.busy_share(b) for stage in runs]) for b in active}
+        peak = {
+            b: max(stage.activity[b].peak_concurrency for stage in runs if b in stage.activity)
+            for b in active
+        }
         stages.append(
             StageSummary(
                 name=name,
@@ -278,6 +344,8 @@ def summarize_profiles(profiles: list[ReviewProfile]) -> BenchmarkSummary:
                 median_prompt_tokens=_median([float(s.prompt_tokens) for s in runs]),
                 median_completion_tokens=_median([float(s.completion_tokens) for s in runs]),
                 backends=dict(backends),
+                backend_busy_share=busy_share,
+                backend_peak_concurrency=peak,
             )
         )
     return BenchmarkSummary(
@@ -299,12 +367,14 @@ def summarize_profiles(profiles: list[ReviewProfile]) -> BenchmarkSummary:
 __all__ = [
     "BENCHMARKS_DIRNAME",
     "PROFILE_FILENAME",
+    "BackendActivity",
     "BenchmarkSummary",
     "ReviewProfile",
     "ReviewProfiler",
     "StageProfile",
     "StageSummary",
     "active_profiler",
+    "backend_activity",
     "collect_profiles",
     "profiling",
     "report_profile",
