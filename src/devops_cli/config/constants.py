@@ -2068,6 +2068,12 @@ CONST_VERIFIED_BY_UNKNOWN: Final[str] = "unknown"
 # opposed to one it considered and declined to confirm.
 CONST_VERIFICATION_UNAVAILABLE: Final[str] = "verification-unavailable"
 
+# Persona review reply outcomes: a persona returns valid findings, a clean empty findings list,
+# or an unparsed reply (malformed response or extraction failure).
+CONST_PERSONA_REPLY_FINDINGS: Final[str] = "findings"
+CONST_PERSONA_REPLY_EMPTY: Final[str] = "empty"
+CONST_PERSONA_REPLY_UNPARSED: Final[str] = "unparsed"
+
 # Maximum number of schema validation error field paths preserved in error reflection
 # prompts to bound token consumption while retaining sufficient diagnostic fidelity.
 CONST_MAX_SCHEMA_REFLECTION_ERRORS: Final[int] = 5

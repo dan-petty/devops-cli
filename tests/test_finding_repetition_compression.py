@@ -136,6 +136,29 @@ def test_parse_review_response_structured_model_response_succeeds() -> None:
     assert result.thinking == "Inspecting cluster_context.py for URL scheme validation..."
 
 
+def test_parse_review_response_bare_empty_list_and_fenced_empty_list() -> None:
+    """Bare [] and markdown fenced [] evaluate cleanly as empty ReviewResult without findings."""
+    res_bare = parse_review_response("[]")
+    res_fenced = parse_review_response("```json\n[]\n```")
+    res_whitespace = parse_review_response("  \n[]\n  ")
+    assert (
+        res_bare is not None,
+        len(res_bare.findings) if res_bare else -1,
+        res_fenced is not None,
+        len(res_fenced.findings) if res_fenced else -1,
+        res_whitespace is not None,
+        len(res_whitespace.findings) if res_whitespace else -1,
+    ) == (True, 0, True, 0, True, 0)
+
+
+def test_parse_review_response_malformed_list_returns_none() -> None:
+    """Lists with invalid non-finding items return None rather than silently succeeding."""
+    res_strings = parse_review_response('["not", "a", "finding"]')
+    res_numbers = parse_review_response("[1, 2, 3]")
+    res_invalid_dicts = parse_review_response('[{"foo": "bar"}]')
+    assert (res_strings, res_numbers, res_invalid_dicts) == (None, None, None)
+
+
 def test_unique_lines_and_items_preserves_first_instance_using_set() -> None:
     """unique_lines and unique_items retain only the first instance of each line or item."""
     from devops_cli.ai.review_schema import unique_items, unique_lines

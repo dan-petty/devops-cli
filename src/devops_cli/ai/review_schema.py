@@ -1272,6 +1272,15 @@ def _review_result_from_dict(data: dict[str, Any]) -> ReviewResult | None:
     )
 
 
+def _review_result_from_list(data: list[Any]) -> ReviewResult | None:
+    """Construct ReviewResult from a list response (empty or list of finding dicts)."""
+    if not data:
+        return ReviewResult(findings=[], summary="")
+    if findings := _validate_raw_findings_list(data):
+        return ReviewResult(findings=findings, summary=f"Extracted {len(findings)} finding(s)")
+    return None
+
+
 def parse_review_response(response: str | Any) -> ReviewResult | None:
     """Parse a review reply into its findings.
 
@@ -1288,8 +1297,8 @@ def parse_review_response(response: str | Any) -> ReviewResult | None:
         result = _review_result_from_dict(data)
     elif isinstance(fixed.parsed_model, ReviewResult):
         result = fixed.parsed_model
-    elif isinstance(data, list) and (findings := _validate_raw_findings_list(data)):
-        result = ReviewResult(findings=findings, summary=f"Extracted {len(findings)} finding(s)")
+    elif isinstance(data, list):
+        result = _review_result_from_list(data)
     if result is None:
         return None
     if fixed.thinking and not result.thinking:

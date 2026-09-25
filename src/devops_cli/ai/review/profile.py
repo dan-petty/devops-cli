@@ -31,6 +31,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devops_cli.ai.spend.ledger import observe_llm_calls
+from devops_cli.config.constants import CONST_PERSONA_REPLY_UNPARSED
 
 PROFILE_FILENAME = "profile.json"
 BENCHMARKS_DIRNAME = "benchmarks"
@@ -114,6 +115,9 @@ class ReviewProfile(BaseModel):
     # How each static analyzer took part: ran, built-in patterns, not installed or no files. A
     # scan that found nothing is clean only for the analyzers that ran.
     static_analyzers: dict[str, str] = Field(default_factory=dict)
+    persona_outcomes: dict[str, int] = Field(default_factory=dict)
+    persona_replies: list[dict[str, Any]] = Field(default_factory=list)
+    unparsed_personas: list[str] = Field(default_factory=list)
     stages: list[StageProfile] = Field(default_factory=list)
 
     @property
@@ -150,6 +154,33 @@ class ReviewProfiler:
         self._findings = (0, 0, 0)
         self._verdict_distributions: dict[str, dict[str, int]] = {}
         self._static_analyzers: dict[str, str] = {}
+        self._persona_replies: list[dict[str, Any]] = []
+        self._persona_outcomes: dict[str, int] = {}
+        self._unparsed_personas: set[str] = set()
+
+    def record_persona_reply(
+        self,
+        *,
+        file: str,
+        persona: str,
+        outcome: str,
+        persona_title: str = "",
+        page: int = 1,
+    ) -> None:
+        """Record the outcome of a single persona review reply."""
+        with self._lock:
+            self._persona_replies.append(
+                {
+                    "file": file,
+                    "persona": persona,
+                    "persona_title": persona_title or persona,
+                    "outcome": outcome,
+                    "page": page,
+                }
+            )
+            self._persona_outcomes[outcome] = self._persona_outcomes.get(outcome, 0) + 1
+            if outcome == CONST_PERSONA_REPLY_UNPARSED:
+                self._unparsed_personas.add(persona_title or persona)
 
     def observe(self, call: dict[str, Any]) -> None:
         """Credit an LLM call to the stage running in the caller's context.
@@ -199,6 +230,9 @@ class ReviewProfiler:
         with self._lock:
             stages = [s.model_copy(deep=True) for s in self._stages.values()]
             intervals = {k: {b: list(v) for b, v in d.items()} for k, d in self._intervals.items()}
+            replies = list(self._persona_replies)
+            outcomes = dict(self._persona_outcomes)
+            unparsed = sorted(self._unparsed_personas)
         for stage in stages:
             stage.wall_seconds = round(stage.wall_seconds, 3)
             stage.activity = {
@@ -220,6 +254,9 @@ class ReviewProfiler:
             reported_findings=reported,
             verdict_distributions=dict(self._verdict_distributions),
             static_analyzers=dict(self._static_analyzers),
+            persona_outcomes=outcomes,
+            persona_replies=replies,
+            unparsed_personas=unparsed,
             stages=stages,
         )
 

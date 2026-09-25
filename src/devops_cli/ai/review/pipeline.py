@@ -82,6 +82,9 @@ from devops_cli.config.commands import (
 from devops_cli.config.constants import (
     CONST_MAX_FILE_SIZE_BYTES,
     CONST_MAX_PROBE_FILE_SIZE_BYTES,
+    CONST_PERSONA_REPLY_EMPTY,
+    CONST_PERSONA_REPLY_FINDINGS,
+    CONST_PERSONA_REPLY_UNPARSED,
     CONST_PROBE_MANIFEST_NAMES,
     CONST_REVIEW_CANDIDATES_FILENAME,
     CONST_REVIEW_GENERATED_FILES,
@@ -205,6 +208,71 @@ def _append_step_thoughts(step: Any, thoughts_list: list[str]) -> None:
                 thoughts_list.append(f"[{step.agent_name}] {t_clean}")
 
 
+def _record_step_backend(step: Any, actual_servers: list[str]) -> None:
+    """Record distinct backend server info from an agent step."""
+    b_info = getattr(step, "backend_info", None)
+    if b_info and b_info not in actual_servers:
+        actual_servers.append(b_info)
+
+
+def _resolve_step_parsed_data(step: Any) -> ReviewResult | None:
+    """Extract or parse ReviewResult from step parsed_data or text content."""
+    parsed_data = getattr(step, "parsed_data", None)
+    if isinstance(parsed_data, ReviewResult):
+        return parsed_data
+    return parse_review_response(getattr(step, "content", "") or "")
+
+
+def _determine_step_outcome(parsed: ReviewResult | None) -> str:
+    """Determine persona reply outcome: unparsed, findings, or empty."""
+    if parsed is None:
+        return CONST_PERSONA_REPLY_UNPARSED
+    return CONST_PERSONA_REPLY_FINDINGS if parsed.findings else CONST_PERSONA_REPLY_EMPTY
+
+
+def _convert_findings_to_saved(
+    findings: list[Finding], fpath: str, p_val: str, p_title: str
+) -> list[SavedFinding]:
+    """Convert raw ReviewResult findings into SavedFinding objects with persona tags."""
+    saved: list[SavedFinding] = []
+    for f in findings:
+        if f.is_empty:
+            continue
+        loc = f.location.strip() or fpath
+        sf = SavedFinding(
+            **reset_verification_state(f).model_dump(exclude={"location"}),
+            location=loc,
+            persona=p_val,
+            persona_title=p_title,
+        )
+        if not sf.is_empty:
+            saved.append(sf)
+    return saved
+
+
+def _record_step_thought(
+    thoughts_list: list[str],
+    p_title: str,
+    fpath: str,
+    p_idx: int,
+    total_pages: int,
+    parsed: ReviewResult | None,
+    outcome: str,
+) -> None:
+    """Format and append step evaluation thought to running thoughts list."""
+    p_suffix = f" [p.{p_idx}/{total_pages}]" if total_pages > 1 else ""
+    if outcome == CONST_PERSONA_REPLY_UNPARSED:
+        thoughts_list.append(
+            f"[{p_title}] Evaluated {fpath}{p_suffix}: unparsed reply (0 finding(s))"
+        )
+    else:
+        rec_str = parsed.recommendation if parsed else "REVIEW"
+        n_findings_step = len(parsed.findings) if parsed else 0
+        thoughts_list.append(
+            f"[{p_title}] Evaluated {fpath}{p_suffix}: {rec_str} ({n_findings_step} finding(s))"
+        )
+
+
 def _process_pipeline_step_findings(
     step: Any,
     fpath: str,
@@ -214,46 +282,37 @@ def _process_pipeline_step_findings(
     thoughts_list: list[str],
     actual_servers: list[str],
     file_findings: list[SavedFinding],
-) -> None:
+) -> dict[str, Any]:
     """Process findings and metadata from an individual agent review step."""
-    if getattr(step, "backend_info", None) and step.backend_info not in actual_servers:
-        actual_servers.append(step.backend_info)
-
+    _record_step_backend(step, actual_servers)
     _append_step_thoughts(step, thoughts_list)
 
-    parsed: ReviewResult | None = (
-        step.parsed_data
-        if getattr(step, "parsed_data", None) and isinstance(step.parsed_data, ReviewResult)
-        else parse_review_response(getattr(step, "content", "") or "")
-    )
-
+    parsed = _resolve_step_parsed_data(step)
     p_val, p_title = persona_lookup.get(
         step.agent_name,
         (step.agent_name.lower().replace(" ", "_"), step.agent_name),
     )
+    outcome = _determine_step_outcome(parsed)
+    _record_step_thought(thoughts_list, p_title, fpath, p_idx, total_pages, parsed, outcome)
 
-    rec_str = parsed.recommendation if parsed else "REVIEW"
-    n_findings_step = len(parsed.findings) if parsed else 0
-    p_suffix = f" [p.{p_idx}/{total_pages}]" if total_pages > 1 else ""
-    thoughts_list.append(
-        f"[{p_title}] Evaluated {fpath}{p_suffix}: {rec_str} ({n_findings_step} finding(s))"
-    )
+    if parsed and parsed.findings:
+        file_findings.extend(_convert_findings_to_saved(parsed.findings, fpath, p_val, p_title))
 
-    if not parsed or not parsed.findings:
-        return
-
-    for f in parsed.findings:
-        if f.is_empty:
-            continue
-        loc = f.location.strip() or fpath
-        saved = SavedFinding(
-            **reset_verification_state(f).model_dump(exclude={"location"}),
-            location=loc,
+    if profiler := active_profiler():
+        profiler.record_persona_reply(
+            file=fpath,
             persona=p_val,
+            outcome=outcome,
             persona_title=p_title,
+            page=p_idx,
         )
-        if not saved.is_empty:
-            file_findings.append(saved)
+
+    return {
+        "persona": p_val,
+        "persona_title": p_title,
+        "outcome": outcome,
+        "page": p_idx,
+    }
 
 
 def _anchor_page_findings(
@@ -279,6 +338,61 @@ def _anchor_page_findings(
             file_findings[index] = finding.model_copy(update={"location": location})
         elif (head := location.split(":", 1)[0]) != fpath and "/" not in head:
             unanchored.append(location)
+
+
+def _finalize_reviewed_file_scratchpad(
+    payload: FileReviewPayload,
+    thoughts: list[str],
+    file_replies: list[dict[str, Any]],
+    step_count: int,
+) -> list[str]:
+    """Record persona reply outcomes, scratchpad stage, and step thoughts."""
+    payload.ai_scratchpad["thoughts"] = thoughts
+    payload.ai_scratchpad["persona_replies"] = file_replies
+    payload.ai_scratchpad["persona_outcomes"] = {r["persona"]: r["outcome"] for r in file_replies}
+    unparsed_titles = [
+        r["persona_title"] for r in file_replies if r.get("outcome") == CONST_PERSONA_REPLY_UNPARSED
+    ]
+    unparsed_names = list(dict.fromkeys(unparsed_titles))
+    if unparsed_names:
+        payload.ai_scratchpad["unparsed_personas"] = unparsed_names
+
+    all_unparsed = bool(file_replies) and all(
+        r.get("outcome") == CONST_PERSONA_REPLY_UNPARSED for r in file_replies
+    )
+    if all_unparsed:
+        payload.ai_scratchpad["stage"] = CONST_PERSONA_REPLY_UNPARSED
+    elif unparsed_names:
+        payload.ai_scratchpad["stage"] = "degraded"
+    else:
+        payload.ai_scratchpad["stage"] = "reviewed"
+
+    payload.ai_scratchpad["step_count"] = step_count
+    return unparsed_names
+
+
+def _format_reviewed_file_console_message(
+    idx: int,
+    total_files: int,
+    fpath: str,
+    context_value: str,
+    n_findings: int,
+    handled_by: str,
+    sec_str: str,
+    unparsed_names: list[str],
+) -> str:
+    """Format the console log message for a completed file review."""
+    unparsed_suffix = (
+        f" [bold yellow](unparsed: {', '.join(unparsed_names)})[/bold yellow]"
+        if unparsed_names
+        else ""
+    )
+    return (
+        f"[{idx}/{total_files}] Reviewed [bold]{fpath}[/bold] "
+        f"[dim]({context_value})[/dim] "
+        f"({n_findings} finding(s)) [dim]handled by {handled_by} {sec_str}[/dim]"
+        f"{unparsed_suffix}"
+    )
 
 
 def _try_reuse_cached_analysis_meta(
@@ -777,7 +891,7 @@ def _execute_page_review_steps(
     thoughts: list[str],
     actual_servers: list[str],
     file_findings: list[SavedFinding],
-) -> int:
+) -> tuple[int, list[dict[str, Any]]]:
     """Execute review pipeline on a page prompt and process step findings."""
     # An empty history reviews each page on its own: cached persona agents would otherwise
     # resend every earlier file they saw, overflowing small context windows.
@@ -790,7 +904,7 @@ def _execute_page_review_steps(
             skip_rag=True,
             message_history=[],
         )
-    for step in result.steps:
+    outcomes: list[dict[str, Any]] = [
         _process_pipeline_step_findings(
             step=step,
             fpath=fpath,
@@ -801,7 +915,9 @@ def _execute_page_review_steps(
             actual_servers=actual_servers,
             file_findings=file_findings,
         )
-    return len(result.steps)
+        for step in result.steps
+    ]
+    return len(result.steps), outcomes
 
 
 def _collect_paths_to_analyze(
@@ -960,6 +1076,159 @@ def _format_error_detail(stage: str, exc: Exception, max_len: int = 256) -> str:
     if len(msg) > max_len:
         return msg[: max_len - 3] + "..."
     return msg
+
+
+def _resolve_rag_and_contract_context(
+    fpath: str,
+    ext: str,
+    symbols: str,
+    content_or_diff: str,
+    payload: FileReviewPayload,
+    ground_contracts: bool,
+) -> tuple[str, str]:
+    """Retrieve RAG context and grounded code contracts for prompt interpolation."""
+    rag_context_str = ""
+    try:
+        from devops_cli.ai.rag.investigator import (
+            format_rag_investigation_for_prompt,
+            investigate_rag_context,
+        )
+
+        ctx = investigate_rag_context(f"{fpath} {symbols}", top_k=3)
+        rag_context_str = format_rag_investigation_for_prompt(
+            ctx, "Cross-File Architecture & Context"
+        )
+    except Exception as exc:
+        logger.debug("Failed investigating RAG context for %s: %s", fpath, exc)
+
+    contract_context_str = ""
+    if ground_contracts and ext in (".py", ".pyi"):
+        try:
+            from devops_cli.ai.review.contract_grounding import (
+                format_contract_grounding_for_prompt,
+                resolve_grounded_contracts,
+            )
+
+            file_imports = _page_imports(content_or_diff)
+            grounded = resolve_grounded_contracts(file_imports)
+            contract_context_str = format_contract_grounding_for_prompt(grounded)
+            if grounded:
+                payload.ai_scratchpad["grounded_contracts"] = [
+                    getattr(c, "qualname", getattr(c, "name", str(c))) for c in grounded
+                ]
+        except Exception as exc:
+            logger.debug("Failed investigating contract grounding for %s: %s", fpath, exc)
+
+    return rag_context_str, contract_context_str
+
+
+def _persist_file_review_payload(
+    files_dir: Path,
+    payload: FileReviewPayload,
+    fpath: str,
+    file_findings: list[SavedFinding],
+    t_start: float,
+    file_span: Any,
+) -> tuple[float, int]:
+    """Persist payload JSON to disk and record telemetry span attributes."""
+    sanitized_name = _sanitize_filename(fpath) + ".json"
+    json_target = files_dir / sanitized_name
+    json_target.parent.mkdir(parents=True, exist_ok=True)
+    json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
+
+    elapsed_sec = time.monotonic() - t_start
+    n_findings = len(file_findings)
+    file_span.set_attribute("review.findings_count", n_findings)
+    file_span.set_attribute("review.elapsed_seconds", elapsed_sec)
+    file_span.add_event(
+        "file_review_completed",
+        {"findings_count": n_findings, "elapsed_seconds": elapsed_sec},
+    )
+    return elapsed_sec, n_findings
+
+
+def _execute_single_page_review(
+    p_idx: int,
+    page_content: str,
+    fpath: str,
+    total_pages: int,
+    symbols: str,
+    rag_context_str: str,
+    contract_context_str: str,
+    resolved_context: FileContextType,
+    pipeline: Any,
+    persona_lookup: dict[str, tuple[str, str]],
+    thoughts: list[str],
+    actual_servers: list[str],
+    file_findings: list[SavedFinding],
+    file_replies: list[dict[str, Any]],
+    payload: FileReviewPayload,
+) -> int:
+    """Execute review steps for a single page and tie findings to file locations."""
+    prompt = _build_page_review_prompt(
+        fpath,
+        p_idx,
+        total_pages,
+        page_content,
+        symbols,
+        rag_context_str,
+        contract_context_str,
+        context_type=resolved_context,
+    )
+    first_new = len(file_findings)
+    steps, outcomes = _execute_page_review_steps(
+        pipeline,
+        prompt,
+        fpath,
+        p_idx,
+        total_pages,
+        persona_lookup,
+        thoughts,
+        actual_servers,
+        file_findings,
+    )
+    file_replies.extend(outcomes)
+    _anchor_page_findings(file_findings, first_new, fpath, page_content, payload)
+    return steps
+
+
+def _log_reviewed_file_completion(
+    fpath: str,
+    idx: int,
+    total_files: int,
+    resolved_context: FileContextType,
+    n_findings: int,
+    actual_servers: list[str],
+    server_info: str,
+    elapsed_sec: float,
+    errored_files: dict[str, str],
+    unparsed_personas: list[str],
+) -> None:
+    """Log file review completion or skip notification to the console."""
+    handled_by = ", ".join(actual_servers) if actual_servers else server_info
+    try:
+        sec_str = format_duration(float(elapsed_sec))
+    except TypeError, ValueError:
+        sec_str = "0.00s"
+
+    if fpath in errored_files:
+        print_info(
+            f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped errored file:[/bold red] "
+            f"[bold]{fpath}[/bold] [dim]({errored_files[fpath]})[/dim]",
+            prefix=False,
+        )
+    else:
+        msg = _format_reviewed_file_console_message(
+            idx,
+            total_files,
+            fpath,
+            resolved_context.value,
+            n_findings,
+            handled_by,
+            sec_str,
+            unparsed_personas,
+        )
+        print_info(msg, prefix=False)
 
 
 class ReviewPipelineOrchestrator:
@@ -1762,79 +2031,44 @@ class ReviewPipelineOrchestrator:
                 )
 
             symbols = ", ".join(payload.metadata.key_symbols if payload.metadata else [])
-            rag_context_str = ""
-            try:
-                from devops_cli.ai.rag.investigator import (
-                    format_rag_investigation_for_prompt,
-                    investigate_rag_context,
-                )
-
-                ctx = investigate_rag_context(f"{fpath} {symbols}", top_k=3)
-                rag_context_str = format_rag_investigation_for_prompt(
-                    ctx, "Cross-File Architecture & Context"
-                )
-            except Exception as exc:
-                logger.debug("Failed investigating RAG context for %s: %s", fpath, exc)
-
-            contract_context_str = ""
-            if self.ground_contracts and ext in (".py", ".pyi"):
-                try:
-                    from devops_cli.ai.review.contract_grounding import (
-                        format_contract_grounding_for_prompt,
-                        resolve_grounded_contracts,
-                    )
-
-                    file_imports = _page_imports(content_or_diff)
-                    grounded = resolve_grounded_contracts(file_imports)
-                    contract_context_str = format_contract_grounding_for_prompt(grounded)
-                    if grounded:
-                        payload.ai_scratchpad["grounded_contracts"] = [
-                            getattr(c, "qualname", getattr(c, "name", str(c))) for c in grounded
-                        ]
-                except Exception as exc:
-                    logger.debug("Failed investigating contract grounding for %s: %s", fpath, exc)
+            rag_context_str, contract_context_str = _resolve_rag_and_contract_context(
+                fpath, ext, symbols, content_or_diff, payload, self.ground_contracts
+            )
 
             t_start = time.monotonic()
             actual_servers: list[str] = []
             thoughts: list[str] = list(payload.ai_scratchpad.get("thoughts", []))
 
-            def _review_page(p_idx: int, page_content: str) -> int:
-                prompt = _build_page_review_prompt(
-                    fpath,
-                    p_idx,
-                    total_pages,
-                    page_content,
-                    symbols,
-                    rag_context_str,
-                    contract_context_str,
-                    context_type=resolved_context,
-                )
-                first_new = len(file_findings)
-                steps = _execute_page_review_steps(
-                    pipeline,
-                    prompt,
-                    fpath,
-                    p_idx,
-                    total_pages,
-                    persona_lookup,
-                    thoughts,
-                    actual_servers,
-                    file_findings,
-                )
-                _anchor_page_findings(file_findings, first_new, fpath, page_content, payload)
-                return steps
+            file_replies: list[dict[str, Any]] = []
 
             try:
                 total_step_count = sum(
-                    _review_page(p_idx, page_content) for p_idx, page_content in enumerate(pages, 1)
+                    _execute_single_page_review(
+                        p_idx,
+                        page_content,
+                        fpath,
+                        total_pages,
+                        symbols,
+                        rag_context_str,
+                        contract_context_str,
+                        resolved_context,
+                        pipeline,
+                        persona_lookup,
+                        thoughts,
+                        actual_servers,
+                        file_findings,
+                        file_replies,
+                        payload,
+                    )
+                    for p_idx, page_content in enumerate(pages, 1)
                 )
 
                 payload.findings = consolidate_duplicate_findings(
                     [*seeded_findings, *file_findings]
                 )
-                payload.ai_scratchpad["thoughts"] = thoughts
-                payload.ai_scratchpad["stage"] = "reviewed"
-                payload.ai_scratchpad["step_count"] = total_step_count
+                _finalize_reviewed_file_scratchpad(
+                    payload, thoughts, file_replies, total_step_count
+                )
 
             except Exception as exc:
                 err_desc = _format_error_detail("Review", exc)
@@ -1848,39 +2082,21 @@ class ReviewPipelineOrchestrator:
                 )
                 self.errored_files[fpath] = err_desc
 
-            sanitized_name = _sanitize_filename(fpath) + ".json"
-            json_target = self.files_dir / sanitized_name
-            json_target.parent.mkdir(parents=True, exist_ok=True)
-            json_target.write_text(payload.model_dump_json(indent=2), encoding="utf-8")
-
-            elapsed_sec = time.monotonic() - t_start
-            n_findings = len(file_findings)
-            file_span.set_attribute("review.findings_count", n_findings)
-            file_span.set_attribute("review.elapsed_seconds", elapsed_sec)
-            file_span.add_event(
-                "file_review_completed",
-                {"findings_count": n_findings, "elapsed_seconds": elapsed_sec},
+            elapsed_sec, n_findings = _persist_file_review_payload(
+                self.files_dir, payload, fpath, file_findings, t_start, file_span
             )
-            handled_by = ", ".join(actual_servers) if actual_servers else server_info
-            try:
-                sec_val = float(elapsed_sec)
-                sec_str = format_duration(sec_val)
-            except TypeError, ValueError:
-                sec_str = "0.00s"
-
-            if fpath in self.errored_files:
-                print_info(
-                    f"[yellow][{idx}/{total_files}][/yellow] [bold red]Skipped errored file:[/bold red] "
-                    f"[bold]{fpath}[/bold] [dim]({self.errored_files[fpath]})[/dim]",
-                    prefix=False,
-                )
-            else:
-                print_info(
-                    f"[{idx}/{total_files}] Reviewed [bold]{fpath}[/bold] "
-                    f"[dim]({resolved_context.value})[/dim] "
-                    f"({n_findings} finding(s)) [dim]handled by {handled_by} {sec_str}[/dim]",
-                    prefix=False,
-                )
+            _log_reviewed_file_completion(
+                fpath,
+                idx,
+                total_files,
+                resolved_context,
+                n_findings,
+                actual_servers,
+                server_info,
+                elapsed_sec,
+                self.errored_files,
+                payload.ai_scratchpad.get("unparsed_personas", []),
+            )
 
     def _resolve_file_pipeline(
         self,
