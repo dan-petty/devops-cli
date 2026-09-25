@@ -909,6 +909,62 @@ devops ai review samples validate [OPTIONS] <names>
 | `--all` | `boolean` | - | Run all reviewer personas in sequence. |
 | `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
 
+### `devops ai review templates`
+
+```bash
+devops ai review templates COMMAND [ARGS]...
+```
+
+#### `devops ai review templates list`
+
+**List registered synthetic defect templates and their supported languages.**
+
+```bash
+devops ai review templates list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai review templates sweep`
+
+**Sweep synthetic defect templates over sample repositories, validating syntax and comment isolation.**
+
+```bash
+devops ai review templates sweep [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
+| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai review templates check`
+
+**Sweep synthetic defect templates over sample repositories, validating syntax and comment isolation.**
+
+```bash
+devops ai review templates check [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
+| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
 ### `devops ai review hallucinations`
 
 ```bash
@@ -1636,7 +1692,7 @@ devops ai runs reindex [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark)` | - | Only index runs of this mechanism. |
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Only index runs of this mechanism. |
 
 ### `devops ai runs connect`
 
@@ -1667,7 +1723,7 @@ devops ai runs list [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark)` | - | Only list runs of this mechanism. |
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Only list runs of this mechanism. |
 | `--subject-key`, `-s` | `string` | - | Only list runs matching this subject key or prefix. |
 | `--limit`, `-n` | `integer` | `20` | Maximum number of runs to show. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
@@ -1789,7 +1845,7 @@ devops ai runs baseline show [OPTIONS] <subject_or_run>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark)` | - | Mechanism for subject lookup. |
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Mechanism for subject lookup. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ---

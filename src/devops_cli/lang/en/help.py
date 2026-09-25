@@ -882,6 +882,15 @@ class ReviewCommandHelp:
         "Sample(s) to validate (default: every sample, or every one in --category)."
     )
     samples_review: str = "Also review each category's synthetic defect corpus and score it (calls the configured LLM)."
+    templates: str = "Inspect synthetic defect templates and sweep them over sample repositories for well-formedness."
+    templates_list: str = (
+        "List registered synthetic defect templates and their supported languages."
+    )
+    templates_check: str = "Sweep synthetic defect templates over fetched samples, validating syntax and comment isolation."
+    templates_names: str = (
+        "Specific defect template(s) to check (default: all registered templates)."
+    )
+    templates_save: str = "Save sweep results into the evaluation run store (default: true)."
     hallucinations: str = (
         "Inspect and prune the hallucinations catalog that deterministic verification learns from."
     )
