@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import bisect
 import contextlib
 import contextvars
 import functools
@@ -26,6 +27,7 @@ import httpx2
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import (
+    CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA,
     CONST_OTEL_METRIC_UNIT_ONE,
     CONST_OTEL_SCOPE_NAME,
     CONST_OTEL_SERVICE_NAME,
@@ -99,6 +101,11 @@ def _generate_trace_id() -> str:
 
 def _generate_span_id() -> str:
     return secrets.token_hex(8)
+
+
+def _otlp_attributes(attributes: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """OTLP key-value attributes."""
+    return [{"key": k, "value": _to_otlp_any_value(v)} for k, v in (attributes or {}).items()]
 
 
 def _to_otlp_any_value(val: Any) -> dict[str, Any]:
@@ -551,6 +558,17 @@ class OTelTelemetryClient:
             {"key": "telemetry.sdk.name", "value": {"stringValue": "devops-cli-otel"}},
             {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
         ]
+        # Metrics identify their source by host, not process: every command is a short-lived
+        # process, and the collector adds up each series' deltas across them. A process id or
+        # version would split one host's counter into many; the instance id names the host.
+        self._metric_resource_attributes: list[dict[str, Any]] = [
+            {"key": "service.name", "value": {"stringValue": self.service_name}},
+            {"key": "service.instance.id", "value": {"stringValue": self.host_name}},
+            {"key": "host.name", "value": {"stringValue": self.host_name}},
+            {"key": "os.type", "value": {"stringValue": self.os_type}},
+            {"key": "telemetry.sdk.name", "value": {"stringValue": "devops-cli-otel"}},
+            {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
+        ]
 
     @staticmethod
     def _detect_version() -> str:
@@ -610,25 +628,8 @@ class OTelTelemetryClient:
             return None, None
         return context.trace_id, context.span_id
 
-    def _build_metrics_payload(
-        self,
-        name: str,
-        value: float,
-        unit: str,
-        timestamp_ns: int,
-        attributes: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        """Build structured OTLP resourceMetrics payload."""
-        data_point = {
-            "timeUnixNano": str(timestamp_ns),
-            "asDouble": float(value),
-            "attributes": attributes,
-        }
-        metric_entry = {
-            "name": name,
-            "unit": unit,
-            "gauge": {"dataPoints": [data_point]},
-        }
+    def _build_metrics_payload(self, metric_entry: dict[str, Any]) -> dict[str, Any]:
+        """Build structured OTLP resourceMetrics payload for one metric."""
         scope_entry = {
             "scope": {"name": "devops-cli.telemetry"},
             "metrics": [metric_entry],
@@ -636,11 +637,18 @@ class OTelTelemetryClient:
         return {
             "resourceMetrics": [
                 {
-                    "resource": {"attributes": self._get_resource_attributes()},
+                    "resource": {"attributes": self._metric_resource_attributes},
                     "scopeMetrics": [scope_entry],
                 }
             ]
         }
+
+    def _send_metric(
+        self, name: str, unit: str, kind: str, point: dict[str, Any], **data: Any
+    ) -> None:
+        """Send one data point of a gauge, sum or histogram."""
+        entry = {"name": name, "unit": unit, kind: {"dataPoints": [point], **data}}
+        self._send_payload("/v1/metrics", self._build_metrics_payload(entry))
 
     def _build_traces_payload(
         self,
@@ -667,16 +675,21 @@ class OTelTelemetryClient:
         unit: str = CONST_OTEL_METRIC_UNIT_ONE,
         attributes: dict[str, Any] | None = None,
     ) -> None:
-        """Emit a metric data point to OTLP collector asynchronously."""
+        """Emit a gauge data point to OTLP collector asynchronously."""
         if not self.enabled:
             return
+        point = {
+            "timeUnixNano": str(time.time_ns()),
+            "asDouble": float(value),
+            "attributes": _otlp_attributes(attributes),
+        }
+        self._send_metric(name, unit, "gauge", point)
 
-        now_nano = int(time.time() * 1e9)
-        attr_list = [
-            {"key": k, "value": _to_otlp_any_value(v)} for k, v in (attributes or {}).items()
-        ]
-        payload = self._build_metrics_payload(name, value, unit, now_nano, attr_list)
-        self._send_payload("/v1/metrics", payload)
+    @staticmethod
+    def _delta_interval() -> dict[str, str]:
+        """A delta's interval, ending now. Each is a nanosecond long, so points never overlap."""
+        now = time.time_ns()
+        return {"startTimeUnixNano": str(now - 1), "timeUnixNano": str(now)}
 
     def increment_counter(
         self,
@@ -686,8 +699,53 @@ class OTelTelemetryClient:
         unit: str = CONST_OTEL_METRIC_UNIT_ONE,
         attributes: dict[str, Any] | None = None,
     ) -> None:
-        """Convenience method to record an incremented counter metric."""
-        self.record_metric(name, amount, unit=unit, attributes=attributes)
+        """Add to a monotonic counter, sent as a delta the collector adds up across processes."""
+        if not self.enabled:
+            return
+        point = {
+            **self._delta_interval(),
+            "asDouble": float(amount),
+            "attributes": _otlp_attributes(attributes),
+        }
+        self._send_metric(
+            name,
+            unit,
+            "sum",
+            point,
+            aggregationTemporality=CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA,
+            isMonotonic=True,
+        )
+
+    def record_histogram(
+        self,
+        name: str,
+        value: float,
+        *,
+        bounds: tuple[float, ...],
+        unit: str = CONST_OTEL_METRIC_UNIT_ONE,
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
+        """Observe one value of a histogram, sent as a delta the collector adds up."""
+        if not self.enabled:
+            return
+        buckets = [0] * (len(bounds) + 1)
+        buckets[bisect.bisect_left(bounds, value)] = 1
+        point = {
+            **self._delta_interval(),
+            "count": "1",
+            "sum": float(value),
+            # OTLP JSON encodes 64-bit integers as strings.
+            "bucketCounts": [str(b) for b in buckets],
+            "explicitBounds": list(bounds),
+            "attributes": _otlp_attributes(attributes),
+        }
+        self._send_metric(
+            name,
+            unit,
+            "histogram",
+            point,
+            aggregationTemporality=CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA,
+        )
 
     def _populate_exception_span_attributes(
         self,
