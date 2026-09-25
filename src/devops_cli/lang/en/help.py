@@ -92,6 +92,10 @@ class AICommandHelp:
     cache: str = "Manage LLM response cache, performance metrics, and warm starting points."
     pipeline: str = "Run multi-agent AI pipeline execution across personas."
     bundle: str = "Bundle local AI model artifacts and instruction context."
+    bundle_output_dir: str = (
+        "Bundle directory; a relative path is a data path under the main worktree, like "
+        "data.models_dir (default: the configured models directory)."
+    )
     tokens: str = "Calculate token counts and context budget consumption."
     cost: str = "Estimate LLM inference cost for token quantities."
     runs: str = (
@@ -157,7 +161,10 @@ class AICommandHelp:
     diagram: str = "Generate Mermaid architecture topology or STRIDE threat model diagram."
     diagram_type: str = "Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model."
     eval_review: str = "Persona whose recorded findings to measure the layer against."
-    dataset_path: str = "Path to feedback dataset jsonl."
+    dataset_path: str = (
+        "Feedback dataset JSONL; a relative path is a data path under the main worktree, like "
+        "data.feedback_dataset_path (default: the configured feedback dataset)."
+    )
     test_gen: str = "Synthesize unit test suites for functions and modules via LLM."
     test_function: str = "Specific function to synthesize tests for."
     target_file: str = "Target source file to synthesize unit tests for."
@@ -355,9 +362,7 @@ class WorkspaceCommandHelp:
     remove: str = "Remove a repository folder from the VS Code workspace file."
     generate: str = "Regenerate workspace file from all repositories in base directory."
     open_ws: str = "Open the workspace file in VS Code."
-    clean: str = (
-        "Clean stale review sessions, old analysis caches, and temporary traces under .data/."
-    )
+    clean: str = "Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory."
     older_than: str = "Prune artifacts older than N days."
 
 
@@ -1096,7 +1101,10 @@ class BenchmarkCommandHelp:
     mode: str = "Benchmark mode: 'auto', 'chat', 'embedding', 'suite'."
     explain: str = "Explain benchmark metrics, terminology, and mathematical formulas."
     suite: str = "Run multi-model evaluation suite grounded in feedback datasets."
-    dataset: str = "Path to feedback dataset JSONL file (defaults to .data/feedback_dataset.jsonl)."
+    dataset: str = (
+        "Feedback dataset JSONL for --suite; a relative path is a data path under the main "
+        "worktree, like data.feedback_dataset_path (default: the configured feedback dataset)."
+    )
 
 
 @dataclass(frozen=True)

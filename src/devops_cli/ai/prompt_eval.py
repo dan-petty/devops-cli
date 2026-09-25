@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from devops_cli.ai.run_store import digest
 from devops_cli.config.constants import CONST_STATUS_INVALIDATED, CONST_STATUS_VERIFIED
 from devops_cli.config.settings import load_settings
-from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.core.repo import find_worktree_root, main_worktree_root
 from devops_cli.exceptions import SecurityError
 
 _MAX_DATASET_BYTES = 50 * 1024 * 1024
@@ -83,16 +83,16 @@ class PromptEvalBenchmarkResult(BaseModel):
         }
 
 
-def _resolve_dataset_path(dataset_path: Path | None, top_root: Path) -> Path:
-    """Resolve the dataset location, refusing anything outside the repository."""
+def _resolve_dataset_path(dataset_path: Path | None, data_root: Path) -> Path:
+    """Resolve the dataset location, a relative one under `data_root`, refusing system paths."""
     if dataset_path is None:
         configured = load_settings().data.feedback_dataset_path
-        target = configured if configured.is_absolute() else (top_root / configured)
+        target = configured if configured.is_absolute() else (data_root / configured)
     else:
         from devops_cli.core.paths import validate_no_path_traversal
 
         validate_no_path_traversal(dataset_path, label="dataset_path")
-        target = dataset_path if dataset_path.is_absolute() else (top_root / dataset_path)
+        target = dataset_path if dataset_path.is_absolute() else (data_root / dataset_path)
 
     if target.is_symlink():
         raise SecurityError(f"dataset_path must not be a symbolic link: {target}")
@@ -152,9 +152,12 @@ def evaluate_persona_prompts(
     record it invalidates that was recorded `VERIFIED` is contested: either the layer
     over-suppresses, or that verdict was itself a false positive. Both counts are reported
     rather than netted, because they are not interchangeable.
+
+    The dataset is shared data, read from the main worktree; the sources the recorded findings
+    cite are read from the worktree the command runs in, as a review of it would read them.
     """
-    top_root = find_top_level_repo_root(Path.cwd())
-    records = _load_records(_resolve_dataset_path(dataset_path, top_root), persona)
+    records = _load_records(_resolve_dataset_path(dataset_path, main_worktree_root()), persona)
+    source_root = find_worktree_root()
 
     labelled_invalidated = 0
     labelled_verified = 0
@@ -163,7 +166,7 @@ def evaluate_persona_prompts(
 
     for record in records:
         label = str(record.get("status") or "")
-        verdict = _deterministic_verdict(record, top_root)
+        verdict = _deterministic_verdict(record, source_root)
         suppressed = verdict == CONST_STATUS_INVALIDATED
         if label == CONST_STATUS_INVALIDATED:
             labelled_invalidated += 1

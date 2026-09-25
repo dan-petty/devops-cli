@@ -139,7 +139,7 @@ devops ai bundle-models [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Directory path for generated output files. |
+| `--output`, `-o` | `path` | - | Bundle directory; a relative path is a data path under the main worktree, like data.models_dir (default: the configured models directory). |
 
 ---
 
@@ -375,7 +375,7 @@ devops ai prompt-eval [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--persona`, `-p` | `string` | `devsecops` | Persona whose recorded findings to measure the layer against. |
-| `--dataset`, `-d` | `path` | - | Path to feedback dataset jsonl. |
+| `--dataset`, `-d` | `path` | - | Feedback dataset JSONL; a relative path is a data path under the main worktree, like data.feedback_dataset_path (default: the configured feedback dataset). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -1266,7 +1266,7 @@ devops ai benchmark [OPTIONS]
 | `--provider`, `-p` | `string` | - | AI or cloud provider. |
 | `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding', 'suite'. |
 | `--suite` | `boolean` | - | Run multi-model evaluation suite grounded in feedback datasets. |
-| `--dataset` | `path` | - | Path to feedback dataset JSONL file (defaults to .data/feedback_dataset.jsonl). |
+| `--dataset` | `path` | - | Feedback dataset JSONL for --suite; a relative path is a data path under the main worktree, like data.feedback_dataset_path (default: the configured feedback dataset). |
 | `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes'). |
 | `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count). |
 | `--output`, `-o` | `path` | - | Destination path for output report or artifacts. |

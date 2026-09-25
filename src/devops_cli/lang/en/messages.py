@@ -186,7 +186,7 @@ class WorkspaceMessages:
     added_folder: str = "Added: {path}"
     removed_folder: str = "Removed: {path}"
     generated_with_count: str = "Generated {ws_file} with {count} folders."
-    pruning_stale: str = "Pruning artifacts older than {days} days under .data/..."
+    pruning_stale: str = "Pruning artifacts older than {days} days in {data_dir}..."
     cleaned_artifacts: str = (
         "✓ Cleaned {files} files and {dirs} directories ({freed_mb:.2f} MB freed)."
     )

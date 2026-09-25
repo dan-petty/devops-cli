@@ -142,30 +142,17 @@ def _build_builtin_hallucinations() -> list[CommonHallucinationEntry]:
 def get_common_hallucinations_file_path() -> Path:
     """Resolve the persistent storage file path for common hallucinations catalog.
 
-    Respects DEVOPS_CLI_DATA_DIR environment override.
+    Respects DEVOPS_CLI_DATA_DIR environment override; a relative location resolves under the
+    main worktree, so every worktree learns into one catalog.
     """
+    from devops_cli.core.repo import resolve_data_path
+
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
-    if env_dir:
-        from devops_cli.core.paths import safe_resolve_subpath
-        from devops_cli.core.repo import find_top_level_repo_root
-
-        try:
-            repo_root = find_top_level_repo_root()
-            safe_dir = safe_resolve_subpath(repo_root, env_dir)
-            target = safe_dir / CONST_HALLUCINATIONS_FILE_NAME
-        except Exception:
-            target = (Path(env_dir) / CONST_HALLUCINATIONS_FILE_NAME).resolve()
-    else:
-        target = DEFAULT_HALLUCINATIONS_FILE_PATH
-
-    if not target.is_absolute():
-        from devops_cli.core.repo import resolve_data_path
-
-        try:
-            target = resolve_data_path(target)
-        except Exception:
-            target = target.resolve()
-
+    target = resolve_data_path(
+        Path(env_dir) / CONST_HALLUCINATIONS_FILE_NAME
+        if env_dir
+        else DEFAULT_HALLUCINATIONS_FILE_PATH
+    )
     target.parent.mkdir(parents=True, exist_ok=True)
     return target
 

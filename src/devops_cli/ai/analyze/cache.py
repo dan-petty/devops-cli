@@ -15,7 +15,7 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_MAX_CACHED_ANALYSES,
 )
-from devops_cli.core.repo import find_top_level_repo_root, resolve_data_path
+from devops_cli.core.repo import resolve_data_path
 from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions import SecurityError
 from devops_cli.lang import MESSAGES
@@ -45,6 +45,15 @@ def _evict_excess_analysis_files(
     return removed
 
 
+def analysis_directory(repo_root: Path) -> Path:
+    """The analysis cache directory (`data.analysis_dir`) shared by every worktree, and every
+    `repos/` clone, of `repo_root`'s workspace: a relative one resolves with `resolve_data_path`,
+    as every other data path and the data directory `devops workspace clean` prunes do."""
+    from devops_cli.config.settings import load_settings
+
+    return resolve_data_path(load_settings().data.analysis_dir, repo_root).resolve()
+
+
 def save_analysis_metadata(
     target_type: Literal["branch", "pr", "path"],
     target_reference: str,
@@ -53,13 +62,9 @@ def save_analysis_metadata(
     repo_root: Path,
     enhanced: bool = True,
 ) -> Path:
-    """Save or update analysis metadata file under .data/analysis/."""
+    """Save or update an analysis metadata file in `analysis_directory`."""
     sanitized_ref = sanitize_reference(target_reference, repo_root)
-    top_root = find_top_level_repo_root(repo_root)
-    from devops_cli.config.settings import load_settings
-
-    settings = load_settings()
-    analysis_dir = resolve_data_path(settings.data.analysis_dir, top_root).resolve()
+    analysis_dir = analysis_directory(repo_root)
     if not is_dry_run():
         analysis_dir.mkdir(parents=True, exist_ok=True)
     out_file = (analysis_dir / f"{target_type}-{sanitized_ref}-metadata.json").resolve()
@@ -157,12 +162,8 @@ def _render_analysis_summary(payload: AnalysisMetadata, out_path: Path) -> None:
 
 
 def load_cached_analysis(repo_root: Path = DEFAULT_CURRENT_PATH) -> AnalysisMetadata | None:
-    """Load latest cached AnalysisMetadata from top-level .data/analysis/ if present."""
-    top_root = find_top_level_repo_root(repo_root)
-    from devops_cli.config.settings import load_settings
-
-    settings = load_settings()
-    analysis_dir = resolve_data_path(settings.data.analysis_dir, top_root).resolve()
+    """Load the latest cached AnalysisMetadata from `analysis_directory`, if present."""
+    analysis_dir = analysis_directory(repo_root)
     if not analysis_dir.is_dir():
         return None
     json_files = sorted(

@@ -33,6 +33,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.paths import is_forbidden_system_path
+from devops_cli.core.repo import resolve_data_path
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
@@ -62,13 +63,14 @@ devops_cli_ai_resumptions_total = _MetricCounterStub(_METRIC_RESUME_EVENTS)
 
 
 def _resolve_data_dir(custom_dir: Path | str | None = None) -> Path:
-    """Resolve data directory adhering to environment and configuration overrides."""
+    """Resolve data directory adhering to environment and configuration overrides; a relative
+    configured one is under the main worktree, shared by every worktree."""
     if custom_dir:
         candidate = Path(custom_dir).resolve()
     elif env_override := os.environ.get("DEVOPS_CLI_DATA_DIR"):
-        candidate = Path(env_override).resolve()
+        candidate = resolve_data_path(Path(env_override)).resolve()
     else:
-        candidate = load_settings().data.dir.resolve()
+        candidate = resolve_data_path(load_settings().data.dir).resolve()
 
     if is_forbidden_system_path(candidate):
         raise SecurityError(

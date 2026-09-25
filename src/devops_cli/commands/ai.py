@@ -1128,7 +1128,7 @@ def chat(
 def bundle_models(
     output_dir: Annotated[
         Path | None,
-        typer.Option("--output", "-o", help=HELP.options.output_dir),
+        typer.Option("--output", "-o", help=HELP.ai.bundle_output_dir),
     ] = None,
 ) -> None:
     """Bundle Ollama model metadata into tarball for air-gapped DevContainers."""
@@ -1572,11 +1572,11 @@ def audit_library_usage_cmd(
         )
         return
 
-    from devops_cli.config.settings import load_settings
+    from devops_cli.ai.analyze.cache import analysis_directory
 
     auditor = LibraryDriftAuditor(contracts_dir=contracts_dir)
     ws_dir = target_dir or Path.cwd()
-    default_report_path = load_settings().data.analysis_dir / "api_drift_report.json"
+    default_report_path = analysis_directory(Path.cwd()) / "api_drift_report.json"
     report = auditor.audit_workspace(
         ws_dir, package_filter=package, save_report_path=default_report_path
     )

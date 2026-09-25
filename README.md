@@ -186,7 +186,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops workspace remove [OPTIONS] <repo_path>` | Remove a folder from the VS Code workspace file. |
 |  | `devops workspace generate [OPTIONS]` | Regenerate the workspace file from all repos in the repos directory. |
 |  | `devops workspace open [OPTIONS]` | Open the workspace in VS Code. |
-|  | `devops workspace clean [OPTIONS]` | Clean stale review sessions, old analysis caches, and temporary traces under .data/. |
+|  | `devops workspace clean [OPTIONS]` | Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory. |
 | **install-tools** | `devops install-tools status [OPTIONS]` | Show installation status and versions for all managed tools. |
 | **k8s** | `devops k8s contexts` | List kubeconfig contexts and mark the active one. |
 |  | `devops k8s switch-context <name>` | Switch active kubeconfig context and ensure cluster is running. |

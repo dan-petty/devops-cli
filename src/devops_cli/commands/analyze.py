@@ -10,7 +10,11 @@ from typing import Annotated, Any
 
 import typer
 
-from devops_cli.ai.analyze.cache import _render_analysis_summary, save_analysis_metadata
+from devops_cli.ai.analyze.cache import (
+    _render_analysis_summary,
+    analysis_directory,
+    save_analysis_metadata,
+)
 from devops_cli.ai.analyze.scanner import detect_language, sanitize_reference
 from devops_cli.ai.client import LLMClient
 from devops_cli.config.constants import (
@@ -25,10 +29,8 @@ from devops_cli.config.settings import get_ai_api_key, get_github_token, load_se
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import (
     find_repo_root,
-    find_top_level_repo_root,
     get_repo_origin_name,
     list_repo_files,
-    resolve_data_path,
 )
 from devops_cli.dry_run import is_dry_run
 from devops_cli.lang import HELP, MESSAGES
@@ -261,11 +263,7 @@ def analyze_path(
     ref_str = str(target.relative_to(repo)) if target_abs != repo else repo.name
     sanitized_ref = sanitize_reference(ref_str, repo)
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
-    top_root = find_top_level_repo_root(repo)
-    from devops_cli.config.settings import load_settings
-
-    settings = load_settings()
-    analysis_dir = resolve_data_path(settings.data.analysis_dir, top_root).resolve()
+    analysis_dir = analysis_directory(repo)
     out_file_path = analysis_dir / f"path-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
@@ -354,11 +352,7 @@ def analyze_branch(
 
     sanitized_ref = sanitize_reference(target_branch, repo)
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
-    top_root = find_top_level_repo_root(repo)
-    from devops_cli.config.settings import load_settings
-
-    settings = load_settings()
-    analysis_dir = resolve_data_path(settings.data.analysis_dir, top_root).resolve()
+    analysis_dir = analysis_directory(repo)
     out_file_path = analysis_dir / f"branch-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():

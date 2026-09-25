@@ -26,6 +26,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_DATA_DIR, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.repo import find_worktree_root, resolve_data_path
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +62,16 @@ class CICacheEntry(BaseModel):
     file_hashes: dict[str, str] = Field(default_factory=dict)
 
 
-def resolve_ci_cache_path() -> Path:
-    """Resolve CI cache JSON file path honoring configuration and data directory."""
+def resolve_ci_cache_path(root: Path = Path(".")) -> Path:
+    """The CI cache file of the worktree at `root`.
+
+    It is in the configured cache directory (`data.cache_dir`), resolved as every data path is
+    (`resolve_data_path`): under the main worktree when relative, whichever worktree or
+    subdirectory the gate runs from. `devops workspace clean` prunes it there while
+    `data.cache_dir` is the default child of `data.dir`. Each worktree
+    has its own file there, named after the worktree's root, so a gate never trusts a result
+    recorded for another worktree's files and parallel worktrees do not evict each other's.
+    """
     from devops_cli.config.settings import load_settings
 
     try:
@@ -72,8 +81,11 @@ def resolve_ci_cache_path() -> Path:
         env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
         base_dir = Path(env_dir) if env_dir else DEFAULT_DATA_DIR
         cache_dir = base_dir / CONST_CACHE_DIR_NAME
+    cache_dir = resolve_data_path(cache_dir, root)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    return cache_dir / CONST_CI_CACHE_FILENAME
+    worktree = hashlib.sha256(str(find_worktree_root(root)).encode()).hexdigest()[:16]
+    cache_file = Path(CONST_CI_CACHE_FILENAME)
+    return cache_dir / f"{cache_file.stem}-{worktree}{cache_file.suffix}"
 
 
 def _hash_file(path: Path) -> str:
@@ -300,7 +312,7 @@ def get_ci_cache(
     root: Path = Path("."),
 ) -> CICacheEntry | None:
     """Retrieve valid passing CI cache entry if fingerprint or file hashes match."""
-    cache_path = resolve_ci_cache_path()
+    cache_path = resolve_ci_cache_path(root)
     if not cache_path.is_file():
         return None
 
@@ -335,10 +347,11 @@ def save_ci_cache(
     file_hashes: dict[str, str],
     options: dict[str, Any] | None = None,
     passed: bool = True,
+    root: Path = Path("."),
 ) -> None:
-    """Persist successful CI quality gate run to disk cache atomically."""
+    """Persist successful CI quality gate run of the worktree at `root` to its cache atomically."""
     if not passed:
-        clear_ci_cache()
+        clear_ci_cache(root)
         return
 
     entry = CICacheEntry(
@@ -351,7 +364,7 @@ def save_ci_cache(
         file_hashes=file_hashes,
     )
 
-    cache_path = resolve_ci_cache_path()
+    cache_path = resolve_ci_cache_path(root)
     tmp_path = cache_path.with_suffix(f".tmp-{os.getpid()}")
     try:
         tmp_path.write_text(entry.model_dump_json(indent=2), encoding="utf-8")
@@ -362,9 +375,9 @@ def save_ci_cache(
             tmp_path.unlink(missing_ok=True)
 
 
-def clear_ci_cache() -> None:
-    """Invalidate and remove CI cache file."""
-    cache_path = resolve_ci_cache_path()
+def clear_ci_cache(root: Path = Path(".")) -> None:
+    """Invalidate and remove the CI cache file of the worktree at `root`."""
+    cache_path = resolve_ci_cache_path(root)
     if cache_path.is_file():
         try:
             cache_path.unlink(missing_ok=True)
