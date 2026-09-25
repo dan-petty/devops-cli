@@ -614,6 +614,10 @@ class Finding(BaseModel):
     # own verification outage and tell a reader to discard the findings below.
     verification_note: str | None = None
     relocated_from: str | None = None
+    category: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("category", "type", "classification", "defect_class"),
+    )
     thinking: str | None = None
 
     @property
@@ -954,6 +958,7 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         "invalidated_criteria_matched": inv_match,
         "reportable": reportable,
         "relocated_from": base.relocated_from or other.relocated_from,
+        "category": base.category or other.category,
     }
 
     if isinstance(base, SavedFinding):
