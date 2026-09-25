@@ -16,13 +16,14 @@ devops ai config [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--provider`, `-p` | `string` | - | Provider: ollama, claude, copilot, openai |
+| `--provider`, `-p` | `string` | - | Provider: ollama, claude, copilot, openai, gateway |
 | `--model`, `-m` | `string` | - | AI model identifier. |
 | `--ollama-urls` | `string` | - | Ollama server base URLs (comma-separated). |
 | `--ollama-max-parallel` | `integer` | - | Maximum number of simultaneous requests allowed per Ollama server node. |
 | `--api-base-url` | `string` | - | Override the provider's API base URL (provider gateway uses ai.gateway_url). |
 | `--api-key` | `string` | - | API key — stored in OS keyring, not config file. |
 | `--max-retries` | `integer` | - | Maximum retry count for AI requests upon failure. |
+| `--task`, `-t` | `string` | - | Set these for one task (chat, metadata, analysis, verification, compose, embedding) instead of every AI call. |
 
 ---
 

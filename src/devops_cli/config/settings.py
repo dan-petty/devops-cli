@@ -637,9 +637,11 @@ def _apply_env_overrides(settings: Settings) -> None:
             continue
         try:
             dotted_set(settings, option_key, env_value)
-        except AttributeError, ValueError:
-            # Ignore invalid or unknown env overrides and keep existing settings.
-            continue
+        except (AttributeError, ValueError) as exc:
+            # An override that cannot apply is an error, not a silent no-op.
+            raise ConfigurationError(
+                f"Environment variable {env_var} cannot set {option_key}: {exc}", key=option_key
+            ) from exc
 
 
 def _resolve_data_config(raw_data: dict[str, Any], current_data_dir: Path) -> DataConfig:
@@ -975,25 +977,55 @@ def _coerce_setting_value(current_val: Any, new_value: Any, is_list_field: bool)
 
 
 def dotted_set(settings: Settings, key: str, value: str) -> None:
-    """Set a config value by dotted key. Secret keys go to the OS keyring."""
+    """Set a config value by dotted key, at any depth. Secret keys go to the OS keyring.
+
+    `ai.tasks.chat.model` walks the nested sections; a key naming no field raises
+    ConfigurationError rather than setting nothing.
+    """
     if key in _SECRET_FIELDS:
         _keyring_set(_KEYRING_KEYS[key], value)
         return
     normalized_key = "telemetry." + key[5:] if key.startswith("otel.") else key
-    parts = normalized_key.split(".", 1)
-    if len(parts) == 1:
-        target = getattr(settings, parts[0], None)
+    *path, field_name = normalized_key.split(".")
+    if not path:
+        target = getattr(settings, field_name, None)
         if isinstance(target, BaseModel):
             raise ConfigurationError(
-                f"Cannot set top-level section '{parts[0]}' directly to a string. "
-                f"Use dotted key (e.g. '{parts[0]}.<field>').",
-                key=parts[0],
+                f"Cannot set top-level section '{field_name}' directly to a string. "
+                f"Use dotted key (e.g. '{field_name}.<field>').",
+                key=field_name,
             )
-        setattr(settings, parts[0], value)
+        setattr(settings, field_name, value)
         return
-    section = getattr(settings, parts[0])
-    field_name = parts[1]
+    section = _settings_section(settings, path, key)
+    if field_name not in type(section).model_fields:
+        raise ConfigurationError(f"Unknown configuration key '{key}'.", key=key)
     current = getattr(section, field_name, None)
-    is_list = field_name.endswith("s")
-    coerced = _coerce_setting_value(current, value, is_list)
+    if current is None:
+        current = _typed_placeholder(type(section).model_fields[field_name].annotation)
+    coerced = _coerce_setting_value(current, value, field_name.endswith("s"))
     setattr(section, field_name, coerced)
+
+
+def _settings_section(settings: Settings, path: list[str], key: str) -> BaseModel:
+    """The nested settings model a dotted key's field belongs to."""
+    section: BaseModel = settings
+    for part in path:
+        child = getattr(section, part, None)
+        if not isinstance(child, BaseModel):
+            raise ConfigurationError(f"Unknown configuration key '{key}'.", key=key)
+        section = child
+    return section
+
+
+def _typed_placeholder(annotation: Any) -> Any:
+    """A value of the type a field holds, for coercing input into a field that is unset."""
+    import typing
+
+    args = typing.get_args(annotation) or (annotation,)
+    for candidate, placeholder in ((bool, False), (int, 0), (float, 0.0), (Path, Path())):
+        if candidate in args:
+            return placeholder
+    if any(typing.get_origin(a) is list for a in args):
+        return []
+    return None
