@@ -2578,6 +2578,7 @@ def ai_failover(
     target_provider: str = DEFAULT_AI_FALLBACK_PROVIDER,
     target_model: str = DEFAULT_AI_FALLBACK_MODEL,
     dry_run: bool = False,
+    force: bool = False,
 ) -> str:
     """Emergency failover controller re-routing tasks to designated fallback endpoints."""
     _validate_mcp_arg("target_provider", target_provider)
@@ -2595,6 +2596,8 @@ def ai_failover(
     ]
     if dry_run:
         cmd.append("--dry-run")
+    if force:
+        cmd.append("--force")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
@@ -2732,6 +2735,7 @@ def ai_gateway_routes(
 def ai_gateway_failover(
     virtual_model: str,
     simulate: bool = True,
+    force: bool = False,
 ) -> str:
     """Trigger or test circuit-breaker failover of a virtual model to secondary backends."""
     _validate_mcp_arg("virtual_model", virtual_model)
@@ -2747,6 +2751,8 @@ def ai_gateway_failover(
         "--format",
         "json",
     ]
+    if force:
+        cmd.append("--force")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 

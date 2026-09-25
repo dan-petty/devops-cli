@@ -174,6 +174,13 @@ def failover_cmd(
             help="Simulate failover without altering active routing table.",
         ),
     ] = True,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Bypass model capability tier minimum checks during failover.",
+        ),
+    ] = False,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help="Output format: table or json."),
@@ -183,7 +190,7 @@ def failover_cmd(
     settings = load_settings()
     router = GatewayRouter(settings.ai)
     try:
-        outcome = router.trigger_failover(virtual_model, simulate=simulate)
+        outcome = router.trigger_failover(virtual_model, simulate=simulate, force=force)
     except ValueError as exc:
         print_error(str(exc))
         raise typer.Exit(code=1) from exc

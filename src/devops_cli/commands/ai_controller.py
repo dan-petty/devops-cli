@@ -19,6 +19,7 @@ from devops_cli.config.defaults import (
     DEFAULT_CONSTELLATION_DRAIN_TIMEOUT,
     DEFAULT_TABLE_FORMAT,
 )
+from devops_cli.exceptions.ai import CapabilityDegradationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -147,14 +148,25 @@ def run_failover_cmd(
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force", help="Bypass model capability tier minimum checks during failover."
+        ),
+    ] = False,
 ) -> None:
     """Safely re-route pending tasks to designated fallback endpoint with zero state loss."""
     manager = ConstellationManager()
-    res = manager.failover(
-        target_provider=target_provider,
-        target_model=target_model,
-        dry_run=dry_run,
-    )
+    try:
+        res = manager.failover(
+            target_provider=target_provider,
+            target_model=target_model,
+            dry_run=dry_run,
+            force=force,
+        )
+    except CapabilityDegradationError as exc:
+        print_error(str(exc))
+        raise typer.Exit(code=1) from exc
 
     resolved = normalize_format(output_format)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:

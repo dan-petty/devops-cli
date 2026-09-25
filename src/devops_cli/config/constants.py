@@ -472,6 +472,7 @@ CONST_ERROR_CODE_SANDBOX_NOT_FOUND = "SANDBOX_NOT_FOUND_ERROR"
 CONST_ERROR_CODE_COSIGN = "COSIGN_ERROR"
 CONST_ERROR_CODE_COSIGN_VERIFY = "COSIGN_VERIFICATION_FAILED"
 CONST_ERROR_CODE_STRUCTURED_VALIDATION = "STRUCTURED_VALIDATION_ERROR"
+CONST_ERROR_CODE_CAPABILITY_DEGRADATION = "CAPABILITY_DEGRADATION"
 CONST_MAX_ERROR_DETAIL_LENGTH = 256
 
 # ── AI Client Structured Output Metric Invariants ─────────────────────────────
@@ -1147,6 +1148,27 @@ CONST_TASK_TAXONOMY_REASONING: Final[frozenset[str]] = frozenset(
         "deep_review",
         "synthesis",
     }
+)
+
+# ── AI Model Capability Tier Gates & AIMD Constants ───────────────────────────
+CONST_MIN_REASONING_MODEL_TIER_B: Final[int] = 30
+CONST_MIN_CODING_MODEL_TIER_B: Final[int] = 7
+CONST_FRONTIER_EQUIVALENT_TIER_B: Final[int] = 70
+CONST_AIMD_MULTIPLICATIVE_DECREASE_FACTOR: Final[float] = 0.5
+CONST_AIMD_ADDITIVE_INCREASE_STEP: Final[int] = 2
+CONST_AIMD_SUCCESS_THRESHOLD: Final[int] = 2
+CONST_FRONTIER_MODEL_PREFIXES: Final[tuple[str, ...]] = (
+    "gpt-4",
+    "o1",
+    "o3",
+    "chatgpt-4",
+    "claude-3",
+    "claude-sonnet",
+    "claude-opus",
+    "gemini-1.5",
+    "gemini-2",
+    "deepseek-chat",
+    "deepseek-reasoner",
 )
 
 # ── Strategic Roadmap Taxonomy & Synchronization Constants ────────────────────

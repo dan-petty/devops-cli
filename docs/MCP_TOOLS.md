@@ -253,6 +253,7 @@ Emergency failover controller re-routing tasks to designated fallback endpoints.
 | `target_provider` | `string` | No | `ollama` | - |
 | `target_model` | `string` | No | `qwen2.5-coder:7b` | - |
 | `dry_run` | `boolean` | No | `False` | - |
+| `force` | `boolean` | No | `False` | - |
 
 ### `ai_gateway_failover`
 
@@ -264,6 +265,7 @@ Trigger or test circuit-breaker failover of a virtual model to secondary backend
 |---|---|---|---|---|
 | `virtual_model` | `string` | Yes | - | - |
 | `simulate` | `boolean` | No | `True` | - |
+| `force` | `boolean` | No | `False` | - |
 
 ### `ai_gateway_routes`
 

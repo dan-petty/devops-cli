@@ -465,6 +465,7 @@ devops ai failover [OPTIONS]
 | `--target-model` | `string` | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 
 ---
 
@@ -1579,6 +1580,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--simulate`, `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
+| `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 ### `devops ai gateway scale`

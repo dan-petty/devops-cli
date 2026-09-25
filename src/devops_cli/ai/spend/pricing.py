@@ -27,11 +27,11 @@ def _normalize_model_name(model: str) -> str:
 
 
 def _extract_param_size_b(model: str) -> int | None:
-    """Extract parameter count in billions from model name, e.g. '70b' -> 70."""
-    match = re.search(r"(?:^|[-_:a-z])(\d+)b(?:\b|[-_:])", model.lower())
+    """Extract parameter count in billions from model name, e.g. '70b' -> 70, '1.5b' -> 1."""
+    match = re.search(r"(?:^|[-_:a-z])(\d+(?:\.\d+)?)b(?:\b|[-_:])", model.lower())
     if match:
         try:
-            return int(match.group(1))
+            return int(float(match.group(1)))
         except ValueError:
             return None
     return None
