@@ -7,7 +7,7 @@ import json
 import re
 from collections import defaultdict
 from collections.abc import Hashable, Iterable, Sequence
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -26,6 +26,8 @@ from devops_cli.config import (
     DEFAULT_REVIEW_TITLE_SIMILARITY_THRESHOLD,
 )
 from devops_cli.config.constants import (
+    CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES,
+    CONST_REVIEW_TITLE_FILLER_WORDS,
     REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD,
     REVIEW_GENERIC_SYMBOL_STOPWORDS,
     REVIEW_STRONG_SYMBOL_MIN_LENGTH,
@@ -128,56 +130,7 @@ def format_clean_text_field(val: Any) -> str:
 
 # Words that open many unrelated findings ("Missing timeout", "Missing authorization check").
 # Counting them as shared words merges different defects.
-_TITLE_FILLER_WORDS = frozenset(
-    {
-        "missing",
-        "lack",
-        "lacks",
-        "lacking",
-        "absent",
-        "potential",
-        "possible",
-        "possibly",
-        "insecure",
-        "unsafe",
-        "improper",
-        "improperly",
-        "incorrect",
-        "inadequate",
-        "insufficient",
-        "weak",
-        "issue",
-        "issues",
-        "risk",
-        "risks",
-        "vulnerability",
-        "vulnerable",
-        "problem",
-        "use",
-        "uses",
-        "using",
-        "usage",
-        "without",
-        "not",
-        "the",
-        "and",
-        "for",
-        "with",
-        "from",
-        "via",
-        "into",
-        "when",
-        "may",
-        "can",
-        "could",
-        "due",
-        "are",
-        "has",
-        "have",
-        "does",
-        "should",
-    }
-)
+_TITLE_FILLER_WORDS = CONST_REVIEW_TITLE_FILLER_WORDS
 
 
 def _tokenize_title(title: str) -> set[str]:
@@ -210,9 +163,7 @@ _INSTRUCTION_HEADER_PREFIX_REGEX = re.compile(
     re.IGNORECASE,
 )
 
-_PROMPT_PLACEHOLDER_BASENAMES: frozenset[str] = frozenset(
-    {"file.ext", "filename.ext", "path/to/file.ext", "src/file.py", "path/to/file.py", "example.py"}
-)
+_PROMPT_PLACEHOLDER_BASENAMES: frozenset[str] = CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES
 
 _MARKDOWN_LINK_REGEX = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 
@@ -220,13 +171,31 @@ _MARKDOWN_LINK_REGEX = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 # names use (`c++`, `@scope`, `logo@2x`, `~/.config`, `100%`). A narrower class cut a path at the
 # first other character and kept the fragment before it.
 _SEGMENT_CHARS = r"\w\-.+@~%"
-_PATH_CHARS = rf"{_SEGMENT_CHARS}/\\"
-_LOCATION_REGEX = re.compile(rf"^([{_PATH_CHARS}]+)(?::(\d+)(?:-(\d+))?)?$")
-_TARGET_LOCATION_REGEX = re.compile(rf"^([{_PATH_CHARS}]+):([{_PATH_CHARS}]+)$")
+_WINDOWS_DRIVE_PREFIX = r"(?:[a-zA-Z]:[/\\])"
+_PATH_CHARS = rf"{_SEGMENT_CHARS}/\\ "
+_LOCATION_REGEX = re.compile(
+    rf"^({_WINDOWS_DRIVE_PREFIX}?[{_PATH_CHARS}]+?)(?::(\d+)(?:-(\d+))?)?$"
+)
+_TARGET_LOCATION_REGEX = re.compile(
+    rf"^({_WINDOWS_DRIVE_PREFIX}?[{_PATH_CHARS}]+?):([{_PATH_CHARS}]+)$"
+)
 _EMBEDDED_LOCATION_REGEX = re.compile(
-    rf"(?:^|[\s:\"'`])([{_PATH_CHARS}]+/[{_SEGMENT_CHARS}]+|[\w\-]+\.[\w\-]+)"
+    rf"(?:^|[\s:\"'`])({_WINDOWS_DRIVE_PREFIX}?[{_PATH_CHARS}]+/[{_SEGMENT_CHARS}]+|[\w\-]+\.[\w\-]+)"
     r"(?::(\d+)(?:-(\d+))?)?"
 )
+
+
+def _is_structural_path_or_location(candidate: str) -> bool:
+    """Validate that candidate string structurally resembles a path or location identifier."""
+    cand = candidate.strip()
+    if not cand or any(p in cand for p in (". ", "?", "!", ";", "\n")):
+        return False
+    if "/" in cand or "\\" in cand or re.match(r"^[a-zA-Z]:", cand):
+        return True
+    if re.search(r"\.[a-zA-Z0-9]{1,8}$", cand):
+        return True
+    words = cand.split()
+    return len(words) <= 3 and not cand.endswith(".")
 
 
 _SCRATCHPAD_PREFIX_REGEX = re.compile(
@@ -346,14 +315,43 @@ def anchor_location(location: str, file_path: str, page_text: str = "") -> str:
     return f"{file_path}:{lines.group(1)}" if lines else file_path
 
 
-def canonicalize_finding_location(location: str) -> str:
-    """Canonicalize raw LLM location text into standard path/to/file.ext:start-end or path/to/file.ext:line."""
+def _format_location_with_lines(
+    file_path: str, s_str: str | None, e_str: str | None, had_leakage: bool = False
+) -> str:
+    """Format file path with normalized line or range boundaries."""
+    norm_path = file_path.strip().replace("\\", "/")
+    if not s_str:
+        return f"{norm_path}:1" if had_leakage else norm_path
+    s_line = int(s_str)
+    e_line = int(e_str) if e_str else None
+    if e_line is not None and s_line > e_line:
+        s_line, e_line = e_line, s_line
+    if e_line is not None and e_line != s_line:
+        return f"{norm_path}:{s_line}-{e_line}"
+    return f"{norm_path}:{s_line}"
+
+
+def _extract_embedded_location(loc: str) -> str:
+    """Extract embedded valid file location if present in conversational or scratchpad text."""
+    m_embedded = _EMBEDDED_LOCATION_REGEX.search(loc)
+    if not m_embedded:
+        return ""
+    candidate_file = m_embedded.group(1).strip().replace("\\", "/").rstrip(".")
+    if (
+        candidate_file.lower() in _PROMPT_PLACEHOLDER_BASENAMES
+        or Path(candidate_file).name.lower() in _PROMPT_PLACEHOLDER_BASENAMES
+    ):
+        return ""
+    return _format_location_with_lines(candidate_file, m_embedded.group(2), m_embedded.group(3))
+
+
+def _pre_clean_location(location: str) -> tuple[str, bool]:
+    """Clean raw location string, stripping markdown noise and prompt leakage."""
     loc = normalize_unicode_text(str(location)).strip()
     if not loc or "\n" in loc or "```" in loc:
-        return ""
-
+        return "", False
     if loc.startswith("#") or not any(c.isalnum() for c in loc):
-        return ""
+        return "", False
 
     m_link = _MARKDOWN_LINK_REGEX.search(loc)
     if m_link:
@@ -361,7 +359,7 @@ def canonicalize_finding_location(location: str) -> str:
 
     loc = loc.strip("`'\"()[]*# ")
     if not loc or not any(c.isalnum() for c in loc):
-        return ""
+        return "", False
 
     had_prompt_leakage = False
     if _PROMPT_CRITERIA_SPLIT_REGEX.search(loc):
@@ -377,73 +375,43 @@ def canonicalize_finding_location(location: str) -> str:
     ).rstrip("-")
     loc = re.sub(r"\s*:\s*", ":", loc)
     loc = re.sub(r"(\d+)\s*[-–—]\s*(\d+)", r"\1-\2", loc)
+    return loc, had_prompt_leakage
 
-    loc_file = loc.split(":")[0].strip()
-    from pathlib import Path
 
+def _extract_base_file_path(loc: str) -> str:
+    """Extract base file path from location string, preserving Windows drive letters."""
+    if re.match(r"^[a-zA-Z]:[/\\]", loc):
+        drive = loc[:2]
+        rest = loc[2:].split(":")[0]
+        return f"{drive}{rest}".strip()
+    return loc.split(":")[0].strip()
+
+
+def canonicalize_finding_location(location: str) -> str:
+    """Canonicalize raw LLM location text into standard path/to/file.ext:start-end or path/to/file.ext:line."""
+    loc, had_prompt_leakage = _pre_clean_location(location)
+    if not loc:
+        return ""
+
+    loc_file = _extract_base_file_path(loc)
     if (
         loc_file.lower() in _PROMPT_PLACEHOLDER_BASENAMES
         or Path(loc_file).name.lower() in _PROMPT_PLACEHOLDER_BASENAMES
     ):
         return ""
 
-    m_loc = _LOCATION_REGEX.match(loc)
-    if m_loc:
-        file_path = m_loc.group(1).replace("\\", "/")
-        s_str = m_loc.group(2)
-        e_str = m_loc.group(3)
+    if not _is_structural_path_or_location(loc_file):
+        return _extract_embedded_location(loc)
 
-        if not s_str:
-            return f"{file_path}:1" if had_prompt_leakage else file_path
-
-        s_line = int(s_str)
-        e_line = int(e_str) if e_str else None
-
-        if e_line is not None and s_line > e_line:
-            s_line, e_line = e_line, s_line
-
-        if e_line is not None and e_line != s_line:
-            return f"{file_path}:{s_line}-{e_line}"
-        return f"{file_path}:{s_line}"
-
-    # Match general target specifiers without spaces, e.g. uv.lock:jinja2, Dockerfile:cve-1, k8s/app.yaml:Deployment/app
-    m_target = _TARGET_LOCATION_REGEX.match(loc)
-    if m_target:
-        return f"{m_target.group(1).replace('\\', '/')}:{m_target.group(2)}"
-
-    # Extract embedded valid file location if present in conversational or scratchpad text
-    m_embedded = _EMBEDDED_LOCATION_REGEX.search(loc)
-    if m_embedded:
-        candidate_file = m_embedded.group(1).replace("\\", "/").rstrip(".")
-        if (
-            candidate_file.lower() not in _PROMPT_PLACEHOLDER_BASENAMES
-            and Path(candidate_file).name.lower() not in _PROMPT_PLACEHOLDER_BASENAMES
-        ):
-            s_str = m_embedded.group(2)
-            e_str = m_embedded.group(3)
-            if s_str:
-                s_line = int(s_str)
-                e_line = int(e_str) if e_str else None
-                if e_line is not None and s_line > e_line:
-                    s_line, e_line = e_line, s_line
-                if e_line is not None and e_line != s_line:
-                    return f"{candidate_file}:{s_line}-{e_line}"
-                return f"{candidate_file}:{s_line}"
-            return candidate_file
-
-    # Reject conversational scratchpad or prompt instruction leakage
-    has_scratchpad_phrase = bool(
-        re.search(
-            r"\b(?:file path and line numbers|we need to|let's|where the vulnerability occurs)\b",
-            loc,
-            re.IGNORECASE,
+    if m_loc := _LOCATION_REGEX.match(loc):
+        return _format_location_with_lines(
+            m_loc.group(1), m_loc.group(2), m_loc.group(3), had_prompt_leakage
         )
-    )
-    is_conversational_sentence = len(loc.split()) > 3 and any(p in loc for p in (".", "!", "?"))
-    if has_scratchpad_phrase or is_conversational_sentence:
-        return ""
 
-    return loc
+    if m_target := _TARGET_LOCATION_REGEX.match(loc):
+        return f"{m_target.group(1).strip().replace('\\', '/')}:{m_target.group(2).strip()}"
+
+    return _extract_embedded_location(loc)
 
 
 class VerificationCriterion(BaseModel):
@@ -565,6 +533,11 @@ def _parse_finding_criteria(raw: Any) -> list[VerificationCriterion]:
 class Finding(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    finding_id: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("finding_id", "id", "index"),
+        description="Structural positional oracle identifier for deterministic verification binding",
+    )
     severity: str = Field(
         default="MEDIUM", validation_alias=AliasChoices("severity", "level", "priority")
     )
@@ -645,6 +618,19 @@ class Finding(BaseModel):
         if not file_part or file_part in {"none", "n/a", "na", "null", "undefined"}:
             return True
         return False
+
+    @field_validator("finding_id", mode="before")
+    @classmethod
+    def _clean_finding_id(cls, v: object) -> int | None:
+        """Parse structural positional finding_id safely, ignoring non-integer identifier strings."""
+        if v is None:
+            return None
+        if isinstance(v, int):
+            return v
+        try:
+            return int(str(v).strip())
+        except ValueError, TypeError:
+            return None
 
     @field_validator("description", "fix", mode="before")
     @classmethod
@@ -998,6 +984,7 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         "category": base.category or other.category,
         "observed_value": base.observed_value or other.observed_value,
         "expected_value": base.expected_value or other.expected_value,
+        "finding_id": base.finding_id if base.finding_id is not None else other.finding_id,
     }
 
     if isinstance(base, SavedFinding):

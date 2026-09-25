@@ -57,11 +57,12 @@ Invalidate leakage claims for RFC 5737 documentation blocks (`192.0.2.0/24`, `19
 
 Use `verification_criteria` and `invalidation_criteria` only to populate `verified_criteria_matched` and `invalidated_criteria_matched`. Never copy criteria text into a title, location or description. Put the step-by-step justification in `reason`.
 
-Output ONLY a JSON array, one object per finding. Each object must repeat the finding's `title` and `location` exactly as given, because verdicts are matched to findings by those two fields. An object that does not identify its finding is discarded, and a finding that receives no verdict stays unverified:
+Output ONLY a JSON array, one object per finding. Each object must include the finding's `finding_id` (the integer positional ID given in the input) and repeat the finding's `title` and `location`. The primary matching oracle is `finding_id`. An object that does not identify its finding is discarded, and a finding that receives no verdict stays unverified:
 
 ```json
 [
   {
+    "finding_id": 1,
     "title": "Exact title of the finding this verdict is about",
     "verified": true,
     "mitigated": false,
