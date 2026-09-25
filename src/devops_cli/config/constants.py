@@ -494,6 +494,8 @@ CONST_MSG_SSRF_RESOLVES_PRIVATE = "Target resolves to a private or loopback netw
 CONST_OTEL_SCOPE_NAME = "devops-cli.telemetry"
 CONST_OTEL_SPAN_KIND_INTERNAL = "internal"
 CONST_OTEL_METRIC_UNIT_ONE = "1"
+# OTLP AggregationTemporality: a delta covers only its own interval.
+CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA = 1
 CONST_OTEL_SERVICE_NAME = "devops-cli"
 CONST_OTEL_OTLP_HTTP_PORT = 4318
 # The cluster's collector, as k8s/otel deploys it.

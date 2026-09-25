@@ -19,7 +19,8 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
 )
-from devops_cli.telemetry import record_metric, trace_span
+from devops_cli.telemetry import trace_span
+from devops_cli.telemetry.instruments import RAG_QUERY_DURATION, emit
 
 logger = logging.getLogger(__name__)
 
@@ -294,11 +295,7 @@ class SemanticRetriever:
             if final_results:
                 search_span.set_attribute("rag.top_score", final_results[0].score)
 
-            record_metric(
-                "devops_cli_rag_query_duration_ms",
-                (time.perf_counter() - start) * 1000,
-                unit="ms",
-            )
+            emit(RAG_QUERY_DURATION, (time.perf_counter() - start) * 1000)
             return final_results
 
     def filter_and_validate_results(
