@@ -21,9 +21,11 @@ from typer.testing import CliRunner
 
 from devops_cli.commands import telemetry as telemetry_commands
 from devops_cli.config.settings import load_settings, reset_settings_cache
+from devops_cli.k8s import node_port
+from devops_cli.k8s.node_port import ServiceNotReachableError
 from devops_cli.main import app
-from devops_cli.telemetry import collector, tracer
-from devops_cli.telemetry.collector import CollectorNotFoundError, collector_endpoint
+from devops_cli.telemetry import tracer
+from devops_cli.telemetry.collector import collector_endpoint
 from devops_cli.telemetry.tracer import OTelTelemetryClient
 
 cli = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
@@ -53,7 +55,7 @@ def test_the_endpoint_is_the_clusters_host_and_the_otlp_http_node_port(
 ) -> None:
     """Verify the endpoint is found from the cluster, the context flag going first."""
     calls: list[list[str]] = []
-    monkeypatch.setattr(collector, "run_subprocess", _fake_kubectl(SERVICE, calls))
+    monkeypatch.setattr(node_port, "run_subprocess", _fake_kubectl(SERVICE, calls))
 
     endpoint = collector_endpoint("homelab", "otel", "collector")
 
@@ -72,9 +74,9 @@ def test_a_collector_workstations_cannot_reach_is_explained(
     service: dict[str, Any], message: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify a ClusterIP service or a missing HTTP node port is named, not guessed around."""
-    monkeypatch.setattr(collector, "run_subprocess", _fake_kubectl(service, []))
+    monkeypatch.setattr(node_port, "run_subprocess", _fake_kubectl(service, []))
 
-    with pytest.raises(CollectorNotFoundError, match=message):
+    with pytest.raises(ServiceNotReachableError, match=message):
         collector_endpoint(None, "otel", "collector")
 
 
@@ -93,7 +95,7 @@ def own_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path
 @pytest.mark.usefixtures("own_config")
 def test_connect_saves_an_endpoint_that_answers(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify `devops telemetry connect` sends telemetry to the collector it found."""
-    monkeypatch.setattr(collector, "run_subprocess", _fake_kubectl(SERVICE, []))
+    monkeypatch.setattr(node_port, "run_subprocess", _fake_kubectl(SERVICE, []))
     monkeypatch.setattr(
         telemetry_commands.OTelTelemetryClient,
         "test_connection",
@@ -113,7 +115,7 @@ def test_connect_keeps_the_configuration_when_the_collector_does_not_answer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify an endpoint that does not answer is reported and not saved."""
-    monkeypatch.setattr(collector, "run_subprocess", _fake_kubectl(SERVICE, []))
+    monkeypatch.setattr(node_port, "run_subprocess", _fake_kubectl(SERVICE, []))
     monkeypatch.setattr(
         telemetry_commands.OTelTelemetryClient,
         "test_connection",

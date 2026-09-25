@@ -1596,6 +1596,47 @@ devops ai gateway tune [OPTIONS]
 
 ---
 
+## `devops ai runs`
+
+**Benchmark and evaluation runs, kept in the data directory and shared through Valkey.**
+
+```bash
+devops ai runs COMMAND [ARGS]...
+```
+
+### `devops ai runs reindex`
+
+**Rebuild the shared run index in Valkey from the run records in the data directory.**
+
+```bash
+devops ai runs reindex [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark)` | - | Only index runs of this mechanism. |
+
+### `devops ai runs connect`
+
+**Find the cluster's run index, check it answers, share runs through it, and index them.**
+
+```bash
+devops ai runs connect [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context` | `string` | - | Kubernetes context (default: current). |
+| `--namespace`, `-n` | `string` | `llm` | Namespace of the run index. |
+| `--service` | `string` | `valkey-runs` | Service of the run index's Valkey. |
+| `--secret` | `string` | `<masked>` | Secret holding the Valkey password. |
+
+---
+
 ## `devops ai cost`
 
 **Track approximate lifetime spend and manage model pricing.**

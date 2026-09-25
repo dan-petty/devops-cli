@@ -315,6 +315,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai ingest COMMAND [ARGS]...` | Ingest library API contracts, type stubs, and documentation. |
 |  | `devops ai ast COMMAND [ARGS]...` | Tree-Sitter multilingual AST concrete syntax tree parsing and code graph synthesis. |
 |  | `devops ai gateway COMMAND [ARGS]...` | LLM Gateway and distributed inference mesh management. |
+|  | `devops ai runs COMMAND [ARGS]...` | Benchmark and evaluation runs, kept in the data directory and shared through Valkey. |
 |  | `devops ai cost [OPTIONS] COMMAND [ARGS]...` | Track approximate lifetime spend and manage model pricing. |
 |  | `devops ai spend [OPTIONS] COMMAND [ARGS]...` | Alias for 'cost' command. |
 | **review** | `devops review path [OPTIONS] <targets>` | Review source files directly (no git required). |

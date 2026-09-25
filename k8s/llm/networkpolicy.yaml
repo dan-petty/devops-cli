@@ -16,6 +16,7 @@ spec:
           - vllm-single
           - portkey
           - lightllm
+          - valkey-runs
   policyTypes:
     - Ingress
     - Egress

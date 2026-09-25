@@ -112,6 +112,7 @@ CONST_EMBEDDING_REPORT_FILENAME = "embedding_report.json"
 CONST_TLS_DIR_NAME = "tls"
 CONST_RAG_DIR_NAME = "rag"
 CONST_SAMPLES_DIR_NAME = "samples"
+CONST_RUNS_DIR_NAME = "runs"
 CONST_INDEX_CACHE_FILENAME = "index_cache.json"
 CONST_HALLUCINATIONS_FILE_NAME = "common_hallucinations.json"
 
@@ -498,6 +499,10 @@ CONST_OTEL_OTLP_HTTP_PORT = 4318
 # The cluster's collector, as k8s/otel deploys it.
 CONST_OTEL_COLLECTOR_NAMESPACE = "otel"
 CONST_OTEL_COLLECTOR_SERVICE = "otel-collector-opentelemetry-collector"
+# The Valkey holding the shared run index (k8s/llm/valkey-runs.yaml) and its password secret.
+CONST_RUNS_INDEX_NAMESPACE = "llm"
+CONST_RUNS_INDEX_SERVICE = "valkey-runs"
+CONST_RUNS_INDEX_SECRET = "valkey-runs-auth"
 
 # ── Network Reference & Egress Security Invariants ────────────────────────────
 # RFC 2606 Reserved Top-Level Domains for testing & documentation
