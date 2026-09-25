@@ -7,6 +7,13 @@ from devops_cli.ai.review.ast_imports import (
     extract_imports_from_source,
     group_imports_by_package,
 )
+from devops_cli.ai.review.category_metrics import (
+    CategoryMetric,
+    collect_historical_category_metrics,
+    compute_category_metrics,
+    format_category_baseline_markdown,
+    resolve_finding_category,
+)
 from devops_cli.ai.review.chunker import diff_pages, diff_stream_chunks, find_repo_files
 from devops_cli.ai.review.common_hallucinations import (
     CommonHallucinationEntry,
@@ -56,6 +63,7 @@ from devops_cli.ai.review_schema import (
 
 __all__ = [
     "AstConstruct",
+    "CategoryMetric",
     "CommonHallucinationEntry",
     "CriterionExecutionResult",
     "FeedbackRecord",
@@ -74,6 +82,8 @@ __all__ = [
     "VerificationCriterion",
     "auto_record_invalidated_finding",
     "collect_ast_constructs",
+    "collect_historical_category_metrics",
+    "compute_category_metrics",
     "consolidate_duplicate_findings",
     "diff_pages",
     "diff_stream_chunks",
@@ -86,6 +96,7 @@ __all__ = [
     "extract_json_block",
     "find_repo_files",
     "find_similar_hallucinations",
+    "format_category_baseline_markdown",
     "format_contract_grounding_for_prompt",
     "group_imports_by_package",
     "is_common_hallucination",
@@ -93,6 +104,7 @@ __all__ = [
     "normalize_unicode_text",
     "parse_review_response",
     "register_common_hallucination",
+    "resolve_finding_category",
     "resolve_grounded_contracts",
     "resolve_stage_flags",
     "save_common_hallucinations",

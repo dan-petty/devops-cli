@@ -362,9 +362,12 @@ def test_review_stats_command(tmp_path: Path) -> None:
     """Verify review stats command execution across saved sessions."""
     _create_sample_review_session(tmp_path)
     res_stats = runner.invoke(review_app, ["stats", "--reviews-dir", str(tmp_path)])
-    assert res_stats.exit_code == 0
-    assert "Finding Status Breakdown" in res_stats.output
-    assert "Persona False Positive Rate" in res_stats.output
+    assert (
+        res_stats.exit_code,
+        "Finding Status Breakdown" in res_stats.output,
+        "Persona False Positive Rate" in res_stats.output,
+        "Category False Positive Rate (Invalidated)" in res_stats.output,
+    ) == (0, True, True, True)
 
 
 def test_review_apply_patch_success() -> None:

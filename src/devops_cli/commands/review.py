@@ -989,6 +989,123 @@ def verify_finding(
 # =============================================================================
 
 
+def _tally_single_session_findings(
+    findings_file: Path,
+    by_status: dict[str, int],
+    by_persona_total: dict[str, int],
+    by_persona_invalidated: dict[str, int],
+    all_findings: list[Any],
+) -> int:
+    """Tally findings from a single session findings.json file into running counters."""
+    try:
+        from devops_cli.ai.review_schema import ReviewSessionPayload
+
+        payload = ReviewSessionPayload.model_validate_json(
+            findings_file.read_text(encoding="utf-8")
+        )
+        count = 0
+        for f in payload.findings:
+            count += 1
+            st = f.status
+            by_status[st] = by_status.get(st, 0) + 1
+            persona = f.persona or "unknown"
+            by_persona_total[persona] = by_persona_total.get(persona, 0) + 1
+            if st == "INVALIDATED":
+                by_persona_invalidated[persona] = by_persona_invalidated.get(persona, 0) + 1
+            all_findings.append(f)
+        return count
+    except Exception:
+        return 0
+
+
+def _load_sessions_data(
+    session_dirs: list[Path],
+) -> tuple[int, dict[str, int], dict[str, int], dict[str, int], list[Any]]:
+    """Accumulate review metrics across all saved session directories."""
+    by_status: dict[str, int] = {"VERIFIED": 0, "UNVERIFIED": 0, "INVALIDATED": 0, "MITIGATED": 0}
+    by_persona_total: dict[str, int] = {}
+    by_persona_invalidated: dict[str, int] = {}
+    all_findings: list[Any] = []
+    total_findings = 0
+
+    for d in session_dirs:
+        total_findings += _tally_single_session_findings(
+            d / "findings.json",
+            by_status,
+            by_persona_total,
+            by_persona_invalidated,
+            all_findings,
+        )
+    return total_findings, by_status, by_persona_total, by_persona_invalidated, all_findings
+
+
+def _render_status_breakdown_table(by_status: dict[str, int], total_findings: int) -> None:
+    """Render findings status distribution table."""
+    status_rows = []
+    for st, count in by_status.items():
+        pct = (count / total_findings * 100) if total_findings else 0.0
+        status_rows.append([st, str(count), f"{pct:.1f}%"])
+
+    print_table(
+        title="Finding Status Breakdown",
+        columns=[("Status", "cyan"), ("Count", "right"), ("Percentage", "right")],
+        rows=status_rows,
+    )
+
+
+def _render_persona_stats_table(
+    by_persona_total: dict[str, int], by_persona_invalidated: dict[str, int]
+) -> None:
+    """Render per-persona false-positive rate table."""
+    if not by_persona_total:
+        return
+    persona_rows = []
+    for persona, count in by_persona_total.items():
+        inval = by_persona_invalidated.get(persona, 0)
+        rate = (inval / count * 100) if count else 0.0
+        persona_rows.append([persona, str(count), str(inval), f"{rate:.1f}%"])
+
+    print_table(
+        title="Persona False Positive Rate (Invalidated)",
+        columns=[
+            ("Persona", "magenta"),
+            ("Total Findings", "right"),
+            ("Invalidated", "right"),
+            ("False-Positive Rate", "right"),
+        ],
+        rows=persona_rows,
+    )
+
+
+def _render_category_stats_table(category_metrics: dict[str, Any]) -> None:
+    """Render per-category false-positive rate table across historical review runs."""
+    if not category_metrics:
+        return
+    cat_rows = []
+    for cat, metric in category_metrics.items():
+        cat_rows.append(
+            [
+                cat,
+                str(metric.total),
+                str(metric.invalidated),
+                str(metric.verified),
+                f"{metric.false_positive_rate:.1f}%",
+            ]
+        )
+
+    print_table(
+        title="Category False Positive Rate (Invalidated)",
+        columns=[
+            ("Category", "cyan"),
+            ("Total Findings", "right"),
+            ("Invalidated", "right"),
+            ("Verified", "right"),
+            ("False-Positive Rate", "right"),
+        ],
+        rows=cat_rows,
+    )
+
+
 @app.command("stats")
 def review_stats(
     reviews_dir: Annotated[
@@ -1007,60 +1124,21 @@ def review_stats(
         print_warning(MESSAGES.review.no_saved_sessions, prefix=False)
         raise typer.Exit(0)
 
-    total_sessions = len(session_dirs)
-    total_findings = 0
-    by_status: dict[str, int] = {"VERIFIED": 0, "UNVERIFIED": 0, "INVALIDATED": 0, "MITIGATED": 0}
-    by_persona_total: dict[str, int] = {}
-    by_persona_invalidated: dict[str, int] = {}
-
-    for d in session_dirs:
-        try:
-            payload = ReviewSessionPayload.model_validate_json(
-                (d / "findings.json").read_text(encoding="utf-8")
-            )
-            for f in payload.findings:
-                total_findings += 1
-                st = f.status
-                by_status[st] = by_status.get(st, 0) + 1
-                persona = f.persona or "unknown"
-                by_persona_total[persona] = by_persona_total.get(persona, 0) + 1
-                if st == "INVALIDATED":
-                    by_persona_invalidated[persona] = by_persona_invalidated.get(persona, 0) + 1
-        except Exception:
-            continue
-
-    print_section(" AI Code Review Accuracy & Verification Stats ", style="bold cyan")
-    print_info(f"[bold]Total Sessions:[/bold]  {total_sessions}", prefix=False)
-    print_info(f"[bold]Total Findings:[/bold]  {total_findings}\n", prefix=False)
-
-    status_rows = []
-    for st, count in by_status.items():
-        pct = (count / total_findings * 100) if total_findings else 0.0
-        status_rows.append([st, str(count), f"{pct:.1f}%"])
-
-    print_table(
-        title="Finding Status Breakdown",
-        columns=[("Status", "cyan"), ("Count", "right"), ("Percentage", "right")],
-        rows=status_rows,
+    total_findings, by_status, by_persona_total, by_persona_invalidated, all_findings = (
+        _load_sessions_data(session_dirs)
     )
 
-    if by_persona_total:
-        persona_rows = []
-        for persona, count in by_persona_total.items():
-            inval = by_persona_invalidated.get(persona, 0)
-            rate = (inval / count * 100) if count else 0.0
-            persona_rows.append([persona, str(count), str(inval), f"{rate:.1f}%"])
+    print_section(" AI Code Review Accuracy & Verification Stats ", style="bold cyan")
+    print_info(f"[bold]Total Sessions:[/bold]  {len(session_dirs)}", prefix=False)
+    print_info(f"[bold]Total Findings:[/bold]  {total_findings}\n", prefix=False)
 
-        print_table(
-            title="Persona False Positive Rate (Invalidated)",
-            columns=[
-                ("Persona", "magenta"),
-                ("Total Findings", "right"),
-                ("Invalidated", "right"),
-                ("False-Positive Rate", "right"),
-            ],
-            rows=persona_rows,
-        )
+    _render_status_breakdown_table(by_status, total_findings)
+    _render_persona_stats_table(by_persona_total, by_persona_invalidated)
+
+    from devops_cli.ai.review.category_metrics import compute_category_metrics
+
+    category_metrics = compute_category_metrics(all_findings)
+    _render_category_stats_table(category_metrics)
 
 
 # =============================================================================

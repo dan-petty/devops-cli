@@ -32,6 +32,7 @@ from devops_cli.ai.analyze.outlines import analyze_single_file
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS
+from devops_cli.ai.review.category_metrics import format_category_baseline_markdown
 from devops_cli.ai.review.chunker import (
     _split_source_file_blocks,
     number_source_lines,
@@ -2574,6 +2575,18 @@ class ReviewPipelineOrchestrator:
         lines.append("")
         return lines
 
+    def _build_category_baseline_section(
+        self,
+        all_findings: list[SavedFinding] | None,
+        reportable_findings: list[SavedFinding],
+    ) -> list[str]:
+        """Render category false positive baseline section if historical data or findings exist."""
+        findings_to_use = all_findings if all_findings is not None else reportable_findings
+        if not findings_to_use:
+            return []
+        reviews_dir = self.session_dir.parent if self.session_dir else None
+        return format_category_baseline_markdown(findings_to_use, reviews_dir)
+
     def _build_consolidated_markdown_report(
         self,
         session_id: str,
@@ -2581,6 +2594,7 @@ class ReviewPipelineOrchestrator:
         reportable_findings: list[SavedFinding],
         all_deps: list[DependencySpec],
         all_nets: list[NetworkReference],
+        all_findings: list[SavedFinding] | None = None,
     ) -> str:
         from devops_cli.ai.review.stages.reporting import synthesize_report_executive_summary
 
@@ -2610,6 +2624,10 @@ class ReviewPipelineOrchestrator:
         lines.extend(self._build_network_table(all_nets))
 
         lines.extend(self._build_static_analyzers_section())
+
+        baseline_lines = self._build_category_baseline_section(all_findings, reportable_findings)
+        if baseline_lines:
+            lines.extend(baseline_lines)
 
         if self.errored_files:
             lines.append("## Skipped / Errored Files")
@@ -2896,11 +2914,18 @@ class ReviewPipelineOrchestrator:
         reportable_findings: list[SavedFinding],
         all_deps: list[DependencySpec],
         all_nets: list[NetworkReference],
+        all_findings: list[SavedFinding] | None = None,
     ) -> None:
         """Render review summary table to console."""
         findings_str, ver_rate_str = self._format_severity_breakdown(reportable_findings)
         deps_str = self._format_dependency_summary(all_deps)
         nets_str = self._format_network_summary(all_nets)
+
+        findings_pool = all_findings if all_findings is not None else reportable_findings
+        inval_count = sum(1 for f in findings_pool if (f.status or "").upper() == "INVALIDATED")
+        total_count = len(findings_pool)
+        fp_rate = (inval_count / total_count) if total_count > 0 else 0.0
+        fp_rate_str = f"{inval_count}/{total_count} ({fp_rate:.1%})"
 
         rows = [
             ["Session ID", f"[cyan]{session_id}[/cyan]"],
@@ -2917,6 +2942,7 @@ class ReviewPipelineOrchestrator:
             [
                 ["Reportable Findings", findings_str],
                 ["Verification Rate", ver_rate_str],
+                ["False Positive Rate", fp_rate_str],
                 ["Dependencies", deps_str],
                 ["Network Endpoints", nets_str],
                 ["Markdown Report", str(self.session_dir / "review.md")],
@@ -2989,6 +3015,7 @@ class ReviewPipelineOrchestrator:
             reportable_findings=reportable_findings,
             all_deps=all_deps,
             all_nets=all_nets,
+            all_findings=all_findings,
         )
         (self.session_dir / "review.md").write_text(report_md, encoding="utf-8")
 
@@ -3003,6 +3030,7 @@ class ReviewPipelineOrchestrator:
             reportable_findings=reportable_findings,
             all_deps=all_deps,
             all_nets=all_nets,
+            all_findings=all_findings,
         )
 
         print_success(
