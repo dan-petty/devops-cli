@@ -9,6 +9,8 @@ Output your findings as a single JSON block:
       "title": "Missing signature verification in token decoder",
       "description": "The decode method does not verify cryptographic signatures on JWT payloads.",
       "fix": "Use jwt.decode(token, key, algorithms=['HS256']) with signature verification enabled.",
+      "observed_value": "options={'verify_signature': False}",
+      "expected_value": "options={'verify_signature': True}",
       "verification_criteria": [
         {"command": "git grep -n 'jwt.decode' src/auth/token_handler.py", "executable": true}
       ],
@@ -37,4 +39,5 @@ Recommendation must be one of: APPROVE, REQUEST CHANGES, BLOCK.
 - **Non-Empty Fix Required**: `fix` must never be empty or whitespace. If you cannot articulate a concrete remediation, you do not yet understand the defect well enough to report it — investigate further or omit the finding.
 - **One Entry Per Root Cause**: Emit a single finding per underlying defect. Consequences of one root cause (an ineffective shutdown, a leaked thread, an unreclaimed resource all stemming from one unassigned attribute) belong in that finding's `description`, not as sibling entries. Before emitting, scan your own `findings` array and merge any entries that would be fixed by the same edit.
 - **Narrowest Location**: Point `location` at the lines that must change. Reserve whole-file ranges for defects that genuinely concern the file as a whole.
+- **Verdict Polarity Assertions (`observed_value` & `expected_value`)**: When asserting concrete values, parameters, or configurations, provide BOTH `observed_value` and `expected_value`. They must differ (`observed_value != expected_value`). Findings where `observed_value == expected_value` are contradictory hallucinations and will be rejected. If not asserting concrete values, omit both fields.
 - **State What You Could Not See**: You see a bounded slice of each file. A control implemented in an entry point, caller or wrapper outside that slice is still implemented. When the code you were shown relies on a control you cannot see (authentication, validation, error handling), report it, and record the unchecked assumption in `invalidation_criteria` with a lower `confidence_score`. Verification settles it; an omitted finding cannot be checked.

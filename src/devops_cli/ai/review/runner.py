@@ -47,6 +47,7 @@ from devops_cli.ai.review_schema import (
     ReviewResult,
     ReviewSessionPayload,
     SavedFinding,
+    compute_verdict_distributions,
     consolidate_duplicate_findings,
     parse_review_response,
 )
@@ -1765,6 +1766,7 @@ def _record_profile_findings(payloads: list[Any], candidates: int) -> None:
         candidates=candidates,
         verified=sum(1 for f in findings if f.verified),
         reported=sum(1 for f in findings if f.reportable),
+        verdict_distributions=compute_verdict_distributions(findings),
     )
 
 

@@ -239,10 +239,9 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Remediation*: After bounds checking, verify the cited span actually contains the construct the finding names (symbol, call, decorator, or literal) using the AST utilities already used by `_check_missing_symbol_hallucination`. On mismatch, attempt relocation by symbol search and record the correction; invalidate only when the construct is absent from the file entirely. Wrong-but-recoverable locations should be repaired, not discarded.
 - [x] **False-Positive Rate Tracking Across Runs (P1 - High, Issue #434)**:
   - *Context & Rationale*: Evaluates review quality and prompt adjustments by tracking per-category false-positive rates across runs against historical baselines.
-  - *Delivered*: Schema category propagation on `Finding`, per-category analytics engine (`category_metrics.py`), historical session aggregation, baseline comparison table in `review.md`, overall false-positive rate in console review summary, and `Category False Positive Rate (Invalidated)` table in `devops review stats`.
-- [ ] **Verdict Polarity & Field Distribution Assertions (P2 - Medium)**:
+- [x] **Verdict Polarity & Field Distribution Assertions (P2 - Medium, Issue #435)**:
   - *Context & Rationale*: Two review-quality failures are invisible to the current schema. **Polarity**: a finding asserted a status field was "always set to ERROR" where the exported value was OK — a real defect with inverted meaning and wrong severity, which verification passed at high confidence because nothing compared observed against expected. **Distribution**: `reportable` was `true` for all 286 findings including the 7 never verified; a verdict field that never comes back false is a column, not a filter.
-  - *Remediation*: Require findings to carry `observed_value` and `expected_value` when asserting a concrete value, and reject the pair when identical. Add a pipeline self-test asserting that a finding constructed to be withdrawn is in fact withdrawn, and emit verdict-field distributions in the run summary so a field that never discriminates is visible immediately.
+  - *Delivered*: Finding schema verdict polarity validation (`observed_value` vs `expected_value` rejection on equality), deterministic pre-verification invalidation of contradictory polarity hallucinations, pipeline self-test asserting systematically withdrawn test findings, console summary & markdown report verdict-field distribution tables with non-discriminating field warnings, and review profile metric persistence.
 - [ ] **Semantic Validator Deprecation & Structural Positional Oracles (P1 - High)**:
   - *Context & Rationale*: Audits AI review schemas and validators to strip keyword-matching assertions in favor of strict structural schema boundaries and positional enumeration.
 - [ ] **Lossless Structured Error Reflection for Schema Retries (P1 - High)**:
@@ -759,7 +758,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Executable Verification Criteria | Bounded Subprocess Sandbox | High | High | v0.2.23 | 📋 Scheduled (P1) |
 |  | Construct-Aware Finding Location Validation | Python AST / Symbol Search | High | Medium | v0.2.23 | ✅ Completed (P1) |
 |  | Closed-Loop Hallucination Ledger & False-Positive Rate | JSON Ledger / Prompt Exemplars | High | Medium | v0.2.23 | ✅ Completed (P1) |
-|  | Verdict Polarity & Field Distribution Assertions | Pydantic Schema / Self-Test | Medium | Low | v0.2.23 | 📋 Scheduled (P2) |
+|  | Verdict Polarity & Field Distribution Assertions | Pydantic Schema / Self-Test | Medium | Low | v0.2.23 | ✅ Completed (P2) |
 | **Major Projects** | LightLLM & Portkey AI Routing Services Integration | Portkey Gateway / LightLLM | High | High | v0.2.21 | ✅ Completed (P0) |
 |  | Reactive Multi-Workspace Textual TUI Architecture | Textual / Async Workers | High | High | v0.2.24 | 📋 Scheduled (P0) |
 |  | Comprehensive DevOps CLI Grafana Observability Dashboard Suite | Grafana 10+ / Prometheus / Loki | High | High | v0.2.24 | 📋 Scheduled (P0) |

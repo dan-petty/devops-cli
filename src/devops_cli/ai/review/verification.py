@@ -1157,6 +1157,25 @@ def _check_catalog_hallucination(finding: Finding, file_path: Path) -> Finding:
     return finding
 
 
+def _check_verdict_polarity_hallucination(finding: Finding) -> Finding | None:
+    """Invalidate findings where observed and expected concrete values match."""
+    obs = finding.observed_value
+    exp = finding.expected_value
+    if obs is not None and exp is not None and obs.strip().lower() == exp.strip().lower():
+        return finding.model_copy(
+            update={
+                "verified": False,
+                "mitigated": False,
+                "reportable": False,
+                "status": "INVALIDATED",
+                "invalidation_reason": (
+                    f"Observed value '{obs}' is identical to expected value '{exp}' (no defect polarity)"
+                ),
+            }
+        )
+    return None
+
+
 def _deterministic_pre_verification(
     finding: Finding,
     repo_root: Path | None = None,
@@ -1169,6 +1188,7 @@ def _deterministic_pre_verification(
     desc_lower = (finding.description or "").lower()
 
     early_results = [
+        _check_verdict_polarity_hallucination(finding),
         _check_pathlib_resolve_hallucination(finding),
         _check_operational_protocol_hallucination(finding),
         _check_conversational_monologue(title_lower, finding),
@@ -1382,6 +1402,23 @@ def _apply_single_finding_verification(
     new_loc = str(item.get("location", "")).strip()
     if new_loc and new_loc != f.location:
         updates["location"] = new_loc
+
+    obs_val = item.get("observed_value") or item.get("observed")
+    exp_val = item.get("expected_value") or item.get("expected")
+    if obs_val is not None:
+        updates["observed_value"] = str(obs_val).strip()
+    if exp_val is not None:
+        updates["expected_value"] = str(exp_val).strip()
+    final_obs = updates.get("observed_value", f.observed_value)
+    final_exp = updates.get("expected_value", f.expected_value)
+    if final_obs and final_exp and str(final_obs).strip().lower() == str(final_exp).strip().lower():
+        updates["verified"] = False
+        updates["mitigated"] = False
+        updates["reportable"] = False
+        updates["status"] = "INVALIDATED"
+        updates["invalidation_reason"] = (
+            f"Observed value '{final_obs}' is identical to expected value '{final_exp}' (polarity check)"
+        )
     return f.model_copy(update=updates)
 
 

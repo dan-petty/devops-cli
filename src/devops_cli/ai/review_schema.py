@@ -5,7 +5,8 @@ from __future__ import annotations
 import ast
 import json
 import re
-from collections.abc import Hashable, Iterable
+from collections import defaultdict
+from collections.abc import Hashable, Iterable, Sequence
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -618,6 +619,14 @@ class Finding(BaseModel):
         default=None,
         validation_alias=AliasChoices("category", "type", "classification", "defect_class"),
     )
+    observed_value: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("observed_value", "observed", "actual_value", "actual"),
+    )
+    expected_value: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("expected_value", "expected"),
+    )
     thinking: str | None = None
 
     @property
@@ -709,6 +718,34 @@ class Finding(BaseModel):
     @classmethod
     def _normalize_confidence(cls, v: object) -> float | None:
         return _parse_confidence_score(v)
+
+    @field_validator("observed_value", "expected_value", mode="before")
+    @classmethod
+    def _clean_polarity_value(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        text = str(v).strip()
+        return text if text else None
+
+    @model_validator(mode="after")
+    def _validate_polarity(self) -> Finding:
+        if getattr(self, "status", None) == "INVALIDATED":
+            return self
+        obs = self.observed_value
+        exp = self.expected_value
+        if obs is None and exp is None:
+            return self
+        if obs is None or not obs.strip():
+            raise ValueError(
+                "Both observed_value and expected_value must be provided when asserting a concrete value"
+            )
+        if exp is None or not exp.strip():
+            raise ValueError(
+                "Both observed_value and expected_value must be provided when asserting a concrete value"
+            )
+        if obs.strip().lower() == exp.strip().lower():
+            raise ValueError(f"observed_value and expected_value cannot be identical: {obs!r}")
+        return self
 
 
 def _parse_confidence_score(v: object) -> float | None:
@@ -959,6 +996,8 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         "reportable": reportable,
         "relocated_from": base.relocated_from or other.relocated_from,
         "category": base.category or other.category,
+        "observed_value": base.observed_value or other.observed_value,
+        "expected_value": base.expected_value or other.expected_value,
     }
 
     if isinstance(base, SavedFinding):
@@ -1269,3 +1308,48 @@ def parse_review_response(response: str | Any) -> ReviewResult | None:
     if fixed.thinking and not result.thinking:
         result.thinking = fixed.thinking
     return _strip_model_set_verification_state(result)
+
+
+def compute_verdict_distributions(
+    findings: Sequence[Finding | SavedFinding],
+) -> dict[str, dict[str, int]]:
+    """Compute distributions for core verdict fields: status, reportable, verified, mitigated.
+
+    Returns a mapping of verdict field name to value counts across all supplied candidate findings.
+    """
+    status_counts: dict[str, int] = defaultdict(int)
+    reportable_counts: dict[str, int] = {"true": 0, "false": 0}
+    verified_counts: dict[str, int] = {"true": 0, "false": 0}
+    mitigated_counts: dict[str, int] = {"true": 0, "false": 0}
+
+    for f in findings:
+        st_raw = getattr(f, "status", None)
+        st = (
+            st_raw.upper().strip()
+            if isinstance(st_raw, str) and st_raw.strip()
+            else DEFAULT_FINDING_STATUS
+        )
+        status_counts[st] += 1
+        rep_key = "true" if bool(getattr(f, "reportable", False)) else "false"
+        reportable_counts[rep_key] += 1
+        ver_key = "true" if bool(getattr(f, "verified", False)) else "false"
+        verified_counts[ver_key] += 1
+        mit_key = "true" if bool(getattr(f, "mitigated", False)) else "false"
+        mitigated_counts[mit_key] += 1
+
+    return {
+        "status": dict(status_counts),
+        "reportable": reportable_counts,
+        "verified": verified_counts,
+        "mitigated": mitigated_counts,
+    }
+
+
+def is_field_discriminating(counts: dict[str, int]) -> bool:
+    """Report whether a verdict field distribution discriminates between outcomes.
+
+    A field discriminates if at least two distinct values have non-zero counts.
+    If only one value was ever observed (or total is 0), the field acts as a constant rather than a discriminator.
+    """
+    non_zero = sum(1 for c in counts.values() if c > 0)
+    return non_zero > 1
