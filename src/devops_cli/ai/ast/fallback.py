@@ -370,6 +370,7 @@ def _parse_hcl_symbols(code: str) -> list[PolyglotSymbol]:
 _PARSERS: dict[str, Any] = {
     "python": _parse_python_symbols,
     "typescript": lambda c: _parse_typescript_symbols(c, "typescript"),
+    "tsx": lambda c: _parse_typescript_symbols(c, "tsx"),
     "javascript": lambda c: _parse_typescript_symbols(c, "javascript"),
     "go": _parse_go_symbols,
     "rust": _parse_rust_symbols,

@@ -22,7 +22,8 @@ def test_language_detection() -> None:
     assert detect_language(Path("app.py")) == "python"
     assert detect_language(Path("types.pyi")) == "python"
     assert detect_language(Path("index.ts")) == "typescript"
-    assert detect_language(Path("component.tsx")) == "typescript"
+    # TSX has its own grammar: the TypeScript one rejects JSX.
+    assert detect_language(Path("component.tsx")) == "tsx"
     assert detect_language(Path("script.js")) == "javascript"
     assert detect_language(Path("main.go")) == "go"
     assert detect_language(Path("lib.rs")) == "rust"
