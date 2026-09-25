@@ -33,6 +33,15 @@ repos:
         exclude: ^\.vscode/
         stages: [pre-commit]
 
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        stages: [pre-commit]
+      - id: ruff-format
+        stages: [pre-commit]
+
   - repo: local
     hooks:
       # Pure-stdlib AST walk over the staged files: no devops_cli import, because loading

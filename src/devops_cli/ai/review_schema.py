@@ -613,6 +613,7 @@ class Finding(BaseModel):
     # whatever a model supplies, because a model that could write here could announce its
     # own verification outage and tell a reader to discard the findings below.
     verification_note: str | None = None
+    relocated_from: str | None = None
     thinking: str | None = None
 
     @property
@@ -952,6 +953,7 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         "verified_criteria_matched": ver_match,
         "invalidated_criteria_matched": inv_match,
         "reportable": reportable,
+        "relocated_from": base.relocated_from or other.relocated_from,
     }
 
     if isinstance(base, SavedFinding):
