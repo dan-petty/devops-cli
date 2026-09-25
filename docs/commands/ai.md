@@ -255,7 +255,7 @@ devops ai repomap [OPTIONS]
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
 | `--max-files`, `-n` | `integer` | `100` | Maximum source files to include. |
 | `--include-tests` | `boolean` | - | Include test modules in symbol map. |
-| `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, Go, Rust, Java, and HCL. |
+| `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
