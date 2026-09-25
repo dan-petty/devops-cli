@@ -39,7 +39,7 @@ from devops_cli.ai.review.contract_grounding import (
 from devops_cli.ai.review.exporter import FeedbackRecord, export_invalidated_feedback
 from devops_cli.ai.review.flags import ReviewStageFlags, resolve_stage_flags
 from devops_cli.ai.review.patching import stage_finding_patch
-from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
+from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator, run_pipeline_self_test
 from devops_cli.ai.review.pool import ReviewWorkerPool, TokenBucketRateLimiter
 from devops_cli.ai.review.review_environment import (
     execute_criterion_command,
@@ -55,8 +55,10 @@ from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
     SavedFinding,
     VerificationCriterion,
+    compute_verdict_distributions,
     consolidate_duplicate_findings,
     extract_json_block,
+    is_field_discriminating,
     normalize_unicode_text,
     parse_review_response,
 )
@@ -84,6 +86,7 @@ __all__ = [
     "collect_ast_constructs",
     "collect_historical_category_metrics",
     "compute_category_metrics",
+    "compute_verdict_distributions",
     "consolidate_duplicate_findings",
     "diff_pages",
     "diff_stream_chunks",
@@ -100,6 +103,7 @@ __all__ = [
     "format_contract_grounding_for_prompt",
     "group_imports_by_package",
     "is_common_hallucination",
+    "is_field_discriminating",
     "load_common_hallucinations",
     "normalize_unicode_text",
     "parse_review_response",
@@ -107,6 +111,7 @@ __all__ = [
     "resolve_finding_category",
     "resolve_grounded_contracts",
     "resolve_stage_flags",
+    "run_pipeline_self_test",
     "save_common_hallucinations",
     "stage_finding_patch",
     "validate_construct_location",

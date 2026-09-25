@@ -62,8 +62,10 @@ from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
     SavedFinding,
     anchor_location,
+    compute_verdict_distributions,
     consolidate_duplicate_findings,
     format_clean_text_field,
+    is_field_discriminating,
     parse_review_response,
     reset_verification_state,
     strip_outer_markdown_bold,
@@ -2185,6 +2187,8 @@ class ReviewPipelineOrchestrator:
                 orig.invalidation_criteria = v.invalidation_criteria
                 orig.verified_criteria_matched = v.verified_criteria_matched
                 orig.invalidated_criteria_matched = v.invalidated_criteria_matched
+                orig.observed_value = v.observed_value
+                orig.expected_value = v.expected_value
                 orig.verified_by = "llm"
                 orig.verified_at = datetime.now(UTC).isoformat()
                 updated_saved.append(orig)
@@ -2587,6 +2591,37 @@ class ReviewPipelineOrchestrator:
         reviews_dir = self.session_dir.parent if self.session_dir else None
         return format_category_baseline_markdown(findings_to_use, reviews_dir)
 
+    def _build_verdict_distributions_section(
+        self, candidate_findings: list[SavedFinding] | None
+    ) -> list[str]:
+        """Build Markdown table of verdict field distributions and discrimination status."""
+        if not candidate_findings:
+            return []
+        dists = compute_verdict_distributions(candidate_findings)
+        lines = [
+            "## Verdict Field Distributions",
+            "",
+            "| Verdict Field | Distribution | Discriminates? |",
+            "|---|---|---|",
+        ]
+        field_order = [
+            ("status", "Status"),
+            ("reportable", "Reportable"),
+            ("verified", "Verified"),
+            ("mitigated", "Mitigated"),
+        ]
+        for key, label in field_order:
+            counts = dists.get(key, {})
+            dist_str = (
+                ", ".join(f"`{k}`: {v}" for k, v in sorted(counts.items()) if v > 0) or "None"
+            )
+            discriminates = (
+                "Yes" if is_field_discriminating(counts) else "**No (never discriminates)**"
+            )
+            lines.append(f"| `{label}` | {dist_str} | {discriminates} |")
+        lines.append("")
+        return lines
+
     def _build_consolidated_markdown_report(
         self,
         session_id: str,
@@ -2595,6 +2630,7 @@ class ReviewPipelineOrchestrator:
         all_deps: list[DependencySpec],
         all_nets: list[NetworkReference],
         all_findings: list[SavedFinding] | None = None,
+        candidate_findings: list[SavedFinding] | None = None,
     ) -> str:
         from devops_cli.ai.review.stages.reporting import synthesize_report_executive_summary
 
@@ -2628,6 +2664,10 @@ class ReviewPipelineOrchestrator:
         baseline_lines = self._build_category_baseline_section(all_findings, reportable_findings)
         if baseline_lines:
             lines.extend(baseline_lines)
+
+        dist_lines = self._build_verdict_distributions_section(candidate_findings or all_findings)
+        if dist_lines:
+            lines.extend(dist_lines)
 
         if self.errored_files:
             lines.append("## Skipped / Errored Files")
@@ -2906,6 +2946,35 @@ class ReviewPipelineOrchestrator:
         local_count = sum(1 for net in all_nets if net.is_local)
         return f"{len(all_nets)} audited ({external_count} External, {local_count} Local)"
 
+    def _format_verdict_distributions(
+        self, findings_pool: Sequence[Finding | SavedFinding]
+    ) -> list[list[str]]:
+        """Format verdict field distributions for console summary table."""
+        if not findings_pool:
+            return []
+        dists = compute_verdict_distributions(findings_pool)
+        status_counts = dists.get("status", {})
+        status_str = (
+            ", ".join(f"{k}: {v}" for k, v in sorted(status_counts.items()) if v > 0) or "0"
+        )
+        rep_counts = dists.get("reportable", {})
+        rep_disc = is_field_discriminating(rep_counts)
+        rep_str = f"{rep_counts.get('true', 0)} true, {rep_counts.get('false', 0)} false"
+        if not rep_disc and sum(rep_counts.values()) > 0:
+            rep_str += " [bold yellow](does not discriminate)[/bold yellow]"
+
+        ver_counts = dists.get("verified", {})
+        ver_disc = is_field_discriminating(ver_counts)
+        ver_str = f"{ver_counts.get('true', 0)} true, {ver_counts.get('false', 0)} false"
+        if not ver_disc and sum(ver_counts.values()) > 0:
+            ver_str += " [dim](does not discriminate)[/dim]"
+
+        return [
+            ["Verdict Status", status_str],
+            ["Verdict Reportable", rep_str],
+            ["Verdict Verified", ver_str],
+        ]
+
     def _render_console_summary_table(
         self,
         console: Any,
@@ -2915,13 +2984,18 @@ class ReviewPipelineOrchestrator:
         all_deps: list[DependencySpec],
         all_nets: list[NetworkReference],
         all_findings: list[SavedFinding] | None = None,
+        candidate_findings: list[SavedFinding] | None = None,
     ) -> None:
         """Render review summary table to console."""
         findings_str, ver_rate_str = self._format_severity_breakdown(reportable_findings)
         deps_str = self._format_dependency_summary(all_deps)
         nets_str = self._format_network_summary(all_nets)
 
-        findings_pool = all_findings if all_findings is not None else reportable_findings
+        findings_pool = (
+            candidate_findings
+            if candidate_findings is not None
+            else (all_findings if all_findings is not None else reportable_findings)
+        )
         inval_count = sum(1 for f in findings_pool if (f.status or "").upper() == "INVALIDATED")
         total_count = len(findings_pool)
         fp_rate = (inval_count / total_count) if total_count > 0 else 0.0
@@ -2943,6 +3017,11 @@ class ReviewPipelineOrchestrator:
                 ["Reportable Findings", findings_str],
                 ["Verification Rate", ver_rate_str],
                 ["False Positive Rate", fp_rate_str],
+            ]
+        )
+        rows.extend(self._format_verdict_distributions(findings_pool))
+        rows.extend(
+            [
                 ["Dependencies", deps_str],
                 ["Network Endpoints", nets_str],
                 ["Markdown Report", str(self.session_dir / "review.md")],
@@ -2957,6 +3036,10 @@ class ReviewPipelineOrchestrator:
             border_style="cyan",
             console=console,
         )
+
+    def run_self_test(self) -> bool:
+        """Execute a pipeline self-test asserting that a finding constructed to be withdrawn is in fact withdrawn."""
+        return run_pipeline_self_test(target_dir=self.target_dir)
 
     def generate_consolidated_report(
         self,
@@ -3016,6 +3099,7 @@ class ReviewPipelineOrchestrator:
             all_deps=all_deps,
             all_nets=all_nets,
             all_findings=all_findings,
+            candidate_findings=candidates.findings,
         )
         (self.session_dir / "review.md").write_text(report_md, encoding="utf-8")
 
@@ -3031,6 +3115,7 @@ class ReviewPipelineOrchestrator:
             all_deps=all_deps,
             all_nets=all_nets,
             all_findings=all_findings,
+            candidate_findings=candidates.findings,
         )
 
         print_success(
@@ -3038,6 +3123,43 @@ class ReviewPipelineOrchestrator:
             f"([bold]{len(all_findings)}[/bold] finding(s) saved to [dim]{self.session_dir}[/dim])"
         )
         return payload_out.model_dump(), report_md
+
+
+def run_pipeline_self_test(target_dir: Path | None = None) -> bool:
+    """Execute a pipeline self-test asserting that a finding constructed to be withdrawn is in fact withdrawn.
+
+    Constructs a finding whose observed and expected values match (polarity failure) and verifies
+    that deterministic pre-verification invalidates it with reportable=False, and that the review
+    orchestrator's finding collection and deduplication excludes it from reportable findings.
+    """
+    from devops_cli.ai.review.verification import _check_verdict_polarity_hallucination
+
+    polarity_finding = Finding.model_construct(
+        title="Incorrect status flag in heartbeat monitor",
+        location="src/monitor.py:10",
+        severity="HIGH",
+        description="Heartbeat status asserted to be erroneous.",
+        fix="Ensure status is OK.",
+        observed_value="OK",
+        expected_value="OK",
+    )
+    result = _check_verdict_polarity_hallucination(polarity_finding)
+    if result is None or result.status != "INVALIDATED" or result.reportable:
+        raise AssertionError(
+            "Pipeline self-test failed: finding constructed to be withdrawn was not invalidated"
+        )
+
+    saved = SavedFinding(**result.model_dump(), persona="devsecops")
+    payload = FileReviewPayload(file_path="src/monitor.py", findings=[saved])
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="self-test", target_dir=target_dir or Path.cwd()
+    )
+    reportable = orchestrator._collect_and_deduplicate_findings([payload])
+    if reportable:
+        raise AssertionError(
+            f"Pipeline self-test failed: withdrawn finding reached reportable output: {reportable}"
+        )
+    return True
 
 
 format_markdown_fix = ReviewPipelineOrchestrator._format_markdown_fix

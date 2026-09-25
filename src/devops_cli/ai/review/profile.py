@@ -110,6 +110,7 @@ class ReviewProfile(BaseModel):
     candidate_findings: int = 0
     verified_findings: int = 0
     reported_findings: int = 0
+    verdict_distributions: dict[str, dict[str, int]] = Field(default_factory=dict)
     # How each static analyzer took part: ran, built-in patterns, not installed or no files. A
     # scan that found nothing is clean only for the analyzers that ran.
     static_analyzers: dict[str, str] = Field(default_factory=dict)
@@ -147,6 +148,7 @@ class ReviewProfiler:
         # Each served call's (start, end) on the monotonic clock, by stage and backend.
         self._intervals: dict[str, dict[str, list[tuple[float, float]]]] = {}
         self._findings = (0, 0, 0)
+        self._verdict_distributions: dict[str, dict[str, int]] = {}
         self._static_analyzers: dict[str, str] = {}
 
     def observe(self, call: dict[str, Any]) -> None:
@@ -177,8 +179,17 @@ class ReviewProfiler:
             stage = self._stages.setdefault(name, StageProfile(name=name))
             stage.wall_seconds += seconds
 
-    def set_findings(self, *, candidates: int, verified: int, reported: int) -> None:
+    def set_findings(
+        self,
+        *,
+        candidates: int,
+        verified: int,
+        reported: int,
+        verdict_distributions: dict[str, dict[str, int]] | None = None,
+    ) -> None:
         self._findings = (candidates, verified, reported)
+        if verdict_distributions is not None:
+            self._verdict_distributions = dict(verdict_distributions)
 
     def set_static_analyzers(self, states: dict[str, str]) -> None:
         self._static_analyzers = dict(states)
@@ -207,6 +218,7 @@ class ReviewProfiler:
             candidate_findings=candidates,
             verified_findings=verified,
             reported_findings=reported,
+            verdict_distributions=dict(self._verdict_distributions),
             static_analyzers=dict(self._static_analyzers),
             stages=stages,
         )
