@@ -24,6 +24,14 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+    # Prometheus scrapes /metrics (#546)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8000
   egress:
     # CoreDNS queries to kube-system
     - to:

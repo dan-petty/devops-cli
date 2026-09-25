@@ -15,6 +15,7 @@ from devops_cli.ai.gateway_tune import (
     review_page_tokens,
     tune_pool,
 )
+from devops_cli.ai.pool_load import PoolLoad, pool_load, prometheus_query
 from devops_cli.ai.run_store import Mechanism, record_run
 from devops_cli.commands.ai_runs import announce_run
 from devops_cli.config.constants import CONST_AI_GATEWAY_VIRTUAL_MODELS, CONST_OUTPUT_FORMAT_TABLE
@@ -26,19 +27,26 @@ from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_TUNE_MODEL_GROUP,
     DEFAULT_GATEWAY_TUNE_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_GATEWAY_TUNE_ROUNDS,
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_LLM_NAMESPACE,
+    DEFAULT_POOL_LOAD_WINDOW,
 )
 from devops_cli.config.settings import get_ai_api_key, load_settings
 from devops_cli.core.cli import new_typer
+from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.http.validation import validate_service_url
 from devops_cli.k8s.context import resolve_context
+from devops_cli.lang import MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
     print_section,
     print_success,
     print_table,
+    print_warning,
 )
 from devops_cli.output.serialization import emit_serialized, normalize_format
+from devops_cli.security.sanitizer import mask_secrets
 
 app = new_typer(
     help="LLM Gateway and distributed inference mesh management.",
@@ -462,3 +470,95 @@ def tune_cmd(
     else:
         _render_tune_report(report)
     announce_run(saved, to_stderr=not as_table)
+
+
+def _share(value: float | None) -> str:
+    return "—" if value is None else f"{value:.0%}"
+
+
+def _render_pool_load(load: PoolLoad) -> None:
+    """Show each backend's and GPU's load, busiest first."""
+    print_section(f" LLM Pool Load, Last {load.window} ", style="bold cyan")
+    backends = sorted(load.backends, key=lambda b: -b.mean_in_flight)
+    print_table(
+        title="Backends",
+        columns=[
+            ("Backend", "cyan"),
+            ("Requests", "right"),
+            ("Failures", "right"),
+            ("Mean in Flight", "right"),
+            ("Busy (vLLM)", "right"),
+            ("Queue Mean / Max (vLLM)", "right"),
+        ],
+        rows=[
+            [
+                b.backend,
+                f"{b.requests:.0f}",
+                f"{b.failures:.0f}",
+                f"{b.mean_in_flight:.2f}",
+                _share(b.busy_share),
+                "—"
+                if b.mean_waiting is None
+                else f"{b.mean_waiting:.1f} / {b.max_waiting or 0:.0f}",
+            ]
+            for b in backends
+        ],
+    )
+    if load.gpus:
+        print_table(
+            title="GPUs",
+            columns=[
+                ("Host", "cyan"),
+                ("GPU", "right"),
+                ("Model", "magenta"),
+                ("Mean Utilisation", "right"),
+                ("Peak Memory (MiB)", "right"),
+            ],
+            rows=[
+                [g.host, g.gpu, g.model, f"{g.mean_utilisation:.0f}%", f"{g.peak_memory_mib:.0f}"]
+                for g in load.gpus
+            ],
+        )
+
+
+@app.command("load")
+def load_cmd(
+    window: Annotated[
+        str,
+        typer.Option("--window", "-w", help="How far back to look, e.g. 30m, 2h or 1d."),
+    ] = DEFAULT_POOL_LOAD_WINDOW,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format: table or json."),
+    ] = "table",
+) -> None:
+    """Report how busy each LLM backend and GPU was over a window, from Prometheus.
+
+    Mean in flight is the gateway's call seconds per second on each deployment, so it covers the
+    Ollama nodes too; busy share and queue come from the vLLM servers themselves.
+    """
+    settings = load_settings()
+    if not settings.prometheus.url:
+        print_error(MESSAGES.prometheus.url_not_configured, prefix=False)
+        raise typer.Exit(1)
+    try:
+        validate_service_url(
+            settings.prometheus.url, "Prometheus", allow=settings.ai.allow_private_network
+        )
+        query = prometheus_query(settings.prometheus.url.rstrip("/"), DEFAULT_HTTP_TIMEOUT_SECONDS)
+        load = pool_load(query, window)
+    except (ValueError, DevOpsCLIError) as exc:
+        print_error(mask_secrets(str(exc)), prefix=False)
+        raise typer.Exit(1) from exc
+
+    resolved = normalize_format(output_format)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(load.model_dump(), resolved)
+        return
+    if not load.backends and not load.gpus:
+        print_warning(
+            f"No LLM pool or GPU metrics in Prometheus over the last {window}; check that the "
+            "gateway, vLLM and DCGM exporter monitors are applied (k8s/monitoring)."
+        )
+        return
+    _render_pool_load(load)

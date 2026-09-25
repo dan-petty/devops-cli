@@ -115,6 +115,11 @@ data:
         model_info:
           health_check_model: openai/qwen2.5-coder:7b
 
+    litellm_settings:
+      # Per-deployment requests, failures and latency at /metrics/, scraped by Prometheus. The
+      # Ollama nodes export no metrics of their own, so this is how their load is seen.
+      callbacks: ["prometheus"]
+
     router_settings:
       # Weighted random choice spreads a burst of simultaneous calls (a review sends one per
       # persona at once) by weight. least-busy counts a request only once its backend call

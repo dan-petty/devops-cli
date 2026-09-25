@@ -4288,6 +4288,26 @@ devops ai gateway tune [OPTIONS]
 | `--image` | `string` | `python:3.14-slim` | Python image for the sweep container. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
+#### `devops ai gateway load`
+
+**Report how busy each LLM backend and GPU was over a window, from Prometheus.**
+
+Report how busy each LLM backend and GPU was over a window, from Prometheus.
+
+Mean in flight is the gateway's call seconds per second on each deployment, so it covers the
+Ollama nodes too; busy share and queue come from the vLLM servers themselves.
+
+```bash
+devops ai gateway load [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--window`, `-w` | `string` | `1h` | How far back to look, e.g. 30m, 2h or 1d. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
 ### `devops ai runs`
 
 **Benchmark and evaluation runs, kept in the data directory and shared through Valkey.**

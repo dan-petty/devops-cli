@@ -6,7 +6,7 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 
 | Stack | Components | Namespaces | Default Ports |
 | :--- | :--- | :--- | :--- |
-| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Prometheus Stack (Prometheus + Grafana), OpenTelemetry Collector | `argocd`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus) |
+| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Prometheus Stack (Prometheus + Grafana), NVIDIA DCGM Exporter, OpenTelemetry Collector | `argocd`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus) |
 | **`llm`** | Ollama, Open-WebUI, Qdrant Vector DB, Valkey Cache, Valkey Run Index | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
 | **`all`** | All components from both stacks | `argocd`, `monitoring`, `otel`, `llm` | All ports above |
 
@@ -165,7 +165,8 @@ k8s/
 ├── monitoring/
 │   ├── kustomization.yaml    # Kustomize overlay for monitoring
 │   ├── namespace.yaml        # monitoring namespace
-│   └── prometheus-values.yaml # Helm values for kube-prometheus-stack
+│   ├── dcgm-exporter-values.yaml # Helm values for nvidia/dcgm-exporter (GPU metrics)
+│   └── prometheus-values.yaml # Helm values for kube-prometheus-stack, with the vLLM and gateway monitors
 ├── otel/
 │   ├── kustomization.yaml    # Kustomize overlay for OpenTelemetry
 │   ├── namespace.yaml        # otel namespace
