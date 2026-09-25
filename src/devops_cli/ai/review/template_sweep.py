@@ -93,14 +93,11 @@ def _is_only_missing_include(error: str | None) -> bool:
         return False
     lines = [line.strip() for line in error.strip().splitlines() if line.strip()]
     return len(lines) > 0 and all(
-        "No such file or directory" in line or "compilation terminated" in line
-        for line in lines
+        "No such file or directory" in line or "compilation terminated" in line for line in lines
     )
 
 
-def _run_cmd_checker(
-    cmd: list[str], input_bytes: bytes, checker_name: str
-) -> CheckResult:
+def _run_cmd_checker(cmd: list[str], input_bytes: bytes, checker_name: str) -> CheckResult:
     """Run an external CLI command with stdin bytes as syntax checker."""
     binary = shutil.which(cmd[0])
     if not binary:
@@ -116,14 +113,10 @@ def _run_cmd_checker(
             return CheckResult(checker=checker_name, status=STATUS_PASS)
         err = (proc.stderr or proc.stdout).decode(errors="replace").strip()
         if _is_only_missing_include(err):
-            return CheckResult(
-                checker=checker_name, status=STATUS_NOT_RUN, error=err[:256]
-            )
+            return CheckResult(checker=checker_name, status=STATUS_NOT_RUN, error=err[:256])
         return CheckResult(checker=checker_name, status=STATUS_FAIL, error=err[:256])
     except (subprocess.TimeoutExpired, OSError) as exc:
-        return CheckResult(
-            checker=checker_name, status=STATUS_FAIL, error=str(exc)[:256]
-        )
+        return CheckResult(checker=checker_name, status=STATUS_FAIL, error=str(exc)[:256])
 
 
 def _check_python(content: str) -> CheckResult:
@@ -131,9 +124,7 @@ def _check_python(content: str) -> CheckResult:
         ast.parse(content)
         return CheckResult(checker="python-ast", status=STATUS_PASS)
     except SyntaxError as exc:
-        return CheckResult(
-            checker="python-ast", status=STATUS_FAIL, error=str(exc)[:256]
-        )
+        return CheckResult(checker="python-ast", status=STATUS_FAIL, error=str(exc)[:256])
 
 
 def _c_include_flags(path: Path | str) -> list[str]:
@@ -204,9 +195,7 @@ def _check_hcl(content: str) -> CheckResult:
             error="python-hcl2 not installed",
         )
     except Exception as exc:
-        return CheckResult(
-            checker="python-hcl2", status=STATUS_FAIL, error=str(exc)[:256]
-        )
+        return CheckResult(checker="python-hcl2", status=STATUS_FAIL, error=str(exc)[:256])
 
 
 def _check_yaml(content: str) -> CheckResult:
@@ -216,9 +205,7 @@ def _check_yaml(content: str) -> CheckResult:
         list(yaml.safe_load_all(content))
         return CheckResult(checker="PyYAML", status=STATUS_PASS)
     except ImportError:
-        return CheckResult(
-            checker="PyYAML", status=STATUS_NOT_RUN, error="PyYAML not installed"
-        )
+        return CheckResult(checker="PyYAML", status=STATUS_NOT_RUN, error="PyYAML not installed")
     except Exception as exc:
         return CheckResult(checker="PyYAML", status=STATUS_FAIL, error=str(exc)[:256])
 
@@ -244,9 +231,7 @@ def _check_tree_sitter(content: str, lang: str) -> CheckResult:
             )
         return CheckResult(checker="tree-sitter", status=STATUS_PASS)
     except Exception as exc:
-        return CheckResult(
-            checker="tree-sitter", status=STATUS_FAIL, error=str(exc)[:256]
-        )
+        return CheckResult(checker="tree-sitter", status=STATUS_FAIL, error=str(exc)[:256])
 
 
 _CHECKER_DISPATCH: dict[str, Callable[[str, Path | str], CheckResult]] = {
@@ -337,19 +322,13 @@ def _is_inside_block_marker(
         if in_block:
             if close_marker in stripped:
                 in_block = False
-        elif (
-            open_marker in stripped
-            and close_marker not in stripped.split(open_marker, 1)[1]
-        ):
+        elif open_marker in stripped and close_marker not in stripped.split(open_marker, 1)[1]:
             in_block = True
     return in_block
 
 
 def _is_script_or_config_comment(raw_line: str, name: str, suffix: str) -> bool | None:
-    if (
-        name in ("dockerfile", "containerfile")
-        or suffix in _SHELL_SUFFIXES | _YAML_SUFFIXES
-    ):
+    if name in ("dockerfile", "containerfile") or suffix in _SHELL_SUFFIXES | _YAML_SUFFIXES:
         return raw_line.startswith("#")
     return None
 
@@ -360,9 +339,9 @@ def _is_doc_or_python_comment(
     if suffix in (".py", ".pyi"):
         if raw_line.startswith(("#", '"""', "'''")):
             return True
-        return _is_inside_block_marker(
-            lines, start_line, '"""', '"""'
-        ) or _is_inside_block_marker(lines, start_line, "'''", "'''")
+        return _is_inside_block_marker(lines, start_line, '"""', '"""') or _is_inside_block_marker(
+            lines, start_line, "'''", "'''"
+        )
     if suffix in (".md", ".markdown", ".rst"):
         return raw_line.startswith("<!--") or _is_inside_block_marker(
             lines, start_line, "<!--", "-->"
@@ -393,9 +372,7 @@ def is_inside_comment(lines: list[str], start_line: int, filename: str) -> bool:
 
     if (cfg_res := _is_script_or_config_comment(raw_line, name, suffix)) is not None:
         return cfg_res
-    if (
-        doc_res := _is_doc_or_python_comment(lines, start_line, raw_line, suffix)
-    ) is not None:
+    if (doc_res := _is_doc_or_python_comment(lines, start_line, raw_line, suffix)) is not None:
         return doc_res
     if raw_line.startswith(("//", "/*", "*", "#", "<!--", "--")):
         return True
@@ -451,9 +428,7 @@ def _process_file_sites(
     """Find and verify all candidate injection sites in one sample file."""
     verifications: list[SiteVerification] = []
     try:
-        lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines(
-            keepends=True
-        )
+        lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
     except OSError:
         return verifications
 
@@ -467,21 +442,15 @@ def _process_file_sites(
         except Exception:
             continue
         for site in sites:
-            verifications.append(
-                _verify_site(site, template, sample, file_path, rel, lines)
-            )
+            verifications.append(_verify_site(site, template, sample, file_path, rel, lines))
     return verifications
 
 
 def _record_verification(report: TemplateSweepReport, v: SiteVerification) -> None:
     """Update aggregated report statistics with one site verification result."""
     report.total_sites += 1
-    report.sites_per_template[v.template] = (
-        report.sites_per_template.get(v.template, 0) + 1
-    )
-    report.sites_per_category[v.category] = (
-        report.sites_per_category.get(v.category, 0) + 1
-    )
+    report.sites_per_template[v.template] = report.sites_per_template.get(v.template, 0) + 1
+    report.sites_per_category[v.category] = report.sites_per_category.get(v.category, 0) + 1
 
     if v.in_comment:
         report.comment_collisions.append(
@@ -494,9 +463,7 @@ def _record_verification(report: TemplateSweepReport, v: SiteVerification) -> No
         )
 
     if v.status == STATUS_NOT_RUN:
-        report.checkers_not_run[v.checker] = (
-            report.checkers_not_run.get(v.checker, 0) + 1
-        )
+        report.checkers_not_run[v.checker] = report.checkers_not_run.get(v.checker, 0) + 1
     else:
         report.checkers_run[v.checker] = report.checkers_run.get(v.checker, 0) + 1
         if v.status == STATUS_FAIL:
@@ -522,9 +489,7 @@ def _sweep_sample(
     reviewable_files = sample_files(sample, checkout)
     verifications: list[SiteVerification] = []
     for file_path in reviewable_files:
-        verifications.extend(
-            _process_file_sites(file_path, sample, checkout, templates)
-        )
+        verifications.extend(_process_file_sites(file_path, sample, checkout, templates))
     return verifications, len(reviewable_files)
 
 
@@ -552,9 +517,7 @@ def sweep_templates(
         for v in results:
             _record_verification(report, v)
 
-    report.passed = (
-        len(report.parse_failures) == 0 and len(report.comment_collisions) == 0
-    )
+    report.passed = len(report.parse_failures) == 0 and len(report.comment_collisions) == 0
     return report
 
 
@@ -587,9 +550,7 @@ def save_sweep_run(
         "sites_per_category": report.sites_per_category,
         "passed": report.passed,
     }
-    return record_run(
-        Mechanism.TEMPLATE_SWEEP, setup=setup, subject=subject, results=results
-    )
+    return record_run(Mechanism.TEMPLATE_SWEEP, setup=setup, subject=subject, results=results)
 
 
 __all__ = [
