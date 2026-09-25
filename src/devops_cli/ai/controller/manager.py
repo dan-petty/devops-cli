@@ -9,6 +9,12 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from devops_cli.ai.capability import (
+    VIRTUAL_MODEL_TIER_MAPPING,
+    ModelCapabilityTier,
+    resolve_capability_tier,
+    validate_failover_capability,
+)
 from devops_cli.ai.controller.models import (
     AgentTaskType,
     ConstellationStatus,
@@ -108,6 +114,49 @@ def _write_snapshot_file(file_path: Path, snapshot: QuiesceSnapshot) -> None:
         raise
 
 
+def _validate_tasks_failover_capability(
+    tasks: list[SuspendedTask],
+    target_model: str,
+    target_provider: str,
+    *,
+    force: bool = False,
+) -> None:
+    """Ensure all rerouted tasks meet minimum capability requirements for the target fallback model."""
+    for task in tasks:
+        role_key = (
+            task.original_model
+            if task.original_model in VIRTUAL_MODEL_TIER_MAPPING
+            else task.name
+            if task.name in VIRTUAL_MODEL_TIER_MAPPING
+            else task.task_type
+        )
+        tier = resolve_capability_tier(role_key)
+        if tier in (ModelCapabilityTier.REASONING, ModelCapabilityTier.CODING):
+            validate_failover_capability(
+                tier.value,
+                target_model,
+                target_provider,
+                force=force,
+            )
+
+
+def _mark_tasks_resumed(
+    tasks: list[SuspendedTask],
+    registered_tasks: dict[str, SuspendedTask],
+    now_iso: str,
+    *,
+    dry_run: bool,
+) -> None:
+    """Update status and timestamps for resumed tasks."""
+    for task in tasks:
+        task.status = "resumed"
+        task.resumed_at = now_iso
+        if not dry_run and task.task_id in registered_tasks:
+            reg = registered_tasks[task.task_id]
+            reg.status = "resumed"
+            reg.resumed_at = now_iso
+
+
 class ConstellationManager:
     """Controller managing emergency quiesce, fallback routing, and resumption for agent loops."""
 
@@ -203,6 +252,7 @@ class ConstellationManager:
         target_provider: str = DEFAULT_AI_FALLBACK_PROVIDER,
         target_model: str = DEFAULT_AI_FALLBACK_MODEL,
         dry_run: bool = False,
+        force: bool = False,
     ) -> FailoverResult:
         """Safely re-route pending tasks to designated fallback endpoint."""
         with trace_span(
@@ -211,6 +261,7 @@ class ConstellationManager:
                 "failover.target_provider": target_provider,
                 "failover.target_model": target_model,
                 "failover.dry_run": dry_run,
+                "failover.force": force,
             },
         ):
             existing_snapshot = _read_snapshot_file(self.snapshot_file)
@@ -228,6 +279,13 @@ class ConstellationManager:
                     reason="Automatic failover",
                     tasks=base_tasks,
                 )
+
+            _validate_tasks_failover_capability(
+                snapshot.tasks,
+                target_model,
+                target_provider,
+                force=force,
+            )
 
             snapshot.state = QuiesceState.FAILOVER
             snapshot.active_fallback = (target_provider, target_model)
@@ -288,12 +346,12 @@ class ConstellationManager:
             now_iso = _utc_now_iso()
             resumed_count = len(tasks)
 
-            for task in tasks:
-                task.status = "resumed"
-                task.resumed_at = now_iso
-                if not dry_run and task.task_id in self._registered_tasks:
-                    self._registered_tasks[task.task_id].status = "resumed"
-                    self._registered_tasks[task.task_id].resumed_at = now_iso
+            _mark_tasks_resumed(
+                tasks,
+                self._registered_tasks,
+                now_iso,
+                dry_run=dry_run,
+            )
 
             if snapshot:
                 snapshot.state = QuiesceState.RESUMED

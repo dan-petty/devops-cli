@@ -31,6 +31,9 @@ if TYPE_CHECKING:
 
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
+    CONST_AIMD_ADDITIVE_INCREASE_STEP,
+    CONST_AIMD_MULTIPLICATIVE_DECREASE_FACTOR,
+    CONST_AIMD_SUCCESS_THRESHOLD,
     CONST_ERROR_CODE_EMBEDDINGS,
     CONST_EXIT_FAILURE,
     CONST_VALKEY_EMBEDDING_PREFIX,
@@ -55,6 +58,7 @@ from devops_cli.telemetry import (
     ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor,
 )
 from devops_cli.telemetry import (
+    record_metric,
     trace_span,
 )
 
@@ -239,7 +243,9 @@ class EmbeddingsEngine:
         self._dimension: int | None = None
         self._cache = _EmbeddingLRUCache(maxsize=cache_size)
         self._valkey = self._init_valkey(valkey_client)
-        self._current_batch_size = max(DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE, batch_size)
+        self._configured_batch_size = max(DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE, batch_size)
+        self._current_batch_size = self._configured_batch_size
+        self._consecutive_successes: int = 0
         self._batch_lock = threading.Lock()
 
     def _init_valkey(self, valkey_client: Any) -> Any:
@@ -271,19 +277,63 @@ class EmbeddingsEngine:
         except Exception:
             return None
 
-    def _halve_batch_size(self) -> int:
-        """Dynamically halve the batch size down to minimum threshold on failure or latency degradation."""
+    def _apply_aimd_decrease(self) -> int:
+        """Dynamically halve the batch size down to minimum threshold on failure or latency degradation (AIMD)."""
         with self._batch_lock:
+            self._consecutive_successes = 0
             self._current_batch_size = max(
                 DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE,
-                self._current_batch_size // 2,
+                int(self._current_batch_size * CONST_AIMD_MULTIPLICATIVE_DECREASE_FACTOR),
+            )
+            record_metric("rag.embedding.batch_size", self._current_batch_size)
+            record_metric(
+                "rag.embedding.aimd_action",
+                1,
+                attributes={"action": "multiplicative_decrease"},
+            )
+            logger.debug(
+                "AIMD multiplicative decrease applied: batch_size=%d (configured=%d)",
+                self._current_batch_size,
+                self._configured_batch_size,
             )
             return self._current_batch_size
 
+    def _apply_aimd_increase(self) -> int:
+        """Dynamically increment batch size up to configured maximum after consecutive low-latency batches (AIMD)."""
+        with self._batch_lock:
+            self._consecutive_successes += 1
+            if (
+                self._consecutive_successes >= CONST_AIMD_SUCCESS_THRESHOLD
+                and self._current_batch_size < self._configured_batch_size
+            ):
+                self._current_batch_size = min(
+                    self._configured_batch_size,
+                    self._current_batch_size + CONST_AIMD_ADDITIVE_INCREASE_STEP,
+                )
+                self._consecutive_successes = 0
+                record_metric("rag.embedding.batch_size", self._current_batch_size)
+                record_metric(
+                    "rag.embedding.aimd_action",
+                    1,
+                    attributes={"action": "additive_increase"},
+                )
+                logger.debug(
+                    "AIMD additive increase applied: batch_size=%d (configured=%d)",
+                    self._current_batch_size,
+                    self._configured_batch_size,
+                )
+            return self._current_batch_size
+
+    def _halve_batch_size(self) -> int:
+        """Backwards-compatible alias for AIMD multiplicative decrease."""
+        return self._apply_aimd_decrease()
+
     def _record_batch_latency(self, elapsed: float) -> None:
-        """Inspect batch latency and adapt batch size if exceeding performance threshold."""
+        """Inspect batch latency and adapt batch size via AIMD."""
         if elapsed > DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS:
-            self._halve_batch_size()
+            self._apply_aimd_decrease()
+        else:
+            self._apply_aimd_increase()
 
     def _valkey_key(self, text: str, model: str, *, is_query: bool = False) -> str:
         """Generate namespaced deterministic Valkey cache key with query/doc isolation."""
@@ -600,7 +650,7 @@ class EmbeddingsEngine:
                 self._record_dimension(len(embs[0]))
                 return embs
         except (httpx2.TimeoutException, TimeoutError) as exc:
-            self._halve_batch_size()
+            self._apply_aimd_decrease()
             delay = _calculate_backoff_delay(attempt)
             logger.debug("Ollama timeout on %s, backoff %.2fs: %s", base_url, delay, exc)
             time.sleep(delay)

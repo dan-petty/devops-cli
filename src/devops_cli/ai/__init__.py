@@ -655,6 +655,20 @@ def __getattr__(name: str) -> Any:
         import devops_cli.ai.harness
 
         return getattr(devops_cli.ai.harness, name)
+    if name in {
+        "FRONTIER_CLOUD_PROVIDERS",
+        "ModelCapabilityTier",
+        "TIER_MINIMUM_PARAMS_B",
+        "VIRTUAL_MODEL_TIER_MAPPING",
+        "evaluate_model_capability",
+        "get_minimum_tier_b",
+        "is_tier_satisfied",
+        "resolve_capability_tier",
+        "validate_failover_capability",
+    }:
+        import devops_cli.ai.capability
+
+        return getattr(devops_cli.ai.capability, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -671,11 +685,14 @@ __all__ = [
     "DEFAULT_RESEARCHER_INSTRUCTIONS",
     "DEFAULT_RETRYABLE_STATUS_CODES",
     "DEFAULT_THINKING_TAGS",
+    "FRONTIER_CLOUD_PROVIDERS",
     "LLM_API_KEY_ENV_PATTERNS",
     "MINIMUM_EFFORT_FLOOR",
     "REVIEW_RESULT_NATIVE",
     "REVIEW_RESULT_PROMPTED",
     "REVIEW_RESULT_TOOL",
+    "TIER_MINIMUM_PARAMS_B",
+    "VIRTUAL_MODEL_TIER_MAPPING",
     "AIClientError",
     "AbstractConcurrencyLimiter",
     "AbstractToolset",
@@ -806,6 +823,7 @@ __all__ = [
     "MessageHistoryMutatedWarning",
     "ModelAPIError",
     "ModelBundleManifest",
+    "ModelCapabilityTier",
     "ModelHTTPError",
     "ModelOption",
     "ModelProfile",
@@ -1006,6 +1024,7 @@ __all__ = [
     "direct_model_request_stream_sync",
     "direct_model_request_sync",
     "duckduckgo_search_tool",
+    "evaluate_model_capability",
     "exa_answer_tool",
     "exa_find_similar_tool",
     "exa_get_contents_tool",
@@ -1039,6 +1058,7 @@ __all__ = [
     "get_knowledge_base_dir",
     "get_knowledge_base_stats",
     "get_llm_response_cache",
+    "get_minimum_tier_b",
     "get_model_concurrency_limiter",
     "get_model_profile_builder",
     "get_model_thinking_tags",
@@ -1066,6 +1086,7 @@ __all__ = [
     "is_retryable_status_code",
     "is_template_str",
     "is_temporal_available",
+    "is_tier_satisfied",
     "is_toolset",
     "json_lines",
     "limit_model_concurrency",
@@ -1106,6 +1127,7 @@ __all__ = [
     "require_approval_toolset",
     "researcher_agent",
     "reset_llm_response_cache",
+    "resolve_capability_tier",
     "resolve_durability_capability",
     "resolve_model_profile",
     "resolve_output_mode",
@@ -1128,6 +1150,7 @@ __all__ = [
     "toolsets",
     "track_concurrency_slot",
     "unwrap_output_spec",
+    "validate_failover_capability",
     "wait_retry_after",
     "web_fetch_tool",
     "x_search_tool",

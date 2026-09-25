@@ -18,6 +18,7 @@ from typing import Any, Final
 import httpx2
 from pydantic import BaseModel, ConfigDict, Field
 
+from devops_cli.ai.capability import validate_failover_capability
 from devops_cli.ai.client.models import credentials_error
 from devops_cli.ai.router import TaskComplexity
 from devops_cli.config.constants import (
@@ -487,6 +488,7 @@ class GatewayRouter:
         self,
         virtual_model: str,
         simulate: bool = False,
+        force: bool = False,
     ) -> dict[str, Any]:
         """Trigger or simulate failover of a model alias to its secondary fallback."""
         if virtual_model not in CONST_AI_GATEWAY_VIRTUAL_MODELS:
@@ -496,13 +498,15 @@ class GatewayRouter:
             )
 
         with trace_span(
-            "ai.gateway.failover", {"virtual_model": virtual_model, "simulate": simulate}
+            "ai.gateway.failover",
+            {"virtual_model": virtual_model, "simulate": simulate, "force": force},
         ):
             record_metric("ai.gateway.failover_events", 1)
             fallback_target = MODEL_FAILOVER_PAIRS.get(virtual_model, "direct-ollama")
             target_m, b_type, b_url = _resolve_fallback_physical_route(
                 fallback_target, self._active_routes
             )
+            validate_failover_capability(virtual_model, target_m, b_type, force=force)
 
             if not simulate:
                 self._circuit_breaker_active = True

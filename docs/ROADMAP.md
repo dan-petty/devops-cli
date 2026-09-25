@@ -223,7 +223,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Deliverable*: either bring the 240 down and turn on `C901`, or record a ratcheted baseline so new breaches fail while existing ones are worked off. Until one of those exists, the claim in AGENTS.md should be softened to match what is actually checked.
 - [x] **Lazy Domain-Gated MCP Tool Schema Hydration (P0 - Critical)** — delivered in #442:
   - *Context & Rationale*: Partitions FastMCP tools into a core eager set (~15 high-frequency tools) and lazy domain sets (`k8s_*`, `scan_*`, `gh_*`, `tf_*`, `docker_*`, `vault_*`) hydrated on-demand, preventing tool selection precision collapse and saving ~8,000 prompt tokens per turn.
-- [ ] **Capability-Gated Model Failover & AIMD Batch Recovery (P0 - Critical)**:
+- [x] **Capability-Gated Model Failover & AIMD Batch Recovery (P0 - Critical)** — delivered in #430:
   - *Context & Rationale*: Replaces capability cliff degradations with strict minimum model tier requirements (reasoning $\ge 30\text{B}$, coding $\ge 7\text{B}$). Implements Additive Increase / Multiplicative Decrease (AIMD) for embedding batch sizing to prevent permanent throughput collapse on transient latency spikes.
 - [x] **Identity-Bound AI Review Verification Verdicts (P0 - Critical)** — delivered in #403:
   - *Context & Rationale*: `_validate_segment_findings` binds LLM verdicts to findings by **list position**, and selects between two incompatible index spaces with a length heuristic: `data[unresolved_idx]` when the model returns exactly one item per unresolved finding, otherwise `data[idx]` indexed over *all* findings including those already invalidated deterministically and never sent to the model. Any count mismatch — a model merging, dropping or adding items, which is routine — applies each verdict to the wrong finding.
@@ -790,7 +790,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | **Strategic Investments** | POSIX Process Group Sandbox Enforcement | Subprocess / OS | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
 |  | Structural Pre-Commit Hook Inversion | Pre-commit / Pytest | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
 |  | Lazy Domain-Gated MCP Tool Schema Hydration | FastMCP / MCP Protocol | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
-|  | Capability-Gated Model Failover & AIMD Batch Recovery | Gateway / AIMD / Embeddings | High | Medium | v0.2.23 | 📋 Scheduled (P0) |
+|  | Capability-Gated Model Failover & AIMD Batch Recovery | Gateway / AIMD / Embeddings | High | Medium | v0.2.23 | ✅ Completed (P0) |
 |  | Interactive GitHub Lifecycle, PR Monitor & Kanban Hub | Textual / GitHub REST | High | Medium | v0.2.24 | 📋 Scheduled (P0) |
 |  | Cloud-Native Cluster Runtime & Pod Log Streamer | Textual / Kubernetes / Stern | High | Medium | v0.2.24 | 📋 Scheduled (P0) |
 |  | Declarative Dashboard Linter & K8s Sidecar GitOps Provisioner | Kubernetes / ConfigMap / Helm | High | Medium | v0.2.24 | 📋 Scheduled (P1) |

@@ -28,6 +28,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME,
 )
 from devops_cli.config.settings import AIConfig
+from devops_cli.exceptions.ai import CapabilityDegradationError
 
 runner = CliRunner()
 
@@ -137,30 +138,42 @@ class TestGatewayRouter:
         state_file = tmp_path / "gateway_state.json"
         router = GatewayRouter(state_file=state_file)
 
-        simulated = router.trigger_failover("devops-reasoning", simulate=True)
+        # devops-coder fails over to devops-chat (7b >= 7b), satisfying capability tier
+        simulated = router.trigger_failover("devops-coder", simulate=True)
+        executed = router.trigger_failover("devops-coder", simulate=False)
         assert (
             simulated["fallback_target"],
             simulated["simulated"],
-            router.list_routes()[2].target_model,
-        ) == (
-            "devops-coder",
-            True,
-            DEFAULT_VLLM_SERVED_MODEL_NAME,
-        )
-
-        executed = router.trigger_failover("devops-reasoning", simulate=False)
-        assert (
+            router.list_routes()[1].backend_type,
             executed["fallback_target"],
             executed["target_model"],
             executed["simulated"],
-            router.list_routes()[2].target_model,
-            router.list_routes()[2].backend_type,
         ) == (
-            "devops-coder",
-            DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME,
+            "devops-chat",
+            True,
+            "failover:ollama",
+            "devops-chat",
+            "qwen2.5-coder:7b",
             False,
-            DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME,
-            "failover:vllm",
+        )
+
+    def test_trigger_failover_capability_gating(self, tmp_path: Path) -> None:
+        """Verify reasoning failover to underpowered tier is blocked without --force."""
+        state_file = tmp_path / "gateway_state.json"
+        router = GatewayRouter(state_file=state_file)
+
+        with pytest.raises(CapabilityDegradationError) as exc_info:
+            router.trigger_failover("devops-reasoning", simulate=True)
+
+        forced = router.trigger_failover("devops-reasoning", simulate=True, force=True)
+        assert (
+            exc_info.value.details["required_tier_b"],
+            forced["simulated"],
+            forced["status"],
+        ) == (
+            30,
+            True,
+            "simulated",
         )
 
     def test_default_routes_target_vllm_profiles(self) -> None:
@@ -257,15 +270,19 @@ class TestAIGatewayCLI:
 
     def test_failover_command_execution(self) -> None:
         """Verify 'devops ai gateway failover' triggers simulated and active transitions."""
-        res_sim = runner.invoke(
+        res_blocked = runner.invoke(
             gateway_cli_app,
             ["failover", "devops-reasoning", "--simulate", "--format", "json"],
+        )
+        res_sim = runner.invoke(
+            gateway_cli_app,
+            ["failover", "devops-reasoning", "--force", "--simulate", "--format", "json"],
         )
         parsed_sim = json.loads(res_sim.output)
 
         res_exec = runner.invoke(
             gateway_cli_app,
-            ["failover", "devops-reasoning", "--no-simulate"],
+            ["failover", "devops-reasoning", "--force", "--no-simulate"],
         )
 
         res_err = runner.invoke(
@@ -274,12 +291,14 @@ class TestAIGatewayCLI:
         )
 
         assert (
+            res_blocked.exit_code,
             res_sim.exit_code,
             parsed_sim["simulated"],
             res_exec.exit_code,
             "Failover status: failover_active" in res_exec.output,
             res_err.exit_code,
         ) == (
+            1,
             0,
             True,
             0,
