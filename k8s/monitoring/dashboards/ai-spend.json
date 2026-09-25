@@ -173,7 +173,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(devops_cli_ai_tokens_total{type=\"total\"}) or vector(0)",
+          "expr": "sum(devops_cli_ai_tokens_total) or vector(0)",
           "legendFormat": "Total Tokens",
           "refId": "A"
         }
@@ -220,7 +220,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "devops_cli_ai_active_servers or vector(0)",
+          "expr": "count(sum by (server, backend) (increase(devops_cli_ai_requests_total{cached=\"false\"}[15m])) > 0) or vector(0)",
           "legendFormat": "Active Backends",
           "refId": "A"
         }
@@ -321,8 +321,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "devops_cli_ai_server_spend_usd or vector(0)",
-          "legendFormat": "{{server}} ({{provider}})",
+          "expr": "sum by (server, backend, provider) (devops_cli_ai_spend_usd_total) or vector(0)",
+          "legendFormat": "{{backend}} via {{server}} ({{provider}})",
           "refId": "A"
         }
       ]

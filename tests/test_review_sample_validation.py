@@ -175,6 +175,24 @@ def test_validate_saves_a_report_per_category(tmp_path: Path, fetched: SampleRep
     )
 
 
+def test_validate_keeps_each_category_as_a_run_of_its_sample_commits(
+    fetched: SampleRepository,
+) -> None:
+    """Verify each category's validation is kept in the run store, its subject the samples'
+    pinned commits, so later sweeps of the same samples can be compared (#554)."""
+    from devops_cli.ai.run_store import Mechanism, load_runs
+
+    result = cli.invoke(app, ["review", "samples", "validate"])
+    (run,) = load_runs(Mechanism.SAMPLE_VALIDATION)
+
+    assert (result.exit_code, run.subject, run.setup["review"], run.results["category"]) == (
+        0,
+        {"category": "python", "samples": {"demo": fetched.commit}},
+        False,
+        "python",
+    )
+
+
 def test_validate_scores_a_review_of_the_category_corpus(
     tmp_path: Path, fetched: SampleRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -462,7 +462,7 @@ def test_tune_command_weighs_capacity_against_cost(monkeypatch: pytest.MonkeyPat
 
     result = runner.invoke(gateway_cli_app, ["tune", "--concurrency", "1,4", "--format", "json"])
 
-    report = json.loads(result.output)
+    report = json.loads(result.stdout)
     # The default prompt is one review page for the analysis task's window (32768 tokens:
     # 68812 characters, 19660 tokens), capped below a deployment's max_input_tokens.
     assert (

@@ -1,0 +1,161 @@
+# Valkey holding the benchmark and evaluation run index that devops-cli workstations share (#554).
+#
+# Each workstation keeps its runs in its data directory, the source of truth, and mirrors them
+# here so every workstation can list and compare them; `devops ai runs reindex` rebuilds the
+# index from the files. Unlike the in-cluster cache (valkey.yaml), this instance keeps its data
+# in an append-only file on a volume, never evicts, requires a password and is reachable from
+# workstations on a NodePort that Kubernetes assigns.
+#
+# Create the password before applying, and never commit it:
+#   kubectl -n llm create secret generic valkey-runs-auth \
+#     --from-literal=password="$(openssl rand -hex 32)"
+# Then point devops-cli at it: `devops ai runs connect`.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: valkey-runs-data
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: valkey-runs
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey-runs
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: valkey-runs
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  replicas: 1
+  # The volume is ReadWriteOnce: the old pod releases it before the new one starts.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: valkey-runs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: valkey-runs
+        app.kubernetes.io/part-of: devops-cli-stack
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: valkey
+          image: valkey/valkey:8.0-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # The password goes into a config file on a memory volume rather than onto the command
+          # line, where it would show in the process list.
+          command:
+            - sh
+            - -c
+            - >-
+              umask 077 &&
+              printf 'requirepass "%s"\n' "$VALKEY_PASSWORD" > /run/valkey/auth.conf &&
+              exec valkey-server /run/valkey/auth.conf
+              --dir /data
+              --appendonly yes
+              --save ""
+              --maxmemory 512mb
+              --maxmemory-policy noeviction
+          env:
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-runs-auth
+                  key: password
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /run/valkey
+          ports:
+            - name: valkey
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: valkey-runs-data
+        - name: config
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-runs
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: valkey-runs
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: valkey-runs
+  ports:
+    - name: valkey
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey-runs-perimeter
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: valkey-runs
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey-runs
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Workstations reach the index through its NodePort. Valkey rejects clients without the
+    # password, so the port admits any source.
+    - ports:
+        - protocol: TCP
+          port: 6379
+  # No egress: Valkey only answers.
+  egress: []

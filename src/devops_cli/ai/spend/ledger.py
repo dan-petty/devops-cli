@@ -437,7 +437,13 @@ def track_request_spend(
 ) -> SpendRecord | None:
     """Calculate pricing, persist to lifetime ledger, and emit OpenTelemetry metrics."""
     from devops_cli.ai.spend.pricing import get_pricing_registry
-    from devops_cli.telemetry.tracer import record_metric
+    from devops_cli.telemetry.instruments import (
+        AI_REQUESTS_TOTAL,
+        AI_SPEND_USD_TOTAL,
+        AI_TOKENS_TOTAL,
+        backend_name,
+        emit,
+    )
 
     active_ledger = ledger or get_spend_ledger()
     pricing = get_pricing_registry().get_pricing(model, server)
@@ -470,14 +476,15 @@ def track_request_spend(
             "duration_seconds": duration_seconds,
         }
     )
-    record_metric(
-        "devops_cli_ai_estimated_cost_usd",
-        cost,
-        attributes={"provider": provider, "model": model, "server": server},
-    )
-    record_metric(
-        "devops_cli_ai_tokens_total",
-        prompt_tokens + completion_tokens,
-        attributes={"provider": provider, "model": model, "server": server},
-    )
+    source = {
+        "provider": provider,
+        "model": model,
+        "server": server,
+        "backend": backend_name(served_by),
+    }
+    emit(AI_REQUESTS_TOTAL, 1, source | {"cached": str(cached).lower()})
+    emit(AI_TOKENS_TOTAL, prompt_tokens, source | {"type": "prompt"})
+    emit(AI_TOKENS_TOTAL, completion_tokens, source | {"type": "completion"})
+    if cost:
+        emit(AI_SPEND_USD_TOTAL, cost, source)
     return rec
