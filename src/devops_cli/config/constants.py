@@ -2066,3 +2066,37 @@ CONST_VERIFIED_BY_UNKNOWN: Final[str] = "unknown"
 # Marks a finding the verifier never adjudicated because verification itself failed, as
 # opposed to one it considered and declined to confirm.
 CONST_VERIFICATION_UNAVAILABLE: Final[str] = "verification-unavailable"
+
+# Maximum number of schema validation error field paths preserved in error reflection
+# prompts to bound token consumption while retaining sufficient diagnostic fidelity.
+CONST_MAX_SCHEMA_REFLECTION_ERRORS: Final[int] = 5
+
+# Maximum character length for representing the erroneous input value in error reflection.
+CONST_MAX_INPUT_VALUE_REPR_LENGTH: Final[int] = 60
+
+# Table-driven mapping from Pydantic v2 error types to deterministic, prescriptive fix hint templates.
+CONST_SCHEMA_FIX_HINT_TEMPLATES: Final[dict[str, str]] = {
+    "missing": "Field is required; include this property in your JSON payload with a valid value.",
+    "extra_forbidden": "Property is not permitted in this schema; remove this property from the JSON payload.",
+    "string_type": "Must be a string; enclose the text value in double quotes.",
+    "string_too_short": "String length is too short; provide at least {min_length} characters.",
+    "string_too_long": "String length is too long; provide at most {max_length} characters.",
+    "int_type": "Must be a valid integer; do not use floats, boolean flags, or string-encoded numbers.",
+    "int_parsing": "Must be a valid integer; do not use floats, boolean flags, or string-encoded numbers.",
+    "float_type": "Must be a valid floating-point number or integer.",
+    "float_parsing": "Must be a valid floating-point number or integer.",
+    "bool_type": "Must be a JSON boolean literal (true or false); do not use numbers (0/1) or strings.",
+    "bool_parsing": "Must be a JSON boolean literal (true or false); do not use numbers (0/1) or strings.",
+    "list_type": "Must be a JSON array (list), enclosed in square brackets [ ... ].",
+    "dict_type": "Must be a JSON object (mapping/dict), enclosed in curly braces {{ ... }}.",
+    "literal_error": "Value must be one of the permitted options: {expected}.",
+    "enum": "Value must be one of the permitted enum options: {expected}.",
+    "greater_than_equal": "Value must be greater than or equal to {ge}.",
+    "greater_than": "Value must be strictly greater than {gt}.",
+    "less_than_equal": "Value must be less than or equal to {le}.",
+    "less_than": "Value must be strictly less than {lt}.",
+    "too_short": "Collection must contain at least {min_length} items.",
+    "too_long": "Collection must contain at most {max_length} items.",
+    "json_invalid": "Invalid JSON syntax; ensure standard JSON formatting with valid double quotes.",
+    "value_error": "Value rejected: {msg}.",
+}

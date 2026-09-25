@@ -46,6 +46,7 @@ from devops_cli.ai.agents.runner import (
     _execute_stream_tool_step,
     _find_deferred_tool_handler,
     _handle_deferred_resolution,
+    _handle_schema_validation_retry,
     _is_scratchpad_deliberation,
     _record_and_broadcast_thoughts,
     _resolve_fallback_output,
@@ -957,6 +958,19 @@ class PydanticAgent[T, DepsT = Any]:
             final_output = _resolve_fallback_output(final_output, tool_calls, all_thoughts)
 
             # Output validation stage
+            if self.output_schema is not None and fixed.parsed_model is None:
+                retried, output_retries = _handle_schema_validation_retry(
+                    fixed,
+                    response_text,
+                    messages,
+                    turn,
+                    max_turns,
+                    output_retries,
+                    active_retries.output,
+                )
+                if retried:
+                    continue
+
             if self._output_validators and (
                 fixed.parsed_model is not None or self.output_schema is None
             ):
