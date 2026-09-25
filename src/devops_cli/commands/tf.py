@@ -21,7 +21,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
-from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.core.repo import find_worktree_root, main_worktree_root
 from devops_cli.core.validation import validate_dir
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import HELP, MESSAGES
@@ -585,6 +585,40 @@ def tf_drift(
 # =============================================================================
 
 
+def _confirm_deploy_without_checkout_state(
+    provider: str, repo_root: Path, cloud_dir: Path, *, auto_approve: bool
+) -> None:
+    """Stop a deploy from a linked worktree that would start from empty local state.
+
+    The provider configurations keep their state in an untracked `terraform.tfstate` beside
+    them, and `git worktree add` copies no untracked file, so a worktree's provider directory
+    lacks the main checkout's state and `apply` there plans to create every resource again.
+    When the main checkout's directory holds local resource state and this one does not, an
+    auto-approved deploy stops and any other asks first; a dry run only warns. A remote
+    backend's cached configuration is not local state, so a remote backend never stops it.
+    """
+    from devops_cli.tf.analysis import holds_local_resource_state
+
+    checkout_dir = _get_cloud_dir(provider, main_worktree_root(repo_root))
+    if (
+        checkout_dir == cloud_dir
+        or holds_local_resource_state(cloud_dir)
+        or not holds_local_resource_state(checkout_dir)
+    ):
+        return
+    print_warning(
+        MESSAGES.tf.deploy_cloud_state_in_checkout.format(path=cloud_dir, checkout=checkout_dir),
+        safe=True,
+    )
+    if is_dry_run():
+        return
+    if auto_approve:
+        print_error(MESSAGES.tf.deploy_cloud_state_auto_approve_refused, prefix=False)
+        raise typer.Exit(1)
+    if not typer.confirm(MESSAGES.tf.deploy_cloud_confirm_empty_state, default=False):
+        raise typer.Exit(1)
+
+
 @app.command(name="deploy-cloud")
 def deploy_cloud(
     provider: Annotated[str, typer.Option("--provider", "-p", help=HELP.options.provider)],
@@ -596,8 +630,11 @@ def deploy_cloud(
     ] = None,
 ) -> None:
     """Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP."""
-    repo_root = find_top_level_repo_root(Path.cwd())
+    repo_root = find_worktree_root(Path.cwd())
     cloud_dir = _get_cloud_dir(provider, repo_root)
+    _confirm_deploy_without_checkout_state(
+        provider, repo_root, cloud_dir, auto_approve=auto_approve
+    )
     resolved_var_file = var_file or _get_default_var_file(provider, repo_root)
     binary = _resolve_tf_binary()
 

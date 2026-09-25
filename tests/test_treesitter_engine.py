@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.ast.engine import TreeSitterEngine, detect_language
@@ -307,3 +308,18 @@ def test_cli_ast_parse(tmp_path: Path) -> None:
     res = runner.invoke(app, ["ai", "ast", "parse", str(test_file)])
     assert res.exit_code == 0
     assert "hello" in res.output
+
+
+def test_code_graph_indexes_a_nested_worktree(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify the code graph of a worktree under `.claude/worktrees/`, given or run from, is
+    read with that worktree's ignore rules; the checkout's `.claude/` rule emptied it (#582)."""
+    _, nested = nested_worktree
+    (nested / "src").mkdir()
+    (nested / "src" / "calc.py").write_text("def add(x: int, y: int) -> int:\n    return x + y\n")
+    monkeypatch.chdir(nested)
+
+    indexed = (CodeGraphBuilder(root_dir=nested).build().files, CodeGraphBuilder().build().files)
+
+    assert [[Path(file).name for file in files] for files in indexed] == [["calc.py"]] * 2

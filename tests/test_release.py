@@ -17,6 +17,7 @@ from devops_cli.commands.release import (
     _extract_git_commit_notes,
     _get_init_version,
     _get_latest_changelog_version,
+    _get_project_root,
     _get_pyproject_version,
     _resolve_safe_project_path,
     _update_changelog_header,
@@ -1140,3 +1141,15 @@ def test_an_empty_section_is_still_populated(tmp_path: Path) -> None:
     ):
         section = _build_changelog_section(tmp_path, "1.0.0", "2026-09-22", existing_notes=None)
     assert "feat(a): one (#1)" in section
+
+
+def test_release_targets_the_nested_worktree_it_is_given(
+    nested_worktree: tuple[Path, Path],
+) -> None:
+    """Verify `--root <nested worktree>` releases that worktree rather than the checkout around
+    it, and the checkout still resolves to itself (#582)."""
+    main, nested = nested_worktree
+
+    roots = (_get_project_root(nested), _get_project_root(main))
+
+    assert roots == (nested.resolve(), main.resolve())

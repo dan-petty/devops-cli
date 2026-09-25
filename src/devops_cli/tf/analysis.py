@@ -23,6 +23,7 @@ from devops_cli.config.constants import (
     CONST_HCL_BLOCK_VARIABLE,
     CONST_HCL_FILE_EXTENSIONS,
     CONST_HCL_NON_RESOURCE_NAMESPACES,
+    CONST_TF_BACKEND_CACHE_KEY,
     CONST_TF_STATE_FILE_NAMES,
 )
 from devops_cli.models.tf import (
@@ -232,6 +233,28 @@ def resolve_state_file(directory: Path) -> Path | None:
     return None
 
 
+def _is_backend_configuration_cache(path: Path) -> bool:
+    """Whether a state file is the backend configuration `init` caches, not resource state."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        return False
+    return isinstance(payload, dict) and CONST_TF_BACKEND_CACHE_KEY in payload
+
+
+def holds_local_resource_state(directory: Path) -> bool:
+    """Report whether a configuration directory keeps resource state on local disk.
+
+    With a configured backend, `init` writes `.terraform/terraform.tfstate` to cache that
+    backend's settings; the resources live in the backend, so that file does not count. A
+    state file that cannot be read counts, since it may still hold resources.
+    """
+    return any(
+        path.is_file() and not _is_backend_configuration_cache(path)
+        for path in (directory / name for name in CONST_TF_STATE_FILE_NAMES)
+    )
+
+
 def _project_state_resource(entry: dict[str, Any]) -> IaCStateResource:
     """Project one state resource record into a typed model."""
     module = str(entry.get("module", "") or "")
@@ -379,6 +402,7 @@ __all__ = [
     "compute_blast_radius",
     "detect_drift",
     "extract_references",
+    "holds_local_resource_state",
     "load_state",
     "parse_hcl_directory",
     "resolve_state_file",

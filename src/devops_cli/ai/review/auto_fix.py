@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.core.repo import find_worktree_root
 
 
 class AutoFixResult(BaseModel):
@@ -60,9 +60,9 @@ def generate_remediation_branch(
     # In active mode: verify target file existence and containment
     from devops_cli.core.paths import safe_resolve_subpath
 
-    top_root = find_top_level_repo_root(Path.cwd()).resolve()
+    tree_root = find_worktree_root(Path.cwd()).resolve()
     try:
-        safe_resolve_subpath(top_root, target_file, must_exist=True)
+        safe_resolve_subpath(tree_root, target_file, must_exist=True)
     except Exception:
         return AutoFixResult(
             finding_id=finding_id,

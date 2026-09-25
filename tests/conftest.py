@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+import subprocess
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -203,6 +204,42 @@ def isolate_devops_cli_config(tmp_path_factory: pytest.TempPathFactory):
         yield dummy_config
     reset_settings_cache()
     reset_tracer()
+
+
+@pytest.fixture
+def git() -> Callable[..., None]:
+    """Run `git -C <repo> <args>` with a throwaway identity; a git error fails the test.
+
+    Tests that build real repositories and worktrees in `tmp_path` share it.
+    """
+
+    def run(repo: Path, *args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+            check=True,
+            capture_output=True,
+        )
+
+    return run
+
+
+@pytest.fixture
+def nested_worktree(tmp_path: Path, git: Callable[..., None]) -> tuple[Path, Path]:
+    """A checkout and a linked worktree nested under its `.claude/worktrees/`, as Claude Code
+    places them; the checkout ignores `.claude/`, and its pyproject enables only ruff's
+    unused-import rule."""
+    main = tmp_path / "main"
+    main.mkdir()
+    git(main, "init", "--quiet")
+    (main / ".gitignore").write_text(".claude/\n", encoding="utf-8")
+    (main / "pyproject.toml").write_text(
+        '[project]\nname = "main"\n\n[tool.ruff.lint]\nselect = ["F401"]\n', encoding="utf-8"
+    )
+    git(main, "add", ".")
+    git(main, "commit", "--quiet", "-m", "first")
+    nested = main / ".claude" / "worktrees" / "wt"
+    git(main, "worktree", "add", "--quiet", "-b", "nested", str(nested))
+    return main, nested
 
 
 @pytest.fixture

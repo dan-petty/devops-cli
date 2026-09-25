@@ -6,8 +6,10 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
+from devops_cli.commands.uv import _get_project_root
 from devops_cli.commands.uv import app as uv_app
 
 runner = CliRunner()
@@ -82,3 +84,14 @@ def test_uv_python_install_and_run_edge_cases(tmp_path: Path) -> None:
         uv_mod.__getattr__("non_existent_attribute_12345")
     assert uv_mod._get("run_subprocess") is not None
     assert uv_mod._get("app") is not None
+
+
+def test_uv_operates_on_a_nested_worktree(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `devops uv` from a worktree under `.claude/worktrees/` syncs and locks that
+    worktree's own project, not the checkout around it (#582)."""
+    _, nested = nested_worktree
+    monkeypatch.chdir(nested)
+
+    assert _get_project_root() == nested.resolve()

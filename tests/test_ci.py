@@ -3,26 +3,26 @@
 from __future__ import annotations
 
 import os
+import re
+import shlex
+import shutil
 import subprocess
 import sys
-from collections.abc import Generator
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.commands import ci as ci_module
 from devops_cli.commands.ci import CheckResult, app
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.lang import MESSAGES
 
 runner = CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def isolate_ci_workspace_root(tmp_path: Path) -> Generator[None]:
-    """Isolate CI command tests to tmp_path so live .coverage files are never unlinked."""
-    with patch("devops_cli.commands.ci._ROOT", tmp_path):
-        yield
 
 
 def test_ci_audit_command(monkeypatch) -> None:
@@ -382,7 +382,7 @@ def test_ci_helpers_and_edge_cases(tmp_path: Path) -> None:
     # 1. _clean_coverage_artifacts
     cov_file = tmp_path / ".coverage.test1"
     cov_file.write_text("test", encoding="utf-8")
-    with patch("devops_cli.commands.ci._ROOT", tmp_path):
+    with patch("devops_cli.commands.ci._get_project_root", return_value=tmp_path):
         _clean_coverage_artifacts(force=True)
         assert not cov_file.exists()
 
@@ -458,7 +458,7 @@ def test_ci_clean_coverage_and_extended_options(tmp_path: Path) -> None:
     fake_data.mkdir(parents=True, exist_ok=True)
     fake_cov = fake_data / ".coverage.sample"
     fake_cov.write_text("sample", encoding="utf-8")
-    with patch("devops_cli.commands.ci._ROOT", tmp_path):
+    with patch("devops_cli.commands.ci._get_project_root", return_value=tmp_path):
         _clean_coverage_artifacts(force=True)
         assert not fake_cov.exists()
 
@@ -648,7 +648,6 @@ def test_resolve_pytest_worker_count() -> None:
 async def test_execute_check_async_success_and_failure() -> None:
     """Verify asynchronous check execution with process isolation and metrics."""
     import contextlib
-    from typing import Any
     from unittest.mock import AsyncMock, MagicMock
 
     from devops_cli.commands.ci import _execute_check_async
@@ -883,7 +882,8 @@ def test_gate_checks_nested_worktree_not_main_checkout(
     """A gate run from a nested linked worktree checks that worktree, not the main checkout (#582).
 
     A lint error present only in the worktree fails the gate, and one present
-    only in the main checkout passes the gate. The resolved root is also printed in the header.
+    only in the main checkout passes the gate. The resolved root is also printed in the header,
+    and a passing run caches its verdict under that root.
     """
     from devops_cli.commands.ci import _get_project_root
 
@@ -955,8 +955,14 @@ def test_gate_checks_nested_worktree_not_main_checkout(
             stderr="",
         )
 
+    saved_roots: list[Path] = []
+
+    def record_saved_root(root: Path, *_args: object) -> None:
+        saved_roots.append(root)
+
     monkeypatch.setattr("devops_cli.core.process.run_subprocess_async", mock_run_async)
     monkeypatch.setattr("devops_cli.commands.ci._verify_python_314_environment", lambda: True)
+    monkeypatch.setattr("devops_cli.commands.ci._try_save_ci_cache", record_saved_root)
 
     # 2. Error present ONLY in the worktree fails the gate
     (nested_wt / "src" / "error.py").write_text("def broken(:\n", encoding="utf-8")
@@ -974,7 +980,266 @@ def test_gate_checks_nested_worktree_not_main_checkout(
 
     res_wt_pass = runner.invoke(app, ["--no-cache"])
     assert (
-        res_wt_pass.exit_code == 0
-        and str(nested_wt.resolve()) in res_wt_pass.output
-        and all(c == nested_wt.resolve() for c in called_cwds)
+        res_wt_pass.exit_code,
+        str(nested_wt.resolve()) in "".join(res_wt_pass.output.split()),
+        set(called_cwds),
+        saved_roots,
+    ) == (0, True, {nested_wt.resolve()}, [nested_wt.resolve()])
+
+
+# #582: from a worktree nested under `<checkout>/.claude/worktrees/`, single checks, the cached
+# gate and coverage clean-up verify that worktree, name it before a cached verdict is reused, and
+# warn when git no longer knows it.
+
+
+_UNUSED_IMPORT = "import os\n"
+
+
+def _lint_from(worktree: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[int, list[Path]]:
+    """Run `devops ci lint --check` with real ruff from `worktree`; the exit code and cwds."""
+    cwds: list[Path] = []
+
+    def run_ruff_directly(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        cwds.append(Path(kwargs["cwd"]))
+        rest = cmd[cmd.index("ruff") + 1 :]
+        return run_subprocess([sys.executable, "-m", "ruff", *rest], **kwargs)
+
+    monkeypatch.chdir(worktree)
+    with patch.object(ci_module, "run_subprocess", run_ruff_directly):
+        result = runner.invoke(ci_module.app, ["lint", "--check"])
+    return result.exit_code, cwds
+
+
+def test_lint_fails_on_an_error_only_the_worktree_has(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a broken worktree fails the gate although the main checkout is clean."""
+    _, nested = nested_worktree
+    (nested / "broken.py").write_text(_UNUSED_IMPORT, encoding="utf-8")
+
+    exit_code, cwds = _lint_from(nested, monkeypatch)
+
+    assert (exit_code, set(cwds)) == (1, {nested.resolve()})
+
+
+def test_lint_ignores_an_error_only_the_main_checkout_has(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a clean worktree passes the gate although the main checkout is broken."""
+    main, nested = nested_worktree
+    (main / "broken.py").write_text(_UNUSED_IMPORT, encoding="utf-8")
+
+    exit_code, cwds = _lint_from(nested, monkeypatch)
+
+    assert (exit_code, set(cwds)) == (0, {nested.resolve()})
+
+
+def _gate_from_the_cache(worktree: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
+    """Run `devops ci --check` from `worktree` with a cache hit; the roots and messages seen."""
+    seen: dict[str, list[Any]] = {"cache_roots": [], "info": [], "warnings": []}
+
+    def cache_hit(root: Path, *_args: Any, **_kwargs: Any) -> bool:
+        seen["cache_roots"].append(root)
+        return True
+
+    monkeypatch.chdir(worktree)
+    monkeypatch.setattr(ci_module, "_try_fast_cached_ci", cache_hit)
+    monkeypatch.setattr(
+        ci_module, "print_info", lambda message, **_kw: seen["info"].append(message)
     )
+    monkeypatch.setattr(
+        ci_module,
+        "print_warning",
+        lambda message, **_kw: seen["warnings"].append(message),
+        raising=False,
+    )
+    result = runner.invoke(ci_module.app, ["--check"])
+    assert result.exit_code == 0
+    return seen
+
+
+def test_a_cached_gate_verdict_names_the_worktree(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a cache hit is looked up for, and announced with, the worktree's root."""
+    _, nested = nested_worktree
+
+    seen = _gate_from_the_cache(nested, monkeypatch)
+
+    assert (
+        seen["cache_roots"],
+        MESSAGES.ci.gate_root.format(root=nested.resolve()) in seen["info"],
+        seen["warnings"],
+    ) == ([nested.resolve()], True, [])
+
+
+def _stale_warning(worktree: Path) -> str:
+    """The warning the gate gives for a stale worktree, its repair command shell-quoted."""
+    root = worktree.resolve()
+    return MESSAGES.ci.gate_root_stale.format(root=root, root_arg=shlex.quote(str(root)))
+
+
+def test_the_gate_warns_from_a_stale_worktree(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a worktree whose git directory was pruned is checked itself, with a warning."""
+    main, nested = nested_worktree
+    shutil.rmtree(main / ".git" / "worktrees" / "wt")
+
+    seen = _gate_from_the_cache(nested, monkeypatch)
+
+    assert (seen["cache_roots"], seen["warnings"]) == (
+        [nested.resolve()],
+        [_stale_warning(nested)],
+    )
+
+
+def test_the_stale_worktree_warning_repairs_a_worktree_whose_checkout_moved(
+    nested_worktree: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    git: Callable[..., None],
+) -> None:
+    """Verify the repair command the gate's warning gives, pasted into a shell in the main
+    checkout as it says, reconnects a nested worktree that moved along with its main
+    checkout, even to a path a shell would split."""
+    main, _ = nested_worktree
+    moved = main.rename(main.with_name("moved checkout; $HOME"))
+    nested = moved / ".claude" / "worktrees" / "wt"
+    warnings = _gate_from_the_cache(nested, monkeypatch)["warnings"]
+    commands = [re.findall(r"`(git worktree repair\b[^`]*)`", warning) for warning in warnings]
+
+    for command in commands:
+        git(moved, *shlex.split(command[0])[1:])
+
+    worktree_git = run_subprocess(["git", "-C", str(nested), "status"], check=False)
+    assert (len(commands), worktree_git.returncode) == (1, 0)
+
+
+def test_staged_sources_select_the_worktrees_tests(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `devops ci test <file>`, as the changed-tests hook runs it, names the worktree
+    and maps a worktree-only source onto the worktree's tests."""
+    main, nested = nested_worktree
+    (nested / "src" / "pkg").mkdir(parents=True)
+    (nested / "src" / "pkg" / "widget.py").write_text("SIZE = 1\n", encoding="utf-8")
+    (nested / "tests").mkdir()
+    (nested / "tests" / "test_widget.py").write_text("def test_size() -> None: ...\n")
+    (main / "tests").mkdir()
+    (main / "tests" / "test_other.py").write_text("def test_other() -> None: ...\n")
+    calls: list[tuple[list[str], Path]] = []
+
+    def record(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append((cmd, Path(kwargs["cwd"])))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    messages: list[str] = []
+    monkeypatch.chdir(nested)
+    monkeypatch.setattr(ci_module, "print_info", lambda message, **_kw: messages.append(message))
+    with patch.object(ci_module, "run_subprocess", record):
+        result = runner.invoke(ci_module.app, ["test", "src/pkg/widget.py"])
+
+    assert (
+        result.exit_code,
+        [("tests/test_widget.py" in cmd, cwd) for cmd, cwd in calls],
+        MESSAGES.ci.gate_root.format(root=nested.resolve()) in messages,
+    ) == (0, [(True, nested.resolve())], True)
+
+
+def test_the_gate_header_prints_a_bracketed_root_literally(
+    tmp_path: Path, git: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify square brackets in the checked root are printed, not parsed as markup."""
+    main = tmp_path / "main"
+    main.mkdir()
+    git(main, "init", "--quiet")
+    git(main, "commit", "--quiet", "--allow-empty", "-m", "first")
+    bracketed = main / ".claude" / "worktrees" / "[bold]wt"
+    git(main, "worktree", "add", "--quiet", "-b", "bracketed", str(bracketed))
+    monkeypatch.chdir(bracketed)
+    monkeypatch.setattr(ci_module, "_try_fast_cached_ci", lambda *_a, **_kw: True)
+
+    result = runner.invoke(ci_module.app, ["--check"])
+
+    assert (result.exit_code, "[bold]wt" in "".join(result.output.split())) == (0, True)
+
+
+def test_a_single_check_warns_from_a_stale_worktree(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `devops ci lint` from a pruned worktree names it and warns that git fails there."""
+    main, nested = nested_worktree
+    shutil.rmtree(main / ".git" / "worktrees" / "wt")
+    cwds: list[Path] = []
+    warnings: list[str] = []
+
+    def record(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        cwds.append(Path(kwargs["cwd"]))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.chdir(nested)
+    monkeypatch.setattr(
+        ci_module, "print_warning", lambda message, **_kw: warnings.append(message), raising=False
+    )
+    with patch.object(ci_module, "run_subprocess", record):
+        result = runner.invoke(ci_module.app, ["lint", "--check"])
+
+    assert (result.exit_code, cwds, warnings) == (
+        0,
+        [nested.resolve()],
+        [_stale_warning(nested)],
+    )
+
+
+def test_coverage_clean_up_follows_the_directory_the_gate_runs_in(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a process that imported the gate elsewhere, such as the in-process MCP server,
+    cleans the worktree it now runs in and leaves the checkout around it alone."""
+    main, nested = nested_worktree
+    for tree in (main, nested):
+        (tree / ".coverage.worker").write_text("", encoding="utf-8")
+    monkeypatch.chdir(nested)
+
+    ci_module._clean_coverage_artifacts(force=True)
+
+    assert [(tree / ".coverage.worker").exists() for tree in (main, nested)] == [True, False]
+
+
+@pytest.mark.parametrize("check", ["test", "lint"])
+def test_a_single_checks_help_does_not_name_the_gate_root(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, check: str
+) -> None:
+    """Verify `devops ci <check> --help`, which runs no check, prints only its help, without
+    the gate-root header or the stale-worktree warning."""
+    main, nested = nested_worktree
+    shutil.rmtree(main / ".git" / "worktrees" / "wt")
+    announced: list[str] = []
+    monkeypatch.chdir(nested)
+    monkeypatch.setattr(ci_module, "print_info", lambda message, **_kw: announced.append(message))
+    monkeypatch.setattr(
+        ci_module, "print_warning", lambda message, **_kw: announced.append(message), raising=False
+    )
+
+    result = runner.invoke(ci_module.app, [check, "--help"])
+
+    assert (result.exit_code, "Usage:" in result.output, announced) == (0, True, [])
+
+
+def test_help_after_the_separator_is_a_path_and_the_check_names_its_root(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `devops ci test -- --help`, where `--help` follows `--` and so is a path rather
+    than the help option, runs the check instead of printing help, and names the gate root."""
+    _, nested = nested_worktree
+    announced: list[str] = []
+    monkeypatch.chdir(nested)
+    monkeypatch.setattr(ci_module, "print_info", lambda message, **_kw: announced.append(message))
+    with patch.object(ci_module, "run_subprocess", side_effect=AssertionError("no tests match")):
+        result = runner.invoke(ci_module.app, ["test", "--", "--help"])
+
+    assert (
+        result.exit_code,
+        "Usage:" in result.output,
+        MESSAGES.ci.gate_root.format(root=nested.resolve()) in announced,
+    ) == (0, False, True)

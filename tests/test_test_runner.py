@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.test_cmd import (
@@ -189,3 +190,19 @@ def test_profile_memory_error_handling() -> None:
         res = runner.invoke(app_cli, ["profile-memory", "devops_cli.main:app"])
         assert res.exit_code == 1
         assert "profiling failed" in res.output
+
+
+def test_test_run_runs_pytest_in_a_nested_worktree(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `devops test run` from a worktree under `.claude/worktrees/` runs pytest there,
+    not in the checkout around it (#582)."""
+    _, nested = nested_worktree
+    monkeypatch.chdir(nested)
+
+    with patch(
+        "devops_cli.commands.test_cmd.run_subprocess", return_value=MagicMock(returncode=0)
+    ) as run:
+        result = runner.invoke(app_cli, ["run"])
+
+    assert (result.exit_code, run.call_args.kwargs["cwd"]) == (0, nested.resolve())
