@@ -242,8 +242,9 @@ High-density product roadmap, engineering milestones, and open-source integratio
 - [x] **Verdict Polarity & Field Distribution Assertions (P2 - Medium, Issue #435)**:
   - *Context & Rationale*: Two review-quality failures are invisible to the current schema. **Polarity**: a finding asserted a status field was "always set to ERROR" where the exported value was OK — a real defect with inverted meaning and wrong severity, which verification passed at high confidence because nothing compared observed against expected. **Distribution**: `reportable` was `true` for all 286 findings including the 7 never verified; a verdict field that never comes back false is a column, not a filter.
   - *Delivered*: Finding schema verdict polarity validation (`observed_value` vs `expected_value` rejection on equality), deterministic pre-verification invalidation of contradictory polarity hallucinations, pipeline self-test asserting systematically withdrawn test findings, console summary & markdown report verdict-field distribution tables with non-discriminating field warnings, and review profile metric persistence.
-- [ ] **Semantic Validator Deprecation & Structural Positional Oracles (P1 - High)**:
+- [x] **Semantic Validator Deprecation & Structural Positional Oracles (P1 - High, Issue #436)**:
   - *Context & Rationale*: Audits AI review schemas and validators to strip keyword-matching assertions in favor of strict structural schema boundaries and positional enumeration.
+  - *Delivered*: Centralized review schema and deterministic verification constants in `config.constants`; stripped brittle `has_scratchpad_phrase` regex in favor of strict structural location grammar parsing; introduced structural positional `finding_id` on `Finding` schema with `id` and `index` aliases; implemented structural positional oracle in `_bind_verdicts_to_findings` to eliminate title-drift and verdict-misbinding vulnerabilities; updated verification prompt protocol to require `finding_id` in verdict output arrays; decomposed predicate helpers for low-complexity compliance; verified with comprehensive unit and integration test coverage.
 - [ ] **Lossless Structured Error Reflection for Schema Retries (P1 - High)**:
   - *Context & Rationale*: Enhances Pydantic schema validation error feedback by preserving up to 5 field paths with type violations and prescriptive fix hints, enabling single-turn model self-correction.
 - [x] **GPU-Architecture Inference Placement: vLLM Profiles and Ollama (`#453`) (P2 - Medium)**:
@@ -831,7 +832,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 |  | Continuous Evolutionary Codebase Mutator | Genetic AST / Benchmarks | High | Medium | v0.5.x | 🔮 Future Vision (P1) |
 |  | Formally Verified Kernel & Sandbox Isolation Proofs | Coq / Lean 4 / Formal Specs | High | Medium | v0.5.x | 🔮 Future Vision (P1) |
 | **Tactical Additions** | Anti-Brittle Constant Elimination | Standard Library / AST | High | Low | v0.2.23 | 📋 Scheduled (P1) |
-|  | Semantic Validator Deprecation & Structural Positional Oracles | AST / Pydantic | High | Low | v0.2.23 | 📋 Scheduled (P1) |
+|  | Semantic Validator Deprecation & Structural Positional Oracles | AST / Pydantic | High | Low | v0.2.23 | ✅ Completed (P1) |
 |  | Lossless Structured Error Reflection for Schema Retries | Pydantic / Structured Output | High | Low | v0.2.23 | 📋 Scheduled (P1) |
 |  | Background Shell Pipe Deadlock Fix & Bounded Ring Buffers | Subprocess / Threading | High | Low | v0.2.23 | 📋 Scheduled (P1) |
 |  | FastMCP TUI Management Tools & Dynamic Resources | FastMCP / PydanticAI | Medium | Low | v0.2.24 | 📋 Scheduled (P2) |

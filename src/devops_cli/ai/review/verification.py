@@ -17,7 +17,18 @@ from devops_cli.ai.review.chunker import page_line_number
 from devops_cli.ai.review.construct_validator import validate_construct_location
 from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.constants import CONST_VERIFICATION_UNAVAILABLE
+from devops_cli.config.constants import (
+    CONST_AUTH_DISPATCH_PATTERNS,
+    CONST_AUTH_HEADER_CLAIM_KEYWORDS,
+    CONST_AUTH_HEADER_CODE_PATTERNS,
+    CONST_COMPLIMENT_NEGATIONS,
+    CONST_COMPLIMENT_PHRASES,
+    CONST_FIXTURE_CREDENTIAL_KEYWORDS,
+    CONST_MASKED_SYNTAX_ERROR_PHRASES,
+    CONST_MONOLOGUE_PREFIXES,
+    CONST_UNINITIALIZED_CLAIM_KEYWORDS,
+    CONST_VERIFICATION_UNAVAILABLE,
+)
 from devops_cli.config.defaults import (
     DEFAULT_DIFF_CONTEXT_LINES,
     DEFAULT_MAX_RELATED_FILES,
@@ -457,68 +468,51 @@ def _check_missing_symbol_hallucination(finding: Finding, file_path: Path) -> Fi
     return None
 
 
+def _has_auth_header_claim(finding: Finding) -> bool:
+    """Check if finding claims a missing authorization header."""
+    title_lower = finding.title.lower()
+    desc_lower = (finding.description or "").lower()
+    return any(kw in title_lower or kw in desc_lower for kw in CONST_AUTH_HEADER_CLAIM_KEYWORDS)
+
+
+def _content_has_auth_and_dispatch(content: str) -> bool:
+    """Verify code content configures auth header and dispatches HTTP request."""
+    has_auth = any(pattern in content for pattern in CONST_AUTH_HEADER_CODE_PATTERNS)
+    has_dispatch = any(dispatch in content for dispatch in CONST_AUTH_DISPATCH_PATTERNS)
+    return has_auth and has_dispatch
+
+
+def _build_invalidated_auth_header_finding(finding: Finding, file_path: Path) -> Finding:
+    """Construct invalidated finding for verified authorization header presence."""
+    from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
+
+    res = finding.model_copy(
+        update={
+            "verified": False,
+            "mitigated": False,
+            "reportable": False,
+            "status": "INVALIDATED",
+            "invalidation_reason": "Source code inspection confirmed Authorization header is dynamically configured before request dispatch",
+        }
+    )
+    try:
+        auto_record_invalidated_finding(res, file_path=file_path, reason=res.invalidation_reason)
+    except Exception:
+        pass
+    return res
+
+
 def _check_missing_header_hallucination(finding: Finding, file_path: Path) -> Finding | None:
     """Deterministically invalidate claims of missing Authorization headers if set in the module."""
     if not (file_path.exists() and file_path.is_file()):
         return None
-    title_lower = finding.title.lower()
-    desc_lower = (finding.description or "").lower()
-    header_claim = any(
-        kw in title_lower or kw in desc_lower
-        for kw in (
-            "missing authorization header",
-            "missing auth header",
-            "sent without authentication",
-            "without including an authorization header",
-            "missing header in",
-        )
-    )
-    if not header_claim:
+    if not _has_auth_header_claim(finding):
         return None
 
     try:
-        # The header has to be set where the request is made, not anywhere in the module:
-        # a client whose other methods authenticate can still send one request without it.
         content = _cited_window(finding, file_path, _HEADER_WINDOW_LINES)
-        if not content:
-            return None
-        has_auth = any(
-            pattern in content
-            for pattern in (
-                'headers["Authorization"]',
-                "headers['Authorization']",
-                '"Authorization":',
-                "'Authorization':",
-            )
-        )
-        has_dispatch = any(
-            dispatch in content
-            for dispatch in (
-                "headers=headers",
-                "headers = headers",
-                "headers=self._headers",
-                "headers=default_headers",
-            )
-        )
-        if has_auth and has_dispatch:
-            from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
-
-            res = finding.model_copy(
-                update={
-                    "verified": False,
-                    "mitigated": False,
-                    "reportable": False,
-                    "status": "INVALIDATED",
-                    "invalidation_reason": "Source code inspection confirmed Authorization header is dynamically configured before request dispatch",
-                }
-            )
-            try:
-                auto_record_invalidated_finding(
-                    res, file_path=file_path, reason=res.invalidation_reason
-                )
-            except Exception:
-                pass
-            return res
+        if content and _content_has_auth_and_dispatch(content):
+            return _build_invalidated_auth_header_finding(finding, file_path)
     except Exception:
         pass
     return None
@@ -822,16 +816,7 @@ def _check_test_fixture_credential_hallucination(
         return None
     title_lower = finding.title.lower()
     desc_lower = (finding.description or "").lower()
-    keywords = (
-        "hardcoded secret",
-        "hardcoded token",
-        "hardcoded credential",
-        "plaintext secret",
-        "exposed vault token",
-        "hardcoded vault token",
-        "hardcoded password",
-    )
-    if not any(kw in title_lower or kw in desc_lower for kw in keywords):
+    if not any(kw in title_lower or kw in desc_lower for kw in CONST_FIXTURE_CREDENTIAL_KEYWORDS):
         return None
     # A real credential committed to a test directory is still a leak. Only a cited value that
     # is plainly synthetic ("test-token", "changeme", "dummy") is a fixture.
@@ -905,9 +890,7 @@ def _find_enclosing_fn_assignment(tree: ast.AST, var_name: str, target_line: int
 
 
 def _is_uninitialized_claim(title_lower: str, desc_lower: str) -> bool:
-    return any(
-        kw in title_lower or kw in desc_lower for kw in ("uninitialized", "unboundlocalerror")
-    )
+    return any(kw in title_lower or kw in desc_lower for kw in CONST_UNINITIALIZED_CLAIM_KEYWORDS)
 
 
 def _try_find_var_assignment(file_path: Path, var_name: str, target_line: int) -> int | None:
@@ -955,19 +938,10 @@ def _check_uninitialized_variable_hallucination(
 # Reasoning that opens a title; inside a title the same words describe a defect ("Clients of
 # the API need to send the token in the query"). Praise counts anywhere unless negated ("Rate
 # limiter not properly implemented").
-_MONOLOGUE_TITLE = re.compile(
-    r"^(?:we need to|let's check|let's verify|first, let's|i need to|looking at the code|"
-    r"based on the above)\b"
-)
-_COMPLIMENT_PHRASE = re.compile(
-    r"\b(?:looks solid|properly implemented|no vulnerabilities found|clean code|well structured|"
-    r"all clear)\b"
-)
+_MONOLOGUE_TITLE = re.compile(CONST_MONOLOGUE_PREFIXES)
+_COMPLIMENT_PHRASE = re.compile(CONST_COMPLIMENT_PHRASES)
 # A negation or defect word turns praise wording into a finding.
-_COMPLIMENT_NEGATION = re.compile(
-    r"\b(?:not|never|isn't|aren't|no longer|improperly|but|however|except|missing|fails?|"
-    r"lacks?|without)\b"
-)
+_COMPLIMENT_NEGATION = re.compile(CONST_COMPLIMENT_NEGATIONS)
 
 
 def _check_conversational_monologue(title_lower: str, finding: Finding) -> Finding | None:
@@ -1013,15 +987,10 @@ def _check_masked_placeholder_syntax_error(
     # which the source still holds; only a claim about the marker's own syntax is false.
     if _SECRET_EXPOSURE_CLAIM.search(f"{title_lower} {desc_lower}"):
         return None
-    phrases = (
-        "syntax error",
-        "invalid syntax",
-        "undefined variable",
-        "nameerror",
-        "unquoted placeholder",
-        "unresolved identifier",
-    )
-    if any(phrase in title_lower or phrase in desc_lower for phrase in phrases):
+    if any(
+        phrase in title_lower or phrase in desc_lower
+        for phrase in CONST_MASKED_SYNTAX_ERROR_PHRASES
+    ):
         return finding.model_copy(
             update={
                 "verified": False,
@@ -1422,35 +1391,71 @@ def _apply_single_finding_verification(
     return f.model_copy(update=updates)
 
 
+def _extract_verdict_pos_id(item: dict[str, Any]) -> int | None:
+    """Extract positional identifier from finding_id, id, or index keys."""
+    for key in ("finding_id", "id", "index"):
+        val = item.get(key)
+        if val is not None:
+            try:
+                return int(val)
+            except ValueError, TypeError:
+                return None
+    return None
+
+
+def _find_by_explicit_finding_id(
+    unresolved: list[Finding], bound: dict[int, dict[str, Any]], pos_id: int
+) -> tuple[bool, int | None]:
+    """Check for finding explicitly assigned pos_id, returning (found, available_index)."""
+    for idx, f in enumerate(unresolved):
+        if f.finding_id is not None and f.finding_id == pos_id:
+            return True, (idx if idx not in bound else None)
+    return False, None
+
+
+def _match_verdict_by_positional_oracle(
+    unresolved: list[Finding],
+    bound: dict[int, dict[str, Any]],
+    item: dict[str, Any],
+) -> int | None:
+    """Resolve finding target using structural positional identifier if provided."""
+    pos_id = _extract_verdict_pos_id(item)
+    if pos_id is None:
+        return None
+
+    found_explicit, explicit_idx = _find_by_explicit_finding_id(unresolved, bound, pos_id)
+    if found_explicit:
+        return explicit_idx
+
+    if 1 <= pos_id <= len(unresolved):
+        target = pos_id - 1
+        return target if target not in bound else None
+    if pos_id == 0 and 0 not in bound:
+        return 0
+
+    return None
+
+
 def _bind_verdicts_to_findings(
     unresolved: list[Finding], items: list[Any]
 ) -> dict[int, dict[str, Any]]:
-    """Match each model verdict to the finding it describes, by identity.
+    """Match each model verdict to the finding it describes, using structural positional oracles or identity fallback.
 
-    Verdicts were bound by list position, across two incompatible index spaces: the
-    response covers only the unresolved findings, but the fallback indexed it with a
-    position from the *whole* list including findings deterministically invalidated before
-    the model ever saw them. Any count mismatch -- a model merging, dropping or adding an
-    item, which is routine -- shifted every verdict onto the wrong finding.
-
-    Measured across this repository's 59 recorded sessions: 35 findings carry an
-    `invalidation_reason` while reporting `verified=true` and `status=VERIFIED`, 23 of them
-    in a single session. Several of those reasons are verbatim the *title of a different
-    finding*, which is what a shifted verdict looks like from the outside. A finding cannot
-    be both withdrawn and confirmed.
-
-    An item that matches nothing is dropped rather than applied to whatever sits at its
-    index, and a finding that matches nothing keeps the status it already had.
+    Primary resolution leverages structural positional enumeration (`finding_id`),
+    eliminating title-drift vulnerabilities. Fallback matches by finding identity (title + normalized location).
+    An item that matches nothing is dropped, and a finding that matches nothing keeps its status.
     """
     bound: dict[int, dict[str, Any]] = {}
     for item in items:
         if not isinstance(item, dict):
             continue
-        title = str(item.get("title") or "").lower().strip()
-        location = str(item.get("location") or "").lower().strip()
-        index = _best_verdict_target(unresolved, bound, title, location)
+        index = _match_verdict_by_positional_oracle(unresolved, bound, item)
         if index is None:
-            logger.debug("Verification verdict matched no finding: %r / %r", title, location)
+            title = str(item.get("title") or "").lower().strip()
+            location = str(item.get("location") or "").lower().strip()
+            index = _best_verdict_target(unresolved, bound, title, location)
+        if index is None:
+            logger.debug("Verification verdict matched no finding: %r", item)
             continue
         bound[index] = item
     return bound
@@ -1507,9 +1512,13 @@ def _validate_segment_findings(
     ]
     result = result.model_copy(update={"findings": pre_validated_findings})
 
-    # If all candidate findings are already deterministically invalidated or mitigated, bypass LLM
+    # Enforce structural positional enumeration on unresolved candidate findings
     unresolved_findings = [
-        f for f in pre_validated_findings if f.status not in {"INVALIDATED", "MITIGATED"}
+        f.model_copy(update={"finding_id": i}) if f.finding_id is None else f
+        for i, f in enumerate(
+            (f for f in pre_validated_findings if f.status not in {"INVALIDATED", "MITIGATED"}),
+            start=1,
+        )
     ]
     if not unresolved_findings:
         return result, 0.0, "deterministic"
