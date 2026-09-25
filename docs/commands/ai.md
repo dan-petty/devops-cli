@@ -1655,6 +1655,143 @@ devops ai runs connect [OPTIONS]
 | `--service` | `string` | `valkey-runs` | Service of the run index's Valkey. |
 | `--secret` | `string` | `<masked>` | Secret holding the Valkey password. |
 
+### `devops ai runs list`
+
+**List recorded benchmark and evaluation runs.**
+
+```bash
+devops ai runs list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark)` | - | Only list runs of this mechanism. |
+| `--subject-key`, `-s` | `string` | - | Only list runs matching this subject key or prefix. |
+| `--limit`, `-n` | `integer` | `20` | Maximum number of runs to show. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai runs show`
+
+**Show details of a recorded run.**
+
+```bash
+devops ai runs show [OPTIONS] <run_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<run_id>` | `string` | Yes | Run ID or prefix to show. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai runs compare`
+
+**Compare two runs or a run against its subject's baseline.**
+
+```bash
+devops ai runs compare [OPTIONS] <run_a> <run_b>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<run_a>` | `string` | Yes | First run ID (or current run if second run is omitted). |
+| `<run_b>` | `string` | No | Second run ID (optional; defaults to subject baseline). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai runs check`
+
+**Check a run against baseline for regressions past tolerances.**
+
+```bash
+devops ai runs check [OPTIONS] <run_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<run_id>` | `string` | Yes | Run ID to check against baseline. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--baseline`, `-b` | `string` | - | Override baseline run ID to compare against. |
+| `--max-recall-drop` | `float` | `0.0` | Maximum allowable relative drop in recall (e.g. 0.05 for 5%). |
+| `--max-duration-increase` | `float` | `0.15` | Maximum allowable relative increase in duration (e.g. 0.15 for 15%). |
+| `--max-tokens-increase` | `float` | `<masked>` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai runs baseline`
+
+```bash
+devops ai runs baseline COMMAND [ARGS]...
+```
+
+#### `devops ai runs baseline set`
+
+**Set a run as the baseline for its subject.**
+
+```bash
+devops ai runs baseline set <run_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<run_id>` | `string` | Yes | Run ID to designate as baseline. |
+
+#### `devops ai runs baseline list`
+
+**List all configured baselines.**
+
+```bash
+devops ai runs baseline list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai runs baseline show`
+
+**Show the baseline for a subject or run.**
+
+```bash
+devops ai runs baseline show [OPTIONS] <subject_or_run>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<subject_or_run>` | `string` | Yes | Subject key or run ID to inspect baseline for. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark)` | - | Mechanism for subject lookup. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
 ---
 
 ## `devops ai cost`

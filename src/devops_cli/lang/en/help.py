@@ -94,6 +94,23 @@ class AICommandHelp:
     bundle: str = "Bundle local AI model artifacts and instruction context."
     tokens: str = "Calculate token counts and context budget consumption."
     cost: str = "Estimate LLM inference cost for token quantities."
+    runs: str = (
+        "Benchmark and evaluation runs, kept in the data directory and shared through Valkey."
+    )
+    runs_reindex: str = (
+        "Rebuild the shared run index in Valkey from the run records in the data directory."
+    )
+    runs_connect: str = (
+        "Find the cluster's run index, check it answers, share runs through it, and index them."
+    )
+    runs_list: str = "List recorded benchmark and evaluation runs."
+    runs_show: str = "Show details of a recorded run."
+    runs_compare: str = "Compare two runs or a run against its subject's baseline."
+    runs_check: str = "Check a run against baseline for regressions past tolerances."
+    runs_baseline: str = "Manage benchmark and evaluation baseline runs."
+    runs_baseline_set: str = "Set a run as the baseline for its subject."
+    runs_baseline_list: str = "List all configured baselines."
+    runs_baseline_show: str = "Show the baseline for a subject or run."
     config_task: str = "Set these for one task (chat, metadata, analysis, verification, compose, embedding) instead of every AI call."
     ollama_urls: str = "Ollama server base URLs (comma-separated)."
     max_parallel: str = "Maximum number of simultaneous requests allowed per Ollama server node."
