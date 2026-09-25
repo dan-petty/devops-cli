@@ -19,7 +19,7 @@ EXT_TO_LANG: dict[str, str] = {
     ".py": "python",
     ".pyi": "python",
     ".ts": "typescript",
-    ".tsx": "typescript",
+    ".tsx": "tsx",
     ".js": "javascript",
     ".jsx": "javascript",
     ".mjs": "javascript",
@@ -31,14 +31,17 @@ EXT_TO_LANG: dict[str, str] = {
     ".hcl": "hcl",
 }
 
-LANG_TO_GRAMMAR_PKG: dict[str, str] = {
-    "python": "tree_sitter_python",
-    "typescript": "tree_sitter_typescript",
-    "javascript": "tree_sitter_javascript",
-    "go": "tree_sitter_go",
-    "rust": "tree_sitter_rust",
-    "java": "tree_sitter_java",
-    "hcl": "tree_sitter_hcl",
+# Each language's grammar package and the function returning its language. The TypeScript
+# package holds two grammars, one without JSX and one with it.
+LANG_TO_GRAMMAR: dict[str, tuple[str, str]] = {
+    "python": ("tree_sitter_python", "language"),
+    "typescript": ("tree_sitter_typescript", "language_typescript"),
+    "tsx": ("tree_sitter_typescript", "language_tsx"),
+    "javascript": ("tree_sitter_javascript", "language"),
+    "go": ("tree_sitter_go", "language"),
+    "rust": ("tree_sitter_rust", "language"),
+    "java": ("tree_sitter_java", "language"),
+    "hcl": ("tree_sitter_hcl", "language"),
 }
 
 
@@ -59,7 +62,87 @@ NATIVE_KIND_MAP: dict[str, SymbolKind] = {
     "interface_declaration": SymbolKind.INTERFACE,
     "method_definition": SymbolKind.METHOD,
     "method_declaration": SymbolKind.METHOD,
+    "abstract_class_declaration": SymbolKind.CLASS,
+    "generator_function_declaration": SymbolKind.FUNCTION,
+    "type_alias_declaration": SymbolKind.TYPE,
+    "enum_declaration": SymbolKind.TYPE,
+    "record_declaration": SymbolKind.CLASS,
+    "constructor_declaration": SymbolKind.METHOD,
+    "enum_item": SymbolKind.TYPE,
+    "type_item": SymbolKind.TYPE,
+    "union_item": SymbolKind.STRUCT,
+    "mod_item": SymbolKind.MODULE,
+    "const_item": SymbolKind.CONSTANT,
+    "static_item": SymbolKind.CONSTANT,
+    "macro_definition": SymbolKind.FUNCTION,
+    "annotation_type_declaration": SymbolKind.INTERFACE,
+    "annotation_type_element_declaration": SymbolKind.METHOD,
 }
+# A declarator holding a function, as `const handle = () => {}` declares one.
+_FUNCTION_VALUES = frozenset({"arrow_function", "function_expression", "function"})
+# Top-level HCL blocks, named as the fallback names them: resource "aws_vpc" "this".
+_HCL_BLOCK_KINDS: dict[str, SymbolKind] = {
+    "resource": SymbolKind.STRUCT,
+    "data": SymbolKind.STRUCT,
+    "variable": SymbolKind.CONSTANT,
+    "output": SymbolKind.CONSTANT,
+    "locals": SymbolKind.CONSTANT,
+    "module": SymbolKind.MODULE,
+}
+
+
+def _text(node: Any) -> str:
+    return str(node.text.decode("utf-8")) if node is not None and hasattr(node, "text") else ""
+
+
+def _declared_function(node: Any) -> tuple[SymbolKind, str] | None:
+    value = node.child_by_field_name("value")
+    if value is None or value.type not in _FUNCTION_VALUES:
+        return None
+    name = _text(node.child_by_field_name("name"))
+    return (SymbolKind.FUNCTION, name) if name else None
+
+
+def _go_type_spec(node: Any) -> tuple[SymbolKind, str] | None:
+    body = node.child_by_field_name("type")
+    kind = {"struct_type": SymbolKind.STRUCT, "interface_type": SymbolKind.INTERFACE}.get(
+        getattr(body, "type", ""), SymbolKind.TYPE
+    )
+    name = _text(node.child_by_field_name("name"))
+    return (kind, name) if name else None
+
+
+def _hcl_block(node: Any) -> tuple[SymbolKind, str] | None:
+    parent = node.parent
+    if (
+        parent is None
+        or parent.type != "body"
+        or getattr(parent.parent, "type", "") != "config_file"
+    ):
+        return None
+    parts = [c for c in node.children if c.type in ("identifier", "string_lit")]
+    if not parts or parts[0].type != "identifier":
+        return None
+    block_type = _text(parts[0])
+    labels = " ".join(f'"{_text(c).strip(chr(34))}"' for c in parts[1:])
+    return _HCL_BLOCK_KINDS.get(block_type, SymbolKind.MODULE), f"{block_type} {labels}".strip()
+
+
+_SPECIAL_NODES: dict[str, Any] = {
+    "variable_declarator": _declared_function,
+    "type_spec": _go_type_spec,
+    "block": _hcl_block,
+}
+
+
+def _native_symbol(node: Any) -> tuple[SymbolKind, str] | None:
+    """The kind and name a syntax node declares, or None when it declares no symbol."""
+    node_type = getattr(node, "type", "")
+    if node_type in NATIVE_KIND_MAP:
+        name = _extract_node_name(node)
+        return (NATIVE_KIND_MAP[node_type], name) if name else None
+    special = _SPECIAL_NODES.get(node_type)
+    return special(node) if special else None
 
 
 def _matches_sexpr_filter(sym: PolyglotSymbol, query_sexpr: str) -> bool:
@@ -115,10 +198,7 @@ class TreeSitterEngine:
         """Check if a language identifier or file extension is supported."""
         if lang_or_ext.startswith("."):
             return lang_or_ext.lower() in EXT_TO_LANG
-        return (
-            lang_or_ext.lower() in LANG_TO_GRAMMAR_PKG
-            or lang_or_ext.lower() in EXT_TO_LANG.values()
-        )
+        return lang_or_ext.lower() in LANG_TO_GRAMMAR or lang_or_ext.lower() in EXT_TO_LANG.values()
 
     def _resolve_lang(self, lang_or_ext: str) -> str:
         if lang_or_ext.startswith("."):
@@ -131,13 +211,13 @@ class TreeSitterEngine:
         with self._lock:
             if lang in self._parsers:
                 return self._parsers[lang], self._languages[lang]
-            pkg_name = LANG_TO_GRAMMAR_PKG.get(lang)
+            pkg_name, entry = LANG_TO_GRAMMAR.get(lang, ("", ""))
             if not pkg_name or not importlib.util.find_spec(pkg_name):
                 return None
             try:
                 ts_mod = importlib.import_module("tree_sitter")
                 grammar_mod = importlib.import_module(pkg_name)
-                ts_lang = ts_mod.Language(grammar_mod.language())
+                ts_lang = ts_mod.Language(getattr(grammar_mod, entry)())
                 parser = ts_mod.Parser(ts_lang)
                 self._parsers[lang] = parser
                 self._languages[lang] = ts_lang
@@ -154,15 +234,14 @@ class TreeSitterEngine:
         stack: list[tuple[Any, str | None]] = [(tree.root_node, None)]
         while stack:
             curr, scope = stack.pop()
-            node_type = getattr(curr, "type", "")
             next_scope = scope
-            if node_type in NATIVE_KIND_MAP:
-                name = _extract_node_name(curr)
+            declared = _native_symbol(curr)
+            if declared:
+                kind, name = declared
                 if name:
                     start_pt = getattr(curr, "start_point", (0, 0))
                     end_pt = getattr(curr, "end_point", (0, 0))
                     sig = lines[start_pt[0]].strip() if start_pt[0] < len(lines) else ""
-                    kind = NATIVE_KIND_MAP[node_type]
                     symbols.append(
                         PolyglotSymbol(
                             name=name,
@@ -187,25 +266,36 @@ class TreeSitterEngine:
         language_or_ext: str,
         path: str = "snippet",
     ) -> PolyglotFileMap:
-        """Parse source code string into PolyglotFileMap."""
+        """Parse source code string into PolyglotFileMap.
+
+        tree-sitter's result is kept when it finds symbols, or when the regex fallback finds
+        none either: a file that declares nothing (a `package-info.java`) was still parsed.
+        """
         lang = self._resolve_lang(language_or_ext)
+        native = self._parse_native(code, lang, path)
+        if native is not None and native.symbols:
+            return native
+        fallback = self._fallback.parse(path, code, lang)
+        return native if native is not None and not fallback.symbols else fallback
+
+    def _parse_native(self, code: str, lang: str, path: str) -> PolyglotFileMap | None:
+        """The file as tree-sitter parses it, or None without a grammar for the language."""
         pair = self._load_native_parser(lang)
-        if pair is not None:
-            parser, _ = pair
-            try:
-                tree = parser.parse(bytes(code, "utf-8"))
-                symbols = self._extract_native_symbols(tree, code, lang)
-                if symbols:
-                    return PolyglotFileMap(
-                        path=path,
-                        language=lang,
-                        symbols=symbols,
-                        line_count=len(code.splitlines()) if code else 0,
-                        parse_engine="tree-sitter",
-                    )
-            except Exception as exc:
-                logger.debug("Native parse failed for %s, falling back: %s", lang, exc)
-        return self._fallback.parse(path, code, lang)
+        if pair is None:
+            return None
+        parser, _ = pair
+        try:
+            tree = parser.parse(bytes(code, "utf-8"))
+        except Exception as exc:
+            logger.debug("Native parse failed for %s, falling back: %s", lang, exc)
+            return None
+        return PolyglotFileMap(
+            path=path,
+            language=lang,
+            symbols=self._extract_native_symbols(tree, code, lang),
+            line_count=len(code.splitlines()) if code else 0,
+            parse_engine="tree-sitter",
+        )
 
     def parse_file(self, file_path: Path) -> PolyglotFileMap | None:
         """Parse source file with mtime-indexed in-memory caching."""
