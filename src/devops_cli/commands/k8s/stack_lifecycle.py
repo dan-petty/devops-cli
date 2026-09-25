@@ -34,6 +34,7 @@ _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
         "argo": "https://argoproj.github.io/argo-helm",
         "prometheus-community": "https://prometheus-community.github.io/helm-charts",
         "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
+        "nvidia-dcgm": "https://nvidia.github.io/dcgm-exporter/helm-charts",
     },
     "llm": {
         "open-webui": "https://open-webui.github.io/helm-charts",
@@ -65,6 +66,12 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "prometheus-community/kube-prometheus-stack",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
+        },
+        {
+            "name": "dcgm-exporter",
+            "chart": "nvidia-dcgm/dcgm-exporter",
+            "namespace": "monitoring",
+            "values": str(DEFAULT_K8S_DIR / "monitoring" / "dcgm-exporter-values.yaml"),
         },
         {
             "name": "otel-collector",

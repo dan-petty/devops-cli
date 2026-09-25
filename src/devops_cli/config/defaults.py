@@ -101,6 +101,8 @@ DEFAULT_GATEWAY_TUNE_IMAGE: str = "python:3.14-slim"
 DEFAULT_GATEWAY_TUNE_MODEL_GROUP: str = "devops-review"
 DEFAULT_GATEWAY_TUNE_CONCURRENCY: str = "1,4,8"
 DEFAULT_GATEWAY_TUNE_ROUNDS: int = 2
+# `devops ai gateway load` looks back this far unless told otherwise.
+DEFAULT_POOL_LOAD_WINDOW = "1h"
 # Reply length for the capacity pass, and the cap on natural replies in the cost pass.
 DEFAULT_GATEWAY_TUNE_MAX_TOKENS: int = 200
 DEFAULT_GATEWAY_TUNE_REQUEST_TIMEOUT_SECONDS: float = 300.0

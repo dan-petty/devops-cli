@@ -1,0 +1,35 @@
+# NVIDIA DCGM exporter Helm values: utilisation, memory, power and temperature of every GPU (#546).
+# Chart: nvidia-dcgm/dcgm-exporter
+# Repo:  https://nvidia.github.io/dcgm-exporter/helm-charts
+#
+# DCGM supports Maxwell and newer GeForce and Quadro GPUs and Kepler and newer datacenter GPUs,
+# so every card in the pool. Profiling fields (DCGM_FI_PROF_*) need datacenter GPUs and the
+# SYS_ADMIN capability, so they are left out and the exporter runs without it. Which fields a
+# card reports varies; the dashboards use device fields every supported card has.
+
+image:
+  tag: 4.6.1-4.8.4-distroless
+
+# GPU nodes run containers with the NVIDIA runtime and are labelled by GPU feature discovery.
+runtimeClassName: nvidia
+nodeSelector:
+  nvidia.com/gpu.present: "true"
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+
+# Root reads the kubelet's pod-resources socket, which maps each GPU to the pod using it.
+securityContext:
+  runAsNonRoot: false
+  runAsUser: 0
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+serviceMonitor:
+  enabled: true
+  interval: 15s
