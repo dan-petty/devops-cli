@@ -10,10 +10,10 @@ Output your findings as a single JSON block:
       "description": "The decode method does not verify cryptographic signatures on JWT payloads.",
       "fix": "Use jwt.decode(token, key, algorithms=['HS256']) with signature verification enabled.",
       "verification_criteria": [
-        "Token decoding call lacks algorithm or verification parameter"
+        {"command": "git grep -n 'jwt.decode' src/auth/token_handler.py", "executable": true}
       ],
       "invalidation_criteria": [
-        "Signature verification is performed upstream or configured in parser options"
+        {"description": "Signature verification is performed upstream or configured in parser options", "executable": false}
       ],
       "references": ["CWE-347"]
     }
@@ -32,7 +32,7 @@ Recommendation must be one of: APPROVE, REQUEST CHANGES, BLOCK.
 - **Zero Scratchpad Leakage**: Never leak conversational phrases ("We need to...", "Let's check...") or section headers into `location`, `title`, `description`, or `fix`.
 - **Zero Conversational Praise in Findings**: Positive observations belong strictly in the `positive_observations` array, never in finding `title` or `description`.
 - **Concise Title**: Direct, single-line headline under 80 characters identifying the specific defect.
-- **Criteria Isolation**: `verification_criteria` and `invalidation_criteria` are internal automated verification arrays; keep them focused and strictly contained within their respective schema fields.
+- **Criteria Isolation & Executability**: `verification_criteria` and `invalidation_criteria` drive automated verification in a bounded sandbox. Each criterion must be either an allowlisted read-only command (`git grep`, `git ls-files`, `python -c`, `ruff check`) marked with `executable: true`, or explicitly marked with `executable: false` if unexecutable prose. Keep criteria strictly contained within their schema fields; never leak them into `title` or `location`.
 - **Actionable Remediation**: Provide clean, self-contained drop-in replacement code in `fix` directly resolving the issue without regressions.
 - **Non-Empty Fix Required**: `fix` must never be empty or whitespace. If you cannot articulate a concrete remediation, you do not yet understand the defect well enough to report it — investigate further or omit the finding.
 - **One Entry Per Root Cause**: Emit a single finding per underlying defect. Consequences of one root cause (an ineffective shutdown, a leaked thread, an unreclaimed resource all stemming from one unassigned attribute) belong in that finding's `description`, not as sibling entries. Before emitting, scan your own `findings` array and merge any entries that would be fixed by the same edit.

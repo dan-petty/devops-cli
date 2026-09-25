@@ -1194,7 +1194,16 @@ def _deterministic_pre_verification(
     if code_res:
         return code_res
 
-    return _check_catalog_hallucination(finding, file_path)
+    finding = _check_catalog_hallucination(finding, file_path)
+    if finding.status in {"INVALIDATED", "MITIGATED"}:
+        return finding
+
+    if effective_root and effective_root.is_dir():
+        from devops_cli.ai.review.review_environment import execute_finding_criteria
+
+        finding = execute_finding_criteria(finding, effective_root)
+
+    return finding
 
 
 _NO_VALUES = frozenset({"", "none", "null", "n/a", "na", "[]", "-"})
@@ -1260,11 +1269,11 @@ _NEGATION = re.compile(
 _RESTATEMENT_OVERLAP = 0.6
 
 
-def _claim_words(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in _CLAIM_STOPWORDS}
+def _claim_words(text: Any) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", str(text).lower()) if w not in _CLAIM_STOPWORDS}
 
 
-def _covers(text: str, claims: list[str]) -> float:
+def _covers(text: str, claims: list[Any]) -> float:
     """The largest share of any claim's words that the text contains."""
     words = _claim_words(text)
     shares = [len(cw & words) / len(cw) for claim in claims if (cw := _claim_words(claim))]
@@ -1279,17 +1288,20 @@ def _restates_the_finding(criterion: str, f: Finding) -> bool:
     defect. A criterion closer to the finding's invalidation criteria than to its claim and fix
     is a refutation.
     """
-    claim = _covers(criterion, [*f.verification_criteria, f.title, f.fix])
-    refutation = _covers(criterion, list(f.invalidation_criteria))
+    ver_claims = [str(c) for c in f.verification_criteria]
+    inv_claims = [str(c) for c in f.invalidation_criteria]
+    claim = _covers(criterion, [*ver_claims, f.title, f.fix])
+    refutation = _covers(criterion, inv_claims)
     return claim >= _RESTATEMENT_OVERLAP and claim > refutation
 
 
 def _reason_confirms(reason: str, f: Finding) -> bool:
     """Whether the verdict's reason states the claimed condition without negating it."""
+    ver_claims = [str(c) for c in f.verification_criteria]
     return (
         bool(reason)
         and not _NEGATION.search(reason.lower())
-        and _covers(reason, [*f.verification_criteria, f.title]) >= _RESTATEMENT_OVERLAP
+        and _covers(reason, [*ver_claims, f.title]) >= _RESTATEMENT_OVERLAP
     )
 
 
@@ -1341,14 +1353,18 @@ def _apply_single_finding_verification(
         except ValueError, TypeError:
             conf = f.confidence_score
 
+    merged_ver_matched = list(dict.fromkeys(f.verified_criteria_matched + ver_matched))
+    merged_inv_matched = list(dict.fromkeys(f.invalidated_criteria_matched + inv_matched))
+
     updates: dict[str, object] = {
         "verified": is_v,
         "mitigated": status_val == "MITIGATED",
         "status": status_val,
         "reportable": is_rep,
         "confidence_score": conf,
-        "verified_criteria_matched": ver_matched,
-        "invalidated_criteria_matched": inv_matched,
+        "verified_criteria_matched": merged_ver_matched,
+        "invalidated_criteria_matched": merged_inv_matched,
+        "criteria_execution_results": f.criteria_execution_results,
         "verified_by": "llm",
         "verified_at": now_iso,
     }

@@ -35,6 +35,6 @@ Work through grounding, inspection, falsification, and formulation before report
   - **MEDIUM** — bounded flaw, unhandled error state, incomplete mitigation.
   - **LOW** — hardening, observability, defense in depth, maintainability.
 - **Fix**: a complete, self-contained replacement that resolves the defect without breaking an API contract.
-- **Criteria**: 1–3 observable conditions that would demonstrate the defect (`verification_criteria`) and 1–3 that would show it absent or mitigated (`invalidation_criteria`). Keep each in its own field. These drive automated verification and test generation, so vague criteria make a finding unusable.
+- **Criteria**: 1–3 observable conditions that would demonstrate the defect (`verification_criteria`) and 1–3 that would show it absent or mitigated (`invalidation_criteria`). Criteria drive automated verification in a bounded sandbox: each must either be an executable command from the closed read-only allowlist (`git grep`, `git ls-files`, `python -c`, `ruff check`, `pytest`) marked with `executable: true` (or a raw allowlisted command string), or explicitly marked with `executable: false` if unexecutable prose. Bare unexecutable prose must not be marked executable.
 - **Suggestions are not findings**: an improvement that fixes no defect belongs in `summary`, never in `findings`.
 - **Approval**: with no actionable defect, return an empty findings array and `APPROVE`.

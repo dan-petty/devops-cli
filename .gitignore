@@ -12,9 +12,13 @@ build/
 MANIFEST
 
 # Virtual environment
+.venv
 .venv/
+.venv_win
 .venv_win/
+venv
 venv/
+env
 env/
 
 

@@ -783,6 +783,76 @@ REVIEW_STRONG_SYMBOL_MIN_LENGTH: Final[int] = 6
 # enclosing symbol are treated as one defect. Set high enough that different defects in
 # the same function stay separate, since dropping a real finding is the costlier error.
 REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD: Final[float] = 0.35
+
+# ── Executable Verification Criteria Constants ──────────────────────────────
+# Closed, read-only allowlist of executable binaries for finding verification criteria.
+CONST_ALLOWED_CRITERIA_BINARIES: Final[frozenset[str]] = frozenset(
+    {
+        "cat",
+        "file",
+        "find",
+        "git",
+        "grep",
+        "head",
+        "jq",
+        "pytest",
+        "python",
+        "python3",
+        "rg",
+        "ruff",
+        "tail",
+        "test",
+        "wc",
+        "[",
+    }
+)
+
+# Read-only git subcommands permitted in verification criteria.
+CONST_ALLOWED_GIT_SUBCOMMANDS: Final[frozenset[str]] = frozenset(
+    {
+        "check-ignore",
+        "diff",
+        "grep",
+        "log",
+        "ls-files",
+        "show",
+        "status",
+    }
+)
+
+# Shell metacharacters and operators disallowed in executable criteria commands.
+CONST_DISALLOWED_SHELL_TOKENS: Final[frozenset[str]] = frozenset(
+    {
+        "|",
+        "||",
+        "&",
+        "&&",
+        ";",
+        ">",
+        ">>",
+        "<",
+        "<<",
+        "`",
+        "$(",
+        "${",
+    }
+)
+
+# Forbidden module names in Python AST for python -c criteria commands to prevent side effects.
+CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES: Final[frozenset[str]] = frozenset(
+    {
+        "ftplib",
+        "http",
+        "posix",
+        "pty",
+        "requests",
+        "shutil",
+        "socket",
+        "subprocess",
+        "telnetlib",
+        "urllib",
+    }
+)
 # ── Unified Secret Resolution & Vault Lease Lifecycle ────────────────────────
 # Provider identifiers recorded in the credential access audit trail.
 CONST_SECRET_PROVIDER_KEYRING: Final[str] = "keyring"
