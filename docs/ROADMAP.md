@@ -213,7 +213,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Constraint*: Pre-1.0 permits removal without ceremony, but consumers inside this repository still import these names. Migrate internal call sites first and confirm with the full test suite rather than trusting the export list to describe its own users.
 - [x] **POSIX Process Group Sandbox Enforcement (P0 - Critical)** — delivered in #440:
   - *Context & Rationale*: Scheduled as enforcement "across background dispatchers". Of the three `subprocess.Popen` call sites, two already had `start_new_session=True` and the agent harness already terminated via `os.killpg`; the gap was one site, the `kubectl port-forward` daemon, which ran in the CLI's own process group and was stopped with `os.kill` on the pid alone. Both are fixed, and a test asserts the forward is started detached.
-- [ ] **Background Shell Pipe Deadlock Fix & Bounded Ring Buffers (P1 - High)**:
+- [x] **Background Shell Pipe Deadlock Fix & Bounded Ring Buffers (P1 - High, Issue #427)** — delivered in #449:
   - *Context & Rationale*: Eliminates subprocess pipe deadlocks by adding daemon reader threads draining `stdout`/`stderr` into bounded ring buffers (`collections.deque(maxlen=1000)`), fulfilling the output contract for long-running commands.
 - [x] **Structural Pre-Commit Hook Inversion (P0 - Critical)** — partially delivered in #443:
   - *Delivered*: a pure-stdlib AST sentinel runs on staged files in about 140ms and blocks a commit that breaches the nesting cap. It deliberately does not import `devops_cli`: loading the package costs roughly five seconds before a single file is read, which is more than a commit-time gate can spend. Its metric mirrors `security/complexity.py` exactly, after a first version that counted `Try` rather than `ExceptHandler` and reported a nesting breach the scanner does not see.
@@ -1453,7 +1453,7 @@ High-density product roadmap, engineering milestones, and open-source integratio
 | **Tactical Additions** | Anti-Brittle Constant Elimination | Standard Library / AST | High | Low | v0.2.23 | 📋 Scheduled (P1) |
 |  | Semantic Validator Deprecation & Structural Positional Oracles | AST / Pydantic | High | Low | v0.2.23 | ✅ Completed (P1) |
 |  | Lossless Structured Error Reflection for Schema Retries | Pydantic / Structured Output | High | Low | v0.2.23 | ✅ Completed (P1) |
-|  | Background Shell Pipe Deadlock Fix & Bounded Ring Buffers | Subprocess / Threading | High | Low | v0.2.23 | 📋 Scheduled (P1) |
+|  | Background Shell Pipe Deadlock Fix & Bounded Ring Buffers | Subprocess / Threading | High | Low | v0.2.23 | ✅ Completed (P1) |
 |  | FastMCP TUI Management Tools & Dynamic Resources | FastMCP / PydanticAI | Medium | Low | v0.2.24 | 📋 Scheduled (P2) |
 |  | FastMCP Cognitive Research Tools & Epistemic Resources | FastMCP / PydanticAI | High | Low | v0.3.0 | 📋 Scheduled (P1) |
 |  | FastMCP Solution Discovery Tools & Dynamic Resources | FastMCP / PydanticAI | High | Low | v0.3.1 | 📋 Scheduled (P1) |
