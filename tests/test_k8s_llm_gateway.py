@@ -645,7 +645,8 @@ class TestK8sLLMGatewayManifests:
         assert [r for r in resources if r.startswith("vllm")] == expected
 
     def test_llm_namespace_default_perimeter_excludes_gateway_and_vllm(self) -> None:
-        """Verify llm-default-perimeter excludes gateway, vLLM, portkey, and lightllm to avoid additive policy leakage."""
+        """Verify llm-default-perimeter excludes gateway, vLLM, portkey, lightllm and the run index
+        to avoid additive policy leakage."""
         np_path = Path("k8s/llm/networkpolicy.yaml")
         docs = list(yaml.safe_load_all(np_path.read_text(encoding="utf-8")))
         np = next(d for d in docs if d and d.get("kind") == "NetworkPolicy")
@@ -657,7 +658,7 @@ class TestK8sLLMGatewayManifests:
             sorted(name_expr["values"]),
         ) == (
             "NotIn",
-            ["lightllm", "llm-gateway", "portkey", "vllm", "vllm-single"],
+            ["lightllm", "llm-gateway", "portkey", "valkey-runs", "vllm", "vllm-single"],
         )
 
     def test_zero_homelab_ip_or_hostname_leakage(self) -> None:

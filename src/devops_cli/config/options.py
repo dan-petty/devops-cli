@@ -67,6 +67,10 @@ VALKEY_DB = "valkey.db"
 VALKEY_TIMEOUT = "valkey.timeout"
 AI_CACHE_BACKEND = "ai.cache.backend"
 
+# Evaluation Run Store: the shared index of benchmark and evaluation runs
+RUNS_INDEX_URL = "runs.index_url"
+RUNS_INDEX_PASSWORD = "runs.index_password"
+
 # Telemetry & Structured Observability
 TELEMETRY_LOGFIRE = "telemetry.logfire"
 TELEMETRY_LOGFIRE_TOKEN = "telemetry.logfire_token"
@@ -84,6 +88,7 @@ DATA_CACHE_DIR = "data.cache_dir"
 DATA_BENCHMARKS_DIR = "data.benchmarks_dir"
 DATA_RAG_DIR = "data.rag_dir"
 DATA_SAMPLES_DIR = "data.samples_dir"
+DATA_RUNS_DIR = "data.runs_dir"
 DATA_TLS_DIR = "data.tls_dir"
 DATA_AUDIT_LOG_PATH = "data.audit_log_path"
 DATA_FEEDBACK_DATASET_PATH = "data.feedback_dataset_path"
@@ -153,6 +158,8 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     VALKEY_DB,
     VALKEY_TIMEOUT,
     AI_CACHE_BACKEND,
+    RUNS_INDEX_URL,
+    RUNS_INDEX_PASSWORD,
     DATA_DIR,
     DATA_ANALYSIS_DIR,
     DATA_REVIEWS_DIR,
@@ -162,6 +169,7 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     DATA_BENCHMARKS_DIR,
     DATA_RAG_DIR,
     DATA_SAMPLES_DIR,
+    DATA_RUNS_DIR,
     DATA_TLS_DIR,
     DATA_AUDIT_LOG_PATH,
     DATA_FEEDBACK_DATASET_PATH,
@@ -180,6 +188,7 @@ SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
         AI_API_KEY,
         QDRANT_API_KEY,
         VALKEY_PASSWORD,
+        RUNS_INDEX_PASSWORD,
         TELEMETRY_LOGFIRE_TOKEN,
     }
 )
@@ -193,5 +202,6 @@ KEYRING_KEYS: dict[str, str] = {
     AI_API_KEY: "ai_api_key",
     QDRANT_API_KEY: "qdrant_api_key",
     VALKEY_PASSWORD: "valkey_password",
+    RUNS_INDEX_PASSWORD: "runs_index_password",
     TELEMETRY_LOGFIRE_TOKEN: "logfire_token",
 }

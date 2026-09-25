@@ -428,6 +428,7 @@ def build_secret_registry(keyring_keys: dict[str, str]) -> dict[str, SecretRef]:
             ("DEVOPS_CLI_VALKEY_PASSWORD",),
             "valkey.password",
         ),
+        (opt.RUNS_INDEX_PASSWORD, "runs_index_password", ("DEVOPS_CLI_RUNS_INDEX_PASSWORD",), None),
         (
             opt.TELEMETRY_LOGFIRE_TOKEN,
             "logfire_token",

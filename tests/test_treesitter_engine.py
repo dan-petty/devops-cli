@@ -30,7 +30,8 @@ def test_language_detection() -> None:
     assert detect_language(Path("Service.java")) == "java"
     assert detect_language(Path("main.tf")) == "hcl"
     assert detect_language(Path("config.hcl")) == "hcl"
-    assert detect_language(Path("README.md")) is None
+    assert detect_language(Path("README.md")) == "markdown"
+    assert detect_language(Path("notes.txt")) is None
 
 
 def test_fallback_python_parsing() -> None:

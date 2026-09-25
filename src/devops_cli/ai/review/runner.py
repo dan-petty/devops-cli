@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import time
+from collections import Counter
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,7 @@ from devops_cli.ai.review.chunker import (
 )
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.profile import (
+    ReviewProfile,
     ReviewProfiler,
     active_profiler,
     profiling,
@@ -1768,7 +1770,7 @@ def _record_profile_findings(payloads: list[Any], candidates: int) -> None:
 
 def _write_review_profile(
     profiler: ReviewProfiler, orchestrator: Any, target: str, files: int
-) -> None:
+) -> ReviewProfile:
     """Write the session's profile.json and summarise where the time went."""
     profile = profiler.build(session_id=orchestrator.session_id, target=target, files=files)
     path = profile.write(orchestrator.session_dir)
@@ -1783,6 +1785,26 @@ def _write_review_profile(
         f"{profile.llm_calls} LLM calls; {stages} -> {path}[/dim]",
         prefix=False,
     )
+    return profile
+
+
+def _record_review_metrics(
+    results: list[tuple[PersonaDefinition, ReviewResult | str]],
+    seconds: float,
+    target_type: str,
+) -> None:
+    """Send the review's wall time, and its findings by persona, severity and status."""
+    from devops_cli.telemetry.instruments import FINDINGS_TOTAL, REVIEW_DURATION, emit
+
+    emit(REVIEW_DURATION, seconds, {"target_type": target_type})
+    counts = Counter(
+        (persona.name, finding.severity.upper(), finding.status.upper())
+        for persona, result in results
+        if isinstance(result, ReviewResult)
+        for finding in result.findings
+    )
+    for (persona, severity, status), count in counts.items():
+        emit(FINDINGS_TOTAL, count, {"persona": persona, "severity": severity, "status": status})
 
 
 def _run_profiled_session(
@@ -1818,7 +1840,8 @@ def _run_profiled_session(
             stage_flags=stage_flags,
         )
         if not is_dry_run():
-            _write_review_profile(profiler, orchestrator, target_ref, len(all_files))
+            profile = _write_review_profile(profiler, orchestrator, target_ref, len(all_files))
+            _record_review_metrics(results, profile.total_wall_seconds, target_type)
         return results
 
 

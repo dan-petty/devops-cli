@@ -2989,7 +2989,7 @@ devops ai repomap [OPTIONS]
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
 | `--max-files`, `-n` | `integer` | `100` | Maximum source files to include. |
 | `--include-tests` | `boolean` | - | Include test modules in symbol map. |
-| `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, Go, Rust, Java, and HCL. |
+| `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -4287,6 +4287,45 @@ devops ai gateway tune [OPTIONS]
 | `--context` | `string` | - | Kubernetes context override. |
 | `--image` | `string` | `python:3.14-slim` | Python image for the sweep container. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai runs`
+
+**Benchmark and evaluation runs, kept in the data directory and shared through Valkey.**
+
+```bash
+devops ai runs COMMAND [ARGS]...
+```
+
+#### `devops ai runs reindex`
+
+**Rebuild the shared run index in Valkey from the run records in the data directory.**
+
+```bash
+devops ai runs reindex [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark)` | - | Only index runs of this mechanism. |
+
+#### `devops ai runs connect`
+
+**Find the cluster's run index, check it answers, share runs through it, and index them.**
+
+```bash
+devops ai runs connect [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context` | `string` | - | Kubernetes context (default: current). |
+| `--namespace`, `-n` | `string` | `llm` | Namespace of the run index. |
+| `--service` | `string` | `valkey-runs` | Service of the run index's Valkey. |
+| `--secret` | `string` | `<masked>` | Secret holding the Valkey password. |
 
 ### `devops ai cost`
 
@@ -7142,6 +7181,23 @@ OpenTelemetry tracing, metrics, and Jaeger observability.
 ```bash
 devops telemetry status
 ```
+
+### `devops telemetry connect`
+
+**Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there.**
+
+```bash
+devops telemetry connect [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context` | `string` | - | Kubernetes context of the cluster running the collector (default: current). |
+| `--namespace`, `-n` | `string` | `otel` | Namespace of the collector service. |
+| `--service` | `string` | `otel-collector-opentelemetry-collector` | Name of the collector service. |
+| `--save`, `--no-save` | `boolean` | `True` | Save the endpoint as telemetry.endpoint (default) or only check it. |
 
 ### `devops telemetry logfire`
 

@@ -10,6 +10,7 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.ai.personas import Persona
+from devops_cli.ai.run_store import Mechanism, record_run
 from devops_cli.commands.ai_ast import app as ast_app
 from devops_cli.commands.ai_cache import app as cache_app
 from devops_cli.commands.ai_chaos import run_chaos_model_cmd
@@ -23,6 +24,8 @@ from devops_cli.commands.ai_cost import app as cost_app
 from devops_cli.commands.ai_gateway import app as gateway_app
 from devops_cli.commands.ai_harness import app as harness_app
 from devops_cli.commands.ai_ingest import app as ingest_app
+from devops_cli.commands.ai_runs import announce_run
+from devops_cli.commands.ai_runs import app as runs_app
 from devops_cli.commands.analyze import app as analyze_app
 from devops_cli.commands.benchmark import app as benchmark_app
 from devops_cli.commands.rag import app as rag_app
@@ -121,6 +124,11 @@ app.add_typer(
     gateway_app,
     name="gateway",
     help="LLM Gateway and distributed inference mesh management.",
+)
+app.add_typer(
+    runs_app,
+    name="runs",
+    help="Benchmark and evaluation runs, kept in the data directory and shared through Valkey.",
 )
 app.add_typer(
     cost_app,
@@ -1885,8 +1893,15 @@ def prompt_eval_cmd(
         return
 
     res = evaluate_persona_prompts(persona=persona, dataset_path=dataset)
+    saved = record_run(
+        Mechanism.PROMPT_EVAL,
+        setup={"persona": res.persona},
+        subject={"dataset_digest": res.dataset_digest, "records": res.total_cases},
+        results=res.to_dict(),
+    )
     if json_output:
         write_stdout(json.dumps(res.to_dict(), indent=2) + "\n")
+        announce_run(saved, to_stderr=True)
         return
 
     print_info(
@@ -1912,6 +1927,7 @@ def prompt_eval_cmd(
             "Either the layer over-suppresses or that verdict was a false positive; both "
             "need reading, so they are not netted against the catch rate."
         )
+    announce_run(saved)
 
 
 # =============================================================================

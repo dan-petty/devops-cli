@@ -20,6 +20,8 @@ class SymbolKind(StrEnum):
     TYPE = "type"
     CONSTANT = "constant"
     MODULE = "module"
+    # A document's heading, such as a Markdown `## Install`.
+    HEADING = "heading"
 
 
 class CodeSpan(BaseModel):

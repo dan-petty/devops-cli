@@ -43,6 +43,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_DATA_MODELS_DIR` | `data.models_dir` | No | Storage directory for local model checkpoints and weights |
 | `DEVOPS_CLI_DATA_RAG_DIR` | `data.rag_dir` | No | Storage directory for local vector embedding index cache and retrieval data |
 | `DEVOPS_CLI_DATA_REVIEWS_DIR` | `data.reviews_dir` | No | Storage directory for review session finding reports and artifacts |
+| `DEVOPS_CLI_DATA_RUNS_DIR` | `data.runs_dir` | No | Storage directory for benchmark and evaluation run records, the run store's source of truth |
 | `DEVOPS_CLI_DATA_SAMPLES_DIR` | `data.samples_dir` | No | Storage directory for open-source sample repositories fetched at their pinned commits |
 | `DEVOPS_CLI_DATA_TLS_DIR` | `data.tls_dir` | No | Storage directory for generated local CA and TLS certificates |
 | `DEVOPS_CLI_GITHUB_DEFAULT_ORG` | `github.default_org` | No | Default GitHub organization |
@@ -55,6 +56,8 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | `qdrant.collection_prefix` | No | Prefix for Qdrant collection names |
 | `DEVOPS_CLI_QDRANT_URL` | `qdrant.url` | No | Qdrant vector database server URL |
 | `DEVOPS_CLI_REPOS_BASE_DIR` | `repos.base_dir` | No | Base directory for cloned repositories |
+| `DEVOPS_CLI_RUNS_INDEX_PASSWORD` | `runs.index_password` | 🔒 Yes | Run index Valkey password (stored in OS keyring) |
+| `DEVOPS_CLI_RUNS_INDEX_URL` | `runs.index_url` | No | Valkey holding the run index shared by workstations (set by `devops ai runs connect`) |
 | `DEVOPS_CLI_SSH_KEY_DIR` | `ssh.key_dir` | No | Directory for SSH key pairs |
 | `DEVOPS_CLI_SSH_KEY_PREFIX` | `ssh.key_prefix` | No | Prefix for generated SSH keys (defaults to devcontainer name or basename pwd) |
 | `DEVOPS_CLI_SSH_ROTATION_DAYS` | `ssh.rotation_days` | No | SSH key rotation interval in days |

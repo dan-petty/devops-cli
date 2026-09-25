@@ -3,25 +3,31 @@
 from __future__ import annotations
 
 import atexit
+import bisect
 import contextlib
 import contextvars
 import functools
+import hashlib
 import logging
 import os
 import platform
 import secrets
+import sys
 import threading
 import time
 from collections import deque
 from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import wait as wait_futures
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Any, TypeVar
 
 import httpx2
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import (
+    CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA,
     CONST_OTEL_METRIC_UNIT_ONE,
     CONST_OTEL_SCOPE_NAME,
     CONST_OTEL_SERVICE_NAME,
@@ -29,10 +35,12 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_OTEL_COUNTER_AMOUNT,
+    DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_OTEL_ENDPOINT,
     DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS,
     DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS,
     DEFAULT_OTEL_TEST_TIMEOUT,
+    DEFAULT_OTEL_WARNING_INTERVAL_SECONDS,
     DEFAULT_SPAN_BUFFER_MAX_SPANS,
 )
 from devops_cli.telemetry.propagation import (
@@ -93,6 +101,11 @@ def _generate_trace_id() -> str:
 
 def _generate_span_id() -> str:
     return secrets.token_hex(8)
+
+
+def _otlp_attributes(attributes: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """OTLP key-value attributes."""
+    return [{"key": k, "value": _to_otlp_any_value(v)} for k, v in (attributes or {}).items()]
 
 
 def _to_otlp_any_value(val: Any) -> dict[str, Any]:
@@ -526,6 +539,12 @@ class OTelTelemetryClient:
         self._grpc_exporter: Any = None
         self._executor: ContextPropagatingThreadPoolExecutor | None = None
         self._client_lock = threading.Lock()
+        # Exports still in flight, drained at shutdown; and how exports have fared, so a
+        # collector that never answers is reported rather than silently dropping everything.
+        self._pending: set[Future[None]] = set()
+        self.export_failures = 0
+        self.export_successes = 0
+        self.last_export_error = ""
 
         # Cache pre-computed resource attributes for zero-allocation reuse across all spans and metrics
         self._cached_resource_attributes: list[dict[str, Any]] = [
@@ -536,6 +555,17 @@ class OTelTelemetryClient:
             {"key": "process.pid", "value": {"stringValue": str(os.getpid())}},
             {"key": "process.runtime.name", "value": {"stringValue": "cpython"}},
             {"key": "process.runtime.version", "value": {"stringValue": platform.python_version()}},
+            {"key": "telemetry.sdk.name", "value": {"stringValue": "devops-cli-otel"}},
+            {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
+        ]
+        # Metrics identify their source by host, not process: every command is a short-lived
+        # process, and the collector adds up each series' deltas across them. A process id or
+        # version would split one host's counter into many; the instance id names the host.
+        self._metric_resource_attributes: list[dict[str, Any]] = [
+            {"key": "service.name", "value": {"stringValue": self.service_name}},
+            {"key": "service.instance.id", "value": {"stringValue": self.host_name}},
+            {"key": "host.name", "value": {"stringValue": self.host_name}},
+            {"key": "os.type", "value": {"stringValue": self.os_type}},
             {"key": "telemetry.sdk.name", "value": {"stringValue": "devops-cli-otel"}},
             {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
         ]
@@ -598,25 +628,8 @@ class OTelTelemetryClient:
             return None, None
         return context.trace_id, context.span_id
 
-    def _build_metrics_payload(
-        self,
-        name: str,
-        value: float,
-        unit: str,
-        timestamp_ns: int,
-        attributes: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        """Build structured OTLP resourceMetrics payload."""
-        data_point = {
-            "timeUnixNano": str(timestamp_ns),
-            "asDouble": float(value),
-            "attributes": attributes,
-        }
-        metric_entry = {
-            "name": name,
-            "unit": unit,
-            "gauge": {"dataPoints": [data_point]},
-        }
+    def _build_metrics_payload(self, metric_entry: dict[str, Any]) -> dict[str, Any]:
+        """Build structured OTLP resourceMetrics payload for one metric."""
         scope_entry = {
             "scope": {"name": "devops-cli.telemetry"},
             "metrics": [metric_entry],
@@ -624,11 +637,18 @@ class OTelTelemetryClient:
         return {
             "resourceMetrics": [
                 {
-                    "resource": {"attributes": self._get_resource_attributes()},
+                    "resource": {"attributes": self._metric_resource_attributes},
                     "scopeMetrics": [scope_entry],
                 }
             ]
         }
+
+    def _send_metric(
+        self, name: str, unit: str, kind: str, point: dict[str, Any], **data: Any
+    ) -> None:
+        """Send one data point of a gauge, sum or histogram."""
+        entry = {"name": name, "unit": unit, kind: {"dataPoints": [point], **data}}
+        self._send_payload("/v1/metrics", self._build_metrics_payload(entry))
 
     def _build_traces_payload(
         self,
@@ -655,16 +675,21 @@ class OTelTelemetryClient:
         unit: str = CONST_OTEL_METRIC_UNIT_ONE,
         attributes: dict[str, Any] | None = None,
     ) -> None:
-        """Emit a metric data point to OTLP collector asynchronously."""
+        """Emit a gauge data point to OTLP collector asynchronously."""
         if not self.enabled:
             return
+        point = {
+            "timeUnixNano": str(time.time_ns()),
+            "asDouble": float(value),
+            "attributes": _otlp_attributes(attributes),
+        }
+        self._send_metric(name, unit, "gauge", point)
 
-        now_nano = int(time.time() * 1e9)
-        attr_list = [
-            {"key": k, "value": _to_otlp_any_value(v)} for k, v in (attributes or {}).items()
-        ]
-        payload = self._build_metrics_payload(name, value, unit, now_nano, attr_list)
-        self._send_payload("/v1/metrics", payload)
+    @staticmethod
+    def _delta_interval() -> dict[str, str]:
+        """A delta's interval, ending now. Each is a nanosecond long, so points never overlap."""
+        now = time.time_ns()
+        return {"startTimeUnixNano": str(now - 1), "timeUnixNano": str(now)}
 
     def increment_counter(
         self,
@@ -674,8 +699,53 @@ class OTelTelemetryClient:
         unit: str = CONST_OTEL_METRIC_UNIT_ONE,
         attributes: dict[str, Any] | None = None,
     ) -> None:
-        """Convenience method to record an incremented counter metric."""
-        self.record_metric(name, amount, unit=unit, attributes=attributes)
+        """Add to a monotonic counter, sent as a delta the collector adds up across processes."""
+        if not self.enabled:
+            return
+        point = {
+            **self._delta_interval(),
+            "asDouble": float(amount),
+            "attributes": _otlp_attributes(attributes),
+        }
+        self._send_metric(
+            name,
+            unit,
+            "sum",
+            point,
+            aggregationTemporality=CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA,
+            isMonotonic=True,
+        )
+
+    def record_histogram(
+        self,
+        name: str,
+        value: float,
+        *,
+        bounds: tuple[float, ...],
+        unit: str = CONST_OTEL_METRIC_UNIT_ONE,
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
+        """Observe one value of a histogram, sent as a delta the collector adds up."""
+        if not self.enabled:
+            return
+        buckets = [0] * (len(bounds) + 1)
+        buckets[bisect.bisect_left(bounds, value)] = 1
+        point = {
+            **self._delta_interval(),
+            "count": "1",
+            "sum": float(value),
+            # OTLP JSON encodes 64-bit integers as strings.
+            "bucketCounts": [str(b) for b in buckets],
+            "explicitBounds": list(bounds),
+            "attributes": _otlp_attributes(attributes),
+        }
+        self._send_metric(
+            name,
+            unit,
+            "histogram",
+            point,
+            aggregationTemporality=CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA,
+        )
 
     def _populate_exception_span_attributes(
         self,
@@ -936,8 +1006,13 @@ class OTelTelemetryClient:
         try:
             url = f"{self.endpoint}{path}"
             client = self._get_http_client()
-            client.post(url, json=payload)
+            response = client.post(url, json=payload)
+            if response.status_code >= 400:
+                raise RuntimeError(f"HTTP {response.status_code}")
+            self.export_successes += 1
         except Exception as exc:
+            self.export_failures += 1
+            self.last_export_error = str(exc) or type(exc).__name__
             logger.debug("OTel payload send failed to %s%s: %s", self.endpoint, path, exc)
 
     def _send_payload(self, path: str, payload: dict[str, Any]) -> None:
@@ -946,12 +1021,22 @@ class OTelTelemetryClient:
             return
         try:
             executor = self._get_executor()
-            executor.submit(self._send_payload_sync, path, payload)
+            future = executor.submit(self._send_payload_sync, path, payload)
+            self._pending.add(future)
+            future.add_done_callback(self._pending.discard)
         except Exception as exc:
             logger.debug("Failed submitting OTel payload to executor: %s", exc)
 
     def shutdown(self, timeout_millis: int = DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS) -> None:
-        """Cleanly close background executor, gRPC exporter, and pooled HTTP transport with bounded drain timeout."""
+        """Cleanly close background executor, gRPC exporter, and pooled HTTP transport with bounded drain timeout.
+
+        Exports still in flight get up to DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS to finish: a short
+        command queues its spans at the very end, and cancelling them lost its root span. The
+        wait happens before taking the client lock, which the exports need.
+        """
+        pending = [f for f in list(self._pending) if not f.done()]
+        if pending:
+            wait_futures(pending, timeout=DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS)
         with self._client_lock:
             if self._executor is not None:
                 try:
@@ -1129,6 +1214,43 @@ def shutdown_tracer(timeout_millis: int = DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS) -> N
     global _GLOBAL_TRACER
     if _GLOBAL_TRACER is not None:
         _GLOBAL_TRACER.shutdown(timeout_millis=timeout_millis)
+        _warn_if_exports_failed(_GLOBAL_TRACER)
+
+
+def _warn_if_exports_failed(client: OTelTelemetryClient) -> None:
+    """Tell an interactive user, at most once a day per endpoint, that telemetry went nowhere.
+
+    Export failures are otherwise silent, which is how a workstation's traces and metrics were
+    dropped for good with nothing to show for it. Non-interactive runs (CI, tests) stay quiet.
+    """
+    if not client.enabled or not client.export_failures or client.export_successes:
+        return
+    if not sys.stderr.isatty():
+        return
+    marker = _export_warning_marker(client.endpoint)
+    try:
+        if (
+            marker.exists()
+            and time.time() - marker.stat().st_mtime < DEFAULT_OTEL_WARNING_INTERVAL_SECONDS
+        ):
+            return
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+    except OSError:
+        return
+    sys.stderr.write(
+        f"Telemetry could not reach {client.endpoint}: {client.export_failures} export(s) failed "
+        f"({client.last_export_error}). Run `devops telemetry connect` to find the cluster's "
+        "collector, or set telemetry.enabled to false.\n"
+    )
+
+
+def _export_warning_marker(endpoint: str) -> Path:
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+
+    digest = hashlib.sha256(endpoint.encode()).hexdigest()[:12]
+    return resolve_data_path(load_settings().data.dir) / "telemetry" / f"export-warning-{digest}"
 
 
 atexit.register(shutdown_tracer)

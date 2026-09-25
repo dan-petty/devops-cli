@@ -73,6 +73,7 @@ def test_a_category_report_names_what_the_tooling_could_not_do(tmp_path: Path) -
             "pkg/empty.ts": "// nothing exported yet\n",
             "pkg/Program.cs": "class Program { static void Main() {} }\n",
             "pkg/format.cc": "int answer() { return 42; }\n",
+            "pkg/values.yaml": "replicas: 1\n",
             "pkg/LICENSE": "MIT License\n",
         },
     )
@@ -81,17 +82,18 @@ def test_a_category_report_names_what_the_tooling_could_not_do(tmp_path: Path) -
 
     assert (report.samples, report.parsers) == (
         {"demo": "a" * 40},
-        {"fallback-ast": 3, "none": 3},
+        {"fallback-ast": 5, "none": 2},
     )
     assert report.problems == [
+        "cpp: 1 of 1 files read by the regex fallback, not tree-sitter",
+        "csharp: 1 of 1 files read by the regex fallback, not tree-sitter",
         "go: 1 of 1 files read by the regex fallback, not tree-sitter",
         "typescript: 1 of 1 files read by the regex fallback, not tree-sitter",
         "typescript: 1 of 1 files yielded no symbols",
-        "no AST support for .cc (1 file)",
-        "no AST support for .cs (1 file)",
+        "no AST support for .yaml (1 file)",
         "file analysis labels C++ .cc as C (1 file)",
     ]
-    assert [(m.sample, m.files_mapped) for m in report.repomaps] == [("demo", 2)]
+    assert [(m.sample, m.files_mapped) for m in report.repomaps] == [("demo", 4)]
 
 
 def _score(found: int, reported: int) -> CorpusScore:
@@ -170,6 +172,24 @@ def test_validate_saves_a_report_per_category(tmp_path: Path, fetched: SampleRep
         {"demo": fetched.commit},
         ["demo/pkg/take.py"],
         None,
+    )
+
+
+def test_validate_keeps_each_category_as_a_run_of_its_sample_commits(
+    fetched: SampleRepository,
+) -> None:
+    """Verify each category's validation is kept in the run store, its subject the samples'
+    pinned commits, so later sweeps of the same samples can be compared (#554)."""
+    from devops_cli.ai.run_store import Mechanism, load_runs
+
+    result = cli.invoke(app, ["review", "samples", "validate"])
+    (run,) = load_runs(Mechanism.SAMPLE_VALIDATION)
+
+    assert (result.exit_code, run.subject, run.setup["review"], run.results["category"]) == (
+        0,
+        {"category": "python", "samples": {"demo": fetched.commit}},
+        False,
+        "python",
     )
 
 

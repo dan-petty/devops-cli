@@ -364,6 +364,139 @@ def _parse_hcl_symbols(code: str) -> list[PolyglotSymbol]:
 
 
 # ---------------------------------------------------------------------------
+# C#, C, C++ and Shell Regex Parsing
+# ---------------------------------------------------------------------------
+
+# Words a declaration pattern can mistake for a name: `if (x)`, `while (...)`.
+_CONTROL_WORDS = frozenset(
+    {"if", "for", "foreach", "while", "switch", "catch", "return", "sizeof", "using", "lock"}
+)
+_CS_MODIFIERS = (
+    r"(?:(?:public|private|protected|internal|static|sealed|abstract|partial|readonly|unsafe"
+    r"|virtual|override|async|extern|new)\s+)*"
+)
+# A statement that calls rather than declares: `return Foo(`, `await Bar(`.
+_NOT_A_DECLARATION = r"(?!(?:return|await|throw|yield|else|new)\b)"
+
+# Each language's line patterns, tried in order: the first that matches names the symbol.
+_LINE_PATTERNS: dict[str, tuple[tuple[re.Pattern[str], SymbolKind], ...]] = {
+    "csharp": (
+        (re.compile(r"^\s*namespace\s+([\w.]+)"), SymbolKind.MODULE),
+        (re.compile(rf"^\s*{_CS_MODIFIERS}(?:record\s+)?class\s+(\w+)"), SymbolKind.CLASS),
+        (re.compile(rf"^\s*{_CS_MODIFIERS}interface\s+(\w+)"), SymbolKind.INTERFACE),
+        (re.compile(rf"^\s*{_CS_MODIFIERS}(?:record\s+)?struct\s+(\w+)"), SymbolKind.STRUCT),
+        (re.compile(rf"^\s*{_CS_MODIFIERS}record\s+(\w+)"), SymbolKind.CLASS),
+        (re.compile(rf"^\s*{_CS_MODIFIERS}enum\s+(\w+)"), SymbolKind.TYPE),
+        (
+            re.compile(
+                rf"^\s*{_NOT_A_DECLARATION}{_CS_MODIFIERS}[\w<>\[\],.?]+\s+(\w+)\s*(?:<[^>]*>)?"
+                # A body on later lines, or an expression body: `Foo() => ...;`.
+                r"\s*\((?:[^;]*$|[^)]*\)\s*=>)"
+            ),
+            SymbolKind.METHOD,
+        ),
+    ),
+    "c": (
+        (re.compile(r"^\s*#\s*define\s+(\w+)\("), SymbolKind.FUNCTION),
+        (re.compile(r"^(?:typedef\s+)?(?:struct|union)\s+(\w+)\s*\{"), SymbolKind.STRUCT),
+        (re.compile(r"^(?:typedef\s+)?enum\s+(\w+)\s*\{"), SymbolKind.TYPE),
+        # A definition starts at column 0, as C code is written.
+        (
+            re.compile(
+                # An export macro may wrap the return type: `CJSON_PUBLIC(void) cJSON_Delete(...)`.
+                rf"^{_NOT_A_DECLARATION}(?:\w+\([^()]*\)\s*)?(?:[A-Za-z_][\w\s*]*?[\s*])?"
+                # The body may open on the line, or be written on it: `int f() { return 0; }`.
+                r"(\w+)\s*\([^;]*?\)\s*(?:\{.*)?$"
+            ),
+            SymbolKind.FUNCTION,
+        ),
+    ),
+    "cpp": (
+        (re.compile(r"^\s*namespace\s+([\w:]+)\s*\{"), SymbolKind.MODULE),
+        (re.compile(r"^\s*(?:template\s*<.*>\s*)?class\s+(\w+)[^;]*$"), SymbolKind.CLASS),
+        (re.compile(r"^\s*(?:template\s*<.*>\s*)?struct\s+(\w+)[^;]*$"), SymbolKind.STRUCT),
+        (re.compile(r"^\s*enum\s+(?:class\s+)?(\w+)"), SymbolKind.TYPE),
+        (re.compile(r"^\s*#\s*define\s+(\w+)\("), SymbolKind.FUNCTION),
+        (
+            re.compile(
+                rf"^{_NOT_A_DECLARATION}[A-Za-z_][\w\s*&:<>,]*?\b([\w:~]+)\s*\([^;]*?\)\s*(?:const\s*)?(?:\{{.*)?$"
+            ),
+            SymbolKind.FUNCTION,
+        ),
+    ),
+    "bash": (
+        (re.compile(r"^\s*function\s+([\w.:-]+)"), SymbolKind.FUNCTION),
+        (re.compile(r"^\s*([\w.:-]+)\s*\(\)\s*\{?"), SymbolKind.FUNCTION),
+    ),
+}
+
+
+def _match_line_patterns(language: str, line: str, idx: int) -> PolyglotSymbol | None:
+    for pattern, kind in _LINE_PATTERNS[language]:
+        match = pattern.match(line)
+        if match and match.group(1) not in _CONTROL_WORDS:
+            return PolyglotSymbol(
+                name=match.group(1),
+                kind=kind,
+                span=_make_span(idx, idx),
+                signature=line.strip(),
+                language=language,
+            )
+    return None
+
+
+def _parse_line_symbols(code: str, language: str) -> list[PolyglotSymbol]:
+    symbols: list[PolyglotSymbol] = []
+    for idx, line in enumerate(code.splitlines(), 1):
+        sym = _match_line_patterns(language, line, idx)
+        if sym:
+            symbols.append(sym)
+    return symbols
+
+
+# ---------------------------------------------------------------------------
+# Markdown Heading Parsing
+# ---------------------------------------------------------------------------
+
+RE_MD_HEADING = re.compile(r"^ {0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$")
+
+
+def _front_matter_end(lines: list[str]) -> int:
+    """The index of the first line after YAML front matter, or 0 without any."""
+    if not lines or lines[0].strip() != "---":
+        return 0
+    for idx, line in enumerate(lines[1:], 1):
+        if line.strip() == "---":
+            return idx + 1
+    return 0
+
+
+def _parse_markdown_symbols(code: str) -> list[PolyglotSymbol]:
+    """ATX headings, skipping front matter and fenced code, where `#` starts comments."""
+    lines = code.splitlines()
+    start = _front_matter_end(lines)
+    symbols: list[PolyglotSymbol] = []
+    fence = ""
+    for idx, line in enumerate(lines[start:], start + 1):
+        marker = line.lstrip()[:3]
+        if marker in ("```", "~~~"):
+            fence = "" if fence == marker else fence or marker
+            continue
+        match = None if fence else RE_MD_HEADING.match(line)
+        if match:
+            symbols.append(
+                PolyglotSymbol(
+                    name=match.group(1),
+                    kind=SymbolKind.HEADING,
+                    span=_make_span(idx, idx),
+                    signature=line.strip(),
+                    language="markdown",
+                )
+            )
+    return symbols
+
+
+# ---------------------------------------------------------------------------
 # Fallback Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -376,6 +509,11 @@ _PARSERS: dict[str, Any] = {
     "rust": _parse_rust_symbols,
     "java": _parse_java_symbols,
     "hcl": _parse_hcl_symbols,
+    "csharp": lambda c: _parse_line_symbols(c, "csharp"),
+    "c": lambda c: _parse_line_symbols(c, "c"),
+    "cpp": lambda c: _parse_line_symbols(c, "cpp"),
+    "bash": lambda c: _parse_line_symbols(c, "bash"),
+    "markdown": _parse_markdown_symbols,
 }
 
 

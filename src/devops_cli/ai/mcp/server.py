@@ -971,7 +971,7 @@ def ai_repomap(target_dir: str = ".") -> str:
 
 @mcp.tool()
 def ai_ast_parse(file_path: str, query: str = "") -> str:
-    """Parse a polyglot source file (Python, TypeScript, Go, Rust, Java, HCL) into syntax symbols or execute S-expression query."""
+    """Parse a polyglot source file (Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell, Markdown) into syntax symbols or execute S-expression query."""
     _validate_mcp_arg("file_path", file_path)
     cmd = ["uv", "run", "devops", "ai", "ast", "parse", file_path, "--json"]
     if query:
