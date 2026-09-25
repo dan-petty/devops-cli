@@ -747,7 +747,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Architecture & Threat Modeling Diagram Synthesis (`devops ai diagram`, `devops_cli.ai.diagram`)**:
   - Automated Mermaid architecture topology (`graph TD`) and STRIDE zero-trust threat flowcharts (`graph LR`).
 - **Prompt Mutation Testing & Benchmark Guardrails (`devops ai prompt-eval`, `devops_cli.ai.prompt_eval`)**:
-  - Mutation benchmark suite evaluating persona prompt variations against ground truth feedback datasets.
+  - Mutation benchmark suite evaluating persona prompt variations against ground truth feedback datasets. *(Correction: shipped as a deterministic suppression benchmark under that label without prompt perturbation; see #385 and #600).*
 - **Automated Unit Test Synthesizer (`devops ai test-gen`, `devops_cli.ai.test_gen`)**:
   - Synthesizes isolated pytest test suites from AST signatures and uncommitted diffs.
 - **Automated PR Remediation Branch Generator (`devops ai review auto-fix`, `devops_cli.ai.review.auto_fix`)**:
