@@ -15,7 +15,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import (
-    CONST_ROADMAP_PRIORITY_TAGS,
+    CONST_ROADMAP_PRIORITY_LABELS,
     CONST_ROADMAP_SCOPE_KEYWORDS,
 )
 from devops_cli.exceptions.git import GitHubOperationError
@@ -28,6 +28,17 @@ from devops_cli.github.milestones import _validate_roadmap_path
 from devops_cli.output import write_text_file
 
 logger = logging.getLogger(__name__)
+
+# The item's own "(Pn - ...)" tag: inside the bold title, followed only by further
+# parentheticals such as "(Issue #5)" before the closing "**", or directly after that
+# "**". The lazy title run never crosses "**", and parentheticals may nest one level, so
+# tag-shaped title words and description text never decide it.
+_ROADMAP_PAREN_BODY = r"(?:[^()]|\([^()]*\))*"
+_ROADMAP_PRIORITY_TAG_REGEX = re.compile(
+    rf"^- \[[ xX]\] \*\*(?:(?!\*\*).)*?(?P<after>\*\*\s*)?"
+    rf"\([pP](?P<level>[0-3])\s*-{_ROADMAP_PAREN_BODY}\)"
+    rf"(?(after)|(?:\s*\({_ROADMAP_PAREN_BODY}\))*\*\*)"
+)
 
 
 class RoadmapItem(BaseModel):
@@ -65,13 +76,15 @@ class RoadmapSyncResult(BaseModel):
     task_files_created: list[str] = Field(default_factory=list)
 
 
-def _extract_priority(text: str) -> str:
-    """Extract standard priority tag from item text or title."""
-    lower = text.lower()
-    for priority, tags in CONST_ROADMAP_PRIORITY_TAGS.items():
-        if any(tag in lower for tag in tags):
-            return priority
-    return "priority/p1-high"
+def _extract_priority(item_header: str) -> str:
+    """Map a roadmap item header's own (Pn - ...) tag to its priority label.
+
+    The tag sits in the bold title, where only parentheticals may follow it, or directly
+    after the bold. Only the tag's digit decides the priority; the word after the dash,
+    title words and description text do not. An untagged header yields the P1 default.
+    """
+    match = _ROADMAP_PRIORITY_TAG_REGEX.match(item_header)
+    return CONST_ROADMAP_PRIORITY_LABELS[match["level"]] if match else "priority/p1-high"
 
 
 def _derive_scope(title: str) -> str:
@@ -114,7 +127,7 @@ def _parse_single_roadmap_item(
     direct_desc = match.group(2).strip() if match and match.group(2) else ""
 
     clean_title = _clean_item_title(raw_title)
-    priority = _extract_priority(item_header + " " + " ".join(body_lines))
+    priority = _extract_priority(item_header)
     scope = _derive_scope(clean_title)
     issue_num = _extract_existing_issue_number(item_header)
 

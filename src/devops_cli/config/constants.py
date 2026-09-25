@@ -1622,11 +1622,12 @@ CONST_ROADMAP_SCOPE_KEYWORDS: Final[dict[str, frozenset[str]]] = {
     "scope/config": frozenset({"config", "settings", "keyring"}),
 }
 
-CONST_ROADMAP_PRIORITY_TAGS: Final[dict[str, tuple[str, ...]]] = {
-    "priority/p0-critical": ("p0", "blocker", "critical"),
-    "priority/p1-high": ("p1", "high"),
-    "priority/p2-medium": ("p2", "medium"),
-    "priority/p3-low": ("p3", "low"),
+# Roadmap item header tag digit, as in "(P0 - Critical)", to its GitHub priority label.
+CONST_ROADMAP_PRIORITY_LABELS: Final[dict[str, str]] = {
+    "0": "priority/p0-critical",
+    "1": "priority/p1-high",
+    "2": "priority/p2-medium",
+    "3": "priority/p3-low",
 }
 
 # ── Multi-Scale Semantic Outline & Inspection Scanner ────────────────────────

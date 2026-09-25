@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +19,7 @@ from devops_cli.github.roadmap_sync import (
     _extract_priority,
     _find_task_file_for_item,
     _is_issue_matching_item,
+    _parse_single_roadmap_item,
     extract_roadmap_items,
     sync_roadmap_to_issues,
 )
@@ -45,12 +47,24 @@ def test_roadmap_item_slug_and_normalization() -> None:
 
 
 def test_extract_priority_and_derive_scope() -> None:
-    """Extraction helpers parse priorities and domain scopes correctly."""
-    p0 = _extract_priority("Critical fix (P0 - Blocker)")
-    p1 = _extract_priority("Feature work (P1 - High)")
-    p2 = _extract_priority("Minor tweak (P2 - Medium)")
-    p3 = _extract_priority("Backlog chore (P3 - Low)")
-    p_default = _extract_priority("Unspecified priority item")
+    """Priority comes only from the header's (Pn - ...) tag; scopes come from title words."""
+    p_blocker = _parse_single_roadmap_item(
+        "- [ ] **In-Flight Work, PR Stagnation & Blocker Radar (P1 - High)**: Blocker radar.",
+        ["  - *Context & Rationale*: Critical blockers stall high-value work."],
+        "v0.2.23",
+        "Roadmap Deferrals",
+        "Scheduled",
+    ).priority
+    p0 = _extract_priority("- [ ] **Forward-looking PM engine** (P0 - High): Proactive sync.")
+    p2 = _extract_priority("- [ ] **Low-Latency Cache (P2 - Medium, Issue #551)**: High hit rate.")
+    p3 = _extract_priority("- [x] **Critical Docs Sweep** (P3 - Low): Blocker cleanup.")
+    p_untagged = _extract_priority("- [ ] **Critical high blocker**: Untagged item.")
+    p_desc_only = _extract_priority("- [ ] **Untagged title**: Mirrors the (P0 - Critical) item.")
+    p_title_paren = _extract_priority("- [ ] **Retire (P1-era) shim (P2 - Medium)**: Cleanup.")
+    p_title_call = _extract_priority("- [ ] **Run `f(P0 - z)` probe (P3 - Low)**: Diagnostics.")
+    p_after_paren = _extract_priority("- [ ] **Drop (P3-only) hack** (P0 - High): Removal.")
+    p_trailing = _extract_priority("- [ ] **Queue drain (P2 - Medium) (Issue #5)**: Backlog.")
+    p_nested = _extract_priority("- [ ] **Retry cap (P3 - Low, see (a))**: High churn.")
 
     s_gh = _derive_scope("Automated PM sprint board sync")
     s_ai = _derive_scope("MCTS heuristic exploration tree")
@@ -62,11 +76,17 @@ def test_extract_priority_and_derive_scope() -> None:
     s_cli = _derive_scope("General workstation command ergonomics")
 
     assert (
+        p_blocker,
         p0,
-        p1,
         p2,
         p3,
-        p_default,
+        p_untagged,
+        p_desc_only,
+        p_title_paren,
+        p_title_call,
+        p_after_paren,
+        p_trailing,
+        p_nested,
         s_gh,
         s_ai,
         s_k8s,
@@ -76,11 +96,17 @@ def test_extract_priority_and_derive_scope() -> None:
         s_tel,
         s_cli,
     ) == (
-        "priority/p0-critical",
         "priority/p1-high",
+        "priority/p0-critical",
         "priority/p2-medium",
         "priority/p3-low",
         "priority/p1-high",
+        "priority/p1-high",
+        "priority/p2-medium",
+        "priority/p3-low",
+        "priority/p0-critical",
+        "priority/p2-medium",
+        "priority/p3-low",
         "scope/github",
         "scope/ai",
         "scope/k8s",
@@ -183,6 +209,29 @@ def test_extract_roadmap_items_live_file() -> None:
 
     milestones = {i.milestone for i in items}
     assert ("v0.2.20" in milestones, any(not i.is_completed for i in items)) == (True, True)
+
+
+def test_extract_roadmap_items_live_file_priorities_match_tags() -> None:
+    """Every open item in live docs/ROADMAP.md carries one (Pn - ...) tag and derives it."""
+    labels = {
+        "0": "priority/p0-critical",
+        "1": "priority/p1-high",
+        "2": "priority/p2-medium",
+        "3": "priority/p3-low",
+    }
+    content = Path("docs/ROADMAP.md").read_text(encoding="utf-8")
+    section = content.split("## Release Milestones (Chronological Order)", 1)[1]
+    section = section.split("## Value vs. Effort Prioritization Matrix", 1)[0]
+    headers = [line for line in section.splitlines() if line.startswith("- [ ] ")]
+    titles = [re.match(r"- \[ \] \*\*(.+?)\*\*\s*(\([^)]*\))?", header) for header in headers]
+    tags = [re.findall(r"\(P([0-3]) - ", f"{t[1]} {t[2] or ''}") if t else [] for t in titles]
+    open_items = [i for i in extract_roadmap_items(Path("docs/ROADMAP.md")) if not i.is_completed]
+
+    assert (
+        len(open_items) > 0,
+        [header for header, found in zip(headers, tags, strict=True) if len(found) != 1],
+        [i.priority for i in open_items],
+    ) == (True, [], [labels.get("".join(found), "untagged") for found in tags])
 
 
 def test_is_issue_matching_item() -> None:
