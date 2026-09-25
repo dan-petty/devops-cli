@@ -713,7 +713,7 @@ devops ai review stats [OPTIONS]
 
 ### `devops ai review benchmark`
 
-**Review the same files several times and report median time, LLM calls and tokens per stage.**
+**Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage.**
 
 ```bash
 devops ai review benchmark [OPTIONS] <targets>

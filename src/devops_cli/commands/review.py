@@ -53,6 +53,7 @@ from devops_cli.ai.review.patching import stage_finding_patch
 from devops_cli.ai.review.profile import (
     BenchmarkSummary,
     ReviewProfile,
+    StageSummary,
     collect_profiles,
     summarize_profiles,
 )
@@ -1055,6 +1056,15 @@ def _backend_host(served_by: str) -> str:
     return host.split(".", 1)[0] if host.endswith(".svc.cluster.local") else host
 
 
+def _busy_shares(stage: StageSummary) -> str:
+    """Each backend's share of the stage it spent serving calls, busiest first, with its peak."""
+    shares = sorted(stage.backend_busy_share.items(), key=lambda item: -item[1])
+    return ", ".join(
+        f"{_backend_host(backend)} {share:.0%} ×{stage.backend_peak_concurrency.get(backend, 0)}"
+        for backend, share in shares
+    )
+
+
 def _render_benchmark(summary: BenchmarkSummary, saved: Path) -> None:
     """Show the median review and the median of each stage."""
     per_candidate = summary.median_seconds_per_candidate
@@ -1084,6 +1094,7 @@ def _render_benchmark(summary: BenchmarkSummary, saved: Path) -> None:
                 f"{_backend_host(backend)} {calls}"
                 for backend, calls in sorted(stage.backends.items(), key=lambda item: -item[1])
             ),
+            _busy_shares(stage),
         ]
         for stage in summary.stages
     ]
@@ -1096,6 +1107,7 @@ def _render_benchmark(summary: BenchmarkSummary, saved: Path) -> None:
             ("Prompt Tokens", "right"),
             ("Completion Tokens", "right"),
             ("Backends (calls, all runs)", "magenta"),
+            ("Busy (median share, peak in flight)", "magenta"),
         ],
         rows=rows,
     )
@@ -1133,7 +1145,7 @@ def benchmark(
         typer.Option("--concurrency", "-c", help=HELP.review.concurrency),
     ] = None,
 ) -> None:
-    """Review the same files several times and report median time, LLM calls and tokens per stage."""
+    """Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage."""
     # Each run bypasses the response cache and writes its session's profile.json. Findings vary
     # between identical runs, so the summary takes medians, and time per candidate finding
     # normalises for runs that happen to verify more findings.

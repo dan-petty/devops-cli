@@ -214,7 +214,7 @@ devops review stats [OPTIONS]
 
 ## `devops review benchmark`
 
-**Review the same files several times and report median time, LLM calls and tokens per stage.**
+**Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage.**
 
 ```bash
 devops review benchmark [OPTIONS] <targets>
