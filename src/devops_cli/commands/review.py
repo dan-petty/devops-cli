@@ -90,6 +90,15 @@ from devops_cli.ai.review_schema import (
     SavedFinding,
     format_clean_text_field,
 )
+from devops_cli.ai.run_store import (
+    Mechanism,
+    digest,
+    keep_runs,
+    new_run,
+    record_run,
+    review_setup,
+)
+from devops_cli.commands.ai_runs import announce_run, announce_runs
 from devops_cli.config.settings import load_settings
 from devops_cli.output import (
     escape_text,
@@ -1155,6 +1164,21 @@ def benchmark(
     summary = summarize_profiles(profiles)
     summary.corpus_digest = _corpus_digest(targets, pattern)
     _render_benchmark(summary, summary.write(runner._get_reviews_base_dir()))
+    setup = review_setup(
+        persona=persona.value if persona else None,
+        all_personas=all_personas,
+        pre_analysis=not no_pre_analysis,
+        concurrency=concurrency,
+    )
+    subject = {"corpus_digest": summary.corpus_digest, "target": Path(summary.target).name}
+    announce_run(
+        record_run(
+            Mechanism.REVIEW_BENCHMARK,
+            setup=setup,
+            subject=subject,
+            results=summary.model_dump(mode="json"),
+        )
+    )
 
 
 # =============================================================================
@@ -1349,10 +1373,18 @@ def corpus_score(
     candidates_file = session_dir / CONST_REVIEW_CANDIDATES_FILENAME
     candidates = _session_findings(candidates_file) if candidates_file.exists() else reported
     score = score_corpus(corpus, candidates, reported, session_id=session_dir.name)
+    # The setup is read when scoring, so score a review before changing its models or pool.
+    saved = record_run(
+        Mechanism.CORPUS_SCORE,
+        setup=review_setup(),
+        subject={"corpus_digest": digest(corpus.model_dump(mode="json", exclude={"created_at"}))},
+        results=score.model_dump(mode="json"),
+    )
     if json_output:
         write_stdout(score.model_dump_json(indent=2) + "\n")
-        return
-    _render_corpus_score(score)
+    else:
+        _render_corpus_score(score)
+    announce_run(saved, to_stderr=json_output)
 
 
 # =============================================================================
@@ -1574,6 +1606,19 @@ def samples_validate(
         report.write(run_dir)
         reports.append(report)
     _render_validation(reports, run_dir)
+    setup = {"review": review, "seed": seed, "all_personas": all_personas}
+    if review:
+        setup |= review_setup()
+    records = [
+        new_run(
+            Mechanism.SAMPLE_VALIDATION,
+            setup=setup,
+            subject={"category": report.category, "samples": report.samples},
+            results=report.model_dump(mode="json"),
+        )
+        for report in reports
+    ]
+    announce_runs(keep_runs(records))
 
 
 # =============================================================================

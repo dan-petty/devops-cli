@@ -348,7 +348,7 @@ def test_corpus_commands_generate_then_score_the_latest_review_of_that_corpus(
     _session(reviews, "20260924-110000", source, [])
 
     scored = cli.invoke(app, ["review", "corpus", "score", str(corpus_dir), "--json"])
-    score = json.loads(scored.output)
+    score = json.loads(scored.stdout)
     again = cli.invoke(app, ["review", "corpus", "generate", str(source), "--seed", "7"])
 
     assert (
@@ -356,6 +356,31 @@ def test_corpus_commands_generate_then_score_the_latest_review_of_that_corpus(
         (scored.exit_code, score["session_id"], score["reported"], score["injections"]),
         again.exit_code,
     ) == (0, (0, "20260924-100000", 1, 2), 1)
+
+
+def test_a_corpus_score_is_kept_with_each_injections_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a score is kept in the run store, its subject the corpus's injections, so scores
+    of the same corpus under different setups can be compared (#554)."""
+    from devops_cli.ai.run_store import Mechanism, load_runs
+
+    reviews = tmp_path / "reviews"
+    monkeypatch.setattr(runner, "_get_reviews_base_dir", lambda: reviews)
+    source = _source_tree(tmp_path)
+    corpus_dir = tmp_path / "corpus"
+    generate_corpus(_sources(source), corpus_dir, sources=[str(source)], seed=1)
+    _session(reviews, "20260924-100000", corpus_dir / CORPUS_FILES_DIR, [])
+
+    first = cli.invoke(app, ["review", "corpus", "score", str(corpus_dir)])
+    second = cli.invoke(app, ["review", "corpus", "score", str(corpus_dir)])
+    runs = load_runs(Mechanism.CORPUS_SCORE)
+
+    assert (
+        (first.exit_code, second.exit_code),
+        len({r.subject_key for r in runs}),
+        [len(r.results["outcomes"]) for r in runs],
+    ) == ((0, 0), 1, [2, 2])
 
 
 def test_score_without_a_review_of_the_corpus_fails(

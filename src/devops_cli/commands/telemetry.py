@@ -147,11 +147,12 @@ def telemetry_connect_cmd(
 ) -> None:
     """Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there."""
     from devops_cli.config.settings import load_settings, save_settings
-    from devops_cli.telemetry.collector import CollectorNotFoundError, collector_endpoint
+    from devops_cli.k8s.node_port import ServiceNotReachableError
+    from devops_cli.telemetry.collector import collector_endpoint
 
     try:
         endpoint = collector_endpoint(context, namespace, service)
-    except CollectorNotFoundError as exc:
+    except ServiceNotReachableError as exc:
         print_error(f"Cannot find the collector: {exc}", prefix=False)
         raise typer.Exit(1) from exc
     reachable, health, latency_ms = OTelTelemetryClient(endpoint=endpoint).test_connection(

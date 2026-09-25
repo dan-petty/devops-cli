@@ -23,6 +23,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devops_cli.ai.run_store import digest
 from devops_cli.config.constants import CONST_STATUS_INVALIDATED, CONST_STATUS_VERIFIED
 from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import find_top_level_repo_root
@@ -40,6 +41,8 @@ class PromptEvalBenchmarkResult(BaseModel):
     labelled_verified: int
     caught_invalidations: int
     contested_verifications: int
+    # Equal for evaluations of the same recorded verdicts.
+    dataset_digest: str = ""
     details: list[dict[str, Any]] = Field(default_factory=list)
 
     @property
@@ -75,6 +78,7 @@ class PromptEvalBenchmarkResult(BaseModel):
             "contested_verifications": self.contested_verifications,
             "catch_rate": round(self.catch_rate, 4),
             "contested_rate": round(self.contested_rate, 4),
+            "dataset_digest": self.dataset_digest,
             "details": self.details,
         }
 
@@ -183,5 +187,6 @@ def evaluate_persona_prompts(
         labelled_verified=labelled_verified,
         caught_invalidations=caught,
         contested_verifications=len(contested),
+        dataset_digest=digest(records),
         details=contested[:10],
     )
