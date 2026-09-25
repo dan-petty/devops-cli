@@ -72,6 +72,10 @@ config:
     # for production zero-trust networking, configure https endpoint, TLS secrets, and basic_auth).
     prometheusremotewrite:
       endpoint: http://kube-prometheus-kube-prome-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+      # devops-cli names its metrics as Prometheus does (`_total`, `_seconds`); added unit
+      # suffixes turned `devops_cli_command_total` into `devops_cli_command_total_ratio`,
+      # which no dashboard queries.
+      translation_strategy: UnderscoreEscapingWithoutSuffixes
 
   service:
     pipelines:
@@ -93,9 +97,10 @@ config:
         processors: [memory_limiter, batch]
         exporters: [debug]
 
-# Expose OTLP ports via ClusterIP (internal cluster networking only)
+# NodePort, so workstations can export too: `devops telemetry connect` finds the port
+# Kubernetes assigns. Inside the cluster the service name still works.
 service:
-  type: ClusterIP
+  type: NodePort
 
 ports:
   metrics:

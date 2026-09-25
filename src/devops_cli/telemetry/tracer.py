@@ -6,16 +6,20 @@ import atexit
 import contextlib
 import contextvars
 import functools
+import hashlib
 import logging
 import os
 import platform
 import secrets
+import sys
 import threading
 import time
 from collections import deque
 from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import wait as wait_futures
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Any, TypeVar
 
 import httpx2
@@ -29,10 +33,12 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_OTEL_COUNTER_AMOUNT,
+    DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_OTEL_ENDPOINT,
     DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS,
     DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS,
     DEFAULT_OTEL_TEST_TIMEOUT,
+    DEFAULT_OTEL_WARNING_INTERVAL_SECONDS,
     DEFAULT_SPAN_BUFFER_MAX_SPANS,
 )
 from devops_cli.telemetry.propagation import (
@@ -526,6 +532,12 @@ class OTelTelemetryClient:
         self._grpc_exporter: Any = None
         self._executor: ContextPropagatingThreadPoolExecutor | None = None
         self._client_lock = threading.Lock()
+        # Exports still in flight, drained at shutdown; and how exports have fared, so a
+        # collector that never answers is reported rather than silently dropping everything.
+        self._pending: set[Future[None]] = set()
+        self.export_failures = 0
+        self.export_successes = 0
+        self.last_export_error = ""
 
         # Cache pre-computed resource attributes for zero-allocation reuse across all spans and metrics
         self._cached_resource_attributes: list[dict[str, Any]] = [
@@ -936,8 +948,13 @@ class OTelTelemetryClient:
         try:
             url = f"{self.endpoint}{path}"
             client = self._get_http_client()
-            client.post(url, json=payload)
+            response = client.post(url, json=payload)
+            if response.status_code >= 400:
+                raise RuntimeError(f"HTTP {response.status_code}")
+            self.export_successes += 1
         except Exception as exc:
+            self.export_failures += 1
+            self.last_export_error = str(exc) or type(exc).__name__
             logger.debug("OTel payload send failed to %s%s: %s", self.endpoint, path, exc)
 
     def _send_payload(self, path: str, payload: dict[str, Any]) -> None:
@@ -946,12 +963,22 @@ class OTelTelemetryClient:
             return
         try:
             executor = self._get_executor()
-            executor.submit(self._send_payload_sync, path, payload)
+            future = executor.submit(self._send_payload_sync, path, payload)
+            self._pending.add(future)
+            future.add_done_callback(self._pending.discard)
         except Exception as exc:
             logger.debug("Failed submitting OTel payload to executor: %s", exc)
 
     def shutdown(self, timeout_millis: int = DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS) -> None:
-        """Cleanly close background executor, gRPC exporter, and pooled HTTP transport with bounded drain timeout."""
+        """Cleanly close background executor, gRPC exporter, and pooled HTTP transport with bounded drain timeout.
+
+        Exports still in flight get up to DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS to finish: a short
+        command queues its spans at the very end, and cancelling them lost its root span. The
+        wait happens before taking the client lock, which the exports need.
+        """
+        pending = [f for f in list(self._pending) if not f.done()]
+        if pending:
+            wait_futures(pending, timeout=DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS)
         with self._client_lock:
             if self._executor is not None:
                 try:
@@ -1129,6 +1156,43 @@ def shutdown_tracer(timeout_millis: int = DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS) -> N
     global _GLOBAL_TRACER
     if _GLOBAL_TRACER is not None:
         _GLOBAL_TRACER.shutdown(timeout_millis=timeout_millis)
+        _warn_if_exports_failed(_GLOBAL_TRACER)
+
+
+def _warn_if_exports_failed(client: OTelTelemetryClient) -> None:
+    """Tell an interactive user, at most once a day per endpoint, that telemetry went nowhere.
+
+    Export failures are otherwise silent, which is how a workstation's traces and metrics were
+    dropped for good with nothing to show for it. Non-interactive runs (CI, tests) stay quiet.
+    """
+    if not client.enabled or not client.export_failures or client.export_successes:
+        return
+    if not sys.stderr.isatty():
+        return
+    marker = _export_warning_marker(client.endpoint)
+    try:
+        if (
+            marker.exists()
+            and time.time() - marker.stat().st_mtime < DEFAULT_OTEL_WARNING_INTERVAL_SECONDS
+        ):
+            return
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+    except OSError:
+        return
+    sys.stderr.write(
+        f"Telemetry could not reach {client.endpoint}: {client.export_failures} export(s) failed "
+        f"({client.last_export_error}). Run `devops telemetry connect` to find the cluster's "
+        "collector, or set telemetry.enabled to false.\n"
+    )
+
+
+def _export_warning_marker(endpoint: str) -> Path:
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+
+    digest = hashlib.sha256(endpoint.encode()).hexdigest()[:12]
+    return resolve_data_path(load_settings().data.dir) / "telemetry" / f"export-warning-{digest}"
 
 
 atexit.register(shutdown_tracer)

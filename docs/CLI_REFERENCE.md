@@ -7143,6 +7143,23 @@ OpenTelemetry tracing, metrics, and Jaeger observability.
 devops telemetry status
 ```
 
+### `devops telemetry connect`
+
+**Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there.**
+
+```bash
+devops telemetry connect [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context` | `string` | - | Kubernetes context of the cluster running the collector (default: current). |
+| `--namespace`, `-n` | `string` | `otel` | Namespace of the collector service. |
+| `--service` | `string` | `otel-collector-opentelemetry-collector` | Name of the collector service. |
+| `--save`, `--no-save` | `boolean` | `True` | Save the endpoint as telemetry.endpoint (default) or only check it. |
+
 ### `devops telemetry logfire`
 
 **Display Logfire structured observability bridge status and token metrics.**

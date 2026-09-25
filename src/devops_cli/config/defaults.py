@@ -466,6 +466,10 @@ DEFAULT_PR_LIMIT: int = 30
 DEFAULT_OTEL_COUNTER_AMOUNT: float = 1.0
 DEFAULT_OTEL_TEST_TIMEOUT: float = 1.0
 DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS: int = 50
+# Longest a command's exit waits for telemetry exports still in flight.
+DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS: float = 1.0
+# How often an interactive user is told, per endpoint, that telemetry exports fail.
+DEFAULT_OTEL_WARNING_INTERVAL_SECONDS: int = 86400
 DEFAULT_TELEMETRY_TEST_NAME: str = "devops-cli.manual_test"
 
 # ── AI Formatting & XML Prompt Serialization Defaults ────────────────────────

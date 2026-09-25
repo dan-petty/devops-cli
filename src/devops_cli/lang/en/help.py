@@ -976,6 +976,15 @@ class ScanCommandHelp:
 class TelemetryCommandHelp:
     app: str = "OpenTelemetry tracing, metrics, and Jaeger observability."
     status: str = "Show telemetry collector connectivity and service configuration."
+    connect: str = (
+        "Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there."
+    )
+    connect_context: str = (
+        "Kubernetes context of the cluster running the collector (default: current)."
+    )
+    connect_namespace: str = "Namespace of the collector service."
+    connect_service: str = "Name of the collector service."
+    connect_save: str = "Save the endpoint as telemetry.endpoint (default) or only check it."
     test_span: str = "Emit a synthetic test span to verify Jaeger tracing collector."
     span_name: str = "Name for test span."
     profile: str = (
