@@ -561,6 +561,7 @@ def _try_save_ci_cache(
         file_hashes=file_hashes,
         options=ci_options,
         passed=True,
+        root=root,
     )
 
 
@@ -603,7 +604,7 @@ def _handle_ci_results(
 
     from devops_cli.ci.cache import clear_ci_cache
 
-    clear_ci_cache()
+    clear_ci_cache(root)
     raise typer.Exit(1)
 
 

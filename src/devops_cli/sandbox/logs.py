@@ -13,6 +13,7 @@ from typing import Final
 
 from devops_cli.config.defaults import DEFAULT_SANDBOX_INCIDENTS_DIR
 from devops_cli.core.paths import safe_resolve_subpath, validate_no_path_traversal
+from devops_cli.core.repo import main_worktree_root, resolve_data_path
 from devops_cli.exceptions.sandbox import SandboxError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.sandbox.models import (
@@ -80,7 +81,8 @@ def parse_docker_log_line(raw: str | bytes, default_stream: str = "stdout") -> S
 
 
 def resolve_incident_dir(base_dir: Path | None = None) -> Path:
-    """Determine incident directory respecting DEVOPS_CLI_DATA_DIR and path traversal safety."""
+    """Determine incident directory respecting DEVOPS_CLI_DATA_DIR and path traversal safety; a
+    relative data directory is under the main worktree, shared by every worktree."""
     from devops_cli.core.paths import is_forbidden_system_path
 
     if base_dir is not None:
@@ -93,16 +95,19 @@ def resolve_incident_dir(base_dir: Path | None = None) -> Path:
         return resolved
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_dir:
-        validated_env = validate_no_path_traversal(env_dir, label="DEVOPS_CLI_DATA_DIR")
-        resolved_env = Path(validated_env).resolve()
+        validated_env = Path(validate_no_path_traversal(env_dir, label="DEVOPS_CLI_DATA_DIR"))
+        anchored_env = (
+            validated_env if validated_env.is_absolute() else main_worktree_root() / validated_env
+        )
+        resolved_env = anchored_env.resolve()
         if is_forbidden_system_path(resolved_env):
             raise SecurityError(
                 f"DEVOPS_CLI_DATA_DIR {resolved_env} resolves to a forbidden system path"
             )
-        if Path(env_dir).is_symlink():
+        if anchored_env.is_symlink():
             raise SecurityError(f"DEVOPS_CLI_DATA_DIR must not be a symlink: {env_dir}")
         return resolved_env / "sandbox" / "incidents"
-    return DEFAULT_SANDBOX_INCIDENTS_DIR
+    return resolve_data_path(DEFAULT_SANDBOX_INCIDENTS_DIR)
 
 
 def archive_incident(incident: PanicIncident, base_dir: Path | None = None) -> Path:

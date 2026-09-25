@@ -78,9 +78,7 @@ def test_workspaces_endpoint_with_nested_repos(
     direct_repo.mkdir(parents=True)
     (direct_repo / ".git").mkdir()
 
-    monkeypatch.setattr(
-        "devops_cli.server.routes.workspace.find_top_level_repo_root", lambda: fake_root
-    )
+    monkeypatch.setattr("devops_cli.server.routes.workspace.main_worktree_root", lambda: fake_root)
     response = client.get("/api/v1/workspaces")
     assert response.status_code == 200
     data = response.json()
@@ -165,9 +163,7 @@ def test_workspaces_endpoint_empty_repos(
     """Test /api/v1/workspaces when repos directory does not exist."""
     fake_empty = tmp_path / "empty_workspace"
     fake_empty.mkdir()
-    monkeypatch.setattr(
-        "devops_cli.server.routes.workspace.find_top_level_repo_root", lambda: fake_empty
-    )
+    monkeypatch.setattr("devops_cli.server.routes.workspace.main_worktree_root", lambda: fake_empty)
     response = client.get("/api/v1/workspaces")
     assert response.status_code == 200
     data = response.json()

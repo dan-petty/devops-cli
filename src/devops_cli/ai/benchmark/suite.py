@@ -16,7 +16,7 @@ from typing import Any
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
-from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.core.repo import find_worktree_root, main_worktree_root
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.exceptions import SecurityError
 from devops_cli.models.benchmark import (
@@ -45,14 +45,14 @@ def _get_rank_badge(rank: int) -> str:
 
 
 def _resolve_suite_dataset_path(dataset_path: Path | None) -> Path:
-    """Safely validate and resolve feedback dataset JSONL path."""
-    top_root = find_top_level_repo_root(Path.cwd())
-    if dataset_path is None:
-        settings = load_settings()
-        ds = settings.data.feedback_dataset_path
-        target_path = ds if ds.is_absolute() else (top_root / ds)
-    else:
-        target_path = dataset_path if dataset_path.is_absolute() else (top_root / dataset_path)
+    """Safely validate and resolve feedback dataset JSONL path.
+
+    A relative path, configured or given, is a data path: it resolves under the main worktree,
+    whose data directory every worktree shares.
+    """
+    data_root = main_worktree_root()
+    ds = load_settings().data.feedback_dataset_path if dataset_path is None else dataset_path
+    target_path = ds if ds.is_absolute() else data_root / ds
 
     if target_path.is_symlink():
         raise SecurityError(f"dataset_path must not be a symbolic link: {target_path}")
@@ -61,7 +61,8 @@ def _resolve_suite_dataset_path(dataset_path: Path | None) -> Path:
     import tempfile
 
     allowed_roots = [
-        top_root.resolve(),
+        data_root,
+        find_worktree_root(),
         Path.cwd().resolve(),
         Path(tempfile.gettempdir()).resolve(),
     ]
