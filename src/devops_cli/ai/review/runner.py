@@ -1741,6 +1741,16 @@ def _record_profile_findings(payloads: list[Any], candidates: int) -> None:
         reported=sum(1 for f in findings if f.reportable),
         verdict_distributions=compute_verdict_distributions(findings),
     )
+    if not profiler._persona_replies:
+        for p in payloads:
+            for r in getattr(p, "ai_scratchpad", {}).get("persona_replies", []):
+                profiler.record_persona_reply(
+                    file=getattr(p, "file_path", ""),
+                    persona=r.get("persona", "unknown"),
+                    outcome=r.get("outcome", "unparsed"),
+                    persona_title=r.get("persona_title", ""),
+                    page=r.get("page", 1),
+                )
 
 
 def _write_review_profile(

@@ -1252,6 +1252,113 @@ def test_execute_page_review_steps_isolates_persona_history() -> None:
     pipeline = MagicMock()
     pipeline.run.return_value = MagicMock(steps=[])
 
-    count = _execute_page_review_steps(pipeline, "prompt", "a.py", 0, 1, {}, [], [], [])
+    count, outcomes = _execute_page_review_steps(pipeline, "prompt", "a.py", 0, 1, {}, [], [], [])
 
-    assert (count, pipeline.run.call_args.kwargs["message_history"]) == (0, [])
+    assert (count, outcomes, pipeline.run.call_args.kwargs["message_history"]) == (0, [], [])
+
+
+def test_multi_persona_review_tracks_unparsed_replies_and_degrades_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify unparsed LLM replies are recorded in scratchpad and profile, degrading stage."""
+    from devops_cli.ai.review.profile import profiling
+
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+    mock_llm = MagicMock()
+    mock_llm.chat_messages.return_value = "Everything looks clean and well implemented."
+    mock_llm.chat_complete.return_value = "Everything looks clean and well implemented."
+    mock_llm.chat.return_value = "Everything looks clean and well implemented."
+    mock_llm.complete.return_value = "Everything looks clean and well implemented."
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="unparsed-test", llm_client=mock_llm)
+    payloads = orchestrator.init_per_file_payloads(["src/clean.py"], {})
+
+    with profiling() as profiler:
+        orchestrator.execute_multi_persona_review(
+            payloads,
+            diff_text_by_file={"src/clean.py": "def foo(): pass\n"},
+            personas=["devsecops"],
+        )
+
+    p = payloads[0]
+    expected_replies = [
+        {
+            "persona": "devsecops",
+            "persona_title": "Principal DevSecOps Engineer",
+            "outcome": "unparsed",
+            "page": 1,
+        }
+    ]
+    profile = profiler.build(session_id="unparsed-test", target="src/clean.py")
+    assert (
+        p.ai_scratchpad["stage"],
+        p.ai_scratchpad["unparsed_personas"],
+        p.ai_scratchpad["persona_outcomes"],
+        p.ai_scratchpad["persona_replies"],
+        profile.unparsed_personas,
+        profile.persona_outcomes,
+    ) == (
+        "unparsed",
+        ["Principal DevSecOps Engineer"],
+        {"devsecops": "unparsed"},
+        expected_replies,
+        ["Principal DevSecOps Engineer"],
+        {"unparsed": 1},
+    )
+
+
+def test_multi_persona_review_tracks_bare_empty_list_and_degrades_partially_on_mixed_replies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify bare [] records empty outcome, and mixed persona outcomes degrade file to degraded."""
+    from devops_cli.ai.review.profile import profiling
+
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+    mock_llm = MagicMock()
+
+    finding_json = (
+        '{"findings": [{"severity": "HIGH", "location": "src/app.py:1", '
+        '"title": "Secret Leak", "description": "Token in code", "fix": "Remove token", '
+        '"confidence_score": 0.95}]}'
+    )
+
+    def _fake_chat(*args: object, **kwargs: object) -> str:
+        text = f"{args} {kwargs}"
+        if "Enterprise Infrastructure Architect" in text:
+            return "[]"
+        if "Senior Test Engineer" in text:
+            return "I have reviewed this code and found no obvious functional defects."
+        return finding_json
+
+    mock_llm.chat_messages.side_effect = _fake_chat
+    mock_llm.chat_complete.side_effect = _fake_chat
+    mock_llm.chat.side_effect = _fake_chat
+    mock_llm.complete.side_effect = _fake_chat
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="mixed-test", llm_client=mock_llm)
+    payloads = orchestrator.init_per_file_payloads(["src/app.py"], {})
+
+    with profiling() as profiler:
+        orchestrator.execute_multi_persona_review(
+            payloads,
+            diff_text_by_file={"src/app.py": "API_KEY = 'secret'\n"},
+            personas=["devsecops", "architect", "qa"],
+        )
+
+    profile = profiler.build(session_id="mixed-test", target="src/app.py")
+    p = payloads[0]
+    assert (
+        p.ai_scratchpad["stage"],
+        p.ai_scratchpad["unparsed_personas"],
+        p.ai_scratchpad["persona_outcomes"],
+        len(p.findings),
+        profile.unparsed_personas,
+        profile.persona_outcomes,
+    ) == (
+        "degraded",
+        ["Senior Test Engineer"],
+        {"devsecops": "findings", "architect": "empty", "qa": "unparsed"},
+        1,
+        ["Senior Test Engineer"],
+        {"findings": 1, "empty": 1, "unparsed": 1},
+    )

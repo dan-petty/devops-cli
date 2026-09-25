@@ -1008,10 +1008,11 @@ def _tally_single_session_findings(
             count += 1
             st = f.status
             by_status[st] = by_status.get(st, 0) + 1
-            persona = f.persona or "unknown"
-            by_persona_total[persona] = by_persona_total.get(persona, 0) + 1
-            if st == "INVALIDATED":
-                by_persona_invalidated[persona] = by_persona_invalidated.get(persona, 0) + 1
+            raw_personas = [p.strip() for p in (f.persona or "").split(",") if p.strip()]
+            for persona in raw_personas or ["unknown"]:
+                by_persona_total[persona] = by_persona_total.get(persona, 0) + 1
+                if st == "INVALIDATED":
+                    by_persona_invalidated[persona] = by_persona_invalidated.get(persona, 0) + 1
             all_findings.append(f)
         return count
     except Exception:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -449,3 +450,66 @@ def test_finding_location_and_title_sanitizes_criteria_leakage() -> None:
     assert f.location == "src/devops_cli/commands/install_tools.py:1"
     assert "Provide verification criteria" not in f.title
     assert "Invalidation criteria" not in f.location
+
+
+def test_tally_single_session_findings_splits_comma_joined_personas(tmp_path: Path) -> None:
+    """Verify that _tally_single_session_findings splits comma-joined persona strings."""
+    from devops_cli.ai.review_schema import SavedFinding
+    from devops_cli.commands.review import _tally_single_session_findings
+
+    findings_file = tmp_path / "findings.json"
+    f1 = SavedFinding(
+        title="SQL Injection",
+        location="src/db.py:10",
+        description="Raw SQL concatenation",
+        fix="Use parameters",
+        status="INVALIDATED",
+        persona="devsecops, architect",
+    )
+    f2 = SavedFinding(
+        title="Unbounded Concurrency",
+        location="src/worker.py:20",
+        description="Missing semaphore",
+        fix="Add semaphore",
+        status="VERIFIED",
+        persona="architect, performance",
+    )
+    f3 = SavedFinding(
+        title="Missing Test",
+        location="src/test_api.py:1",
+        description="No test coverage",
+        fix="Add tests",
+        status="UNVERIFIED",
+        persona="",
+    )
+    payload = ReviewSessionPayload(
+        target_type="path",
+        target_ref=str(tmp_path),
+        findings=[f1, f2, f3],
+        generated_at=datetime.now(UTC).isoformat(),
+    )
+    findings_file.write_text(payload.model_dump_json(), encoding="utf-8")
+
+    by_status: dict[str, int] = {}
+    by_persona_total: dict[str, int] = {}
+    by_persona_invalidated: dict[str, int] = {}
+    all_findings: list[Any] = []
+
+    count = _tally_single_session_findings(
+        findings_file,
+        by_status,
+        by_persona_total,
+        by_persona_invalidated,
+        all_findings,
+    )
+
+    expected_status = {"INVALIDATED": 1, "VERIFIED": 1, "UNVERIFIED": 1}
+    expected_total = {"devsecops": 1, "architect": 2, "performance": 1, "unknown": 1}
+    expected_invalidated = {"devsecops": 1, "architect": 1}
+    assert (count, by_status, by_persona_total, by_persona_invalidated, len(all_findings)) == (
+        3,
+        expected_status,
+        expected_total,
+        expected_invalidated,
+        3,
+    )

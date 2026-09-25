@@ -18,6 +18,10 @@ The "Multi-Persona Code Review Engine" entry marks XML prompt boundary isolation
 - [x] Wrap symbols, RAG, and contract context in `<untrusted_related_files>` with untrusted context preamble.
 - [x] Delete `persona_title` and `{persona}` placeholder outright from task prompt templates (`code_review_prompt.md`, `config_review_prompt.md`, `docs_review_prompt.md`) and prompt builder `build_context_review_prompt`.
 - [x] Extend `tests/test_review_classification.py:105-152` and assert every `_build_multi_persona_pipeline` agent carries guardrails and exemplars.
+- [x] (2) Outcomes & Empty Replies: accept bare `[]` and markdown-fenced `[]` in `parse_review_response` (`src/devops_cli/ai/review_schema.py`) as empty findings `ReviewResult(findings=[], summary="")` to prevent retry loops on valid clean reviews.
+- [x] Record persona reply outcomes as `findings`, `empty`, or `unparsed` in `FileReviewPayload.ai_scratchpad` (`persona_replies`, `persona_outcomes`, `unparsed_personas`) and `ReviewProfile` (`profile.json`).
+- [x] Degrade file scratchpad stage to `unparsed` (if all unparsed) or `degraded` (if some unparsed) rather than silently marking clean `reviewed`, and log unparsed personas on the console.
+- [x] (3) Persona Stats: split comma-joined personas in `_tally_single_session_findings` (`src/devops_cli/commands/review.py`) before incrementing `by_persona_total` and `by_persona_invalidated` counters for `review stats`.
 - [x] Maintain cyclomatic complexity $M \le 10$ and nesting depth $\le 5$ across all modified functions.
 - [x] Consolidate multiple linear test assertions into structural tuple equality checks.
 - [x] 100% passing across Gated CI validation suite (`uv run devops ci`).
@@ -26,6 +30,6 @@ The "Multi-Persona Code Review Engine" entry marks XML prompt boundary isolation
 
 ## 2. Verification Results
 
-- Unit Tests: `tests/test_review_classification.py`, `tests/test_review_pipeline.py`, `tests/test_review_page_line_numbers.py` all passing.
-- Complexity Analysis: `src/devops_cli/ai/review/classification.py` and `tests/test_review_classification.py` confirmed clean within standard limits ($M \le 10$, depth $\le 5$).
+- Unit Tests: `tests/test_review_classification.py`, `tests/test_review_pipeline.py`, `tests/test_finding_repetition_compression.py`, `tests/test_review_profile.py`, `tests/test_review.py` all passing.
+- Complexity Analysis: `src/devops_cli/ai/review/classification.py`, `src/devops_cli/ai/review/pipeline.py`, `src/devops_cli/ai/review_schema.py`, and test suites confirmed clean within standard limits ($M \le 10$, depth $\le 5$).
 - Gated CI Quality Gate: Full 10-gate validation suite verified.
