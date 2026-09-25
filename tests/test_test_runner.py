@@ -84,7 +84,7 @@ def test_test_run_changed_flag(tmp_path: Path) -> None:
     mock_proc_diff = MagicMock(returncode=0, stdout="tests/test_foo.py\nREADME.md\n")
     mock_proc_wt = MagicMock(returncode=0, stdout="")
     with (
-        patch("devops_cli.commands.test_cmd.find_top_level_repo_root", return_value=tmp_path),
+        patch("devops_cli.commands.test_cmd.find_worktree_root", return_value=tmp_path),
         patch(
             "devops_cli.commands.test_cmd.run_subprocess",
             side_effect=[mock_proc_diff, mock_proc_wt, MagicMock(returncode=0)],
@@ -96,7 +96,7 @@ def test_test_run_changed_flag(tmp_path: Path) -> None:
     # 2. No changes detected
     mock_empty = MagicMock(returncode=0, stdout="")
     with (
-        patch("devops_cli.commands.test_cmd.find_top_level_repo_root", return_value=tmp_path),
+        patch("devops_cli.commands.test_cmd.find_worktree_root", return_value=tmp_path),
         patch(
             "devops_cli.commands.test_cmd.run_subprocess",
             side_effect=[mock_empty, mock_empty, MagicMock(returncode=0)],

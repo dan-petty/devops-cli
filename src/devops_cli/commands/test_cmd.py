@@ -14,7 +14,7 @@ from devops_cli.config.constants import CONST_CURRENT_DIR
 from devops_cli.config.defaults import DEFAULT_SANDBOX_NETWORK
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
-from devops_cli.core.repo import find_top_level_repo_root
+from devops_cli.core.repo import find_worktree_root
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
@@ -133,7 +133,7 @@ def run_test_cmd(
     ] = False,
 ) -> None:
     """Execute pytest test suite with optional git-diff aware test selection."""
-    repo_root = find_top_level_repo_root()
+    repo_root = find_worktree_root()
     test_args: list[str] = ["pytest"]
 
     if verbose:

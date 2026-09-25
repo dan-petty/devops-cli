@@ -78,10 +78,10 @@ _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
 
 
 def _get_project_root(target: Path | None = None) -> Path:
-    """Find the top-level repository root containing pyproject.toml."""
-    from devops_cli.core.repo import find_top_level_repo_root
+    """Find the repository or worktree root containing pyproject.toml."""
+    from devops_cli.core.repo import find_worktree_root
 
-    return find_top_level_repo_root(target)
+    return find_worktree_root(target)
 
 
 def _resolve_safe_project_path(root: Path, relative_name: str | Path) -> Path:

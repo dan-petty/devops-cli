@@ -14,6 +14,7 @@ from devops_cli.core.gitignore import reset_indexes
 from devops_cli.core.repo import (
     find_repo_root,
     find_top_level_repo_root,
+    find_worktree_root,
     get_repo_origin_name,
     is_ignored_by_git,
     list_repo_files,
@@ -282,6 +283,52 @@ def test_core_repo_find_roots(tmp_path: Path) -> None:
 
     top_root = find_top_level_repo_root(sub)
     assert top_root == tmp_path / "a"
+
+
+def test_find_worktree_root_nested_worktree_and_submodules(tmp_path: Path) -> None:
+    """Verify find_worktree_root stops at nearest worktree, but passes through submodules."""
+    main = tmp_path / "main"
+    main_git = main / ".git"
+    main_git.mkdir(parents=True)
+    (main / "pyproject.toml").write_text("[project]\nname='main'\n", encoding="utf-8")
+
+    nested_wt = main / ".claude" / "worktrees" / "nested"
+    nested_wt.mkdir(parents=True)
+    gitdir = main_git / "worktrees" / "nested"
+    gitdir.mkdir(parents=True)
+    (gitdir / "commondir").write_text("../..\n", encoding="utf-8")
+    (nested_wt / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
+    (nested_wt / "src").mkdir()
+
+    submod = main / "vendor" / "submodule"
+    submod.mkdir(parents=True)
+    submod_gitdir = main_git / "modules" / "submodule"
+    submod_gitdir.mkdir(parents=True)
+    (submod / ".git").write_text(f"gitdir: {submod_gitdir}\n", encoding="utf-8")
+    (submod / "src").mkdir()
+
+    standalone = tmp_path / "standalone"
+    standalone.mkdir()
+    (standalone / "pyproject.toml").write_text("[project]\nname='pkg'\n", encoding="utf-8")
+    (standalone / "src").mkdir()
+
+    resolved = (
+        find_worktree_root(main),
+        find_worktree_root(nested_wt),
+        find_worktree_root(nested_wt / "src"),
+        find_worktree_root(submod),
+        find_worktree_root(submod / "src"),
+        find_worktree_root(standalone / "src"),
+    )
+    expected = (
+        main.resolve(),
+        nested_wt.resolve(),
+        nested_wt.resolve(),
+        main.resolve(),
+        main.resolve(),
+        standalone.resolve(),
+    )
+    assert resolved == expected
 
 
 def test_core_repo_gitignore_and_files(tmp_path: Path) -> None:

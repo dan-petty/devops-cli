@@ -54,6 +54,32 @@ def test_a_linked_worktree_resolves_to_the_main_worktree(
     assert roots == (main.resolve(),) * 3
 
 
+def test_nested_linked_worktree_resolves_to_the_main_worktree(tmp_path: Path) -> None:
+    """Verify a linked worktree nested inside the main checkout resolves to the main worktree."""
+    main = tmp_path / "project"
+    main.mkdir()
+    _git(main, "init", "--quiet")
+    (main / "README.md").write_text("project\n", encoding="utf-8")
+    _git(main, "add", ".")
+    _git(main, "commit", "--quiet", "-m", "first")
+
+    nested = main / ".claude" / "worktrees" / "nested-feature"
+    _git(main, "worktree", "add", "--quiet", "-b", "nested-feature", str(nested))
+    (nested / "src").mkdir(parents=True)
+
+    roots = (
+        main_worktree_root(nested),
+        main_worktree_root(nested / "src"),
+        resolve_data_path(Path(".data/reviews"), nested),
+    )
+    expected = (
+        main.resolve(),
+        main.resolve(),
+        (main / ".data" / "reviews").resolve(),
+    )
+    assert roots == expected
+
+
 def test_relative_data_paths_are_shared_and_absolute_ones_kept(
     repo_with_worktree: tuple[Path, Path], tmp_path: Path
 ) -> None:

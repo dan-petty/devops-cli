@@ -59,6 +59,49 @@ def find_top_level_repo_root(start_path: Path | str | None = None) -> Path:
     return current
 
 
+def _read_worktree_commondir(marker: Path) -> Path | None:
+    """Read common git directory parent if marker is a linked worktree file."""
+    if not marker.is_file():
+        return None
+    try:
+        text = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text.startswith("gitdir:"):
+        return None
+    gitdir = (marker.parent / text.removeprefix("gitdir:").strip()).resolve()
+    try:
+        common_text = (gitdir / "commondir").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    common = (gitdir / common_text).resolve()
+    return common.parent if common.name == CONST_GIT_DIR_NAME else common
+
+
+def _is_linked_worktree(marker: Path) -> bool:
+    """Check if git marker is a linked worktree file pointing to a commondir."""
+    return _read_worktree_commondir(marker) is not None
+
+
+def find_worktree_root(start_path: Path | str | None = None) -> Path:
+    """Find the nearest enclosing git worktree root directory.
+
+    Stops at the first directory whose `.git` is a linked worktree (a `gitdir:`
+    file pointing to a commondir) or a `.git` directory. Falls back to
+    `find_repo_root(start_path)` if no git worktree is found.
+    """
+    current = Path(start_path or Path.cwd()).resolve()
+    if current.is_file():
+        current = current.parent
+
+    for parent in [current, *current.parents]:
+        git_marker = parent / CONST_GIT_DIR_NAME
+        if git_marker.is_dir() or _is_linked_worktree(git_marker):
+            return parent
+
+    return find_repo_root(current)
+
+
 def main_worktree_root(start_path: Path | str | None = None) -> Path:
     """The main worktree of the repository at `start_path`; a linked worktree resolves to it.
 
@@ -66,20 +109,9 @@ def main_worktree_root(start_path: Path | str | None = None) -> Path:
     the repository's shared git directory, inside the main worktree. A submodule's git
     directory has no `commondir` and stays its own repository.
     """
-    root = find_top_level_repo_root(start_path)
-    marker = root / CONST_GIT_DIR_NAME
-    try:
-        text = marker.read_text(encoding="utf-8").strip() if marker.is_file() else ""
-    except OSError:
-        return root
-    if not text.startswith("gitdir:"):
-        return root
-    gitdir = (root / text.removeprefix("gitdir:").strip()).resolve()
-    try:
-        common = (gitdir / (gitdir / "commondir").read_text(encoding="utf-8").strip()).resolve()
-    except OSError:
-        return root
-    return common.parent if common.name == CONST_GIT_DIR_NAME else root
+    root = find_worktree_root(start_path)
+    main_root = _read_worktree_commondir(root / CONST_GIT_DIR_NAME)
+    return main_root if main_root is not None else root
 
 
 def resolve_data_path(path: Path, start_path: Path | str | None = None) -> Path:

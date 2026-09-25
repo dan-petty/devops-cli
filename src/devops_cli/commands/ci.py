@@ -93,10 +93,10 @@ app = new_typer(cls=FileOrSubcommandGroup, help=HELP.ci.app)
 
 
 def _get_project_root() -> Path:
-    """Find repository root containing pyproject.toml or .git."""
-    from devops_cli.core.repo import find_top_level_repo_root
+    """Find repository or worktree root containing pyproject.toml or .git."""
+    from devops_cli.core.repo import find_worktree_root
 
-    return find_top_level_repo_root()
+    return find_worktree_root()
 
 
 _ROOT = _get_project_root()
@@ -627,7 +627,7 @@ def all_checks(
         return
 
     start_time = time.perf_counter()
-    _get("print_info")("Executing CI quality gates concurrently...")
+    _get("print_info")(f"Executing CI quality gates concurrently in {root}...")
     sys.stdout.flush()
     results = asyncio.run(
         _run_all_checks_async(
@@ -683,6 +683,26 @@ def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None
     raise typer.Exit(1)
 
 
+def _build_test_cmd(
+    numprocesses: str,
+    verbose: bool,
+    k: str | None,
+    x: bool,
+    targets: list[str] | None,
+) -> list[str]:
+    """Build the pytest command line arguments."""
+    cmd = ["uv", "run", "pytest", "-n", numprocesses]
+    if verbose:
+        cmd.append("-v")
+    if k:
+        cmd.extend(["-k", k])
+    if x:
+        cmd.append("-x")
+    if targets:
+        cmd.extend(targets)
+    return cmd
+
+
 @app.command()
 def test(
     paths: Annotated[list[Path] | None, typer.Argument(help=HELP.ci.test_paths)] = None,
@@ -716,18 +736,11 @@ def test(
         if targets == []:
             return
 
-    cmd = ["uv", "run", "pytest", "-n", numprocesses]
-    if verbose:
-        cmd.append("-v")
-    if k:
-        if k.startswith("-"):
-            _get("print_error")("Invalid keyword filter expression.", prefix=False)
-            raise typer.Exit(1)
-        cmd.extend(["-k", k])
-    if x:
-        cmd.append("-x")
-    if targets:
-        cmd.extend(targets)
+    if k and k.startswith("-"):
+        _get("print_error")("Invalid keyword filter expression.", prefix=False)
+        raise typer.Exit(1)
+
+    cmd = _build_test_cmd(numprocesses, verbose, k, x, targets)
     if not _run(cmd):
         raise typer.Exit(1)
 
