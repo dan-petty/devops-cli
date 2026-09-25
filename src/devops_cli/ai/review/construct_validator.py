@@ -9,9 +9,9 @@ invalidates the finding only when the construct is absent from the file entirely
 from __future__ import annotations
 
 import ast
+import re
 from dataclasses import dataclass
 from pathlib import Path
-import re
 from typing import TYPE_CHECKING
 
 from devops_cli.ai.review_schema import (
@@ -79,9 +79,7 @@ def _collect_function_constructs(node: ast.AST) -> list[AstConstruct]:
         return []
     s_line = node.lineno
     e_line = node.end_lineno or node.lineno
-    fn_construct = AstConstruct(
-        kind="function", name=node.name, start_line=s_line, end_line=e_line
-    )
+    fn_construct = AstConstruct(kind="function", name=node.name, start_line=s_line, end_line=e_line)
     return [fn_construct, *_collect_decorator_constructs(node.decorator_list)]
 
 
@@ -91,9 +89,7 @@ def _collect_class_constructs(node: ast.AST) -> list[AstConstruct]:
         return []
     s_line = node.lineno
     e_line = node.end_lineno or node.lineno
-    cls_construct = AstConstruct(
-        kind="class", name=node.name, start_line=s_line, end_line=e_line
-    )
+    cls_construct = AstConstruct(kind="class", name=node.name, start_line=s_line, end_line=e_line)
     return [cls_construct, *_collect_decorator_constructs(node.decorator_list)]
 
 
@@ -142,9 +138,7 @@ def _collect_assign_constructs(node: ast.AST) -> list[AstConstruct]:
             s_line = node.lineno
             e_line = node.end_lineno or node.lineno
             constructs.append(
-                AstConstruct(
-                    kind="assignment", name=t_name, start_line=s_line, end_line=e_line
-                )
+                AstConstruct(kind="assignment", name=t_name, start_line=s_line, end_line=e_line)
             )
     return constructs
 
@@ -171,19 +165,11 @@ def _collect_ast_name_constructs(node: ast.AST) -> list[AstConstruct]:
     if isinstance(node, ast.Name):
         s_line = node.lineno
         e_line = node.end_lineno or node.lineno
-        return [
-            AstConstruct(
-                kind="symbol", name=node.id, start_line=s_line, end_line=e_line
-            )
-        ]
+        return [AstConstruct(kind="symbol", name=node.id, start_line=s_line, end_line=e_line)]
     if isinstance(node, ast.ExceptHandler):
         s_line = node.lineno
         e_line = node.end_lineno or node.lineno
-        return [
-            AstConstruct(
-                kind="handler", name="except", start_line=s_line, end_line=e_line
-            )
-        ]
+        return [AstConstruct(kind="handler", name="except", start_line=s_line, end_line=e_line)]
     return []
 
 
@@ -205,11 +191,7 @@ def _extract_backtick_candidates(text: str) -> list[str]:
     candidates: list[str] = []
     for raw in re.findall(r"`([^`\n]{2,80})`", text):
         clean = raw.strip().lstrip("@").rstrip("()")
-        if (
-            clean
-            and len(clean) > 2
-            and clean.lower() not in REVIEW_GENERIC_SYMBOL_STOPWORDS
-        ):
+        if clean and len(clean) > 2 and clean.lower() not in REVIEW_GENERIC_SYMBOL_STOPWORDS:
             candidates.append(clean)
     return candidates
 
@@ -217,9 +199,7 @@ def _extract_backtick_candidates(text: str) -> list[str]:
 def _extract_syntax_candidates(text: str) -> list[str]:
     """Extract identifiers from def/class keywords, calls, and decorators."""
     candidates: list[str] = []
-    for name in re.findall(
-        r"\b(?:def|class|function|method)\s+([A-Za-z_][A-Za-z0-9_]*)", text
-    ):
+    for name in re.findall(r"\b(?:def|class|function|method)\s+([A-Za-z_][A-Za-z0-9_]*)", text):
         if name.lower() not in REVIEW_GENERIC_SYMBOL_STOPWORDS:
             candidates.append(name)
     for call_match in re.findall(r"\b([A-Za-z_][A-Za-z0-9_.]*)\s*\(\)", text):
@@ -269,16 +249,12 @@ def _construct_matches(construct: AstConstruct, candidate: str) -> bool:
     return False
 
 
-def _construct_intersects_span(
-    construct: AstConstruct, start_line: int, end_line: int
-) -> bool:
+def _construct_intersects_span(construct: AstConstruct, start_line: int, end_line: int) -> bool:
     """Report whether an AST construct intersects or encloses the cited line span."""
     return construct.start_line <= end_line and construct.end_line >= start_line
 
 
-def _line_contains_candidate(
-    lines: list[str], candidate: str, s_line: int, end_line: int
-) -> bool:
+def _line_contains_candidate(lines: list[str], candidate: str, s_line: int, end_line: int) -> bool:
     """Check if the cited line span text literally contains candidate as an identifier or token."""
     pattern = rf"\b{re.escape(candidate)}\b"
     for line_idx in range(max(0, s_line - 1), min(len(lines), end_line)):
@@ -334,9 +310,7 @@ def _check_span_containment(
     )
 
 
-def _build_relocation_result(
-    finding: Finding, file_part: str, reloc: AstConstruct
-) -> Finding:
+def _build_relocation_result(finding: Finding, file_part: str, reloc: AstConstruct) -> Finding:
     """Build updated Finding model with relocated location coordinates."""
     new_loc = f"{file_part}:{reloc.start_line}"
     if reloc.end_line > reloc.start_line and reloc.kind in {"function", "class"}:
@@ -349,9 +323,7 @@ def _build_relocation_result(
     )
 
 
-def _build_invalidation_result(
-    finding: Finding, candidate: str, file_path: Path
-) -> Finding:
+def _build_invalidation_result(finding: Finding, candidate: str, file_path: Path) -> Finding:
     """Build invalidated Finding when cited construct is absent from file."""
     reason = f"Construct '{candidate}' cited in finding is absent from {file_path.name}"
     res = finding.model_copy(
@@ -450,10 +422,7 @@ def validate_construct_location(finding: Finding, file_path: Path) -> Finding:
 
     if _check_span_containment(constructs, candidates, s_line, end_line):
         return finding
-    if any(
-        _line_contains_candidate(file_lines, cand, s_line, end_line)
-        for cand in candidates
-    ):
+    if any(_line_contains_candidate(file_lines, cand, s_line, end_line) for cand in candidates):
         return finding
 
     return _resolve_repaired_finding(

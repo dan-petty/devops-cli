@@ -6,6 +6,7 @@ import ast
 from pathlib import Path
 
 from devops_cli.ai.review.construct_validator import (
+    AstConstruct,
     collect_ast_constructs,
     extract_finding_construct_candidates,
     validate_construct_location,
@@ -44,9 +45,15 @@ def test_collect_ast_constructs() -> None:
     kinds = {c.kind for c in constructs}
     names = {c.name for c in constructs}
 
-    assert {"function", "class", "call", "decorator", "assignment", "literal", "symbol"}.issubset(
-        kinds
-    )
+    assert {
+        "function",
+        "class",
+        "call",
+        "decorator",
+        "assignment",
+        "literal",
+        "symbol",
+    }.issubset(kinds)
     assert (
         "get_users" in names,
         "PaymentProcessor" in names,
