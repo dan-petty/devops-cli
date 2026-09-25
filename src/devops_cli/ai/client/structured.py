@@ -10,9 +10,13 @@ from collections.abc import Callable
 from typing import Any, TypeVar
 
 import json_repair
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from devops_cli.ai.client.models import AIClientError, LLMResponse
+from devops_cli.ai.schema_reflection import (
+    SchemaReflectionReport,
+    format_schema_validation_error,
+)
 from devops_cli.ai.thinking_stream import strip_think_blocks
 from devops_cli.config.constants import (
     CONST_MAX_ERROR_DETAIL_LENGTH,
@@ -84,11 +88,13 @@ def _validate_schema_payload[T: BaseModel](
     json_data: Any,
     schema: type[T],
 ) -> tuple[T | None, str | None]:
-    """Validate parsed JSON data against Pydantic schema with bounded error strings."""
+    """Validate parsed JSON data against Pydantic schema with lossless structured reflection."""
     try:
         if hasattr(schema, "model_validate"):
             return schema.model_validate(json_data), None
         return TypeAdapter(schema).validate_python(json_data), None
+    except ValidationError as exc:
+        return None, format_schema_validation_error(exc)
     except Exception as exc:
         err_msg = str(exc)
         if len(err_msg) > CONST_MAX_ERROR_DETAIL_LENGTH:
@@ -114,14 +120,17 @@ def _repair_and_validate_payload[T: BaseModel](
     return model_inst, was_repaired, None
 
 
-def _build_reflection_message(error_details: str) -> ChatMessage:
+def _build_reflection_message(error_details: str | SchemaReflectionReport) -> ChatMessage:
     """Construct dynamic error reflection prompt to guide model self-repair."""
-    content = (
-        "Your previous response could not be parsed or validated against the required schema.\n"
-        f"Validation Error: {error_details}\n"
-        "Please fix the error and respond with ONLY the valid JSON object matching the schema, "
-        "with no markdown explanations or extraneous commentary."
-    )
+    if isinstance(error_details, SchemaReflectionReport):
+        content = error_details.format_reflection_prompt()
+    else:
+        content = (
+            "Your previous response could not be parsed or validated against the required schema.\n"
+            f"Validation Error: {error_details}\n"
+            "Please fix the error and respond with ONLY the valid JSON object matching the schema, "
+            "with no markdown explanations or extraneous commentary."
+        )
     return ChatMessage(role="user", content=content)
 
 
