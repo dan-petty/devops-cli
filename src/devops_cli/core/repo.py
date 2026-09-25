@@ -42,64 +42,131 @@ def find_repo_root(start_path: Path | str | None = None) -> Path:
     return current
 
 
-def find_top_level_repo_root(start_path: Path | str | None = None) -> Path:
-    """Find the top-most workspace root directory containing .git or pyproject.toml."""
+def _repo_root_candidates(start_path: Path | str | None) -> list[Path]:
+    """Directories holding .git or pyproject.toml from `start_path` upward, nearest first; the
+    start directory alone when there are none."""
     current = Path(start_path or Path.cwd()).resolve()
     if current.is_file():
         current = current.parent
-
-    candidates = [
+    found = [
         p
         for p in [current, *current.parents]
         if (p / ".git").exists() or (p / "pyproject.toml").exists()
     ]
-    if candidates:
-        return candidates[-1]
-
-    return current
+    return found or [current]
 
 
-def _read_worktree_commondir(marker: Path) -> Path | None:
-    """Read common git directory parent if marker is a linked worktree file."""
-    if not marker.is_file():
-        return None
+def find_top_level_repo_root(start_path: Path | str | None = None) -> Path:
+    """Find the top-most workspace root directory containing .git or pyproject.toml."""
+    return _repo_root_candidates(start_path)[-1]
+
+
+def _read_git_path_file(path: Path) -> str:
+    """The stripped text of a git-written path file, such as `.git` or `commondir`.
+
+    Git writes path bytes unchanged, so bytes that are not UTF-8 are kept as surrogate escapes
+    and turn back into the same file-system path.
+    """
+    return path.read_text(encoding="utf-8", errors="surrogateescape").strip()
+
+
+def _gitdir_named_by(root: Path) -> Path | None:
+    """The git directory a `gitdir:` file at `root/.git` names, or None for any other `.git`."""
+    marker = root / CONST_GIT_DIR_NAME
     try:
-        text = marker.read_text(encoding="utf-8").strip()
+        text = _read_git_path_file(marker) if marker.is_file() else ""
     except OSError:
         return None
     if not text.startswith("gitdir:"):
         return None
-    gitdir = (marker.parent / text.removeprefix("gitdir:").strip()).resolve()
+    return (root / text.removeprefix("gitdir:").strip()).resolve()
+
+
+def _linked_worktree_common_dir(worktree_root: Path) -> Path | None:
+    """The shared git directory of the linked worktree rooted at `worktree_root`, or None.
+
+    A linked worktree's `.git` is a `gitdir:` file whose git directory holds a `commondir`
+    file. A submodule's git directory has none, and a `.git` directory is a repository's own.
+    """
+    gitdir = _gitdir_named_by(worktree_root)
+    if gitdir is None:
+        return None
     try:
-        common_text = (gitdir / "commondir").read_text(encoding="utf-8").strip()
+        return (gitdir / _read_git_path_file(gitdir / "commondir")).resolve()
     except OSError:
         return None
-    common = (gitdir / common_text).resolve()
-    return common.parent if common.name == CONST_GIT_DIR_NAME else common
 
 
-def _is_linked_worktree(marker: Path) -> bool:
-    """Check if git marker is a linked worktree file pointing to a commondir."""
-    return _read_worktree_commondir(marker) is not None
+def _stale_worktree_common_dir(root: Path) -> Path | None:
+    """The shared git directory a stale linked worktree at `root` still names, or None.
+
+    A linked worktree's git directory is `<common dir>/worktrees/<name>`. When it is gone,
+    because the worktree was pruned or its main checkout moved, the path its `.git` file names
+    still shows whose worktree it was. A submodule's git directory lies elsewhere.
+    """
+    gitdir = _gitdir_named_by(root)
+    if gitdir is None or gitdir.exists() or gitdir.parent.name != "worktrees":
+        return None
+    return gitdir.parent.parent
+
+
+def is_stale_linked_worktree(root: Path) -> bool:
+    """Whether `root` is a linked git worktree whose git directory is missing.
+
+    Git commands fail there. When its main checkout moved, `git worktree repair <root>` run
+    from the main checkout reconnects it; a pruned worktree cannot be repaired and must be
+    moved aside and re-created with `git worktree add`.
+    """
+    return _stale_worktree_common_dir(root) is not None
+
+
+def _own_common_dir(root: Path) -> Path:
+    """The shared git directory of the repository checked out at `root`.
+
+    A `.git` directory is its own; a `gitdir:` file names another, such as the `.bare` clone
+    of a bare-repository layout, and a linked worktree's leads on to its `commondir`.
+    """
+    gitdir = _gitdir_named_by(root)
+    if gitdir is None:
+        return (root / CONST_GIT_DIR_NAME).resolve()
+    return _linked_worktree_common_dir(root) or gitdir
+
+
+def _checks_as_its_own_tree(root: Path, workspace_root: Path) -> bool:
+    """Whether a verifying command stops its climb at `root`, a candidate below `workspace_root`.
+
+    It stops at a linked worktree, live or stale, of the workspace's own repository, however
+    that repository is laid out, or of a repository outside the workspace. A worktree of a
+    repository nested in the workspace, such as a `repos/` clone, resolves with that
+    repository, to the workspace.
+    """
+    common_dir = _linked_worktree_common_dir(root) or _stale_worktree_common_dir(root)
+    if common_dir is None:
+        return False
+    owner = common_dir.parent if common_dir.name == CONST_GIT_DIR_NAME else common_dir
+    return common_dir == _own_common_dir(workspace_root) or not owner.is_relative_to(workspace_root)
 
 
 def find_worktree_root(start_path: Path | str | None = None) -> Path:
-    """Find the nearest enclosing git worktree root directory.
+    """The root of the working tree a verifying command checks.
 
-    Stops at the first directory whose `.git` is a linked worktree (a `gitdir:`
-    file pointing to a commondir) or a `.git` directory. Falls back to
-    `find_repo_root(start_path)` if no git worktree is found.
+    This is the nearest enclosing linked git worktree, so a worktree nested inside a checkout
+    (for example under `.claude/worktrees/`) is checked instead of the checkout around it.
+    Otherwise it is the top-level workspace root, as `find_top_level_repo_root` gives it, so
+    repositories cloned under `repos/`, their own worktrees and submodules resolve to the
+    workspace. A stale worktree, whose git directory is missing, still resolves to itself
+    rather than to the checkout around it; `is_stale_linked_worktree` tells callers to warn.
+
+    Known limit: a checkout below another directory holding `.git` or `pyproject.toml`, such as
+    a dotfiles repository at `$HOME`, resolves to that outer directory, and its worktrees resolve
+    with it as a `repos/` clone's do; the `devops ci` header names the root it checks.
     """
-    current = Path(start_path or Path.cwd()).resolve()
-    if current.is_file():
-        current = current.parent
-
-    for parent in [current, *current.parents]:
-        git_marker = parent / CONST_GIT_DIR_NAME
-        if git_marker.is_dir() or _is_linked_worktree(git_marker):
-            return parent
-
-    return find_repo_root(current)
+    candidates = _repo_root_candidates(start_path)
+    workspace_root = candidates[-1]
+    return next(
+        (root for root in candidates if _checks_as_its_own_tree(root, workspace_root)),
+        workspace_root,
+    )
 
 
 def main_worktree_root(start_path: Path | str | None = None) -> Path:
@@ -108,10 +175,20 @@ def main_worktree_root(start_path: Path | str | None = None) -> Path:
     A linked worktree's `.git` is a file naming its git directory, whose `commondir` leads to
     the repository's shared git directory, inside the main worktree. A submodule's git
     directory has no `commondir` and stays its own repository.
+
+    It starts from the top-most root on purpose: a worktree nested in a checkout reaches that
+    checkout directly, and a `repos/` clone shares the workspace data. Only a worktree that
+    is itself the top-most root needs the `commondir` step. A stale one, whose git directory
+    was pruned, reaches the shared git directory its `.git` file still names, while that
+    directory exists.
     """
-    root = find_worktree_root(start_path)
-    main_root = _read_worktree_commondir(root / CONST_GIT_DIR_NAME)
-    return main_root if main_root is not None else root
+    root = find_top_level_repo_root(start_path)
+    common_dir = _linked_worktree_common_dir(root) or _stale_worktree_common_dir(root)
+    return (
+        common_dir.parent
+        if common_dir is not None and common_dir.name == CONST_GIT_DIR_NAME and common_dir.is_dir()
+        else root
+    )
 
 
 def resolve_data_path(path: Path, start_path: Path | str | None = None) -> Path:

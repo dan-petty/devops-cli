@@ -420,6 +420,17 @@ class TfMessages:
         "Deploying {provider} cloud infrastructure from [cyan]{path}[/cyan]..."
     )
     deploy_cloud_success: str = "✓ {provider} cloud infrastructure deployed successfully."
+    deploy_cloud_state_in_checkout: str = (
+        "{path} has no local state, but the main checkout's {checkout} does. A worktree "
+        "does not share the main checkout's untracked state, so init and apply here start "
+        "from empty state and plan to create every resource again. Deploy from the main "
+        "checkout, or move the state or configure a remote backend first."
+    )
+    deploy_cloud_state_auto_approve_refused: str = (
+        "Refusing to auto-approve a deploy from empty state; run without --auto-approve "
+        "to confirm it."
+    )
+    deploy_cloud_confirm_empty_state: str = "Deploy from empty state anyway?"
     tflint_executing: str = "Executing TFLint static analysis on '{target}'..."
     tflint_passed: str = "✓ No Terraform / OpenTofu lint issues detected."
     table_title_status: str = "OpenTofu Status — {name}"
@@ -672,6 +683,14 @@ class CIMessages:
     python_version_fail: str = "Strict Python {required}+ requirement failed. Current: {current}"
     cache_hit: str = (
         "Codebase unchanged since last verification. Utilizing CI cache (all checks passed)."
+    )
+    gate_root: str = "Quality gate root: {root}"
+    gate_root_stale: str = (
+        "{root} is a linked git worktree whose git directory is missing, so git-based checks "
+        "fail there. If its main checkout moved, run `git worktree repair {root_arg}` from the "
+        "main checkout. If the worktree was pruned, repair cannot restore it: move {root} "
+        "aside, keeping any uncommitted work, and re-create it with `git worktree add` from "
+        "the main checkout."
     )
 
 

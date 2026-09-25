@@ -104,6 +104,9 @@ CONST_LOGS_DIR_NAME = "logs"
 CONST_MODELS_DIR_NAME = "models"
 CONST_CACHE_DIR_NAME = "cache"
 CONST_CI_CACHE_FILENAME = "ci_cache.json"
+# Click context meta key the `devops ci` group sets when a subcommand only prints its help,
+# so the gate does not announce the root it would check.
+CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_shows_help"
 CONST_LLM_CACHE_DIR_NAME = "llm"
 CONST_BENCHMARKS_DIR_NAME = "benchmarks"
 CONST_AUDIT_LOG_NAME = "audit.jsonl"
@@ -1274,6 +1277,9 @@ CONST_TF_STATE_FILE_NAMES: Final[tuple[str, ...]] = (
     "terraform.tfstate",
     ".terraform/terraform.tfstate",
 )
+# Top-level key of the file `init` writes to `.terraform/terraform.tfstate` to cache a configured
+# backend: that file records where state lives, not the resources it tracks.
+CONST_TF_BACKEND_CACHE_KEY: Final[str] = "backend"
 
 # Top-level HCL block types. This set is closed and exhaustive: it is fixed by the
 # Terraform and OpenTofu configuration language grammar, not inferred from samples.

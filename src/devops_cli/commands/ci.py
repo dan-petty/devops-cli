@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -15,6 +16,7 @@ import typer
 from pydantic import BaseModel, ConfigDict
 from typer.core import TyperGroup
 
+from devops_cli.config.constants import CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
     DEFAULT_PYTEST_NUMPROCESSES,
@@ -25,6 +27,15 @@ from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success
+
+
+def _asks_for_help(ctx: Any, args: list[str]) -> bool:
+    """Whether a subcommand's arguments ask for its help, which Click prints without running it.
+
+    Arguments after `--` are positional, so a path spelled like a help option does not count.
+    """
+    options = args[: args.index("--")] if "--" in args else args
+    return not set(options).isdisjoint(ctx.help_option_names)
 
 
 class FileOrSubcommandGroup(TyperGroup):
@@ -50,6 +61,7 @@ class FileOrSubcommandGroup(TyperGroup):
                 if self.callback is not None:
                     return ctx.invoke(self.callback, **ctx.params)
                 return None
+        ctx.meta[CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY] = _asks_for_help(ctx, ctx.args)
         return super().invoke(ctx)
 
 
@@ -93,13 +105,24 @@ app = new_typer(cls=FileOrSubcommandGroup, help=HELP.ci.app)
 
 
 def _get_project_root() -> Path:
-    """Find repository or worktree root containing pyproject.toml or .git."""
+    """The worktree the CI checks verify: the nearest linked worktree, else the workspace root.
+
+    It is resolved on every call, from the current directory, so a long-lived process that
+    imported this module elsewhere (the in-process MCP server) still checks the right tree.
+    """
     from devops_cli.core.repo import find_worktree_root
 
     return find_worktree_root()
 
 
-_ROOT = _get_project_root()
+def _announce_gate_root(root: Path) -> None:
+    """Name the tree the gate checks, warning when it is a worktree git no longer knows."""
+    from devops_cli.core.repo import is_stale_linked_worktree
+
+    _get("print_info")(MESSAGES.ci.gate_root.format(root=root), safe=True)
+    if is_stale_linked_worktree(root):
+        stale = MESSAGES.ci.gate_root_stale.format(root=root, root_arg=shlex.quote(str(root)))
+        _get("print_warning")(stale, safe=True)
 
 
 class CheckResult(BaseModel):
@@ -157,11 +180,11 @@ def _section(title: str) -> None:
 
 
 def _clean_coverage_artifacts(*, force: bool = False) -> None:
-    """Clean up residual temporary .coverage.* worker files from root workspace and .data/."""
+    """Clean up residual temporary .coverage.* worker files from the checked tree and .data/."""
     if not force and os.getenv("PYTEST_CURRENT_TEST"):
         return
 
-    current_root = getattr(sys.modules[__name__], "_ROOT", _get_project_root())
+    current_root = _get_project_root()
 
     for target_dir in (current_root, current_root / ".data"):
         if target_dir.exists():
@@ -613,6 +636,9 @@ def all_checks(
     ] = False,
 ) -> None:
     """Run all CI checks concurrently in parallel with non-blocking async execution."""
+    root = _get_project_root()
+    if not ctx.meta.get(CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY):
+        _announce_gate_root(root)
     if ctx.invoked_subcommand is not None:
         return
     if dry_run:
@@ -620,14 +646,13 @@ def all_checks(
 
     effective_fix = fix and not check
     ci_options = {"fix": effective_fix, "check": check}
-    root = _get_project_root()
     all_files = _collect_ci_target_files(files, getattr(ctx, "args", []))
 
     if _try_fast_cached_ci(root, all_files, ci_options, cache=cache, force=force):
         return
 
     start_time = time.perf_counter()
-    _get("print_info")(f"Executing CI quality gates concurrently in {root}...")
+    _get("print_info")("Executing CI quality gates concurrently...")
     sys.stdout.flush()
     results = asyncio.run(
         _run_all_checks_async(
