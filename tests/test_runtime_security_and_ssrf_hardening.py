@@ -14,7 +14,6 @@ from devops_cli.ai.agents.pydantic_agent import Tool
 from devops_cli.ai.common_tools import web_fetch_tool
 from devops_cli.ai.diff.difftastic import get_structural_diff
 from devops_cli.ai.ext_langchain import _validate_langchain_kwargs
-from devops_cli.ai.review.auto_fix import generate_remediation_branch
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.k8s.chaos_runner import ChaosExperiment, ChaosFaultRunner
 from devops_cli.security.sanitizer import mask_secrets
@@ -68,25 +67,7 @@ def test_parse_vault_uri_rejects_percent_encoded_traversal() -> None:
     assert key == "password"
 
 
-# ── 3. Auto-Fix Path Traversal Validation ────────────────────────────────────
-
-
-def test_generate_remediation_branch_rejects_traversal() -> None:
-    """Verify that generate_remediation_branch rejects target files outside repository boundary."""
-    res = generate_remediation_branch(
-        finding_id="finding-123",
-        target_file="../../etc/passwd",
-        dry_run=False,
-    )
-    assert res.applied is False
-    assert (
-        "outside" in res.message.lower()
-        or "not found" in res.message.lower()
-        or "traversal" in res.message.lower()
-    )
-
-
-# ── 4. Web Fetch Tool Case-Insensitive Domains & SSRF ─────────────────────────
+# ── 3. Web Fetch Tool Case-Insensitive Domains & SSRF ─────────────────────────
 
 
 def test_web_fetch_tool_case_insensitive_domains() -> None:

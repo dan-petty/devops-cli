@@ -25,7 +25,6 @@ from devops_cli.config.constants import (
     CONST_STATUS_INVALIDATED,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_APPLY_PATCH_INDEX,
     DEFAULT_CURRENT_PATH,
     DEFAULT_MATCH_ALL_PATTERN,
     DEFAULT_REVIEW_BENCHMARK_RUNS,
@@ -39,7 +38,6 @@ from devops_cli.output.serialization import emit_serialized, normalize_format
 __all__ = [
     "app",
     "export_invalidated_feedback",
-    "stage_finding_patch",
 ]
 
 from devops_cli.ai.review import runner
@@ -55,7 +53,6 @@ from devops_cli.ai.review.defects import (
     select_templates,
 )
 from devops_cli.ai.review.exporter import export_invalidated_feedback
-from devops_cli.ai.review.patching import stage_finding_patch
 from devops_cli.ai.review.profile import (
     BenchmarkSummary,
     ReviewProfile,
@@ -2071,78 +2068,3 @@ def export_feedback(
         print_warning(f"No {status} findings found to export under {target_dir}.", prefix=False)
     else:
         print_success(f"Exported {count} {status} finding(s) → [bold]{out_path}[/bold]")
-
-
-# =============================================================================
-# Command: devops review apply-patch
-# =============================================================================
-
-
-@app.command("apply-patch")
-def apply_patch(
-    session: Annotated[str, typer.Argument(help=HELP.review.session)],
-    index: Annotated[
-        int, typer.Option("--index", "-idx", help=HELP.review.finding_index)
-    ] = DEFAULT_APPLY_PATCH_INDEX,
-    interactive: Annotated[
-        bool, typer.Option("--interactive", "-i", help=HELP.review.interactive_patch)
-    ] = False,
-) -> None:
-    """Apply suggested LLM code fix for a verified finding."""
-    ok = stage_finding_patch(session=session, index=index, interactive=interactive)
-    if not ok:
-        raise typer.Exit(1)
-
-
-# =============================================================================
-# Command: devops review auto-fix
-# =============================================================================
-
-
-@app.command("auto-fix")
-def auto_fix_cmd(
-    finding_id: Annotated[
-        str,
-        typer.Argument(help=HELP.review.remediate_finding_id),
-    ],
-    target_file: Annotated[
-        str,
-        typer.Option("--file", "-f", help=HELP.review.remediate_file),
-    ] = "src/devops_cli/main.py",
-    branch_name: Annotated[
-        str | None,
-        typer.Option("--branch", "-b", help=HELP.review.remediate_branch),
-    ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json", help=HELP.options.json_output),
-    ] = False,
-) -> None:
-    """Create a corrective topic branch with verified unit test patch for an approved finding."""
-    import json
-
-    from devops_cli.ai.review.auto_fix import generate_remediation_branch
-    from devops_cli.dry_run import is_dry_run
-
-    res = generate_remediation_branch(
-        finding_id=finding_id,
-        target_file=target_file,
-        branch_name=branch_name,
-        dry_run=dry_run or is_dry_run(),
-    )
-
-    if json_output:
-        write_stdout(json.dumps(res.to_dict(), indent=2) + "\n")
-        return
-
-    if res.applied:
-        print_success(
-            f"✓ Created remediation topic branch [bold]{res.branch_name}[/bold] for finding '{res.finding_id}'."
-        )
-    else:
-        print_error(f"Failed to create remediation branch: {res.message}")
-        raise typer.Exit(1)
