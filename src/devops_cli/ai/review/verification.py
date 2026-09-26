@@ -15,6 +15,7 @@ from typing import Any
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.review.chunker import page_line_number
 from devops_cli.ai.review.construct_validator import validate_construct_location
+from devops_cli.ai.review.verdicts import apply_verdict
 from devops_cli.ai.review_schema import _SEVERITY_RANK, Finding, ReviewResult, extract_json_block
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
@@ -386,15 +387,13 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
         else:
             return None
 
-        res = finding.model_copy(
-            update={
-                "verified": False,
-                "mitigated": False,
-                "reportable": False,
-                "status": "INVALIDATED",
-                "invalidation_reason": "Syntax validation passed cleanly via language parser (valid Python 3.14+ syntax)",
-            }
+        res = apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:syntax_error",
+            reason="Syntax validation passed cleanly via language parser (valid Python 3.14+ syntax)",
         )
+
         try:
             from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
 
@@ -447,15 +446,13 @@ def _check_missing_symbol_hallucination(finding: Finding, file_path: Path) -> Fi
         )
 
         if _verify_symbol_defined_in_ast_or_module(finding, tree, file_path):
-            res = finding.model_copy(
-                update={
-                    "verified": False,
-                    "mitigated": False,
-                    "reportable": False,
-                    "status": "INVALIDATED",
-                    "invalidation_reason": "Ground-truth AST and cross-module inspection confirmed symbol is defined in module or exports",
-                }
+            res = apply_verdict(
+                finding,
+                "INVALIDATED",
+                by="deterministic:missing_symbol",
+                reason="Ground-truth AST and cross-module inspection confirmed symbol is defined in module or exports",
             )
+
             try:
                 auto_record_invalidated_finding(
                     res, file_path=file_path, reason=res.invalidation_reason
@@ -486,15 +483,13 @@ def _build_invalidated_auth_header_finding(finding: Finding, file_path: Path) ->
     """Construct invalidated finding for verified authorization header presence."""
     from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
 
-    res = finding.model_copy(
-        update={
-            "verified": False,
-            "mitigated": False,
-            "reportable": False,
-            "status": "INVALIDATED",
-            "invalidation_reason": "Source code inspection confirmed Authorization header is dynamically configured before request dispatch",
-        }
+    res = apply_verdict(
+        finding,
+        "INVALIDATED",
+        by="deterministic:missing_header",
+        reason="Source code inspection confirmed Authorization header is dynamically configured before request dispatch",
     )
+
     try:
         auto_record_invalidated_finding(res, file_path=file_path, reason=res.invalidation_reason)
     except Exception:
@@ -595,18 +590,16 @@ def _check_pathlib_resolve_hallucination(finding: Finding) -> Finding | None:
     text = (finding.title + " " + (finding.description or "")).lower()
     # resolve(strict=True) does raise FileNotFoundError; only the non-strict claim is false.
     if "filenotfounderror" in text and "resolve(" in text and "strict" not in text:
-        return finding.model_copy(
-            update={
-                "verified": False,
-                "mitigated": False,
-                "reportable": False,
-                "status": "INVALIDATED",
-                "invalidation_reason": (
-                    "Matches verified common hallucination [HALLUCINATION-PATHLIB-RESOLVE-FILENOTFOUND]: "
-                    "In Python 3.6+, Path.resolve(strict=False) safely resolves non-existent paths without FileNotFoundError"
-                ),
-            }
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:pathlib_resolve",
+            reason=(
+                "Matches verified common hallucination [HALLUCINATION-PATHLIB-RESOLVE-FILENOTFOUND]: "
+                "In Python 3.6+, Path.resolve(strict=False) safely resolves non-existent paths without FileNotFoundError"
+            ),
         )
+
     return None
 
 
@@ -652,17 +645,14 @@ def _check_scanned_clean_dependency(
         return None
 
     listed = ", ".join(sorted(str(dep.name) for dep in named))
-    return finding.model_copy(
-        update={
-            "verified": False,
-            "mitigated": False,
-            "reportable": False,
-            "status": "INVALIDATED",
-            "invalidation_reason": (
-                f"This run's own advisory scan reports {listed} CLEAN with no advisory "
-                "records at the pinned versions"
-            ),
-        }
+    return apply_verdict(
+        finding,
+        "INVALIDATED",
+        by="deterministic:scanned_clean_dependency",
+        reason=(
+            f"This run's own advisory scan reports {listed} CLEAN with no advisory "
+            "records at the pinned versions"
+        ),
     )
 
 
@@ -677,17 +667,14 @@ def _check_placeholder_advisory_hallucination(finding: Finding) -> Finding | Non
     match = _PLACEHOLDER_ADVISORY_PATTERN.search(text)
     if match is None:
         return None
-    return finding.model_copy(
-        update={
-            "verified": False,
-            "mitigated": False,
-            "reportable": False,
-            "status": "INVALIDATED",
-            "invalidation_reason": (
-                f"Cites the placeholder advisory identifier {match.group(0)!r}, which names "
-                "no published advisory; a dependency claim must cite a real one"
-            ),
-        }
+    return apply_verdict(
+        finding,
+        "INVALIDATED",
+        by="deterministic:placeholder_advisory",
+        reason=(
+            f"Cites the placeholder advisory identifier {match.group(0)!r}, which names "
+            "no published advisory; a dependency claim must cite a real one"
+        ),
     )
 
 
@@ -715,17 +702,14 @@ def _check_unsupported_runtime_hallucination(finding: Finding, file_path: Path) 
     if not cited or max(cited) >= floor:
         return None
 
-    return finding.model_copy(
-        update={
-            "verified": False,
-            "mitigated": False,
-            "reportable": False,
-            "status": "INVALIDATED",
-            "invalidation_reason": (
-                f"Describes a failure on Python 3.{max(cited)}, below the declared "
-                f"`requires-python` floor of 3.{floor}, which cannot be installed"
-            ),
-        }
+    return apply_verdict(
+        finding,
+        "INVALIDATED",
+        by="deterministic:unsupported_runtime",
+        reason=(
+            f"Describes a failure on Python 3.{max(cited)}, below the declared "
+            f"`requires-python` floor of 3.{floor}, which cannot be installed"
+        ),
     )
 
 
@@ -775,30 +759,24 @@ def _check_operational_protocol_hallucination(finding: Finding) -> Finding | Non
     text = (finding.title + " " + (finding.description or "")).lower()
     loc = finding.location.lower()
     if _is_health_endpoint_version_claim(text, loc):
-        return finding.model_copy(
-            update={
-                "verified": False,
-                "mitigated": False,
-                "reportable": False,
-                "status": "INVALIDATED",
-                "invalidation_reason": (
-                    "Matches verified common hallucination [HALLUCINATION-HEALTH-ENDPOINT-VERSION]: "
-                    "Health and liveness endpoints standardly provide service version for cluster orchestration"
-                ),
-            }
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:operational_protocol",
+            reason=(
+                "Matches verified common hallucination [HALLUCINATION-HEALTH-ENDPOINT-VERSION]: "
+                "Health and liveness endpoints standardly provide service version for cluster orchestration"
+            ),
         )
     if _is_stream_event_timestamp_claim(text, loc):
-        return finding.model_copy(
-            update={
-                "verified": False,
-                "mitigated": False,
-                "reportable": False,
-                "status": "INVALIDATED",
-                "invalidation_reason": (
-                    "Matches verified common hallucination [HALLUCINATION-STREAM-EVENT-TIMESTAMP]: "
-                    "Real-time event streams require timestamps for event sequencing and client synchronization"
-                ),
-            }
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:operational_protocol",
+            reason=(
+                "Matches verified common hallucination [HALLUCINATION-STREAM-EVENT-TIMESTAMP]: "
+                "Real-time event streams require timestamps for event sequencing and client synchronization"
+            ),
         )
     return None
 
@@ -824,17 +802,14 @@ def _check_test_fixture_credential_hallucination(
     values = re.findall(r"[\"']([^\"'\n]{3,})[\"']", window)
     if not values or not all(_PLACEHOLDER_SECRET.search(value) for value in values):
         return None
-    return finding.model_copy(
-        update={
-            "verified": False,
-            "mitigated": False,
-            "reportable": False,
-            "status": "INVALIDATED",
-            "invalidation_reason": (
-                "Matches verified common hallucination [HALLUCINATION-TEST-MOCK-CRED]: "
-                "the cited test credential is a synthetic placeholder"
-            ),
-        }
+    return apply_verdict(
+        finding,
+        "INVALIDATED",
+        by="deterministic:test_fixture_credential",
+        reason=(
+            "Matches verified common hallucination [HALLUCINATION-TEST-MOCK-CRED]: "
+            "the cited test credential is a synthetic placeholder"
+        ),
     )
 
 
@@ -919,18 +894,15 @@ def _check_uninitialized_variable_hallucination(
     target_line = _extract_location_line(finding.location)
     assign_line = _try_find_var_assignment(file_path, var_name, target_line)
     if assign_line is not None:
-        return finding.model_copy(
-            update={
-                "verified": False,
-                "mitigated": False,
-                "reportable": False,
-                "status": "INVALIDATED",
-                "invalidation_reason": (
-                    f"Matches verified common hallucination "
-                    f"[HALLUCINATION-UNINITIALIZED-VARIABLE-ABOVE-LOOP]: "
-                    f"Variable '{var_name}' is explicitly initialized at line {assign_line} before reference"
-                ),
-            }
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:uninitialized_variable",
+            reason=(
+                f"Matches verified common hallucination "
+                f"[HALLUCINATION-UNINITIALIZED-VARIABLE-ABOVE-LOOP]: "
+                f"Variable '{var_name}' is explicitly initialized at line {assign_line} before reference"
+            ),
         )
     return None
 
@@ -946,28 +918,22 @@ _COMPLIMENT_NEGATION = re.compile(CONST_COMPLIMENT_NEGATIONS)
 
 def _check_conversational_monologue(title_lower: str, finding: Finding) -> Finding | None:
     if _MONOLOGUE_TITLE.match(title_lower.strip()):
-        return finding.model_copy(
-            update={
-                "verified": False,
-                "mitigated": False,
-                "reportable": False,
-                "status": "INVALIDATED",
-                "invalidation_reason": "Conversational scratchpad chain-of-thought monologue leaked into finding title",
-            }
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:conversational_monologue",
+            reason="Conversational scratchpad chain-of-thought monologue leaked into finding title",
         )
     return None
 
 
 def _check_benign_compliment(title_lower: str, finding: Finding) -> Finding | None:
     if _COMPLIMENT_PHRASE.search(title_lower) and not _COMPLIMENT_NEGATION.search(title_lower):
-        return finding.model_copy(
-            update={
-                "verified": False,
-                "mitigated": False,
-                "reportable": False,
-                "status": "INVALIDATED",
-                "invalidation_reason": "Conversational praise or benign observation without a concrete defect",
-            }
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:benign_compliment",
+            reason="Conversational praise or benign observation without a concrete defect",
         )
     return None
 
@@ -991,17 +957,14 @@ def _check_masked_placeholder_syntax_error(
         phrase in title_lower or phrase in desc_lower
         for phrase in CONST_MASKED_SYNTAX_ERROR_PHRASES
     ):
-        return finding.model_copy(
-            update={
-                "verified": False,
-                "mitigated": False,
-                "reportable": False,
-                "status": "INVALIDATED",
-                "invalidation_reason": (
-                    "Sanitization marker '<masked-*>' or '***redacted***' is a prompt redaction indicator, "
-                    "not an invalid identifier, undefined placeholder, or runtime defect"
-                ),
-            }
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:masked_placeholder_syntax_error",
+            reason=(
+                "Sanitization marker '<masked-*>' or '***redacted***' is a prompt redaction indicator, "
+                "not an invalid identifier, undefined placeholder, or runtime defect"
+            ),
         )
     return None
 
@@ -1061,17 +1024,14 @@ def _check_none_dereference_hallucination(finding: Finding, file_path: Path) -> 
     if not _module_typechecks_clean(str(file_path), mtime):
         return None
 
-    res = finding.model_copy(
-        update={
-            "verified": False,
-            "mitigated": False,
-            "reportable": False,
-            "status": "INVALIDATED",
-            "invalidation_reason": (
-                "Module passes `mypy --strict`, so the attribute is not Optional and the "
-                "described None dereference is not reachable"
-            ),
-        }
+    res = apply_verdict(
+        finding,
+        "INVALIDATED",
+        by="deterministic:none_dereference",
+        reason=(
+            "Module passes `mypy --strict`, so the attribute is not Optional and the "
+            "described None dereference is not reachable"
+        ),
     )
     try:
         from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
@@ -1112,14 +1072,11 @@ def _check_catalog_hallucination(finding: Finding, file_path: Path) -> Finding:
         if match and verify_ground_truth_hallucination(finding, match.hallucination, file_path):
             entry = match.hallucination
             auto_record_invalidated_finding(finding, file_path=file_path, reason=entry.resolution)
-            return finding.model_copy(
-                update={
-                    "verified": False,
-                    "mitigated": False,
-                    "reportable": False,
-                    "status": "INVALIDATED",
-                    "invalidation_reason": f"Matches verified common hallucination [{entry.id}]: {entry.resolution}",
-                }
+            return apply_verdict(
+                finding,
+                "INVALIDATED",
+                by="deterministic:catalog_hallucination",
+                reason=f"Matches verified common hallucination [{entry.id}]: {entry.resolution}",
             )
     except Exception:
         pass
@@ -1131,16 +1088,13 @@ def _check_verdict_polarity_hallucination(finding: Finding) -> Finding | None:
     obs = finding.observed_value
     exp = finding.expected_value
     if obs is not None and exp is not None and obs.strip().lower() == exp.strip().lower():
-        return finding.model_copy(
-            update={
-                "verified": False,
-                "mitigated": False,
-                "reportable": False,
-                "status": "INVALIDATED",
-                "invalidation_reason": (
-                    f"Observed value '{obs}' is identical to expected value '{exp}' (no defect polarity)"
-                ),
-            }
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:verdict_polarity",
+            reason=(
+                f"Observed value '{obs}' is identical to expected value '{exp}' (no defect polarity)"
+            ),
         )
     return None
 
@@ -1319,8 +1273,132 @@ def _without_self_refutation(f: Finding, item: dict[str, Any]) -> tuple[dict[str
     return withdrawn, []
 
 
+def _extract_citation_line(item: dict[str, Any], reason: str) -> int | None:
+    """Extract cited line number from verdict item or reason."""
+    for key in ("citation_line", "cited_line", "line", "refutation_line"):
+        val = item.get(key)
+        if val is not None:
+            try:
+                return int(val)
+            except ValueError, TypeError:
+                pass
+    if reason:
+        m = re.search(r"\b(?:lines?|l)\s*#?\s*(\d+)\b", reason, re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+        m2 = re.search(r":(\d+)\b", reason)
+        if m2:
+            return int(m2.group(1))
+    loc = item.get("location")
+    if loc and ":" in str(loc):
+        digits = re.findall(r"\d+", str(loc).split(":", 1)[1])
+        if digits:
+            return int(digits[0])
+    return None
+
+
+def _extract_mitigating_mechanism(item: dict[str, Any], reason: str) -> str | None:
+    """Extract named mitigating mechanism from verdict item or reason."""
+    for key in ("mitigating_mechanism", "mechanism", "mitigation"):
+        val = item.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    if reason:
+        m = re.search(
+            r"\b(?:mechanism|mitigated by|mitigation):\s*([^,.\n;]+)",
+            reason,
+            re.IGNORECASE,
+        )
+        if m:
+            return m.group(1).strip()
+    return None
+
+
+def _check_ast_symbol_at_line(
+    file_path: Path, citation_line: int, candidates: Sequence[str]
+) -> bool:
+    """Check if AST symbols around citation_line match candidate tokens."""
+    try:
+        from devops_cli.ai.ast.engine import TreeSitterEngine
+
+        engine = TreeSitterEngine()
+        file_map = engine.parse_file(file_path)
+        if file_map and file_map.symbols:
+            cand_lowers = {c.lower() for c in candidates}
+            for sym in file_map.symbols:
+                if sym.span.line_start <= citation_line <= sym.span.line_end:
+                    sym_lower = sym.name.lower()
+                    if any(c in sym_lower or sym_lower in c for c in cand_lowers):
+                        return True
+    except Exception:
+        pass
+    return False
+
+
+def _validate_citation_line(
+    f: Finding,
+    citation_line: int | None,
+    repo_root: Path | None,
+) -> tuple[bool, int | None, str | None]:
+    """Validate refutation citation line against file bounds and construct tokens."""
+    if citation_line is None:
+        return False, None, "Refutation missing cited line; downgraded to UNVERIFIED"
+    if citation_line <= 0:
+        return (
+            False,
+            citation_line,
+            f"Refutation cited line {citation_line} is out of range; downgraded to UNVERIFIED",
+        )
+
+    loc_file = f.location.split(":")[0].strip()
+    file_path = _resolve_target_file(loc_file, repo_root)
+    if not (file_path and file_path.is_file()):
+        return True, citation_line, None
+
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        lines = content.splitlines()
+        if citation_line > len(lines):
+            return (
+                False,
+                citation_line,
+                f"Refutation cited line {citation_line} exceeds file length ({len(lines)} lines); downgraded to UNVERIFIED",
+            )
+
+        from devops_cli.ai.review.construct_validator import extract_finding_construct_candidates
+        from devops_cli.ai.review_schema import _extract_code_symbols
+
+        candidates = extract_finding_construct_candidates(f)
+        if not candidates:
+            candidates = list(_extract_code_symbols(f"{f.title} {f.description or ''}"))
+        if not candidates:
+            return True, citation_line, None
+
+        cited_text = lines[citation_line - 1]
+        line_matches = any(
+            re.search(rf"\b{re.escape(cand)}\b", cited_text, re.IGNORECASE) for cand in candidates
+        )
+        if line_matches:
+            return True, citation_line, None
+
+        if _check_ast_symbol_at_line(file_path, citation_line, candidates):
+            return True, citation_line, None
+
+        return (
+            False,
+            citation_line,
+            f"Refutation cited line {citation_line} does not contain cited construct tokens; downgraded to UNVERIFIED",
+        )
+    except Exception as exc:
+        logger.debug("Failed citation line validation for %s: %s", file_path, exc)
+        return True, citation_line, None
+
+
 def _apply_single_finding_verification(
-    f: Finding, item: dict[str, Any] | None, now_iso: str
+    f: Finding,
+    item: dict[str, Any] | None,
+    now_iso: str,
+    repo_root: Path | None = None,
 ) -> Finding:
     """Apply parsed LLM verification metadata to a single Finding."""
     if not isinstance(item, dict):
@@ -1329,16 +1407,7 @@ def _apply_single_finding_verification(
     ver_matched = _verdict_list(item.get("verified_criteria_matched"))
     item, inv_matched = _without_self_refutation(f, item)
     status_val, is_rep = _verdict_status(item, inv_matched)
-    is_v = status_val == "VERIFIED"
-    # A model's invalidation does not teach the hallucinations catalog: it is the judgement
-    # under test, and a real defect it wrongly dismissed would be learned as a false alarm.
 
-    # A confidence derived from `len(verified_criteria_matched) / len(verification_criteria)`
-    # divides the model's claim about its criteria by the criteria the model wrote. It
-    # measures self-agreement and reads as evidence, which is how findings reached 0.95
-    # while being refutable by reading one file. AGENTS.md requires a score to come from a
-    # tool's native rating or a structured model response, and to be absent otherwise --
-    # so an absent score stays absent rather than being computed into existence.
     conf_val = item.get("confidence_score")
     conf: float | None = f.confidence_score
     if conf_val is not None:
@@ -1350,45 +1419,61 @@ def _apply_single_finding_verification(
     merged_ver_matched = list(dict.fromkeys(f.verified_criteria_matched + ver_matched))
     merged_inv_matched = list(dict.fromkeys(f.invalidated_criteria_matched + inv_matched))
 
-    updates: dict[str, object] = {
-        "verified": is_v,
-        "mitigated": status_val == "MITIGATED",
-        "status": status_val,
-        "reportable": is_rep,
-        "confidence_score": conf,
-        "verified_criteria_matched": merged_ver_matched,
-        "invalidated_criteria_matched": merged_inv_matched,
-        "criteria_execution_results": f.criteria_execution_results,
-        "verified_by": "llm",
-        "verified_at": now_iso,
-    }
     reason = str(item.get("reason") or "").strip()
-    if status_val in {"MITIGATED", "INVALIDATED"} and reason:
-        updates["invalidation_reason"] = reason
+    citation_line = _extract_citation_line(item, reason)
+    mitigating_mechanism = _extract_mitigating_mechanism(item, reason)
+    verification_note: str | None = None
+
+    if status_val == "INVALIDATED":
+        is_valid, citation_line, note = _validate_citation_line(f, citation_line, repo_root)
+        if not is_valid:
+            status_val = "UNVERIFIED"
+            verification_note = note
+            reason = ""
+    elif status_val == "MITIGATED":
+        if not mitigating_mechanism:
+            verification_note = "Mitigated verdict without specified mitigating mechanism"
+
     new_sev = str(item.get("severity", "")).upper().strip()
-    if new_sev and new_sev in _SEVERITY_RANK:
-        updates["severity"] = new_sev
+    sev = new_sev if new_sev and new_sev in _SEVERITY_RANK else f.severity
     new_loc = str(item.get("location", "")).strip()
-    if new_loc and new_loc != f.location:
-        updates["location"] = new_loc
+    loc = new_loc if new_loc and new_loc != f.location else f.location
 
     obs_val = item.get("observed_value") or item.get("observed")
     exp_val = item.get("expected_value") or item.get("expected")
-    if obs_val is not None:
-        updates["observed_value"] = str(obs_val).strip()
-    if exp_val is not None:
-        updates["expected_value"] = str(exp_val).strip()
-    final_obs = updates.get("observed_value", f.observed_value)
-    final_exp = updates.get("expected_value", f.expected_value)
+    final_obs = str(obs_val).strip() if obs_val is not None else f.observed_value
+    final_exp = str(exp_val).strip() if exp_val is not None else f.expected_value
+
     if final_obs and final_exp and str(final_obs).strip().lower() == str(final_exp).strip().lower():
-        updates["verified"] = False
-        updates["mitigated"] = False
-        updates["reportable"] = False
-        updates["status"] = "INVALIDATED"
-        updates["invalidation_reason"] = (
-            f"Observed value '{final_obs}' is identical to expected value '{final_exp}' (polarity check)"
-        )
-    return f.model_copy(update=updates)
+        status_val = "INVALIDATED"
+        by: str | None = "deterministic:verdict_polarity"
+        reason = f"Observed value '{final_obs}' is identical to expected value '{final_exp}' (polarity check)"
+    else:
+        by = "llm" if status_val != "UNVERIFIED" else None
+
+    extra_kw: dict[str, Any] = {}
+    if status_val == "MITIGATED" and _verdict_bool(item.get("verified")) is False:
+        extra_kw["verified"] = False
+
+    return apply_verdict(
+        f,
+        status_val,
+        by=by,
+        reason=reason if status_val in {"INVALIDATED", "MITIGATED"} else None,
+        citation_line=citation_line,
+        mitigating_mechanism=mitigating_mechanism,
+        verification_note=verification_note,
+        confidence_score=conf,
+        verified_at=now_iso if status_val != "UNVERIFIED" else None,
+        severity=sev,
+        location=loc,
+        observed_value=final_obs,
+        expected_value=final_exp,
+        verified_criteria_matched=merged_ver_matched,
+        invalidated_criteria_matched=merged_inv_matched,
+        criteria_execution_results=f.criteria_execution_results,
+        **extra_kw,
+    )
 
 
 def _extract_verdict_pos_id(item: dict[str, Any]) -> int | None:
@@ -1516,7 +1601,7 @@ def _validate_segment_findings(
     unresolved_findings = [
         f.model_copy(update={"finding_id": i}) if f.finding_id is None else f
         for i, f in enumerate(
-            (f for f in pre_validated_findings if f.status not in {"INVALIDATED", "MITIGATED"}),
+            (f for f in pre_validated_findings if f.status == "UNVERIFIED"),
             start=1,
         )
     ]
@@ -1555,12 +1640,14 @@ def _validate_segment_findings(
             now_iso = datetime.now().isoformat()
             unresolved_idx = 0
             for f in result.findings:
-                if f.status in {"INVALIDATED", "MITIGATED"}:
+                if f.status != "UNVERIFIED":
                     validated.append(f)
                     continue
                 item = bound.get(unresolved_idx)
                 unresolved_idx += 1
-                validated.append(_apply_single_finding_verification(f, item, now_iso))
+                validated.append(
+                    _apply_single_finding_verification(f, item, now_iso, repo_root=repo_root)
+                )
             return result.model_copy(update={"findings": validated}), proc_sec, b_info
     except Exception as exc:
         # An infrastructure failure, a malformed response and a genuine refusal to verify
@@ -1571,9 +1658,7 @@ def _validate_segment_findings(
         logger.warning("Verification did not complete: %s: %s", type(exc).__name__, exc)
         reason = f"{CONST_VERIFICATION_UNAVAILABLE}: {type(exc).__name__}"
         degraded = [
-            f.model_copy(update={"verification_note": reason})
-            if f.status not in {"INVALIDATED", "MITIGATED"}
-            else f
+            f.model_copy(update={"verification_note": reason}) if f.status == "UNVERIFIED" else f
             for f in result.findings
         ]
         return result.model_copy(update={"findings": degraded}), proc_sec, b_info
