@@ -2840,7 +2840,7 @@ def ai_spend_report(
         "ai",
         "cost",
         "report",
-        "--group-by",
+        "--by",
         group_by,
         "--format",
         "json",
@@ -2854,7 +2854,7 @@ def ai_spend_report(
 def get_ai_spend_resource() -> str:
     """Return lifetime AI spend report aggregated by backend server in JSON format."""
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "ai", "cost", "report", "--group-by", "server", "--format", "json"],
+        ["uv", "run", "devops", "ai", "cost", "report", "--by", "server", "--format", "json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 

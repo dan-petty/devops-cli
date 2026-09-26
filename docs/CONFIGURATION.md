@@ -87,6 +87,7 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `rag` | `AIRAGConfig` | `enabled=True top_k=5 score_threshold=0.35 chunk_size=2400 chunk_overlap=240` | - | - |
 | `cache` | `AICacheConfig` | `enabled=True backend='file' dir=PosixPath('.data/cache/llm') ttl_seconds=604800 max_entries=1000 append_cache=False` | - | - |
 | `durable` | `AIDurableConfig` | `engine='sqlite' store_path=PosixPath('.data/durable_runs.db') task_queue='devops-cli-tasks' workflow_id_prefix='devops-run-'` | - | - |
+| `task_name` | `Union` | - | - | - |
 
 ## Data Storage Tier (`data`)
 

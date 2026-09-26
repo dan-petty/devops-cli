@@ -370,6 +370,7 @@ class AIConfig(BaseModel):
     rag: AIRAGConfig = AIRAGConfig()
     cache: AICacheConfig = AICacheConfig()
     durable: AIDurableConfig = AIDurableConfig()
+    task_name: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -426,6 +427,10 @@ class AIConfig(BaseModel):
             }.items()
             if v is not None
         } | self._task_endpoint_updates(override)
+        if task in AITasksConfig.model_fields:
+            updates["task_name"] = task
+        else:
+            updates["task_name"] = None
         return self.model_copy(update=updates) if updates else self
 
     def _task_endpoint_updates(self, override: AITaskOverride) -> dict[str, str | None]:
@@ -778,6 +783,19 @@ def load_settings() -> Settings:
     return settings
 
 
+def _match_dir_candidate(d: Path, candidate_names: tuple[str, ...]) -> Path | None:
+    """Find the first non-forbidden regular config file candidate in directory d."""
+    from devops_cli.core.paths import is_forbidden_system_path
+
+    for name in candidate_names:
+        p = d / name
+        if p.is_file() and not p.is_symlink():
+            resolved = p.resolve()
+            if not is_forbidden_system_path(resolved):
+                return resolved
+    return None
+
+
 def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
     """Locate candidate project/devcontainer config file from env, base_dir, or ancestor directories."""
     env_config = os.environ.get(PROJECT_CONFIG_ENV)
@@ -795,14 +813,9 @@ def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
     )
     start_dir = (base_dir or Path.cwd()).resolve()
     for d in (start_dir, *start_dir.parents):
-        for name in candidate_names:
-            p = d / name
-            if p.is_file() and not p.is_symlink():
-                from devops_cli.core.paths import is_forbidden_system_path
-
-                resolved = p.resolve()
-                if not is_forbidden_system_path(resolved):
-                    return resolved
+        candidate = _match_dir_candidate(d, candidate_names)
+        if candidate is not None:
+            return candidate
         if (d / ".git").exists() or (d / ".devcontainer").exists():
             break
     return None

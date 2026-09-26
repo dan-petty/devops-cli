@@ -4516,7 +4516,7 @@ devops ai cost [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, all. |
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -4533,7 +4533,7 @@ devops ai cost report [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, all. |
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -4619,7 +4619,7 @@ devops ai spend [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, all. |
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
@@ -4636,7 +4636,7 @@ devops ai spend report [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, all. |
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
 | `--json` | `boolean` | - | First-class alias for --format json. |

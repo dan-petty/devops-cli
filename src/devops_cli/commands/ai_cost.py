@@ -162,6 +162,30 @@ def _render_backends_table(report: LifetimeSpendReport) -> None:
     print_table(title="Gateway Calls by Serving Backend", columns=cols, rows=rows)
 
 
+def _render_stages_table(report: LifetimeSpendReport) -> None:
+    """Render spend breakdown by execution stage."""
+    if not report.stages:
+        print_info("No stage spend records found.")
+        return
+
+    cols = [
+        ("Stage", "cyan"),
+        ("Calls", "blue"),
+        ("Tokens", "magenta"),
+        ("Cost (USD)", "bold green"),
+    ]
+    rows: list[list[str]] = [
+        [
+            s.stage,
+            f"{s.request_count:,}",
+            f"{s.total_tokens:,}",
+            f"${s.approx_spend_usd:,.4f}",
+        ]
+        for s in report.stages
+    ]
+    print_table(title="AI Spend & Usage by Execution Stage", columns=cols, rows=rows)
+
+
 def _render_report_tables(report: LifetimeSpendReport, by: str) -> None:
     """Dispatch table rendering based on grouping selection."""
     _render_report_summary_table(report)
@@ -173,6 +197,8 @@ def _render_report_tables(report: LifetimeSpendReport, by: str) -> None:
         _render_providers_table(report)
     if by in ("backend", "all"):
         _render_backends_table(report)
+    if by in ("stage", "all"):
+        _render_stages_table(report)
 
 
 @app.callback(invoke_without_command=True)
@@ -183,7 +209,7 @@ def cost_default(
         typer.Option(
             "--by",
             "-b",
-            help="Breakdown grouping dimension: server, model, provider, backend, all.",
+            help="Breakdown grouping dimension: server, model, provider, backend, stage, all.",
         ),
     ] = "server",
     days: Annotated[
@@ -240,7 +266,7 @@ def cost_report(
         typer.Option(
             "--by",
             "-b",
-            help="Breakdown grouping dimension: server, model, provider, backend, all.",
+            help="Breakdown grouping dimension: server, model, provider, backend, stage, all.",
         ),
     ] = "server",
     days: Annotated[

@@ -113,7 +113,7 @@ def direct_model_request_sync(
             instrument=instrument,
         )
         if resp.usage:
-            from devops_cli.ai.spend import track_request_spend
+            from devops_cli.ai.spend import current_stage, track_request_spend
 
             track_request_spend(
                 provider="pydantic_ai_direct",
@@ -123,6 +123,7 @@ def direct_model_request_sync(
                 completion_tokens=resp.usage.output_tokens or 0,
                 request_type="direct_sync",
                 duration_seconds=time.monotonic() - started,
+                stage=current_stage.get(),
             )
         return resp
 
@@ -157,7 +158,7 @@ async def direct_model_request(
             instrument=instrument,
         )
         if resp.usage:
-            from devops_cli.ai.spend import track_request_spend
+            from devops_cli.ai.spend import current_stage, track_request_spend
 
             track_request_spend(
                 provider="pydantic_ai_direct",
@@ -167,6 +168,7 @@ async def direct_model_request(
                 completion_tokens=resp.usage.output_tokens or 0,
                 request_type="direct_async",
                 duration_seconds=time.monotonic() - started,
+                stage=current_stage.get(),
             )
         return resp
 
