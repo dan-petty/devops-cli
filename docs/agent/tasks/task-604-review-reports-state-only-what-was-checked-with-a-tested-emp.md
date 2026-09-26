@@ -1,7 +1,7 @@
 # Task 604: Review Reports State Only What Was Checked, With a Tested Empty Outcome
 
 **Issue**: [#604](https://github.com/dan-petty/devops-cli/issues/604)
-**Status**: In Progress
+**Status**: Done
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/review`, `priority/p0-critical`
@@ -14,7 +14,7 @@ The review report asserts checks it never ran. `extract_good_patterns` (`src/dev
 
 ### Key Deliverables:
 
-#### Part 1: Report (PR 1)
+#### Part 1: Report (PR 1 - PR #622)
 - [x] **Report Sentences Derived Strictly from Recorded Inputs** (`src/devops_cli/ai/review/stages/reporting.py`):
   - Replaced hardcoded Executive Summary praise ("exceptional engineering quality...") with factual summary stating exact defect count across analyzed files.
   - Derived recommendation sentence dynamically from actual finding themes (`_derive_finding_theme`) and severity breakdown without generic "path traversal defenses" or "transport protocol safeguards".
@@ -41,6 +41,16 @@ The review report asserts checks it never ran. `extract_good_patterns` (`src/dev
   - 100% pass across architectural complexity ($M \le 10$, depth $\le 5$) and test suites.
 
 #### Part 2: Post (PR 2)
-- [ ] For `--post`, add a fixed, tested zero-findings comment naming the files, personas and analyzers that ran.
-- [ ] Remove `positive_observations` from the schema, prompts, merge and renderers with no shim.
-- [ ] Post `summary` under a "model notes, not verified" heading.
+- [x] **Fixed, Tested Zero-Findings Comment for `--post`** (`src/devops_cli/commands/review.py`, `src/devops_cli/ai/review/runner.py`):
+  - Implemented `format_pr_review_comment` emitting a fixed zero-findings comment naming the exact files, personas, and static analyzers that ran.
+  - Decomposed PR comment posting into `_resolve_pr_files` and `_post_pr_review_comment` in `commands/review.py`.
+  - Added comprehensive test coverage in `tests/test_review_pr_post.py` covering zero findings, findings rendering, multi-persona notes, and `--dry-run`.
+- [x] **Complete Elimination of `positive_observations` with Zero Shims**:
+  - Removed `positive_observations` field, field validator, and merge logic from `ReviewResult` in `src/devops_cli/ai/review_schema.py`.
+  - Removed `positive_observations` extraction and reconciliation from `src/devops_cli/ai/review/verification.py`.
+  - Removed `positive_observations` rendering from `src/devops_cli/output/formatters/panels.py` and `src/devops_cli/lang/en/messages.py`.
+  - Removed `positive_observations` instructions from prompt templates (`src/devops_cli/ai/tasks/compose.md`, `src/devops_cli/ai/tasks/review_output_instruction.md`).
+  - Updated dry-run simulated result builders in `src/devops_cli/ai/review/runner.py`.
+- [x] **Routing `summary` Under "Model Notes (Not Verified)"**:
+  - Updated `_review_to_markdown` in `src/devops_cli/ai/review/runner.py` to post `summary` under `## Model Notes (Not Verified)` instead of `## Summary`.
+  - Formatted persona summaries under `## Model Notes (Not Verified)` in zero-findings comments.

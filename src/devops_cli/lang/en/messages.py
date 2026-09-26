@@ -68,7 +68,6 @@ class ReviewMessages:
     table_title_network_references: str = (
         "[bold yellow]Network & Egress References Audit[/bold yellow]"
     )
-    positive_observations: str = "[bold green]Positive Observations[/bold green]"
     summary: str = "[bold]Summary[/bold]"
 
 

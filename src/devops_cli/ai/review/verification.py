@@ -1647,14 +1647,10 @@ def _reconcile_verified(
     ]
 
     summary = recomposed.summary or (merged_seg.summary if merged_seg else "")
-    positive = recomposed.positive_observations or (
-        merged_seg.positive_observations if merged_seg else []
-    )
 
     return recomposed.model_copy(
         update={
             "findings": updated,
             "summary": summary,
-            "positive_observations": positive,
         }
     )

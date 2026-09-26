@@ -1106,7 +1106,6 @@ def derive_recommendation(findings: list[Finding]) -> str:
 
 class ReviewResult(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
-    positive_observations: list[str] = Field(default_factory=list)
     recommendation: str = "REQUEST CHANGES"
     summary: str = ""
     thinking: str | None = None
@@ -1137,13 +1136,6 @@ class ReviewResult(BaseModel):
         cleaned = unique_lines(normalize_unicode_text(str(v)))
         return cleaned if cleaned.strip() else None
 
-    @field_validator("positive_observations", mode="before")
-    @classmethod
-    def _clean_positive_observations(cls, v: object) -> list[str]:
-        if isinstance(v, list):
-            return [normalize_unicode_text(str(r)).strip() for r in v if str(r).strip()]
-        return []
-
     @field_validator("recommendation", mode="before")
     @classmethod
     def _normalize_recommendation(cls, v: object) -> str:
@@ -1167,9 +1159,6 @@ class ReviewResult(BaseModel):
         merged_conf = round(sum(scores) / len(scores), 2) if scores else None
         return ReviewResult(
             findings=merged_findings,
-            positive_observations=list(
-                dict.fromkeys(self.positive_observations + other.positive_observations)
-            ),
             recommendation=recommendation,
             summary=self.summary or other.summary,
             confidence_score=merged_conf,

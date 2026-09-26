@@ -436,8 +436,8 @@ def test_validate_segment_findings_and_merge() -> None:
 
     f1 = Finding(title="Finding 1", location="a.py:1", status="UNVERIFIED")
     f2 = Finding(title="Finding 2", location="b.py:2", status="UNVERIFIED")
-    r1 = ReviewResult(findings=[f1], summary="Summary 1", positive_observations=["Obs 1"])
-    r2 = ReviewResult(findings=[f2], summary="Summary 2", positive_observations=["Obs 2"])
+    r1 = ReviewResult(findings=[f1], summary="Summary 1")
+    r2 = ReviewResult(findings=[f2], summary="Summary 2")
 
     merged = _merge_segment_results([r1, r2])
     assert merged is not None

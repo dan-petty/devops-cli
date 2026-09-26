@@ -89,7 +89,6 @@ def test_rendering_helpers() -> None:
         findings=[finding],
         external_dependencies=[dep],
         network_references=[net],
-        positive_observations=["Clean code style"],
         summary="Summary of issues",
         raw_markdown="# Security Review",
     )
@@ -310,13 +309,11 @@ def test_review_runner_extended_branches(tmp_path: Path) -> None:
     res_mit = ReviewResult(
         persona=Persona.DEVSECOPS,
         findings=[finding_mit, finding_unver],
-        positive_observations=["Good architecture"],
         summary="Review complete",
     )
     md = _review_to_markdown(res_mit)
     assert "*(mitigated)*" in md
     assert "*(unverified)*" in md
-    assert "Good architecture" in md
 
     # 3. Print review helpers
     pd = PERSONAS[Persona.DEVSECOPS]
@@ -522,12 +519,11 @@ def test_review_to_markdown() -> None:
         persona=Persona.ARCHITECT,
         recommendation="COMMENT",
         findings=[f],
-        positive_observations=["Clean typing"],
         summary="Architecture is mostly sound.",
     )
     md = _review_to_markdown(res)
     assert "Tight Coupling" in md
-    assert "Clean typing" in md
+    assert "## Model Notes (Not Verified)" in md
     assert "Architecture is mostly sound" in md
 
 

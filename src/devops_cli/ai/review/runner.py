@@ -447,6 +447,26 @@ def _save_findings_json(
         return False
 
 
+def _format_finding_markdown(f: Finding) -> list[str]:
+    """Format an individual finding for markdown output."""
+    verified = ""
+    if f.mitigated:
+        verified = " *(mitigated)*"
+    elif not f.verified:
+        verified = " *(unverified)*"
+    lines = [
+        f"### [{f.severity}] {f.title}{verified}",
+        f"**Location:** `{f.location}`\n",
+    ]
+    if f.description:
+        lines.append(f"{f.description}\n")
+    if f.fix:
+        lines.append(f"**Fix:** {f.fix}\n")
+    if f.references:
+        lines.append(f"**References:** {', '.join(f.references)}\n")
+    return lines
+
+
 def _review_to_markdown(review: ReviewResult | str) -> str:
     if isinstance(review, str):
         from devops_cli.ai.thinking_stream import strip_think_blocks
@@ -458,29 +478,137 @@ def _review_to_markdown(review: ReviewResult | str) -> str:
     if review.findings:
         lines.append("## Findings\n")
         for f in review.sorted_findings:
-            verified = (
-                ""
-                if f.verified and not f.mitigated
-                else " *(mitigated)*"
-                if f.mitigated
-                else " *(unverified)*"
-            )
-            lines.append(f"### [{f.severity}] {f.title}{verified}")
-            lines.append(f"**Location:** `{f.location}`\n")
-            if f.description:
-                lines.append(f.description + "\n")
-            if f.fix:
-                lines.append(f"**Fix:** {f.fix}\n")
-            if f.references:
-                lines.append(f"**References:** {', '.join(f.references)}\n")
-    if review.positive_observations:
-        lines.append("## Positive Observations\n")
-        lines.extend(f"- {obs}" for obs in review.positive_observations)
-        lines.append("")
+            lines.extend(_format_finding_markdown(f))
     if review.summary:
-        lines.append("## Summary\n")
+        lines.append("## Model Notes (Not Verified)\n")
         lines.append(review.summary)
     return "\n".join(lines)
+
+
+def _has_review_findings(reviews: list[tuple[PersonaDefinition, ReviewResult | str]]) -> bool:
+    """Return True if any review contains actionable findings."""
+    for _, rev in reviews:
+        if isinstance(rev, ReviewResult) and rev.findings:
+            return True
+        if isinstance(rev, str):
+            from devops_cli.ai.thinking_stream import strip_think_blocks
+            from devops_cli.core.serialization import extract_json_block
+
+            clean = strip_think_blocks(rev)
+            parsed = extract_json_block(clean, default=None)
+            if isinstance(parsed, dict) and parsed.get("findings"):
+                return True
+    return False
+
+
+def _extract_review_summaries(
+    reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
+) -> list[tuple[str, str]]:
+    """Extract non-empty summaries from persona reviews."""
+    summaries: list[tuple[str, str]] = []
+    for pd, rev in reviews:
+        text = ""
+        if isinstance(rev, ReviewResult) and rev.summary:
+            text = rev.summary.strip()
+        elif isinstance(rev, str):
+            from devops_cli.ai.thinking_stream import strip_think_blocks
+            from devops_cli.core.serialization import extract_json_block
+
+            clean = strip_think_blocks(rev)
+            parsed = extract_json_block(clean, default=None)
+            if isinstance(parsed, dict) and parsed.get("summary"):
+                text = str(parsed["summary"]).strip()
+        if text:
+            summaries.append((pd.title, text))
+    return summaries
+
+
+def _resolve_static_analyzer_states(target_dir: Path, files: list[str]) -> dict[str, str]:
+    """Map static analyzer execution states based on file types in target directory."""
+    from devops_cli.ai.review.pipeline import _static_analyzer_states
+
+    file_paths = [target_dir / f for f in files]
+    py_paths = [p for p in file_paths if p.suffix.lower() == ".py"]
+    yaml_paths = [p for p in file_paths if p.suffix.lower() in (".yaml", ".yml")]
+    container_paths = [
+        p
+        for p in file_paths
+        if p.name.lower() in ("dockerfile", "containerfile") or p.suffix in (".lock", ".lockb")
+    ]
+    return _static_analyzer_states(
+        {
+            "python": py_paths,
+            "yaml": yaml_paths,
+            "container": container_paths,
+            "any": file_paths,
+        }
+    )
+
+
+def _format_zero_findings_comment(
+    reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
+    files: list[str] | None,
+    static_analyzers: dict[str, str] | None,
+) -> str:
+    """Construct fixed zero-findings comment naming files, personas, and analyzers that ran."""
+    files_list = files or []
+    files_str = ", ".join(f"`{f}`" for f in files_list) if files_list else "None"
+    personas_str = ", ".join(pd.title for pd, _ in reviews) if reviews else "None"
+
+    if static_analyzers:
+        ran = [
+            name
+            for name, state in static_analyzers.items()
+            if state in ("ran", "built-in patterns")
+        ]
+        analyzers_str = ", ".join(sorted(ran)) if ran else "None"
+    else:
+        analyzers_str = "None"
+
+    lines = [
+        "## 🤖 AI Code Review\n",
+        "Zero findings identified.\n",
+        f"- **Files checked:** {files_str}",
+        f"- **Personas:** {personas_str}",
+        f"- **Analyzers:** {analyzers_str}",
+    ]
+
+    summaries = _extract_review_summaries(reviews)
+    if summaries:
+        lines.append("\n## Model Notes (Not Verified)\n")
+        if len(summaries) == 1:
+            lines.append(summaries[0][1])
+        else:
+            for persona_title, summary_text in summaries:
+                lines.append(f"### {persona_title}\n\n{summary_text}\n")
+
+    return "\n".join(lines).strip() + "\n"
+
+
+def format_pr_review_comment(
+    reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
+    files: list[str] | None = None,
+    target_dir: Path | None = None,
+    static_analyzers: dict[str, str] | None = None,
+) -> str:
+    """Format PR comment body for post_comment review workflow.
+
+    Emits a fixed zero-findings comment naming files, personas, and analyzers when zero
+    findings are identified, routing model suggestions under 'Model Notes (Not Verified)'.
+    Emits persona finding sections when findings exist.
+    """
+    if not reviews:
+        return ""
+
+    if not _has_review_findings(reviews):
+        if static_analyzers is None and target_dir is not None and files:
+            static_analyzers = _resolve_static_analyzer_states(target_dir, files)
+        return _format_zero_findings_comment(reviews, files, static_analyzers)
+
+    sections = "\n\n---\n\n".join(
+        f"## Review by {pd.title}\n\n{_review_to_markdown(text)}" for pd, text in reviews
+    )
+    return f"## 🤖 AI Code Review\n\n{sections}\n"
 
 
 def _save_persona_review(
@@ -575,7 +703,6 @@ def _build_dry_run_segment_result(file_label: str, title: str) -> ReviewResult:
                 status="VERIFIED",
             )
         ],
-        positive_observations=["Segment code passed dry-run analysis."],
         recommendation="APPROVE",
         summary=f"Dry run {file_label} review simulation.",
     )
@@ -634,7 +761,6 @@ def _build_dry_run_persona_result(title: str, persona_name: str, total: int) -> 
                 status="VERIFIED",
             )
         ],
-        positive_observations=["Dry run command execution completed successfully."],
         recommendation="APPROVE",
         summary=f"Dry run execution of review for {title}.",
     )

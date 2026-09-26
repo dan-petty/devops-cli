@@ -20,7 +20,6 @@ Output your findings as a single JSON block:
       "references": ["CWE-347"]
     }
   ],
-  "positive_observations": ["Explicit key rotation implemented in auth/rotation.py"],
   "recommendation": "REQUEST CHANGES",
   "summary": "One-paragraph overall assessment summarizing code quality and risks."
 }
@@ -32,7 +31,7 @@ Recommendation must be one of: APPROVE, REQUEST CHANGES, BLOCK.
 ### Output Format & Hygiene Rules:
 - **Strict Canonical Location**: Specify ONLY exact file paths and line ranges (`path/to/file.ext:start-end` or `path/to/file.ext:line`). Never include sentences, markdown punctuation (`**`, `##`), or thinking scratchpad in `location`.
 - **Zero Scratchpad Leakage**: Never leak conversational phrases ("We need to...", "Let's check...") or section headers into `location`, `title`, `description`, or `fix`.
-- **Zero Conversational Praise in Findings**: Positive observations belong strictly in the `positive_observations` array, never in finding `title` or `description`.
+- **Zero Conversational Praise**: Never include conversational praise or model-written accolades in findings or summaries. Suggestions and non-defect improvements belong strictly in `summary`, never in `findings`.
 - **Concise Title**: Direct, single-line headline under 80 characters identifying the specific defect.
 - **Criteria Isolation & Executability**: `verification_criteria` and `invalidation_criteria` drive automated verification in a bounded sandbox. Each criterion must be either an allowlisted read-only command (`git grep`, `git ls-files`, `python -c`, `ruff check`) marked with `executable: true`, or explicitly marked with `executable: false` if unexecutable prose. Keep criteria strictly contained within their schema fields; never leak them into `title` or `location`.
 - **Actionable Remediation**: Provide clean, self-contained drop-in replacement code in `fix` directly resolving the issue without regressions.

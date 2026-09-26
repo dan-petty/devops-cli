@@ -17,7 +17,6 @@ Follow a structured, 4-step chain-of-thought consolidation process to produce an
 
 ### Step 4: Unified Remediation & Executive Synthesis
 - Synthesize a comprehensive, drop-in code fix (`fix`) resolving all clustered aspects of the defect.
-- Formulate holistic `positive_observations` highlighting codebase architectural strengths.
 - Determine the overall merge recommendation:
   - **BLOCK**: Any unmitigated `CRITICAL` findings.
   - **REQUEST CHANGES**: Unresolved `HIGH`, `MEDIUM`, or `LOW` findings.
@@ -45,7 +44,6 @@ Return ONLY a valid JSON object matching:
       "references": ["CWE-XXX", "OWASP-XXX"]
     }
   ],
-  "positive_observations": ["Notable architectural or security strengths."],
   "recommendation": "BLOCK" | "REQUEST CHANGES" | "APPROVE",
   "summary": "High-level summary of code quality, required remediations, and next steps."
 }
