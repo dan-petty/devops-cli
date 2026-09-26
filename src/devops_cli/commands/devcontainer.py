@@ -718,6 +718,26 @@ def _bootstrap_developer_tools(*, dry_run: bool = False) -> list[str]:
     return actions
 
 
+def _bootstrap_managed_tools(
+    target_dir: Path | None = None,
+    *,
+    dry_run: bool = False,
+    skip: bool = False,
+) -> list[str]:
+    """Bootstrap missing managed DevOps tool binaries into target_dir."""
+    if dry_run or skip:
+        return []
+    if os.environ.get("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP", "").strip().lower() in ("1", "true", "yes"):
+        return []
+    try:
+        from devops_cli.commands.install_tools import install_managed_tools
+
+        dest = target_dir or (Path.home() / ".local" / "bin")
+        return install_managed_tools(target_dir=dest, only_missing=True)
+    except Exception as exc:
+        return [f"Warning: Failed to bootstrap managed DevOps tools ({exc})"]
+
+
 # Sourced by bash and zsh alike. It asks only while post-start's marker says the keyring is
 # still locked, and flock keeps several restored terminals from all prompting at once.
 _KEYRING_UNLOCK_HOOK_MARKER = "devops-cli keyring unlock"
@@ -761,7 +781,13 @@ def _install_keyring_packages(*, dry_run: bool = False) -> list[str]:
     return [f"Installed {', '.join(CONST_KEYRING_PACKAGES)} for the container's keyring"]
 
 
-def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
+def _run_post_create_lifecycle(
+    workspace_dir: Path,
+    *,
+    dry_run: bool = False,
+    skip_tools: bool = False,
+    target_dir: Path | None = None,
+) -> list[str]:
     """Execute DevContainer post-create setup tasks in pure Python."""
     actions: list[str] = []
 
@@ -770,6 +796,9 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
 
     # 2. Bootstrap tools if not present, including the keyring on images that lack it
     actions.extend(_bootstrap_developer_tools(dry_run=dry_run))
+    actions.extend(
+        _bootstrap_managed_tools(target_dir=target_dir, dry_run=dry_run, skip=skip_tools)
+    )
     actions.extend(_install_keyring_packages(dry_run=dry_run))
 
     # 3. Persistent bash history
@@ -1521,6 +1550,10 @@ def post_create(
         Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
     ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    skip_tools: Annotated[
+        bool,
+        typer.Option("--skip-tools", help="Skip bootstrapping missing DevOps tool binaries."),
+    ] = False,
 ) -> None:
     """Execute DevContainer post-create setup tasks (history, shell completions, config prep)."""
     ws = workspace.resolve()
@@ -1533,7 +1566,7 @@ def post_create(
         return
 
     print_info(MESSAGES.devcontainer.post_create_start.format(workspace=ws), prefix=False)
-    actions = _run_post_create_lifecycle(ws, dry_run=False)
+    actions = _run_post_create_lifecycle(ws, dry_run=False, skip_tools=skip_tools)
     for action in actions:
         print_info(f"  [green]✓[/green] {action}", prefix=False)
     print_success(MESSAGES.devcontainer.post_create_ready, prefix=False)

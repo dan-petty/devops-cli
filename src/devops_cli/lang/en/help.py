@@ -1082,6 +1082,7 @@ class InstallCommandHelp:
     status: str = "Check installed DevOps toolchain versions."
     tool: str = "Install a specific tool."
     version: str = "Specific version, e.g. v1.30.0."
+    only_missing: str = "Only install tools that are not already found in PATH."
 
 
 @dataclass(frozen=True)

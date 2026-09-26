@@ -27,6 +27,7 @@ def isolate_devcontainer_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
     monkeypatch.setenv("DEVOPS_K8S_AUTO_DEPLOY", "false")
     monkeypatch.setenv("DEVOPS_GIT_DAEMON_AUTOSTART", "false")
+    monkeypatch.setenv("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP", "1")
 
 
 class TestDevcontainerCli:
@@ -1898,3 +1899,53 @@ def test_an_environment_token_leaves_hosts_yml_alone(
     calls = _record_subprocess_calls(monkeypatch)
 
     assert (_move_plaintext_gh_tokens(), calls) == ([], [])
+
+
+def test_bootstrap_managed_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _bootstrap_managed_tools behavior under dry_run, skip, and normal execution."""
+    from unittest.mock import patch
+
+    from devops_cli.commands.devcontainer import _bootstrap_managed_tools
+
+    # dry_run and skip return empty list
+    assert (
+        _bootstrap_managed_tools(tmp_path, dry_run=True),
+        _bootstrap_managed_tools(tmp_path, skip=True),
+    ) == ([], [])
+
+    # DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP returns empty list
+    monkeypatch.setenv("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP", "1")
+    assert _bootstrap_managed_tools(tmp_path) == []
+    monkeypatch.delenv("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP")
+
+    # Successful delegation to install_managed_tools
+    with patch(
+        "devops_cli.commands.install_tools.install_managed_tools",
+        return_value=["Installed k9s v0.51.0 into ~/.local/bin"],
+    ) as mock_install:
+        actions = _bootstrap_managed_tools(tmp_path)
+        assert (actions, mock_install.call_count) == (
+            ["Installed k9s v0.51.0 into ~/.local/bin"],
+            1,
+        )
+
+    # Exception handling returns warning
+    with patch(
+        "devops_cli.commands.install_tools.install_managed_tools",
+        side_effect=RuntimeError("connection refused"),
+    ):
+        warn_actions = _bootstrap_managed_tools(tmp_path)
+        assert any("Warning: Failed to bootstrap managed DevOps tools" in a for a in warn_actions)
+
+
+def test_post_create_skip_tools_flag(tmp_path: Path, runner: CliRunner) -> None:
+    """Verify devops devcontainer post-create --skip-tools passes skip_tools flag."""
+    from unittest.mock import patch
+
+    with patch(
+        "devops_cli.commands.devcontainer._run_post_create_lifecycle",
+        return_value=["skipped"],
+    ) as mock_pc:
+        res = runner.invoke(app, ["post-create", "--workspace", str(tmp_path), "--skip-tools"])
+        assert (res.exit_code, mock_pc.call_count) == (0, 1)
+        mock_pc.assert_called_once_with(tmp_path.resolve(), dry_run=False, skip_tools=True)
