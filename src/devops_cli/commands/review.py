@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Annotated, Any
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
+    from devops_cli.ai.personas import PersonaDefinition
+    from devops_cli.ai.review_schema import ReviewResult
     from devops_cli.config.settings import Settings
 
 import typer
@@ -542,6 +544,49 @@ def branch(
 # =============================================================================
 
 
+def _resolve_pr_files(pages: list[str], pull: Any) -> list[str]:
+    """Extract changed file paths from PR pages or pull object."""
+    from devops_cli.ai.review.chunker import _extract_header_filenames
+
+    all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
+    if not all_files and pull:
+        try:
+            return [f.filename for f in pull.get_files() if getattr(f, "status", "") != "removed"]
+        except Exception:
+            return []
+    return all_files
+
+
+def _post_pr_review_comment(
+    reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
+    pages: list[str],
+    head_dir: Path,
+    pull: Any,
+    repo_name: str,
+    number: int,
+) -> None:
+    """Post formatted review comment to GitHub PR."""
+    from devops_cli.ai.review.runner import format_pr_review_comment
+
+    all_files = _resolve_pr_files(pages, pull)
+    comment_body = format_pr_review_comment(
+        reviews=reviews,
+        files=all_files,
+        target_dir=head_dir,
+    )
+    if is_dry_run():
+        from devops_cli.ai.review.runner import _debug_block
+
+        _debug_block(
+            f"Would post PR comment on #{number}",
+            {"repo": repo_name, "pr_number": number, "comment_body": comment_body},
+        )
+        print_warning(MESSAGES.dry_run.skipped_pr_comment.format(number=number), prefix=False)
+        return
+    pull.create_issue_comment(comment_body)
+    print_success(f"Review posted as comment on PR #{number}")
+
+
 @app.command()
 def pr(
     number: Annotated[int, typer.Argument(help=HELP.review.pr_number)],
@@ -708,23 +753,14 @@ def pr(
         )
 
     if post_comment and reviews:
-        from devops_cli.ai.review.runner import _review_to_markdown
-
-        sections = "\n\n---\n\n".join(
-            f"## Review by {pd.title}\n\n{_review_to_markdown(text)}" for pd, text in reviews
+        _post_pr_review_comment(
+            reviews=reviews,
+            pages=pages,
+            head_dir=Path(head_dir),
+            pull=pull,
+            repo_name=repo_name,
+            number=number,
         )
-        comment_body = f"## 🤖 AI Code Review\n\n{sections}"
-        if is_dry_run():
-            from devops_cli.ai.review.runner import _debug_block
-
-            _debug_block(
-                f"Would post PR comment on #{number}",
-                {"repo": repo_name, "pr_number": number, "comment_body": comment_body},
-            )
-            print_warning(MESSAGES.dry_run.skipped_pr_comment.format(number=number), prefix=False)
-            return
-        pull.create_issue_comment(comment_body)
-        print_success(f"Review posted as comment on PR #{number}")
 
 
 # =============================================================================
