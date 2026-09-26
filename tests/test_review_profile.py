@@ -275,3 +275,33 @@ def test_backend_labels_drop_the_cluster_dns_suffix() -> None:
         _backend_host("http://vllm-single.llm.svc.cluster.local:8000/v1"),
         _backend_host(VLLM),
     ] == ["ollama-0", "vllm-single", "vllm.example.com"]
+
+
+def test_profiler_accumulates_cost_usd_per_stage(tmp_path: Path) -> None:
+    """Verify ReviewProfiler accumulates cost_usd on StageProfile and ReviewProfile."""
+    ledger = SpendLedger(db_path=tmp_path / "spend.db")
+    with profiling() as profiler:
+        with review_stage("persona_review"):
+            track_request_spend(
+                provider="openai",
+                model="gpt-4o",
+                server="api.openai.com",
+                prompt_tokens=1000,
+                completion_tokens=200,
+                duration_seconds=0.5,
+                ledger=ledger,
+            )
+        with review_stage("verification"):
+            track_request_spend(
+                provider="openai",
+                model="gpt-4o",
+                server="api.openai.com",
+                prompt_tokens=2000,
+                completion_tokens=400,
+                duration_seconds=0.8,
+                ledger=ledger,
+            )
+        profile = profiler.build(session_id="s_cost", target="playbooks")
+
+    stage_costs = [round(s.cost_usd, 6) for s in profile.stages]
+    assert (stage_costs, profile.cost_usd) == ([0.0045, 0.009], 0.0135)

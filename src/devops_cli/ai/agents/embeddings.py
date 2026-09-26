@@ -24,7 +24,6 @@ from pydantic_ai.embeddings import (
 from pydantic_ai.embeddings.openai import OpenAIEmbeddingModel
 from pydantic_ai.usage import RequestUsage
 
-from devops_cli.ai.agents.spend import DEFAULT_MODEL_PRICING, ModelPricing
 from devops_cli.config.defaults import (
     DEFAULT_EMBEDDING_CURRENCY,
     DEFAULT_EMBEDDING_INPUT_TYPE,
@@ -166,14 +165,9 @@ class EmbeddingResult(PydanticEmbeddingResult):
         try:
             return super().cost()
         except Exception:
-            pricing: ModelPricing | None = None
-            model_lower = self.model_name.lower().split(":")[-1]
-            for key, p in DEFAULT_MODEL_PRICING.items():
-                if key.lower() in model_lower:
-                    pricing = p
-                    break
-            if pricing is None:
-                pricing = DEFAULT_MODEL_PRICING.get("default", ModelPricing())
+            from devops_cli.ai.spend import get_pricing_registry
+
+            pricing = get_pricing_registry().get_pricing(self.model_name)
             calc = pricing.calculate_cost(self.usage.input_tokens or 0, 0)
             return EmbeddingCost(total_price=calc)
 

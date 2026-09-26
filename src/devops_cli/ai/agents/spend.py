@@ -9,9 +9,6 @@ from pydantic import BaseModel, Field
 from devops_cli.ai.agents.capabilities import BaseCapability
 from devops_cli.ai.agents.context import AgentHooks, RunContext
 from devops_cli.ai.spend import (
-    DEFAULT_INDUSTRIAL_MODEL_PRICING as DEFAULT_INDUSTRIAL_MODEL_PRICING,
-)
-from devops_cli.ai.spend import (
     ModelPricing as ModelPricing,
 )
 from devops_cli.ai.spend import (
@@ -25,9 +22,6 @@ class BudgetExceededError(DevOpsCLIError):
 
     def __init__(self, message: str, **kwargs: Any) -> None:
         super().__init__(message=message, error_code="BUDGET_EXCEEDED", **kwargs)
-
-
-DEFAULT_MODEL_PRICING: dict[str, ModelPricing] = dict(DEFAULT_INDUSTRIAL_MODEL_PRICING)
 
 
 class SpendUsage(BaseModel):
@@ -55,7 +49,7 @@ class SpendGuard(BaseCapability):
     max_usd: float | None = None
     max_tokens: int | None = None
     max_turns: int | None = None
-    pricing: dict[str, ModelPricing] = Field(default_factory=lambda: dict(DEFAULT_MODEL_PRICING))
+    pricing: dict[str, ModelPricing] = Field(default_factory=dict)
     usage: SpendUsage = Field(default_factory=SpendUsage)
 
     def record_usage(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:

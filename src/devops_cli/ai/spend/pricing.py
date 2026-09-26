@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from urllib.parse import urlsplit
 
 from devops_cli.ai.spend.models import ModelPricing
-from devops_cli.ai.spend.pricing_data import DEFAULT_INDUSTRIAL_MODEL_PRICING
+from devops_cli.config.constants import (
+    CONST_LOCAL_DOMAIN_SUFFIXES,
+    CONST_LOCAL_HOSTNAMES,
+    CONST_LOCAL_PROVIDER_NAMES,
+    CONST_LOCAL_TRANSPORT_LABELS,
+)
 from devops_cli.config.defaults import (
-    DEFAULT_AI_PRICING_CATALOG_FILENAME,
     DEFAULT_AI_PRICING_OVERRIDES_FILENAME,
-    DEFAULT_OPEN_SOURCE_PRICING_URL,
 )
 from devops_cli.config.settings import load_settings
 
@@ -23,6 +27,8 @@ def _normalize_model_name(model: str) -> str:
     clean = model.strip().lower()
     if "/" in clean:
         clean = clean.split("/")[-1]
+    if clean.endswith(":latest"):
+        clean = clean.removesuffix(":latest")
     return clean
 
 
@@ -37,35 +43,88 @@ def _extract_param_size_b(model: str) -> int | None:
     return None
 
 
-def _get_bracket_pricing(param_b: int) -> ModelPricing:
-    """Determine industrial average pricing tier based on parameter size bracket."""
-    if param_b < 10:
-        return ModelPricing(
-            prompt_usd_per_million=0.15,
-            completion_usd_per_million=0.30,
-            source=f"heuristic_{param_b}b",
-        )
-    if param_b <= 35:
-        return ModelPricing(
-            prompt_usd_per_million=0.30,
-            completion_usd_per_million=0.60,
-            source=f"heuristic_{param_b}b",
-        )
-    if param_b <= 100:
-        return ModelPricing(
-            prompt_usd_per_million=0.70,
-            completion_usd_per_million=1.00,
-            source=f"heuristic_{param_b}b",
-        )
-    return ModelPricing(
-        prompt_usd_per_million=1.50,
-        completion_usd_per_million=3.00,
-        source=f"heuristic_{param_b}b",
-    )
+def _is_local_provider(provider: str | None) -> bool:
+    return bool(provider and provider.strip().lower() in CONST_LOCAL_PROVIDER_NAMES)
+
+
+def _is_local_host(host: str) -> bool:
+    if host in CONST_LOCAL_HOSTNAMES:
+        return True
+    if any(host.endswith(suffix) for suffix in CONST_LOCAL_DOMAIN_SUFFIXES):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_loopback or ip.is_private
+    except ValueError:
+        return False
+
+
+def _is_local_server(server: str | None) -> bool:
+    if not server:
+        return False
+    clean = server.strip().lower()
+    if clean in CONST_LOCAL_TRANSPORT_LABELS:
+        return True
+    if clean.startswith("http+unix://"):
+        return True
+    target = clean if "://" in clean else f"http://{clean}"
+    try:
+        parsed = urlsplit(target)
+        if parsed.hostname and _is_local_host(parsed.hostname):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _is_local(server: str | None = None, provider: str | None = None) -> bool:
+    return _is_local_provider(provider) or _is_local_server(server)
+
+
+def _candidate_models(model: str) -> tuple[str, ...]:
+    clean = model.strip().lower()
+    norm = _normalize_model_name(model)
+    candidates = [clean]
+    if norm != clean:
+        candidates.append(norm)
+    colon_to_dash = norm.replace(":", "-")
+    if colon_to_dash not in candidates:
+        candidates.append(colon_to_dash)
+    return tuple(candidates)
+
+
+def _query_genai_prices(model: str, provider: str | None = None) -> ModelPricing | None:
+    import genai_prices
+
+    usage = genai_prices.Usage(input_tokens=1_000_000, output_tokens=1_000_000)
+    candidates = _candidate_models(model)
+    prov_id = provider.strip().lower() if provider else None
+    for cand in candidates:
+        try:
+            p = genai_prices.calc_price(usage, cand, provider_id=prov_id)
+            return ModelPricing(
+                prompt_usd_per_million=float(p.input_price),
+                completion_usd_per_million=float(p.output_price),
+                source=f"genai_prices:{p.provider.id}",
+            )
+        except Exception:
+            continue
+    if prov_id is not None:
+        for cand in candidates:
+            try:
+                p = genai_prices.calc_price(usage, cand)
+                return ModelPricing(
+                    prompt_usd_per_million=float(p.input_price),
+                    completion_usd_per_million=float(p.output_price),
+                    source=f"genai_prices:{p.provider.id}",
+                )
+            except Exception:
+                continue
+    return None
 
 
 class PricingRegistry:
-    """Registry maintaining AI model pricing with open-source updates and overrides."""
+    """Registry maintaining AI model pricing with genai-prices and custom overrides."""
 
     def __init__(self, data_dir: Path | None = None) -> None:
         if data_dir is not None:
@@ -74,33 +133,13 @@ class PricingRegistry:
             settings = load_settings()
             self.data_dir = settings.data.dir
         self.ai_dir = self.data_dir / "ai"
-        self.catalog_path = self.ai_dir / DEFAULT_AI_PRICING_CATALOG_FILENAME
         self.overrides_path = self.ai_dir / DEFAULT_AI_PRICING_OVERRIDES_FILENAME
         self._catalog: dict[str, ModelPricing] = {}
         self._overrides: dict[str, ModelPricing] = {}
+        self._pricing_cache: dict[str, ModelPricing] = {}
         self._load_local_data()
 
     def _load_local_data(self) -> None:
-        """Load cached catalog and custom overrides from local disk."""
-        self._load_catalog()
-        self._load_overrides()
-
-    def _load_catalog(self) -> None:
-        """Load external catalog JSON if present."""
-        if not self.catalog_path.is_file():
-            return
-        try:
-            raw = json.loads(self.catalog_path.read_text(encoding="utf-8"))
-            models_dict = raw.get("models", raw)
-            if isinstance(models_dict, dict):
-                for k, v in models_dict.items():
-                    if isinstance(v, dict):
-                        self._catalog[k.lower()] = ModelPricing.model_validate(v)
-        except Exception:
-            # Fall back to defaults on corruption or error
-            self._catalog = {}
-
-    def _load_overrides(self) -> None:
         """Load user-defined pricing overrides if present."""
         if not self.overrides_path.is_file():
             return
@@ -113,52 +152,50 @@ class PricingRegistry:
         except Exception:
             self._overrides = {}
 
-    def _resolve_key(self, key: str) -> ModelPricing | None:
-        """Resolve a specific key against overrides, external catalog, and defaults."""
-        return (
-            self._overrides.get(key)
-            or self._catalog.get(key)
-            or DEFAULT_INDUSTRIAL_MODEL_PRICING.get(key)
-        )
-
-    def _resolve_normalized(self, model: str) -> ModelPricing | None:
-        """Resolve normalized and delimiter-variant forms of model identifier."""
+    def get_pricing(
+        self,
+        model: str,
+        server: str | None = None,
+        provider: str | None = None,
+    ) -> ModelPricing:
+        """Resolve token pricing in priority order: overrides, local zero-cost, genai-prices lookup."""
+        m_key = model.strip().lower()
+        if m_key in self._overrides:
+            return self._overrides[m_key]
         norm_key = _normalize_model_name(model)
-        candidates = (norm_key, norm_key.replace(":", "-"), norm_key.replace("-", ":"))
-        for cand in candidates:
-            res = self._resolve_key(cand)
-            if res is not None:
-                return res
-        return None
+        if norm_key in self._overrides:
+            return self._overrides[norm_key]
 
-    def get_pricing(self, model: str, server: str | None = None) -> ModelPricing:
-        """Resolve token pricing in priority order: server override, model override, catalog, heuristic."""
         if server:
             srv_pricing = self._overrides.get(server.strip().lower())
             if srv_pricing is not None:
                 return srv_pricing
 
-        m_key = model.strip().lower()
-        direct_match = self._resolve_key(m_key)
-        if direct_match is not None:
-            return direct_match
+        if _is_local(server=server, provider=provider):
+            return ModelPricing(
+                prompt_usd_per_million=0.0,
+                completion_usd_per_million=0.0,
+                source="local",
+            )
 
-        norm_match = self._resolve_normalized(model)
-        if norm_match is not None:
-            return norm_match
+        prov_clean = provider.strip().lower() if provider else ""
+        cache_key = f"{prov_clean}:{m_key}"
+        cached = self._pricing_cache.get(cache_key)
+        if cached is not None:
+            return cached
 
-        param_b = _extract_param_size_b(model)
-        if param_b is not None:
-            return _get_bracket_pricing(param_b)
+        resolved = _query_genai_prices(model, provider=provider)
+        if resolved is not None:
+            self._pricing_cache[cache_key] = resolved
+            return resolved
 
-        return DEFAULT_INDUSTRIAL_MODEL_PRICING.get(
-            "default",
-            ModelPricing(
-                prompt_usd_per_million=0.50,
-                completion_usd_per_million=1.00,
-                source="default_fallback",
-            ),
+        unknown = ModelPricing(
+            prompt_usd_per_million=0.0,
+            completion_usd_per_million=0.0,
+            source="unknown",
         )
+        self._pricing_cache[cache_key] = unknown
+        return unknown
 
     def set_custom_pricing(
         self, target: str, prompt_rate: float, completion_rate: float
@@ -172,6 +209,7 @@ class PricingRegistry:
         )
         self._overrides[target.strip().lower()] = pricing
         self._save_overrides()
+        self._pricing_cache.clear()
         return pricing
 
     def remove_custom_pricing(self, target: str) -> bool:
@@ -180,6 +218,7 @@ class PricingRegistry:
         if key in self._overrides:
             del self._overrides[key]
             self._save_overrides()
+            self._pricing_cache.clear()
             return True
         return False
 
@@ -189,54 +228,55 @@ class PricingRegistry:
         data = {k: v.model_dump() for k, v in self._overrides.items()}
         self.overrides_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
+    def _build_catalog(self) -> dict[str, ModelPricing]:
+        """Extract baseline pricing catalog from genai-prices snapshot."""
+        import genai_prices
+
+        catalog: dict[str, ModelPricing] = {}
+        usage = genai_prices.Usage(input_tokens=1_000_000, output_tokens=1_000_000)
+        ds = genai_prices.data_snapshot.get_snapshot()
+        for prov in ds.providers:
+            for m in prov.models:
+                m_key = m.id.lower()
+                if m_key in catalog:
+                    continue
+                try:
+                    p = genai_prices.calc_price(usage, m.id, provider_id=prov.id)
+                    catalog[m_key] = ModelPricing(
+                        prompt_usd_per_million=float(p.input_price),
+                        completion_usd_per_million=float(p.output_price),
+                        source=f"genai_prices:{prov.id}",
+                    )
+                except Exception:
+                    continue
+        return catalog
+
     def list_all_pricing(self) -> dict[str, ModelPricing]:
-        """Return merged pricing dictionary: defaults, external catalog, and overrides."""
-        merged: dict[str, ModelPricing] = dict(DEFAULT_INDUSTRIAL_MODEL_PRICING)
-        merged.update(self._catalog)
+        """Return merged pricing dictionary: genai-prices models and custom overrides."""
+        if not self._catalog:
+            self._catalog = self._build_catalog()
+        merged = dict(self._catalog)
         merged.update(self._overrides)
         return merged
 
     def update_from_remote(self, source_url: str | None = None, timeout: float = 15.0) -> int:
-        """Download open-source model pricing catalog and update local cached registry."""
+        """Synchronize model pricing catalog from remote genai-prices registry."""
+        import genai_prices
         import httpx2
+        from genai_prices.data_snapshot import set_custom_snapshot
 
-        url = source_url or DEFAULT_OPEN_SOURCE_PRICING_URL
-        with httpx2.Client(timeout=timeout) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-            raw = resp.json()
+        updater = (
+            genai_prices.UpdatePrices(url=source_url) if source_url else genai_prices.UpdatePrices()
+        )
+        updater.request_timeout = httpx2.Timeout(timeout)
+        snapshot = updater.fetch()
+        if snapshot is None:
+            raise RuntimeError("Pricing update returned no snapshot")
 
-        if not isinstance(raw, dict):
-            raise ValueError(f"Invalid pricing catalog payload received from {url}")
-
-        parsed: dict[str, Any] = {}
-        now_iso = datetime.now(UTC).isoformat()
-
-        for model_name, info in raw.items():
-            if not isinstance(info, dict):
-                continue
-            in_cost = info.get("input_cost_per_token")
-            out_cost = info.get("output_cost_per_token")
-            if in_cost is not None and out_cost is not None:
-                p_usd = round(float(in_cost) * 1_000_000.0, 4)
-                c_usd = round(float(out_cost) * 1_000_000.0, 4)
-                parsed[model_name.lower()] = {
-                    "prompt_usd_per_million": p_usd,
-                    "completion_usd_per_million": c_usd,
-                    "source": "open_source_catalog",
-                    "updated_at": now_iso,
-                }
-
-        self.ai_dir.mkdir(parents=True, exist_ok=True)
-        catalog_payload = {
-            "source": url,
-            "synced_at": now_iso,
-            "models_count": len(parsed),
-            "models": parsed,
-        }
-        self.catalog_path.write_text(json.dumps(catalog_payload, indent=2), encoding="utf-8")
-        self._load_catalog()
-        return len(parsed)
+        set_custom_snapshot(snapshot)
+        self._pricing_cache.clear()
+        self._catalog.clear()
+        return sum(len(p.models) for p in snapshot.providers)
 
 
 _GLOBAL_REGISTRY: PricingRegistry | None = None

@@ -1761,6 +1761,17 @@ CONST_CODE_EXTENSIONS: Final[frozenset[str]] = frozenset(
 )
 
 CONST_AI_SPEND_TABLE_NAME: Final[str] = "ai_spend_records"
+CONST_LOCAL_HOSTNAMES: Final[frozenset[str]] = frozenset({"localhost", "127.0.0.1", "::1"})
+CONST_LOCAL_PROVIDER_NAMES: Final[frozenset[str]] = frozenset(
+    {"ollama", "local", "in-process", "internal"}
+)
+CONST_LOCAL_TRANSPORT_LABELS: Final[frozenset[str]] = frozenset(
+    {"direct", "local", "in-process", "internal", "none"}
+)
+CONST_LOCAL_DOMAIN_SUFFIXES: Final[tuple[str, ...]] = (
+    ".local",
+    ".localhost",
+)
 
 CONST_RESEARCH_DIR_NAME: Final[str] = "research"
 CONST_DEFAULT_MAX_SYNTOPICAL_SOURCES: Final[int] = 20

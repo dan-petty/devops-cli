@@ -77,8 +77,14 @@ _DEFAULT_MODEL_BY_TIER: Final[dict[tuple[str, TaskComplexity], str]] = {
     ("copilot", TaskComplexity.FRONTIER): "claude-3-7-sonnet",
     ("gateway", TaskComplexity.LOW): "devops-chat",
     ("gateway", TaskComplexity.MEDIUM): "devops-coder",
-    ("gateway", TaskComplexity.HIGH): "devops-reasoning",
     ("gateway", TaskComplexity.FRONTIER): "devops-reasoning",
+}
+
+_DEFAULT_PRIMARY_MODEL: Final[dict[TaskComplexity, str]] = {
+    TaskComplexity.LOW: "qwen2.5-coder:7b",
+    TaskComplexity.MEDIUM: "gpt-4o-mini",
+    TaskComplexity.HIGH: "claude-3-7-sonnet-20250219",
+    TaskComplexity.FRONTIER: "claude-3-7-sonnet-20250219",
 }
 
 _LATENCY_TIER_BY_COMPLEXITY: Final[dict[TaskComplexity, str]] = {
@@ -167,6 +173,11 @@ class LLMRouter:
             return "ollama"
         return configured_provider if configured_provider != "ollama" else "claude"
 
+    def _is_gateway_eligible(self, allowed_providers: list[str] | None) -> bool:
+        configured = self.config.provider or "ollama"
+        is_gw = self.config.gateway_enabled or configured == "gateway"
+        return is_gw and (not allowed_providers or "gateway" in allowed_providers)
+
     def _resolve_provider_and_model(
         self,
         complexity: TaskComplexity,
@@ -178,28 +189,18 @@ class LLMRouter:
             model = self._resolve_model_for_provider("ollama", complexity, "qwen2.5-coder:7b")
             return "ollama", model
 
-        configured_provider = self.config.provider or "ollama"
-        if (self.config.gateway_enabled or configured_provider == "gateway") and (
-            not allowed_providers or "gateway" in allowed_providers
-        ):
+        if self._is_gateway_eligible(allowed_providers):
             model = self._resolve_model_for_provider("gateway", complexity, "devops-chat")
             return "gateway", model
 
+        configured_provider = self.config.provider or "ollama"
         if allowed_providers and configured_provider not in allowed_providers:
             configured_provider = allowed_providers[0]
 
         provider = self._select_provider_for_complexity(
             complexity, configured_provider, allowed_providers
         )
-        default_m = (
-            "qwen2.5-coder:7b"
-            if complexity == TaskComplexity.LOW
-            else (
-                "gpt-4o-mini"
-                if complexity == TaskComplexity.MEDIUM
-                else "claude-3-7-sonnet-20250219"
-            )
-        )
+        default_m = _DEFAULT_PRIMARY_MODEL.get(complexity, "claude-3-7-sonnet-20250219")
         model = self._resolve_model_for_provider(provider, complexity, default_m)
         return provider, model
 
@@ -250,13 +251,9 @@ class LLMRouter:
         """Estimate execution cost in USD based on provider pricing rules and token volume."""
         if provider.lower() in ("ollama", "copilot", "gateway"):
             return 0.0
-        from devops_cli.ai.agents.spend import DEFAULT_MODEL_PRICING, ModelPricing
+        from devops_cli.ai.spend import get_pricing_registry
 
-        pricing = (
-            DEFAULT_MODEL_PRICING.get(model)
-            or DEFAULT_MODEL_PRICING.get(provider.lower())
-            or DEFAULT_MODEL_PRICING.get("default", ModelPricing())
-        )
+        pricing = get_pricing_registry().get_pricing(model=model, provider=provider)
         tokens = max(token_count, 1000)
         return pricing.calculate_cost(prompt_tokens=tokens, completion_tokens=0)
 
