@@ -492,7 +492,7 @@ def track_request_spend(
     )
 
     active_ledger = ledger or get_spend_ledger()
-    pricing = get_pricing_registry().get_pricing(model, server)
+    pricing = get_pricing_registry().get_pricing(model, server=server, provider=provider)
     cost = pricing.calculate_cost(prompt_tokens, completion_tokens) if not cached else 0.0
     effective_stage = resolve_spend_stage(stage)
     try:

@@ -86,6 +86,7 @@ class StageProfile(BaseModel):
     cached_calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    cost_usd: float = 0.0
     backends: dict[str, int] = Field(default_factory=dict)
     activity: dict[str, BackendActivity] = Field(default_factory=dict)
 
@@ -108,6 +109,7 @@ class ReviewProfile(BaseModel):
     cached_calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    cost_usd: float = 0.0
     candidate_findings: int = 0
     verified_findings: int = 0
     reported_findings: int = 0
@@ -196,6 +198,7 @@ class ReviewProfiler:
             stage.llm_calls += 1
             stage.prompt_tokens += int(call.get("prompt_tokens") or 0)
             stage.completion_tokens += int(call.get("completion_tokens") or 0)
+            stage.cost_usd = round(stage.cost_usd + float(call.get("cost_usd") or 0.0), 6)
             served_by = call.get("served_by")
             if served_by:
                 stage.backends[served_by] = stage.backends.get(served_by, 0) + 1
@@ -249,6 +252,7 @@ class ReviewProfiler:
             cached_calls=sum(s.cached_calls for s in stages),
             prompt_tokens=sum(s.prompt_tokens for s in stages),
             completion_tokens=sum(s.completion_tokens for s in stages),
+            cost_usd=round(sum(s.cost_usd for s in stages), 6),
             candidate_findings=candidates,
             verified_findings=verified,
             reported_findings=reported,
@@ -320,6 +324,7 @@ class StageSummary(BaseModel):
     median_llm_calls: float
     median_prompt_tokens: float
     median_completion_tokens: float
+    median_cost_usd: float = 0.0
     backends: dict[str, int] = Field(default_factory=dict)
     # Median share of the stage's wall time each backend had a call in flight.
     backend_busy_share: dict[str, float] = Field(default_factory=dict)
@@ -337,6 +342,7 @@ class BenchmarkSummary(BaseModel):
     runs: int
     median_wall_seconds: float
     median_llm_calls: float
+    median_cost_usd: float = 0.0
     median_candidate_findings: float
     median_reported_findings: float
     median_seconds_per_candidate: float | None = None
@@ -392,6 +398,7 @@ def summarize_profiles(profiles: list[ReviewProfile]) -> BenchmarkSummary:
                 median_llm_calls=_median([float(s.llm_calls) for s in runs]),
                 median_prompt_tokens=_median([float(s.prompt_tokens) for s in runs]),
                 median_completion_tokens=_median([float(s.completion_tokens) for s in runs]),
+                median_cost_usd=_median([s.cost_usd for s in runs]),
                 backends=dict(backends),
                 backend_busy_share=busy_share,
                 backend_peak_concurrency=peak,
@@ -404,6 +411,7 @@ def summarize_profiles(profiles: list[ReviewProfile]) -> BenchmarkSummary:
         runs=len(profiles),
         median_wall_seconds=_median([p.total_wall_seconds for p in profiles]),
         median_llm_calls=_median([float(p.llm_calls) for p in profiles]),
+        median_cost_usd=_median([p.cost_usd for p in profiles]),
         median_candidate_findings=_median([float(p.candidate_findings) for p in profiles]),
         median_reported_findings=_median([float(p.reported_findings) for p in profiles]),
         median_seconds_per_candidate=_median(per_candidate) if per_candidate else None,
