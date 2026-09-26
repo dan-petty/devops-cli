@@ -17,6 +17,7 @@ from devops_cli.ai.spend.models import (
     ProviderSpendSummary,
     ServerSpendSummary,
     SpendRecord,
+    StageSpendSummary,
 )
 from devops_cli.config.defaults import DEFAULT_AI_SPEND_DB_FILENAME
 from devops_cli.config.settings import load_settings
@@ -36,7 +37,8 @@ CREATE TABLE IF NOT EXISTS ai_spend_records (
     cost_usd REAL NOT NULL DEFAULT 0.0,
     cached INTEGER NOT NULL DEFAULT 0,
     request_type TEXT NOT NULL DEFAULT 'chat',
-    duration_seconds REAL NOT NULL DEFAULT 0.0
+    duration_seconds REAL NOT NULL DEFAULT 0.0,
+    stage TEXT
 );
 """
 _QUERY_IDX_TIMESTAMP = (
@@ -48,16 +50,32 @@ _QUERY_IDX_PROVIDER = "CREATE INDEX IF NOT EXISTS idx_spend_provider ON ai_spend
 _QUERY_IDX_SERVED_BY = (
     "CREATE INDEX IF NOT EXISTS idx_spend_served_by ON ai_spend_records(served_by);"
 )
+_QUERY_IDX_STAGE = "CREATE INDEX IF NOT EXISTS idx_spend_stage ON ai_spend_records(stage);"
 # Ledgers created before served_by existed gain the column in place, keeping their rows.
 _QUERY_TABLE_COLUMNS = "PRAGMA table_info(ai_spend_records);"
 _QUERY_ADD_SERVED_BY = "ALTER TABLE ai_spend_records ADD COLUMN served_by TEXT;"
+_QUERY_ADD_STAGE = "ALTER TABLE ai_spend_records ADD COLUMN stage TEXT;"
 
 _QUERY_INSERT_RECORD = """
 INSERT INTO ai_spend_records (
     timestamp, provider, server, backend_info, served_by, model,
     prompt_tokens, completion_tokens, total_tokens,
-    cost_usd, cached, request_type, duration_seconds
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    cost_usd, cached, request_type, duration_seconds, stage
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+"""
+
+_QUERY_STAGE_BREAKDOWN = """
+SELECT
+    COALESCE(stage, 'unattributed') as stage_name,
+    COUNT(*) as req_count,
+    COALESCE(SUM(prompt_tokens), 0) as p_tokens,
+    COALESCE(SUM(completion_tokens), 0) as c_tokens,
+    COALESCE(SUM(total_tokens), 0) as t_tokens,
+    COALESCE(SUM(cost_usd), 0.0) as s_cost
+FROM ai_spend_records
+WHERE (? IS NULL OR timestamp >= datetime('now', ?))
+GROUP BY stage_name
+ORDER BY s_cost DESC, t_tokens DESC;
 """
 
 _QUERY_OVERALL_SUMMARY = """
@@ -173,7 +191,10 @@ class SpendLedger:
             columns = {row["name"] for row in conn.execute(_QUERY_TABLE_COLUMNS).fetchall()}
             if "served_by" not in columns:
                 conn.execute(_QUERY_ADD_SERVED_BY)
+            if "stage" not in columns:
+                conn.execute(_QUERY_ADD_STAGE)
             conn.execute(_QUERY_IDX_SERVED_BY)
+            conn.execute(_QUERY_IDX_STAGE)
             conn.execute(_QUERY_IDX_TIMESTAMP)
             conn.execute(_QUERY_IDX_SERVER)
             conn.execute(_QUERY_IDX_MODEL)
@@ -194,6 +215,7 @@ class SpendLedger:
         served_by: str | None = None,
         duration_seconds: float = 0.0,
         timestamp: str | None = None,
+        stage: str | None = None,
     ) -> SpendRecord | None:
         """Record an inference request in the persistent SQLite ledger."""
         ts = timestamp or datetime.now(UTC).isoformat()
@@ -218,6 +240,7 @@ class SpendLedger:
                         1 if cached else 0,
                         request_type,
                         round(duration_seconds, 4),
+                        stage,
                     ),
                 )
                 rec_id = cursor.lastrowid
@@ -236,6 +259,7 @@ class SpendLedger:
                     cached=cached,
                     request_type=request_type,
                     duration_seconds=duration_seconds,
+                    stage=stage,
                 )
         except Exception:
             # Defensive logging: database failure must never crash user workflows
@@ -251,7 +275,7 @@ class SpendLedger:
     def get_lifetime_report(
         self, days: int | None = None, group_by: str = "server"
     ) -> LifetimeSpendReport:
-        """Aggregate lifetime spend metrics grouped by server, model, and provider."""
+        """Aggregate lifetime spend metrics grouped by server, model, provider, and stage."""
         params = self._build_where_params(days)
         with contextlib.closing(self._get_connection()) as conn:
             summary = self._query_overall_summary(conn, params)
@@ -259,11 +283,13 @@ class SpendLedger:
             models = self._query_model_breakdown(conn, params)
             providers = self._query_provider_breakdown(conn, params)
             backends = self._query_backend_breakdown(conn, params)
+            stages = self._query_stage_breakdown(conn, params)
 
         summary.servers = servers
         summary.models = models
         summary.providers = providers
         summary.backends = backends
+        summary.stages = stages
         return summary
 
     def _query_overall_summary(
@@ -370,6 +396,24 @@ class SpendLedger:
             )
         return results
 
+    def _query_stage_breakdown(
+        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
+    ) -> list[StageSpendSummary]:
+        """Aggregate spend records grouped by execution stage."""
+        results: list[StageSpendSummary] = []
+        for r in conn.execute(_QUERY_STAGE_BREAKDOWN, params).fetchall():
+            results.append(
+                StageSpendSummary(
+                    stage=r["stage_name"],
+                    request_count=int(r["req_count"] or 0),
+                    prompt_tokens=int(r["p_tokens"] or 0),
+                    completion_tokens=int(r["c_tokens"] or 0),
+                    total_tokens=int(r["t_tokens"] or 0),
+                    approx_spend_usd=round(float(r["s_cost"] or 0.0), 6),
+                )
+            )
+        return results
+
     def reset_ledger(self) -> int:
         """Truncate all spend records in the ledger and return count of removed items."""
         with contextlib.closing(self._get_connection()) as conn:
@@ -433,10 +477,12 @@ def track_request_spend(
     cached: bool = False,
     request_type: str = "chat",
     duration_seconds: float = 0.0,
+    stage: str | None = None,
     ledger: SpendLedger | None = None,
 ) -> SpendRecord | None:
     """Calculate pricing, persist to lifetime ledger, and emit OpenTelemetry metrics."""
     from devops_cli.ai.spend.pricing import get_pricing_registry
+    from devops_cli.ai.spend.stage import resolve_spend_stage
     from devops_cli.telemetry.instruments import (
         AI_REQUESTS_TOTAL,
         AI_SPEND_USD_TOTAL,
@@ -448,6 +494,7 @@ def track_request_spend(
     active_ledger = ledger or get_spend_ledger()
     pricing = get_pricing_registry().get_pricing(model, server)
     cost = pricing.calculate_cost(prompt_tokens, completion_tokens) if not cached else 0.0
+    effective_stage = resolve_spend_stage(stage)
     try:
         rec = active_ledger.record_request(
             provider=provider,
@@ -461,6 +508,7 @@ def track_request_spend(
             cached=cached,
             request_type=request_type,
             duration_seconds=duration_seconds,
+            stage=effective_stage,
         )
     except Exception:
         rec = None
@@ -469,8 +517,10 @@ def track_request_spend(
             "provider": provider,
             "model": model,
             "served_by": served_by,
+            "stage": effective_stage,
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
+            "cost_usd": cost,
             "cached": cached,
             "request_type": request_type,
             "duration_seconds": duration_seconds,

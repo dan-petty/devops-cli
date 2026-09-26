@@ -10,10 +10,12 @@ from devops_cli.ai.spend.models import (
     ProviderSpendSummary,
     ServerSpendSummary,
     SpendRecord,
+    StageSpendSummary,
 )
 from devops_cli.ai.spend.pricing import PricingRegistry, get_pricing_registry
 from devops_cli.ai.spend.pricing_data import DEFAULT_INDUSTRIAL_MODEL_PRICING
 from devops_cli.ai.spend.prometheus import export_ai_spend_prometheus
+from devops_cli.ai.spend.stage import current_stage, resolve_spend_stage, stage_scope
 
 __all__ = [
     "DEFAULT_INDUSTRIAL_MODEL_PRICING",
@@ -25,8 +27,12 @@ __all__ = [
     "ServerSpendSummary",
     "SpendLedger",
     "SpendRecord",
+    "StageSpendSummary",
+    "current_stage",
     "export_ai_spend_prometheus",
     "get_pricing_registry",
     "get_spend_ledger",
+    "resolve_spend_stage",
+    "stage_scope",
     "track_request_spend",
 ]

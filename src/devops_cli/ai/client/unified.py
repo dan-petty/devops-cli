@@ -426,7 +426,7 @@ class LLMClient(
         _set_response_span_attributes(span_handle, res, p)
         srv = _extract_server_from_backend_info(res.backend_info, self.backend_host)
         from devops_cli.ai.context_budget import count_tokens
-        from devops_cli.ai.spend import track_request_spend
+        from devops_cli.ai.spend import resolve_spend_stage, track_request_spend
 
         p_tokens = (
             res.prompt_tokens
@@ -448,6 +448,7 @@ class LLMClient(
             cached=res.cached,
             request_type="chat_dispatch",
             duration_seconds=res.wall_seconds or duration,
+            stage=resolve_spend_stage(None, getattr(self._config, "task_name", None)),
         )
         if rec is not None:
             span_handle.set_attribute("gen_ai.usage.cost_usd", rec.cost_usd)
@@ -824,7 +825,7 @@ class LLMClient(
     ) -> None:
         """Record streaming request spend to ledger and telemetry."""
         from devops_cli.ai.context_budget import count_tokens
-        from devops_cli.ai.spend import track_request_spend
+        from devops_cli.ai.spend import resolve_spend_stage, track_request_spend
 
         srv = _extract_server_from_backend_info(self.backend_info, self.backend_host)
         p_tokens = sum(count_tokens(m.content) for m in messages) + (
@@ -842,6 +843,7 @@ class LLMClient(
             cached=False,
             request_type="stream",
             duration_seconds=total_dur,
+            stage=resolve_spend_stage(None, getattr(self._config, "task_name", None)),
         )
         if rec is not None:
             span_h.set_attribute("gen_ai.usage.cost_usd", rec.cost_usd)

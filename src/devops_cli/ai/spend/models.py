@@ -42,6 +42,7 @@ class SpendRecord(BaseModel):
     cached: bool = False
     request_type: str = "chat"
     duration_seconds: float = 0.0
+    stage: str | None = None
 
 
 class ServerSpendSummary(BaseModel):
@@ -102,6 +103,19 @@ class BackendSpendSummary(BaseModel):
     mean_duration_seconds: float = 0.0
 
 
+class StageSpendSummary(BaseModel):
+    """Aggregated spend and token metrics for an execution stage or task."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    stage: str
+    request_count: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    approx_spend_usd: float = 0.0
+
+
 class LifetimeSpendReport(BaseModel):
     """Consolidated lifetime spend and usage report across all backends."""
 
@@ -121,3 +135,4 @@ class LifetimeSpendReport(BaseModel):
     models: list[ModelSpendSummary] = Field(default_factory=list)
     providers: list[ProviderSpendSummary] = Field(default_factory=list)
     backends: list[BackendSpendSummary] = Field(default_factory=list)
+    stages: list[StageSpendSummary] = Field(default_factory=list)

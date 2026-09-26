@@ -71,6 +71,7 @@ from devops_cli.ai.review_schema import (
     reset_verification_state,
     strip_outer_markdown_bold,
 )
+from devops_cli.ai.spend import stage_scope
 from devops_cli.ai.thinking_stream import extract_think_blocks
 from devops_cli.config.commands import (
     BIN_BANDIT,
@@ -1984,19 +1985,22 @@ class ReviewPipelineOrchestrator:
         content_or_diff = diff_text_by_file.get(fpath, "") or _numbered_file_text(fpath)
 
         resolved_context = context_type or classify_file_context(fpath, content_or_diff)
-        with trace_span(
-            "review.file_review",
-            attributes={
-                "session_id": self.session_id,
-                "file_path": fpath,
-                "file_index": idx,
-                "total_files": total_files,
-                "review.personas": active_personas,
-                "review.file_extension": ext,
-                "review.context_type": resolved_context.value,
-                "review.stage": "inspection",
-            },
-        ) as file_span:
+        with (
+            trace_span(
+                "review.file_review",
+                attributes={
+                    "session_id": self.session_id,
+                    "file_path": fpath,
+                    "file_index": idx,
+                    "total_files": total_files,
+                    "review.personas": active_personas,
+                    "review.file_extension": ext,
+                    "review.context_type": resolved_context.value,
+                    "review.stage": "inspection",
+                },
+            ) as file_span,
+            stage_scope("review.file_review"),
+        ):
             if not content_or_diff:
                 print_info(
                     f"[dim]  [{idx}/{total_files}] Skipping empty/unreadable file: {fpath}[/dim]",
@@ -2467,10 +2471,13 @@ class ReviewPipelineOrchestrator:
         total_files = len(file_payloads)
         server_info = self._get_server_info(self.verification_client)
 
-        with trace_span(
-            "review.verification",
-            attributes={"review.total_files": total_files},
-        ) as s4_span:
+        with (
+            trace_span(
+                "review.verification",
+                attributes={"review.total_files": total_files},
+            ) as s4_span,
+            stage_scope("review.verification"),
+        ):
             print_info(
                 f"[dim]Verifying findings for {total_files} file(s) "
                 f"-> Configured AI Server(s): {server_info}[/dim]",
