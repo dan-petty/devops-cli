@@ -46,7 +46,7 @@ def run_adversarial_debate_stage(
         attributes={"total_findings": total_findings},
     ):
         print_info(
-            f"Running Multi-Agent Adversarial Debate (MAD) across {total_findings} candidate finding(s)...",
+            f"Running false-positive rule filtering across {total_findings} candidate finding(s)...",
             prefix=False,
         )
 

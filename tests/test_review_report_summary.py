@@ -26,15 +26,15 @@ def test_consolidated_markdown_report_clean_executive_summary(tmp_path: Path) ->
         all_nets=[],
     )
 
-    assert "# Code Review Report (Session `test-clean-session`)" in report_md
-    assert "## Executive Summary" in report_md
-    assert "### Key Good Patterns Observed" in report_md
     assert (
-        "### Key Bad Patterns Observed" in report_md
-        or "### Key Anti-Patterns Observed" in report_md
-    )
-    assert "No critical anti-patterns or recurring defect patterns identified" in report_md
-    assert "✅ **No critical issues found during review.**" in report_md
+        "# Code Review Report (Session `test-clean-session`)" in report_md,
+        "## Executive Summary" in report_md,
+        "### Key Good Patterns Observed" not in report_md,
+        "The codebase demonstrates exceptional engineering quality" not in report_md,
+        "0 reportable defects" in report_md,
+        "No critical anti-patterns or recurring defect patterns identified" in report_md,
+        "✅ **No critical issues found during review.**" in report_md,
+    ) == (True, True, True, True, True, True, True)
 
 
 def test_consolidated_markdown_report_with_findings_patterns(tmp_path: Path) -> None:
@@ -85,24 +85,145 @@ def test_consolidated_markdown_report_with_findings_patterns(tmp_path: Path) -> 
     )
 
     lower_report = report_md.lower()
-    has_exec = "## Executive Summary" in report_md
-    has_good = "### Key Good Patterns Observed" in report_md
-    has_bad = any(
-        header in report_md
-        for header in ("### Key Bad Patterns Observed", "### Key Anti-Patterns Observed")
-    )
-    has_traversal = any(kw in lower_report for kw in ("path traversal", "filesystem"))
-    has_protocol = any(kw in lower_report for kw in ("protocol", "network", "insecure"))
-    has_validation = any(kw in lower_report for kw in ("validation", "parameter", "input"))
-
     assert (
-        has_exec,
-        has_good,
-        has_bad,
-        has_traversal,
-        has_protocol,
-        has_validation,
+        "## Executive Summary" in report_md,
+        "### Key Good Patterns Observed" not in report_md,
+        any(
+            header in report_md
+            for header in ("### Key Bad Patterns Observed", "### Key Anti-Patterns Observed")
+        ),
+        any(kw in lower_report for kw in ("path traversal", "filesystem")),
+        any(kw in lower_report for kw in ("protocol", "network", "insecure")),
+        any(kw in lower_report for kw in ("validation", "parameter", "input")),
     ) == (True, True, True, True, True, True)
+
+
+def test_executive_summary_single_low_finding_described_by_own_theme_only(
+    tmp_path: Path,
+) -> None:
+    """A review with a single low finding describes only that finding's theme without generic security text."""
+    pipeline = _make_dummy_pipeline(tmp_path)
+    finding = SavedFinding(
+        id=1,
+        severity="LOW",
+        location="src/utils.py:10",
+        title="Missing docstring in helper function",
+        description="Public helper function should include a docstring.",
+        status="VERIFIED",
+        verified=True,
+        reportable=True,
+        persona_title="Senior QA Engineer",
+    )
+    report_md = pipeline._build_consolidated_markdown_report(
+        session_id="test-low-session",
+        generated_at="2026-09-06T12:00:00Z",
+        reportable_findings=[finding],
+        all_deps=[],
+        all_nets=[],
+    )
+    assert (
+        "Missing docstring in helper function" in report_md,
+        "path traversal defenses" not in report_md,
+        "transport protocol safeguards" not in report_md,
+        "security risks" not in report_md,
+    ) == (True, True, True, True)
+
+
+def test_unqueried_dependencies_not_marked_clean(tmp_path: Path) -> None:
+    """Unqueried dependencies default to NOT_QUERIED / Not Queried and emit no false good patterns."""
+    from devops_cli.models.vulnerability import DependencySpec
+
+    pipeline = _make_dummy_pipeline(tmp_path)
+    dep_unqueried = DependencySpec(
+        name="some-pkg",
+        version_range=">=1.0.0",
+        ecosystem="PyPI",
+    )
+    assert (dep_unqueried.severity, dep_unqueried.security_status, dep_unqueried.queried) == (
+        "NOT_QUERIED",
+        "Not Queried",
+        False,
+    )
+    report_md = pipeline._build_consolidated_markdown_report(
+        session_id="test-dep-session",
+        generated_at="2026-09-06T12:00:00Z",
+        reportable_findings=[],
+        all_deps=[dep_unqueried],
+        all_nets=[],
+    )
+    assert (
+        "### Key Good Patterns Observed" not in report_md,
+        "Not Queried" in report_md,
+    ) == (True, True)
+
+
+def test_queried_dependencies_clean_yields_good_pattern(tmp_path: Path) -> None:
+    """Queried clean dependencies emit Supply Chain & Lockfile Integrity pattern with counts."""
+    from devops_cli.models.vulnerability import DependencySpec
+
+    pipeline = _make_dummy_pipeline(tmp_path)
+    dep_clean = DependencySpec(
+        name="pydantic",
+        version_range="2.11.0",
+        ecosystem="PyPI",
+        severity="CLEAN",
+        security_status="✓ Clean",
+        queried=True,
+    )
+    report_md = pipeline._build_consolidated_markdown_report(
+        session_id="test-dep-clean-session",
+        generated_at="2026-09-06T12:00:00Z",
+        reportable_findings=[],
+        all_deps=[dep_clean],
+        all_nets=[],
+    )
+    assert (
+        "### Key Good Patterns Observed" in report_md,
+        "Supply Chain & Lockfile Integrity" in report_md,
+        "1 external dependencies queried against vulnerability databases with zero critical/high CVEs"
+        in report_md,
+    ) == (True, True, True)
+
+
+def test_static_analyzers_ran_yields_good_pattern(tmp_path: Path) -> None:
+    """When static analyzers ran with zero critical findings, an executive summary pattern records it."""
+    pipeline = _make_dummy_pipeline(tmp_path)
+    pipeline.static_analyzers = {"Bandit": "ran", "Semgrep": "ran"}
+    report_md = pipeline._build_consolidated_markdown_report(
+        session_id="test-analyzers-session",
+        generated_at="2026-09-06T12:00:00Z",
+        reportable_findings=[],
+        all_deps=[],
+        all_nets=[],
+    )
+    assert (
+        "### Key Good Patterns Observed" in report_md,
+        "Static Security Analysis" in report_md,
+        "2 static analyzer(s) executed (Bandit, Semgrep) with 0 critical findings." in report_md,
+    ) == (True, True, True)
+
+
+def test_network_references_states_counts(tmp_path: Path) -> None:
+    """Network references in review scope state local and external counts."""
+    from devops_cli.models.vulnerability import NetworkReference
+
+    pipeline = _make_dummy_pipeline(tmp_path)
+    nets = [
+        NetworkReference(target="127.0.0.1", reference_type="ipv4", is_local=True),
+        NetworkReference(target="example.com", reference_type="domain", is_local=False),
+    ]
+    report_md = pipeline._build_consolidated_markdown_report(
+        session_id="test-nets-session",
+        generated_at="2026-09-06T12:00:00Z",
+        reportable_findings=[],
+        all_deps=[],
+        all_nets=nets,
+    )
+    assert (
+        "### Key Good Patterns Observed" in report_md,
+        "Network Reference Review" in report_md,
+        "2 network reference(s) identified (1 local, 1 external)" in report_md,
+    ) == (True, True, True)
 
 
 def test_consolidated_markdown_report_with_errored_files(tmp_path: Path) -> None:

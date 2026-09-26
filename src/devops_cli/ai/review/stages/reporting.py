@@ -50,23 +50,45 @@ def extract_good_patterns(
     reportable_findings: list[SavedFinding],
     all_deps: list[DependencySpec] | None = None,
     all_nets: list[NetworkReference] | None = None,
+    static_analyzers: dict[str, str] | None = None,
 ) -> list[str]:
-    """Extract key positive architectural and engineering patterns observed in the codebase."""
-    patterns: list[str] = [
-        "**Architectural Separation & Invariant Discipline**: Consistent adherence to domain-driven subsystem boundaries, strict type annotations, and low complexity limits (cyclomatic complexity <= 10, nesting depth <= 5).",
-        "**Subprocess & Process Execution Safety**: Safe execution of CLI tooling using explicit argument lists, bounded timeouts, and captured outputs without shell string interpolation.",
-        "**Defensive Typing & Schema Modeling**: Widespread adoption of Pydantic v2 schemas and explicit data contracts across domain models and tool interfaces.",
-    ]
-    if all_deps is not None and not any(
-        (d.severity or "").upper() in ("CRITICAL", "HIGH") for d in all_deps
-    ):
+    """Extract key positive patterns supported by concrete tool outputs."""
+    patterns: list[str] = []
+
+    if all_deps:
+        queried_deps = [
+            d
+            for d in all_deps
+            if getattr(d, "queried", False) or (d.severity or "").upper() == "CLEAN"
+        ]
+        if queried_deps and not any(
+            (d.severity or "").upper() in ("CRITICAL", "HIGH") for d in queried_deps
+        ):
+            patterns.append(
+                f"**Supply Chain & Lockfile Integrity**: {len(queried_deps)} external "
+                "dependencies queried against vulnerability databases with zero critical/high CVEs."
+            )
+
+    if all_nets:
+        local_count = sum(1 for n in all_nets if n.is_local)
+        ext_count = len(all_nets) - local_count
         patterns.append(
-            "**Supply Chain & Lockfile Integrity**: External dependencies validated against authoritative lockfiles with zero unpinned critical/high CVEs."
+            f"**Network Reference Review**: {len(all_nets)} network reference(s) identified "
+            f"({local_count} local, {ext_count} external)."
         )
-    if all_nets is not None and all(n.is_local for n in all_nets):
-        patterns.append(
-            "**Zero-Trust Network Isolation**: Target service references strictly bound to local or container-isolated internal endpoints."
-        )
+
+    if static_analyzers:
+        ran = [
+            name
+            for name, state in static_analyzers.items()
+            if state in ("ran", "built-in patterns")
+        ]
+        if ran:
+            patterns.append(
+                f"**Static Security Analysis**: {len(ran)} static analyzer(s) executed "
+                f"({', '.join(sorted(ran))}) with 0 critical findings."
+            )
+
     return patterns
 
 
@@ -116,18 +138,50 @@ def extract_bad_patterns(reportable_findings: list[SavedFinding]) -> list[str]:
     return bad_patterns
 
 
+def _format_severity_breakdown(reportable_findings: list[SavedFinding]) -> str:
+    """Format count breakdown of finding severities."""
+    counts = collections.Counter((f.severity or "").upper() for f in reportable_findings)
+    labels = (
+        ("CRITICAL", "Critical"),
+        ("HIGH", "High"),
+        ("MEDIUM", "Medium"),
+        ("LOW", "Low"),
+    )
+    parts = [f"{counts[key]} {label}" for key, label in labels if counts[key]]
+    info_count = counts["INFORMATIONAL"] + counts["INFO"]
+    if info_count:
+        parts.append(f"{info_count} Informational")
+    return ", ".join(parts) or f"{len(reportable_findings)} Unspecified"
+
+
+def _format_findings_remediation_summary(reportable_findings: list[SavedFinding]) -> str:
+    """Derive recommendation statement from actual finding themes and severities."""
+    themes: list[str] = list(dict.fromkeys(_derive_finding_theme(f) for f in reportable_findings))
+    if not themes:
+        return "Remediation is recommended to address identified findings."
+
+    if len(themes) == 1:
+        theme_desc = themes[0]
+    elif len(themes) <= 3:
+        theme_desc = f"{', '.join(themes[:-1])} and {themes[-1]}"
+    else:
+        theme_desc = f"{', '.join(themes[:3])}, and other identified issues"
+
+    has_high_crit = any(
+        (f.severity or "").upper() in ("CRITICAL", "HIGH") for f in reportable_findings
+    )
+    priority_prefix = "High-priority remediation" if has_high_crit else "Remediation"
+    return f"{priority_prefix} is recommended to address {theme_desc}."
+
+
 def synthesize_report_executive_summary(
     reportable_findings: list[SavedFinding],
     all_deps: list[DependencySpec] | None = None,
     all_nets: list[NetworkReference] | None = None,
     errored_files: dict[str, str] | None = None,
+    static_analyzers: dict[str, str] | None = None,
 ) -> list[str]:
     """Construct Markdown lines for the Executive Summary section at the top of the review report."""
-    crit = sum(1 for f in reportable_findings if (f.severity or "").upper() == "CRITICAL")
-    high = sum(1 for f in reportable_findings if (f.severity or "").upper() == "HIGH")
-    med = sum(1 for f in reportable_findings if (f.severity or "").upper() == "MEDIUM")
-    low = sum(1 for f in reportable_findings if (f.severity or "").upper() == "LOW")
-
     if errored_files:
         summary_stmt = (
             f"The automated review encountered errors on **{len(errored_files)} file(s)** "
@@ -137,26 +191,33 @@ def synthesize_report_executive_summary(
         )
     elif not reportable_findings:
         summary_stmt = (
-            "The automated multi-persona review evaluated the target scope with **0 reportable defects**. "
-            "The codebase demonstrates exceptional engineering quality, strict invariant adherence, "
-            "and robust defensive security controls."
+            "The automated multi-persona review evaluated the target scope with "
+            "**0 reportable defects** across successfully analyzed files."
         )
     else:
+        sev_str = _format_severity_breakdown(reportable_findings)
+        remediation_stmt = _format_findings_remediation_summary(reportable_findings)
         summary_stmt = (
             f"The automated multi-persona review evaluated the target scope and identified "
-            f"**{len(reportable_findings)} reportable finding(s)** ({crit} Critical, {high} High, "
-            f"{med} Medium, {low} Low). High-priority remediation is recommended to resolve identified "
-            f"security risks, path traversal defenses, and transport protocol safeguards."
+            f"**{len(reportable_findings)} reportable finding(s)** ({sev_str}). {remediation_stmt}"
         )
 
     lines = [
         "## Executive Summary",
         summary_stmt,
-        "",
-        "### Key Good Patterns Observed",
     ]
-    for pattern in extract_good_patterns(reportable_findings, all_deps, all_nets):
-        lines.append(f"- {pattern}")
+
+    good_patterns = extract_good_patterns(
+        reportable_findings,
+        all_deps=all_deps,
+        all_nets=all_nets,
+        static_analyzers=static_analyzers,
+    )
+    if good_patterns:
+        lines.append("")
+        lines.append("### Key Good Patterns Observed")
+        for pattern in good_patterns:
+            lines.append(f"- {pattern}")
 
     lines.append("")
     lines.append("### Key Bad Patterns Observed")

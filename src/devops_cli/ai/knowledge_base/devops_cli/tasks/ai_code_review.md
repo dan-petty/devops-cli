@@ -13,7 +13,7 @@ graph TD
     A[Target Path / Branch / PR] --> S1[Pre-Analysis Metadata Refresh]
     S1 --> S2[Static Security Scan & Dependency Analysis]
     S2 --> S3[Multi-Persona LLM Code Review]
-    S3 --> S4[Verification & Multi-Agent Adversarial Debate]
+    S3 --> S4[Verification & False-Positive Filtering]
     S4 --> S5[Finding Re-Ranking & Calibration]
     S5 --> S6[Consolidated Markdown & JSON Reporting]
     S6 --> F1[Human-in-the-Loop Finding Inspection]
@@ -26,7 +26,7 @@ graph TD
   1. `pre_analysis`: Fast workspace scan, AST context refresh, and cache synchronization (`--no-pre-analysis`, `--pre-analysis-only`).
   2. `static_scan`: Parallelized tool execution (Bandit, KubeLinter, Pluto, Semgrep, Gitleaks, OSV, Shodan) and dependency extraction (`--no-static-scan`, `--static-scan-only`).
   3. `persona_review`: Multi-persona parallel LLM inspection across specialized engineering personas (`--no-persona-review`, `--persona-review-only`).
-  4. `verification`: Step-by-step observable code/AST evidence checking and multi-agent adversarial debate (`--no-verification`, `--verification-only`).
+  4. `verification`: Step-by-step observable code/AST evidence checking and false-positive filtering (`--no-verification`, `--verification-only`).
   5. `reranking`: Cross-persona deduplication, severity sorting, and reportable threshold filtering (`--no-reranking`, `--reranking-only`).
   6. `reporting`: Markdown file report generation (`review.md`), JSON finding persistence (`findings.json`), and Rich console table rendering (`--no-reporting`, `--reporting-only`).
 
@@ -51,9 +51,9 @@ graph TD
   - **Continuous Feedback Dataset Export**: Persists validated, invalidated, and mitigated review findings to structured JSONL feedback datasets (`.data/reviews/feedback_dataset.jsonl`) via `devops ai review export-feedback` to continuously ground RAG indices and calibrate LLM evaluation prompts.
   - **Continuous Knowledge Feedback**: Synthesizes recurrent review findings into repository architecture guides and test fixtures to prevent recurrence.
   - **Executive Summary & Pattern Synthesis (review.md)**: Every consolidated review report generates an Executive Summary statement at the top detailing:
-    - High-level synthesis statement assessing code health, severity breakdown, and security posture.
-    - `Key Good Patterns Observed`: Validates adherence to architectural boundaries, strict typing, invariant discipline (complexity $\le 10$, nesting $\le 5$), bounded subprocess execution, and dependency lockfile integrity.
-    - `Key Bad Patterns Observed`: Dynamically aggregates recurring defect classes (path traversal, insecure transport protocols, unvalidated parameters, resource exhaustion, and information disclosure) or confirms a clean assessment when zero findings are reported.
+    - High-level synthesis statement assessing code health, severity breakdown, and actual finding themes.
+    - `Key Good Patterns Observed`: Reports verified tool observations (external dependencies queried against vulnerability databases with zero critical/high CVEs, network reference counts, and executed static analyzers); omitted when no tools executed or no positive tool outputs exist.
+    - `Key Bad Patterns Observed`: Dynamically aggregates recurring defect classes and themes derived directly from identified reportable findings or confirms a clean assessment when zero findings are reported.
   - **Prompt Sanitization Marker Protection**: Guarantees that pre-prompt secret redaction markers (`<masked-*>`, `***REDACTED***`, `<secret-placeholder>`) are never hallucinated or verified as `NameError`, undefined placeholders, or runtime missing variables.
   - **Autonomous Common Hallucinations Registry & Ground-Truth Safety**: Centralized declarative catalog (`src/devops_cli/ai/review/common_hallucinations.json`) tracking recurring false positives (PEP 758 exceptions, masked secret placeholders `<masked-*>`, test mock credentials, HTTPX parameter conventions, false `ImportError` claims on imported symbols, unverified missing header claims, false CWE-400 resource exhaustion claims on bounded local file reads, and documentation anti-patterns). Automatically records invalidated findings into `.data/common_hallucinations.json` and enforces strict category-aligned guards (preventing syntax rules from over-matching security defects like path traversal or SSRF), comprehensive stop-word filtering, and ground-truth verification (`verify_ground_truth_hallucination`) before invalidation to ensure real security defects and genuine bugs are never suppressed.
   - **Self-Improvement Feedback Loop (Export & Autonomous Learning)**: Invalidated findings and human feedback are captured through `devops review verify <session> <index> --status INVALIDATED --reason "..."`. The reason and finding attributes are automatically converted to new or updated entries in `.data/common_hallucinations.json` and exported to streaming JSONL datasets (`devops review export-feedback`) for continuous offline prompt fine-tuning, benchmark evaluation, and RAG retrieval.
