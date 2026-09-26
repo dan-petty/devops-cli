@@ -3387,6 +3387,7 @@ devops ai review findings [OPTIONS] <session>
 | `--unverified` | `boolean` | - | Show unverified findings only. |
 | `--invalidated` | `boolean` | - | Show invalidated findings only. |
 | `--verified` | `boolean` | - | Show verified findings only. |
+| `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
 | `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
 #### `devops ai review verify`
@@ -4871,6 +4872,7 @@ devops review findings [OPTIONS] <session>
 | `--unverified` | `boolean` | - | Show unverified findings only. |
 | `--invalidated` | `boolean` | - | Show invalidated findings only. |
 | `--verified` | `boolean` | - | Show verified findings only. |
+| `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
 | `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
 ### `devops review verify`

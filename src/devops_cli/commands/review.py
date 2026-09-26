@@ -94,6 +94,7 @@ from devops_cli.ai.review.template_sweep import (
     save_sweep_run,
     sweep_templates,
 )
+from devops_cli.ai.review.verdicts import apply_verdict, assert_verdict_invariants
 from devops_cli.ai.review_schema import (
     ReviewSessionPayload,
     SavedFinding,
@@ -822,6 +823,9 @@ def list_findings(
         bool, typer.Option("--invalidated", help=HELP.review.invalidated)
     ] = False,
     verified: Annotated[bool, typer.Option("--verified", help=HELP.review.verified)] = False,
+    mitigated: Annotated[
+        bool, typer.Option("--mitigated", help="Filter findings by MITIGATED status")
+    ] = False,
     details: Annotated[
         bool,
         typer.Option("--details", "-d", help=HELP.review.details),
@@ -852,6 +856,8 @@ def list_findings(
         target_status = "INVALIDATED"
     elif verified:
         target_status = "VERIFIED"
+    elif mitigated:
+        target_status = "MITIGATED"
 
     if target_status:
         findings = [f for f in findings if f.status == target_status]
@@ -997,13 +1003,8 @@ def verify_finding(
         raise typer.Exit(1)
 
     finding = payload.findings[target_idx]
-    finding.status = new_status
-    finding.verified = new_status != "INVALIDATED"
-    finding.mitigated = new_status == "MITIGATED"
-    finding.verified_by = "human"
-    finding.verified_at = datetime.now().isoformat()
-    if reason:
-        finding.invalidation_reason = reason
+    by = "human" if new_status != "UNVERIFIED" else None
+    apply_verdict(finding, new_status, by=by, reason=reason)
 
     if new_status == "INVALIDATED":
         try:
@@ -1013,6 +1014,7 @@ def verify_finding(
         except Exception:
             pass
 
+    assert_verdict_invariants(payload.findings)
     write_json_file(findings_file, payload)
     print_success(f"Updated finding #{target_idx + 1} status → {new_status}")
 

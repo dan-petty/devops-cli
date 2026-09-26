@@ -98,7 +98,14 @@ def test_consolidated_report_keeps_every_candidate_with_its_verification_status(
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
     orchestrator = ReviewPipelineOrchestrator(session_id="candidates", llm_client=MagicMock())
-    kept = SavedFinding(location="src/a.py:3", title="Kept", description="d", status="VERIFIED")
+    kept = SavedFinding(
+        location="src/a.py:3",
+        title="Kept",
+        description="d",
+        status="VERIFIED",
+        verified=True,
+        verified_by="criteria",
+    )
     dropped = SavedFinding(
         location="src/a.py:9",
         title="Dropped",
@@ -223,42 +230,54 @@ def test_consolidated_report_findings_sorted_by_severity_and_confidence(
         title="Low Finding High Confidence",
         location="src/low.py:1",
         confidence_score=0.99,
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
     f_med_high_conf = SavedFinding(
         severity="MEDIUM",
         title="Medium Finding High Confidence",
         location="src/med1.py:1",
         confidence_score=0.95,
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
     f_med_low_conf = SavedFinding(
         severity="MEDIUM",
         title="Medium Finding Low Confidence",
         location="src/med2.py:1",
         confidence_score=0.70,
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
     f_crit_low_conf = SavedFinding(
         severity="CRITICAL",
         title="Critical Finding Lower Confidence",
         location="src/crit2.py:1",
         confidence_score=0.85,
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
     f_crit_high_conf = SavedFinding(
         severity="CRITICAL",
         title="Critical Finding Higher Confidence",
         location="src/crit1.py:1",
         confidence_score=0.98,
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
     f_high = SavedFinding(
         severity="HIGH",
         title="High Finding",
         location="src/high.py:1",
         confidence_score=0.90,
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
 
     payload = FileReviewPayload(
@@ -314,7 +333,9 @@ def test_consolidate_duplicate_findings_across_personas(tmp_path: Path, monkeypa
         fix="Use run_subprocess with check=True",
         persona="devsecops",
         persona_title="Security Engineer",
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
 
     # auditor reports Medium severity finding for overlapping lines with similar title
@@ -340,7 +361,9 @@ def test_consolidate_duplicate_findings_across_personas(tmp_path: Path, monkeypa
         fix="Add test_timeout unit test",
         persona="qa",
         persona_title="QA Engineer",
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
 
     payload = FileReviewPayload(
@@ -413,6 +436,7 @@ def test_criteria_based_verification_and_reportability(
         invalidated_criteria_matched=[],
         status="VERIFIED",
         verified=True,
+        verified_by="criteria",
         reportable=True,
         confidence_score=1.0,
         persona="qa",
@@ -708,6 +732,8 @@ def test_generate_consolidated_report_prints_findings_and_review_summary(
         title="Hardcoded Credential",
         description="Found hardcoded secret key in auth module",
         status="VERIFIED",
+        verified=True,
+        verified_by="criteria",
         persona="devsecops",
         persona_title="Principal DevSecOps Engineer",
         reportable=True,
@@ -792,6 +818,8 @@ def test_review_pipeline_skips_and_lists_errored_files(
                 title="Input validation",
                 description="Missing input validation",
                 status="VERIFIED",
+                verified=True,
+                verified_by="criteria",
                 persona="devsecops",
                 persona_title="Principal DevSecOps Engineer",
                 reportable=True,

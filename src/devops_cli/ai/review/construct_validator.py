@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from devops_cli.ai.review.verdicts import apply_verdict
 from devops_cli.ai.review_schema import (
     _extract_code_symbols,
     _parse_location,
@@ -326,14 +327,11 @@ def _build_relocation_result(finding: Finding, file_part: str, reloc: AstConstru
 def _build_invalidation_result(finding: Finding, candidate: str, file_path: Path) -> Finding:
     """Build invalidated Finding when cited construct is absent from file."""
     reason = f"Construct '{candidate}' cited in finding is absent from {file_path.name}"
-    res = finding.model_copy(
-        update={
-            "verified": False,
-            "mitigated": False,
-            "reportable": False,
-            "status": "INVALIDATED",
-            "invalidation_reason": reason,
-        }
+    res = apply_verdict(
+        finding,
+        "INVALIDATED",
+        by="deterministic:construct_location",
+        reason=reason,
     )
     try:
         from devops_cli.ai.review.common_hallucinations import (

@@ -1,7 +1,7 @@
 # Task 601: One Verdict Writer, Cited Refutations and No Unverified Fix Claims
 
 **Issue**: [#601](https://github.com/dan-petty/devops-cli/issues/601)
-**Status**: In Progress
+**Status**: Done
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/cli`, `priority/p0-critical`
@@ -36,10 +36,10 @@ Lines are on `release/v0.2.23`. `Finding` (`ai/review_schema.py:565`) accepts an
 - [x] Remove obsolete tests (`tests/test_review_auto_fix.py`, `tests/test_patching.py`, and patch tests in `tests/test_review.py` and `tests/test_runtime_security_and_ssrf_hardening.py`).
 
 ### Part 2: One Verdict Writer and Cited Refutations (PR Part 2)
-- [ ] Add `apply_verdict(finding, status, by, reason)` writing status, verified, reportable, mitigated, verified_by, and verified_at together.
-- [ ] Enforce verdict invariants (INVALIDATED not reportable/verified, VERIFIED requires verified_by, UNVERIFIED has neither, MITIGATED stays reportable).
-- [ ] Final executed criteria verdicts and copy whole result back in pipeline without overwriting criteria results or relocated location.
-- [ ] Assert invariants at `findings.json` write and add comprehensive every-writer test.
-- [ ] MCP `review_findings` passes `--status` for all four states.
-- [ ] Optional `citation_line` and `mitigating_mechanism` on `Finding` and `FeedbackRecord`, per-adjudicator citation rates in `compute_verdict_distributions`.
-- [ ] Citation validation and refutation downgrade to UNVERIFIED with notes.
+- [x] Add `apply_verdict(finding, status, by, reason)` writing status, verified, reportable, mitigated, verified_by, and verified_at together.
+- [x] Enforce verdict invariants (INVALIDATED not reportable/verified, VERIFIED requires verified_by, UNVERIFIED has neither, MITIGATED stays reportable).
+- [x] Final executed criteria verdicts and copy whole result back in pipeline without overwriting criteria results or relocated location.
+- [x] Assert invariants at `findings.json` write and add comprehensive every-writer test.
+- [x] MCP `review_findings` passes `--status` for all four states.
+- [x] Optional `citation_line` and `mitigating_mechanism` on `Finding` and `FeedbackRecord`, per-adjudicator citation rates in `compute_verdict_distributions`.
+- [x] Citation validation and refutation downgrade to UNVERIFIED with notes.

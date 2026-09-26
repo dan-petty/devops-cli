@@ -53,7 +53,13 @@ def test_a_model_invalidation_does_not_teach_the_catalog() -> None:
     finding = _finding("Directory created world-writable", "mkdir(mode=0o777) in append_entry")
 
     result = _apply_single_finding_verification(
-        finding, {"verified": False, "invalidated_criteria_matched": ["Mode is intended"]}, "t"
+        finding,
+        {
+            "verified": False,
+            "citation_line": 3,
+            "invalidated_criteria_matched": ["Mode is intended"],
+        },
+        "t",
     )
 
     assert (result.status, ledger.exists()) == ("INVALIDATED", False)

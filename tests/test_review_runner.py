@@ -407,6 +407,8 @@ def test_review_cli_commands(tmp_path: Path) -> None:
             severity="LOW",
             location="src/app.py:20",
             status="VERIFIED",
+            verified=True,
+            verified_by="criteria",
             persona="qa",
             persona_title="Senior QA Engineer",
             recommendation="COMMENT",

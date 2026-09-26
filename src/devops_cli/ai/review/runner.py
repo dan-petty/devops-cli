@@ -38,6 +38,7 @@ from devops_cli.ai.review.review_environment import (
 from devops_cli.ai.review.review_environment import (
     _read_candidate_conventions_file as _read_candidate_conventions_file,
 )
+from devops_cli.ai.review.verdicts import apply_verdict, assert_verdict_invariants
 from devops_cli.ai.review.verification import (
     _merge_segment_results,
     _reconcile_verified,
@@ -428,11 +429,13 @@ def _save_findings_json(
                 )
             )
     findings = consolidate_duplicate_findings(findings)
+    assert_verdict_invariants(findings)
     payload = ReviewSessionPayload(
         generated_at=datetime.now().isoformat(),
         personas=[pd.name for pd, _ in completed],
         findings=findings,
     )
+
     try:
         target.write_text(
             payload.model_dump_json(indent=2),
@@ -691,18 +694,16 @@ def _write_summary(
 
 def _build_dry_run_segment_result(file_label: str, title: str) -> ReviewResult:
     """Construct mock ReviewResult for dry-run simulation of a segment."""
+    finding = Finding(
+        severity="INFO",
+        location=title,
+        title=f"[dry-run] {file_label} Analysis",
+        description=f"Dry run analysis performed for {file_label}.",
+        fix="No action required (dry-run mode).",
+    )
+    apply_verdict(finding, "VERIFIED", by="deterministic:dry_run")
     return ReviewResult(
-        findings=[
-            Finding(
-                severity="INFO",
-                location=title,
-                title=f"[dry-run] {file_label} Analysis",
-                description=f"Dry run analysis performed for {file_label}.",
-                fix="No action required (dry-run mode).",
-                verified=True,
-                status="VERIFIED",
-            )
-        ],
+        findings=[finding],
         recommendation="APPROVE",
         summary=f"Dry run {file_label} review simulation.",
     )
@@ -746,21 +747,18 @@ def _log_segment_empty(
 
 def _build_dry_run_persona_result(title: str, persona_name: str, total: int) -> ReviewResult:
     """Construct mock ReviewResult for dry-run simulation of a persona."""
+    finding = Finding(
+        severity="INFO",
+        location=title,
+        title="[dry-run] Simulated Review Execution",
+        description=(
+            f"Dry run analysis performed for persona {persona_name} across {total} segment(s)."
+        ),
+        fix="No changes required (dry-run mode).",
+    )
+    apply_verdict(finding, "VERIFIED", by="deterministic:dry_run")
     return ReviewResult(
-        findings=[
-            Finding(
-                severity="INFO",
-                location=title,
-                title="[dry-run] Simulated Review Execution",
-                description=(
-                    f"Dry run analysis performed for persona {persona_name} "
-                    f"across {total} segment(s)."
-                ),
-                fix="No changes required (dry-run mode).",
-                verified=True,
-                status="VERIFIED",
-            )
-        ],
+        findings=[finding],
         recommendation="APPROVE",
         summary=f"Dry run execution of review for {title}.",
     )

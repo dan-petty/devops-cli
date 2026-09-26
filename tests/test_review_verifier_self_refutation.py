@@ -87,7 +87,7 @@ def test_an_invalidation_that_restates_the_defect_keeps_the_finding(
         },
         {
             "invalidated": True,
-            "reason": "This Dockerfile is a test fixture that is never built.",
+            "reason": "This Dockerfile is a test fixture that is never built on line 6.",
             "invalidated_criteria_matched": ["The file is a test fixture"],
         },
         # A genuine refutation beside a restatement still refutes.

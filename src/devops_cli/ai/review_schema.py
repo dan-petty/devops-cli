@@ -588,6 +588,14 @@ class Finding(BaseModel):
     # own verification outage and tell a reader to discard the findings below.
     verification_note: str | None = None
     relocated_from: str | None = None
+    citation_line: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("citation_line", "cited_line", "line", "refutation_line"),
+    )
+    mitigating_mechanism: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("mitigating_mechanism", "mechanism", "mitigation"),
+    )
     category: str | None = Field(
         default=None,
         validation_alias=AliasChoices("category", "type", "classification", "defect_class"),
@@ -941,8 +949,27 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         if status_order.get(base.status, 99) <= status_order.get(other.status, 99)
         else other.status
     )
-    verified = base.verified or other.verified
-    mitigated = (base.mitigated or other.mitigated) if not verified else False
+    verified_by: str | None
+    if best_status == "VERIFIED":
+        verified = True
+        mitigated = False
+        reportable = True
+        verified_by = base.verified_by or other.verified_by or "criteria"
+    elif best_status == "INVALIDATED":
+        verified = False
+        mitigated = False
+        reportable = False
+        verified_by = base.verified_by or other.verified_by
+    elif best_status == "MITIGATED":
+        verified = base.verified or other.verified
+        mitigated = True
+        reportable = True
+        verified_by = base.verified_by or other.verified_by
+    else:
+        verified = False
+        mitigated = False
+        reportable = True
+        verified_by = None
 
     desc = (
         base.description if len(base.description) >= len(other.description) else other.description
@@ -960,10 +987,6 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
     crit_results = list(
         dict.fromkeys(base.criteria_execution_results + other.criteria_execution_results)
     )
-    if not verified and (base.mitigated or other.mitigated):
-        reportable = base.reportable and other.reportable
-    else:
-        reportable = base.reportable or other.reportable
 
     updates: dict[str, Any] = {
         "severity": best_sev,
@@ -971,6 +994,8 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         "status": best_status,
         "verified": verified,
         "mitigated": mitigated,
+        "reportable": reportable,
+        "verified_by": verified_by,
         "description": desc,
         "fix": fix,
         "references": refs,
@@ -979,7 +1004,6 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         "criteria_execution_results": crit_results,
         "verified_criteria_matched": ver_match,
         "invalidated_criteria_matched": inv_match,
-        "reportable": reportable,
         "relocated_from": base.relocated_from or other.relocated_from,
         "category": base.category or other.category,
         "observed_value": base.observed_value or other.observed_value,
@@ -1297,15 +1321,17 @@ def parse_review_response(response: str | Any) -> ReviewResult | None:
 
 def compute_verdict_distributions(
     findings: Sequence[Finding | SavedFinding],
-) -> dict[str, dict[str, int]]:
-    """Compute distributions for core verdict fields: status, reportable, verified, mitigated.
+) -> dict[str, Any]:
+    """Compute distributions for core verdict fields and per-adjudicator citation rates.
 
-    Returns a mapping of verdict field name to value counts across all supplied candidate findings.
+    Returns a mapping of verdict field name to value counts and citation rates across all findings.
     """
     status_counts: dict[str, int] = defaultdict(int)
     reportable_counts: dict[str, int] = {"true": 0, "false": 0}
     verified_counts: dict[str, int] = {"true": 0, "false": 0}
     mitigated_counts: dict[str, int] = {"true": 0, "false": 0}
+    adj_totals: dict[str, int] = defaultdict(int)
+    adj_cited: dict[str, int] = defaultdict(int)
 
     for f in findings:
         st_raw = getattr(f, "status", None)
@@ -1322,11 +1348,22 @@ def compute_verdict_distributions(
         mit_key = "true" if bool(getattr(f, "mitigated", False)) else "false"
         mitigated_counts[mit_key] += 1
 
+        adj_raw = getattr(f, "verified_by", None)
+        adj = adj_raw.strip() if isinstance(adj_raw, str) and adj_raw.strip() else "unknown"
+        adj_totals[adj] += 1
+        if getattr(f, "citation_line", None) is not None:
+            adj_cited[adj] += 1
+
+    citation_rates: dict[str, float] = {
+        adj: round(adj_cited[adj] / total, 2) for adj, total in adj_totals.items() if total > 0
+    }
+
     return {
         "status": dict(status_counts),
         "reportable": reportable_counts,
         "verified": verified_counts,
         "mitigated": mitigated_counts,
+        "citation_rates": citation_rates,
     }
 
 

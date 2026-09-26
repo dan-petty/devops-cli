@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from devops_cli.ai.review.verdicts import apply_verdict
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
     CONST_ALLOWED_CRITERIA_BINARIES,
@@ -305,7 +306,7 @@ def _reconcile_finding_from_criteria(
     all_ver = list(dict.fromkeys(finding.verified_criteria_matched + matched_ver))
     all_inv = list(dict.fromkeys(finding.invalidated_criteria_matched + matched_inv))
 
-    updates: dict[str, Any] = {
+    extra_kwargs: dict[str, Any] = {
         "criteria_execution_results": all_results,
         "verified_criteria_matched": all_ver,
         "invalidated_criteria_matched": all_inv,
@@ -317,26 +318,38 @@ def _reconcile_finding_from_criteria(
         if getattr(c, "executable", False) and getattr(c, "command", None)
     ]
     if matched_inv:
-        updates.update(
-            {
-                "status": "INVALIDATED",
-                "verified": False,
-                "reportable": False,
-                "confidence_score": 0.0,
-                "invalidation_reason": f"Invalidation criterion verified: {matched_inv[0]}",
-            }
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="criteria",
+            reason=f"Invalidation criterion verified: {matched_inv[0]}",
+            confidence_score=0.0,
+            **extra_kwargs,
         )
-    elif executable_ver:
+    if executable_ver:
         cmd_set = {c.command for c in executable_ver}
+        all_ran = len(
+            {r.command for r in exec_results if r.command in cmd_set and r.exit_code != -1}
+        ) == len(cmd_set)
         ver_passed = sum(1 for r in exec_results if r.command in cmd_set and r.passed)
         score = round(ver_passed / len(executable_ver), 2)
-        updates["confidence_score"] = score
-        if ver_passed > 0:
-            updates.update({"status": "VERIFIED", "verified": True})
-        else:
-            updates.update({"status": "UNVERIFIED", "verified": False})
+        if all_ran and ver_passed > 0:
+            return apply_verdict(
+                finding,
+                "VERIFIED",
+                by="criteria",
+                confidence_score=score,
+                **extra_kwargs,
+            )
+        return apply_verdict(
+            finding,
+            "UNVERIFIED",
+            by=None,
+            confidence_score=score,
+            **extra_kwargs,
+        )
 
-    return finding.model_copy(update=updates)
+    return finding.model_copy(update=extra_kwargs)
 
 
 def _run_criteria_group(criteria: list[Any], repo_root: Path) -> tuple[list[Any], list[str]]:

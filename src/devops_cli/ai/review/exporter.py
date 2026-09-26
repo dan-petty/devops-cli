@@ -37,6 +37,8 @@ class FeedbackRecord(BaseModel):
     invalidation_reason: str | None = None
     verified_at: str | None = None
     verified_by: str | None = "human"
+    citation_line: int | None = None
+    mitigating_mechanism: str | None = None
 
 
 def _build_feedback_record(f: dict[str, Any], session_id: str, f_status: str) -> FeedbackRecord:
@@ -59,6 +61,8 @@ def _build_feedback_record(f: dict[str, Any], session_id: str, f_status: str) ->
         # record the verifier never reached into the human ground-truth bucket -- the one
         # part of this dataset that is trusted precisely because a person wrote it.
         verified_by=f.get("verified_by") or CONST_VERIFIED_BY_UNKNOWN,
+        citation_line=f.get("citation_line"),
+        mitigating_mechanism=f.get("mitigating_mechanism"),
     )
 
 

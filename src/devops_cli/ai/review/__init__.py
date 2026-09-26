@@ -46,6 +46,11 @@ from devops_cli.ai.review.review_environment import (
     validate_criteria_command,
 )
 from devops_cli.ai.review.runner import ReviewClients
+from devops_cli.ai.review.verdicts import (
+    VerifiedBy,
+    apply_verdict,
+    assert_verdict_invariants,
+)
 from devops_cli.ai.review_schema import (
     CriterionExecutionResult,
     FileReviewPayload,
@@ -81,6 +86,9 @@ __all__ = [
     "SavedFinding",
     "TokenBucketRateLimiter",
     "VerificationCriterion",
+    "VerifiedBy",
+    "apply_verdict",
+    "assert_verdict_invariants",
     "auto_record_invalidated_finding",
     "collect_ast_constructs",
     "collect_historical_category_metrics",

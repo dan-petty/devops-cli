@@ -54,6 +54,7 @@ from devops_cli.ai.review.sanitization import (
     balance_markdown_fences,
     escape_markdown_title,
 )
+from devops_cli.ai.review.verdicts import apply_verdict, assert_verdict_invariants
 from devops_cli.ai.review.verification import _validate_segment_findings
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
@@ -548,7 +549,7 @@ def _build_vulnerability_finding(
 ) -> SavedFinding:
     """Build a verified SavedFinding for an identified vulnerable package dependency."""
     desc = f"Dependency '{dep.name}' ({dep.version_range}) is affected by {v.id}: {v.summary}"
-    return SavedFinding(
+    finding = SavedFinding(
         severity=v.severity,
         location=f"{fpath}:1",
         title=f"Vulnerable Dependency: {dep.name} ({v.id})",
@@ -558,13 +559,11 @@ def _build_vulnerability_finding(
         verification_criteria=[f"Package '{dep.name}' declared in {fpath}"],
         invalidation_criteria=["Dependency upgraded or patched in lockfile"],
         verified_criteria_matched=[f"Package '{dep.name}' declared in {fpath}"],
-        status="VERIFIED",
-        verified=True,
-        reportable=True,
         confidence_score=getattr(v, "cvss_score", None),
         persona="devsecops",
         persona_title="Principal DevSecOps Engineer",
     )
+    return apply_verdict(finding, "VERIFIED", by="deterministic:vulnerable_dependency")
 
 
 def _build_malicious_network_finding(
@@ -2400,11 +2399,19 @@ class ReviewPipelineOrchestrator:
                 orig.invalidation_criteria = v.invalidation_criteria
                 orig.verified_criteria_matched = v.verified_criteria_matched
                 orig.invalidated_criteria_matched = v.invalidated_criteria_matched
+                orig.criteria_execution_results = v.criteria_execution_results
                 orig.observed_value = v.observed_value
                 orig.expected_value = v.expected_value
-                orig.verified_by = "llm"
-                orig.verified_at = datetime.now(UTC).isoformat()
+                orig.location = v.location
+                orig.relocated_from = v.relocated_from
+                orig.verification_note = v.verification_note
+                orig.citation_line = v.citation_line
+                orig.mitigating_mechanism = v.mitigating_mechanism
+                orig.verified_by = v.verified_by
+                orig.verified_at = v.verified_at
                 updated_saved.append(orig)
+
+            assert_verdict_invariants(updated_saved)
 
             valid_cnt = sum(1 for f in updated_saved if f.status in ("VERIFIED", "MITIGATED"))
             tot_u = len(updated_saved)
@@ -3306,8 +3313,10 @@ class ReviewPipelineOrchestrator:
             network_references=all_nets,
         )
 
+        assert_verdict_invariants(all_findings)
         findings_json_path = self.session_dir / "findings.json"
         findings_json_path.write_text(payload_out.model_dump_json(indent=2), encoding="utf-8")
+
         candidates = ReviewSessionPayload(
             generated_at=payload_out.generated_at,
             findings=[f for payload in file_payloads for f in payload.findings],
