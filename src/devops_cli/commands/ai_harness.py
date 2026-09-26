@@ -76,35 +76,44 @@ def harness_status(
     )
 
 
+def _extract_result_metrics(data: dict[str, Any]) -> tuple[int, int]:
+    """Extract files scanned and match count from subagent data dictionary."""
+    files_scanned = int(
+        data.get(
+            "files_scanned",
+            data.get("file_count", len(data.get("files", []))),
+        )
+    )
+    matches = 0
+    for key in ("matches", "symbols", "files"):
+        if key in data:
+            matches = len(data[key])
+            break
+    return files_scanned, matches
+
+
 def _render_offload_result(
     result: Any,
     output_format: str,
 ) -> None:
     """Render the sub-agent offload execution result."""
-    from devops_cli.ai.harness.slots import TokenSavingsSummary
     from devops_cli.output import format_json, print_table, write_stdout
 
-    savings = TokenSavingsSummary.calculate(
-        frontier_tokens=0,
-        offloaded_tokens=result.tokens_used,
-    )
+    files_scanned, matches = _extract_result_metrics(result.data)
 
     if output_format == "json":
         data = {
             "result": result.to_dict(),
-            "savings": savings.to_dict(),
         }
         write_stdout(format_json(data) + "\n")
         return
 
     rows = [
         ["Status", result.status],
+        ["Files Scanned", str(files_scanned)],
+        ["Matches", str(matches)],
         ["Tokens Used", str(result.tokens_used)],
         ["Output Summary", result.output],
-        [
-            "Token Savings",
-            f"{savings.savings_percentage:.1f}% (target met: {savings.is_target_met})",
-        ],
     ]
 
     print_table(
@@ -233,10 +242,8 @@ def harness_run(
         ["Tier 1 (Big Decides)", result.decision_plan],
         ["Tier 2 (Small Types)", f"{len(result.subagent_results)} offloaded task(s) executed"],
         ["Tier 3 (Big Checks)", result.verification_report],
-        [
-            "Token Savings",
-            f"{result.savings.savings_percentage:.1f}% (target met: {result.savings.is_target_met})",
-        ],
+        ["Files Scanned", str(result.files_scanned)],
+        ["Matches", str(result.matches)],
     ]
 
     print_table(

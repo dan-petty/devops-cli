@@ -19,7 +19,6 @@ from devops_cli.ai.harness.slots import (
     SubAgentSlot,
     SynthesisTier,
     TieredExecutionResult,
-    TokenSavingsSummary,
     ToolSlot,
     mark_tool_mutating,
     mark_tool_read_only,
@@ -79,20 +78,26 @@ def sanitize_input(val: str) -> str:
 
 def test_slot_enums() -> None:
     """Verify SlotState, SlotType, and SynthesisTier enum values."""
-    assert SlotState.EMPTY.value == "empty"
-    assert SlotState.ATTACHED.value == "attached"
-    assert SlotState.ACTIVE.value == "active"
-    assert SlotState.FAILED.value == "failed"
-    assert SlotState.DETACHED.value == "detached"
+    assert (
+        SlotState.EMPTY.value,
+        SlotState.ATTACHED.value,
+        SlotState.ACTIVE.value,
+        SlotState.FAILED.value,
+        SlotState.DETACHED.value,
+    ) == ("empty", "attached", "active", "failed", "detached")
 
-    assert SlotType.MODEL.value == "model"
-    assert SlotType.SKILL.value == "skill"
-    assert SlotType.TOOL.value == "tool"
-    assert SlotType.SUBAGENT.value == "subagent"
+    assert (
+        SlotType.MODEL.value,
+        SlotType.SKILL.value,
+        SlotType.TOOL.value,
+        SlotType.SUBAGENT.value,
+    ) == ("model", "skill", "tool", "subagent")
 
-    assert SynthesisTier.DECIDE.value == "decide"
-    assert SynthesisTier.TYPE.value == "type"
-    assert SynthesisTier.CHECK.value == "check"
+    assert (
+        SynthesisTier.DECIDE.value,
+        SynthesisTier.TYPE.value,
+        SynthesisTier.CHECK.value,
+    ) == ("decide", "type", "check")
 
 
 def test_base_slot_lifecycle() -> None:
@@ -171,23 +176,27 @@ def test_skill_slot_attach_detach(tmp_path: Path) -> None:
     slot.attach_skill(skill1)
     slot.attach_skill(skill2)
 
-    assert slot.has_skill("ast-inspection")
-    assert slot.has_skill("git-diff")
-    assert not slot.has_skill("non-existent")
+    assert (
+        slot.has_skill("ast-inspection"),
+        slot.has_skill("git-diff"),
+        slot.has_skill("non-existent"),
+    ) == (True, True, False)
 
     prompts = slot.get_skill_prompts()
-    assert len(prompts) == 2
-    assert any("ast-inspection" in p for p in prompts)
-    assert any("git-diff" in p for p in prompts)
+    assert (
+        len(prompts) == 2,
+        any("ast-inspection" in p for p in prompts),
+        any("git-diff" in p for p in prompts),
+    ) == (True, True, True)
 
     # Detach one skill
     detached = slot.detach_skill("ast-inspection")
-    assert detached is True
-    assert not slot.has_skill("ast-inspection")
-    assert slot.has_skill("git-diff")
-
-    # Detach non-existent
-    assert slot.detach_skill("unknown") is False
+    assert (
+        detached,
+        slot.has_skill("ast-inspection"),
+        slot.has_skill("git-diff"),
+        slot.detach_skill("unknown"),
+    ) == (True, False, True, False)
 
 
 def test_tool_slot_read_only_isolation() -> None:
@@ -253,24 +262,27 @@ def test_subagent_slot_ast_offloading(sample_repo_path: Path) -> None:
 
     # Search for DataProcessor class
     res = slot.offload_ast_search(sample_repo_path, "DataProcessor")
-    assert res.status == "success"
-    assert "DataProcessor" in res.output
-    assert res.tokens_used > 0
-    assert len(res.data.get("matches", [])) == 1
     match = res.data["matches"][0]
-    assert match["name"] == "DataProcessor"
-    assert match["kind"] == "class"
+    assert (
+        res.status,
+        "DataProcessor" in res.output,
+        res.tokens_used > 0,
+        len(res.data.get("matches", [])),
+        match["name"],
+        match["kind"],
+    ) == ("success", True, True, 1, "DataProcessor", "class")
 
     # Search for compute_metrics function
     fn_res = slot.offload_ast_search(sample_repo_path, "compute_metrics")
-    assert fn_res.status == "success"
-    assert len(fn_res.data.get("matches", [])) == 1
-    assert fn_res.data["matches"][0]["kind"] == "function"
+    assert (
+        fn_res.status,
+        len(fn_res.data.get("matches", [])),
+        fn_res.data["matches"][0]["kind"],
+    ) == ("success", 1, "function")
 
     # Search for non-existent symbol
     missing = slot.offload_ast_search(sample_repo_path, "NoSuchSymbol")
-    assert missing.status == "success"
-    assert len(missing.data.get("matches", [])) == 0
+    assert (missing.status, len(missing.data.get("matches", []))) == ("success", 0)
 
 
 def test_subagent_slot_file_scout(sample_repo_path: Path) -> None:
@@ -300,30 +312,18 @@ def test_subagent_slot_symbol_catalog(sample_repo_path: Path) -> None:
     assert "sanitize_input" in symbol_names
 
 
-def test_token_savings_calculation() -> None:
-    """Verify TokenSavingsSummary calculation and 85% target threshold."""
-    # Exceeding 85% savings target (e.g. 150 frontier tokens, 850 offloaded tokens)
-    s1 = TokenSavingsSummary.calculate(frontier_tokens=150, offloaded_tokens=850)
-    assert s1.frontier_tokens == 150
-    assert s1.offloaded_tokens == 850
-    assert s1.baseline_frontier_without_offload == 1000
-    assert s1.savings_percentage == 85.0
-    assert s1.is_target_met is True
-
-    # 90% savings
-    s2 = TokenSavingsSummary.calculate(frontier_tokens=100, offloaded_tokens=900)
-    assert s2.savings_percentage == 90.0
-    assert s2.is_target_met is True
-
-    # Below 85% savings target (e.g. 500 frontier tokens, 500 offloaded tokens)
-    s3 = TokenSavingsSummary.calculate(frontier_tokens=500, offloaded_tokens=500)
-    assert s3.savings_percentage == 50.0
-    assert s3.is_target_met is False
-
-    # Zero baseline edge case
-    s4 = TokenSavingsSummary.calculate(frontier_tokens=0, offloaded_tokens=0)
-    assert s4.savings_percentage == 0.0
-    assert s4.is_target_met is False
+def test_tiered_execution_result_metrics() -> None:
+    """Verify TieredExecutionResult tracks files_scanned and matches metrics."""
+    result = TieredExecutionResult(
+        task="Test task",
+        decision_plan="Plan",
+        status="completed",
+        files_scanned=12,
+        matches=4,
+    )
+    assert (result.files_scanned, result.matches, result.status) == (12, 4, "completed")
+    data = result.to_dict()
+    assert (data["files_scanned"], data["matches"]) == (12, 4)
 
 
 def test_agent_harness_create_default() -> None:
@@ -358,7 +358,7 @@ def test_tiered_synthesis_protocol_execution(sample_repo_path: Path) -> None:
     assert isinstance(result.subagent_results[0], SubAgentResult)
     assert result.subagent_results[0].status == "success"
     assert "DataProcessor" in result.verification_report
-    assert result.savings.offloaded_tokens > 0
+    assert (result.files_scanned > 0, result.matches > 0) == (True, True)
 
 
 def test_harness_failure_isolation(tmp_path: Path) -> None:
@@ -460,10 +460,13 @@ def test_cli_ai_harness_offload(runner: CliRunner, sample_repo_path: Path) -> No
             "DataProcessor",
         ],
     )
-    assert result.exit_code == 0
-    assert "Sub-Agent Local Offload" in result.stdout
-    assert "DataProcessor" in result.stdout
-    assert "Token Savings" in result.stdout
+    assert (
+        result.exit_code == 0,
+        "Sub-Agent Local Offload" in result.stdout,
+        "DataProcessor" in result.stdout,
+        "Files Scanned" in result.stdout,
+        "Matches" in result.stdout,
+    ) == (True, True, True, True, True)
 
 
 def test_cli_ai_harness_status_json(runner: CliRunner) -> None:
@@ -527,9 +530,7 @@ def test_cli_ai_harness_offload_dry_run_and_json(runner: CliRunner, sample_repo_
             "json",
         ],
     )
-    assert res_json.exit_code == 0
-    assert '"result"' in res_json.stdout
-    assert '"savings"' in res_json.stdout
+    assert (res_json.exit_code == 0, '"result"' in res_json.stdout) == (True, True)
 
 
 def test_cli_ai_harness_run_command(runner: CliRunner, sample_repo_path: Path) -> None:
@@ -546,12 +547,15 @@ def test_cli_ai_harness_run_command(runner: CliRunner, sample_repo_path: Path) -
             "DataProcessor",
         ],
     )
-    assert result.exit_code == 0
-    assert "Tiered Synthesis Execution" in result.stdout
-    assert "Tier 1 (Big Decides)" in result.stdout
-    assert "Tier 2 (Small Types)" in result.stdout
-    assert "Tier 3 (Big Checks)" in result.stdout
-    assert "Token Savings" in result.stdout
+    assert (
+        result.exit_code == 0,
+        "Tiered Synthesis Execution" in result.stdout,
+        "Tier 1 (Big Decides)" in result.stdout,
+        "Tier 2 (Small Types)" in result.stdout,
+        "Tier 3 (Big Checks)" in result.stdout,
+        "Files Scanned" in result.stdout,
+        "Matches" in result.stdout,
+    ) == (True, True, True, True, True, True, True)
 
 
 def test_cli_ai_harness_run_dry_run_and_json(runner: CliRunner, sample_repo_path: Path) -> None:
