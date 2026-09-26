@@ -89,13 +89,6 @@ def test_review_pr_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         assert res.exit_code == 0
 
 
-def test_review_verify_and_apply_patch(tmp_path: Path) -> None:
-    """Verify apply-patch subcommand execution."""
-    with patch("devops_cli.commands.review.stage_finding_patch", return_value=True):
-        res_patch = runner.invoke(review_app, ["apply-patch", "session-123", "--index", "1"])
-        assert res_patch.exit_code == 0
-
-
 def test_review_findings_stats_export_feedback(tmp_path: Path) -> None:
     """Verify review findings, stats, and export-feedback subcommands."""
     session_dir = tmp_path / "session_1"
@@ -265,11 +258,6 @@ def test_review_error_branches_and_patch_failure(tmp_path: Path) -> None:
         res_find_none = runner.invoke(review_app, ["findings", "--session", "empty_sess"])
         assert res_find_none.exit_code == 0
 
-    # 3. apply-patch failure
-    with patch("devops_cli.commands.review.stage_finding_patch", return_value=False):
-        res_patch_fail = runner.invoke(review_app, ["apply-patch", "sess-1", "--index", "1"])
-        assert res_patch_fail.exit_code == 1
-
 
 def test_review_multiple_targets_and_findings_options(tmp_path: Path) -> None:
     """Verify review path with multiple file targets, patterns, and findings formatting."""
@@ -369,13 +357,6 @@ def test_review_stats_command(tmp_path: Path) -> None:
         "Persona False Positive Rate" in res_stats.output,
         "Category False Positive Rate (Invalidated)" in res_stats.output,
     ) == (0, True, True, True)
-
-
-def test_review_apply_patch_success() -> None:
-    """Verify review apply-patch delegation when patching succeeds."""
-    with patch("devops_cli.commands.review.stage_finding_patch", return_value=True):
-        res_patch_ok = runner.invoke(review_app, ["apply-patch", "rev_sess_1", "--index", "1"])
-        assert res_patch_ok.exit_code == 0
 
 
 def test_review_findings_details_pretty_printing(tmp_path: Path) -> None:

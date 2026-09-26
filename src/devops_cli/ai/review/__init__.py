@@ -38,7 +38,6 @@ from devops_cli.ai.review.contract_grounding import (
 )
 from devops_cli.ai.review.exporter import FeedbackRecord, export_invalidated_feedback
 from devops_cli.ai.review.flags import ReviewStageFlags, resolve_stage_flags
-from devops_cli.ai.review.patching import stage_finding_patch
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator, run_pipeline_self_test
 from devops_cli.ai.review.pool import ReviewWorkerPool, TokenBucketRateLimiter
 from devops_cli.ai.review.review_environment import (
@@ -113,7 +112,6 @@ __all__ = [
     "resolve_stage_flags",
     "run_pipeline_self_test",
     "save_common_hallucinations",
-    "stage_finding_patch",
     "validate_construct_location",
     "validate_criteria_command",
 ]

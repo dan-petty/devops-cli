@@ -21,6 +21,7 @@ def test_test_gen(tmp_path: Path) -> None:
     assert suite.test_count >= 1
     assert "def test_multiply_isolated_behavior" in suite.test_code
     d = suite.to_dict()
+    assert (suite.validation_status, d["validation_status"]) == ("UNEXECUTED", "UNEXECUTED")
     assert d["test_count"] >= 1
 
     # Function filter
