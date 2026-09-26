@@ -127,3 +127,68 @@ def test_ai_cost_reset(mock_spend_env: SpendLedger) -> None:
     res_report = runner.invoke(cost_app, ["report", "--json"])
     data = json.loads(res_report.stdout)
     assert data["total_requests"] == 0
+
+
+def test_ai_cost_report_counterfactual_and_hardware_payoff(
+    mock_spend_env: SpendLedger,
+) -> None:
+    """Verify devops ai cost report displays counterfactual pricing and hardware payoff."""
+    res_table = runner.invoke(
+        cost_app,
+        ["report", "--reference-model", "gpt-4o", "--hardware-cost", "200.0"],
+    )
+    res_json = runner.invoke(
+        cost_app,
+        ["report", "--reference-model", "gpt-4o", "--hardware-cost", "200.0", "--json"],
+    )
+    data = json.loads(res_json.stdout)
+
+    assert (
+        res_table.exit_code,
+        "Local Calls Hosted Equivalent" in res_table.stdout,
+        "All-Hosted Counterfactual Spend" in res_table.stdout,
+        "Estimated Cloud Spend Avoided" in res_table.stdout,
+        "Local Hardware Investment & Cloud Savings Pay-Off" in res_table.stdout,
+        res_json.exit_code,
+        data["reference_model"],
+        data["hardware_cost_usd"],
+        data["hardware_payoff"] is not None,
+    ) == (
+        0,
+        True,
+        True,
+        True,
+        True,
+        0,
+        "gpt-4o",
+        200.0,
+        True,
+    )
+
+
+def test_ai_cost_roi_command(mock_spend_env: SpendLedger) -> None:
+    """Verify devops ai cost roi outputs hardware payoff in table and json formats."""
+    res_table = runner.invoke(cost_app, ["roi", "--hardware-cost", "1500.0"])
+    res_json = runner.invoke(cost_app, ["roi", "--hardware-cost", "1500.0", "--json"])
+    data = json.loads(res_json.stdout)
+
+    res_payoff = runner.invoke(cost_app, ["payoff", "--hardware-cost", "1500.0", "--json"])
+    res_payback = runner.invoke(cost_app, ["payback", "--hardware-cost", "1500.0", "--json"])
+
+    assert (
+        res_table.exit_code,
+        "Local Hardware Investment & Cloud Savings Pay-Off" in res_table.stdout,
+        res_json.exit_code,
+        data["hardware_cost_usd"],
+        data["is_paid_off"],
+        res_payoff.exit_code,
+        res_payback.exit_code,
+    ) == (
+        0,
+        True,
+        0,
+        1500.0,
+        False,
+        0,
+        0,
+    )

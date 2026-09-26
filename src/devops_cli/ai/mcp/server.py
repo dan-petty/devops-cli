@@ -2831,6 +2831,8 @@ def get_ai_gateway_resource() -> str:
 def ai_spend_report(
     days: int | None = None,
     group_by: str = "server",
+    reference_model: str | None = None,
+    hardware_cost: float | None = None,
 ) -> str:
     """Report approximate AI spend per backend service, model, or provider over time."""
     cmd = [
@@ -2847,6 +2849,10 @@ def ai_spend_report(
     ]
     if days is not None:
         cmd.extend(["--days", str(days)])
+    if reference_model is not None:
+        cmd.extend(["--reference-model", reference_model])
+    if hardware_cost is not None:
+        cmd.extend(["--hardware-cost", str(hardware_cost)])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 

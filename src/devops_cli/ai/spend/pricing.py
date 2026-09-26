@@ -77,8 +77,12 @@ def _is_local_server(server: str | None) -> bool:
     return False
 
 
-def _is_local(server: str | None = None, provider: str | None = None) -> bool:
+def is_local(server: str | None = None, provider: str | None = None) -> bool:
+    """Return True if the backend server or provider indicates local execution."""
     return _is_local_provider(provider) or _is_local_server(server)
+
+
+_is_local = is_local
 
 
 def _candidate_models(model: str) -> tuple[str, ...]:

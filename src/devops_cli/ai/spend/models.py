@@ -60,6 +60,8 @@ class ServerSpendSummary(BaseModel):
     models: list[str] = Field(default_factory=list)
     first_seen: str | None = None
     last_seen: str | None = None
+    is_local: bool = False
+    cost_equivalent_usd: float = 0.0
 
 
 class ModelSpendSummary(BaseModel):
@@ -76,6 +78,7 @@ class ModelSpendSummary(BaseModel):
     approx_spend_usd: float = 0.0
     prompt_usd_per_million: float = 0.0
     completion_usd_per_million: float = 0.0
+    cost_equivalent_usd: float = 0.0
 
 
 class ProviderSpendSummary(BaseModel):
@@ -114,6 +117,7 @@ class StageSpendSummary(BaseModel):
     completion_tokens: int = 0
     total_tokens: int = 0
     approx_spend_usd: float = 0.0
+    cost_equivalent_usd: float = 0.0
 
 
 class LifetimeSpendReport(BaseModel):
@@ -136,3 +140,29 @@ class LifetimeSpendReport(BaseModel):
     providers: list[ProviderSpendSummary] = Field(default_factory=list)
     backends: list[BackendSpendSummary] = Field(default_factory=list)
     stages: list[StageSpendSummary] = Field(default_factory=list)
+    reference_model: str = "gpt-4o"
+    local_requests: int = 0
+    local_prompt_tokens: int = 0
+    local_completion_tokens: int = 0
+    local_tokens: int = 0
+    local_cost_equivalent_usd: float = 0.0
+    counterfactual_spend_usd: float = 0.0
+    counterfactual_savings_usd: float = 0.0
+    hardware_cost_usd: float = 0.0
+    hardware_payoff: HardwarePayoffSummary | None = None
+
+
+class HardwarePayoffSummary(BaseModel):
+    """Hardware investment payoff and ROI tracking from local LLM inference savings."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    hardware_cost_usd: float = 0.0
+    cumulative_savings_usd: float = 0.0
+    net_value_usd: float = 0.0
+    payoff_percentage: float = 0.0
+    is_paid_off: bool = False
+    remaining_usd: float = 0.0
+    daily_savings_usd: float = 0.0
+    estimated_days_to_payoff: float | None = None
+    reference_model: str = "gpt-4o"

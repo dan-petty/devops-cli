@@ -389,3 +389,60 @@ def test_devops_ai_cost_cli_by_stage(tmp_path: Path, monkeypatch: pytest.MonkeyP
         "review.file_review",
         1,
     )
+
+
+def test_spend_ledger_counterfactual_and_hardware_payoff(tmp_path: Path) -> None:
+    """Verify counterfactual pricing on read and hardware payoff tracking for local calls."""
+    db_path = tmp_path / "payoff_spend.db"
+    ledger = SpendLedger(db_path=db_path)
+
+    ledger.record_request(
+        provider="ollama",
+        server="localhost:11434",
+        model="llama3:8b",
+        prompt_tokens=3000,
+        completion_tokens=600,
+        cost_usd=0.0,
+        duration_seconds=1.5,
+    )
+    ledger.record_request(
+        provider="vllm",
+        server="example.com:8080",
+        model="deepseek-chat",
+        prompt_tokens=5000,
+        completion_tokens=1000,
+        cost_usd=0.010,
+        duration_seconds=2.0,
+    )
+
+    report = ledger.get_lifetime_report(
+        reference_model="gpt-4o",
+        hardware_cost_usd=100.0,
+    )
+    payoff = report.hardware_payoff
+    assert payoff is not None
+    assert (
+        report.reference_model,
+        report.local_requests,
+        report.local_tokens,
+        report.local_prompt_tokens,
+        report.local_completion_tokens,
+        report.local_cost_equivalent_usd,
+        report.counterfactual_spend_usd,
+        round(report.counterfactual_savings_usd, 4),
+        payoff.hardware_cost_usd,
+        payoff.is_paid_off,
+        round(payoff.remaining_usd, 4),
+    ) == (
+        "gpt-4o",
+        1,
+        3600,
+        3000,
+        600,
+        0.0135,
+        0.036,
+        0.026,
+        100.0,
+        False,
+        99.9865,
+    )
