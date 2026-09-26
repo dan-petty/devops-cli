@@ -849,13 +849,25 @@ def test_review_pipeline_dependency_and_network_auditing() -> None:
         severity="CRITICAL",
         fixed_version="2.31.0",
     )
-    dep_cache = {("requests", "2.20.0", "PyPI"): [vuln_rec]}
+    dep_cache = {
+        ("requests", "2.20.0", "PyPI"): [vuln_rec],
+        ("pydantic", "2.11.0", "PyPI"): [],
+    }
+    dep_unqueried = DependencySpec(name="flask", version_range="*", ecosystem="PyPI")
 
-    findings = orchestrator._audit_file_dependencies("src/app.py", [dep_clean, dep_vuln], dep_cache)
-    assert dep_clean.severity == "CLEAN"
-    assert dep_vuln.severity == "CRITICAL"
-    assert len(findings) == 1
-    assert "CVE-2023-1234" in findings[0].title
+    findings = orchestrator._audit_file_dependencies(
+        "src/app.py", [dep_clean, dep_vuln, dep_unqueried], dep_cache
+    )
+    assert (
+        dep_clean.severity,
+        dep_clean.queried,
+        dep_vuln.severity,
+        dep_vuln.queried,
+        dep_unqueried.severity,
+        dep_unqueried.queried,
+        len(findings),
+        "CVE-2023-1234" in findings[0].title,
+    ) == ("CLEAN", True, "CRITICAL", True, "NOT_QUERIED", False, 1, True)
 
     # 3. Audit network references
     net_clean = NetworkReference(target="127.0.0.1", reference_type="ipv4", is_local=True)

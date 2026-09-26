@@ -1055,7 +1055,10 @@ def test_a_dependency_this_run_scanned_clean_is_not_reported_vulnerable() -> Non
         title="Outdated FastAPI and Uvicorn versions",
         description="Older releases may contain unpatched security vulnerabilities.",
     )
-    scanned = [DependencySpec(name="fastapi"), DependencySpec(name="uvicorn")]
+    scanned = [
+        DependencySpec(name="fastapi", severity="CLEAN"),
+        DependencySpec(name="uvicorn", severity="CLEAN"),
+    ]
     result = _check_scanned_clean_dependency(finding, scanned)
     assert result is not None and result.status == "INVALIDATED"
 

@@ -933,7 +933,7 @@ class ReviewCommandHelp:
     static_scan_only: str = "Run static scanning only and skip subsequent stages."
     no_persona_review: str = "Disable multi-persona LLM inspection."
     persona_review_only: str = "Run persona review only and skip subsequent stages."
-    no_verification: str = "Disable finding verification and adversarial debate."
+    no_verification: str = "Disable finding verification and false-positive filtering."
     verification_only: str = "Run verification only and skip subsequent stages."
     no_reranking: str = "Disable finding re-ranking and deduplication."
     reranking_only: str = "Run re-ranking only and skip subsequent stages."

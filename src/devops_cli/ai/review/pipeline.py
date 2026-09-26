@@ -1028,24 +1028,20 @@ def _get_finding_status_badge(status: str) -> str:
     return f"[yellow]? {status}[/yellow]"
 
 
+_DEP_SEV_STYLES: dict[str, tuple[str, str]] = {
+    "CRITICAL": ("[bold red]CRITICAL[/bold red]", "[bold red]{status}[/bold red]"),
+    "HIGH": ("[red]HIGH[/red]", "[red]{status}[/red]"),
+    "MEDIUM": ("[yellow]MEDIUM[/yellow]", "[yellow]{status}[/yellow]"),
+    "LOW": ("[cyan]LOW[/cyan]", "[cyan]{status}[/cyan]"),
+    "CLEAN": ("[green]CLEAN[/green]", "[green]{status}[/green]"),
+}
+_DEFAULT_DEP_SEV_STYLE: tuple[str, str] = ("[dim]NOT QUERIED[/dim]", "[dim]{status}[/dim]")
+
+
 def _format_dependency_table_row(d: DependencySpec) -> list[str]:
     """Format a single dependency specification into table cell strings."""
-    sev_upper = d.severity.upper()
-    if sev_upper == "CRITICAL":
-        sev_str = "[bold red]CRITICAL[/bold red]"
-        status_str = f"[bold red]{d.security_status}[/bold red]"
-    elif sev_upper == "HIGH":
-        sev_str = "[red]HIGH[/red]"
-        status_str = f"[red]{d.security_status}[/red]"
-    elif sev_upper == "MEDIUM":
-        sev_str = "[yellow]MEDIUM[/yellow]"
-        status_str = f"[yellow]{d.security_status}[/yellow]"
-    elif sev_upper == "LOW":
-        sev_str = "[cyan]LOW[/cyan]"
-        status_str = f"[cyan]{d.security_status}[/cyan]"
-    else:
-        sev_str = "[green]CLEAN[/green]"
-        status_str = f"[green]{d.security_status}[/green]"
+    sev_str, status_template = _DEP_SEV_STYLES.get(d.severity.upper(), _DEFAULT_DEP_SEV_STYLE)
+    status_str = status_template.format(status=d.security_status)
 
     return [
         sev_str,
@@ -1698,19 +1694,26 @@ class ReviewPipelineOrchestrator:
         findings: list[SavedFinding] = []
         for dep in file_deps:
             d_key = (dep.name, dep.version_range, dep.ecosystem)
-            vulns = dep_cache.get(d_key, [])
-            if vulns:
-                dep.vulnerabilities = vulns
-                highest_sev = max(
-                    (v.severity.upper() for v in vulns),
-                    key=lambda s: _SEV_ORDER.get(s, 0),
-                    default="MEDIUM",
-                )
-                dep.severity = highest_sev
-                dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s) [{highest_sev}]"
+            if d_key in dep_cache:
+                dep.queried = True
+                vulns = dep_cache[d_key]
+                if vulns:
+                    dep.vulnerabilities = vulns
+                    highest_sev = max(
+                        (v.severity.upper() for v in vulns),
+                        key=lambda s: _SEV_ORDER.get(s, 0),
+                        default="MEDIUM",
+                    )
+                    dep.severity = highest_sev
+                    dep.security_status = f"⚠️ {len(vulns)} Known Vuln(s) [{highest_sev}]"
+                else:
+                    dep.severity = "CLEAN"
+                    dep.security_status = "✓ Clean"
             else:
-                dep.severity = "CLEAN"
-                dep.security_status = "✓ Clean"
+                dep.queried = False
+                dep.severity = "NOT_QUERIED"
+                dep.security_status = "Not Queried"
+                vulns = []
 
             findings.extend(_build_vulnerability_finding(fpath, dep, v) for v in vulns)
         return findings
@@ -2733,11 +2736,13 @@ class ReviewPipelineOrchestrator:
             ]
         )
         for dep in all_deps:
-            sev_badge = (
-                f"**{dep.severity}**"
-                if dep.severity.upper() not in ("CLEAN", "NONE", "INFO")
-                else dep.severity
-            )
+            sev_upper = (dep.severity or "").upper()
+            if sev_upper in ("NOT_QUERIED", "NOT QUERIED"):
+                sev_badge = "NOT QUERIED"
+            elif sev_upper not in ("CLEAN", "NONE", "INFO"):
+                sev_badge = f"**{dep.severity}**"
+            else:
+                sev_badge = dep.severity
             loc_str = f"`{dep.location}`" if dep.location else "—"
             lines.append(
                 f"| {sev_badge} | `{dep.name}` | `{dep.version_range}` | {dep.ecosystem} | "
@@ -2855,6 +2860,7 @@ class ReviewPipelineOrchestrator:
                 all_deps=all_deps,
                 all_nets=all_nets,
                 errored_files=self.errored_files,
+                static_analyzers=self.static_analyzers,
             )
         )
         lines.extend(
@@ -3141,11 +3147,23 @@ class ReviewPipelineOrchestrator:
         if not all_deps:
             return "0 scanned"
         vuln_count = sum(
-            1 for dep in all_deps if (dep.severity or "").upper() not in ("CLEAN", "NONE", "INFO")
+            1
+            for dep in all_deps
+            if (dep.severity or "").upper()
+            not in ("CLEAN", "NONE", "INFO", "NOT_QUERIED", "NOT QUERIED")
         )
-        vuln_note = (
-            f" ([red]{vuln_count} vulnerable[/red])" if vuln_count else " ([green]clean[/green])"
+        queried_count = sum(
+            1
+            for dep in all_deps
+            if getattr(dep, "queried", False)
+            or (dep.severity or "").upper() in ("CLEAN", "CRITICAL", "HIGH", "MEDIUM", "LOW")
         )
+        if vuln_count:
+            vuln_note = f" ([red]{vuln_count} vulnerable[/red])"
+        elif queried_count:
+            vuln_note = " ([green]clean[/green])"
+        else:
+            vuln_note = " ([dim]not queried[/dim])"
         return f"{len(all_deps)} audited{vuln_note}"
 
     def _format_network_summary(self, all_nets: list[NetworkReference]) -> str:
