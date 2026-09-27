@@ -40,9 +40,9 @@ data:
           model: openai/qwen3-coder:30b
           api_base: http://vllm.llm.svc.cluster.local:8000/v1
           api_key: none
-        # Prompt budget inside the 32K vLLM window, leaving 4K tokens for the reply.
+        # Prompt budget inside the 64K vLLM window, leaving 4K tokens for the reply.
         model_info:
-          max_input_tokens: 28672
+          max_input_tokens: 61440
       # mode: embedding makes health checks embed rather than generate, which bge-m3 rejects.
       - model_name: devops-embedding
         litellm_params:
@@ -78,9 +78,10 @@ data:
           model: openai/qwen3-coder:30b
           api_base: http://vllm.llm.svc.cluster.local:8000/v1
           api_key: none
-          weight: 1
+          weight: 5
         model_info:
-          max_input_tokens: 28672
+          max_input_tokens: 61440
+      # max_input_tokens is OLLAMA_CONTEXT_LENGTH (48000) minus 4K tokens for the reply.
       - model_name: devops-review
         litellm_params:
           model: openai/qwen3-coder:30b
@@ -88,7 +89,7 @@ data:
           api_key: none
           weight: 1
         model_info:
-          max_input_tokens: 28672
+          max_input_tokens: 43904
 
       # Pass-through: any model on the Ollama nodes by name, e.g. `ollama/gpt-oss:20b`. Ollama's
       # OpenAI-compatible API serves both chat (with the model's own template) and embeddings.
