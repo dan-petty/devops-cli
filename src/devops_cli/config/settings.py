@@ -42,10 +42,12 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_ENABLED,
     DEFAULT_AI_GATEWAY_PROVIDER,
     DEFAULT_AI_GATEWAY_URL,
+    DEFAULT_AI_HARDWARE_COST_USD,
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
     DEFAULT_AI_REASONING_EFFORT,
+    DEFAULT_AI_REFERENCE_MODEL,
     DEFAULT_AI_TEMPERATURE,
     DEFAULT_AI_TOP_P,
     DEFAULT_ANALYSIS_DATA_DIR,
@@ -348,6 +350,8 @@ class AIConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     provider: str = DEFAULT_AI_PROVIDER  # ollama | claude | copilot | openai
     model: str = DEFAULT_AI_MODEL
+    reference_model: str = DEFAULT_AI_REFERENCE_MODEL
+    hardware_cost_usd: float = DEFAULT_AI_HARDWARE_COST_USD
     reasoning_effort: str | None = DEFAULT_AI_REASONING_EFFORT
     temperature: float = DEFAULT_AI_TEMPERATURE
     top_p: float = DEFAULT_AI_TOP_P

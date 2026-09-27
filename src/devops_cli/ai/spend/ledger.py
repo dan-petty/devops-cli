@@ -13,13 +13,17 @@ from typing import Any
 from devops_cli.ai.spend.models import (
     BackendSpendSummary,
     LifetimeSpendReport,
+    ModelPricing,
     ModelSpendSummary,
     ProviderSpendSummary,
     ServerSpendSummary,
     SpendRecord,
     StageSpendSummary,
 )
-from devops_cli.config.defaults import DEFAULT_AI_SPEND_DB_FILENAME
+from devops_cli.config.defaults import (
+    DEFAULT_AI_REFERENCE_MODEL,
+    DEFAULT_AI_SPEND_DB_FILENAME,
+)
 from devops_cli.config.settings import load_settings
 
 _QUERY_CREATE_TABLE = """
@@ -159,6 +163,40 @@ _QUERY_COUNT_RECORDS = "SELECT COUNT(*) FROM ai_spend_records;"
 _QUERY_DELETE_RECORDS = "DELETE FROM ai_spend_records;"
 
 
+def _tally_and_annotate_servers(
+    servers: list[ServerSpendSummary], ref_pricing: ModelPricing
+) -> tuple[int, int, int, int]:
+    """Annotate servers with local status and cost equivalent, tallying local usage."""
+    from devops_cli.ai.spend.pricing import is_local
+
+    local_requests = 0
+    local_prompt_tokens = 0
+    local_completion_tokens = 0
+    for s in servers:
+        s.is_local = is_local(server=s.server, provider=s.provider)
+        s.cost_equivalent_usd = ref_pricing.calculate_cost(s.prompt_tokens, s.completion_tokens)
+        if s.is_local:
+            local_requests += s.request_count
+            local_prompt_tokens += s.prompt_tokens
+            local_completion_tokens += s.completion_tokens
+    local_tokens = local_prompt_tokens + local_completion_tokens
+    return local_requests, local_prompt_tokens, local_completion_tokens, local_tokens
+
+
+def _annotate_models(models: list[ModelSpendSummary], ref_pricing: ModelPricing) -> None:
+    """Annotate model summaries with hosted cost equivalent."""
+    for m in models:
+        m.cost_equivalent_usd = ref_pricing.calculate_cost(m.prompt_tokens, m.completion_tokens)
+
+
+def _annotate_stages(stages: list[StageSpendSummary], ref_pricing: ModelPricing) -> None:
+    """Annotate stage summaries with hosted cost equivalent."""
+    for stg in stages:
+        stg.cost_equivalent_usd = ref_pricing.calculate_cost(
+            stg.prompt_tokens, stg.completion_tokens
+        )
+
+
 class SpendLedger:
     """Persistent thread-safe SQLite ledger recording AI token spend across backends."""
 
@@ -272,10 +310,42 @@ class SpendLedger:
         offset = f"-{days} days"
         return (offset, offset)
 
+    @staticmethod
+    def _resolve_reference_model(reference_model: str | None = None) -> str:
+        """Resolve the effective reference model for counterfactual calculations."""
+        if reference_model and reference_model.strip():
+            return reference_model.strip()
+        try:
+            settings = load_settings()
+            if settings.ai.reference_model and settings.ai.reference_model.strip():
+                return settings.ai.reference_model.strip()
+        except Exception:
+            pass
+        return DEFAULT_AI_REFERENCE_MODEL
+
+    @staticmethod
+    def _resolve_hardware_cost(hardware_cost_usd: float | None = None) -> float:
+        """Resolve hardware cost for payoff calculation from parameter or settings."""
+        if hardware_cost_usd is not None and hardware_cost_usd >= 0:
+            return float(hardware_cost_usd)
+        try:
+            settings = load_settings()
+            if settings.ai.hardware_cost_usd and settings.ai.hardware_cost_usd >= 0:
+                return float(settings.ai.hardware_cost_usd)
+        except Exception:
+            pass
+        return 0.0
+
     def get_lifetime_report(
-        self, days: int | None = None, group_by: str = "server"
+        self,
+        days: int | None = None,
+        group_by: str = "server",
+        reference_model: str | None = None,
+        hardware_cost_usd: float | None = None,
     ) -> LifetimeSpendReport:
         """Aggregate lifetime spend metrics grouped by server, model, provider, and stage."""
+        from devops_cli.ai.spend.pricing import get_pricing_registry
+
         params = self._build_where_params(days)
         with contextlib.closing(self._get_connection()) as conn:
             summary = self._query_overall_summary(conn, params)
@@ -284,6 +354,41 @@ class SpendLedger:
             providers = self._query_provider_breakdown(conn, params)
             backends = self._query_backend_breakdown(conn, params)
             stages = self._query_stage_breakdown(conn, params)
+
+        ref_model = self._resolve_reference_model(reference_model)
+        pricing_reg = get_pricing_registry()
+        ref_pricing = pricing_reg.get_pricing(ref_model)
+
+        loc_reqs, loc_p_tok, loc_c_tok, loc_tok = _tally_and_annotate_servers(servers, ref_pricing)
+        _annotate_models(models, ref_pricing)
+        _annotate_stages(stages, ref_pricing)
+
+        eff_hardware_cost = self._resolve_hardware_cost(hardware_cost_usd)
+        summary.hardware_cost_usd = eff_hardware_cost
+        summary.reference_model = ref_model
+        summary.local_requests = loc_reqs
+        summary.local_prompt_tokens = loc_p_tok
+        summary.local_completion_tokens = loc_c_tok
+        summary.local_tokens = loc_tok
+        summary.local_cost_equivalent_usd = ref_pricing.calculate_cost(loc_p_tok, loc_c_tok)
+        summary.counterfactual_spend_usd = ref_pricing.calculate_cost(
+            summary.total_prompt_tokens, summary.total_completion_tokens
+        )
+        summary.counterfactual_savings_usd = round(
+            max(0.0, summary.counterfactual_spend_usd - summary.total_spend_usd), 6
+        )
+
+        if eff_hardware_cost > 0 or summary.local_cost_equivalent_usd > 0:
+            from devops_cli.ai.spend.payoff import compute_hardware_payoff
+
+            summary.hardware_payoff = compute_hardware_payoff(
+                hardware_cost_usd=eff_hardware_cost,
+                local_cost_equivalent_usd=summary.local_cost_equivalent_usd,
+                reference_model=ref_model,
+                first_recorded_at=summary.first_recorded_at,
+                last_recorded_at=summary.last_recorded_at,
+                days=days,
+            )
 
         summary.servers = servers
         summary.models = models

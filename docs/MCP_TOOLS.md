@@ -424,6 +424,8 @@ Report approximate AI spend per backend service, model, or provider over time.
 |---|---|---|---|---|
 | `days` | `integer` | No | - | - |
 | `group_by` | `string` | No | `server` | - |
+| `reference_model` | `string` | No | - | - |
+| `hardware_cost` | `number` | No | - | - |
 
 ### `ai_subagent_offload`
 

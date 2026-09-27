@@ -24,7 +24,7 @@ def _format_labels(labels: dict[str, str]) -> str:
 
 def _build_overview_gauges(report: LifetimeSpendReport) -> list[str]:
     """Format high-level aggregate gauge metrics."""
-    return [
+    lines = [
         "# HELP devops_cli_ai_active_servers Number of active AI backend services tracked",
         "# TYPE devops_cli_ai_active_servers gauge",
         f"devops_cli_ai_active_servers {report.active_servers_count}",
@@ -33,7 +33,38 @@ def _build_overview_gauges(report: LifetimeSpendReport) -> list[str]:
         "# TYPE devops_cli_ai_active_models gauge",
         f"devops_cli_ai_active_models {report.active_models_count}",
         "",
+        "# HELP devops_cli_ai_local_cost_equivalent_usd Cost equivalent in USD of local model calls under reference model",
+        "# TYPE devops_cli_ai_local_cost_equivalent_usd gauge",
+        f"devops_cli_ai_local_cost_equivalent_usd {report.local_cost_equivalent_usd:.6f}",
+        "",
+        "# HELP devops_cli_ai_counterfactual_spend_usd Counterfactual hosted spend in USD under reference model",
+        "# TYPE devops_cli_ai_counterfactual_spend_usd gauge",
+        f"devops_cli_ai_counterfactual_spend_usd {report.counterfactual_spend_usd:.6f}",
+        "",
+        "# HELP devops_cli_ai_counterfactual_savings_usd Estimated cloud spend avoided in USD",
+        "# TYPE devops_cli_ai_counterfactual_savings_usd gauge",
+        f"devops_cli_ai_counterfactual_savings_usd {report.counterfactual_savings_usd:.6f}",
+        "",
     ]
+    if report.hardware_payoff:
+        payoff = report.hardware_payoff
+        lines.extend(
+            [
+                "# HELP devops_cli_ai_hardware_cost_usd Total hardware investment cost in USD",
+                "# TYPE devops_cli_ai_hardware_cost_usd gauge",
+                f"devops_cli_ai_hardware_cost_usd {payoff.hardware_cost_usd:.2f}",
+                "",
+                "# HELP devops_cli_ai_hardware_payoff_percentage Percentage of hardware investment amortized by local savings",
+                "# TYPE devops_cli_ai_hardware_payoff_percentage gauge",
+                f"devops_cli_ai_hardware_payoff_percentage {payoff.payoff_percentage:.2f}",
+                "",
+                "# HELP devops_cli_ai_hardware_net_value_usd Net profit or remaining investment in USD",
+                "# TYPE devops_cli_ai_hardware_net_value_usd gauge",
+                f"devops_cli_ai_hardware_net_value_usd {payoff.net_value_usd:.4f}",
+                "",
+            ]
+        )
+    return lines
 
 
 def _build_server_spend_gauges(report: LifetimeSpendReport) -> list[str]:

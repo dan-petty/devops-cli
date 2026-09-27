@@ -135,7 +135,8 @@
         "Ollama.ollama",
         "anthropic.claude-code",
         "google.google-antigravity",
-        "github.vscode-github-actions"
+        "github.vscode-github-actions",
+        "ms-vscode.makefile-tools"
       ],
       "settings": {
         "editor.formatOnSave": true,

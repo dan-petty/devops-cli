@@ -18,6 +18,8 @@ ARGOCD_TOKEN = "argocd.token"
 ARGOCD_PASSWORD = "argocd.password"
 AI_PROVIDER = "ai.provider"
 AI_MODEL = "ai.model"
+AI_REFERENCE_MODEL = "ai.reference_model"
+AI_HARDWARE_COST_USD = "ai.hardware_cost_usd"
 AI_OLLAMA_URLS = "ai.ollama_urls"
 AI_OLLAMA_MAX_PARALLEL = "ai.ollama_max_parallel"
 AI_API_BASE_URL = "ai.api_base_url"
@@ -118,6 +120,8 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     ARGOCD_PASSWORD,
     AI_PROVIDER,
     AI_MODEL,
+    AI_REFERENCE_MODEL,
+    AI_HARDWARE_COST_USD,
     AI_OLLAMA_URLS,
     AI_OLLAMA_MAX_PARALLEL,
     AI_API_BASE_URL,
