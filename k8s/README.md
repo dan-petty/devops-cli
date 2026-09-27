@@ -236,7 +236,7 @@ k8s/
 ├── ingress/
 │   ├── kustomization.yaml    # Kustomize overlay for cluster ingress routes
 │   ├── traefik-values.yaml   # Traefik Helm values with ClusterIP service type
-│   └── ingress-routes.yaml   # Ingress rules for chat, ai, grafana, argocd
+│   └── ingress-routes.yaml   # Ingress rules for chat, ai, grafana, argocd, prometheus, qdrant
 ├── argocd/
 │   ├── kustomization.yaml    # Kustomize overlay for ArgoCD
 │   ├── namespace.yaml        # argocd namespace
