@@ -65,6 +65,101 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             f"The {self._config.provider} provider", has_key=bool(self._api_key), status=status
         )
 
+    def _apply_reasoning_params(
+        self, payload: dict[str, Any], limit: int | None, enable_thinking: bool
+    ) -> None:
+        """Apply reasoning-specific parameters to the request payload."""
+        effort = self._config.reasoning_effort or ("medium" if enable_thinking else "low")
+        if effort:
+            payload["reasoning_effort"] = effort
+        if limit is not None:
+            payload["max_completion_tokens"] = limit
+
+    def _apply_standard_params(
+        self, payload: dict[str, Any], limit: int | None, stream: bool
+    ) -> None:
+        """Apply standard model parameters (tokens, temperature, top_p) to payload."""
+        if limit is not None:
+            payload["max_tokens"] = limit
+        if stream:
+            return
+        temp = getattr(self._config, "temperature", None)
+        if temp is not None:
+            payload["temperature"] = float(temp)
+        top_p = getattr(self._config, "top_p", None)
+        if top_p is not None:
+            payload["top_p"] = float(top_p)
+
+    def _build_compat_payload(
+        self,
+        system: str,
+        messages: list[ChatMessage],
+        *,
+        stream: bool = False,
+        enable_thinking: bool = True,
+    ) -> dict[str, Any]:
+        """Construct JSON payload adhering strictly to model reasoning capabilities."""
+        payload: dict[str, Any] = {
+            "model": self._config.model,
+            "messages": [
+                {"role": "system", "content": system},
+                *[m.to_dict() for m in messages],
+            ],
+        }
+        if stream:
+            payload["stream"] = True
+
+        limit = self._completion_limit()
+        if is_reasoning_model(self._config.model):
+            self._apply_reasoning_params(payload, limit, enable_thinking)
+        else:
+            self._apply_standard_params(payload, limit, stream)
+        return payload
+
+    @staticmethod
+    def _extract_inline_thinking(content: str, thinking_str: str | None) -> tuple[str, str | None]:
+        """Extract inline <think> tags from response body if present."""
+        if "<think>" not in content:
+            return content, thinking_str
+        from devops_cli.ai.thinking_stream import extract_think_blocks
+
+        inner_thinks, clean = extract_think_blocks(content)
+        if not inner_thinks:
+            return clean, thinking_str
+        combined = (thinking_str + "\n" if thinking_str else "") + "\n".join(inner_thinks)
+        return clean, combined.strip() or None
+
+    def _parse_compat_response(
+        self,
+        raw_json: dict[str, Any],
+        wall_elapsed: float,
+        served_by: str | None,
+    ) -> LLMResponse:
+        """Parse raw OpenAI completion JSON into a structured LLMResponse."""
+        choices = raw_json.get("choices", [{}])
+        first_choice = choices[0] if choices else {}
+        msg = first_choice.get("message", {})
+        raw_content = str(msg.get("content") or "")
+        raw_reasoning = (
+            msg.get("reasoning_content") or msg.get("reasoning") or first_choice.get("reasoning")
+        )
+        thinking_str = str(raw_reasoning).strip() if raw_reasoning else None
+
+        content, thinking_str = self._extract_inline_thinking(raw_content, thinking_str)
+        usage = raw_json.get("usage", {})
+        b_info = f"{self.backend_type} ({self.backend_host})"
+        return LLMResponse(
+            content,
+            processing_seconds=None,
+            wall_seconds=wall_elapsed,
+            backend_info=b_info,
+            thinking=thinking_str,
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
+            total_tokens=usage.get("total_tokens"),
+            served_by=served_by,
+        )
+
     def _openai_compat_messages(
         self,
         system: str,
@@ -74,33 +169,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
     ) -> LLMResponse:
         start_time = time.monotonic()
         headers = inject_trace_context(self._openai_compat_headers())
-        is_reasoning = is_reasoning_model(self._config.model)
-        payload: dict[str, Any] = {
-            "model": self._config.model,
-            "messages": [
-                {"role": "system", "content": system},
-                *[m.to_dict() for m in messages],
-            ],
-        }
-        if is_reasoning:
-            effort = self._config.reasoning_effort or ("medium" if enable_thinking else "low")
-            if effort:
-                payload["reasoning_effort"] = effort
-            max_tok = self._completion_limit()
-            if max_tok is not None:
-                payload["max_completion_tokens"] = max_tok
-        else:
-            if self._config.reasoning_effort:
-                payload["reasoning_effort"] = self._config.reasoning_effort
-            max_tok = self._completion_limit()
-            if max_tok is not None:
-                payload["max_tokens"] = max_tok
-            openai_temp = getattr(self._config, "temperature", None)
-            if openai_temp is not None:
-                payload["temperature"] = float(openai_temp)
-            openai_top_p = getattr(self._config, "top_p", None)
-            if openai_top_p is not None:
-                payload["top_p"] = float(openai_top_p)
+        payload = self._build_compat_payload(system, messages, enable_thinking=enable_thinking)
         try:
             with httpx2.Client(timeout=self._request_timeout()) as http_client:
                 response = http_client.post(
@@ -109,45 +178,8 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                 response.raise_for_status()
                 wall_elapsed = time.monotonic() - start_time
                 raw_json = read_limited_json(response)
-                choices = raw_json.get("choices", [{}])
-                first_choice = choices[0] if choices else {}
-                msg = first_choice.get("message", {})
-                raw_content = msg.get("content")
-                raw_reasoning = (
-                    msg.get("reasoning_content")
-                    or msg.get("reasoning")
-                    or first_choice.get("reasoning")
-                )
-                thinking_str = str(raw_reasoning).strip() if raw_reasoning else None
-                content = str(raw_content or "")
-
-                from devops_cli.ai.thinking_stream import extract_think_blocks
-
-                if "<think>" in content:
-                    inner_thinks, clean = extract_think_blocks(content)
-                    if inner_thinks:
-                        combined = (thinking_str + "\n" if thinking_str else "") + "\n".join(
-                            inner_thinks
-                        )
-                        thinking_str = combined.strip() or None
-                    content = clean
-
-                usage = raw_json.get("usage", {})
-                prompt_tokens = usage.get("prompt_tokens")
-                completion_tokens = usage.get("completion_tokens")
-                total_tokens = usage.get("total_tokens")
-                b_info = f"{self.backend_type} ({self.backend_host})"
-                return LLMResponse(
-                    content,
-                    processing_seconds=None,
-                    wall_seconds=wall_elapsed,
-                    backend_info=b_info,
-                    thinking=thinking_str,
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=total_tokens,
-                    served_by=response.headers.get(CONST_AI_GATEWAY_SERVED_BY_HEADER),
-                )
+                served_by = response.headers.get(CONST_AI_GATEWAY_SERVED_BY_HEADER)
+                return self._parse_compat_response(raw_json, wall_elapsed, served_by)
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
@@ -163,24 +195,9 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         enable_thinking: bool = True,
     ) -> Generator[str]:
         headers = self._openai_compat_headers()
-        is_reasoning = is_reasoning_model(self._config.model)
-        payload: dict[str, Any] = {
-            "model": self._config.model,
-            "messages": [
-                {"role": "system", "content": system},
-                *[m.to_dict() for m in messages],
-            ],
-            "stream": True,
-        }
-        if is_reasoning:
-            effort = self._config.reasoning_effort or ("medium" if enable_thinking else "low")
-            if effort:
-                payload["reasoning_effort"] = effort
-        elif self._config.reasoning_effort:
-            payload["reasoning_effort"] = self._config.reasoning_effort
-        stream_limit = self._completion_limit()
-        if stream_limit is not None:
-            payload["max_completion_tokens" if is_reasoning else "max_tokens"] = stream_limit
+        payload = self._build_compat_payload(
+            system, messages, stream=True, enable_thinking=enable_thinking
+        )
         try:
             with (
                 httpx2.Client(timeout=self._request_timeout()) as http_client,

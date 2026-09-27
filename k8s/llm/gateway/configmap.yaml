@@ -23,6 +23,10 @@ data:
         litellm_params:
           model: ollama_chat/qwen2.5-coder:7b
           api_base: http://ollama-1.ollama-nodes.llm.svc.cluster.local:11434
+      - model_name: devops-chat
+        litellm_params:
+          model: ollama_chat/qwen2.5-coder:7b
+          api_base: http://ollama-2.ollama-nodes.llm.svc.cluster.local:11434
       - model_name: devops-coder
         litellm_params:
           model: openai/qwen2.5-coder-14b-instruct
@@ -33,12 +37,12 @@ data:
           max_input_tokens: 12288
       - model_name: devops-reasoning
         litellm_params:
-          model: openai/qwen2.5-coder-32b-instruct
+          model: openai/qwen3-coder:30b
           api_base: http://vllm.llm.svc.cluster.local:8000/v1
           api_key: none
-        # Prompt budget inside the 64K vLLM window, leaving 4K tokens for the reply.
+        # Prompt budget inside the 32K vLLM window, leaving 4K tokens for the reply.
         model_info:
-          max_input_tokens: 61440
+          max_input_tokens: 28672
       # mode: embedding makes health checks embed rather than generate, which bge-m3 rejects.
       - model_name: devops-embedding
         litellm_params:
@@ -50,6 +54,12 @@ data:
         litellm_params:
           model: ollama/bge-m3
           api_base: http://ollama-1.ollama-nodes.llm.svc.cluster.local:11434
+        model_info:
+          mode: embedding
+      - model_name: devops-embedding
+        litellm_params:
+          model: ollama/bge-m3
+          api_base: http://ollama-2.ollama-nodes.llm.svc.cluster.local:11434
         model_info:
           mode: embedding
 
@@ -65,35 +75,20 @@ data:
       # servers idle. vLLM and Ollama queue excess requests themselves.
       - model_name: devops-review
         litellm_params:
-          model: openai/qwen2.5-coder-32b-instruct
+          model: openai/qwen3-coder:30b
           api_base: http://vllm.llm.svc.cluster.local:8000/v1
           api_key: none
-          weight: 5
+          weight: 1
         model_info:
-          max_input_tokens: 61440
+          max_input_tokens: 28672
       - model_name: devops-review
         litellm_params:
-          model: openai/qwen2.5-coder-14b-instruct
-          api_base: http://vllm-single.llm.svc.cluster.local:8000/v1
+          model: openai/qwen3-coder:30b
+          api_base: http://ollama-2.ollama-nodes.llm.svc.cluster.local:11434/v1
           api_key: none
-          weight: 3
-        model_info:
-          max_input_tokens: 12288
-      # max_input_tokens is OLLAMA_CONTEXT_LENGTH (48000) minus 4K tokens for the reply.
-      - model_name: devops-review
-        litellm_params:
-          model: ollama_chat/gpt-oss:20b
-          api_base: http://ollama-0.ollama-nodes.llm.svc.cluster.local:11434
           weight: 1
         model_info:
-          max_input_tokens: 43904
-      - model_name: devops-review
-        litellm_params:
-          model: ollama_chat/gpt-oss:20b
-          api_base: http://ollama-1.ollama-nodes.llm.svc.cluster.local:11434
-          weight: 1
-        model_info:
-          max_input_tokens: 43904
+          max_input_tokens: 28672
 
       # Pass-through: any model on the Ollama nodes by name, e.g. `ollama/gpt-oss:20b`. Ollama's
       # OpenAI-compatible API serves both chat (with the model's own template) and embeddings.
@@ -114,11 +109,19 @@ data:
           api_key: none
         model_info:
           health_check_model: openai/qwen2.5-coder:7b
+      - model_name: ollama/*
+        litellm_params:
+          model: openai/*
+          api_base: http://ollama-2.ollama-nodes.llm.svc.cluster.local:11434/v1
+          api_key: none
+        model_info:
+          health_check_model: openai/qwen2.5-coder:7b
 
     litellm_settings:
       # Per-deployment requests, failures and latency at /metrics/, scraped by Prometheus. The
       # Ollama nodes export no metrics of their own, so this is how their load is seen.
       callbacks: ["prometheus"]
+      drop_params: true
 
     router_settings:
       # Weighted random choice spreads a burst of simultaneous calls (a review sends one per

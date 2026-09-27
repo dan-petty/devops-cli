@@ -6,6 +6,10 @@ import json
 from enum import StrEnum
 from typing import Any
 
+from devops_cli.config.constants import (
+    CONST_REASONING_MODEL_EXACT,
+    CONST_REASONING_MODEL_PREFIXES,
+)
 from devops_cli.config.env import ENV_AI_API_KEY
 from devops_cli.config.options import AI_API_KEY
 from devops_cli.exceptions import LLMInferenceError
@@ -204,10 +208,4 @@ def is_reasoning_model(model: str | None) -> bool:
     m = model.strip().lower()
     if ":thinking" in m:
         return True
-    if m in ("o1", "o3") or m.startswith(("o1-", "o3-", "o4-")):
-        return True
-    if "deepseek-r1" in m or "deepseek-reasoner" in m:
-        return True
-    if "qwq" in m:
-        return True
-    return False
+    return m in CONST_REASONING_MODEL_EXACT or m.startswith(CONST_REASONING_MODEL_PREFIXES)
