@@ -2111,3 +2111,28 @@ CONST_SCHEMA_FIX_HINT_TEMPLATES: Final[dict[str, str]] = {
     "json_invalid": "Invalid JSON syntax; ensure standard JSON formatting with valid double quotes.",
     "value_error": "Value rejected: {msg}.",
 }
+
+# ── Bubblewrap Host Sandbox Confinement Constants ──────────────────────────────
+CONST_FORBIDDEN_SANDBOX_ENV_KEYS: frozenset[str] = frozenset(
+    {
+        "HOME",
+        "XDG_RUNTIME_DIR",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "SSH_AUTH_SOCK",
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "DEVOPS_CLI_AI_API_KEY",
+        "DEVOPS_CLI_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+    }
+)
+CONST_HOST_SANDBOX_DEFAULT_ENV: tuple[tuple[str, str], ...] = (
+    ("PATH", "/usr/local/bin:/usr/bin:/bin"),
+    ("LANG", "C.UTF-8"),
+    ("LC_ALL", "C.UTF-8"),
+    ("TMPDIR", "/tmp"),  # nosec B108
+    ("PYTHONDONTWRITEBYTECODE", "1"),
+)
+CONST_HOST_SANDBOX_SYSTEM_SYMLINKS: tuple[str, ...] = ("/bin", "/lib", "/lib64", "/sbin")
+CONST_HOST_SANDBOX_SYSTEM_DIRS: tuple[str, ...] = ("/usr",)
