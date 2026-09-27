@@ -94,9 +94,17 @@ def test_command_builders() -> None:
         "--context",
         "k3s",
     ]
-    assert build_kubelinter_cmd("k8s") == [BIN_KUBELINTER, "lint", "k8s", "--format", "json"]
-    assert build_pluto_cmd("k8s") == [BIN_PLUTO, "detect-files", "-d", "k8s", "-o", "json"]
-    assert build_uv_audit_cmd() == [BIN_UV, "audit"]
+    assert (
+        build_kubelinter_cmd("k8s"),
+        build_pluto_cmd("k8s"),
+        build_pluto_cmd("k8s/deployment.yaml"),
+        build_uv_audit_cmd(),
+    ) == (
+        [BIN_KUBELINTER, "lint", "k8s", "--format", "json"],
+        [BIN_PLUTO, "detect-files", "-d", "k8s", "-o", "json"],
+        [BIN_PLUTO, "detect", "k8s/deployment.yaml", "-o", "json"],
+        [BIN_UV, "audit"],
+    )
     assert build_tf_cmd("plan", ["-out=tfplan"]) == [BIN_TERRAFORM, "plan", "-out=tfplan"]
     assert build_tofu_cmd("apply", ["-auto-approve"]) == [BIN_TOFU, "apply", "-auto-approve"]
     assert build_iac_cmd("terraform", "validate") == [BIN_TERRAFORM, "validate"]

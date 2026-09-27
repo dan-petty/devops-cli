@@ -19,7 +19,6 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.commands import telemetry as telemetry_commands
 from devops_cli.config.settings import load_settings, reset_settings_cache
 from devops_cli.k8s import node_port
 from devops_cli.k8s.node_port import ServiceNotReachableError
@@ -97,7 +96,7 @@ def test_connect_saves_an_endpoint_that_answers(monkeypatch: pytest.MonkeyPatch)
     """Verify `devops telemetry connect` sends telemetry to the collector it found."""
     monkeypatch.setattr(node_port, "run_subprocess", _fake_kubectl(SERVICE, []))
     monkeypatch.setattr(
-        telemetry_commands.OTelTelemetryClient,
+        OTelTelemetryClient,
         "test_connection",
         lambda self, timeout: (True, "HTTP 200 OK", 12.0),
     )
@@ -117,7 +116,7 @@ def test_connect_keeps_the_configuration_when_the_collector_does_not_answer(
     """Verify an endpoint that does not answer is reported and not saved."""
     monkeypatch.setattr(node_port, "run_subprocess", _fake_kubectl(SERVICE, []))
     monkeypatch.setattr(
-        telemetry_commands.OTelTelemetryClient,
+        OTelTelemetryClient,
         "test_connection",
         lambda self, timeout: (False, "connection refused", 5.0),
     )

@@ -7,6 +7,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from devops_cli.config.commands import build_pluto_cmd
 from devops_cli.config.constants import CONST_BINARY_EXTENSIONS
 from devops_cli.config.defaults import (
     DEFAULT_K8S_NAMESPACE,
@@ -308,7 +309,7 @@ def scan_pluto(target: str = ".") -> str:
     """Detect deprecated and removed Kubernetes API versions in Helm charts and manifests."""
     return _run_workspace_security_scan(
         target,
-        lambda p: ["pluto", "detect-files", "-d", str(p), "-o", "json"],
+        build_pluto_cmd,
         fallback_msg="No deprecated Kubernetes APIs detected by Pluto.",
     )
 
