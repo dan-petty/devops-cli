@@ -729,6 +729,8 @@ devops k8s deploy-stack [OPTIONS]
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--wait`, `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
 | `--timeout`, `-t` | `string` | `10m` | Timeout for Helm operations when waiting. |
+| `--port-forward`, `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
+| `--configure-urls`, `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
 
 ### `devops k8s sync-secrets`
 
@@ -790,7 +792,7 @@ devops k8s service-url [OPTIONS] <service>
 
 ### `devops k8s port-forward`
 
-**Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config.**
+**Port-forward k8s monitoring / LLM stack services to localhost ports.**
 
 ```bash
 devops k8s port-forward [OPTIONS]
@@ -812,6 +814,7 @@ devops k8s port-forward [OPTIONS]
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP. |
 | `--valkey-port` | `integer` | `<masked>` | Local port for Valkey. |
 | `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding. |
+| `--update-config`, `--no-update-config` | `boolean` | - | Update devops-cli configuration with port-forwarded service URLs. |
 
 ### `devops k8s port-forward-status`
 
