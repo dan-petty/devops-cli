@@ -88,11 +88,20 @@ _RECOMMENDATION_ALIASES: dict[str, str] = {
 }
 
 
+def _safe_literal_eval(val: str) -> Any:
+    """Safely evaluate Python literal suppressing SyntaxWarnings from invalid escape sequences."""
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        return ast.literal_eval(val)
+
+
 def _parse_stringified_collection(s: str) -> list[Any] | None:
     """Attempt parsing a stringified Python/JSON list or tuple."""
     if not ((s.startswith("[") and s.endswith("]")) or (s.startswith("(") and s.endswith(")"))):
         return None
-    for parser in (ast.literal_eval, json.loads):
+    for parser in (json.loads, _safe_literal_eval):
         try:
             parsed = parser(s)
             if isinstance(parsed, (list, tuple, set)):
@@ -729,16 +738,17 @@ class Finding(BaseModel):
         exp = self.expected_value
         if obs is None and exp is None:
             return self
-        if obs is None or not obs.strip():
-            raise ValueError(
-                "Both observed_value and expected_value must be provided when asserting a concrete value"
-            )
-        if exp is None or not exp.strip():
-            raise ValueError(
-                "Both observed_value and expected_value must be provided when asserting a concrete value"
-            )
+        if obs is None or exp is None:
+            self.observed_value = None
+            self.expected_value = None
+            return self
         if obs.strip().lower() == exp.strip().lower():
-            raise ValueError(f"observed_value and expected_value cannot be identical: {obs!r}")
+            self.status = "INVALIDATED"
+            self.reportable = False
+            self.verified = False
+            self.verified_by = "deterministic:verdict_polarity"
+            self.invalidation_reason = f"Observed value '{obs}' is identical to expected value '{exp}' (no defect polarity)"
+            return self
         return self
 
 
@@ -1136,6 +1146,13 @@ class ReviewResult(BaseModel):
     confidence_score: float | None = None
     external_dependencies: list[DependencySpec] = Field(default_factory=list)
     network_references: list[NetworkReference] = Field(default_factory=list)
+
+    @field_validator("findings", mode="before")
+    @classmethod
+    def _ensure_finding_items(cls, v: object) -> list[Any]:
+        if not isinstance(v, list):
+            return []
+        return [item for item in v if isinstance(item, (dict, Finding))]
 
     @field_validator("findings", mode="after")
     @classmethod
