@@ -17,7 +17,6 @@ from devops_cli.ai.gateway import (
 )
 from devops_cli.commands.ai_gateway import app as gateway_cli_app
 from devops_cli.config.constants import (
-    CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
 )
 from devops_cli.config.defaults import (
@@ -107,30 +106,6 @@ class TestGatewayRouter:
             False,
             True,
             True,
-        )
-
-    def test_resolve_model_context_thresholds(self) -> None:
-        """Verify token counts and tasks correctly steer between chat, coder, reasoning, and embedding."""
-        router = GatewayRouter()
-
-        small_chat = router.resolve_model("summarize", token_count=1000, complexity="low")
-        coder_task = router.resolve_model("persona_review", token_count=2000, complexity="medium")
-        large_context = router.resolve_model("deep_review", token_count=35000, complexity="low")
-        frontier_task = router.resolve_model("synthesis", token_count=5000, complexity="frontier")
-        embedding = router.resolve_model("embed_documents", token_count=500)
-
-        assert (
-            small_chat,
-            coder_task,
-            large_context,
-            frontier_task,
-            embedding,
-        ) == (
-            (CONST_AI_GATEWAY_PROVIDER, "devops-chat"),
-            (CONST_AI_GATEWAY_PROVIDER, "devops-coder"),
-            (CONST_AI_GATEWAY_PROVIDER, "devops-reasoning"),
-            (CONST_AI_GATEWAY_PROVIDER, "devops-reasoning"),
-            (CONST_AI_GATEWAY_PROVIDER, "devops-embedding"),
         )
 
     def test_trigger_failover_simulation_and_execution(self, tmp_path: Path) -> None:
@@ -358,29 +333,7 @@ class TestFastMCPGatewayTools:
 
 
 class TestRouterAndClientGatewayIntegration:
-    """Test suite for Router fallback chain and LLMClient gateway provider dispatch."""
-
-    def test_router_fallback_chain_respects_gateway_enabled(self) -> None:
-        """Verify gateway is only inserted into fallback chain when gateway_enabled is True."""
-        from devops_cli.ai.router import DataSensitivity, LLMRouter, TaskComplexity
-
-        router_disabled = LLMRouter(AIConfig(gateway_enabled=False))
-        chain_disabled = router_disabled._build_fallback_chain(
-            "ollama", "qwen2.5-coder:7b", TaskComplexity.LOW, DataSensitivity.INTERNAL
-        )
-
-        router_enabled = LLMRouter(AIConfig(gateway_enabled=True))
-        chain_enabled = router_enabled._build_fallback_chain(
-            "ollama", "qwen2.5-coder:7b", TaskComplexity.LOW, DataSensitivity.INTERNAL
-        )
-
-        assert (
-            any(prov == "gateway" for prov, _ in chain_disabled),
-            chain_enabled[0][0],
-        ) == (
-            False,
-            "gateway",
-        )
+    """Test suite for LLMClient gateway provider dispatch."""
 
     def test_unified_client_gateway_dispatch(self) -> None:
         """Verify LLMClient dispatches to OpenAI compatible handler when provider is gateway."""

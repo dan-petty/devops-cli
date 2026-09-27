@@ -192,30 +192,6 @@ devops ai token-count [OPTIONS] <target>
 
 ---
 
-## `devops ai route`
-
-**Evaluate task complexity and determine the optimal LLM provider and model route.**
-
-```bash
-devops ai route [OPTIONS] <task>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<task>` | `string` | Yes | Task name (e.g. review, scan). |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--tokens`, `-t` | `integer` | `<masked>` | Estimated tokens. |
-| `--frontier`, `-f` | `boolean` | - | Force routing to frontier tier models. |
-| `--json` | `boolean` | - | Output findings or metrics as JSON. |
-
----
-
 ## `devops ai spec`
 
 **Verify codebase against executable markdown architecture specification contracts.**

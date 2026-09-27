@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai.capability import TaskComplexity
 from devops_cli.ai.harness.skills import ParsedSkill
 from devops_cli.ai.harness.slots import (
     AgentHarness,
@@ -23,7 +24,6 @@ from devops_cli.ai.harness.slots import (
     mark_tool_mutating,
     mark_tool_read_only,
 )
-from devops_cli.ai.router import TaskComplexity
 from devops_cli.commands.ai import app as ai_app
 from devops_cli.exceptions.ai import HarnessValidationError
 

@@ -17,9 +17,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from devops_cli.ai.capability import TaskComplexity
 from devops_cli.ai.harness.skills import ParsedSkill, normalize_skill_name
 from devops_cli.ai.repomap import SymbolNode, parse_file_symbols
-from devops_cli.ai.router import TaskComplexity
 from devops_cli.core.repo import is_ignored_by_git
 from devops_cli.exceptions.ai import HarnessValidationError
 

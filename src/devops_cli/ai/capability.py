@@ -28,6 +28,15 @@ class ModelCapabilityTier(StrEnum):
     EMBEDDING = "embedding"
 
 
+class TaskComplexity(StrEnum):
+    """Complexity tiers for LLM task classification."""
+
+    LOW = "low"  # Token budgeting, regex pre-filtering, simple summarization
+    MEDIUM = "medium"  # Single-file AST review, finding verification, test generation
+    HIGH = "high"  # Multi-file architecture review, threat modeling, code patching
+    FRONTIER = "frontier"  # Cross-repo planning, multi-agent adversarial debate, novel synthesis
+
+
 VIRTUAL_MODEL_TIER_MAPPING: Final[dict[str, ModelCapabilityTier]] = {
     "devops-reasoning": ModelCapabilityTier.REASONING,
     "reasoning": ModelCapabilityTier.REASONING,

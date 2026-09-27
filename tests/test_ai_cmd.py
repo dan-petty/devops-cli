@@ -117,15 +117,6 @@ def test_ai_token_count_and_route(tmp_path: Path) -> None:
     assert res_tc_json.exit_code == 0
     assert "estimated_tokens" in res_tc_json.output
 
-    res_route = runner.invoke(ai_app, ["route", "multi-file architecture review"])
-    assert res_route.exit_code == 0
-
-    res_route_json = runner.invoke(
-        ai_app, ["route", "token budgeting", "--tokens", "500", "--json"]
-    )
-    assert res_route_json.exit_code == 0
-    assert "complexity" in res_route_json.output
-
 
 def test_ai_bundle_models_and_pipeline(tmp_path: Path) -> None:
     """Test ai bundle-models and pipeline subcommands."""
@@ -327,12 +318,7 @@ def test_ai_extended_commands(tmp_path: Path) -> None:
     assert res_tc_file.exit_code == 0
     assert "estimated_tokens" in res_tc_file.output
 
-    # 3. route command
-    res_route = runner.invoke(ai_app, ["route", "Review this Python code"])
-    assert res_route.exit_code == 0
-    assert "Task Name" in res_route.output or "AI Task Dynamic Routing" in res_route.output
-
-    # 4. pipeline live execution with mock
+    # 3. pipeline live execution with mock
     mock_res: MultiAgentPipelineResult = MultiAgentPipelineResult(
         final_content="Security audit passed cleanly.",
         steps=[
@@ -350,13 +336,6 @@ def test_ai_extended_commands(tmp_path: Path) -> None:
         )
         assert res_pipe.exit_code == 0
         assert "Security audit passed cleanly." in res_pipe.output
-
-    # 5. route with --json and --frontier
-    res_route_json = runner.invoke(
-        ai_app, ["route", "Deploy cluster", "--frontier", "--tokens", "50000", "--json"]
-    )
-    assert res_route_json.exit_code == 0
-    assert "task_name" in res_route_json.output
 
     # 6. pipeline unknown persona
     res_unknown_p = runner.invoke(ai_app, ["pipeline", "Goal", "--personas", "invalid_persona_xyz"])
@@ -551,15 +530,6 @@ def test_ai_token_count_route_pipeline_bundle(tmp_path: Path) -> None:
     res_tok_file = runner.invoke(ai_app, ["token-count", str(test_file)])
     assert res_tok_file.exit_code == 0
     assert "sample.py" in res_tok_file.output
-
-    # 4. route command table & json
-    res_route_tbl = runner.invoke(ai_app, ["route", "complex_code_audit"])
-    assert res_route_tbl.exit_code == 0
-    assert "AI Task Dynamic Routing Decision" in res_route_tbl.output
-
-    res_route_json = runner.invoke(ai_app, ["route", "fast_summary", "--json", "--frontier"])
-    assert res_route_json.exit_code == 0
-    assert "provider_name" in res_route_json.output
 
     # 5. pipeline command invalid persona
     res_pipe_bad = runner.invoke(ai_app, ["pipeline", "--personas", "invalid_persona_xyz"])

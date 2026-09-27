@@ -1546,31 +1546,6 @@ CONST_AI_PROMPT_CACHE_TTLS: Final[tuple[str, ...]] = ("5m", "1h")
 CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "lightllm", "ollama")
 CONST_AI_DEFAULT_CACHE_MARKER_KIND: Final[str] = "cache-point"
 CONST_AI_ALLOW_PRIVATE_NETWORK_ENV: Final[str] = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
-CONST_TASK_TAXONOMY_EMBEDDING: Final[frozenset[str]] = frozenset(
-    {"embedding", "embed_documents", "vector_index", "rag_index", "semantic_search"}
-)
-CONST_TASK_TAXONOMY_CODER: Final[frozenset[str]] = frozenset(
-    {
-        "persona_review",
-        "verify_finding",
-        "test_gen",
-        "ast_analysis",
-        "codegen",
-        "review",
-        "refactor",
-    }
-)
-CONST_TASK_TAXONOMY_REASONING: Final[frozenset[str]] = frozenset(
-    {
-        "architecture",
-        "threat_model",
-        "cross_repo",
-        "novel_synthesis",
-        "adversarial_debate",
-        "deep_review",
-        "synthesis",
-    }
-)
 
 # ── AI Model Capability Tier Gates & AIMD Constants ───────────────────────────
 CONST_MIN_REASONING_MODEL_TIER_B: Final[int] = 30
