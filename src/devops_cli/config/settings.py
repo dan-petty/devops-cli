@@ -283,6 +283,22 @@ class KubernetesConfig(BaseModel):
         default="minikube",
         description="Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context)",
     )
+    domain: str | None = Field(
+        default=None,
+        description="Base domain name for homelab ingress routes and tunnel services (e.g. retric.ai)",
+    )
+
+
+class CloudflareConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    domain: str | None = Field(
+        default=None,
+        description="Root or zone domain name managed in Cloudflare (e.g. retric.ai)",
+    )
+    tunnel: str | None = Field(
+        default=None,
+        description="Cloudflare tunnel name or identifier (e.g. homelab)",
+    )
 
 
 class AIRAGConfig(BaseModel):
@@ -546,6 +562,11 @@ class Settings(BaseSettings):
     jaeger: JaegerConfig = JaegerConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
     k8s: KubernetesConfig = KubernetesConfig()
+    cloudflare: CloudflareConfig = CloudflareConfig()
+    domain: str | None = Field(
+        default=None,
+        description="Default domain name for the environment or workstation",
+    )
     sandbox: SandboxConfig = SandboxConfig()
     ai: AIConfig = AIConfig()
     open_webui: OpenWebUIConfig = OpenWebUIConfig()

@@ -152,12 +152,91 @@ devops k8s teardown-stack --stack llm
 devops k8s teardown-stack --stack all
 ```
 
+## Cloudflare Wildcard Tunnel & Ingress Routing
+
+Expose homelab Kubernetes services securely to the internet without public ports, dynamic DNS, or firewall holes using a wildcard Cloudflare Tunnel paired with an in-cluster ingress controller (Traefik or Ingress-Nginx).
+
+### Architecture
+
+```
+                                  Cloudflare Edge
+[Client / Browser] ──── HTTPS ───▶ [DNS: *.homelab.<domain>]
+                                         │
+                                  [Access SSO / Zero Trust]
+                                         │
+                                 (Encrypted Tunnel)
+                                         ▼
+                           k8s / Namespace: cloudflared
+                           [cloudflared Pods (Replicas: 2)]
+                                         │
+                             (Internal HTTP Ingress)
+                                         ▼
+                           k8s / Namespace: kube-system
+                           [Traefik Ingress (ClusterIP:80)]
+                                   │           │
+                 ┌─────────────────┘           └─────────────────┐
+                 ▼                                               ▼
+     k8s / Namespace: llm                         k8s / Namespace: monitoring
+  [chat.homelab.<domain>] ──▶ open-webui       [grafana.homelab.<domain>] ──▶ grafana
+  [ai.homelab.<domain>]   ──▶ llm-gateway      [argocd.homelab.<domain>]  ──▶ argocd
+```
+
+### 1. Cloudflare Dashboard Tunnel Configuration
+
+1. In **Cloudflare Zero Trust** (`Networks` > `Tunnels`), select your tunnel (e.g. `homelab`).
+2. Add a **Public Hostname**:
+   - **Subdomain**: `*.homelab`
+   - **Domain**: `<domain>` (e.g. `example.com`)
+   - **Path**: *(empty)*
+   - **Type**: `HTTP`
+   - **URL**: `traefik.kube-system.svc.cluster.local:80` (or `traefik.ingress.svc.cluster.local:80`)
+   - **Additional Settings** > **HTTP Settings**:
+     - **HTTP Host Header**: *(Leave blank)* — this preserves the client's original host header (e.g. `chat.homelab.<domain>`) so Traefik can route it.
+
+### 2. Cloudflare Zero Trust Access Policy
+
+1. In **Access** > **Applications**, add a **Self-Hosted Application**:
+   - **Application Name**: `Homelab Wildcard`
+   - **Application Domain**: `*.homelab.<domain>`
+2. Define an **Access Policy** (e.g. Action: `Allow`, Include: `Emails` or `Email Domain`).
+
+### 3. In-Cluster Deployment
+
+1. Create the `cloudflared` namespace and tunnel token secret:
+   ```bash
+   kubectl create namespace cloudflared
+   kubectl create secret generic cloudflared-token \
+     --from-literal=token="<your-tunnel-token>" \
+     -n cloudflared
+   ```
+2. Apply the declarative tunnel manifests:
+   ```bash
+   kubectl apply -k k8s/cloudflared/
+   ```
+3. Set your Traefik ingress service type to `ClusterIP`:
+   ```bash
+   kubectl patch svc traefik -n kube-system -p '{"spec": {"type": "ClusterIP"}}'
+   ```
+4. Deploy the core service Ingress definitions (replace `example.com` with your domain):
+   ```bash
+   kubectl apply -k k8s/ingress/
+   ```
+
 ## Directory Structure
 
 ```
 k8s/
-├── kustomization.yaml        # Root kustomize: applies namespaces
-├── namespaces.yaml           # Namespace definitions (argocd, monitoring, otel, llm)
+├── kustomization.yaml        # Root kustomize: applies namespaces, cloudflared, ingress
+├── namespaces.yaml           # Namespace definitions (argocd, monitoring, otel, llm, cloudflared)
+├── cloudflared/
+│   ├── kustomization.yaml    # Kustomize overlay for Cloudflare Tunnel
+│   ├── deployment.yaml       # Multi-replica non-root cloudflared deployment
+│   ├── networkpolicy.yaml    # Network isolation for tunnel ingress and egress
+│   └── secret.example.yaml   # Token secret template and creation instructions
+├── ingress/
+│   ├── kustomization.yaml    # Kustomize overlay for cluster ingress routes
+│   ├── traefik-values.yaml   # Traefik Helm values with ClusterIP service type
+│   └── ingress-routes.yaml   # Ingress rules for chat, ai, grafana, argocd
 ├── argocd/
 │   ├── kustomization.yaml    # Kustomize overlay for ArgoCD
 │   ├── namespace.yaml        # argocd namespace
