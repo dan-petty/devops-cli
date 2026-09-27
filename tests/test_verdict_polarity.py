@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic import ValidationError
 
 from devops_cli.ai.review.pipeline import (
     ReviewPipelineOrchestrator,
@@ -20,11 +20,14 @@ from devops_cli.ai.review.verification import (
 )
 from devops_cli.ai.review_schema import (
     Finding,
+    ReviewResult,
     SavedFinding,
     _merge_two_findings,
+    _parse_stringified_collection,
     compute_verdict_distributions,
     is_field_discriminating,
 )
+from devops_cli.config import DEFAULT_FINDING_STATUS
 
 
 def test_finding_polarity_validation_success() -> None:
@@ -79,55 +82,127 @@ def test_finding_polarity_validation_success() -> None:
     assert actual == expected
 
 
-def test_finding_polarity_validation_errors() -> None:
-    """Verify polarity validation failures on missing counterpart or identical values."""
-    with pytest.raises(
-        ValidationError,
-        match="Both observed_value and expected_value must be provided",
-    ):
-        Finding(
-            severity="HIGH",
-            location="src/auth.py:10",
-            title="Insecure cookie flag",
-            description="Secure flag not set",
-            fix="fix",
-            observed_value="secure=False",
-        )
+def test_finding_polarity_graceful_handling() -> None:
+    """Verify polarity validation gracefully handles missing counterpart or identical values."""
+    f_missing_exp = Finding(
+        severity="HIGH",
+        location="src/auth.py:10",
+        title="Insecure cookie flag",
+        description="Secure flag not set",
+        fix="fix",
+        observed_value="secure=False",
+    )
+    f_missing_obs = Finding(
+        severity="HIGH",
+        location="src/auth.py:10",
+        title="Insecure cookie flag",
+        description="Secure flag not set",
+        fix="fix",
+        expected_value="secure=True",
+    )
+    f_identical = Finding(
+        severity="HIGH",
+        location="src/auth.py:10",
+        title="Contradictory polarity assertion",
+        description="Values match",
+        fix="fix",
+        observed_value="secure=True",
+        expected_value="secure=True",
+    )
+    f_identical_ws = Finding(
+        severity="HIGH",
+        location="src/auth.py:10",
+        title="Contradictory polarity assertion with whitespace",
+        description="Values match after stripping",
+        fix="fix",
+        observed="  mode=True  ",
+        expected="mode=True",
+    )
 
-    with pytest.raises(
-        ValidationError,
-        match="Both observed_value and expected_value must be provided",
-    ):
-        Finding(
-            severity="HIGH",
-            location="src/auth.py:10",
-            title="Insecure cookie flag",
-            description="Secure flag not set",
-            fix="fix",
-            expected_value="secure=True",
-        )
+    actual = (
+        (f_missing_exp.observed_value, f_missing_exp.expected_value, f_missing_exp.status),
+        (f_missing_obs.observed_value, f_missing_obs.expected_value, f_missing_obs.status),
+        (
+            f_identical.status,
+            f_identical.reportable,
+            f_identical.verified,
+            f_identical.verified_by,
+            "identical to expected value" in (f_identical.invalidation_reason or ""),
+        ),
+        (
+            f_identical_ws.status,
+            f_identical_ws.reportable,
+            f_identical_ws.verified,
+            f_identical_ws.verified_by,
+            "identical to expected value" in (f_identical_ws.invalidation_reason or ""),
+        ),
+    )
+    expected = (
+        (None, None, DEFAULT_FINDING_STATUS),
+        (None, None, DEFAULT_FINDING_STATUS),
+        ("INVALIDATED", False, False, "deterministic:verdict_polarity", True),
+        ("INVALIDATED", False, False, "deterministic:verdict_polarity", True),
+    )
+    assert actual == expected
 
-    with pytest.raises(ValidationError, match="cannot be identical"):
-        Finding(
-            severity="HIGH",
-            location="src/auth.py:10",
-            title="Contradictory polarity assertion",
-            description="Values match",
-            fix="fix",
-            observed_value="secure=True",
-            expected_value="secure=True",
-        )
 
-    with pytest.raises(ValidationError, match="cannot be identical"):
-        Finding(
-            severity="HIGH",
-            location="src/auth.py:10",
-            title="Contradictory polarity assertion with whitespace",
-            description="Values match after stripping",
-            fix="fix",
-            observed="  mode=True  ",
-            expected="mode=True",
-        )
+def test_review_result_graceful_polarity_deserialization() -> None:
+    """Verify ReviewResult deserialization gracefully handles contradictory and asymmetric polarity."""
+    payload = {
+        "findings": [
+            {
+                "severity": "HIGH",
+                "location": "src/auth.py:10",
+                "title": "Finding with identical polarity",
+                "description": "Values match",
+                "fix": "fix()",
+                "observed_value": "Available domains include `gh`, `k8s`",
+                "expected_value": "Available domains include `gh`, `k8s`",
+            },
+            {
+                "severity": "MEDIUM",
+                "location": "src/config.py:20",
+                "title": "Finding with orphan expected value",
+                "description": "Orphan polarity",
+                "fix": "fix()",
+                "expected_value": "with proper validation",
+            },
+            {
+                "severity": "LOW",
+                "location": "src/util.py:30",
+                "title": "Legitimate valid polarity finding",
+                "description": "Distinct polarity",
+                "fix": "fix()",
+                "observed_value": "timeout=60",
+                "expected_value": "timeout=5",
+            },
+        ],
+        "summary": "Review complete",
+    }
+    result = ReviewResult.model_validate(payload)
+    f0, f1, f2 = result.findings
+    actual = (
+        len(result.findings),
+        (f0.status, f0.reportable, f0.verified, f0.verified_by),
+        (f1.observed_value, f1.expected_value),
+        (f2.observed_value, f2.expected_value, f2.status),
+    )
+    expected = (
+        3,
+        ("INVALIDATED", False, False, "deterministic:verdict_polarity"),
+        (None, None),
+        ("timeout=60", "timeout=5", DEFAULT_FINDING_STATUS),
+    )
+    assert actual == expected
+
+
+def test_parse_stringified_collection_escapes() -> None:
+    """Verify _parse_stringified_collection handles forward-slash escapes without SyntaxWarning."""
+    raw_json = '["http:\\/\\/example.com", "path\\/to\\/file"]'
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", SyntaxWarning)
+        parsed = _parse_stringified_collection(raw_json)
+    assert parsed == ["http://example.com", "path/to/file"]
 
 
 def test_saved_finding_polarity_and_merge() -> None:

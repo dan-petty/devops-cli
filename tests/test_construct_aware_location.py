@@ -5,13 +5,15 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from devops_cli.ai.review.chunker import extract_diff_hunks, extract_file_diff_hunks
 from devops_cli.ai.review.construct_validator import (
     collect_ast_constructs,
     extract_finding_construct_candidates,
     validate_construct_location,
 )
 from devops_cli.ai.review.verification import _deterministic_pre_verification
-from devops_cli.ai.review_schema import Finding, _merge_two_findings
+from devops_cli.ai.review_schema import Finding, ReviewResult, _merge_two_findings
+from devops_cli.models.ai import FileAnalysisMeta
 
 SAMPLE_PYTHON_CODE = '''"""Sample module for construct validation."""
 
@@ -335,4 +337,185 @@ def test_merge_two_findings_preserves_relocated_from() -> None:
         "app.py:10",
         "app.py:1",
         "HIGH",
+    )
+
+
+def test_extract_diff_hunks() -> None:
+    """Verify that extract_diff_hunks accurately parses various unified diff headers."""
+    diff_sample = """
+--- a/app.py
++++ b/app.py
+@@ -1,5 +1,10 @@
+@@ -10,3 +20 @@
+@@ -30,5 +40,0 @@
+"""
+    hunks = extract_diff_hunks(diff_sample)
+    assert hunks == [(1, 10), (20, 20), (40, 40)]
+
+
+def test_extract_file_diff_hunks() -> None:
+    """Verify that extract_file_diff_hunks associates hunks with respective files."""
+    segments = [
+        """diff --git a/pkg/mod1.py b/pkg/mod1.py
+--- a/pkg/mod1.py
++++ b/pkg/mod1.py
+@@ -5,2 +5,4 @@
+def foo(): pass
+""",
+        """diff --git a/pkg/mod2.py b/pkg/mod2.py
+--- a/pkg/mod2.py
++++ b/pkg/mod2.py
+@@ -10,5 +15,0 @@
+""",
+    ]
+    file_hunks = extract_file_diff_hunks(segments)
+    assert (
+        file_hunks.get("pkg/mod1.py"),
+        file_hunks.get("pkg/mod2.py"),
+    ) == (
+        [(5, 8)],
+        [(15, 15)],
+    )
+
+
+def test_removed_symbol_exemption_and_hunk_reanchoring(tmp_path: Path) -> None:
+    """Verify that finding citing a removed symbol is exempted from invalidation and re-anchored."""
+    py_file = tmp_path / "app.py"
+    py_file.write_text("def new_func():\n    pass\n", encoding="utf-8")
+
+    finding = Finding(
+        title="Removal of `legacy_helper` breaks callers",
+        location=f"{py_file}:10",
+        description="The removal of `legacy_helper` causes runtime AttributeError.",
+    )
+    removed_symbols = {"legacy_helper"}
+    diff_hunks = [(1, 2)]
+
+    validated = validate_construct_location(
+        finding, py_file, removed_symbols=removed_symbols, diff_hunks=diff_hunks
+    )
+
+    assert (
+        validated.status,
+        validated.reportable,
+        validated.verification_note,
+        validated.location,
+        validated.relocated_from,
+    ) == (
+        "UNVERIFIED",
+        True,
+        "cites removed symbol",
+        f"{py_file}:1-2",
+        f"{py_file}:10",
+    )
+
+
+def test_narrow_exemption_symbol_absent_from_both_is_invalidated(tmp_path: Path) -> None:
+    """Verify that symbol absent from both base and head still goes through invalidation."""
+    py_file = tmp_path / "app.py"
+    py_file.write_text("def new_func():\n    pass\n", encoding="utf-8")
+
+    finding = Finding(
+        title="Hallucinated call to `completely_nonexistent_func`",
+        location=f"{py_file}:10",
+        description="Call to `completely_nonexistent_func` fails.",
+    )
+    removed_symbols = {"legacy_helper"}
+    diff_hunks = [(1, 2)]
+
+    validated = validate_construct_location(
+        finding, py_file, removed_symbols=removed_symbols, diff_hunks=diff_hunks
+    )
+
+    assert (
+        validated.status,
+        validated.reportable,
+        validated.verification_note,
+    ) == (
+        "INVALIDATED",
+        False,
+        None,
+    )
+
+
+def test_deterministic_pre_verification_with_removed_symbol(tmp_path: Path) -> None:
+    """Verify that _deterministic_pre_verification preserves removed-symbol findings."""
+    py_file = tmp_path / "app.py"
+    py_file.write_text("def new_func():\n    pass\n", encoding="utf-8")
+
+    finding = Finding(
+        title="Missing replacement for `legacy_helper`",
+        location="app.py:10",
+        description="Function `legacy_helper` was dropped.",
+    )
+    res = _deterministic_pre_verification(
+        finding,
+        repo_root=tmp_path,
+        target_dir=tmp_path,
+        removed_symbols={"legacy_helper"},
+        diff_hunks=[(1, 2)],
+    )
+
+    assert (
+        res.status,
+        res.reportable,
+        res.verification_note,
+        res.location,
+        res.relocated_from,
+    ) == (
+        "UNVERIFIED",
+        True,
+        "cites removed symbol",
+        "app.py:1-2",
+        "app.py:10",
+    )
+
+
+def test_validate_segment_findings_with_removed_symbols(tmp_path: Path) -> None:
+    """Verify that _validate_segment_findings passes removed symbols and diff hunks from metadata."""
+    py_file = tmp_path / "app.py"
+    py_file.write_text("def new_func():\n    pass\n", encoding="utf-8")
+
+    from devops_cli.ai.review.verification import _validate_segment_findings
+
+    finding = Finding(
+        title="Removed `legacy_helper` missing migration path",
+        location="app.py:10",
+        description="Callers of `legacy_helper` fail.",
+    )
+    review_result = ReviewResult(findings=[finding])
+    diff_segment = """diff --git a/app.py b/app.py
+--- a/app.py
++++ b/app.py
+@@ -1,5 +1,2 @@
+"""
+    analysis_metas = {
+        "app.py": FileAnalysisMeta(
+            path="app.py",
+            symbols_removed=["legacy_helper"],
+        )
+    }
+
+    validated_result, _, _ = _validate_segment_findings(
+        result=review_result,
+        all_segments=[diff_segment],
+        client=None,
+        analysis_metas=analysis_metas,
+        repo_root=tmp_path,
+    )
+
+    assert len(validated_result.findings) == 1
+    f_out = validated_result.findings[0]
+    assert (
+        f_out.status,
+        f_out.reportable,
+        f_out.verification_note,
+        f_out.location,
+        f_out.relocated_from,
+    ) == (
+        "UNVERIFIED",
+        True,
+        "cites removed symbol",
+        "app.py:1-2",
+        "app.py:10",
     )

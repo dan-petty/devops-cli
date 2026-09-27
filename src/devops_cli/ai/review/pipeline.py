@@ -2860,6 +2860,8 @@ class ReviewPipelineOrchestrator:
         all_nets: list[NetworkReference],
         all_findings: list[SavedFinding] | None = None,
         candidate_findings: list[SavedFinding] | None = None,
+        removed_symbol_findings_count: int = 0,
+        symbol_delta_summary: dict[str, int] | None = None,
     ) -> str:
         from devops_cli.ai.review.stages.reporting import synthesize_report_executive_summary
 
@@ -2877,13 +2879,22 @@ class ReviewPipelineOrchestrator:
                 static_analyzers=self.static_analyzers,
             )
         )
-        lines.extend(
-            [
-                "## Summary of Reportable Findings",
-                f"Total Findings: **{len(reportable_findings)}**",
-                "",
-            ]
-        )
+        summary_lines = [
+            "## Summary of Reportable Findings",
+            f"Total Findings: **{len(reportable_findings)}**",
+        ]
+        if symbol_delta_summary and any(symbol_delta_summary.values()):
+            summary_lines.append(
+                f"Symbol Delta: **+{symbol_delta_summary.get('added', 0)}** / "
+                f"**-{symbol_delta_summary.get('removed', 0)}** / "
+                f"**={symbol_delta_summary.get('retained', 0)}**"
+            )
+        if removed_symbol_findings_count > 0:
+            summary_lines.append(
+                f"Removed-Symbol Findings: **{removed_symbol_findings_count}** cited removed symbol(s)"
+            )
+        summary_lines.append("")
+        lines.extend(summary_lines)
         lines.extend(self._build_findings_table(reportable_findings))
         lines.extend(self._build_detailed_findings_section(reportable_findings))
         lines.extend(self._build_dependencies_table(all_deps))
@@ -3227,6 +3238,8 @@ class ReviewPipelineOrchestrator:
         all_nets: list[NetworkReference],
         all_findings: list[SavedFinding] | None = None,
         candidate_findings: list[SavedFinding] | None = None,
+        removed_symbol_findings_count: int = 0,
+        symbol_delta_summary: dict[str, int] | None = None,
     ) -> None:
         """Render review summary table to console."""
         findings_str, ver_rate_str = self._format_severity_breakdown(reportable_findings)
@@ -3261,6 +3274,20 @@ class ReviewPipelineOrchestrator:
                 ["False Positive Rate", fp_rate_str],
             ]
         )
+        if symbol_delta_summary and any(symbol_delta_summary.values()):
+            rows.append(
+                [
+                    "Symbol Delta",
+                    f"+{symbol_delta_summary.get('added', 0)} / -{symbol_delta_summary.get('removed', 0)} / ={symbol_delta_summary.get('retained', 0)}",
+                ]
+            )
+        if removed_symbol_findings_count > 0:
+            rows.append(
+                [
+                    "Removed-Symbol Findings",
+                    f"{removed_symbol_findings_count} cited removed symbol(s)",
+                ]
+            )
         rows.extend(self._format_verdict_distributions(findings_pool))
         rows.extend(
             [
@@ -3282,6 +3309,24 @@ class ReviewPipelineOrchestrator:
     def run_self_test(self) -> bool:
         """Execute a pipeline self-test asserting that a finding constructed to be withdrawn is in fact withdrawn."""
         return run_pipeline_self_test(target_dir=self.target_dir)
+
+    def _compute_symbol_delta_summary(
+        self, file_payloads: list[FileReviewPayload]
+    ) -> dict[str, int]:
+        """Aggregate base-vs-head symbol delta counts across reviewed files."""
+        added = sum(len(p.metadata.symbols_added) for p in file_payloads if p.metadata is not None)
+        removed = sum(
+            len(p.metadata.symbols_removed) for p in file_payloads if p.metadata is not None
+        )
+        retained = sum(
+            len(p.metadata.symbols_retained) for p in file_payloads if p.metadata is not None
+        )
+        if added == 0 and removed == 0 and retained == 0:
+            cached_metas = self._load_pre_analysis_cache(self.target_dir, force_refresh=False)
+            added = sum(len(m.symbols_added) for m in cached_metas.values())
+            removed = sum(len(m.symbols_removed) for m in cached_metas.values())
+            retained = sum(len(m.symbols_retained) for m in cached_metas.values())
+        return {"added": added, "removed": removed, "retained": retained}
 
     def generate_consolidated_report(
         self,
@@ -3311,6 +3356,10 @@ class ReviewPipelineOrchestrator:
             )
 
         all_deps, all_nets = self._collect_unique_dependencies_and_network_endpoints(file_payloads)
+        removed_count = sum(
+            1 for f in all_findings if f.verification_note == "cites removed symbol"
+        )
+        symbol_delta = self._compute_symbol_delta_summary(file_payloads)
 
         payload_out = ReviewSessionPayload(
             generated_at=datetime.now(UTC).isoformat(),
@@ -3318,6 +3367,8 @@ class ReviewPipelineOrchestrator:
             findings=all_findings,
             external_dependencies=all_deps,
             network_references=all_nets,
+            removed_symbol_findings_count=removed_count,
+            symbol_delta_summary=symbol_delta,
         )
 
         assert_verdict_invariants(all_findings)
@@ -3344,6 +3395,8 @@ class ReviewPipelineOrchestrator:
             all_nets=all_nets,
             all_findings=all_findings,
             candidate_findings=candidates.findings,
+            removed_symbol_findings_count=removed_count,
+            symbol_delta_summary=symbol_delta,
         )
         (self.session_dir / "review.md").write_text(report_md, encoding="utf-8")
 
@@ -3360,6 +3413,8 @@ class ReviewPipelineOrchestrator:
             all_nets=all_nets,
             all_findings=all_findings,
             candidate_findings=candidates.findings,
+            removed_symbol_findings_count=removed_count,
+            symbol_delta_summary=symbol_delta,
         )
 
         print_success(

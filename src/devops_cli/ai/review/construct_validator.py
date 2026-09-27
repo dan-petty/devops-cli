@@ -12,7 +12,7 @@ import ast
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.ai.review.verdicts import apply_verdict
 from devops_cli.ai.review_schema import (
@@ -365,6 +365,70 @@ def _parse_ast_safely(source: str, file_path: Path) -> ast.AST | None:
         return None
 
 
+def _candidate_in_removed_symbols(
+    candidates: list[str], removed_symbols: set[str] | None
+) -> str | None:
+    """Return the first candidate symbol present in removed_symbols, or None."""
+    if not removed_symbols:
+        return None
+    for cand in candidates:
+        cand_lower = cand.lower()
+        for rem in removed_symbols:
+            rem_lower = rem.lower()
+            if cand_lower == rem_lower or (
+                "." in rem_lower and rem_lower.endswith("." + cand_lower)
+            ):
+                return cand
+    return None
+
+
+def _find_closest_diff_hunk(s_line: int, diff_hunks: list[tuple[int, int]]) -> tuple[int, int]:
+    """Find the diff hunk closest to s_line."""
+    return min(
+        diff_hunks,
+        key=lambda h: 0 if h[0] <= s_line <= h[1] else min(abs(s_line - h[0]), abs(s_line - h[1])),
+    )
+
+
+def _build_removed_symbol_result(
+    finding: Finding,
+    file_part: str,
+    s_line: int,
+    diff_hunks: list[tuple[int, int]] | None,
+) -> Finding:
+    """Re-anchor finding citing a removed symbol to the nearest diff hunk with verification note."""
+    new_loc = finding.location
+    if diff_hunks:
+        h_start, h_end = _find_closest_diff_hunk(s_line, diff_hunks)
+        new_loc = f"{file_part}:{h_start}" if h_start == h_end else f"{file_part}:{h_start}-{h_end}"
+
+    updates: dict[str, Any] = {"verification_note": "cites removed symbol"}
+    if new_loc != finding.location:
+        updates["location"] = new_loc
+        updates["relocated_from"] = (
+            finding.relocated_from if finding.relocated_from else finding.location
+        )
+    return finding.model_copy(update=updates)
+
+
+def _check_removed_symbol_without_span(
+    finding: Finding,
+    file_part: str,
+    removed_symbols: set[str],
+    diff_hunks: list[tuple[int, int]] | None,
+) -> Finding:
+    """Handle findings without line span that cite removed symbols."""
+    candidates = extract_finding_construct_candidates(finding)
+    if not _candidate_in_removed_symbols(candidates, removed_symbols):
+        return finding
+    ref_line = 1
+    if finding.relocated_from:
+        _, orig_s, _ = _parse_location(finding.relocated_from)
+        if orig_s is not None:
+            ref_line = orig_s
+    return _build_removed_symbol_result(finding, file_part, ref_line, diff_hunks)
+
+
 def _resolve_repaired_finding(
     finding: Finding,
     file_part: str,
@@ -373,6 +437,9 @@ def _resolve_repaired_finding(
     file_lines: list[str],
     content: str,
     file_path: Path,
+    s_line: int = 1,
+    removed_symbols: set[str] | None = None,
+    diff_hunks: list[tuple[int, int]] | None = None,
 ) -> Finding:
     """Attempt relocation in AST or text, or invalidate if construct is absent."""
     reloc = _find_best_relocation(constructs, candidates)
@@ -390,16 +457,28 @@ def _resolve_repaired_finding(
     if any(_is_candidate_present_in_text(content, cand) for cand in candidates):
         return finding
 
+    if _candidate_in_removed_symbols(candidates, removed_symbols):
+        return _build_removed_symbol_result(finding, file_part, s_line, diff_hunks)
+
     return _build_invalidation_result(finding, candidates[0], file_path)
 
 
-def validate_construct_location(finding: Finding, file_path: Path) -> Finding:
+def validate_construct_location(
+    finding: Finding,
+    file_path: Path,
+    removed_symbols: set[str] | None = None,
+    diff_hunks: list[tuple[int, int]] | None = None,
+) -> Finding:
     """Verify that cited file span contains named construct; relocate on mismatch or invalidate if absent."""
     if not _is_inspectable_python_file(file_path):
         return finding
 
     file_part, s_line, e_line = _parse_location(finding.location)
     if s_line is None:
+        if removed_symbols:
+            return _check_removed_symbol_without_span(
+                finding, file_part, removed_symbols, diff_hunks
+            )
         return finding
 
     content = _read_file_safely(file_path)
@@ -424,5 +503,14 @@ def validate_construct_location(finding: Finding, file_path: Path) -> Finding:
         return finding
 
     return _resolve_repaired_finding(
-        finding, file_part, constructs, candidates, file_lines, content, file_path
+        finding,
+        file_part,
+        constructs,
+        candidates,
+        file_lines,
+        content,
+        file_path,
+        s_line=s_line,
+        removed_symbols=removed_symbols,
+        diff_hunks=diff_hunks,
     )
