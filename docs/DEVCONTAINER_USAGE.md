@@ -35,6 +35,7 @@ The published Dev Container image is built on `debian:sid` (Debian Unstable) pro
 - **Kubernetes & Cloud Native**: `kubectl`, `helm`, `minikube` (with optional GPU passthrough support), `kustomize`.
 - **Infrastructure as Code**: OpenTofu (`tofu`) and Terraform (`terraform`) dual compatibility.
 - **Security & Compliance Integrations**: Embedded Python SAST and audit tools (`bandit`, `pip-audit`, `checkov`), with native runner integrations for external scanners (`trivy`, `semgrep`, `gitleaks`, `kube-linter`, `pluto`, `actionlint`), installable on-demand via `devops install-tools` or system package managers.
+- **Sandbox Confinement & Host Isolation**: Linux bubblewrap (`bwrap`) pre-installed for unprivileged namespace confinement of executable verification criteria and untrusted code execution.
 - **AI Code Review & MCP Integration**: `devops-cli` suite pre-installed with Model Context Protocol (FastMCP) server endpoints (`devops mcp serve`), OpenTelemetry instrumentation, and Logfire.
 
 ---

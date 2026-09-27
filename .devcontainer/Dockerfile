@@ -20,6 +20,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     shellcheck \
     gnome-keyring \
     dbus-x11 \
+    bubblewrap \
     && install -d -m 0700 -o 1000 -g 1000 /run/user/1000 \
     && sed -i 's/VERSION_CODENAME=forky/VERSION_CODENAME=trixie/' /etc/os-release \
     && rm -rf /var/lib/apt/lists/*

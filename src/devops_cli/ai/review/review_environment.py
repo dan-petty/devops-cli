@@ -6,8 +6,6 @@ import ast
 import os
 import shlex
 import signal
-import subprocess
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -233,9 +231,11 @@ def execute_criterion_command(
     cwd: Path,
     timeout: float = DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS,
     max_output_bytes: int = DEFAULT_CRITERIA_MAX_OUTPUT_BYTES,
+    sandbox: Any = None,
 ) -> Any:
-    """Execute an allowlisted criterion in the bounded subprocess sandbox."""
+    """Execute an allowlisted criterion in the bubblewrap host sandbox."""
     from devops_cli.ai.review_schema import CriterionExecutionResult
+    from devops_cli.sandbox.host import HostSandbox
 
     is_valid, reason, args = validate_criteria_command(command)
     if not is_valid or not args:
@@ -248,51 +248,33 @@ def execute_criterion_command(
             error=reason,
         )
 
-    t_start = time.monotonic()
-    proc: subprocess.Popen[str] | None = None
-    try:
-        proc = subprocess.Popen(
-            args,
-            cwd=str(cwd),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
+    sb: HostSandbox = sandbox if sandbox is not None else HostSandbox()
+    if not sb.is_available():
+        return CriterionExecutionResult(
+            command=command,
+            description=command,
+            executable=True,
+            exit_code=-1,
+            passed=False,
+            error=f"bubblewrap binary {sb.bwrap_binary} is not available on host system",
         )
-        stdout, stderr = proc.communicate(timeout=timeout)
-        exit_code: int | None = proc.returncode
-        err_msg = None
-    except subprocess.TimeoutExpired:
-        if proc is not None:
-            _terminate_process_group(proc.pid)
-            stdout, stderr = proc.communicate()
-        else:
-            stdout, stderr = "", ""
-        exit_code = -1
-        err_msg = f"Criterion execution timed out after {timeout}s"
-    except Exception as exc:
-        if proc is not None:
-            _terminate_process_group(proc.pid)
-        stdout, stderr = "", ""
-        exit_code = -1
-        err_msg = f"Subprocess error: {exc}"
 
-    duration = time.monotonic() - t_start
-    stdout_bounded = (stdout or "")[:max_output_bytes]
-    stderr_bounded = (stderr or "")[:max_output_bytes]
-    passed = exit_code == 0
-
+    res = sb.execute(
+        args=args,
+        cwd=cwd,
+        timeout=timeout,
+        max_output_bytes=max_output_bytes,
+    )
     return CriterionExecutionResult(
         command=command,
         description=command,
         executable=True,
-        exit_code=exit_code,
-        stdout=stdout_bounded,
-        stderr=stderr_bounded,
-        duration_seconds=round(duration, 3),
-        passed=passed,
-        error=err_msg,
+        exit_code=res.exit_code,
+        stdout=res.stdout,
+        stderr=res.stderr,
+        duration_seconds=res.duration_seconds,
+        passed=res.passed,
+        error=res.error,
     )
 
 

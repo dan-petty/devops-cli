@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from devops_cli.sandbox.engine import WorkloadSandboxEngine
+from devops_cli.sandbox.host import HostSandbox, HostSandboxResult
 from devops_cli.sandbox.metrics import (
     collect_sandbox_metrics,
     evaluate_threshold_warnings,
@@ -38,6 +39,8 @@ from devops_cli.sandbox.registry import SandboxRegistry, get_default_sandbox_reg
 __all__ = [
     "CgroupV2Metrics",
     "EndpointProbeResult",
+    "HostSandbox",
+    "HostSandboxResult",
     "PortBinding",
     "ProbeProtocol",
     "ProbeStatus",
