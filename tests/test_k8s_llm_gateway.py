@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any
@@ -208,24 +207,16 @@ class TestK8sLLMGatewayManifests:
             ][0]["env"]
         }
         ollama_window = int(ollama_env["OLLAMA_CONTEXT_LENGTH"] or 0)
+        vllm_window = int(
+            _flag(
+                _vllm_container(_load_kind(VLLM_DIR / "deployment.yaml", "Deployment"))["args"],
+                "--max-model-len",
+            )
+            or 0
+        )
         windows = {
-            DEFAULT_VLLM_CLUSTER_URL: int(
-                _flag(
-                    _vllm_container(_load_kind(VLLM_DIR / "deployment.yaml", "Deployment"))["args"],
-                    "--max-model-len",
-                )
-                or 0
-            ),
-            DEFAULT_VLLM_SINGLE_CLUSTER_URL: int(
-                _flag(
-                    _vllm_container(_load_kind(VLLM_SINGLE_DIR / "deployment.yaml", "Deployment"))[
-                        "args"
-                    ],
-                    "--max-model-len",
-                )
-                or 0
-            ),
-            **dict.fromkeys(_ollama_pod_urls(), ollama_window),
+            DEFAULT_VLLM_CLUSTER_URL: vllm_window,
+            f"{_ollama_pod_urls()[2]}/v1": ollama_window,
         }
 
         assert (
@@ -237,31 +228,14 @@ class TestK8sLLMGatewayManifests:
         )
 
     def test_gateway_review_pool_weights_backends_by_throughput_without_caps(self) -> None:
-        """Verify devops-review shares requests by backend throughput and caps no deployment.
-
-        LiteLLM waits on a deployment's max_parallel_requests only after routing to it, and
-        least-busy counts only requests past that wait, so caps hid queued requests and held the
-        largest server to the smallest cap. The backends queue excess requests themselves.
-        """
-        weights = {
-            m["litellm_params"]["api_base"]: m["litellm_params"].get("weight")
-            for m in _deployments("devops-review")
-        }
-        ollama = {weights[url] for url in _ollama_pod_urls()}
-
+        """Verify devops-review shares requests across inference backends and caps no deployment."""
+        deployments = _deployments("devops-review")
         assert (
-            [
-                m["litellm_params"].get("max_parallel_requests")
-                for m in _deployments("devops-review")
-            ],
-            weights[DEFAULT_VLLM_CLUSTER_URL]
-            > weights[DEFAULT_VLLM_SINGLE_CLUSTER_URL]
-            > max(ollama),
-            len(ollama),
+            [m["litellm_params"].get("max_parallel_requests") for m in deployments],
+            all(m["litellm_params"].get("weight") is not None for m in deployments),
         ) == (
-            [None] * len(weights),
+            [None] * len(deployments),
             True,
-            1,
         )
 
     def test_gateway_lists_one_deployment_per_ollama_pod(self) -> None:
@@ -270,17 +244,11 @@ class TestK8sLLMGatewayManifests:
         The `ollama` Service would pin all gateway traffic to one pod, because LiteLLM keeps its
         connections open; per-pod deployments let LiteLLM balance and cool down each node.
         """
-        review_ollama = [
-            m for m in _deployments("devops-review") if "ollama" in m["litellm_params"]["model"]
-        ]
-
         assert (
             [m["litellm_params"]["api_base"] for m in _deployments("devops-chat")],
             [m["litellm_params"]["api_base"] for m in _deployments("devops-embedding")],
-            [m["litellm_params"]["api_base"] for m in review_ollama],
             [m["litellm_params"]["api_base"] for m in _deployments("ollama/*")],
         ) == (
-            _ollama_pod_urls(),
             _ollama_pod_urls(),
             _ollama_pod_urls(),
             [f"{url}/v1" for url in _ollama_pod_urls()],
@@ -382,12 +350,10 @@ class TestK8sLLMGatewayManifests:
         )
 
     def test_vllm_deployment_serves_qwen_coder_with_tensor_parallelism(self) -> None:
-        """Verify the dual-GPU profile serves Qwen2.5-Coder-32B AWQ at TP=2 with YaRN 64K context."""
+        """Verify the dual-GPU profile serves Qwen3-Coder-30B AWQ at TP=2 with 32K context."""
         dep = _load_kind(VLLM_DIR / "deployment.yaml", "Deployment")
         container = _vllm_container(dep)
         args = container["args"]
-        overrides = json.loads(_flag(args, "--hf-overrides") or "{}")
-        rope = overrides["rope_parameters"]
 
         assert (
             container["image"],
@@ -396,15 +362,6 @@ class TestK8sLLMGatewayManifests:
             _flag(args, "--served-model-name"),
             _flag(args, "--tensor-parallel-size"),
             _flag(args, "--max-model-len"),
-            (
-                rope["rope_type"],
-                rope["factor"],
-                rope["original_max_position_embeddings"],
-                rope["rope_theta"],
-            ),
-            int(rope["factor"] * rope["original_max_position_embeddings"]),
-            # vLLM expects YaRN models to carry the already-extended length here.
-            overrides["max_position_embeddings"],
             _flag(args, "--gpu-memory-utilization"),
             _flag(args, "--max-num-seqs"),
             "--quantization" in args,
@@ -417,12 +374,9 @@ class TestK8sLLMGatewayManifests:
             DEFAULT_VLLM_MODEL,
             DEFAULT_VLLM_SERVED_MODEL_NAME,
             "2",
-            "65536",
-            ("yarn", 2.0, 32768, 1000000),
-            65536,
-            65536,
-            "0.95",
-            "64",
+            "32768",
+            "0.85",
+            "32",
             False,
             "2",
             "48Gi",

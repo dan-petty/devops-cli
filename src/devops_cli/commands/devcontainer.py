@@ -710,6 +710,12 @@ def _bootstrap_developer_tools(*, dry_run: bool = False) -> list[str]:
             "Installed standalone claude CLI into $HOME/.local/bin",
             "Warning: Failed to install standalone claude CLI",
         ),
+        (
+            "semgrep",
+            ["uv", "tool", "install", "semgrep"],
+            "Installed standalone semgrep tool into $HOME/.local/bin",
+            "Warning: Failed to install standalone semgrep tool via uv",
+        ),
     )
     for bin_name, cmd, success_msg, failure_msg in tool_installers:
         if shutil.which(bin_name) is None:

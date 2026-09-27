@@ -1517,6 +1517,18 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
     "devops-reasoning",
     "devops-embedding",
 )
+CONST_REASONING_MODEL_PREFIXES: Final[tuple[str, ...]] = (
+    "o1-",
+    "o3-",
+    "o4-",
+    "deepseek-r1",
+    "deepseek-reasoner",
+    "devops-reasoning",
+    "qwq",
+)
+CONST_REASONING_MODEL_EXACT: Final[frozenset[str]] = frozenset(
+    {"o1", "o3", "deepseek-r1", "deepseek-reasoner", "devops-reasoning"}
+)
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
 # Response header in which the LiteLLM gateway names the backend (api_base) that served a call.
 CONST_AI_GATEWAY_SERVED_BY_HEADER: Final[str] = "x-litellm-model-api-base"

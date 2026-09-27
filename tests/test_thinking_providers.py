@@ -43,11 +43,15 @@ class TestReasoningModelDetection:
         assert is_reasoning_model("claude-3-5-sonnet") is False
 
     def test_detects_open_weights_reasoning_models(self) -> None:
-        assert is_reasoning_model("deepseek-r1") is True
-        assert is_reasoning_model("deepseek-r1:32b") is True
-        assert is_reasoning_model("deepseek-reasoner") is True
-        assert is_reasoning_model("qwq-32b") is True
-        assert is_reasoning_model("qwen2.5-coder:7b") is False
+        assert (
+            is_reasoning_model("deepseek-r1"),
+            is_reasoning_model("deepseek-r1:32b"),
+            is_reasoning_model("deepseek-reasoner"),
+            is_reasoning_model("devops-reasoning"),
+            is_reasoning_model("qwq-32b"),
+            is_reasoning_model("qwen2.5-coder:7b"),
+            is_reasoning_model("devops-review"),
+        ) == (True, True, True, True, True, False, False)
 
 
 class TestOpenAIReasoningPayloadAndParsing:
@@ -89,6 +93,45 @@ class TestOpenAIReasoningPayloadAndParsing:
         assert captured_payload.get("max_completion_tokens") == 4000
         assert captured_payload.get("reasoning_effort") == "high"
         assert res.text == "Reasoned response"
+
+    def test_openai_non_reasoning_payload_omits_reasoning_effort(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Non-reasoning models must omit reasoning_effort even if configured globally."""
+        captured_payload: dict[str, Any] = {}
+
+        def mock_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+            nonlocal captured_payload
+            if "chat/completions" in str(url):
+                captured_payload = dict(kwargs.get("json", {}))
+            return _make_resp(
+                200,
+                {
+                    "choices": [{"message": {"content": "Standard response", "role": "assistant"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+                },
+            )
+
+        monkeypatch.setattr(httpx2.Client, "post", mock_post)
+
+        cfg = AIConfig(
+            provider="openai",
+            model="devops-review",
+            temperature=0.2,
+            max_tokens=4000,
+            reasoning_effort="low",
+            allow_private_network=True,
+        )
+        client = LLMClient(cfg, api_key="sk-test-token")
+        res = client.chat("System instructions", "Review code")
+
+        assert (
+            "reasoning_effort" in captured_payload,
+            "max_completion_tokens" in captured_payload,
+            captured_payload.get("max_tokens"),
+            captured_payload.get("temperature"),
+            res.text,
+        ) == (False, False, 4000, 0.2, "Standard response")
 
     def test_openai_extracts_reasoning_content_into_thinking(
         self, monkeypatch: pytest.MonkeyPatch

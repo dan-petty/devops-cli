@@ -14,7 +14,7 @@ metadata:
 spec:
   # One per GPU node that Ollama may use. Keep one gateway deployment per replica in
   # gateway/configmap.yaml (devops-chat, devops-embedding and the Ollama tier of devops-review).
-  replicas: 2
+  replicas: 3
   serviceName: ollama-nodes
   # Start and replace pods independently, so a node that is offline never holds up the others.
   podManagementPolicy: Parallel
