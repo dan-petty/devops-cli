@@ -20,7 +20,7 @@ from devops_cli.commands.analyze import (
     app as analyze_app,
 )
 from devops_cli.main import app
-from devops_cli.models.ai import AnalysisMetadata
+from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
 
 runner = CliRunner()
 
@@ -633,3 +633,53 @@ def test_load_cached_analysis_and_file_metas(tmp_path: Path) -> None:
             "src/main.py" in filtered_metas,
             "nonexistent.py" in filtered_metas,
         ) == (True, 1, True, False)
+
+
+def test_compute_symbol_delta() -> None:
+    """Verify symbol delta computation detects added, removed, and retained symbols."""
+    from devops_cli.ai.analyze.symbols import compute_symbol_delta
+
+    base_code = """
+def kept_func(): pass
+def removed_func(): pass
+class RetainedClass:
+    def old_method(self): pass
+"""
+    head_code = """
+def kept_func(): pass
+def added_func(): pass
+class RetainedClass:
+    def new_method(self): pass
+"""
+    added, removed, retained = compute_symbol_delta(base_code, head_code)
+    assert (
+        "added_func" in added,
+        "RetainedClass.new_method" in added,
+        "removed_func" in removed,
+        "RetainedClass.old_method" in removed,
+        "kept_func" in retained,
+        "RetainedClass" in retained,
+    ) == (True, True, True, True, True, True)
+
+
+def test_apply_symbol_delta_to_meta(tmp_path: Path) -> None:
+    """Verify that _apply_symbol_delta_to_meta populates symbols_added, removed, and retained."""
+    from devops_cli.commands.analyze import _apply_symbol_delta_to_meta
+
+    meta = FileAnalysisMeta(path="test_mod.py")
+    head_code = "def new_feature(): pass\n"
+
+    updated = _apply_symbol_delta_to_meta(
+        meta=meta,
+        repo=tmp_path,
+        base=None,
+        rel_path="test_mod.py",
+        head_content=head_code,
+        change_type="added",
+    )
+
+    assert (
+        "new_feature" in updated.symbols_added,
+        len(updated.symbols_removed),
+        len(updated.symbols_retained),
+    ) == (True, 0, 0)

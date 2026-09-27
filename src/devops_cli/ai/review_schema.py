@@ -1100,6 +1100,8 @@ class ReviewSessionPayload(BaseModel):
     dependency_vulnerabilities: list[VulnerabilityRecord] = Field(default_factory=list)
     network_references: list[NetworkReference] = Field(default_factory=list)
     network_reputations: list[NetworkReputationRecord] = Field(default_factory=list)
+    removed_symbol_findings_count: int = 0
+    symbol_delta_summary: dict[str, int] = Field(default_factory=dict)
 
     @field_validator("findings", mode="after")
     @classmethod

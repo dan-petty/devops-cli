@@ -40,6 +40,9 @@ class FileAnalysisMeta(BaseModel):
     quality_score: float | None = None
     content_hash: str | None = None
     semantic_outline: dict[str, Any] | None = None
+    symbols_added: list[str] = Field(default_factory=list)
+    symbols_removed: list[str] = Field(default_factory=list)
+    symbols_retained: list[str] = Field(default_factory=list)
 
 
 class ProjectAnalysisMeta(BaseModel):
