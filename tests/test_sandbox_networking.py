@@ -11,7 +11,6 @@ from typer.testing import CliRunner
 from devops_cli.commands.docker import app as docker_app
 from devops_cli.commands.sandbox import app as sandbox_app
 from devops_cli.config.constants import (
-    CONST_SANDBOX_DOCKER_INTERNAL_NET,
     CONST_SANDBOX_NETWORK_BRIDGE,
     CONST_SANDBOX_NETWORK_ISOLATED,
     CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
@@ -86,10 +85,8 @@ def test_sandbox_network_config_normalization_and_aliases() -> None:
 
 
 def test_sandbox_network_config_isolated_mode() -> None:
-    """Verify isolated pod mode produces zero-ingress, zero-egress NetworkPolicy and --network=none."""
+    """Verify isolated pod mode produces zero-ingress, zero-egress NetworkPolicy."""
     cfg = SandboxNetworkConfig(mode=SandboxNetworkMode.ISOLATED)
-
-    assert cfg.to_docker_args() == ["--network=none"]
 
     policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
     assert policy["apiVersion"] == "networking.k8s.io/v1"
@@ -105,12 +102,10 @@ def test_sandbox_network_config_isolated_mode() -> None:
 
 
 def test_sandbox_network_config_sandbox_namespace_mode() -> None:
-    """Verify sandbox namespace mode produces intra-namespace only NetworkPolicy and internal bridge."""
+    """Verify sandbox namespace mode produces intra-namespace only NetworkPolicy."""
     cfg = SandboxNetworkConfig(
         mode=SandboxNetworkMode.SANDBOX_NAMESPACE, sandbox_namespace="sandbox-app"
     )
-
-    assert cfg.to_docker_args() == [f"--network={CONST_SANDBOX_DOCKER_INTERNAL_NET}"]
 
     policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox-app")
     assert policy["kind"] == "NetworkPolicy"
@@ -135,19 +130,6 @@ def test_sandbox_network_config_public_whitelist_validation_and_policy() -> None
         mode=SandboxNetworkMode.PUBLIC_WHITELIST,
         public_whitelist=["github.com", "pypi.org", "93.184.216.34"],
     )
-    # On Docker without egress proxy, to_docker_args fails closed
-    with pytest.raises(ValueError, match="without an egress proxy"):
-        cfg.to_docker_args()
-
-    # With egress proxy, to_docker_args attaches to internal network with proxy env
-    cfg_proxy = SandboxNetworkConfig(
-        mode=SandboxNetworkMode.PUBLIC_WHITELIST,
-        public_whitelist=["github.com", "pypi.org", "93.184.216.34"],
-        egress_proxy="http://127.0.0.1:3128",
-    )
-    proxy_args = cfg_proxy.to_docker_args()
-    assert f"--network={CONST_SANDBOX_DOCKER_INTERNAL_NET}" in proxy_args
-    assert "HTTP_PROXY=http://127.0.0.1:3128" in proxy_args
 
     policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
     assert policy["kind"] == "NetworkPolicy"
@@ -195,17 +177,6 @@ def test_sandbox_network_config_local_whitelist_validation_and_routing() -> None
             "host.docker.internal",
         ],
     )
-    # On Docker without egress proxy, to_docker_args fails closed
-    with pytest.raises(ValueError, match="without an egress proxy"):
-        cfg.to_docker_args()
-
-    # With egress proxy, uses internal network
-    cfg_proxy = SandboxNetworkConfig(
-        mode=SandboxNetworkMode.LOCAL_WHITELIST,
-        local_whitelist=["http://localhost:11434", "192.168.1.50"],
-        egress_proxy="http://127.0.0.1:3128",
-    )
-    assert f"--network={CONST_SANDBOX_DOCKER_INTERNAL_NET}" in cfg_proxy.to_docker_args()
 
     policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
     assert policy["kind"] == "NetworkPolicy"

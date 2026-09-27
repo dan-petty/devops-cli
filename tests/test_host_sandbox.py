@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from devops_cli.ai.review.review_environment import execute_criterion_command
 from devops_cli.sandbox.host import HostSandbox
+from devops_cli.sandbox.models import SandboxPolicy
 
 
 def test_host_sandbox_reads_repo(tmp_path: Path) -> None:
@@ -136,3 +137,27 @@ def test_host_sandbox_handles_namespace_refusal(tmp_path: Path) -> None:
         res.exit_code,
         "Host sandbox error: bwrap: Setting up uid map: Permission denied" in str(res.error),
     ) == (False, 1, True)
+
+
+def test_host_sandbox_consumes_custom_policy(tmp_path: Path) -> None:
+    """Verify that HostSandbox mounts and configures according to its SandboxPolicy."""
+    custom_policy = SandboxPolicy(
+        read_only=False,
+        tmpfs={"/tmp": "size=32m", "/var/tmp": "size=16m"},
+        system_dirs=("/usr", "/bin"),
+        forbidden_env_keys=frozenset({"CUSTOM_SECRET"}),
+    )
+    sandbox = HostSandbox(policy=custom_policy)
+    args = sandbox.build_bwrap_args(
+        command_args=["python3", "-c", "pass"],
+        cwd=tmp_path,
+        env={"CUSTOM_SECRET": "leak", "SAFE_VAR": "value"},
+    )
+    assert (
+        sandbox.policy == custom_policy,
+        "--bind" in args,
+        "--tmpfs" in args,
+        "/var/tmp" in args,
+        "CUSTOM_SECRET" not in str(args),
+        "SAFE_VAR" in str(args),
+    ) == (True, True, True, True, True, True)

@@ -12,15 +12,12 @@ from pathlib import Path
 from typing import Final
 
 from devops_cli.config import (
-    CONST_FORBIDDEN_SANDBOX_ENV_KEYS,
-    CONST_HOST_SANDBOX_DEFAULT_ENV,
-    CONST_HOST_SANDBOX_SYSTEM_DIRS,
-    CONST_HOST_SANDBOX_SYSTEM_SYMLINKS,
     DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_CRITERIA_MAX_OUTPUT_BYTES,
     DEFAULT_HOST_SANDBOX_BINARY,
 )
 from devops_cli.core.repo import find_worktree_root
+from devops_cli.sandbox.models import DEFAULT_SANDBOX_POLICY, SandboxPolicy
 
 
 @dataclass(frozen=True)
@@ -109,9 +106,14 @@ def _format_sandbox_result(
 class HostSandbox:
     """Bubblewrap-confined host execution sandbox."""
 
-    def __init__(self, bwrap_binary: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        bwrap_binary: str | Path | None = None,
+        policy: SandboxPolicy | None = None,
+    ) -> None:
         resolved = bwrap_binary or shutil.which("bwrap") or DEFAULT_HOST_SANDBOX_BINARY
         self.bwrap_binary: Final[Path] = Path(resolved)
+        self.policy: Final[SandboxPolicy] = policy if policy is not None else DEFAULT_SANDBOX_POLICY
 
     def is_available(self) -> bool:
         """Verify whether the bubblewrap binary exists and is executable."""
@@ -120,11 +122,11 @@ class HostSandbox:
     def _resolve_system_mounts(self) -> list[str]:
         """Construct read-only and symlink bind mounts for system toolchains."""
         mount_args: list[str] = []
-        for sys_dir in CONST_HOST_SANDBOX_SYSTEM_DIRS:
+        for sys_dir in self.policy.system_dirs:
             if Path(sys_dir).exists():
                 mount_args.extend(["--ro-bind", sys_dir, sys_dir])
 
-        for sym_path in CONST_HOST_SANDBOX_SYSTEM_SYMLINKS:
+        for sym_path in self.policy.system_symlinks:
             p = Path(sym_path)
             if not p.exists():
                 continue
@@ -148,24 +150,23 @@ class HostSandbox:
             effective_root = wt_root.resolve() if wt_root else cwd.resolve()
 
         resolved_cwd = cwd.resolve()
-        mount_args = [
-            "--tmpfs",
-            "/tmp",  # nosec B108
-            "--ro-bind",
-            str(effective_root),
-            str(effective_root),
-        ]
+        mount_args: list[str] = []
+        for tmp_dir in self.policy.tmpfs:
+            mount_args.extend(["--tmpfs", tmp_dir])  # nosec B108
+
+        bind_flag = "--ro-bind" if self.policy.read_only else "--bind"
+        mount_args.extend([bind_flag, str(effective_root), str(effective_root)])
         if not resolved_cwd.is_relative_to(effective_root):
-            mount_args.extend(["--ro-bind", str(resolved_cwd), str(resolved_cwd)])
+            mount_args.extend([bind_flag, str(resolved_cwd), str(resolved_cwd)])
 
         return mount_args, resolved_cwd
 
     def _build_env_args(self, env: dict[str, str] | None = None) -> list[str]:
         """Construct sanitized environment variables forbidding credential leaks."""
-        clean_env: dict[str, str] = dict(CONST_HOST_SANDBOX_DEFAULT_ENV)
+        clean_env: dict[str, str] = dict(self.policy.default_env)
         if env:
             for k, v in env.items():
-                if k not in CONST_FORBIDDEN_SANDBOX_ENV_KEYS:
+                if k not in self.policy.forbidden_env_keys:
                     clean_env[k] = v
 
         env_args: list[str] = []
