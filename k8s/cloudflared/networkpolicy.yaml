@@ -1,0 +1,51 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cloudflared-isolation
+  namespace: cloudflared
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/component: tunnel
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow Prometheus metrics scraping on port 2000 from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: devops-cli-stack
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 2000
+  egress:
+    # Allow DNS queries
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow outbound HTTPS to Cloudflare Edge
+    - ports:
+        - protocol: TCP
+          port: 443
+    # Allow outbound QUIC to Cloudflare Edge
+    - ports:
+        - protocol: UDP
+          port: 7844
+    # Allow forwarding traffic to Ingress Controller within cluster
+    - ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 8443

@@ -1,7 +1,7 @@
 # Task 646: Homelab Kubernetes Platform Enhancements, Cloudflare Tunnel GitOps, Ingress Automation & AI Triage
 
 **Issue**: [#646](https://github.com/dan-petty/devops-cli/issues/646)
-**Status**: Backlog
+**Status**: In Progress
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/k8s`, `priority/p1-high`
@@ -30,15 +30,15 @@ Incorporate comprehensive homelab Kubernetes platform enhancements into `devops-
    - `devops ai export-config --target continue` command generating Continue.dev configuration pointing to the cluster's authenticated LLM Gateway.
 
 ### Key Deliverables:
-- [ ] **Declarative Cloudflare Tunnel Manifests** (`k8s/cloudflared/`):
+- [x] **Declarative Cloudflare Tunnel Manifests** (`k8s/cloudflared/`):
   - Deployment with non-root security context, token secret references, metrics endpoint on port 2000, and liveness/readiness probes.
   - Kustomization and NetworkPolicy isolating tunnel ingress/egress.
-- [ ] **Cluster Ingress Manifests & Values** (`k8s/ingress/`):
+- [x] **Cluster Ingress Manifests & Values** (`k8s/ingress/`):
   - Traefik Helm values configured with `service.type: ClusterIP`.
   - Kubernetes `Ingress` manifests for `open-webui`, `llm-gateway`, `kube-prometheus-grafana`, and `argocd-server`.
 - [ ] **AI DevOps Incident Triage Engine** (`src/devops_cli/commands/k8s/triage.py`, `src/devops_cli/ai/tools/k8s_triage.py`):
   - Extract failed pod logs and Kubernetes events, synthesize incident summaries via LLM Gateway, and output actionable root-cause diagnoses.
 - [ ] **IDE Configuration Generator** (`src/devops_cli/commands/ai/export_config.py`):
   - Export Continue.dev and Open-WebUI model connection templates bound to `llm-gateway`.
-- [ ] **Gated CI Compliance & Architectural Invariants**:
+- [x] **Gated CI Compliance & Architectural Invariants**:
   - Comprehensive unit test coverage with structural tuple assertions adhering to $M \le 10$ complexity caps.
