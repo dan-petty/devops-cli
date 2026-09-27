@@ -72,6 +72,10 @@ ENV_RUNS_INDEX_URL = "DEVOPS_CLI_RUNS_INDEX_URL"
 ENV_RUNS_INDEX_PASSWORD = "DEVOPS_CLI_RUNS_INDEX_PASSWORD"
 ENV_AI_CACHE_BACKEND = "DEVOPS_CLI_AI_CACHE_BACKEND"
 ENV_K8S_CONTEXT = "DEVOPS_CLI_K8S_CONTEXT"
+ENV_K8S_DOMAIN = "DEVOPS_CLI_K8S_DOMAIN"
+ENV_CLOUDFLARE_DOMAIN = "DEVOPS_CLI_CLOUDFLARE_DOMAIN"
+ENV_CLOUDFLARE_TUNNEL = "DEVOPS_CLI_CLOUDFLARE_TUNNEL"
+
 
 # Data Storage & Artifact Path environment variables
 ENV_DATA_DIR = "DEVOPS_CLI_DATA_DIR"
@@ -146,6 +150,9 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.RUNS_INDEX_PASSWORD: ENV_RUNS_INDEX_PASSWORD,
     opt.AI_CACHE_BACKEND: ENV_AI_CACHE_BACKEND,
     opt.K8S_CONTEXT: ENV_K8S_CONTEXT,
+    opt.K8S_DOMAIN: ENV_K8S_DOMAIN,
+    opt.CLOUDFLARE_DOMAIN: ENV_CLOUDFLARE_DOMAIN,
+    opt.CLOUDFLARE_TUNNEL: ENV_CLOUDFLARE_TUNNEL,
     opt.DATA_DIR: ENV_DATA_DIR,
     opt.DATA_ANALYSIS_DIR: ENV_DATA_ANALYSIS_DIR,
     opt.DATA_REVIEWS_DIR: ENV_DATA_REVIEWS_DIR,
@@ -498,6 +505,24 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.K8S_CONTEXT,
             False,
             "Active Kubernetes cluster context (e.g. minikube, kind, or remote cluster)",
+        ),
+        EnvVarSpec(
+            ENV_K8S_DOMAIN,
+            opt.K8S_DOMAIN,
+            False,
+            "Base or root domain name for homelab ingress routes and tunnel services",
+        ),
+        EnvVarSpec(
+            ENV_CLOUDFLARE_DOMAIN,
+            opt.CLOUDFLARE_DOMAIN,
+            False,
+            "Root or zone domain name managed in Cloudflare",
+        ),
+        EnvVarSpec(
+            ENV_CLOUDFLARE_TUNNEL,
+            opt.CLOUDFLARE_TUNNEL,
+            False,
+            "Cloudflare tunnel name or identifier",
         ),
         EnvVarSpec(
             ENV_DATA_DIR,

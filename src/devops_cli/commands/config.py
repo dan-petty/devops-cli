@@ -135,6 +135,9 @@ def show() -> None:
     _row(opt.AI_ALLOW_PRIVATE_NETWORK, settings.ai.allow_private_network)
     _secret_row(opt.AI_API_KEY, _is_secret_configured(opt.AI_API_KEY))
     _row(opt.K8S_CONTEXT, settings.k8s.context)
+    _row(opt.K8S_DOMAIN, settings.k8s.domain)
+    _row(opt.CLOUDFLARE_DOMAIN, settings.cloudflare.domain)
+    _row(opt.CLOUDFLARE_TUNNEL, settings.cloudflare.tunnel)
 
     print_table(
         title=MESSAGES.config.header,

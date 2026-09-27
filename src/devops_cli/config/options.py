@@ -79,6 +79,11 @@ TELEMETRY_LOGFIRE_TOKEN = "telemetry.logfire_token"
 
 # Kubernetes Cluster & Minikube Configuration
 K8S_CONTEXT = "k8s.context"
+K8S_DOMAIN = "k8s.domain"
+
+# Cloudflare Zero Trust & Tunnel Configuration
+CLOUDFLARE_DOMAIN = "cloudflare.domain"
+CLOUDFLARE_TUNNEL = "cloudflare.tunnel"
 
 # Data Storage & Artifact Paths
 DATA_DIR = "data.dir"

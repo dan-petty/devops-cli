@@ -262,3 +262,49 @@ def test_config_settings_and_keyring(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     client = get_llm_client(task="chat")
     assert client is not None
+
+
+def test_k8s_and_cloudflare_domain_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify k8s.domain and cloudflare domain/tunnel configuration and dotted access."""
+    from devops_cli.config.settings import (
+        Settings,
+        dotted_get,
+        dotted_set,
+        load_settings,
+    )
+
+    s = Settings()
+    dotted_set(s, "k8s.domain", "example.com")
+    dotted_set(s, "cloudflare.domain", "example.com")
+    dotted_set(s, "cloudflare.tunnel", "homelab")
+
+    assert (
+        dotted_get(s, "k8s.domain"),
+        dotted_get(s, "cloudflare.domain"),
+        dotted_get(s, "cloudflare.tunnel"),
+        s.k8s.domain,
+        s.cloudflare.domain,
+        s.cloudflare.tunnel,
+    ) == (
+        "example.com",
+        "example.com",
+        "homelab",
+        "example.com",
+        "example.com",
+        "homelab",
+    )
+
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        "k8s:\n  domain: example.com\ncloudflare:\n  domain: example.com\n  tunnel: homelab\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
+    loaded = load_settings()
+    assert (
+        loaded.k8s.domain,
+        loaded.cloudflare.domain,
+        loaded.cloudflare.tunnel,
+    ) == ("example.com", "example.com", "homelab")
