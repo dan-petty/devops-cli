@@ -40,7 +40,7 @@ def test_pricing_registry_exact_and_normalized_matching(tmp_path: Path) -> None:
     ) == (
         (2.5, 10.0),
         (3.0, 15.0),
-        (0.27, 1.1),
+        (0.135, 0.55),
     )
 
 

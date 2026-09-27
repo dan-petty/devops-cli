@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.review_schema import Finding
-from devops_cli.config.commands import BIN_PLUTO
+from devops_cli.config.commands import BIN_PLUTO, build_pluto_cmd
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_PLUTO_TIMEOUT_SECONDS,
@@ -62,12 +62,8 @@ class PlutoScanner(BaseSecurityScanner):
 
     def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
         """Build argument command list for invoking Pluto."""
-        target_abs = target_path.resolve() if target_path.exists() else Path.cwd().resolve()
-        return (
-            [self.binary_name, "detect-files", "-f", str(target_abs), "-o", "json"]
-            if target_abs.is_file()
-            else [self.binary_name, "detect-files", "-d", str(target_abs), "-o", "json"]
-        )
+        target_abs = target_path.resolve() if target_path.exists() else target_path
+        return build_pluto_cmd(target_abs, binary_name=self.binary_name)
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
         """Parse raw Pluto JSON payload into Finding models."""

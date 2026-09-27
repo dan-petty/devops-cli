@@ -624,10 +624,13 @@ def _capture_embedding_posts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str,
     calls: list[tuple[str, str, str]] = []
 
     def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
-        headers = kwargs.get("headers") or {}
-        payload = kwargs.get("json") or {}
-        calls.append((url, headers.get("Authorization", ""), payload.get("model", "")))
-        return httpx2.Response(200, json={"data": [{"index": 0, "embedding": [0.5] * 8}]})
+        url_str = str(url)
+        if "embeddings" in url_str:
+            headers = kwargs.get("headers") or {}
+            payload = kwargs.get("json") or {}
+            calls.append((url_str, headers.get("Authorization", ""), payload.get("model", "")))
+            return httpx2.Response(200, json={"data": [{"index": 0, "embedding": [0.5] * 8}]})
+        return httpx2.Response(200, json={})
 
     monkeypatch.setattr(httpx2.Client, "post", fake_post)
     return calls

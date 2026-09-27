@@ -1673,6 +1673,14 @@ CONST_CONFIG_EXTENSIONS: Final[frozenset[str]] = frozenset(
     }
 )
 
+CONST_K8S_MANIFEST_EXTENSIONS: Final[frozenset[str]] = frozenset(
+    {
+        ".yaml",
+        ".yml",
+        ".json",
+    }
+)
+
 CONST_CONFIG_FILENAMES: Final[frozenset[str]] = frozenset(
     {
         "dockerfile",
