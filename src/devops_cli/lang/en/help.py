@@ -261,6 +261,11 @@ class K8sCommandHelp:
     interval: str = "Auto-refresh polling interval in seconds."
     status: str = "Cluster health and resource utilization summary."
     port_forward: str = "Forward local port to a remote Kubernetes service."
+    port_forward_flag: str = "Start background port-forwarding daemons for deployed services."
+    configure_urls_flag: str = (
+        "Auto-configure devops-cli settings with detected Kubernetes service URLs."
+    )
+    update_config_flag: str = "Update devops-cli configuration with port-forwarded service URLs."
     switch_context: str = "Switch active kubectl context."
     apply_manifest: str = "Apply Kubernetes manifest file or directory."
     logs: str = "Fetch container logs for a pod."

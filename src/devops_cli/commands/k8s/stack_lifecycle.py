@@ -6,8 +6,9 @@ import json
 import os
 import re
 import secrets
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -454,127 +455,98 @@ def _build_helm_upgrade_cmd(
     return helm_cmd
 
 
-def deploy_stack(
-    k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
-    stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
-    context: Annotated[
-        str | None, typer.Option("--context", "-c", help=HELP.options.context)
-    ] = None,
-    wait: Annotated[
-        bool,
-        typer.Option(
-            "--wait/--no-wait",
-            help="Wait for Helm releases and workloads to become ready before returning.",
-        ),
-    ] = True,
-    timeout: Annotated[
-        str,
-        typer.Option("--timeout", "-t", help="Timeout for Helm operations when waiting."),
-    ] = "10m",
-) -> None:
-    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes."""
-    effective_context = runtime.resolve_effective_context(context)
-    if effective_context:
-        runtime._validate_kubeconfig_context_name(effective_context, "context")
-
-    selected_stacks = net._resolve_stacks(stack)
-
-    all_releases: list[dict[str, str]] = []
-    all_manifests: list[str] = []
-    for s_name in selected_stacks:
-        all_releases.extend(_HELM_RELEASES_BY_STACK.get(s_name, []))
-        all_manifests.extend([str(p) for p in _MANIFESTS_BY_STACK.get(s_name, [])])
-
-    if is_dry_run():
-        render_dry_run_result(
-            command="devops k8s deploy-stack",
-            target=str(k8s_dir),
-            action="deploy_k8s_stack",
-            details={
-                "kustomize_dir": str(k8s_dir),
-                "stack": stack,
-                "stacks": selected_stacks,
-                "context": effective_context,
-                "wait": wait,
-                "timeout": timeout,
-                "helm_releases": [r["name"] for r in all_releases],
-                "manifests": all_manifests,
-            },
-        )
-        return
-
-    # 1. Verify cluster reachability
-    if not runtime._cluster_reachable(context=effective_context):
-        print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
-        if not effective_context or effective_context.strip().lower() == "minikube":
-            print_info(MESSAGES.k8s.start_minikube_tip, prefix=False)
-        raise typer.Exit(1)
-
-    kubectl_ctx = ["--context", effective_context] if effective_context else []
-    helm_ctx = ["--kube-context", effective_context] if effective_context else []
-
-    # 2. Apply kustomize base (namespaces)
-    print_info("[bold]Applying namespaces...[/bold]", prefix=False)
-    runtime._run_cmd(["kubectl", "apply", "-k", str(k8s_dir)] + kubectl_ctx)
-
-    # 3. Add Helm repos for selected stacks
+def _deploy_helm_repos(selected_stacks: Sequence[str]) -> None:
+    """Add and update Helm repositories required for the selected stacks."""
     repos_to_add: dict[str, str] = {}
     for s_name in selected_stacks:
         repos_to_add.update(_HELM_REPOS_BY_STACK.get(s_name, {}))
+    if not repos_to_add:
+        return
+    print_info(MESSAGES.k8s.adding_helm_repos, prefix=False)
+    for repo_name, repo_url in repos_to_add.items():
+        runtime._run_cmd(["helm", "repo", "add", repo_name, repo_url], check=False)
+    runtime._run_cmd(["helm", "repo", "update"])
 
-    if repos_to_add:
-        print_info(MESSAGES.k8s.adding_helm_repos, prefix=False)
-        for repo_name, repo_url in repos_to_add.items():
-            runtime._run_cmd(["helm", "repo", "add", repo_name, repo_url], check=False)
-        runtime._run_cmd(["helm", "repo", "update"])
 
-    # 4. Install native manifests
-    for manifest_path in all_manifests:
+def _apply_manifest_files(manifests: Sequence[str], kubectl_ctx: list[str]) -> None:
+    """Apply Kubernetes native manifest files."""
+    for manifest_path in manifests:
         print_info(f"[bold]Applying manifest {Path(manifest_path).name}...[/bold]", prefix=False)
         runtime._run_cmd(["kubectl", "apply", "-f", manifest_path] + kubectl_ctx, check=False)
 
-    # 5. Install Helm releases
-    for release in all_releases:
-        if release["name"] == "qdrant":
-            qdrant_key = _ensure_qdrant_api_key_secret(
-                context=effective_context, namespace=release["namespace"]
-            )
-            if not qdrant_key:
-                print_error(
-                    f"Failed to ensure Qdrant API key secret in namespace '{release['namespace']}'. Aborting deployment.",
-                    prefix=False,
-                )
-                raise typer.Exit(1)
-        print_info(f"[bold]Installing {release['name']}...[/bold]", prefix=False)
-        helm_cmd = _build_helm_upgrade_cmd(release, helm_ctx, wait, timeout)
 
+def _run_helm_with_adoption_retries(
+    helm_cmd: list[str],
+    release: dict[str, str],
+    effective_context: str | None,
+) -> Any:
+    """Execute Helm upgrade command retrying up to 5 times on adoptable resource conflicts."""
+    result = runtime._run_cmd(helm_cmd, check=False, capture=True)
+    for _ in range(5):
+        if result.returncode == 0:
+            break
+        err_msg = (result.stderr or "") + " " + (result.stdout or "")
+        if not _adopt_helm_resource_if_conflict(
+            err_msg,
+            release["name"],
+            release["namespace"],
+            context=effective_context,
+        ):
+            break
         result = runtime._run_cmd(helm_cmd, check=False, capture=True)
-        # If conflict occurs on pre-existing unmanaged resources, adopt and retry up to 5 times
-        for _ in range(5):
-            if result.returncode == 0:
-                break
-            err_msg = (result.stderr or "") + " " + (result.stdout or "")
-            if not _adopt_helm_resource_if_conflict(
-                err_msg,
-                release["name"],
-                release["namespace"],
-                context=effective_context,
-            ):
-                break
-            result = runtime._run_cmd(helm_cmd, check=False, capture=True)
+    return result
 
-        if result.returncode != 0:
-            err_details = (result.stderr or result.stdout or "").strip()
-            print_error(f"Failed to install {release['name']}: {err_details}", prefix=False)
-        else:
-            print_success(f"{release['name']} installed")
 
-    # 6. Auto-configure monitoring URLs & port forwarding
-    write_stdout("\n")
-    print_success(f"Kubernetes stack ({stack}) deployed.")
-    write_stdout("\n")
-    net.port_forward(stack=stack, context=effective_context)
-    write_stdout("\n")
+def _install_single_release(
+    release: dict[str, str],
+    effective_context: str | None,
+    helm_ctx: list[str],
+    wait: bool,
+    timeout: str,
+) -> None:
+    """Install or upgrade a single Helm release with conflict adoption retries."""
+    if release["name"] == "qdrant":
+        qdrant_key = _ensure_qdrant_api_key_secret(
+            context=effective_context, namespace=release["namespace"]
+        )
+        if not qdrant_key:
+            print_error(
+                f"Failed to ensure Qdrant API key secret in namespace '{release['namespace']}'. Aborting deployment.",
+                prefix=False,
+            )
+            raise typer.Exit(1)
+    print_info(f"[bold]Installing {release['name']}...[/bold]", prefix=False)
+    helm_cmd = _build_helm_upgrade_cmd(release, helm_ctx, wait, timeout)
+    result = _run_helm_with_adoption_retries(helm_cmd, release, effective_context)
+    if result.returncode != 0:
+        err_details = (result.stderr or result.stdout or "").strip()
+        print_error(f"Failed to install {release['name']}: {err_details}", prefix=False)
+    else:
+        print_success(f"{release['name']} installed")
+
+
+def _post_deploy_networking(
+    stack: str,
+    effective_context: str | None,
+    port_forward: bool,
+    configure_urls: bool,
+) -> None:
+    """Handle optional port-forwarding and service URL configuration."""
+    if port_forward:
+        net.port_forward(
+            stack=stack,
+            context=effective_context,
+            update_config=configure_urls,
+        )
+    elif configure_urls:
+        net.configure_urls(stack=stack, context=effective_context)
+
+
+def _post_deploy_credentials(
+    selected_stacks: Sequence[str],
+    effective_context: str | None,
+) -> None:
+    """Sync credentials to OS Keyring and display service endpoints."""
     if "infra" in selected_stacks:
         from devops_cli.k8s.credentials import sync_k8s_credentials
 
@@ -608,6 +580,103 @@ def deploy_stack(
             prefix=False,
         )
         print_info("[dim]Valkey Cache: localhost:6379 (namespace: llm)[/dim]", prefix=False)
+
+
+def deploy_stack(
+    k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
+    stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help=HELP.options.context)
+    ] = None,
+    wait: Annotated[
+        bool,
+        typer.Option(
+            "--wait/--no-wait",
+            help="Wait for Helm releases and workloads to become ready before returning.",
+        ),
+    ] = True,
+    timeout: Annotated[
+        str,
+        typer.Option("--timeout", "-t", help="Timeout for Helm operations when waiting."),
+    ] = "10m",
+    port_forward: Annotated[
+        bool,
+        typer.Option(
+            "--port-forward/--no-port-forward",
+            help=HELP.k8s.port_forward_flag,
+        ),
+    ] = False,
+    configure_urls: Annotated[
+        bool,
+        typer.Option(
+            "--configure-urls/--no-configure-urls",
+            help=HELP.k8s.configure_urls_flag,
+        ),
+    ] = False,
+) -> None:
+    """Deploy infrastructure or LLM stack (Ollama, WebUI, Qdrant, Valkey) to Kubernetes."""
+    effective_context = runtime.resolve_effective_context(context)
+    if effective_context:
+        runtime._validate_kubeconfig_context_name(effective_context, "context")
+
+    selected_stacks = net._resolve_stacks(stack)
+
+    all_releases: list[dict[str, str]] = []
+    all_manifests: list[str] = []
+    for s_name in selected_stacks:
+        all_releases.extend(_HELM_RELEASES_BY_STACK.get(s_name, []))
+        all_manifests.extend([str(p) for p in _MANIFESTS_BY_STACK.get(s_name, [])])
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops k8s deploy-stack",
+            target=str(k8s_dir),
+            action="deploy_k8s_stack",
+            details={
+                "kustomize_dir": str(k8s_dir),
+                "stack": stack,
+                "stacks": selected_stacks,
+                "context": effective_context,
+                "wait": wait,
+                "timeout": timeout,
+                "port_forward": port_forward,
+                "configure_urls": configure_urls,
+                "helm_releases": [r["name"] for r in all_releases],
+                "manifests": all_manifests,
+            },
+        )
+        return
+
+    # 1. Verify cluster reachability
+    if not runtime._cluster_reachable(context=effective_context):
+        print_error(MESSAGES.k8s.cluster_not_reachable, prefix=False)
+        if not effective_context or effective_context.strip().lower() == "minikube":
+            print_info(MESSAGES.k8s.start_minikube_tip, prefix=False)
+        raise typer.Exit(1)
+
+    kubectl_ctx = ["--context", effective_context] if effective_context else []
+    helm_ctx = ["--kube-context", effective_context] if effective_context else []
+
+    # 2. Apply kustomize base (namespaces)
+    print_info("[bold]Applying namespaces...[/bold]", prefix=False)
+    runtime._run_cmd(["kubectl", "apply", "-k", str(k8s_dir)] + kubectl_ctx)
+
+    # 3. Add Helm repos for selected stacks
+    _deploy_helm_repos(selected_stacks)
+
+    # 4. Install native manifests
+    _apply_manifest_files(all_manifests, kubectl_ctx)
+
+    # 5. Install Helm releases
+    for release in all_releases:
+        _install_single_release(release, effective_context, helm_ctx, wait, timeout)
+
+    # 6. Post-deployment networking & credentials
+    write_stdout("\n")
+    print_success(f"Kubernetes stack ({stack}) deployed.")
+    write_stdout("\n")
+    _post_deploy_networking(stack, effective_context, port_forward, configure_urls)
+    _post_deploy_credentials(selected_stacks, effective_context)
 
 
 def sync_secrets(

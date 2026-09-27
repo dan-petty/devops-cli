@@ -651,10 +651,20 @@ def test_k8s_service_url_helpers() -> None:
     assert _resolve_accessible_url(None) is None
     with patch("devops_cli.commands.k8s._verify_url_reachability", return_value=True):
         assert (
+            _resolve_accessible_url("http://192.0.2.49:3000", preferred_localhost_ports=[3000]),
+            _resolve_accessible_url("http://192.0.2.49:3000"),
+        ) == (
+            "http://192.0.2.49:3000",
+            "http://192.0.2.49:3000",
+        )
+    with patch(
+        "devops_cli.commands.k8s._verify_url_reachability",
+        side_effect=lambda url: "localhost" in url or "127.0.0.1" in url,
+    ):
+        assert (
             _resolve_accessible_url("http://192.0.2.49:3000", preferred_localhost_ports=[3000])
             == "http://localhost:3000"
         )
-        assert _resolve_accessible_url("http://192.0.2.49:3000") == "http://192.0.2.49:3000"
 
 
 def test_k8s_bootstrap_openwebui() -> None:
