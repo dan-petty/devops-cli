@@ -222,20 +222,31 @@ class TestK8sLLMGatewayManifests:
         assert (
             sorted(pool),
             all(m["model_info"]["max_input_tokens"] < windows[base] for base, m in pool.items()),
+            pool[DEFAULT_VLLM_CLUSTER_URL]["model_info"]["max_input_tokens"],
+            pool[f"{_ollama_pod_urls()[2]}/v1"]["model_info"]["max_input_tokens"],
         ) == (
             sorted(windows),
             True,
+            61440,
+            43904,
         )
 
     def test_gateway_review_pool_weights_backends_by_throughput_without_caps(self) -> None:
         """Verify devops-review shares requests across inference backends and caps no deployment."""
         deployments = _deployments("devops-review")
+        weights = {
+            m["litellm_params"]["api_base"]: m["litellm_params"].get("weight") for m in deployments
+        }
         assert (
             [m["litellm_params"].get("max_parallel_requests") for m in deployments],
-            all(m["litellm_params"].get("weight") is not None for m in deployments),
+            weights[DEFAULT_VLLM_CLUSTER_URL] > weights[f"{_ollama_pod_urls()[2]}/v1"],
+            weights[DEFAULT_VLLM_CLUSTER_URL],
+            weights[f"{_ollama_pod_urls()[2]}/v1"],
         ) == (
             [None] * len(deployments),
             True,
+            5,
+            1,
         )
 
     def test_gateway_lists_one_deployment_per_ollama_pod(self) -> None:
@@ -350,7 +361,7 @@ class TestK8sLLMGatewayManifests:
         )
 
     def test_vllm_deployment_serves_qwen_coder_with_tensor_parallelism(self) -> None:
-        """Verify the dual-GPU profile serves Qwen3-Coder-30B AWQ at TP=2 with 32K context."""
+        """Verify the dual-GPU profile serves Qwen3-Coder-30B AWQ at TP=2 with 64K context."""
         dep = _load_kind(VLLM_DIR / "deployment.yaml", "Deployment")
         container = _vllm_container(dep)
         args = container["args"]
@@ -374,9 +385,9 @@ class TestK8sLLMGatewayManifests:
             DEFAULT_VLLM_MODEL,
             DEFAULT_VLLM_SERVED_MODEL_NAME,
             "2",
-            "32768",
-            "0.85",
-            "32",
+            "65536",
+            "0.95",
+            "64",
             False,
             "2",
             "48Gi",
