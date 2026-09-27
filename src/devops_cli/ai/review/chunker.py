@@ -75,6 +75,69 @@ def number_diff_lines(diff: str) -> str:
     return "".join(numbered)
 
 
+def _parse_hunk_header_range(line: str) -> tuple[int, int] | None:
+    """Parse (start, end) line range from diff @@ hunk header."""
+    match = _HUNK_HEADER.match(line)
+    if not match:
+        return None
+    start = int(match.group(2))
+    count_str = match.group(3)
+    count = int(count_str) if count_str is not None else 1
+    end = start if count == 0 else start + count - 1
+    return start, end
+
+
+def extract_diff_hunks(diff_text: str) -> list[tuple[int, int]]:
+    """Extract (start_line, end_line) ranges in the head file from unified diff hunk headers."""
+    hunks: list[tuple[int, int]] = []
+    for line in diff_text.splitlines():
+        hunk_range = _parse_hunk_header_range(line)
+        if hunk_range is not None:
+            hunks.append(hunk_range)
+    return hunks
+
+
+def _parse_diff_header_filename(line: str) -> str | None:
+    """Parse target file path from diff --git or ### File: line."""
+    if line.startswith("diff --git "):
+        parts = line.split()
+        if len(parts) >= 4:
+            return parts[3].removeprefix("b/")
+    elif line.startswith("### File: "):
+        fname = line.removeprefix("### File: ").split(" (part ", 1)[0].strip()
+        if fname:
+            return fname
+    return None
+
+
+def _process_diff_segment_lines(
+    segment: str,
+    current_file: str | None,
+    file_hunks: dict[str, list[tuple[int, int]]],
+) -> str | None:
+    """Process lines in a single diff segment, appending hunk ranges."""
+    for line in segment.splitlines():
+        parsed_fn = _parse_diff_header_filename(line)
+        if parsed_fn:
+            current_file = parsed_fn
+            file_hunks.setdefault(current_file, [])
+            continue
+        if current_file is not None:
+            hunk_range = _parse_hunk_header_range(line)
+            if hunk_range is not None:
+                file_hunks[current_file].append(hunk_range)
+    return current_file
+
+
+def extract_file_diff_hunks(segments: Iterable[str]) -> dict[str, list[tuple[int, int]]]:
+    """Map file paths to lists of (start_line, end_line) diff hunks across diff segments."""
+    file_hunks: dict[str, list[tuple[int, int]]] = {}
+    current_file: str | None = None
+    for segment in segments:
+        current_file = _process_diff_segment_lines(segment, current_file, file_hunks)
+    return file_hunks
+
+
 def strip_line_numbers(text: str) -> str:
     """Remove the line-number column that review pages carry."""
     return _LINE_NUMBER_COLUMN.sub("", text)
@@ -474,6 +537,8 @@ def find_repo_files(
 __all__ = [
     "diff_pages",
     "diff_stream_chunks",
+    "extract_diff_hunks",
+    "extract_file_diff_hunks",
     "find_repo_files",
     "number_diff_lines",
     "number_source_lines",

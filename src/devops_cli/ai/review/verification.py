@@ -9,7 +9,7 @@ import logging
 import re
 from collections.abc import Sequence
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from devops_cli.ai.client.network import limit_completion_tokens
@@ -579,10 +579,10 @@ def _drop_out_of_range_lines(finding: Finding, file_path: Path) -> Finding:
         return finding
     if target_line <= max(1, total_lines):
         return finding
-    logger.debug(
-        "Dropping line %d past the end of %s (%d lines)", target_line, file_path, total_lines
-    )
-    return finding.model_copy(update={"location": finding.location.split(":", 1)[0]})
+    updates: dict[str, Any] = {"location": finding.location.split(":", 1)[0]}
+    if finding.relocated_from is None:
+        updates["relocated_from"] = finding.location
+    return finding.model_copy(update=updates)
 
 
 def _check_pathlib_resolve_hallucination(finding: Finding) -> Finding | None:
@@ -1099,17 +1099,11 @@ def _check_verdict_polarity_hallucination(finding: Finding) -> Finding | None:
     return None
 
 
-def _deterministic_pre_verification(
-    finding: Finding,
-    repo_root: Path | None = None,
-    target_dir: Path | None = None,
-    dependencies: Sequence[Any] | None = None,
-    **kwargs: Any,
-) -> Finding:
-    """Run local deterministic parser, line boundary, and hallucination checks to invalidate obvious false positives."""
+def _check_early_hallucinations(
+    finding: Finding, dependencies: Sequence[Any] | None
+) -> Finding | None:
     title_lower = finding.title.lower()
     desc_lower = (finding.description or "").lower()
-
     early_results = [
         _check_verdict_polarity_hallucination(finding),
         _check_pathlib_resolve_hallucination(finding),
@@ -1123,22 +1117,23 @@ def _deterministic_pre_verification(
     for res in early_results:
         if res:
             return res
+    return None
 
-    loc_file = finding.location.split(":")[0].strip()
-    if not loc_file or _is_secret_path(loc_file):
-        return finding
 
-    effective_root = repo_root or target_dir
-    file_path = _resolve_target_file(loc_file, effective_root)
-    if file_path is None:
-        return finding
-
+def _run_file_level_deterministic_checks(
+    finding: Finding,
+    file_path: Path,
+    effective_root: Path | None,
+    removed_symbols: set[str] | None,
+    diff_hunks: list[tuple[int, int]] | None,
+) -> Finding:
     finding = _drop_out_of_range_lines(finding, file_path)
-    code_res = _check_code_file_hallucinations(finding, file_path)
-    if code_res:
+    if code_res := _check_code_file_hallucinations(finding, file_path):
         return code_res
 
-    finding = validate_construct_location(finding, file_path)
+    finding = validate_construct_location(
+        finding, file_path, removed_symbols=removed_symbols, diff_hunks=diff_hunks
+    )
     if finding.status in {"INVALIDATED", "MITIGATED"}:
         return finding
 
@@ -1152,6 +1147,34 @@ def _deterministic_pre_verification(
         finding = execute_finding_criteria(finding, effective_root)
 
     return finding
+
+
+def _deterministic_pre_verification(
+    finding: Finding,
+    repo_root: Path | None = None,
+    target_dir: Path | None = None,
+    dependencies: Sequence[Any] | None = None,
+    removed_symbols: set[str] | None = None,
+    diff_hunks: list[tuple[int, int]] | None = None,
+    **kwargs: Any,
+) -> Finding:
+    """Run local deterministic parser, line boundary, and hallucination checks to invalidate obvious false positives."""
+    early_res = _check_early_hallucinations(finding, dependencies)
+    if early_res:
+        return early_res
+
+    loc_file = finding.location.split(":")[0].strip()
+    if not loc_file or _is_secret_path(loc_file):
+        return finding
+
+    effective_root = repo_root or target_dir
+    file_path = _resolve_target_file(loc_file, effective_root)
+    if file_path is None:
+        return finding
+
+    return _run_file_level_deterministic_checks(
+        finding, file_path, effective_root, removed_symbols, diff_hunks
+    )
 
 
 _NO_VALUES = frozenset({"", "none", "null", "n/a", "na", "[]", "-"})
@@ -1575,6 +1598,116 @@ def _verification_reply_cap(finding_count: int) -> int:
     )
 
 
+def _extract_removed_symbols_for_file(
+    loc_file: str, analysis_metas: dict[str, Any] | None
+) -> set[str]:
+    """Retrieve set of removed symbols for a file from analysis metadata."""
+    if not analysis_metas or not loc_file:
+        return set()
+    meta = analysis_metas.get(loc_file)
+    if meta is None:
+        loc_pure = PurePosixPath(loc_file)
+        for path_key, m in analysis_metas.items():
+            if PurePosixPath(path_key).name == loc_pure.name:
+                meta = m
+                break
+    if meta is None:
+        return set()
+    removed = getattr(meta, "symbols_removed", None)
+    if isinstance(removed, list):
+        return set(removed)
+    if isinstance(meta, dict):
+        return set(meta.get("symbols_removed") or [])
+    return set()
+
+
+def _extract_diff_hunks_for_file(
+    loc_file: str,
+    file_hunks: dict[str, list[tuple[int, int]]],
+    all_hunks: list[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    """Retrieve diff hunk ranges for a cited file."""
+    if not loc_file:
+        return all_hunks
+    if loc_file in file_hunks:
+        return file_hunks[loc_file]
+    loc_pure = PurePosixPath(loc_file)
+    for path_key, hunks in file_hunks.items():
+        if PurePosixPath(path_key).name == loc_pure.name:
+            return hunks
+    return all_hunks
+
+
+def _run_deterministic_pre_verification_on_findings(
+    findings: list[Finding],
+    repo_root: Path | None,
+    dependencies: Sequence[Any] | None,
+    analysis_metas: dict[str, Any] | None,
+    all_segments: list[str],
+) -> list[Finding]:
+    """Apply deterministic pre-verification with removed symbol detection and diff hunk re-anchoring."""
+    from devops_cli.ai.review.chunker import extract_diff_hunks, extract_file_diff_hunks
+
+    file_hunks = extract_file_diff_hunks(all_segments)
+    all_hunks = extract_diff_hunks("\n".join(all_segments))
+    return [
+        _deterministic_pre_verification(
+            f,
+            repo_root=repo_root,
+            dependencies=dependencies,
+            removed_symbols=_extract_removed_symbols_for_file(
+                f.location.split(":")[0].strip(), analysis_metas
+            ),
+            diff_hunks=_extract_diff_hunks_for_file(
+                f.location.split(":")[0].strip(), file_hunks, all_hunks
+            ),
+        )
+        for f in findings
+    ]
+
+
+def _apply_bound_verdicts_to_findings(
+    findings: list[Finding],
+    bound: dict[int, dict[str, Any]],
+    repo_root: Path | None,
+) -> list[Finding]:
+    """Apply bound verification verdicts to findings in order."""
+    now_iso = datetime.now().isoformat()
+    validated: list[Finding] = []
+    unresolved_idx = 0
+    for f in findings:
+        if f.status != "UNVERIFIED" or f.verification_note == "cites removed symbol":
+            validated.append(f)
+            continue
+        item = bound.get(unresolved_idx)
+        unresolved_idx += 1
+        validated.append(_apply_single_finding_verification(f, item, now_iso, repo_root=repo_root))
+    return validated
+
+
+def _parse_verifier_payload(response: str) -> list[Any] | None:
+    """Parse JSON block from verifier model reply."""
+    data = extract_json_block(response)
+    if isinstance(data, dict):
+        if "findings" in data and isinstance(data["findings"], list):
+            data = data["findings"]
+        elif "items" in data and isinstance(data["items"], list):
+            data = data["items"]
+    return data if isinstance(data, list) and data else None
+
+
+def _mark_degraded_findings(findings: list[Finding], exc: Exception) -> list[Finding]:
+    """Annotate unverified findings with unavailable reason when verifier fails."""
+    logger.warning("Verification did not complete: %s: %s", type(exc).__name__, exc)
+    reason = f"{CONST_VERIFICATION_UNAVAILABLE}: {type(exc).__name__}"
+    return [
+        f.model_copy(update={"verification_note": reason})
+        if f.status == "UNVERIFIED" and not f.verification_note
+        else f
+        for f in findings
+    ]
+
+
 def _validate_segment_findings(
     result: ReviewResult,
     all_segments: list[str],
@@ -1588,20 +1721,24 @@ def _validate_segment_findings(
     if not result.findings:
         return result, None, None
 
-    # Apply deterministic static rules first
-    pre_validated_findings = [
-        _deterministic_pre_verification(
-            f, repo_root=repo_root, dependencies=result.external_dependencies
-        )
-        for f in result.findings
-    ]
+    if analysis_metas is None and repo_root is not None:
+        from devops_cli.ai.analyze.cache import _load_file_analysis_metas
+
+        analysis_metas = _load_file_analysis_metas(None, repo_root=repo_root)
+
+    pre_validated_findings = _run_deterministic_pre_verification_on_findings(
+        result.findings, repo_root, result.external_dependencies, analysis_metas, all_segments
+    )
     result = result.model_copy(update={"findings": pre_validated_findings})
 
-    # Enforce structural positional enumeration on unresolved candidate findings
     unresolved_findings = [
         f.model_copy(update={"finding_id": i}) if f.finding_id is None else f
         for i, f in enumerate(
-            (f for f in pre_validated_findings if f.status == "UNVERIFIED"),
+            (
+                f
+                for f in pre_validated_findings
+                if f.status == "UNVERIFIED" and f.verification_note != "cites removed symbol"
+            ),
             start=1,
         )
     ]
@@ -1618,49 +1755,18 @@ def _validate_segment_findings(
     proc_sec: float | None = None
     b_info: str | None = None
     try:
-        # Uncapped, one runaway reply held a review for over ten minutes.
         with limit_completion_tokens(_verification_reply_cap(len(unresolved_findings))):
             res_obj = client.chat(
                 system=_VALIDATION_SYSTEM, user=prompt, enable_thinking=enable_thinking
             )
-        response = str(res_obj)
         proc_sec = getattr(res_obj, "processing_seconds", None)
         b_info = getattr(res_obj, "backend_info", None)
-        data = extract_json_block(response)
-
-        if isinstance(data, dict):
-            if "findings" in data and isinstance(data["findings"], list):
-                data = data["findings"]
-            elif "items" in data and isinstance(data["items"], list):
-                data = data["items"]
-
-        if isinstance(data, list) and data:
+        if data := _parse_verifier_payload(str(res_obj)):
             bound = _bind_verdicts_to_findings(unresolved_findings, data)
-            validated: list[Finding] = []
-            now_iso = datetime.now().isoformat()
-            unresolved_idx = 0
-            for f in result.findings:
-                if f.status != "UNVERIFIED":
-                    validated.append(f)
-                    continue
-                item = bound.get(unresolved_idx)
-                unresolved_idx += 1
-                validated.append(
-                    _apply_single_finding_verification(f, item, now_iso, repo_root=repo_root)
-                )
+            validated = _apply_bound_verdicts_to_findings(result.findings, bound, repo_root)
             return result.model_copy(update={"findings": validated}), proc_sec, b_info
     except Exception as exc:
-        # An infrastructure failure, a malformed response and a genuine refusal to verify
-        # all produced the same page of `*(unverified)*` findings, so a reader could not
-        # tell whether the verifier disagreed or never ran. The reason is recorded on the
-        # findings themselves rather than on `ReviewResult`, which is parsed straight from
-        # model output -- a field there would let a model write its own outage banner.
-        logger.warning("Verification did not complete: %s: %s", type(exc).__name__, exc)
-        reason = f"{CONST_VERIFICATION_UNAVAILABLE}: {type(exc).__name__}"
-        degraded = [
-            f.model_copy(update={"verification_note": reason}) if f.status == "UNVERIFIED" else f
-            for f in result.findings
-        ]
+        degraded = _mark_degraded_findings(result.findings, exc)
         return result.model_copy(update={"findings": degraded}), proc_sec, b_info
     return result, proc_sec, b_info
 

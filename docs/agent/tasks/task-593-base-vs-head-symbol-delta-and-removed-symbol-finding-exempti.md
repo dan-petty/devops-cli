@@ -1,7 +1,7 @@
 # Task 593: Base-vs-Head Symbol Delta and Removed-Symbol Finding Exemption in Reviews
 
 **Issue**: [#593](https://github.com/dan-petty/devops-cli/issues/593)
-**Status**: Backlog
+**Status**: In Progress
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/review`, `priority/p1-high`
@@ -18,6 +18,27 @@ devops-cli measures structure at one revision only: per-function complexity in `
 - Constraint*: The vibes vector as specified is blind here: its two logarithmic dimensions dominate the unit vector and the five per-line ratios stay at or below 0.045, so every measured pair, unrelated modules included, scored PRESERVED. A gate on it would certify a rewrite as a refactor, worse than no gate. No scalar score, threshold, persona routing or auto-apply verdict ships in this task; any score needs its own task and a labelled corpus. The exemption must stay narrow: a symbol absent from both base and head still goes through invalidation.
 - Measured*: vibes `EmbeddingDriftAuditor` on `git show` extracts (`python3 probe_vectors.py`): `commands/devcontainer.py` at `b7f2a2e7^` against unrelated `ai/gateway.py` at `bc510aac`, no symbol shared, scored `D_C = 0.004639`, PRESERVED; the real devcontainer change to `bc510aac` scored `D_C = 0.000024`; ln(1+lines) was `0.81–0.86` of every unit vector. lizard `analyze_source_code` on the same devcontainer pair (`python3 -c` over both extracts): functions above CCN 10 went from `10` to `11`.
 - Source*: vibes `examples/valkey-l2-repomap-cache/README.md`, `examples/valkey-l2-repomap-cache/repomap_cache.py`, `examples/valkey-l2-repomap-cache/test_repomap_cache.py`, `observations/systems/04-content-addressed-two-tier-caching-and-embedding-drift-audits.md`
-- Unit and integration test coverage with structural tuple equality assertions.
-- Maintain cyclomatic complexity $M \le 10$ and nesting depth $\le 5$.
-- 100% passing across Gated CI validation suite (`uv run devops ci`).
+
+---
+
+## 2. Implementation Progress & Checklist
+
+### Part 1: Base-vs-Head Symbol Delta & Removed-Symbol Finding Exemption (Delivered)
+- [x] Create in-memory AST symbol extractor & delta calculator `compute_symbol_delta` in `src/devops_cli/ai/analyze/symbols.py`.
+- [x] Extend `FileAnalysisMeta` schema with `symbols_added`, `symbols_removed`, and `symbols_retained` in `src/devops_cli/models/ai.py`.
+- [x] Extend `ReviewSessionPayload` with `removed_symbol_findings_count` and `symbol_delta_summary` in `src/devops_cli/ai/review_schema.py`.
+- [x] Integrate git base show and symbol delta calculation into `_process_single_branch_file_meta` (`src/devops_cli/commands/analyze.py`) without disk writes or secondary git walks.
+- [x] Implement diff hunk extraction (`extract_diff_hunks`, `extract_file_diff_hunks`) in `src/devops_cli/ai/review/chunker.py`.
+- [x] Add removed-symbol candidate detection, exemption, and nearest diff hunk re-anchoring in `src/devops_cli/ai/review/construct_validator.py`.
+- [x] Enforce narrow exemption invariant: constructs absent from both base and head are strictly invalidated.
+- [x] Thread removed symbols and diff hunks through `_run_deterministic_pre_verification_on_findings` into `_deterministic_pre_verification` in `src/devops_cli/ai/review/verification.py`.
+- [x] Surface symbol delta summary and removed-symbol finding counts in review markdown report and console table (`src/devops_cli/ai/review/pipeline.py` and `src/devops_cli/ai/review/runner.py`).
+- [x] Comprehensive unit and integration test coverage with structural tuple equality assertions in `tests/test_analyze.py` and `tests/test_construct_aware_location.py`.
+- [x] All 10 Gated CI checks passing (`uv run devops ci`).
+
+### Part 2: Per-Function Complexity Delta Before & After (Pending)
+- [ ] Per-function complexity before and after through a content-taking entry to `security/complexity.py`.
+- [ ] Library backend evaluation (lizard text analysis).
+
+### Part 3: PR Reviews Integration (Pending)
+- [ ] PR reviews fetching `pull.base.sha` and `pull.head.sha` for symbol delta computation.

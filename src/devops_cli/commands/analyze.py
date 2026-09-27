@@ -133,6 +133,88 @@ def _process_single_repo_file_meta(
         return None
 
 
+def _fetch_git_file_content(repo: Path, revision: str, rel_path: str) -> str | None:
+    """Fetch content of a file at a specific git revision using git show."""
+    try:
+        from devops_cli.core.process import run_subprocess
+
+        proc = run_subprocess(["git", "show", f"{revision}:{rel_path}"], cwd=repo)
+        if proc.returncode == 0:
+            return proc.stdout
+    except Exception:
+        pass
+    return None
+
+
+def _apply_symbol_delta_to_meta(
+    meta: FileAnalysisMeta,
+    repo: Path,
+    base: str | None,
+    rel_path: str,
+    head_content: str | None,
+    change_type: str,
+) -> FileAnalysisMeta:
+    """Compute and attach base-vs-head symbol delta to file analysis metadata."""
+    if not (rel_path.endswith(".py") or rel_path.endswith(".pyi")):
+        return meta
+    from devops_cli.ai.analyze.symbols import compute_symbol_delta
+
+    base_content = (
+        _fetch_git_file_content(repo, base, rel_path) if base and change_type != "added" else None
+    )
+    added, removed, retained = compute_symbol_delta(base_content, head_content)
+    return meta.model_copy(
+        update={
+            "symbols_added": added,
+            "symbols_removed": removed,
+            "symbols_retained": retained,
+        }
+    )
+
+
+def _handle_deleted_branch_file(rel_path: str, repo: Path, base: str | None) -> FileAnalysisMeta:
+    """Create analysis metadata for a deleted file and compute removed symbols."""
+    meta = _create_deleted_file_meta(rel_path)
+    return _apply_symbol_delta_to_meta(meta, repo, base, rel_path, None, "deleted")
+
+
+def _is_branch_file_inspectable(file_path: Path, repo: Path) -> bool:
+    """Check if branch file is within repo boundary and under size limit."""
+    try:
+        resolved = file_path.resolve()
+        if not resolved.is_relative_to(repo.resolve()):
+            return False
+        return file_path.stat().st_size <= CONST_MAX_FILE_SIZE_BYTES
+    except Exception:
+        return False
+
+
+def _try_reuse_branch_file_meta(
+    file_path: Path,
+    rel_path: str,
+    enhanced: bool,
+    existing_file_metas: dict[str, FileAnalysisMeta],
+    repo: Path,
+    base: str | None,
+    change_type: str,
+) -> FileAnalysisMeta | None:
+    """Try reusing cached branch file analysis meta, backfilling delta if missing."""
+    if not (enhanced and rel_path in existing_file_metas):
+        return None
+    try:
+        mtime = datetime.fromtimestamp(file_path.stat().st_mtime, UTC)
+        reused = _try_reuse_cached_file_meta(existing_file_metas[rel_path], mtime)
+        if reused is None:
+            return None
+        has_delta = bool(reused.symbols_added or reused.symbols_removed or reused.symbols_retained)
+        if base and not has_delta:
+            content = file_path.read_text(encoding="utf-8", errors="replace")
+            return _apply_symbol_delta_to_meta(reused, repo, base, rel_path, content, change_type)
+        return reused
+    except Exception:
+        return None
+
+
 def _process_single_branch_file_meta(
     file_path: Path,
     rel_path: str,
@@ -141,26 +223,25 @@ def _process_single_branch_file_meta(
     existing_file_metas: dict[str, FileAnalysisMeta],
     repo: Path,
     ai_client: LLMClient | None,
+    base: str | None = None,
 ) -> FileAnalysisMeta | None:
     """Analyze a single file for branch diff analysis."""
     if change_type == "deleted" or not file_path.exists():
-        return _create_deleted_file_meta(rel_path)
+        return _handle_deleted_branch_file(rel_path, repo, base)
+    if not _is_branch_file_inspectable(file_path, repo):
+        return None
+
+    reused = _try_reuse_branch_file_meta(
+        file_path, rel_path, enhanced, existing_file_metas, repo, base, change_type
+    )
+    if reused is not None:
+        return reused
 
     try:
-        if not file_path.resolve().is_relative_to(repo.resolve()):
-            return None
-        if file_path.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
-            return None
-        file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime, UTC)
-        if enhanced and rel_path in existing_file_metas:
-            reused = _try_reuse_cached_file_meta(existing_file_metas[rel_path], file_mtime)
-            if reused is not None:
-                return reused
-
         content = file_path.read_text(encoding="utf-8", errors="replace")
         from devops_cli.ai.analyze.outlines import analyze_single_file
 
-        return analyze_single_file(
+        meta = analyze_single_file(
             rel_path,
             content,
             file_path.stat().st_size,
@@ -169,6 +250,9 @@ def _process_single_branch_file_meta(
             repo_root=repo,
             ai_client=ai_client,
         )
+        if meta is not None and base:
+            return _apply_symbol_delta_to_meta(meta, repo, base, rel_path, content, change_type)
+        return meta
     except Exception:
         return None
 
@@ -386,6 +470,7 @@ def analyze_branch(
                 existing_file_metas,
                 repo,
                 ai_client,
+                base=base,
             )
             if meta is not None:
                 file_metas.append(meta)

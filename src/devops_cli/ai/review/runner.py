@@ -409,10 +409,22 @@ def _save_segments(pages: list[str], session_dir: Path) -> None:
         target.chmod(0o600)
 
 
+def _compute_delta_summary(analysis_metas: dict[str, FileAnalysisMeta] | None) -> dict[str, int]:
+    """Calculate symbol delta counts from analysis metadata."""
+    if not analysis_metas:
+        return {}
+    return {
+        "added": sum(len(m.symbols_added) for m in analysis_metas.values()),
+        "removed": sum(len(m.symbols_removed) for m in analysis_metas.values()),
+        "retained": sum(len(m.symbols_retained) for m in analysis_metas.values()),
+    }
+
+
 def _save_findings_json(
     completed: list[tuple[PersonaDefinition, ReviewResult | str]],
     session_dir: Path,
     show_status: bool = False,
+    analysis_metas: dict[str, FileAnalysisMeta] | None = None,
 ) -> bool:
     target = session_dir / "findings.json"
     findings: list[SavedFinding] = []
@@ -430,10 +442,14 @@ def _save_findings_json(
             )
     findings = consolidate_duplicate_findings(findings)
     assert_verdict_invariants(findings)
+    removed_count = sum(1 for f in findings if f.verification_note == "cites removed symbol")
+    delta_summary = _compute_delta_summary(analysis_metas)
     payload = ReviewSessionPayload(
         generated_at=datetime.now().isoformat(),
         personas=[pd.name for pd, _ in completed],
         findings=findings,
+        removed_symbol_findings_count=removed_count,
+        symbol_delta_summary=delta_summary,
     )
 
     try:
@@ -627,6 +643,48 @@ def _save_persona_review(
     return dest
 
 
+def _format_analysis_summary_lines(
+    analysis_metas: dict[str, FileAnalysisMeta],
+    completed: list[tuple[PersonaDefinition, ReviewResult | str]],
+) -> list[str]:
+    """Format markdown analysis metadata section with symbol delta and removed symbols."""
+    lines = [
+        "## Analysis Metadata\n",
+        f"**Files analyzed:** {len(analysis_metas)}  \n",
+    ]
+    delta_summary = _compute_delta_summary(analysis_metas)
+    if any(delta_summary.values()):
+        lines.append(
+            f"**Symbol Delta:** +{delta_summary.get('added', 0)} / -{delta_summary.get('removed', 0)} / ={delta_summary.get('retained', 0)}  \n"
+        )
+    removed_count = sum(
+        1
+        for _, rev in completed
+        if isinstance(rev, ReviewResult)
+        for f in rev.findings
+        if f.verification_note == "cites removed symbol"
+    )
+    if removed_count > 0:
+        lines.append(f"**Removed-Symbol Findings:** {removed_count} cited removed symbol(s)  \n")
+    lines.append("### File Summaries\n")
+    for path, fmeta in analysis_metas.items():
+        lines.append(
+            f"**{path}** — purpose: {fmeta.primary_purpose}"
+            f"{', complexity: ' + fmeta.complexity_score if fmeta.complexity_score else ''}"
+        )
+        if fmeta.key_symbols:
+            lines.append(f"> Symbols: {', '.join(fmeta.key_symbols[:10])}")
+    lines.append("| File Path | Language | Purpose | Complexity |")
+    lines.append("|---|---|---|---|")
+    for path, fmeta in analysis_metas.items():
+        clean_p = path.replace("|", "\\|").replace("\n", " ").strip()
+        clean_purp = (fmeta.primary_purpose or "—").replace("|", "\\|").replace("\n", " ").strip()
+        clean_comp = (fmeta.complexity_score or "—").replace("|", "\\|").replace("\n", " ").strip()
+        lines.append(f"| `{clean_p}` | {fmeta.language} | {clean_purp} | {clean_comp} |")
+    lines.append("")
+    return lines
+
+
 def _write_summary(
     title: str,
     session_dir: Path,
@@ -636,7 +694,7 @@ def _write_summary(
 ) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     if completed:
-        _save_findings_json(completed, session_dir, show_status=True)
+        _save_findings_json(completed, session_dir, show_status=True, analysis_metas=analysis_metas)
     lines: list[str] = [
         f"# Review: {title}",
         f"**Date:** {now}  ",
@@ -644,28 +702,7 @@ def _write_summary(
         f"**Session:** `{session_dir}`\n",
     ]
     if analysis_metas:
-        lines.append("## Analysis Metadata\n")
-        lines.append(f"**Files analyzed:** {len(analysis_metas)}  \n")
-        lines.append("### File Summaries\n")
-        for path, fmeta in analysis_metas.items():
-            lines.append(
-                f"**{path}** — purpose: {fmeta.primary_purpose}"
-                f"{', complexity: ' + fmeta.complexity_score if fmeta.complexity_score else ''}"
-            )
-            if fmeta.key_symbols:
-                lines.append(f"> Symbols: {', '.join(fmeta.key_symbols[:10])}")
-        lines.append("| File Path | Language | Purpose | Complexity |")
-        lines.append("|---|---|---|---|")
-        for path, fmeta in analysis_metas.items():
-            clean_p = path.replace("|", "\\|").replace("\n", " ").strip()
-            clean_purp = (
-                (fmeta.primary_purpose or "—").replace("|", "\\|").replace("\n", " ").strip()
-            )
-            clean_comp = (
-                (fmeta.complexity_score or "—").replace("|", "\\|").replace("\n", " ").strip()
-            )
-            lines.append(f"| `{clean_p}` | {fmeta.language} | {clean_purp} | {clean_comp} |")
-        lines.append("")
+        lines.extend(_format_analysis_summary_lines(analysis_metas, completed))
     if completed:
         lines.append("## Personas\n")
         lines.append("| Persona | Recommendation | Report |")
