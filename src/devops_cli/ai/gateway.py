@@ -20,18 +20,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.capability import validate_failover_capability
 from devops_cli.ai.client.models import credentials_error
-from devops_cli.ai.router import TaskComplexity
 from devops_cli.config.constants import (
     CONST_AI_BACKEND_LIGHTLLM,
     CONST_AI_BACKENDS,
-    CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_PROVIDER_LITELLM,
     CONST_AI_GATEWAY_PROVIDER_PORTKEY,
     CONST_AI_GATEWAY_PROVIDERS,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
-    CONST_TASK_TAXONOMY_CODER,
-    CONST_TASK_TAXONOMY_EMBEDDING,
-    CONST_TASK_TAXONOMY_REASONING,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
@@ -449,40 +444,6 @@ class GatewayRouter:
                 backend_counts=_count_backends(self._active_routes),
                 details=details,
             )
-
-    def resolve_model(
-        self,
-        task_name: str,
-        token_count: int = 0,
-        complexity: TaskComplexity | str = TaskComplexity.LOW,
-    ) -> tuple[str, str]:
-        """Resolve virtual model alias based on context tokens and task profile."""
-        norm_complexity = (
-            TaskComplexity(complexity)
-            if isinstance(complexity, str) and complexity in TaskComplexity
-            else TaskComplexity.LOW
-        )
-
-        if task_name in CONST_TASK_TAXONOMY_EMBEDDING:
-            return (CONST_AI_GATEWAY_PROVIDER, "devops-embedding")
-
-        is_reasoning_task = (
-            token_count >= 32768
-            or norm_complexity in (TaskComplexity.HIGH, TaskComplexity.FRONTIER)
-            or task_name in CONST_TASK_TAXONOMY_REASONING
-        )
-        if is_reasoning_task:
-            return (CONST_AI_GATEWAY_PROVIDER, "devops-reasoning")
-
-        is_coder_task = (
-            norm_complexity == TaskComplexity.MEDIUM
-            or task_name in CONST_TASK_TAXONOMY_CODER
-            or token_count > 4000
-        )
-        if is_coder_task:
-            return (CONST_AI_GATEWAY_PROVIDER, "devops-coder")
-
-        return (CONST_AI_GATEWAY_PROVIDER, "devops-chat")
 
     def trigger_failover(
         self,

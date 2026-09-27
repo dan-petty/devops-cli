@@ -43,7 +43,6 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_PREWARM_KEEP_ALIVE,
     DEFAULT_AI_TEST_PROMPT,
     DEFAULT_DIFF_CHUNK_BUDGET,
-    DEFAULT_ESTIMATED_PROMPT_TOKENS,
     DEFAULT_RAG_TOP_K,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TIKTOKEN_MODEL,
@@ -1326,53 +1325,6 @@ def token_count(
         border_style="cyan",
     )
     return report
-
-
-# =============================================================================
-# Command: devops ai route
-# =============================================================================
-
-
-@app.command("route")
-def route_task(
-    task: Annotated[str, typer.Argument(help=HELP.ai.cost_task)],
-    tokens: Annotated[
-        int, typer.Option("--tokens", "-t", help=HELP.ai.est_tokens)
-    ] = DEFAULT_ESTIMATED_PROMPT_TOKENS,
-    frontier: Annotated[bool, typer.Option("--frontier", "-f", help=HELP.options.frontier)] = False,
-    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
-) -> None:
-    """Evaluate task complexity and determine the optimal LLM provider and model route."""
-    from devops_cli.ai.router import LLMRouter
-    from devops_cli.config.settings import load_settings
-
-    settings = load_settings()
-    router = LLMRouter(config=settings.ai)
-    decision = router.route_task(
-        task_name=task,
-        token_count=tokens,
-        requires_frontier=frontier,
-    )
-
-    if json_output:
-        write_stdout(format_json(decision.model_dump()) + "\n")
-        return
-
-    rows = [
-        ["Task Name", decision.task_name],
-        ["Complexity Tier", str(decision.complexity).upper()],
-        ["Selected Provider", decision.provider_name],
-        ["Target Model", decision.model_name],
-        ["Est. Turn Cost (USD)", f"${decision.estimated_cost_usd:.4f}"],
-        ["Routing Rationale", decision.rationale],
-    ]
-
-    print_table(
-        title="AI Task Dynamic Routing Decision",
-        columns=[("Property", "bold"), "Value"],
-        rows=rows,
-        border_style="magenta",
-    )
 
 
 # =============================================================================
