@@ -164,6 +164,8 @@ def test_a_mitigated_finding_is_reported_with_its_mitigation() -> None:
     verdict = {
         "title": finding.title,
         "mitigated": True,
+        "mitigating_mechanism": "SymlinkCheck",
+        "perimeter_files": ["paths.py"],
         "reason": "Symlinks are rejected at line 31, which limits but does not stop `../`.",
     }
 

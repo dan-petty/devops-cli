@@ -365,10 +365,24 @@ def test_format_related_file_block(tmp_path: Path) -> None:
             0.95,
         ),
         (
-            # A mitigation that names its mechanism stays in the report beside it (#515).
-            {"mitigated": True, "verified": False, "reason": "Input is bounded at line 12."},
+            # A mitigation that names its mechanism and perimeter stays in the report beside it (#515, #587).
+            {
+                "mitigated": True,
+                "verified": False,
+                "reason": "Input is bounded at line 12.",
+                "mitigating_mechanism": "BoundedInputValidator",
+                "perimeter_files": ["src/validator.py"],
+            },
             "MITIGATED",
             True,
+            False,
+            None,
+        ),
+        (
+            # A mitigation missing mechanism and perimeter degrades to UNVERIFIED (reportable=False) (#587).
+            {"mitigated": True, "verified": False, "reason": "Input is bounded at line 12."},
+            "UNVERIFIED",
+            False,
             False,
             None,
         ),
@@ -413,12 +427,14 @@ def test_apply_single_finding_verification(
     now_iso = "2026-08-26T00:00:00"
 
     res = _apply_single_finding_verification(f, item, now_iso)
-    assert res.status == expected_status
-    assert res.reportable is expected_reportable
-    if item is not None:
-        assert res.verified is expected_verified
-    if expected_conf is not None:
-        assert res.confidence_score == expected_conf
+    actual_verified = res.verified if item is not None else expected_verified
+    actual_conf = res.confidence_score if expected_conf is not None else None
+    assert (res.status, res.reportable, actual_verified, actual_conf) == (
+        expected_status,
+        expected_reportable,
+        expected_verified,
+        expected_conf,
+    )
 
 
 def test_validate_segment_findings_and_merge() -> None:
@@ -1368,8 +1384,16 @@ def test_an_unadjudicated_finding_is_not_exported_as_human_reviewed() -> None:
         ({"status": "INVALIDATED", "reason": "The guard is on line 4."}, ("INVALIDATED", False)),
         ({"invalidated": "true", "citation_line": 4}, ("INVALIDATED", False)),
         ({"invalidated": "true"}, ("UNVERIFIED", True)),
-        ({"status": "MITIGATED"}, ("UNVERIFIED", True)),
-        ({"status": "MITIGATED", "reason": "Quota checked at line 40."}, ("MITIGATED", True)),
+        ({"status": "MITIGATED"}, ("UNVERIFIED", False)),
+        (
+            {
+                "status": "MITIGATED",
+                "reason": "Quota checked at line 40.",
+                "mitigating_mechanism": "QuotaChecker",
+                "perimeter_files": ["src/quota.py"],
+            },
+            ("MITIGATED", True),
+        ),
     ],
 )
 def test_verdicts_are_read_as_the_model_meant_them(

@@ -266,7 +266,7 @@ def test_citation_line_validation_downgrade(tmp_path: Path) -> None:
 
 
 def test_mitigating_mechanism_annotation() -> None:
-    """Mitigated verdicts without mechanism receive notes but are not downgraded."""
+    """Mitigated verdicts without mechanism degrade to UNVERIFIED with notes."""
     f = Finding(title="Unbounded queue", location="q.py:10", severity="MEDIUM")
 
     item_no_mech = {"status": "MITIGATED", "reason": "Bounded elsewhere"}
@@ -276,11 +276,12 @@ def test_mitigating_mechanism_annotation() -> None:
         res_no_mech.reportable,
         res_no_mech.mitigated,
         "without specified mitigating mechanism" in (res_no_mech.verification_note or ""),
-    ) == ("MITIGATED", True, True, True)
+    ) == ("UNVERIFIED", False, False, True)
 
     item_with_mech = {
         "status": "MITIGATED",
         "mitigating_mechanism": "BoundedSemaphore(10)",
+        "perimeter_files": ["q.py"],
         "citation_line": 15,
         "reason": "Bounded by semaphore",
     }

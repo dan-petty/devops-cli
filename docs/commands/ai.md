@@ -674,6 +674,8 @@ devops ai review verify [OPTIONS] <session>
 | `--title`, `-t` | `string` | - | Match finding by substring in title. |
 | `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
+| `--perimeter`, `-p` | `string` | - | Perimeter file path(s) protecting against finding recurrence (repeatable). |
+| `--regression-test` | `string` | - | Path to regression test guarding against finding recurrence. |
 
 ### `devops ai review stats`
 

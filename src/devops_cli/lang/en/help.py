@@ -927,6 +927,8 @@ class ReviewCommandHelp:
     title_match: str = "Match finding by substring in title."
     status_target: str = "Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED."
     reason: str = "Explanation or justification for the status change."
+    perimeter: str = "Perimeter file path(s) protecting against finding recurrence (repeatable)."
+    regression_test: str = "Path to regression test guarding against finding recurrence."
     reviews_dir: str = "Directory containing review sessions."
     output_feedback: str = "Output JSONL path for benchmark feedback dataset."
     status_export: str = "Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL."
