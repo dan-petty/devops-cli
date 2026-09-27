@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
@@ -123,6 +125,8 @@ from devops_cli.output import (
     write_json_file,
     write_stdout,
 )
+
+logger = logging.getLogger(__name__)
 
 app = new_typer(help=HELP.review.app, no_args_is_help=True)
 
@@ -934,6 +938,78 @@ def list_findings(
 # =============================================================================
 
 
+def _resolve_session_findings_file(target_session: str | None) -> tuple[Path, Any]:
+    """Resolve session directory and findings file, validating presence."""
+    session_dir = _find_session_dir(target_session)
+    if not session_dir:
+        print_error(f"Session not found matching: {target_session}", prefix=False)
+        raise typer.Exit(1)
+
+    findings_file = session_dir / "findings.json"
+    if not findings_file.exists():
+        print_error(f"No findings.json in {session_dir}", prefix=False)
+        raise typer.Exit(1)
+
+    from devops_cli.ai.review_schema import ReviewSessionPayload
+
+    payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
+    if not payload.findings:
+        print_warning(MESSAGES.review.no_findings_to_update, prefix=False)
+        raise typer.Exit(0)
+    return findings_file, payload
+
+
+def _resolve_target_finding_index(
+    findings: Sequence[Any],
+    index: int | None,
+    title_pattern: str | None,
+) -> int:
+    """Resolve 0-based target finding index from positional index or title pattern."""
+    if index is not None:
+        if index < 1 or index > len(findings):
+            print_error(f"Index out of bounds (1-{len(findings)})", prefix=False)
+            raise typer.Exit(1)
+        return index - 1
+
+    if title_pattern is not None:
+        pattern_lower = title_pattern.lower()
+        for idx, f in enumerate(findings):
+            if pattern_lower in f.title.lower():
+                return idx
+
+    print_error(MESSAGES.review.specify_index_or_title, prefix=False)
+    raise typer.Exit(1)
+
+
+def _record_verdict_side_effects(
+    finding: Any,
+    new_status: str,
+    reason: str,
+    perimeter_files: list[str] | None = None,
+    regression_test: str | None = None,
+) -> None:
+    """Persist domain-specific feedback or perimeter ledgers for adjudicated verdicts."""
+    if new_status == "INVALIDATED":
+        try:
+            from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
+
+            auto_record_invalidated_finding(finding, reason=reason)
+        except Exception:
+            pass
+    elif new_status == "MITIGATED":
+        try:
+            from devops_cli.ai.review.mitigations import record_mitigated_finding
+
+            record_mitigated_finding(
+                finding,
+                reason=reason,
+                perimeter_files=perimeter_files,
+                regression_test=regression_test,
+            )
+        except Exception as exc:
+            logger.debug("Failed to record mitigated finding to ledger: %s", exc)
+
+
 @app.command("verify")
 def verify_finding(
     session: Annotated[
@@ -960,42 +1036,18 @@ def verify_finding(
         str,
         typer.Option("--reason", "-r", help=HELP.review.reason),
     ] = "",
+    perimeter: Annotated[
+        list[str] | None,
+        typer.Option("--perimeter", "-p", help=HELP.review.perimeter),
+    ] = None,
+    regression_test: Annotated[
+        str | None,
+        typer.Option("--regression-test", help=HELP.review.regression_test),
+    ] = None,
 ) -> None:
     """Validate or invalidate a review finding, persisting feedback reasons."""
-
-    target_session = session or session_opt
-    session_dir = _find_session_dir(target_session)
-    if not session_dir:
-        print_error(f"Session not found matching: {target_session}", prefix=False)
-        raise typer.Exit(1)
-
-    findings_file = session_dir / "findings.json"
-    if not findings_file.exists():
-        print_error(f"No findings.json in {session_dir}", prefix=False)
-        raise typer.Exit(1)
-
-    from devops_cli.ai.review_schema import ReviewSessionPayload
-
-    payload = ReviewSessionPayload.model_validate_json(findings_file.read_text(encoding="utf-8"))
-    if not payload.findings:
-        print_warning(MESSAGES.review.no_findings_to_update, prefix=False)
-        raise typer.Exit(0)
-
-    target_idx: int | None = None
-    if index is not None:
-        if index < 1 or index > len(payload.findings):
-            print_error(f"Index out of bounds (1-{len(payload.findings)})", prefix=False)
-            raise typer.Exit(1)
-        target_idx = index - 1
-    elif title_pattern is not None:
-        for idx, f in enumerate(payload.findings):
-            if title_pattern.lower() in f.title.lower():
-                target_idx = idx
-                break
-
-    if target_idx is None:
-        print_error(MESSAGES.review.specify_index_or_title, prefix=False)
-        raise typer.Exit(1)
+    findings_file, payload = _resolve_session_findings_file(session or session_opt)
+    target_idx = _resolve_target_finding_index(payload.findings, index, title_pattern)
 
     new_status = status.upper().strip()
     if new_status not in {"VERIFIED", "INVALIDATED", "MITIGATED", "UNVERIFIED"}:
@@ -1003,17 +1055,32 @@ def verify_finding(
         raise typer.Exit(1)
 
     finding = payload.findings[target_idx]
+    perimeter_list = [p.strip() for p in perimeter if p.strip()] if perimeter else []
+    if new_status == "MITIGATED" and not perimeter_list:
+        perimeter_list = getattr(finding, "perimeter_files", None) or (
+            [finding.location.split(":")[0].strip()] if finding.location else []
+        )
+
+    effective_reason = (
+        reason
+        or getattr(finding, "invalidation_reason", None)
+        or getattr(finding, "mitigating_mechanism", None)
+        or ("Mitigated" if new_status == "MITIGATED" else "")
+    )
     by = "human" if new_status != "UNVERIFIED" else None
-    apply_verdict(finding, new_status, by=by, reason=reason)
+    apply_verdict(
+        finding,
+        new_status,
+        by=by,
+        reason=effective_reason,
+        mitigating_mechanism=effective_reason if new_status == "MITIGATED" else None,
+        perimeter_files=perimeter_list if new_status == "MITIGATED" else None,
+        regression_test=regression_test if new_status == "MITIGATED" else None,
+    )
 
-    if new_status == "INVALIDATED":
-        try:
-            from devops_cli.ai.review.common_hallucinations import auto_record_invalidated_finding
-
-            auto_record_invalidated_finding(finding, reason=reason)
-        except Exception:
-            pass
-
+    _record_verdict_side_effects(
+        finding, new_status, effective_reason, perimeter_list, regression_test
+    )
     assert_verdict_invariants(payload.findings)
     write_json_file(findings_file, payload)
     print_success(f"Updated finding #{target_idx + 1} status → {new_status}")

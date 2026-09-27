@@ -5,7 +5,7 @@ These rules hold for any project. The reviewed project's own conventions, when g
 ## Refuted or mitigated
 
 - **Refuted** (`invalidated`, `invalidated_criteria_matched`): the shown code contradicts the claim. The check exists, the value cannot reach the sink, the name is defined. Cite the line in `citation_line`.
-- **Mitigated** (`mitigated`): the defect the finding describes is present, and something else limits it. That is not a refutation. Name the mechanism in `mitigating_mechanism` and cite the line that provides it in `citation_line` and `reason`, and leave `invalidated_criteria_matched` empty. A mechanism you cannot point to in the shown code is not a mitigation. When your own reasoning begins by confirming the defect ("the parameter is never checked", "no containment check is performed"), the finding is at most mitigated, never refuted.
+- **Mitigated** (`mitigated`): the defect the finding describes is present, and something else limits it. That is not a refutation. Name the mechanism in `mitigating_mechanism`, cite the file(s) enforcing the boundary in `perimeter_files` (as a non-empty array of file paths), cite the line that provides it in `citation_line` and `reason`, and leave `invalidated_criteria_matched` empty. A mitigation without both a named `mitigating_mechanism` and at least one file in `perimeter_files` proves nothing and will be degraded to UNVERIFIED. A mechanism you cannot point to in the shown code is not a mitigation. When your own reasoning begins by confirming the defect ("the parameter is never checked", "no containment check is performed"), the finding is at most mitigated, never refuted.
 
 ## 1. Settle the cheap questions first
 
@@ -74,6 +74,7 @@ Output ONLY a JSON array, one object per finding. Each object must include the f
     "confidence_score": 0.95,
     "citation_line": 10,
     "mitigating_mechanism": null,
+    "perimeter_files": [],
     "verified_criteria_matched": ["..."],
     "invalidated_criteria_matched": [],
     "reason": "Traced lines 1-10; the write occurs before the bounds check."

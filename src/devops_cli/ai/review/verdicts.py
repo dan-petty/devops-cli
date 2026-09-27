@@ -43,6 +43,10 @@ def _check_invalidated_invariants(f: Finding | SavedFinding) -> None:
         raise AssertionError(
             f"Invariant violation: INVALIDATED finding must be neither reportable nor verified: {f.title}"
         )
+    if getattr(f, "mitigated", False):
+        raise AssertionError(
+            f"Invariant violation: INVALIDATED finding cannot have mitigated=True: {f.title}"
+        )
 
 
 def _check_verified_invariants(f: Finding | SavedFinding) -> None:
@@ -107,6 +111,8 @@ def _build_verdict_updates(
     citation_line: int | None,
     mitigating_mechanism: str | None,
     verification_note: str | None,
+    perimeter_files: list[str] | None = None,
+    regression_test: str | None = None,
 ) -> dict[str, Any]:
     """Compute structural update dictionary for the given status."""
     if status == "INVALIDATED":
@@ -159,6 +165,8 @@ def _build_verdict_updates(
         "invalidation_reason": reason,
         "citation_line": citation_line,
         "mitigating_mechanism": mitigating_mechanism,
+        "perimeter_files": perimeter_files or [],
+        "regression_test": regression_test,
         "verification_note": verification_note,
     }
 
@@ -171,6 +179,8 @@ def apply_verdict[T: (Finding, SavedFinding)](
     *,
     citation_line: int | None = None,
     mitigating_mechanism: str | None = None,
+    perimeter_files: list[str] | None = None,
+    regression_test: str | None = None,
     verification_note: str | None = None,
     confidence_score: float | None = None,
     verified_at: str | None = None,
@@ -190,6 +200,8 @@ def apply_verdict[T: (Finding, SavedFinding)](
         citation_line=citation_line,
         mitigating_mechanism=mitigating_mechanism,
         verification_note=verification_note,
+        perimeter_files=perimeter_files,
+        regression_test=regression_test,
     )
 
     if confidence_score is not None:

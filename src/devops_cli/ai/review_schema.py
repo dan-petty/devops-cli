@@ -596,6 +596,14 @@ class Finding(BaseModel):
         default=None,
         validation_alias=AliasChoices("mitigating_mechanism", "mechanism", "mitigation"),
     )
+    perimeter_files: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("perimeter_files", "perimeter", "perimeters"),
+    )
+    regression_test: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("regression_test", "test", "regression"),
+    )
     category: str | None = Field(
         default=None,
         validation_alias=AliasChoices("category", "type", "classification", "defect_class"),
@@ -1009,6 +1017,9 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         "observed_value": base.observed_value or other.observed_value,
         "expected_value": base.expected_value or other.expected_value,
         "finding_id": base.finding_id if base.finding_id is not None else other.finding_id,
+        "mitigating_mechanism": base.mitigating_mechanism or other.mitigating_mechanism,
+        "perimeter_files": list(dict.fromkeys(base.perimeter_files + other.perimeter_files)),
+        "regression_test": base.regression_test or other.regression_test,
     }
 
     if isinstance(base, SavedFinding):

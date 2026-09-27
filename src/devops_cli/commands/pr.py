@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Annotated, Any, cast
 
@@ -27,6 +28,8 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
+
+logger = logging.getLogger(__name__)
 
 app = new_typer(
     help=HELP.pr.app,
@@ -1301,6 +1304,36 @@ def _check_run_blockers(
     return blockers
 
 
+def _fetch_pr_changed_files(pr_num: int, owner: str, repo_name: str) -> list[str]:
+    """Fetch changed file paths for a PR."""
+    res = run_gh(
+        [CONST_GH_CLI, "pr", "diff", str(pr_num), "--name-only", "--repo", f"{owner}/{repo_name}"],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode == 0 and res.stdout.strip():
+        return [line.strip() for line in res.stdout.splitlines() if line.strip()]
+    return []
+
+
+def _check_pr_perimeter_changes(pr_num: int, owner: str, repo_name: str) -> None:
+    """Warn if PR changed files intersect with the mitigated findings perimeter ledger."""
+    try:
+        from devops_cli.ai.review.mitigations import (
+            find_perimeter_changes,
+            format_perimeter_warning,
+        )
+
+        changed_files = _fetch_pr_changed_files(pr_num, owner, repo_name)
+        if not changed_files:
+            return
+        matches = find_perimeter_changes(changed_files)
+        if matches:
+            print_warning(format_perimeter_warning(matches))
+    except Exception as exc:
+        logger.debug("Failed checking PR perimeter changes: %s", exc)
+
+
 def _evaluate_pr_blockers(
     pr_data: dict[str, Any],
     pr_num: int,
@@ -1344,6 +1377,7 @@ def _evaluate_pr_blockers(
     blockers.extend(
         _evaluate_threads_blockers(unresolved, pr_num, allow_replied_threads=allow_replied_threads)
     )
+    _check_pr_perimeter_changes(pr_num, owner, repo_name)
     return blockers
 
 

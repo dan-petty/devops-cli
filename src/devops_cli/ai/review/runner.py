@@ -7,7 +7,7 @@ import json
 import logging
 import time
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -1992,6 +1992,23 @@ def _run_orchestrator_review(
     return [(p_def, report_md)]
 
 
+def _check_and_warn_perimeter_changes(target_type: str, changed_files: Sequence[str]) -> None:
+    """Warn if review targets branch/pr diff intersecting with mitigated findings perimeters."""
+    if target_type not in {"branch", "pr"} or not changed_files:
+        return
+    try:
+        from devops_cli.ai.review.mitigations import (
+            find_perimeter_changes,
+            format_perimeter_warning,
+        )
+
+        matches = find_perimeter_changes(changed_files)
+        if matches:
+            print_warning(format_perimeter_warning(matches), prefix=False)
+    except Exception as exc:
+        logger.debug("Failed checking perimeter changes: %s", exc)
+
+
 def _execute_review_workflow(
     pages: list[str],
     title: str,
@@ -2018,6 +2035,7 @@ def _execute_review_workflow(
         print_info(f"[dim]{spans_msg}[/dim]", prefix=False)
 
     all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
+    _check_and_warn_perimeter_changes(target_type, all_files)
     orchestrator = ReviewPipelineOrchestrator(
         llm_client=clients.analysis,
         verification_client=clients.verification,

@@ -1178,6 +1178,65 @@ def _verdict_list(value: object) -> list[str]:
     return [str(x).strip() for x in items if str(x).strip().lower() not in _NO_VALUES]
 
 
+def _extract_mitigating_mechanism(item: dict[str, Any], reason: str) -> str | None:
+    """Extract named mitigating mechanism from verdict item or reason."""
+    for key in ("mitigating_mechanism", "mechanism", "mitigation"):
+        val = item.get(key)
+        if val is not None and str(val).strip() and str(val).strip().lower() not in _NO_VALUES:
+            return str(val).strip()
+    if reason:
+        m = re.search(
+            r"\b(?:mechanism|mitigated by|mitigation):\s*([^,.\n;]+)",
+            reason,
+            re.IGNORECASE,
+        )
+        if m:
+            return m.group(1).strip()
+    return None
+
+
+def _extract_perimeter_from_keys(item: dict[str, Any]) -> list[str]:
+    """Extract perimeter file paths from verdict item dictionary keys."""
+    for key in ("perimeter_files", "perimeter", "perimeters"):
+        val = item.get(key)
+        if isinstance(val, list):
+            res = [
+                str(x).strip()
+                for x in val
+                if str(x).strip() and str(x).strip().lower() not in _NO_VALUES
+            ]
+            if res:
+                return res
+        if isinstance(val, str) and str(val).strip() and str(val).strip().lower() not in _NO_VALUES:
+            return [str(val).strip()]
+    return []
+
+
+def _extract_perimeter_from_reason(reason: str) -> list[str]:
+    """Extract perimeter file paths from reason text pattern."""
+    if not reason:
+        return []
+    m = re.search(r"\b(?:perimeter_files|perimeter|perimeters):\s*([^;\n]+)", reason, re.IGNORECASE)
+    if not m:
+        return []
+    parts = [p.strip().strip("`'\"[]") for p in m.group(1).split(",")]
+    return [p for p in parts if p and p.lower() not in _NO_VALUES]
+
+
+def _extract_perimeter_files(item: dict[str, Any], reason: str) -> list[str]:
+    """Extract perimeter file paths from verdict item or reason."""
+    return _extract_perimeter_from_keys(item) or _extract_perimeter_from_reason(reason)
+
+
+def _extract_regression_test(item: dict[str, Any]) -> str | None:
+    """Extract regression test path from verdict item."""
+    for key in ("regression_test", "test", "regression"):
+        val = item.get(key)
+        if val is not None and str(val).strip() and str(val).strip().lower() not in _NO_VALUES:
+            return str(val).strip()
+    return None
+
+
 def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, bool]:
     """The status and reportability a verdict supports.
 
@@ -1194,11 +1253,21 @@ def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, 
     if refuted:
         return "INVALIDATED", False
     if _verdict_bool(item.get("mitigated")) or status == "MITIGATED":
-        # A mitigation is a claim about the code too: without a reason naming the mechanism it
-        # proves nothing. With one, the finding stays in the report beside it, and the reader
-        # judges whether it holds; mitigated findings do not drive the recommendation.
-        if not str(item.get("reason") or "").strip():
-            return "UNVERIFIED", True
+        # A mitigation is a claim about the code too: without a reason naming the mechanism
+        # and perimeter files it proves nothing, degrading to UNVERIFIED (reportable=False).
+        reason_str = str(item.get("reason") or "").strip()
+        has_mech = bool(
+            item.get("mitigating_mechanism")
+            or item.get("mechanism")
+            or (reason_str and _extract_mitigating_mechanism(item, reason_str))
+        )
+        has_perim = bool(
+            item.get("perimeter_files")
+            or item.get("perimeter")
+            or (reason_str and _extract_perimeter_files(item, reason_str))
+        )
+        if not reason_str or not has_mech or not has_perim:
+            return "UNVERIFIED", False
         return "MITIGATED", True
     if confirmed:
         return "VERIFIED", _verdict_bool(item.get("reportable")) is not False
@@ -1297,23 +1366,6 @@ def _extract_citation_line(item: dict[str, Any], reason: str) -> int | None:
     return None
 
 
-def _extract_mitigating_mechanism(item: dict[str, Any], reason: str) -> str | None:
-    """Extract named mitigating mechanism from verdict item or reason."""
-    for key in ("mitigating_mechanism", "mechanism", "mitigation"):
-        val = item.get(key)
-        if val is not None and str(val).strip():
-            return str(val).strip()
-    if reason:
-        m = re.search(
-            r"\b(?:mechanism|mitigated by|mitigation):\s*([^,.\n;]+)",
-            reason,
-            re.IGNORECASE,
-        )
-        if m:
-            return m.group(1).strip()
-    return None
-
-
 def _check_ast_symbol_at_line(
     file_path: Path, citation_line: int, candidates: Sequence[str]
 ) -> bool:
@@ -1394,6 +1446,109 @@ def _validate_citation_line(
         return True, citation_line, None
 
 
+def _extract_finding_confidence(conf_val: Any, default: float | None) -> float | None:
+    """Normalize confidence score to bounded float in [0.0, 1.0]."""
+    if conf_val is None:
+        return default
+    try:
+        return max(0.0, min(1.0, float(conf_val)))
+    except ValueError, TypeError:
+        return default
+
+
+def _determine_mitigated_degradation_note(
+    reason: str, mech: str | None, perimeter: list[str]
+) -> str:
+    """Return specific reason why a claimed mitigation was degraded to UNVERIFIED."""
+    if not reason:
+        return "Mitigated verdict without explanation; degraded to UNVERIFIED"
+    if not mech:
+        return "Mitigated verdict without specified mitigating mechanism; degraded to UNVERIFIED"
+    if not perimeter:
+        return "Mitigated verdict without specified perimeter files; degraded to UNVERIFIED"
+    return ""
+
+
+def _resolve_status_and_verification_note(
+    f: Finding,
+    item: dict[str, Any],
+    status_val: str,
+    reason: str,
+    citation_line: int | None,
+    mitigating_mechanism: str | None,
+    perimeter_files: list[str],
+    repo_root: Path | None,
+    is_rep: bool,
+) -> tuple[str, str, int | None, str | None, bool]:
+    """Resolve validated status, reason, citation line, verification note, and reportability."""
+    if status_val == "INVALIDATED":
+        is_valid, cit_line, note = _validate_citation_line(f, citation_line, repo_root)
+        if not is_valid:
+            return "UNVERIFIED", "", None, note, True
+        return "INVALIDATED", reason, cit_line, None, False
+
+    if status_val == "MITIGATED":
+        note = (
+            "Mitigated verdict without specified mitigating mechanism"
+            if not mitigating_mechanism
+            else None
+        )
+        return "MITIGATED", reason, citation_line, note, True
+
+    is_mitigated = (
+        _verdict_bool(item.get("mitigated")) or str(item.get("status", "")).upper() == "MITIGATED"
+    )
+    if is_mitigated and status_val == "UNVERIFIED":
+        note = _determine_mitigated_degradation_note(reason, mitigating_mechanism, perimeter_files)
+        return "UNVERIFIED", reason, citation_line, note or None, False
+
+    return status_val, reason, citation_line, None, is_rep
+
+
+def _check_finding_polarity(
+    obs: str | None, exp: str | None, status_val: str, reason: str
+) -> tuple[str, str | None, str]:
+    """Deterministic polarity check: identical observed and expected invalidates finding."""
+    if obs and exp and str(obs).strip().lower() == str(exp).strip().lower():
+        return (
+            "INVALIDATED",
+            "deterministic:verdict_polarity",
+            f"Observed value '{obs}' is identical to expected value '{exp}' (polarity check)",
+        )
+    by = "llm" if status_val != "UNVERIFIED" else None
+    return status_val, by, reason
+
+
+def _resolve_finding_attributes(
+    f: Finding, item: dict[str, Any]
+) -> tuple[str, str, str | None, str | None]:
+    """Resolve updated severity, location, observed value, and expected value."""
+    new_sev = str(item.get("severity", "")).upper().strip()
+    sev = new_sev if new_sev and new_sev in _SEVERITY_RANK else f.severity
+    new_loc = str(item.get("location", "")).strip()
+    loc = new_loc if new_loc and new_loc != f.location else f.location
+
+    obs_val = item.get("observed_value") or item.get("observed")
+    exp_val = item.get("expected_value") or item.get("expected")
+    final_obs = str(obs_val).strip() if obs_val is not None else f.observed_value
+    final_exp = str(exp_val).strip() if exp_val is not None else f.expected_value
+    return sev, loc, final_obs, final_exp
+
+
+def _build_finding_verdict_kwargs(
+    status_val: str,
+    item: dict[str, Any],
+    final_reportable: bool,
+) -> dict[str, Any]:
+    """Build extra keyword arguments for apply_verdict."""
+    extra_kw: dict[str, Any] = {}
+    if status_val == "MITIGATED" and _verdict_bool(item.get("verified")) is False:
+        extra_kw["verified"] = False
+    if final_reportable is False:
+        extra_kw["reportable"] = False
+    return extra_kw
+
+
 def _apply_single_finding_verification(
     f: Finding,
     item: dict[str, Any] | None,
@@ -1407,53 +1562,34 @@ def _apply_single_finding_verification(
     ver_matched = _verdict_list(item.get("verified_criteria_matched"))
     item, inv_matched = _without_self_refutation(f, item)
     status_val, is_rep = _verdict_status(item, inv_matched)
-
-    conf_val = item.get("confidence_score")
-    conf: float | None = f.confidence_score
-    if conf_val is not None:
-        try:
-            conf = max(0.0, min(1.0, float(conf_val)))
-        except ValueError, TypeError:
-            conf = f.confidence_score
+    conf = _extract_finding_confidence(item.get("confidence_score"), f.confidence_score)
 
     merged_ver_matched = list(dict.fromkeys(f.verified_criteria_matched + ver_matched))
     merged_inv_matched = list(dict.fromkeys(f.invalidated_criteria_matched + inv_matched))
 
-    reason = str(item.get("reason") or "").strip()
-    citation_line = _extract_citation_line(item, reason)
-    mitigating_mechanism = _extract_mitigating_mechanism(item, reason)
-    verification_note: str | None = None
+    raw_reason = str(item.get("reason") or "").strip()
+    raw_citation = _extract_citation_line(item, raw_reason)
+    mitigating_mechanism = _extract_mitigating_mechanism(item, raw_reason)
+    perimeter_files = _extract_perimeter_files(item, raw_reason)
+    regression_test = _extract_regression_test(item)
 
-    if status_val == "INVALIDATED":
-        is_valid, citation_line, note = _validate_citation_line(f, citation_line, repo_root)
-        if not is_valid:
-            status_val = "UNVERIFIED"
-            verification_note = note
-            reason = ""
-    elif status_val == "MITIGATED":
-        if not mitigating_mechanism:
-            verification_note = "Mitigated verdict without specified mitigating mechanism"
+    status_val, reason, citation_line, verification_note, final_rep = (
+        _resolve_status_and_verification_note(
+            f,
+            item,
+            status_val,
+            raw_reason,
+            raw_citation,
+            mitigating_mechanism,
+            perimeter_files,
+            repo_root,
+            is_rep,
+        )
+    )
 
-    new_sev = str(item.get("severity", "")).upper().strip()
-    sev = new_sev if new_sev and new_sev in _SEVERITY_RANK else f.severity
-    new_loc = str(item.get("location", "")).strip()
-    loc = new_loc if new_loc and new_loc != f.location else f.location
-
-    obs_val = item.get("observed_value") or item.get("observed")
-    exp_val = item.get("expected_value") or item.get("expected")
-    final_obs = str(obs_val).strip() if obs_val is not None else f.observed_value
-    final_exp = str(exp_val).strip() if exp_val is not None else f.expected_value
-
-    if final_obs and final_exp and str(final_obs).strip().lower() == str(final_exp).strip().lower():
-        status_val = "INVALIDATED"
-        by: str | None = "deterministic:verdict_polarity"
-        reason = f"Observed value '{final_obs}' is identical to expected value '{final_exp}' (polarity check)"
-    else:
-        by = "llm" if status_val != "UNVERIFIED" else None
-
-    extra_kw: dict[str, Any] = {}
-    if status_val == "MITIGATED" and _verdict_bool(item.get("verified")) is False:
-        extra_kw["verified"] = False
+    sev, loc, final_obs, final_exp = _resolve_finding_attributes(f, item)
+    status_val, by, reason = _check_finding_polarity(final_obs, final_exp, status_val, reason)
+    extra_kw = _build_finding_verdict_kwargs(status_val, item, final_rep)
 
     return apply_verdict(
         f,
@@ -1461,7 +1597,9 @@ def _apply_single_finding_verification(
         by=by,
         reason=reason if status_val in {"INVALIDATED", "MITIGATED"} else None,
         citation_line=citation_line,
-        mitigating_mechanism=mitigating_mechanism,
+        mitigating_mechanism=mitigating_mechanism if status_val == "MITIGATED" else None,
+        perimeter_files=perimeter_files if status_val == "MITIGATED" else None,
+        regression_test=regression_test if status_val == "MITIGATED" else None,
         verification_note=verification_note,
         confidence_score=conf,
         verified_at=now_iso if status_val != "UNVERIFIED" else None,
@@ -1702,15 +1840,29 @@ def _reconcile_single_finding(
     target_loc = finding.location.lower().strip()
     updates: dict[str, object] = {}
 
-    if any(_is_matching_finding(uf, target_title, target_loc) for uf in unverified_findings):
+    uf = next(
+        (f for f in unverified_findings if _is_matching_finding(f, target_title, target_loc)), None
+    )
+    if uf is not None:
         updates["verified"] = False
         updates["status"] = "UNVERIFIED"
         updates["reportable"] = False
+        if uf.verification_note:
+            updates["verification_note"] = uf.verification_note
 
-    if any(_is_matching_finding(mf, target_title, target_loc) for mf in mitigated_findings):
+    mf = next(
+        (f for f in mitigated_findings if _is_matching_finding(f, target_title, target_loc)), None
+    )
+    if mf is not None:
         updates["mitigated"] = True
         updates["status"] = "MITIGATED"
-        updates["reportable"] = False
+        updates["reportable"] = True
+        updates["mitigating_mechanism"] = mf.mitigating_mechanism
+        updates["perimeter_files"] = mf.perimeter_files
+        updates["regression_test"] = mf.regression_test
+        updates["invalidation_reason"] = mf.invalidation_reason
+        if mf.verification_note:
+            updates["verification_note"] = mf.verification_note
 
     return finding.model_copy(update=updates) if updates else finding
 
