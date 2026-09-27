@@ -73,3 +73,5 @@ These resolve claims that recur against this codebase.
   bypassing a gate.
 - Prometheus exposition parsing that conforms to OpenMetrics is not an unvalidated metric name.
 - JSON response repair lives in `response_repair.py`. There is no `ai/fixer.py`.
+- `docs/ROADMAP.md` and task files under `docs/agent/tasks/` record aspirational planning and historical logs; unimplemented items or feature statements in them are not defects.
+- Structural tuple comparisons in test assertions (`assert (a, b) == (x, y)`) are deliberate architectural invariants to cap McCabe cyclomatic complexity M <= 10; they are not assertion bugs.
