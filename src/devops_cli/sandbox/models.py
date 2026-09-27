@@ -7,13 +7,16 @@ import socket
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from devops_cli.config.constants import (
-    CONST_SANDBOX_DOCKER_INTERNAL_NET,
+    CONST_FORBIDDEN_SANDBOX_ENV_KEYS,
+    CONST_HOST_SANDBOX_DEFAULT_ENV,
+    CONST_HOST_SANDBOX_SYSTEM_DIRS,
+    CONST_HOST_SANDBOX_SYSTEM_SYMLINKS,
     CONST_SANDBOX_NETWORK_BRIDGE,
     CONST_SANDBOX_NETWORK_ISOLATED,
     CONST_SANDBOX_NETWORK_LOCAL_WHITELIST,
@@ -29,6 +32,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SANDBOX_MEMORY,
     DEFAULT_SANDBOX_NAME,
     DEFAULT_SANDBOX_NAMESPACE,
+    DEFAULT_SANDBOX_PIDS_LIMIT,
 )
 from devops_cli.core.validation import is_loopback_or_private_host
 
@@ -275,28 +279,6 @@ class SandboxNetworkConfig(BaseModel):
                 _validate_local_whitelist_item(item)
         return self
 
-    def to_docker_args(self) -> list[str]:
-        """Generate Docker CLI arguments enforcing container network isolation or gateway routing."""
-        if self.mode == SandboxNetworkMode.ISOLATED:
-            return ["--network=none"]
-        if self.mode == SandboxNetworkMode.SANDBOX_NAMESPACE:
-            return [f"--network={CONST_SANDBOX_DOCKER_INTERNAL_NET}"]
-        if self.mode in (SandboxNetworkMode.PUBLIC_WHITELIST, SandboxNetworkMode.LOCAL_WHITELIST):
-            if self.egress_proxy:
-                return [
-                    f"--network={CONST_SANDBOX_DOCKER_INTERNAL_NET}",
-                    "-e",
-                    f"HTTP_PROXY={self.egress_proxy}",
-                    "-e",
-                    f"HTTPS_PROXY={self.egress_proxy}",
-                    "-e",
-                    f"ALL_PROXY={self.egress_proxy}",
-                ]
-            raise ValueError(
-                f"Docker engine cannot enforce outbound egress boundaries for mode '{self.mode.value}' without an egress proxy; deploy via Kubernetes NetworkPolicy or configure egress_proxy."
-            )
-        return ["--network=bridge"]
-
     def to_k8s_network_policy(
         self, name: str = DEFAULT_SANDBOX_NAME, namespace: str | None = None
     ) -> dict[str, Any]:
@@ -341,6 +323,42 @@ class SandboxNetworkConfig(BaseModel):
         return policy
 
 
+class SandboxPolicy(BaseModel):
+    """Frozen declarative security policy for container and host sandbox isolation."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    cap_drop: tuple[str, ...] = ("ALL",)
+    security_opt: tuple[str, ...] = ("no-new-privileges:true",)
+    pids_limit: int = DEFAULT_SANDBOX_PIDS_LIMIT
+    read_only: bool = True
+    tmpfs: dict[str, str] = Field(
+        default_factory=lambda: {"/tmp": "size=64m,noexec"}  # nosec B108
+    )
+    system_dirs: tuple[str, ...] = CONST_HOST_SANDBOX_SYSTEM_DIRS
+    system_symlinks: tuple[str, ...] = CONST_HOST_SANDBOX_SYSTEM_SYMLINKS
+    default_env: tuple[tuple[str, str], ...] = CONST_HOST_SANDBOX_DEFAULT_ENV
+    forbidden_env_keys: frozenset[str] = CONST_FORBIDDEN_SANDBOX_ENV_KEYS
+
+    def to_docker_security_kwargs(self, read_only: bool | None = None) -> dict[str, Any]:
+        """Render identical security options for Docker container creation."""
+        effective_ro = self.read_only if read_only is None else read_only
+        return {
+            "cap_drop": list(self.cap_drop),
+            "security_opt": list(self.security_opt),
+            "pids_limit": self.pids_limit,
+            "read_only": effective_ro,
+            "tmpfs": dict(self.tmpfs),
+        }
+
+    def declared_security_summary(self, read_only: bool | None = None) -> dict[str, Any]:
+        """Render declared security control dictionary for dry-run rendering and audit."""
+        return self.to_docker_security_kwargs(read_only=read_only)
+
+
+DEFAULT_SANDBOX_POLICY: Final[SandboxPolicy] = SandboxPolicy()
+
+
 class PortBinding(BaseModel):
     """Network port mapping between sandbox container and host."""
 
@@ -368,6 +386,7 @@ class SandboxDeployConfig(BaseModel):
     read_only: bool = True
     memory_limit: str = DEFAULT_SANDBOX_MEMORY
     cpu_limit: float = DEFAULT_SANDBOX_CPUS
+    policy: SandboxPolicy = Field(default_factory=lambda: DEFAULT_SANDBOX_POLICY)
     network_config: SandboxNetworkConfig = Field(default_factory=SandboxNetworkConfig)
     network_mode: str = "none"
     public_whitelist: list[str] = Field(default_factory=list)

@@ -10,6 +10,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from devops_cli.exceptions.docker import DockerEngineError
@@ -25,6 +26,7 @@ from devops_cli.sandbox.models import (
     SandboxDeployConfig,
     SandboxExecResult,
     SandboxInstance,
+    SandboxPolicy,
     SandboxStatus,
 )
 from devops_cli.sandbox.ports import (
@@ -920,3 +922,92 @@ def test_registry_corrupt_file_quarantine(tmp_path: Path) -> None:
     quarantine_files = list(tmp_path.glob("instances.json.corrupt-*"))
     assert len(quarantine_files) == 1
     assert "{ corrupt" in quarantine_files[0].read_text(encoding="utf-8")
+
+
+def test_sandbox_policy_frozen_immutability_and_kwargs() -> None:
+    """Verify SandboxPolicy defaults, immutability, extra forbid, and security kwargs generation."""
+    policy = SandboxPolicy()
+    assert (
+        policy.cap_drop,
+        policy.security_opt,
+        policy.pids_limit,
+        policy.read_only,
+        policy.tmpfs,
+    ) == (
+        ("ALL",),
+        ("no-new-privileges:true",),
+        256,
+        True,
+        {"/tmp": "size=64m,noexec"},  # nosec B108
+    )
+
+    with pytest.raises(ValidationError):
+        # Frozen models cannot be mutated
+        policy.pids_limit = 512  # type: ignore[misc]
+
+    with pytest.raises(ValidationError):
+        # Undefined parameters are forbidden
+        SandboxPolicy(extra_param=123)  # type: ignore[call-arg]
+
+    sec_kwargs = policy.to_docker_security_kwargs()
+    summary = policy.declared_security_summary()
+    assert (
+        sec_kwargs,
+        summary,
+        policy.to_docker_security_kwargs(read_only=False)["read_only"],
+    ) == (
+        {
+            "cap_drop": ["ALL"],
+            "security_opt": ["no-new-privileges:true"],
+            "pids_limit": 256,
+            "read_only": True,
+            "tmpfs": {"/tmp": "size=64m,noexec"},  # nosec B108
+        },
+        {
+            "cap_drop": ["ALL"],
+            "security_opt": ["no-new-privileges:true"],
+            "pids_limit": 256,
+            "read_only": True,
+            "tmpfs": {"/tmp": "size=64m,noexec"},  # nosec B108
+        },
+        False,
+    )
+
+
+def test_sandbox_policy_identical_security_kwargs_across_builders(tmp_path: Path) -> None:
+    """Verify that WorkloadSandboxEngine and WorkloadSandboxRunner produce identical security kwargs."""
+    from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
+
+    policy = SandboxPolicy(read_only=True)
+    deploy_cfg = SandboxDeployConfig(read_only=True, policy=policy)
+    engine = WorkloadSandboxEngine()
+    engine_kwargs = engine._build_create_kwargs(deploy_cfg, tmp_path, [])
+
+    workload_cfg = WorkloadSandboxConfig(command=["sleep", "1"], read_only=True, policy=policy)
+    runner = WorkloadSandboxRunner(workload_cfg)
+    docker_kwargs = runner._build_create_kwargs(tmp_path)
+
+    security_keys = ("cap_drop", "security_opt", "pids_limit", "read_only", "tmpfs")
+    engine_security = {k: engine_kwargs[k] for k in security_keys}
+    docker_security = {k: docker_kwargs[k] for k in security_keys}
+    expected_security = policy.to_docker_security_kwargs(read_only=True)
+
+    assert (
+        engine_security,
+        docker_security,
+    ) == (
+        expected_security,
+        expected_security,
+    )
+
+
+def test_sandbox_deploy_config_policy_integration() -> None:
+    """Verify that SandboxDeployConfig carries policy and generates matching declared security."""
+    custom_policy = SandboxPolicy(pids_limit=128, read_only=True)
+    cfg = SandboxDeployConfig(policy=custom_policy, read_only=True)
+
+    assert (
+        cfg.policy.pids_limit,
+        cfg.policy.read_only,
+        cfg.policy.declared_security_summary(read_only=True)["pids_limit"],
+    ) == (128, True, 128)

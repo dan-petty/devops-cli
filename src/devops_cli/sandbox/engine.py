@@ -228,12 +228,8 @@ class WorkloadSandboxEngine:
             "mem_limit": config.memory_limit,
             "nano_cpus": nano_cpus,
             "environment": config.env,
-            "cap_drop": ["ALL"],
-            "security_opt": ["no-new-privileges:true"],
-            "pids_limit": 256,
-            "read_only": config.read_only,
-            "tmpfs": {"/tmp": "size=64m,noexec"},  # nosec B108
             "detach": True,
+            **config.policy.to_docker_security_kwargs(read_only=config.read_only),
         }
         if config.network_config.mode == SandboxNetworkMode.ISOLATED:
             kwargs["network_mode"] = "none"

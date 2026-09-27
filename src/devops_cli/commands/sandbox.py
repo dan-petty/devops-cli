@@ -180,12 +180,7 @@ def deploy(
                 "ports": [b.model_dump() for b in simulated.port_bindings],
                 "network_mode": cfg.network_mode,
                 "network_config": cfg.network_config.model_dump(),
-                "security": {
-                    "cap_drop": ["ALL"],
-                    "security_opt": ["no-new-privileges:true"],
-                    "pids_limit": 256,
-                    "read_only": read_only,
-                },
+                "security": cfg.policy.declared_security_summary(read_only=read_only),
             },
         )
         return None
