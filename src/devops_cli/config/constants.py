@@ -2085,49 +2085,9 @@ CONST_MAX_SCHEMA_REFLECTION_ERRORS: Final[int] = 5
 # Maximum character length for representing the erroneous input value in error reflection.
 CONST_MAX_INPUT_VALUE_REPR_LENGTH: Final[int] = 60
 
-# Table-driven mapping from Pydantic v2 error types to deterministic, prescriptive fix hint templates.
-CONST_SCHEMA_FIX_HINT_TEMPLATES: Final[dict[str, str]] = {
-    "missing": "Field is required; include this property in your JSON payload with a valid value.",
-    "extra_forbidden": "Property is not permitted in this schema; remove this property from the JSON payload.",
-    "string_type": "Must be a string; enclose the text value in double quotes.",
-    "string_too_short": "String length is too short; provide at least {min_length} characters.",
-    "string_too_long": "String length is too long; provide at most {max_length} characters.",
-    "int_type": "Must be a valid integer; do not use floats, boolean flags, or string-encoded numbers.",
-    "int_parsing": "Must be a valid integer; do not use floats, boolean flags, or string-encoded numbers.",
-    "float_type": "Must be a valid floating-point number or integer.",
-    "float_parsing": "Must be a valid floating-point number or integer.",
-    "bool_type": "Must be a JSON boolean literal (true or false); do not use numbers (0/1) or strings.",
-    "bool_parsing": "Must be a JSON boolean literal (true or false); do not use numbers (0/1) or strings.",
-    "list_type": "Must be a JSON array (list), enclosed in square brackets [ ... ].",
-    "dict_type": "Must be a JSON object (mapping/dict), enclosed in curly braces {{ ... }}.",
-    "literal_error": "Value must be one of the permitted options: {expected}.",
-    "enum": "Value must be one of the permitted enum options: {expected}.",
-    "greater_than_equal": "Value must be greater than or equal to {ge}.",
-    "greater_than": "Value must be strictly greater than {gt}.",
-    "less_than_equal": "Value must be less than or equal to {le}.",
-    "less_than": "Value must be strictly less than {lt}.",
-    "too_short": "Collection must contain at least {min_length} items.",
-    "too_long": "Collection must contain at most {max_length} items.",
-    "json_invalid": "Invalid JSON syntax; ensure standard JSON formatting with valid double quotes.",
-    "value_error": "Value rejected: {msg}.",
-}
-
 # ── Bubblewrap Host Sandbox Confinement Constants ──────────────────────────────
-CONST_FORBIDDEN_SANDBOX_ENV_KEYS: frozenset[str] = frozenset(
-    {
-        "HOME",
-        "XDG_RUNTIME_DIR",
-        "DBUS_SESSION_BUS_ADDRESS",
-        "SSH_AUTH_SOCK",
-        "GITHUB_TOKEN",
-        "GH_TOKEN",
-        "DEVOPS_CLI_AI_API_KEY",
-        "DEVOPS_CLI_API_KEY",
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-    }
-)
 CONST_HOST_SANDBOX_DEFAULT_ENV: tuple[tuple[str, str], ...] = (
+    ("HOME", "/tmp"),  # nosec B108
     ("PATH", "/usr/local/bin:/usr/bin:/bin"),
     ("LANG", "C.UTF-8"),
     ("LC_ALL", "C.UTF-8"),

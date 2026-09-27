@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import logging
 import os
+import shlex
 import subprocess
 import threading
 from collections import deque
@@ -103,6 +104,55 @@ def _spawn_reader(stream: IO[str] | None, sink: _OutputRing, name: str) -> threa
     return thread
 
 
+def _check_shell_syntax(command: str, denied_operators: list[str]) -> tuple[bool, str, list[str]]:
+    """Validate shell operators, shlex parsing, and path traversal."""
+    if not command.strip():
+        return False, "Error: empty command", []
+
+    for op in denied_operators:
+        if op in command:
+            return False, f"Shell operator '{op}' is blocked by security policy.", []
+
+    try:
+        parts = shlex.split(command)
+    except Exception as exc:
+        return False, f"Command parsing error: {exc}", []
+
+    if not parts:
+        return False, "Error: empty command", []
+
+    if any(".." in part for part in parts):
+        return False, "Path traversal in command arguments is blocked by security policy.", []
+
+    return True, "", parts
+
+
+def _check_command_permissions(
+    cmd_name: str,
+    full_cmd: str,
+    allowed: list[str],
+    denied: list[str],
+    allow_interactive: bool,
+) -> tuple[bool, str]:
+    """Validate command against interactive policy, allowlist, and denylist."""
+    if not allow_interactive and cmd_name in INTERACTIVE_COMMANDS:
+        return False, f"Interactive command '{cmd_name}' is blocked in non-interactive agent shell."
+
+    if allowed:
+        if cmd_name not in allowed and full_cmd not in allowed:
+            return False, f"Command '{cmd_name}' is blocked by security allowlist."
+        return True, ""
+
+    if denied and (
+        cmd_name in denied
+        or full_cmd in denied
+        or any(cmd_name.startswith(f"{d}.") for d in denied)
+    ):
+        return False, f"Command '{cmd_name}' is blocked by security denylist."
+
+    return True, ""
+
+
 class Shell(BaseCapability):
     """Capability for executing shell commands with allowlists, denylists, background processes, and credential stripping."""
 
@@ -167,45 +217,16 @@ class Shell(BaseCapability):
         return clean_env
 
     def _validate_command(self, command: str) -> tuple[bool, str, list[str]]:
-        import shlex
-
-        if not command.strip():
-            return False, "Error: empty command", []
-
-        for op in self.denied_operators:
-            if op in command:
-                return False, f"Shell operator '{op}' is blocked by security policy.", []
-
-        try:
-            parts = shlex.split(command)
-        except Exception as exc:
-            return False, f"Command parsing error: {exc}", []
-
-        if not parts:
-            return False, "Error: empty command", []
-
-        if any(".." in part for part in parts):
-            return False, "Path traversal in command arguments is blocked by security policy.", []
+        ok, err, parts = _check_shell_syntax(command, self.denied_operators)
+        if not ok:
+            return False, err, []
 
         cmd_name = Path(parts[0]).name
-
-        if not self.allow_interactive and cmd_name in INTERACTIVE_COMMANDS:
-            return (
-                False,
-                f"Interactive command '{cmd_name}' is blocked in non-interactive agent shell.",
-                [],
-            )
-
-        if self.allowed_commands:
-            if cmd_name not in self.allowed_commands and parts[0] not in self.allowed_commands:
-                return False, f"Command '{cmd_name}' is blocked by security allowlist.", []
-        elif self.denied_commands:
-            if (
-                cmd_name in self.denied_commands
-                or parts[0] in self.denied_commands
-                or any(cmd_name.startswith(f"{d}.") for d in self.denied_commands)
-            ):
-                return False, f"Command '{cmd_name}' is blocked by security denylist.", []
+        ok, err = _check_command_permissions(
+            cmd_name, parts[0], self.allowed_commands, self.denied_commands, self.allow_interactive
+        )
+        if not ok:
+            return False, err, []
 
         return True, "", parts
 
@@ -301,9 +322,13 @@ class Shell(BaseCapability):
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
             proc.wait(timeout=3.0)
+        except ProcessLookupError, PermissionError:
+            pass
         except Exception:
             try:
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except ProcessLookupError, PermissionError:
+                pass
             except Exception:
                 pass
 

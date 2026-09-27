@@ -14,7 +14,6 @@ from pydantic import BaseModel, Field, ValidationError
 from devops_cli.config.constants import (
     CONST_MAX_INPUT_VALUE_REPR_LENGTH,
     CONST_MAX_SCHEMA_REFLECTION_ERRORS,
-    CONST_SCHEMA_FIX_HINT_TEMPLATES,
 )
 from devops_cli.models.ai import ChatMessage
 
@@ -114,36 +113,9 @@ def _bound_input_value_repr(
     return raw_str
 
 
-def _format_hint_template(template: str, ctx: dict[str, Any], default_msg: str) -> str:
-    """Safely interpolate context variables into hint template without raising KeyError."""
-    try:
-        format_kwargs = {
-            "expected": ctx.get("expected", "valid option"),
-            "ge": ctx.get("ge", "required minimum"),
-            "gt": ctx.get("gt", "required lower bound"),
-            "le": ctx.get("le", "required maximum"),
-            "lt": ctx.get("lt", "required upper bound"),
-            "min_length": ctx.get("min_length", "required minimum length"),
-            "max_length": ctx.get("max_length", "required maximum length"),
-            "msg": default_msg,
-        }
-        return template.format(**format_kwargs)
-    except Exception:
-        return f"Please correct this field to satisfy: {default_msg}."
-
-
 def synthesize_fix_hint(error_dict: Mapping[str, Any]) -> str:
-    """Synthesize a prescriptive, actionable fix hint from a Pydantic error dictionary."""
-    err_type = str(error_dict.get("type", ""))
-    ctx = error_dict.get("ctx", {})
-    if not isinstance(ctx, dict):
-        ctx = {}
+    """Synthesize an actionable fix hint directly from Pydantic's validation message."""
     msg = str(error_dict.get("msg", "Validation error"))
-
-    template = CONST_SCHEMA_FIX_HINT_TEMPLATES.get(err_type)
-    if template:
-        return _format_hint_template(template, ctx, msg)
-
     return f"Please correct this field to satisfy: {msg}."
 
 

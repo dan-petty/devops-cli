@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from devops_cli.ai.review.review_environment import execute_criterion_command
 from devops_cli.sandbox.host import HostSandbox
 from devops_cli.sandbox.models import SandboxPolicy
@@ -62,26 +64,26 @@ def test_host_sandbox_cannot_connect_network(tmp_path: Path) -> None:
     ) == (False, True, True)
 
 
-def test_host_sandbox_clears_sensitive_env(tmp_path: Path) -> None:
-    """Live test: sandboxed child sees no credentials or home directory in environment."""
+def test_host_sandbox_clears_sensitive_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live test: sandboxed child inherits no host credentials and uses isolated HOME."""
+    monkeypatch.setenv("GITHUB_TOKEN", "super_secret_host_token")
+    monkeypatch.setenv("SSH_AUTH_SOCK", "/tmp/host_auth.sock")
     sandbox = HostSandbox()
     script = (
         "import os\n"
-        "leaks = [k for k in ['HOME', 'GITHUB_TOKEN', 'GH_TOKEN', 'XDG_RUNTIME_DIR'] "
-        "if os.environ.get(k)]\n"
+        "leaks = [k for k in ['GITHUB_TOKEN', 'SSH_AUTH_SOCK'] if os.environ.get(k)]\n"
         "print('LEAKS:' + ','.join(leaks))\n"
+        "print('HOME:' + os.environ.get('HOME', ''))\n"
     )
-    res = sandbox.execute(
-        ["python3", "-c", script],
-        cwd=tmp_path,
-        env={"GITHUB_TOKEN": "secret_token", "CUSTOM_VAR": "allowed"},
-    )
+    res = sandbox.execute(["python3", "-c", script], cwd=tmp_path)
     assert (
         res.passed,
         res.exit_code,
         "LEAKS:" in res.stdout,
-        "secret_token" in res.stdout,
-    ) == (True, 0, True, False)
+        "super_secret_host_token" in res.stdout,
+        "/tmp/host_auth.sock" in res.stdout,
+        "HOME:/tmp" in res.stdout,
+    ) == (True, 0, True, False, False, True)
 
 
 def test_host_sandbox_fails_closed_when_bwrap_missing(tmp_path: Path) -> None:

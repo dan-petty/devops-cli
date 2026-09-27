@@ -13,7 +13,6 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from devops_cli.config.constants import (
-    CONST_FORBIDDEN_SANDBOX_ENV_KEYS,
     CONST_HOST_SANDBOX_DEFAULT_ENV,
     CONST_HOST_SANDBOX_SYSTEM_DIRS,
     CONST_HOST_SANDBOX_SYSTEM_SYMLINKS,
@@ -338,7 +337,7 @@ class SandboxPolicy(BaseModel):
     system_dirs: tuple[str, ...] = CONST_HOST_SANDBOX_SYSTEM_DIRS
     system_symlinks: tuple[str, ...] = CONST_HOST_SANDBOX_SYSTEM_SYMLINKS
     default_env: tuple[tuple[str, str], ...] = CONST_HOST_SANDBOX_DEFAULT_ENV
-    forbidden_env_keys: frozenset[str] = CONST_FORBIDDEN_SANDBOX_ENV_KEYS
+    forbidden_env_keys: frozenset[str] = frozenset()
 
     def to_docker_security_kwargs(self, read_only: bool | None = None) -> dict[str, Any]:
         """Render identical security options for Docker container creation."""

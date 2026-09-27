@@ -1068,7 +1068,7 @@ def _check_catalog_hallucination(finding: Finding, file_path: Path) -> Finding:
             verify_ground_truth_hallucination,
         )
 
-        match = is_common_hallucination(finding, threshold=0.8, file_path=file_path)
+        match = is_common_hallucination(finding, threshold=0.7, file_path=file_path)
         if match and verify_ground_truth_hallucination(finding, match.hallucination, file_path):
             entry = match.hallucination
             auto_record_invalidated_finding(finding, file_path=file_path, reason=entry.resolution)

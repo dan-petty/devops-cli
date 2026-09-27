@@ -1241,6 +1241,35 @@ def _evaluate_threads_blockers(
     return [f"PR #{pr_num} has {len(unresolved)} unresolved review discussion thread(s)."]
 
 
+def _classify_check_run(run: Any) -> tuple[str | None, str | None]:
+    """Classify a single check run into (failing_name, pending_name)."""
+    if not isinstance(run, dict):
+        return None, None
+    name = str(run.get("name") or "check")
+    if run.get("status") != "completed":
+        return None, name
+    if str(run.get("conclusion") or "").lower() in CONST_GH_FAILING_CHECK_CONCLUSIONS:
+        return name, None
+    return None, None
+
+
+def _fetch_check_runs_payload(owner: str, repo_name: str, head_sha: str) -> list[Any]:
+    """Fetch and decode the check-runs payload list from GitHub API."""
+    res = run_gh(
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{head_sha}/check-runs"],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode != 0 or not res.stdout.strip():
+        return []
+    try:
+        payload = json.loads(res.stdout)
+    except json.JSONDecodeError:
+        return []
+    raw = payload.get("check_runs") if isinstance(payload, dict) else None
+    return raw if isinstance(raw, list) else []
+
+
 def _failing_check_runs(owner: str, repo_name: str, head_sha: str) -> tuple[list[str], list[str]]:
     """Return the names of concluded-failing and still-running checks for a commit.
 
@@ -1249,28 +1278,15 @@ def _failing_check_runs(owner: str, repo_name: str, head_sha: str) -> tuple[list
     conflicts and review threads, so #335 passed readiness while a CodeQL check had been
     failing on it for the whole release.
     """
-    res = run_gh(
-        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{head_sha}/check-runs"],
-        check=False,
-        quiet=True,
-    )
-    if res.returncode != 0 or not res.stdout.strip():
-        return [], []
-    try:
-        payload = json.loads(res.stdout)
-    except json.JSONDecodeError:
-        return [], []
-
+    check_runs = _fetch_check_runs_payload(owner, repo_name, head_sha)
     failing: list[str] = []
     pending: list[str] = []
-    for run in payload.get("check_runs", []) if isinstance(payload, dict) else []:
-        if not isinstance(run, dict):
-            continue
-        name = str(run.get("name") or "check")
-        if run.get("status") != "completed":
-            pending.append(name)
-        elif run.get("conclusion") in ("failure", "timed_out", "cancelled", "action_required"):
-            failing.append(name)
+    for run in check_runs:
+        fail, pend = _classify_check_run(run)
+        if fail:
+            failing.append(fail)
+        elif pend:
+            pending.append(pend)
     return failing, pending
 
 

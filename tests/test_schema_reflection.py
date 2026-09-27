@@ -80,17 +80,21 @@ def test_synthesize_fix_hint_standard_types() -> None:
         {
             "type": "literal_error",
             "ctx": {"expected": "'active' or 'inactive'"},
-            "msg": "Input error",
+            "msg": "Input should be 'active' or 'inactive'",
         }
     )
     ge_hint = synthesize_fix_hint(
-        {"type": "greater_than_equal", "ctx": {"ge": 10}, "msg": "Value too small"}
+        {
+            "type": "greater_than_equal",
+            "ctx": {"ge": 10},
+            "msg": "Value must be greater than or equal to 10",
+        }
     )
     custom_hint = synthesize_fix_hint({"type": "custom_rule", "msg": "Must start with prefix"})
 
     assert (
         "required" in missing_hint,
-        "not permitted" in extra_hint,
+        "forbidden" in extra_hint,
         "valid integer" in int_hint,
         "'active' or 'inactive'" in enum_hint,
         "10" in ge_hint,
