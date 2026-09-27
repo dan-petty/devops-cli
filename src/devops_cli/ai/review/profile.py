@@ -113,7 +113,7 @@ class ReviewProfile(BaseModel):
     candidate_findings: int = 0
     verified_findings: int = 0
     reported_findings: int = 0
-    verdict_distributions: dict[str, dict[str, int]] = Field(default_factory=dict)
+    verdict_distributions: dict[str, dict[str, int | float]] = Field(default_factory=dict)
     # How each static analyzer took part: ran, built-in patterns, not installed or no files. A
     # scan that found nothing is clean only for the analyzers that ran.
     static_analyzers: dict[str, str] = Field(default_factory=dict)
@@ -154,7 +154,7 @@ class ReviewProfiler:
         # Each served call's (start, end) on the monotonic clock, by stage and backend.
         self._intervals: dict[str, dict[str, list[tuple[float, float]]]] = {}
         self._findings = (0, 0, 0)
-        self._verdict_distributions: dict[str, dict[str, int]] = {}
+        self._verdict_distributions: dict[str, dict[str, int | float]] = {}
         self._static_analyzers: dict[str, str] = {}
         self._persona_replies: list[dict[str, Any]] = []
         self._persona_outcomes: dict[str, int] = {}
@@ -219,7 +219,7 @@ class ReviewProfiler:
         candidates: int,
         verified: int,
         reported: int,
-        verdict_distributions: dict[str, dict[str, int]] | None = None,
+        verdict_distributions: dict[str, dict[str, int | float]] | None = None,
     ) -> None:
         self._findings = (candidates, verified, reported)
         if verdict_distributions is not None:

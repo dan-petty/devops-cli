@@ -512,11 +512,12 @@ def test_pipeline_self_test_failure_detection(tmp_path: Path) -> None:
 def test_review_profile_verdict_distributions(tmp_path: Path) -> None:
     """Verify ReviewProfile and ReviewProfiler record and persist verdict distributions."""
     profiler = ReviewProfiler()
-    test_dists = {
+    test_dists: dict[str, dict[str, int | float]] = {
         "status": {"VERIFIED": 2, "INVALIDATED": 1},
         "reportable": {"true": 2, "false": 1},
         "verified": {"true": 2, "false": 1},
         "mitigated": {"false": 3},
+        "citation_rates": {"unknown": 0.61, "llm": 0.85},
     }
     profiler.set_findings(
         candidates=3,
@@ -533,11 +534,15 @@ def test_review_profile_verdict_distributions(tmp_path: Path) -> None:
     assert (
         profile.verdict_distributions["status"],
         profile.verdict_distributions["reportable"],
+        profile.verdict_distributions["citation_rates"],
         loaded_profile.verdict_distributions["status"],
         loaded_profile.verdict_distributions["mitigated"],
+        loaded_profile.verdict_distributions["citation_rates"],
     ) == (
         {"VERIFIED": 2, "INVALIDATED": 1},
         {"true": 2, "false": 1},
+        {"unknown": 0.61, "llm": 0.85},
         {"VERIFIED": 2, "INVALIDATED": 1},
         {"false": 3},
+        {"unknown": 0.61, "llm": 0.85},
     )
