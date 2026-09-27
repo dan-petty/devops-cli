@@ -56,6 +56,7 @@ Kubernetes cluster connection, Minikube, Helm, and Kustomize settings.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `context` | `str` | `minikube` | `DEVOPS_CLI_K8S_CONTEXT` | Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context) |
+| `domain` | `Union` | - | `DEVOPS_CLI_K8S_DOMAIN` | Base domain name for homelab ingress routes and tunnel services (e.g. retric.ai) |
 
 ## AI & LLM Configuration (`ai`)
 
