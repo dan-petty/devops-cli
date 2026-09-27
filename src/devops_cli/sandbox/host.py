@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
 import time
@@ -109,7 +110,8 @@ class HostSandbox:
     """Bubblewrap-confined host execution sandbox."""
 
     def __init__(self, bwrap_binary: str | Path | None = None) -> None:
-        self.bwrap_binary: Final[Path] = Path(bwrap_binary or DEFAULT_HOST_SANDBOX_BINARY)
+        resolved = bwrap_binary or shutil.which("bwrap") or DEFAULT_HOST_SANDBOX_BINARY
+        self.bwrap_binary: Final[Path] = Path(resolved)
 
     def is_available(self) -> bool:
         """Verify whether the bubblewrap binary exists and is executable."""
