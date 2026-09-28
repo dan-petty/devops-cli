@@ -5,11 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.23] - 2026-09-22
+## [0.2.23] - 2026-09-28
+
+### Added
+- **GPU-Architecture Inference Placement & Gateway Routing (`devops_cli.k8s`, `devops_cli.ai`)**:
+  - Scheduled inference engines dynamically by GPU compute architecture (`nvidia.com/gpu.family` and `nvidia.com/gpu.architecture`), mapping dual-GPU Ampere+ nodes to vLLM Qwen2.5-Coder-32B at tensor parallel 2 with 64K YaRN context, single-GPU Ampere nodes to vLLM Qwen2.5-Coder-14B, and legacy hardware to Ollama (#453, #654, #655, #668).
+  - Adopted throughput-weighted `simple-shuffle` gateway routing across the `devops-review` model group without artificial concurrency caps, achieving ~2 req/s throughput scaling (#467, #468, #668).
+  - Ephemeral debug container script pipelining via stdin to prevent Linux `MAX_ARG_STRLEN` (128KB) overflow on large prompts during gateway tuning, with concurrency recommendations and label-keyed weight matching (#470, #669, #677).
+  - Consolidated the LiteLLM Gateway as the single authenticated cluster entry point with automatic route discovery and credentials enforcement (#455, #469, #471).
+  - Forwarded Ollama ranged blob pulls through the Squid forward proxy unchanged, enabling large model downloads from Cloudflare R2 (#460, #461).
+  - Deployed Ollama as a headless StatefulSet with per-pod DNS routing and one gateway deployment per GPU node (#463).
+- **Multi-Persona Code Review Engine & Quality Hardening (`devops_cli.ai.review`)**:
+  - Added construct-aware finding location validation using Python AST to relocate drifted findings to precise line spans and support removed-symbol finding exemptions (#403, #436, #593, #659).
+  - Enforced finding schema verdict polarity validation (`observed_value` vs `expected_value`) and deterministic pre-verification invalidation of contradictory polarity hallucinations (#435, #635).
+  - Bound verification verdicts by finding identity and normalized location rather than list position, preventing verdict misattribution (#403, #436, #660).
+  - Structured error reflection for Pydantic schema validation retries, preserving field-level validation errors and actionable fix hints (#437, #656).
+  - Synthetic defect corpora generation and scoring (`devops review corpus generate` / `score`) across 9 injection templates for measured defect recall tracking (#473, #476).
+  - Per-stage execution profiling and telemetry recording wall time, LLM calls, prompt/completion tokens, and serving backends in `profile.json` and spend ledger (#473, #474, #661, #664).
+  - Per-call token caps on review and verification replies (`limit_completion_tokens`), preventing runaway generation delays (#494, #496).
+  - Project conventions resolution nearest-first from base ref or reviewer checkout to prevent PR branches suppressing findings (#524, #658).
+- **Cloudflare Tunnel GitOps & Cluster Ingress Automation (`devops_cli.k8s.cloudflared`, `devops_cli.k8s.ingress`)**:
+  - Added declarative `cloudflared` multi-replica deployment with non-root security context (`runAsUser: 65532`, `readOnlyRootFilesystem: true`), token secret mapping, and dedicated network policy isolation (#646, #651).
+  - Deployed Traefik Ingress Controller as an internal `ClusterIP` service with wildcard `*.homelab.<domain>` routing, client host-header preservation, and pre-configured ingress routes for `open-webui`, `llm-gateway`, `kube-prometheus-grafana`, and `argocd-server` (#646, #651).
+  - Hardened Cloudflare DNS client pagination, unmanaged record protection, tunnel ingress preservation, and public IP bypass policy options (#666, #676).
+- **Host Sandbox & Process Group Isolation (`devops_cli.sandbox`, `devops_cli.core.process`)**:
+  - Implemented guarded POSIX process group isolation (`start_new_session=True` on `Popen`) with safe hierarchical group termination guarding PID 1 and caller process group (#440, #663).
+  - Added ephemeral container streaming output byte caps, bounded ring buffers (`collections.deque(maxlen=1000)`), and read-only git worktree volume mounts (#449, #663).
+  - Isolated agent workspace data tier (`.data/agent/`) preventing temporary review artifacts from polluting user workspace data (#553, #616).
+- **Roadmap & Milestone Scope Governance (`devops_cli.github`)**:
+  - Added the Autonomous Milestone Scope Governor & Release Air-Lock Oracle deliverable and mathematical scope convergence tracking to prevent milestone horizon inflation cascades (#678).
+  - Reconciled task file traceability and backlog synchronization requiring completed deliverables and issue links (#489, #492, #679).
+  - Automated release-branch issue closure (`devops gh issues close-merged`) closing pull-request referenced issues across release branches (#342, #366).
 
 ### Fixed & Hardened
-- fix(pr): block readiness on drafts and failing checks (#398)
-- fix(security): a capitalised word is still a word, not a credential (#397)
+- **Security Sanitization (`devops_cli.security.sanitizer`)**: Bracket-balanced credential detection and attribute chain validation in code sanitizers (#662, #676).
+- **Credential Masking (`devops_cli.security.sanitizer`)**: Capitalized word discrimination preventing ordinary prose being treated as credentials (#397).
+- **Keyring Credentials (`devops_cli.security`)**: Keyring credential resolution hardening and host-credential gap elimination (#485).
+- **Pull Request Readiness (`devops_cli.commands.pr`)**: Blocked PR readiness checks on drafts, uncompleted task specs, and failing CI checks (#398, #400).
+- **DevContainer Prefix Resolution (`devops_cli.commands.devcontainer`)**: Handled URL strings gracefully when resolving SSH key prefixes from JSONC manifests (#488).
+- **Background Pipes (`devops_cli.core.process`)**: Drained background shell pipes into bounded ring buffers, avoiding deadlock on large process outputs (#449).
+- **Port-Forward Process Groups (`devops_cli.k8s.port_forward`)**: Isolated port-forward daemons into dedicated process groups with graceful teardown (#440).
+- **Self-Agreement Confidence Stripping (`devops_cli.ai.review`)**: Removed ungrounded self-agreement confidence heuristics in favor of external tool verifications (#402).
 
 ## [0.2.22] - 2026-09-22
 
