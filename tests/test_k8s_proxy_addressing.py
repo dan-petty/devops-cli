@@ -272,3 +272,25 @@ def test_a_stack_that_was_not_selected_is_absent_from_the_preview() -> None:
     from devops_cli.commands.k8s.networking import _dry_run_preview
 
     assert "qdrant.url" not in _dry_run_preview(["infra"], "proxy")
+
+
+def test_the_fqdn_preview_renders_domain_addresses() -> None:
+    """FQDN addressing renders domain-based HTTPS URLs for services."""
+    from devops_cli.commands.k8s.networking import _dry_run_preview
+
+    preview = _dry_run_preview(["infra", "llm"], "fqdn")
+    assert (
+        preview["argocd.url"],
+        preview["grafana.url"],
+        preview["prometheus.url"],
+        preview["open_webui.url"],
+        preview["qdrant.url"],
+        preview["ai.gateway_url"],
+    ) == (
+        "https://argocd.example.com",
+        "https://grafana.example.com",
+        "https://prometheus.example.com",
+        "https://chat.example.com",
+        "https://qdrant.example.com",
+        "https://ai.example.com/v1",
+    )

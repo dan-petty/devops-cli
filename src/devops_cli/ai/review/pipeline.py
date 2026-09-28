@@ -2227,11 +2227,18 @@ class ReviewPipelineOrchestrator:
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             from devops_cli.config.defaults import (
+                DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
                 DEFAULT_REVIEW_CONCURRENCY,
                 DEFAULT_REVIEW_MAX_CONCURRENCY,
             )
 
-            batch_capacity = max(DEFAULT_REVIEW_CONCURRENCY, len(ollama_urls) * max_par)
+            is_gateway = bool(getattr(config, "gateway_enabled", False)) or (
+                getattr(config, "provider", None) == "gateway"
+            )
+            base_capacity = (
+                DEFAULT_GATEWAY_REVIEW_CONCURRENCY if is_gateway else DEFAULT_REVIEW_CONCURRENCY
+            )
+            batch_capacity = max(base_capacity, len(ollama_urls) * max_par)
             if self.concurrency is not None:
                 n_workers = min(total_files, max(1, self.concurrency)) if total_files > 0 else 1
             else:
@@ -2500,11 +2507,18 @@ class ReviewPipelineOrchestrator:
             raw_par = getattr(config, "ollama_max_parallel", None)
             max_par = int(raw_par) if isinstance(raw_par, int) else 2
             from devops_cli.config.defaults import (
+                DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
                 DEFAULT_REVIEW_CONCURRENCY,
                 DEFAULT_REVIEW_MAX_CONCURRENCY,
             )
 
-            batch_capacity = max(DEFAULT_REVIEW_CONCURRENCY, len(ollama_urls) * max_par)
+            is_gateway = bool(getattr(config, "gateway_enabled", False)) or (
+                getattr(config, "provider", None) == "gateway"
+            )
+            base_capacity = (
+                DEFAULT_GATEWAY_REVIEW_CONCURRENCY if is_gateway else DEFAULT_REVIEW_CONCURRENCY
+            )
+            batch_capacity = max(base_capacity, len(ollama_urls) * max_par)
             if self.concurrency is not None:
                 n_workers = min(len(payloads_with_findings), max(1, self.concurrency))
             else:

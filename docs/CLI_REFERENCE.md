@@ -30,6 +30,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops tf`](#devops-tf) — OpenTofu and Terraform Infrastructure-as-Code operations.
 - [`devops tls`](#devops-tls) — Generate and manage homelab TLS certificates and CAs.
 - [`devops telemetry`](#devops-telemetry) — OpenTelemetry tracing, metrics, and Jaeger observability.
+- [`devops cloudflare`](#devops-cloudflare) — Cloudflare Zero Trust tunnels and DNS management.
 - [`devops serve`](#devops-serve) — FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.
 - [`devops test`](#devops-test) — Test suite orchestration, git-diff aware test selector, and load testing.
 - [`devops pipeline`](#devops-pipeline) — Programmable containerized pipeline execution (Dagger).
@@ -647,6 +648,28 @@ devops k8s apply [OPTIONS] <path>
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--template`, `-t` | `boolean` | - | Render manifest as a template substituting domain from config or --domain before applying. |
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
+
+### `devops k8s render`
+
+**Render Kubernetes manifest templates with domain and variables substituted.**
+
+```bash
+devops k8s render [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `string` | Yes | Manifest file or directory path. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
 
 ### `devops k8s logs`
 
@@ -762,7 +785,7 @@ devops k8s configure-urls [OPTIONS]
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
-| `--addressing`, `-a` | `string` | `nodeport` | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward. |
+| `--addressing`, `-a` | `string` | - | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward, 'fqdn' discovers Ingress hostnames and writes domain-based URLs. |
 
 ### `devops k8s service-url`
 
@@ -1122,6 +1145,24 @@ devops k8s security-stream [OPTIONS]
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--output`, `-o` | `path` | - | Export discovered alerts to JSON file |
 
+### `devops k8s gpu-matrix`
+
+**Query traditional homelab GPU matrix and model service alias mappings.**
+
+```bash
+devops k8s gpu-matrix [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--gpus`, `-g` | `integer` | - | Filter by GPU count (1, 2, 3, 4). |
+| `--vram`, `-v` | `integer` | - | Filter by VRAM per GPU in GiB (16, 24, 32). |
+| `--backend`, `-b` | `string` | - | Filter by inference backend: ollama or vllm. |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
+| `--aliases`, `-a` | `boolean` | - | Include Kubernetes model service aliases mapping. |
+
 ---
 
 ## devops kustomize
@@ -1182,6 +1223,8 @@ devops kustomize apply [OPTIONS] <path>
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--template`, `-t` | `boolean` | - | Render manifest as a template substituting domain from config or --domain before applying. |
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
 
 ---
 
@@ -7477,6 +7520,171 @@ devops telemetry profile [OPTIONS] <command>
 ```bash
 devops telemetry open-ui
 ```
+
+---
+
+## devops cloudflare
+
+Cloudflare Zero Trust tunnels and DNS management.
+
+### `devops cloudflare status`
+
+**Verify Cloudflare API token authentication and inspect zone status.**
+
+```bash
+devops cloudflare status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json`, `-j` | `boolean` | - | Output status details in JSON format |
+
+### `devops cloudflare dns`
+
+```bash
+devops cloudflare dns COMMAND [ARGS]...
+```
+
+#### `devops cloudflare dns list`
+
+**List DNS records in the designated Cloudflare zone.**
+
+```bash
+devops cloudflare dns list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--type`, `-t` | `string` | - | Filter by DNS record type (e.g. CNAME, A, TXT) |
+| `--name`, `-n` | `string` | - | Filter by record hostname |
+| `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
+| `--json`, `-j` | `boolean` | - | Output DNS records in JSON format |
+
+#### `devops cloudflare dns sync`
+
+**Synchronize CNAME records for root and subdomains to the Cloudflare tunnel.**
+
+```bash
+devops cloudflare dns sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--domain`, `-d` | `string` | - | Root domain name (e.g. retric.click) |
+| `--tunnel-cname`, `-c` | `string` | - | Target tunnel CNAME or Tunnel UUID |
+| `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to tunnel |
+| `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
+| `--dry-run` | `boolean` | - | Preview DNS record reconciliation without applying changes |
+| `--json`, `-j` | `boolean` | - | Output reconciliation summary in JSON format |
+
+#### `devops cloudflare dns delete`
+
+**Delete one or more DNS records by name or record ID.**
+
+```bash
+devops cloudflare dns delete [OPTIONS] <targets>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<targets>` | `string` | Yes | One or more DNS record names (e.g. chat.retric.click) or record IDs to delete |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
+| `--dry-run` | `boolean` | - | Preview DNS record deletions without applying changes |
+| `--json`, `-j` | `boolean` | - | Output deletion results in JSON format |
+
+### `devops cloudflare tunnel`
+
+```bash
+devops cloudflare tunnel COMMAND [ARGS]...
+```
+
+#### `devops cloudflare tunnel routes`
+
+**Inspect Cloudflare tunnel ingress routes configuration.**
+
+```bash
+devops cloudflare tunnel routes [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--tunnel-id`, `-t` | `string` | - | Cloudflare Tunnel ID or name |
+| `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--json`, `-j` | `boolean` | - | Output tunnel ingress routes in JSON format |
+
+#### `devops cloudflare tunnel sync`
+
+**Synchronize tunnel ingress rules to route subdomains to the cluster ingress controller.**
+
+```bash
+devops cloudflare tunnel sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--tunnel-id`, `-t` | `string` | - | Cloudflare Tunnel ID |
+| `--domain`, `-d` | `string` | - | Domain to route through tunnel (e.g. retric.click) |
+| `--service` | `string` | `http://traefik.kube-system.svc.cluster.local:80` | Cluster ingress destination service URL |
+| `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to service |
+| `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--dry-run` | `boolean` | - | Preview tunnel configuration without updating |
+| `--json`, `-j` | `boolean` | - | Output updated tunnel configuration in JSON format |
+
+### `devops cloudflare access`
+
+```bash
+devops cloudflare access COMMAND [ARGS]...
+```
+
+#### `devops cloudflare access status`
+
+**Inspect Cloudflare Zero Trust Access applications and protected domains.**
+
+```bash
+devops cloudflare access status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--json`, `-j` | `boolean` | - | Output access applications in JSON format |
+
+#### `devops cloudflare access sync`
+
+**Synchronize Cloudflare Zero Trust Access application and email allow-list policy.**
+
+```bash
+devops cloudflare access sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--domain`, `-d` | `string` | - | Domain to protect with Cloudflare Access |
+| `--allowed-emails`, `-e` | `string` | - | Comma-separated emails permitted to access |
+| `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--dry-run` | `boolean` | - | Preview Access application changes without applying |
+| `--json`, `-j` | `boolean` | - | Output Access sync summary in JSON format |
 
 ---
 

@@ -1,9 +1,13 @@
 # Core Stack Ingress Routes for Cloudflare Wildcard Tunnel Integration
 #
-# Incoming requests via the wildcard Cloudflare Tunnel (*.homelab.example.com)
+# Incoming requests via the wildcard Cloudflare Tunnel (*.example.com)
 # retain the original Host header and route to internal ClusterIP services.
 #
-# Customize "example.com" to match your root domain.
+# This manifest acts as a template. Apply with domain substitution from config.yaml:
+#   devops k8s apply k8s/ingress/ingress-routes.yaml --template
+#   devops k8s apply k8s/ingress/ --template
+# Or preview rendered YAML:
+#   devops k8s render k8s/ingress/ingress-routes.yaml
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -18,7 +22,17 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: chat.homelab.example.com
+    - host: chat.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: open-webui
+                port:
+                  number: 8080
+    - host: homelab.example.com
       http:
         paths:
           - path: /
@@ -42,7 +56,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: ai.homelab.example.com
+    - host: ai.example.com
       http:
         paths:
           - path: /
@@ -52,6 +66,54 @@ spec:
                 name: llm-gateway
                 port:
                   number: 4000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ollama-ingress
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: ollama.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ollama
+                port:
+                  number: 11434
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: qdrant-ingress
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: qdrant.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: qdrant
+                port:
+                  number: 6333
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -66,7 +128,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: grafana.homelab.example.com
+    - host: grafana.example.com
       http:
         paths:
           - path: /
@@ -74,30 +136,6 @@ spec:
             backend:
               service:
                 name: kube-prometheus-grafana
-                port:
-                  number: 80
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: argocd-ingress
-  namespace: argocd
-  labels:
-    app.kubernetes.io/name: argocd-server
-    app.kubernetes.io/part-of: devops-cli-stack
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
-spec:
-  ingressClassName: traefik
-  rules:
-    - host: argocd.homelab.example.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: argocd-server
                 port:
                   number: 80
 ---
@@ -114,7 +152,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: prometheus.homelab.example.com
+    - host: prometheus.example.com
       http:
         paths:
           - path: /
@@ -128,23 +166,71 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: qdrant-ingress
-  namespace: llm
+  name: argocd-ingress
+  namespace: argocd
   labels:
-    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/name: argocd-server
     app.kubernetes.io/part-of: devops-cli-stack
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:
   ingressClassName: traefik
   rules:
-    - host: qdrant.homelab.example.com
+    - host: argocd.example.com
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: qdrant
+                name: argocd-server
                 port:
-                  number: 6333
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jaeger-ingress
+  namespace: otel
+  labels:
+    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: jaeger.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jaeger
+                port:
+                  number: 16686
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: telemetry-ingress
+  namespace: otel
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: telemetry.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: otel-collector-opentelemetry-collector
+                port:
+                  number: 4318

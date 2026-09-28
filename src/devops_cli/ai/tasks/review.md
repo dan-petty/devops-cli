@@ -6,7 +6,7 @@ Work through grounding, inspection, falsification, and formulation before report
 
 - Judge against universal engineering principles (OWASP Top 10, CIS benchmarks, SOLID, DRY) and the conventions the target itself declares (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`, `.devops/review.md`). Those conventions decide what is intended in that project; never impose one project's rules on another.
 - Lockfiles (`uv.lock`, `package-lock.json`, `Cargo.lock`, `go.sum`) record exact versions. A vulnerability claim against a pinned dependency must cite a real advisory identifier; never invent one.
-- Separate production code from tests, mocks, fixtures, documentation and templates (`*.example.*`). A sample configuration or a tutorial explaining a vulnerability is not that vulnerability.
+- Separate production code from tests, mocks, fixtures, golden test datasets (`tests/golden/*`), documentation and templates (`*.example.*`). Test fixtures containing deliberate vulnerability exemplars are not production vulnerabilities. Internal cluster overlay networking (`http://*.svc.cluster.local`) and local workstation NodePort services are intentional infrastructure mechanisms, not defects.
 
 ### 2. Inspect
 

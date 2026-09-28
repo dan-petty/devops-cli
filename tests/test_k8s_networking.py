@@ -7,7 +7,10 @@ from unittest.mock import patch
 from devops_cli.commands.k8s.networking import (
     _build_port_forward_details,
     _collect_port_forward_services,
+    _is_fqdn_url,
     _resolve_accessible_url,
+    _resolve_effective_addressing,
+    _select_best_ingress_host,
     _should_update_url,
     _update_ollama_urls,
     port_forward,
@@ -152,3 +155,112 @@ def test_port_forward_defaults_do_not_update_config() -> None:
 
         port_forward(stack="infra", update_config=True)
         assert mock_conf.called is True
+
+
+def test_is_fqdn_url() -> None:
+    """_is_fqdn_url correctly identifies valid FQDN endpoints and rejects IPs/loopbacks."""
+    results = (
+        _is_fqdn_url("https://argocd.example.com"),
+        _is_fqdn_url("http://chat.example.com:8080"),
+        _is_fqdn_url("http://192.0.2.1:30500"),
+        _is_fqdn_url("http://127.0.0.1:8080"),
+        _is_fqdn_url("http://localhost:11434"),
+        _is_fqdn_url("http://service.default.svc.cluster.local:8080"),
+        _is_fqdn_url(""),
+        _is_fqdn_url(None),
+    )
+    expected = (True, True, False, False, False, False, False, False)
+    assert results == expected
+
+
+def test_should_update_url_preserves_fqdn() -> None:
+    """_should_update_url forbids downgrading FQDN URLs to NodePort IPs or loopback."""
+    results = (
+        _should_update_url("https://argocd.example.com", "http://192.0.2.4:30500"),
+        _should_update_url("https://argocd.example.com", "http://localhost:8080"),
+        _should_update_url("https://argocd.example.com", "https://argocd.example.com"),
+        _should_update_url("https://argocd.example.com", "https://new-argocd.example.com"),
+    )
+    assert results == (False, False, True, True)
+
+
+def test_select_best_ingress_host() -> None:
+    """_select_best_ingress_host prefers host matching the configured domain."""
+    hosts = ["argocd.example.com", "argocd.homelab.example.com"]
+    chosen_with_domain = _select_best_ingress_host(hosts, preferred_domain="homelab.example.com")
+    chosen_default = _select_best_ingress_host(hosts, preferred_domain=None)
+    chosen_empty = _select_best_ingress_host([], preferred_domain="example.com")
+    assert (chosen_with_domain, chosen_default, chosen_empty) == (
+        "argocd.homelab.example.com",
+        "argocd.example.com",
+        None,
+    )
+
+
+def test_resolve_effective_addressing() -> None:
+    """_resolve_effective_addressing determines correct mode from args or settings."""
+    settings_empty = Settings()
+    settings_empty.k8s.domain = None
+    settings_empty.k8s.addressing = "nodeport"
+
+    settings_domain = Settings()
+    settings_domain.k8s.domain = "example.com"
+    settings_domain.k8s.addressing = "nodeport"
+
+    settings_explicit_mode = Settings()
+    settings_explicit_mode.k8s.domain = None
+    settings_explicit_mode.k8s.addressing = "proxy"
+
+    results = (
+        _resolve_effective_addressing("fqdn", settings_empty),
+        _resolve_effective_addressing(None, settings_empty),
+        _resolve_effective_addressing(None, settings_domain),
+        _resolve_effective_addressing(None, settings_explicit_mode),
+    )
+    assert results == ("fqdn", "nodeport", "fqdn", "proxy")
+
+
+def test_preview_fqdn_addresses() -> None:
+    """_preview_fqdn_addresses returns domain-based endpoints for infra and llm stacks."""
+    from devops_cli.commands.k8s.networking import _preview_fqdn_addresses
+
+    preview_infra = _preview_fqdn_addresses(["infra"])
+    preview_llm = _preview_fqdn_addresses(["llm"])
+    assert (
+        preview_infra.get("argocd.url"),
+        preview_llm.get("ai.gateway_url"),
+    ) == (
+        "https://argocd.example.com",
+        "https://ai.example.com/v1",
+    )
+
+
+def test_configure_fqdn_urls() -> None:
+    """_configure_fqdn_urls maps discovered ingress hosts to service configurations."""
+    from devops_cli.commands.k8s.networking import _configure_fqdn_urls
+
+    mock_ingress = {
+        "argocd-server": ["argocd.example.com"],
+        "open-webui": ["chat.example.com"],
+        "llm-gateway": ["ai.example.com"],
+    }
+    settings = Settings()
+    configured: dict[str, str] = {}
+
+    with patch(
+        "devops_cli.commands.k8s.networking._discover_ingress_hosts",
+        return_value=mock_ingress,
+    ):
+        _configure_fqdn_urls(None, settings, configured, ["infra", "llm"])
+
+    assert (
+        configured.get("argocd.url"),
+        configured.get("open_webui.url"),
+        configured.get("ai.gateway_url"),
+        settings.ai.gateway_enabled,
+    ) == (
+        "https://argocd.example.com",
+        "https://chat.example.com",
+        "https://ai.example.com/v1",
+        True,
+    )

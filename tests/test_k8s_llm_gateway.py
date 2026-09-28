@@ -129,12 +129,12 @@ class TestK8sLLMGatewayManifests:
                 "devops-review",
                 "ollama/*",
             ],
-            "simple-shuffle",
+            "least-busy",
             2,
         )
 
     def test_gateway_configmap_routes_vllm_profiles_by_served_model_name(self) -> None:
-        """Verify reasoning and coder aliases reach the dual- and single-GPU vLLM profiles."""
+        """Verify reasoning and coder aliases reach the dual-GPU vLLM profile."""
         cm = _load_kind(GATEWAY_DIR / "configmap.yaml", "ConfigMap")
         cfg = yaml.safe_load(cm["data"]["config.yaml"])
         params = {m["model_name"]: m["litellm_params"] for m in cfg["model_list"]}
@@ -217,6 +217,7 @@ class TestK8sLLMGatewayManifests:
         windows = {
             DEFAULT_VLLM_CLUSTER_URL: vllm_window,
             f"{_ollama_pod_urls()[2]}/v1": ollama_window,
+            "http://ollama-volta-1.llm.svc.cluster.local:11434/v1": ollama_window,
         }
 
         assert (
@@ -224,28 +225,40 @@ class TestK8sLLMGatewayManifests:
             all(m["model_info"]["max_input_tokens"] < windows[base] for base, m in pool.items()),
             pool[DEFAULT_VLLM_CLUSTER_URL]["model_info"]["max_input_tokens"],
             pool[f"{_ollama_pod_urls()[2]}/v1"]["model_info"]["max_input_tokens"],
+            pool["http://ollama-volta-1.llm.svc.cluster.local:11434/v1"]["model_info"][
+                "max_input_tokens"
+            ],
         ) == (
             sorted(windows),
             True,
             61440,
             43904,
+            43904,
         )
 
-    def test_gateway_review_pool_weights_backends_by_throughput_without_caps(self) -> None:
-        """Verify devops-review shares requests across inference backends and caps no deployment."""
+    def test_gateway_review_pool_weights_and_concurrency_caps(self) -> None:
+        """Verify devops-review shares requests across inference backends with appropriate weights and caps."""
         deployments = _deployments("devops-review")
         weights = {
             m["litellm_params"]["api_base"]: m["litellm_params"].get("weight") for m in deployments
         }
+        caps = {
+            m["litellm_params"]["api_base"]: m["litellm_params"].get("max_parallel_requests")
+            for m in deployments
+        }
         assert (
-            [m["litellm_params"].get("max_parallel_requests") for m in deployments],
-            weights[DEFAULT_VLLM_CLUSTER_URL] > weights[f"{_ollama_pod_urls()[2]}/v1"],
             weights[DEFAULT_VLLM_CLUSTER_URL],
             weights[f"{_ollama_pod_urls()[2]}/v1"],
+            weights["http://ollama-volta-1.llm.svc.cluster.local:11434/v1"],
+            caps[DEFAULT_VLLM_CLUSTER_URL],
+            caps[f"{_ollama_pod_urls()[2]}/v1"],
+            caps["http://ollama-volta-1.llm.svc.cluster.local:11434/v1"],
         ) == (
-            [None] * len(deployments),
-            True,
-            5,
+            6,
+            1,
+            1,
+            64,
+            1,
             1,
         )
 

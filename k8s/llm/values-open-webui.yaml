@@ -36,17 +36,25 @@ extraEnvVars:
   - name: RAG_OLLAMA_BASE_URL
     value: "http://ollama.llm.svc.cluster.local:11434"
   - name: RAG_EMBEDDING_MODEL
-    value: "nomic-embed-text"
+    value: "bge-m3:latest"
+  - name: DEFAULT_MODELS
+    value: "devops-chat"
+  - name: MODEL_FILTER_LIST
+    value: "devops-chat;devops-coder;devops-reasoning;devops-review;qwen3-coder:30b;cogito-v2:70b;qwen2.5-coder:7b"
+  - name: OPENAI_API_BASE_URLS
+    value: "http://llm-gateway.llm.svc.cluster.local:4000/v1"
+  - name: OLLAMA_BASE_URLS
+    value: "http://ollama.llm.svc.cluster.local:11434"
   - name: WEBUI_AUTH
     value: "true"
 
 # Valkey cache integration (replaces Redis)
 websocket:
   enabled: true
-  manager: redis  # python-socketio driver connects via Redis protocol to Valkey
+  manager: redis # python-socketio driver connects via Redis protocol to Valkey
   url: "redis://valkey.llm.svc.cluster.local:6379/0"
   redis:
-    enabled: false  # Embedded Redis subchart disabled in favor of standalone Valkey service
+    enabled: false # Embedded Redis subchart disabled in favor of standalone Valkey service
 
 service:
   # Local minikube: NodePort allows direct browser access without ingress controller.

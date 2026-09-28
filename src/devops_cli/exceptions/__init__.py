@@ -36,6 +36,11 @@ from devops_cli.exceptions.ai import (
 )
 from devops_cli.exceptions.argo import ArgoError, ArgoResourceNotFoundError
 from devops_cli.exceptions.base import DevOpsCLIError
+from devops_cli.exceptions.cloudflare import (
+    CloudflareAPIError,
+    CloudflareAuthError,
+    CloudflareError,
+)
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.docker import (
     CosignError,
@@ -117,6 +122,9 @@ __all__ = [
     "CapabilityDegradationError",
     "ChaosExecutionError",
     "ChecksumMismatchError",
+    "CloudflareAPIError",
+    "CloudflareAuthError",
+    "CloudflareError",
     "ConcurrencyLimitExceeded",
     "ConfigurationError",
     "ConstellationFailoverError",

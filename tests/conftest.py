@@ -108,6 +108,19 @@ os.environ.update(_TERMINAL_ENV)
 
 
 @pytest.fixture(autouse=True)
+def preserve_cwd():
+    """Ensure working directory is always restored to repository root after each test."""
+    orig_cwd = os.getcwd()
+    try:
+        yield
+    finally:
+        try:
+            os.chdir(orig_cwd)
+        except OSError:
+            pass
+
+
+@pytest.fixture(autouse=True)
 def reset_dry_run_state():
     """Clear dry-run state and give each test a freshly built, standard-width console."""
     import devops_cli.output.console as console_module
@@ -158,7 +171,11 @@ def isolate_gh_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def protect_workspace_config():
     """Ensure workspace config.yaml is never modified during test execution."""
     workspace_config = (Path(__file__).parent.parent / "config.yaml").resolve()
-    initial_content = workspace_config.read_bytes() if workspace_config.exists() else None
+    try:
+        initial_stat = workspace_config.stat() if workspace_config.exists() else None
+    except OSError:
+        initial_stat = None
+    initial_content = workspace_config.read_bytes() if initial_stat is not None else None
     yield
     if initial_content is None:
         if workspace_config.exists():
@@ -168,6 +185,21 @@ def protect_workspace_config():
         workspace_config.write_bytes(initial_content)
         pytest.fail(f"Test deleted workspace config at {workspace_config}!")
     else:
+        try:
+            curr_stat = workspace_config.stat()
+            curr_mtime = getattr(curr_stat, "st_mtime_ns", None)
+            init_mtime = getattr(initial_stat, "st_mtime_ns", None)
+            curr_size = getattr(curr_stat, "st_size", None)
+            init_size = getattr(initial_stat, "st_size", None)
+            if (
+                curr_mtime is not None
+                and init_mtime is not None
+                and curr_mtime == init_mtime
+                and curr_size == init_size
+            ):
+                return
+        except OSError:
+            pass
         current_content = workspace_config.read_bytes()
         if current_content != initial_content:
             workspace_config.write_bytes(initial_content)

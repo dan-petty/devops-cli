@@ -131,6 +131,16 @@ cloudflare:
   domain: null
   # Tunnel name or identifier (e.g. homelab).
   tunnel: null
+  # Cloudflare Account ID.
+  account_id: null
+  # Cloudflare Zone ID.
+  zone_id: null
+  # Cloudflare Zero Trust Access configuration.
+  access:
+    enabled: false
+    idp: google
+    allowed_emails: []
+
 
 # ── Sandbox ───────────────────────────────────────────────────────────────────
 sandbox:

@@ -22,6 +22,10 @@ spec:
       labels:
         app.kubernetes.io/name: vllm-single
         app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: qwen2.5-coder-14b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: "1"
+        llm.devops.io/vram-per-gpu: "16GiB"
     spec:
       runtimeClassName: nvidia
       # A Service named `vllm` would inject VLLM_PORT=tcp://..., which vLLM reads as its own setting.

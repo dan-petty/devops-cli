@@ -966,16 +966,29 @@ class TestDevcontainerCli:
         chown_calls: list[tuple[str, int, int]] = []
         monkeypatch.setattr("os.chown", lambda p, u, g: chown_calls.append((str(p), u, g)))
         # Make stat return uid 1000 so mismatch is detected
-        fake_stat = type("Stat", (), {"st_uid": 1000, "st_gid": 1000})()
-        monkeypatch.setattr(Path, "stat", lambda self: fake_stat)
+        orig_stat = Path.stat
+        fake_stat = type(
+            "Stat", (), {"st_uid": 1000, "st_gid": 1000, "st_mtime_ns": 0, "st_size": 0}
+        )()
+        monkeypatch.setattr(
+            Path,
+            "stat",
+            lambda self: fake_stat if str(self).startswith(str(test_dir)) else orig_stat(self),
+        )
         _ensure_path_ownership(test_dir)
         assert len(chown_calls) > 0
 
         # 4. Ownership mismatch as non-root with sudo
         monkeypatch.setattr("os.getuid", lambda: 1000)
         monkeypatch.setattr("os.getgid", lambda: 1000)
-        fake_stat_root = type("Stat", (), {"st_uid": 0, "st_gid": 0})()
-        monkeypatch.setattr(Path, "stat", lambda self: fake_stat_root)
+        fake_stat_root = type(
+            "Stat", (), {"st_uid": 0, "st_gid": 0, "st_mtime_ns": 0, "st_size": 0}
+        )()
+        monkeypatch.setattr(
+            Path,
+            "stat",
+            lambda self: fake_stat_root if str(self).startswith(str(test_dir)) else orig_stat(self),
+        )
         sudo_calls: list[list[str]] = []
 
         def mock_run_subprocess(cmd: list[str], **kwargs: object) -> object:

@@ -57,6 +57,7 @@ Kubernetes cluster connection, Minikube, Helm, and Kustomize settings.
 |---|---|---|---|---|
 | `context` | `str` | `minikube` | `DEVOPS_CLI_K8S_CONTEXT` | Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context) |
 | `domain` | `Union` | - | `DEVOPS_CLI_K8S_DOMAIN` | Base domain name for homelab ingress routes and tunnel services (e.g. retric.ai) |
+| `addressing` | `str` | `nodeport` | - | Default addressing mode for cluster services: nodeport, proxy, or fqdn. |
 
 ## AI & LLM Configuration (`ai`)
 
@@ -79,6 +80,8 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `gateway_provider` | `str` | `litellm` | - | - |
 | `gateway_url` | `str` | `http://localhost:4000/v1` | - | - |
 | `gateway_enabled` | `bool` | `False` | - | - |
+| `gateway_weights` | `dict` | `{}` | - | - |
+| `gateway_concurrency` | `dict` | `{}` | - | - |
 | `portkey_url` | `str` | `http://localhost:8787/v1` | - | - |
 | `lightllm_url` | `str` | `http://localhost:8000/v1` | - | - |
 | `vllm_url` | `str` | `http://localhost:8000/v1` | - | - |

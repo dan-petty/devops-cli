@@ -28,7 +28,7 @@ def test_config_audit_keys_json_output() -> None:
     assert "keyring_backend" in data
     assert "keys" in data
     assert "is_compliant" in data
-    assert len(data["keys"]) == 10
+    assert len(data["keys"]) == 11
 
     keys = {k["key"] for k in data["keys"]}
     assert "github.token" in keys
@@ -41,6 +41,7 @@ def test_config_audit_keys_json_output() -> None:
     assert "valkey.password" in keys
     assert "runs.index_password" in keys
     assert "telemetry.logfire_token" in keys
+    assert "cloudflare.api_token" in keys
 
 
 def test_config_audit_keys_table_rendering() -> None:

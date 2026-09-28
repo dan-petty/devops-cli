@@ -75,3 +75,7 @@ These resolve claims that recur against this codebase.
 - JSON response repair lives in `response_repair.py`. There is no `ai/fixer.py`.
 - `docs/ROADMAP.md` and task files under `docs/agent/tasks/` record aspirational planning and historical logs; unimplemented items or feature statements in them are not defects.
 - Structural tuple comparisons in test assertions (`assert (a, b) == (x, y)`) are deliberate architectural invariants to cap McCabe cyclomatic complexity M <= 10; they are not assertion bugs.
+- `tests/golden/*`, `tests/fixtures/*`, and mock test files intentionally contain synthetic vulnerability exemplars (SQL injection, plaintext tokens, auth bypasses) to verify parser and analyzer detection; they are test fixtures, not defects.
+- Internal Kubernetes cluster overlay networking (`http://*.svc.cluster.local`, `http://*.svc`, `http://*.internal`) standardly uses plaintext HTTP across pod/namespace boundaries without service mesh; it is not insecure HTTP communication.
+- NodePort services in local development / devcontainer manifests (`k8s/llm/gateway/service.yaml`, `k8s/valkey-runs.yaml`) are required to expose cluster services to the host workstation and are not insecure external exposure.
+- Calling private methods or helper functions (`_tool_func`, `_private_*`) from unit tests under `tests/` is standard white-box testing, not private API exposure.

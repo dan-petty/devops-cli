@@ -75,6 +75,9 @@ ENV_K8S_CONTEXT = "DEVOPS_CLI_K8S_CONTEXT"
 ENV_K8S_DOMAIN = "DEVOPS_CLI_K8S_DOMAIN"
 ENV_CLOUDFLARE_DOMAIN = "DEVOPS_CLI_CLOUDFLARE_DOMAIN"
 ENV_CLOUDFLARE_TUNNEL = "DEVOPS_CLI_CLOUDFLARE_TUNNEL"
+ENV_CLOUDFLARE_ACCOUNT_ID = "DEVOPS_CLI_CLOUDFLARE_ACCOUNT_ID"
+ENV_CLOUDFLARE_ZONE_ID = "DEVOPS_CLI_CLOUDFLARE_ZONE_ID"
+ENV_CLOUDFLARE_API_TOKEN = "DEVOPS_CLI_CLOUDFLARE_API_TOKEN"
 
 
 # Data Storage & Artifact Path environment variables
@@ -153,6 +156,9 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.K8S_DOMAIN: ENV_K8S_DOMAIN,
     opt.CLOUDFLARE_DOMAIN: ENV_CLOUDFLARE_DOMAIN,
     opt.CLOUDFLARE_TUNNEL: ENV_CLOUDFLARE_TUNNEL,
+    opt.CLOUDFLARE_ACCOUNT_ID: ENV_CLOUDFLARE_ACCOUNT_ID,
+    opt.CLOUDFLARE_ZONE_ID: ENV_CLOUDFLARE_ZONE_ID,
+    opt.CLOUDFLARE_API_TOKEN: ENV_CLOUDFLARE_API_TOKEN,
     opt.DATA_DIR: ENV_DATA_DIR,
     opt.DATA_ANALYSIS_DIR: ENV_DATA_ANALYSIS_DIR,
     opt.DATA_REVIEWS_DIR: ENV_DATA_REVIEWS_DIR,
@@ -523,6 +529,24 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.CLOUDFLARE_TUNNEL,
             False,
             "Cloudflare tunnel name or identifier",
+        ),
+        EnvVarSpec(
+            ENV_CLOUDFLARE_ACCOUNT_ID,
+            opt.CLOUDFLARE_ACCOUNT_ID,
+            False,
+            "Cloudflare Account ID",
+        ),
+        EnvVarSpec(
+            ENV_CLOUDFLARE_ZONE_ID,
+            opt.CLOUDFLARE_ZONE_ID,
+            False,
+            "Cloudflare Zone ID",
+        ),
+        EnvVarSpec(
+            ENV_CLOUDFLARE_API_TOKEN,
+            opt.CLOUDFLARE_API_TOKEN,
+            True,
+            "Cloudflare API Token (stored in OS keyring)",
         ),
         EnvVarSpec(
             ENV_DATA_DIR,

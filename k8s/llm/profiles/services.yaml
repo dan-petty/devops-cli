@@ -1,0 +1,113 @@
+# Standardized Kubernetes Service Aliases for LLM Model Classes.
+# Provides stable DNS endpoints mapped to backend pods based on model capability labels.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-qwen2-5-coder-7b
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: model-qwen2-5-coder-7b
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/service-alias: "true"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http-ollama
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+    - name: http-vllm
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    llm.devops.io/model: qwen2.5-coder-7b
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-qwen2-5-coder-14b
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: model-qwen2-5-coder-14b
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/service-alias: "true"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http-vllm
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+    - name: http-ollama
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/model: qwen2.5-coder-14b
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-qwen3-coder-30b
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: model-qwen3-coder-30b
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/service-alias: "true"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http-vllm
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+    - name: http-ollama
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/model: qwen3-coder-30b
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-cogito-v2-70b
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: model-cogito-v2-70b
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/service-alias: "true"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http-vllm
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+    - name: http-ollama
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/model: cogito-v2-70b
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-bge-m3
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: model-bge-m3
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/service-alias: "true"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http-ollama
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/model: bge-m3

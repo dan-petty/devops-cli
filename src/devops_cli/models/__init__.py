@@ -58,6 +58,13 @@ from devops_cli.models.ci import (
     CIRunRequest,
     CIRunResult,
 )
+from devops_cli.models.cloudflare import (
+    CloudflareDNSRecord,
+    CloudflareTokenStatus,
+    CloudflareTunnelConfig,
+    CloudflareTunnelIngressRule,
+    CloudflareZone,
+)
 from devops_cli.models.config import (
     ConfigOptionSpec,
     ConfigOutputRequest,
@@ -185,6 +192,11 @@ __all__ = [
     "CertGenerationRequest",
     "CertificateInfo",
     "ChatMessage",
+    "CloudflareDNSRecord",
+    "CloudflareTokenStatus",
+    "CloudflareTunnelConfig",
+    "CloudflareTunnelIngressRule",
+    "CloudflareZone",
     "CommandDryRunResult",
     "ConfigOptionSpec",
     "ConfigOutputRequest",

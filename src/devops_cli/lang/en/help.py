@@ -283,7 +283,8 @@ class K8sCommandHelp:
     )
     addressing: str = (
         "How to record endpoints: 'nodeport' writes a cluster-specific host and port, "
-        "'proxy' writes portable k8s:// service addresses needing no port-forward."
+        "'proxy' writes portable k8s:// service addresses needing no port-forward, "
+        "'fqdn' discovers Ingress hostnames and writes domain-based URLs."
     )
     proxy_service: str = "Service name to address through the Kubernetes API server."
     proxy_port: str = "Service port name or number (a Service may expose several)."
@@ -292,6 +293,13 @@ class K8sCommandHelp:
     proxy_fetch: str = "Fetch the address and print the JSON response instead of the address."
     context_target: str = "Target context name to switch to."
     manifest_path: str = "Manifest file or directory path."
+    template_flag: str = (
+        "Render manifest as a template substituting domain from config or --domain before applying."
+    )
+    template_domain: str = (
+        "Domain to substitute for template (defaults to k8s.domain in config.yaml)."
+    )
+    render: str = "Render Kubernetes manifest templates with domain and variables substituted."
     pod_name: str = "Pod name."
     manifests_dir: str = "Directory containing Kubernetes manifests."
     auto_start: str = "Auto-start minikube if stopped."
@@ -1262,11 +1270,24 @@ class SandboxCommandHelp:
     incident_dir: str = "Directory path to persist structured panic incident records."
 
 
+class CloudflareCommandHelp:
+    app: str = "Cloudflare Zero Trust tunnels and DNS management."
+    status: str = "Verify API token authentication and inspect zone status."
+    dns: str = "List or synchronize Cloudflare DNS records."
+    dns_list: str = "List DNS records for the managed zone."
+    dns_sync: str = "Synchronize CNAME records for root and subdomains to Cloudflare tunnel."
+    tunnel: str = "Manage Cloudflare Zero Trust tunnel routes."
+    tunnel_routes: str = "Inspect Cloudflare tunnel ingress routes configuration."
+    tunnel_sync: str = "Synchronize tunnel ingress rules to route subdomains to cluster ingress."
+
+
 @dataclass(frozen=True)
 class HelpCatalog:
     main: MainHelp = field(default_factory=MainHelp)
     options: OptionHelp = field(default_factory=OptionHelp)
     ai: AICommandHelp = field(default_factory=AICommandHelp)
+    cloudflare: CloudflareCommandHelp = field(default_factory=CloudflareCommandHelp)
+
     ai_cache: AICacheCommandHelp = field(default_factory=AICacheCommandHelp)
     ai_harness: AIHarnessCommandHelp = field(default_factory=AIHarnessCommandHelp)
     k8s: K8sCommandHelp = field(default_factory=K8sCommandHelp)

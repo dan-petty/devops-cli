@@ -217,9 +217,13 @@ Expose homelab Kubernetes services securely to the internet without public ports
    ```bash
    kubectl patch svc traefik -n kube-system -p '{"spec": {"type": "ClusterIP"}}'
    ```
-4. Deploy the core service Ingress definitions (replace `example.com` with your domain):
+4. Deploy the core service Ingress definitions with template substitution (substitutes `k8s.domain` from `config.yaml`):
    ```bash
-   kubectl apply -k k8s/ingress/
+   devops k8s apply k8s/ingress/ingress-routes.yaml --template
+   ```
+   Or preview the rendered manifests before applying:
+   ```bash
+   devops k8s render k8s/ingress/ingress-routes.yaml
    ```
 
 ## Directory Structure

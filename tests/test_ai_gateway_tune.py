@@ -18,6 +18,8 @@ from devops_cli.ai.gateway_tune import (
     GpuInfo,
     backend_pods,
     bench_script,
+    calculate_hardware_concurrency,
+    calculate_hardware_weights,
     discover_pool,
     gpu_bandwidth_gbps,
     gpu_inventory,
@@ -218,6 +220,60 @@ class TestTune:
             "d": 1,
             "e": 0,
         }
+
+    def test_recommend_weights_with_overrides(self) -> None:
+        """Verify user configuration overrides supersede measured throughput weights."""
+        rates = {"vllm": 1.2, "ollama": 0.2}
+        overrides = {"vllm": 8, "ollama": 2}
+        assert (
+            recommend_weights(rates),
+            recommend_weights(rates, overrides=overrides),
+        ) == (
+            {"vllm": 6, "ollama": 1},
+            {"vllm": 8, "ollama": 2},
+        )
+
+    def test_calculate_hardware_weights_and_concurrency(self) -> None:
+        """Verify dynamic hardware properties compute appropriate weights and concurrency."""
+        deployments = [
+            {
+                "deployment_id": "vllm-dual-3090",
+                "backend": "vllm",
+                "engine": "vllm",
+                "gpus": [
+                    {"name": "RTX 3090", "bandwidth_gbps": 936.0},
+                    {"name": "RTX 3090", "bandwidth_gbps": 936.0},
+                ],
+            },
+            {
+                "deployment_id": "ollama-v100",
+                "backend": "ollama",
+                "engine": "ollama",
+                "gpus": [
+                    {"name": "Tesla V100", "bandwidth_gbps": 900.0},
+                ],
+            },
+        ]
+        weights = calculate_hardware_weights(deployments)
+        concurrency = calculate_hardware_concurrency(deployments)
+        overrides_weights = calculate_hardware_weights(
+            deployments, overrides={"vllm-dual-3090": 10}
+        )
+        overrides_concurrency = calculate_hardware_concurrency(
+            deployments, overrides={"ollama-v100": 4}
+        )
+
+        assert (
+            weights,
+            concurrency,
+            overrides_weights["vllm-dual-3090"],
+            overrides_concurrency["ollama-v100"],
+        ) == (
+            {"vllm-dual-3090": 6, "ollama-v100": 1},
+            {"vllm-dual-3090": 64, "ollama-v100": 1},
+            10,
+            4,
+        )
 
     def test_gpu_bandwidth_is_looked_up_by_the_most_specific_model_name(self) -> None:
         """Verify nvidia-smi names map to memory bandwidth, preferring the longest match."""
