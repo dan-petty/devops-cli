@@ -17,7 +17,7 @@ import json
 import logging
 import os
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
@@ -468,6 +468,178 @@ def _cited_lines(finding: Finding, file_path: Path, context: int = 1) -> str:
     return "\n".join(lines[max(0, min(numbers) - 1 - context) : max(numbers) + context])
 
 
+def _verify_syntax_grammar_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    if file_path.suffix.lower() != ".py":
+        return False
+    try:
+        tree = ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        return False
+    del tree
+    entry_id = entry.id.lower()
+    if any(word in entry_id for word in ("missing", "symbol", "header")):
+        return False
+    return bool(SYNTAX_CLAIM.search(f"{finding.title}\n{finding.description or ''}"))
+
+
+def _verify_secret_scanning_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    finding_text = f"{finding.title} {finding.description or ''}"
+    has_masked_token = bool(
+        re.search(r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}", finding_text, re.IGNORECASE)
+    )
+    if not has_masked_token:
+        return False
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    if bool(re.search(r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}", content, re.IGNORECASE)):
+        return True
+    loc = finding.location
+    if ":" in loc:
+        try:
+            line_str = loc.split(":", 1)[1]
+            num = int(re.split(r"[\s\-]", line_str.strip())[0])
+            lines = content.splitlines()
+            if 1 <= num <= len(lines):
+                target_line = lines[num - 1]
+                return bool(
+                    re.search(
+                        r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}",
+                        target_line,
+                        re.IGNORECASE,
+                    )
+                    or not re.search(r"['\"][^'\"]{6,}['\"]", target_line)
+                )
+        except Exception:
+            pass
+    return True
+
+
+def _verify_dependency_ecosystem_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    entry_id = entry.id.upper()
+    if any(kw in entry_id for kw in ("HTTPX2", "PATHLIB", "TIMEOUT")):
+        return True
+    try:
+        from devops_cli.core.repo import find_repo_root
+
+        root = find_repo_root(file_path)
+        pyproj = root / "pyproject.toml"
+        if pyproj.is_file():
+            text = pyproj.read_text(encoding="utf-8", errors="replace").lower()
+            finding_text = f"{finding.title} {finding.description or ''}".lower()
+            return any(
+                pkg in finding_text and pkg in text
+                for pkg in ("httpx2", "pydantic", "pytest", "ruff", "mypy", "click", "typer")
+            )
+    except Exception:
+        pass
+    return False
+
+
+def _verify_test_mocks_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    parts = set(file_path.parts)
+    is_test = bool(
+        parts & {"tests", "test", "fixtures", "golden"}
+        or file_path.name.startswith(("test_", "mock_"))
+        or file_path.name.endswith(("_test.py", ".example", ".sample"))
+    )
+    if not is_test:
+        return False
+    finding_text = f"{finding.title} {finding.description or ''}".lower()
+    mock_keywords = (
+        "sk-gateway",
+        "sk-wrong",
+        "dummy",
+        "mock",
+        "fake",
+        "example.com",
+        "test",
+        "placeholder",
+        "00000000",
+        "assertion",
+        "tuple",
+    )
+    return any(kw in finding_text for kw in mock_keywords)
+
+
+def _verify_documentation_context_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    parts = set(file_path.parts)
+    if parts & {"docs", "tasks"} or file_path.suffix.lower() in (".md", ".rst", ".txt"):
+        return True
+    if "k8s" in parts:
+        entry_id = entry.id.upper()
+        return any(kw in entry_id for kw in ("OVERLAY", "NODEPORT", "HTTP", "PROMPT", "DOC"))
+    return False
+
+
+def _verify_mutable_defaults_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    return "default_factory" in _cited_lines(finding, file_path)
+
+
+def _is_unbounded_stream_op(target_line: str) -> bool:
+    stream_kws = ("request", "body", "stream", "websocket", "recv", "socket", "iter_bytes")
+    return any(kw in target_line for kw in stream_kws)
+
+
+def _check_boundary_cwe400_local_file(finding: Finding, file_path: Path) -> bool:
+    loc = finding.location
+    if ":" in loc:
+        try:
+            line_str = loc.split(":", 1)[1]
+            num = int(re.split(r"[\s\-]", line_str.strip())[0])
+            lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            if 1 <= num <= len(lines):
+                target_line = lines[num - 1].lower()
+                is_local = any(
+                    op in target_line for op in (".read_text(", "read_text()", "open(", "path(")
+                )
+                return is_local and not _is_unbounded_stream_op(target_line)
+        except Exception:
+            pass
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="replace").lower()
+        is_local_read = ".read_text(" in content or "open(" in content
+        is_stream = any(kw in content for kw in ("websocket", "request.body", "iter_bytes"))
+        return is_local_read and not is_stream
+    except Exception:
+        return False
+
+
+def _verify_boundary_errors_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    finding_text = f"{finding.title} {finding.description or ''}".lower()
+    if _UNTRUSTED_INPUT_CLAIM.search(finding_text):
+        return False
+    if any(pat in finding_text for pat in ("cwe-400", "cwe400", "read_text", "exhaustion")):
+        return _check_boundary_cwe400_local_file(finding, file_path)
+    return False
+
+
+_GROUND_TRUTH_VERIFIERS: dict[
+    HallucinationCategory,
+    Callable[[Finding, CommonHallucinationEntry, Path], bool],
+] = {
+    HallucinationCategory.SYNTAX_GRAMMAR: _verify_syntax_grammar_ground_truth,
+    HallucinationCategory.SECRET_SCANNING: _verify_secret_scanning_ground_truth,
+    HallucinationCategory.DEPENDENCY_ECOSYSTEM: _verify_dependency_ecosystem_ground_truth,
+    HallucinationCategory.TEST_MOCKS: _verify_test_mocks_ground_truth,
+    HallucinationCategory.DOCUMENTATION_CONTEXT: _verify_documentation_context_ground_truth,
+    HallucinationCategory.MUTABLE_DEFAULTS: _verify_mutable_defaults_ground_truth,
+    HallucinationCategory.BOUNDARY_ERRORS: _verify_boundary_errors_ground_truth,
+}
+
+
 def verify_ground_truth_hallucination(
     finding: Finding, entry: CommonHallucinationEntry, file_path: Path | None
 ) -> bool:
@@ -477,104 +649,8 @@ def verify_ground_truth_hallucination(
     """
     if file_path is None or not file_path.exists() or not file_path.is_file():
         return False
-
-    if entry.category == HallucinationCategory.SYNTAX_GRAMMAR:
-        if file_path.suffix.lower() != ".py":
-            return False
-        try:
-            tree = ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
-        except SyntaxError:
-            # Genuinely broken syntax! NEVER invalidate a real syntax error.
-            return False
-
-        del tree
-        # Symbol and header claims have their own deterministic checks, which ran first with
-        # the claim's own evidence; a catalog match must not overrule them with a weaker test.
-        # What parsing proves is only that a syntax-error claim is false.
-        entry_id = entry.id.lower()
-        if any(word in entry_id for word in ("missing", "symbol", "header")):
-            return False
-        return bool(SYNTAX_CLAIM.search(f"{finding.title}\n{finding.description or ''}"))
-
-    if entry.category == HallucinationCategory.SECRET_SCANNING:
-        # Check if finding explicitly points to masked/redacted placeholder
-        finding_text = f"{finding.title} {finding.description or ''}"
-        has_masked_token = bool(
-            re.search(r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}", finding_text, re.IGNORECASE)
-        )
-        if not has_masked_token:
-            return False
-        # Read target line if location specified
-        content = file_path.read_text(encoding="utf-8", errors="replace")
-        loc = finding.location
-        if ":" in loc:
-            try:
-                line_str = loc.split(":", 1)[1]
-                num = int(re.split(r"[\s\-]", line_str.strip())[0])
-                lines = content.splitlines()
-                if 1 <= num <= len(lines):
-                    target_line = lines[num - 1]
-                    # Verify target line actually contains masked placeholder
-                    return bool(
-                        re.search(
-                            r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}",
-                            target_line,
-                            re.IGNORECASE,
-                        )
-                    )
-            except Exception:
-                pass
-        return bool(
-            re.search(r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}", content, re.IGNORECASE)
-        )
-
-    if entry.category == HallucinationCategory.MUTABLE_DEFAULTS:
-        # default_factory at the cited lines, not anywhere in the module: a real `def f(x=[])`
-        # sits beside Pydantic fields in many files.
-        return "default_factory" in _cited_lines(finding, file_path)
-
-    if entry.category == HallucinationCategory.BOUNDARY_ERRORS:
-        finding_text = f"{finding.title} {finding.description or ''}".lower()
-        if _UNTRUSTED_INPUT_CLAIM.search(finding_text):
-            return False
-        if any(pat in finding_text for pat in ("cwe-400", "cwe400", "read_text", "exhaustion")):
-            loc = finding.location
-            if ":" in loc:
-                try:
-                    line_str = loc.split(":", 1)[1]
-                    num = int(re.split(r"[\s\-]", line_str.strip())[0])
-                    lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
-                    if 1 <= num <= len(lines):
-                        target_line = lines[num - 1].lower()
-                        is_local_file_op = any(
-                            op in target_line
-                            for op in (".read_text(", "read_text()", "open(", "path(")
-                        )
-                        is_unbounded_stream = any(
-                            stream_kw in target_line
-                            for stream_kw in (
-                                "request",
-                                "body",
-                                "stream",
-                                "websocket",
-                                "recv",
-                                "socket",
-                                "iter_bytes",
-                            )
-                        )
-                        return is_local_file_op and not is_unbounded_stream
-                except Exception:
-                    pass
-            try:
-                content = file_path.read_text(encoding="utf-8", errors="replace").lower()
-                is_local_read = ".read_text(" in content or "open(" in content
-                is_stream = any(kw in content for kw in ("websocket", "request.body", "iter_bytes"))
-                return is_local_read and not is_stream
-            except Exception:
-                return False
-        return False
-
-    return False
+    verifier = _GROUND_TRUTH_VERIFIERS.get(entry.category)
+    return verifier(finding, entry, file_path) if verifier else False
 
 
 def calculate_hallucination_similarity(

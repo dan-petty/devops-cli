@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Sequence
 from typing import Any
@@ -191,7 +192,7 @@ class CloudflareClient:
 
         try:
             body = resp.json()
-        except Exception:
+        except ValueError, json.JSONDecodeError:
             body = {}
 
         if not resp.is_success:

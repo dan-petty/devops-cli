@@ -953,6 +953,11 @@ CONST_FIXTURE_CREDENTIAL_KEYWORDS: Final[tuple[str, ...]] = (
     "exposed vault token",
     "hardcoded vault token",
     "hardcoded password",
+    "hardcoded api key",
+    "hardcoded key",
+    "exposed api key",
+    "plaintext api key",
+    "api key masking",
 )
 
 CONST_MASKED_SYNTAX_ERROR_PHRASES: Final[tuple[str, ...]] = (
