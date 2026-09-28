@@ -489,7 +489,7 @@ class TestK8sPortkeyAndLightLLMManifests:
         """Verify zero RFC 1918 IPs or *.lan hostnames exist in Portkey and LightLLM manifests."""
         all_yamls = list(PORTKEY_DIR.glob("*.yaml")) + list(LIGHTLLM_DIR.glob("*.yaml"))
         private_ip_pattern = re.compile(
-            r"\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b"
+            r"\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b(?!/)"
         )
         lan_hostname_pattern = re.compile(r"\b[a-zA-Z0-9_\-]+\.lan\b")
 

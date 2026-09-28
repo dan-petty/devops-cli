@@ -1,4 +1,4 @@
-# Persistent Hugging Face cache so vLLM restarts reuse downloaded model weights.
+# Persistent Hugging Face model cache for vLLM profiles.
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -6,7 +6,7 @@ metadata:
   name: vllm-model-cache
   namespace: llm
   labels:
-    app.kubernetes.io/name: vllm
+    app.kubernetes.io/name: vllm-model-cache
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
   accessModes:

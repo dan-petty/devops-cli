@@ -1,710 +1,834 @@
-# Ollama Inference Engine Profiles for Traditional Homelab GPU Configurations.
-# Covers GPU counts [1, 2, 3, 4] and per-GPU VRAM sizes [16GiB, 24GiB, 32GiB].
+# Ollama Inference Workload Profiles Consolidated by Total VRAM Capacity (<llm_provider>-<vram_gib>).
+# Tiers: 16gib, 24gib, 32gib, 48gib, 64gib, 72gib, 96gib, 128gib.
 ---
-# ── Profile 1: 1x 16GiB (ollama-1x16gb) ───────────────────────────────────────
-# Target Hardware: Single RTX 4080 (16GB), RTX 4060 Ti 16GB, T4 (16GB).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ollama-1x16gb
+  name: ollama-16gib
   namespace: llm
   labels:
-    app.kubernetes.io/name: ollama-1x16gb
+    app.kubernetes.io/name: ollama-16gib
     app.kubernetes.io/part-of: devops-cli-stack
     llm.devops.io/model: qwen2.5-coder-7b
     llm.devops.io/backend: ollama
-    llm.devops.io/gpu-count: "1"
-    llm.devops.io/vram-per-gpu: "16GiB"
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: 16gib
+    llm.devops.io/total-vram-gib: '16'
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: ollama-1x16gb
+      app.kubernetes.io/name: ollama-16gib
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ollama-1x16gb
+        app.kubernetes.io/name: ollama-16gib
         app.kubernetes.io/part-of: devops-cli-stack
         llm.devops.io/model: qwen2.5-coder-7b
         llm.devops.io/backend: ollama
-        llm.devops.io/gpu-count: "1"
-        llm.devops.io/vram-per-gpu: "16GiB"
+        llm.devops.io/provider: ollama
+        llm.devops.io/vram-gib: 16gib
+        llm.devops.io/total-vram-gib: '16'
     spec:
       runtimeClassName: nvidia
       containers:
-        - name: ollama
-          image: ollama/ollama:0.32.14
-          env:
-            - name: OLLAMA_HOST
-              value: "0.0.0.0:11434"
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: "32768"
-            - name: OLLAMA_NUM_PARALLEL
-              value: "1"
-            - name: OLLAMA_KV_CACHE_TYPE
-              value: "q8_0"
-            - name: OLLAMA_NO_CLOUD
-              value: "1"
-          ports:
-            - containerPort: 11434
-              name: http
-          resources:
-            requests:
-              cpu: "2000m"
-              memory: 8Gi
-              nvidia.com/gpu: "1"
-            limits:
-              cpu: "8000m"
-              memory: 16Gi
-              nvidia.com/gpu: "1"
+      - name: ollama
+        image: ollama/ollama:0.32.14
+        env:
+        - name: OLLAMA_HOST
+          value: 0.0.0.0:11434
+        - name: OLLAMA_CONTEXT_LENGTH
+          value: '32768'
+        - name: OLLAMA_NUM_PARALLEL
+          value: '1'
+        - name: OLLAMA_KV_CACHE_TYPE
+          value: q8_0
+        - name: OLLAMA_NO_CLOUD
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs:/etc/ssl/squid-ca
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        ports:
+        - containerPort: 11434
+          name: http
+        resources:
+          requests:
+            cpu: 3000m
+            memory: 8Gi
+            nvidia.com/gpu: '1'
+          limits:
+            nvidia.com/gpu: '1'
+        startupProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 6
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+      volumes:
+      - name: ollama-data
+        hostPath:
+          path: /var/lib/ollama
+          type: DirectoryOrCreate
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
 ---
-# ── Profile 2: 1x 24GiB (ollama-1x24gb) ───────────────────────────────────────
-# Target Hardware: Single RTX 3090 (24GB), RTX 4090 (24GB), RTX A5000 (24GB).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ollama-1x24gb
+  name: ollama-24gib
   namespace: llm
   labels:
-    app.kubernetes.io/name: ollama-1x24gb
+    app.kubernetes.io/name: ollama-24gib
     app.kubernetes.io/part-of: devops-cli-stack
     llm.devops.io/model: qwen2.5-coder-14b
     llm.devops.io/backend: ollama
-    llm.devops.io/gpu-count: "1"
-    llm.devops.io/vram-per-gpu: "24GiB"
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: 24gib
+    llm.devops.io/total-vram-gib: '24'
 spec:
   replicas: 0
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: ollama-1x24gb
+      app.kubernetes.io/name: ollama-24gib
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ollama-1x24gb
+        app.kubernetes.io/name: ollama-24gib
         app.kubernetes.io/part-of: devops-cli-stack
         llm.devops.io/model: qwen2.5-coder-14b
         llm.devops.io/backend: ollama
-        llm.devops.io/gpu-count: "1"
-        llm.devops.io/vram-per-gpu: "24GiB"
+        llm.devops.io/provider: ollama
+        llm.devops.io/vram-gib: 24gib
+        llm.devops.io/total-vram-gib: '24'
     spec:
       runtimeClassName: nvidia
       containers:
-        - name: ollama
-          image: ollama/ollama:0.32.14
-          env:
-            - name: OLLAMA_HOST
-              value: "0.0.0.0:11434"
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: "32768"
-            - name: OLLAMA_NUM_PARALLEL
-              value: "1"
-            - name: OLLAMA_KV_CACHE_TYPE
-              value: "q8_0"
-            - name: OLLAMA_NO_CLOUD
-              value: "1"
-          ports:
-            - containerPort: 11434
-              name: http
-          resources:
-            requests:
-              cpu: "3000m"
-              memory: 12Gi
-              nvidia.com/gpu: "1"
-            limits:
-              cpu: "12000m"
-              memory: 24Gi
-              nvidia.com/gpu: "1"
+      - name: ollama
+        image: ollama/ollama:0.32.14
+        env:
+        - name: OLLAMA_HOST
+          value: 0.0.0.0:11434
+        - name: OLLAMA_CONTEXT_LENGTH
+          value: '32768'
+        - name: OLLAMA_NUM_PARALLEL
+          value: '1'
+        - name: OLLAMA_KV_CACHE_TYPE
+          value: q8_0
+        - name: OLLAMA_NO_CLOUD
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs:/etc/ssl/squid-ca
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        ports:
+        - containerPort: 11434
+          name: http
+        resources:
+          requests:
+            cpu: 4000m
+            memory: 12Gi
+            nvidia.com/gpu: '1'
+          limits:
+            nvidia.com/gpu: '1'
+        startupProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 6
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+      volumes:
+      - name: ollama-data
+        hostPath:
+          path: /var/lib/ollama
+          type: DirectoryOrCreate
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
 ---
-# ── Profile 3: 1x 32GiB (ollama-1x32gb) ───────────────────────────────────────
-# Target Hardware: Single Tesla V100 32GB, RTX 5000 Ada 32GB.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ollama-1x32gb
+  name: ollama-32gib
   namespace: llm
   labels:
-    app.kubernetes.io/name: ollama-1x32gb
+    app.kubernetes.io/name: ollama-32gib
     app.kubernetes.io/part-of: devops-cli-stack
     llm.devops.io/model: qwen3-coder-30b
     llm.devops.io/backend: ollama
-    llm.devops.io/gpu-count: "1"
-    llm.devops.io/vram-per-gpu: "32GiB"
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: 32gib
+    llm.devops.io/total-vram-gib: '32'
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: ollama-1x32gb
+      app.kubernetes.io/name: ollama-32gib
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ollama-1x32gb
+        app.kubernetes.io/name: ollama-32gib
         app.kubernetes.io/part-of: devops-cli-stack
         llm.devops.io/model: qwen3-coder-30b
         llm.devops.io/backend: ollama
-        llm.devops.io/gpu-count: "1"
-        llm.devops.io/vram-per-gpu: "32GiB"
+        llm.devops.io/provider: ollama
+        llm.devops.io/vram-gib: 32gib
+        llm.devops.io/total-vram-gib: '32'
     spec:
       runtimeClassName: nvidia
       containers:
-        - name: ollama
-          image: ollama/ollama:0.32.14
-          env:
-            - name: OLLAMA_HOST
-              value: "0.0.0.0:11434"
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: "48000"
-            - name: OLLAMA_NUM_PARALLEL
-              value: "1"
-            - name: OLLAMA_KV_CACHE_TYPE
-              value: "q8_0"
-            - name: OLLAMA_NO_CLOUD
-              value: "1"
-          ports:
-            - containerPort: 11434
-              name: http
-          resources:
-            requests:
-              cpu: "4000m"
-              memory: 16Gi
-              nvidia.com/gpu: "1"
-            limits:
-              cpu: "16000m"
-              memory: 32Gi
-              nvidia.com/gpu: "1"
+      - name: ollama
+        image: ollama/ollama:0.32.14
+        env:
+        - name: OLLAMA_HOST
+          value: 0.0.0.0:11434
+        - name: OLLAMA_CONTEXT_LENGTH
+          value: '48000'
+        - name: OLLAMA_NUM_PARALLEL
+          value: '1'
+        - name: OLLAMA_KV_CACHE_TYPE
+          value: q8_0
+        - name: OLLAMA_NO_CLOUD
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs:/etc/ssl/squid-ca
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        ports:
+        - containerPort: 11434
+          name: http
+        resources:
+          requests:
+            cpu: 4000m
+            memory: 16Gi
+            nvidia.com/gpu: '1'
+          limits:
+            nvidia.com/gpu: '1'
+        startupProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 6
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+      volumes:
+      - name: ollama-data
+        hostPath:
+          path: /var/lib/ollama
+          type: DirectoryOrCreate
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
 ---
-# ── Profile 4: 2x 16GiB (ollama-2x16gb) ───────────────────────────────────────
-# Target Hardware: Dual RTX 4080 (16GB), Dual T4 (32GB total) serving 30B split.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ollama-2x16gb
+  name: ollama-48gib
   namespace: llm
   labels:
-    app.kubernetes.io/name: ollama-2x16gb
-    app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/model: qwen3-coder-30b
-    llm.devops.io/backend: ollama
-    llm.devops.io/gpu-count: "2"
-    llm.devops.io/vram-per-gpu: "16GiB"
-spec:
-  replicas: 0
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: ollama-2x16gb
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: ollama-2x16gb
-        app.kubernetes.io/part-of: devops-cli-stack
-        llm.devops.io/model: qwen3-coder-30b
-        llm.devops.io/backend: ollama
-        llm.devops.io/gpu-count: "2"
-        llm.devops.io/vram-per-gpu: "16GiB"
-    spec:
-      runtimeClassName: nvidia
-      containers:
-        - name: ollama
-          image: ollama/ollama:0.32.14
-          env:
-            - name: OLLAMA_HOST
-              value: "0.0.0.0:11434"
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: "32768"
-            - name: OLLAMA_NUM_PARALLEL
-              value: "1"
-            - name: OLLAMA_KV_CACHE_TYPE
-              value: "q8_0"
-            - name: OLLAMA_NO_CLOUD
-              value: "1"
-          ports:
-            - containerPort: 11434
-              name: http
-          resources:
-            requests:
-              cpu: "4000m"
-              memory: 16Gi
-              nvidia.com/gpu: "2"
-            limits:
-              cpu: "16000m"
-              memory: 32Gi
-              nvidia.com/gpu: "2"
----
-# ── Profile 5: 2x 24GiB (ollama-2x24gb) ───────────────────────────────────────
-# Target Hardware: Dual RTX 3090 / 4090 (48GB total) serving 70B flagship.
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ollama-2x24gb
-  namespace: llm
-  labels:
-    app.kubernetes.io/name: ollama-2x24gb
+    app.kubernetes.io/name: ollama-48gib
     app.kubernetes.io/part-of: devops-cli-stack
     llm.devops.io/model: cogito-v2-70b
     llm.devops.io/backend: ollama
-    llm.devops.io/gpu-count: "2"
-    llm.devops.io/vram-per-gpu: "24GiB"
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: 48gib
+    llm.devops.io/total-vram-gib: '48'
 spec:
   replicas: 0
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: ollama-2x24gb
+      app.kubernetes.io/name: ollama-48gib
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ollama-2x24gb
+        app.kubernetes.io/name: ollama-48gib
         app.kubernetes.io/part-of: devops-cli-stack
         llm.devops.io/model: cogito-v2-70b
         llm.devops.io/backend: ollama
-        llm.devops.io/gpu-count: "2"
-        llm.devops.io/vram-per-gpu: "24GiB"
+        llm.devops.io/provider: ollama
+        llm.devops.io/vram-gib: 48gib
+        llm.devops.io/total-vram-gib: '48'
     spec:
       runtimeClassName: nvidia
       containers:
-        - name: ollama
-          image: ollama/ollama:0.32.14
-          env:
-            - name: OLLAMA_HOST
-              value: "0.0.0.0:11434"
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: "32768"
-            - name: OLLAMA_NUM_PARALLEL
-              value: "1"
-            - name: OLLAMA_KV_CACHE_TYPE
-              value: "q4_0"
-            - name: OLLAMA_NO_CLOUD
-              value: "1"
-          ports:
-            - containerPort: 11434
-              name: http
-          resources:
-            requests:
-              cpu: "6000m"
-              memory: 24Gi
-              nvidia.com/gpu: "2"
-            limits:
-              cpu: "24000m"
-              memory: 48Gi
-              nvidia.com/gpu: "2"
+      - name: ollama
+        image: ollama/ollama:0.32.14
+        env:
+        - name: OLLAMA_HOST
+          value: 0.0.0.0:11434
+        - name: OLLAMA_CONTEXT_LENGTH
+          value: '65536'
+        - name: OLLAMA_NUM_PARALLEL
+          value: '1'
+        - name: OLLAMA_KV_CACHE_TYPE
+          value: q8_0
+        - name: OLLAMA_NO_CLOUD
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs:/etc/ssl/squid-ca
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        ports:
+        - containerPort: 11434
+          name: http
+        resources:
+          requests:
+            cpu: 6000m
+            memory: 24Gi
+            nvidia.com/gpu: '2'
+          limits:
+            nvidia.com/gpu: '2'
+        startupProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 6
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+      volumes:
+      - name: ollama-data
+        hostPath:
+          path: /var/lib/ollama
+          type: DirectoryOrCreate
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
 ---
-# ── Profile 6: 2x 32GiB (ollama-2x32gb) ───────────────────────────────────────
-# Target Hardware: Dual Tesla V100 32GB (64GB total) serving 70B with 64K context.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ollama-2x32gb
+  name: ollama-64gib
   namespace: llm
   labels:
-    app.kubernetes.io/name: ollama-2x32gb
+    app.kubernetes.io/name: ollama-64gib
     app.kubernetes.io/part-of: devops-cli-stack
     llm.devops.io/model: cogito-v2-70b
     llm.devops.io/backend: ollama
-    llm.devops.io/gpu-count: "2"
-    llm.devops.io/vram-per-gpu: "32GiB"
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: 64gib
+    llm.devops.io/total-vram-gib: '64'
 spec:
   replicas: 0
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: ollama-2x32gb
+      app.kubernetes.io/name: ollama-64gib
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ollama-2x32gb
+        app.kubernetes.io/name: ollama-64gib
         app.kubernetes.io/part-of: devops-cli-stack
         llm.devops.io/model: cogito-v2-70b
         llm.devops.io/backend: ollama
-        llm.devops.io/gpu-count: "2"
-        llm.devops.io/vram-per-gpu: "32GiB"
+        llm.devops.io/provider: ollama
+        llm.devops.io/vram-gib: 64gib
+        llm.devops.io/total-vram-gib: '64'
     spec:
       runtimeClassName: nvidia
       containers:
-        - name: ollama
-          image: ollama/ollama:0.32.14
-          env:
-            - name: OLLAMA_HOST
-              value: "0.0.0.0:11434"
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: "65536"
-            - name: OLLAMA_NUM_PARALLEL
-              value: "1"
-            - name: OLLAMA_KV_CACHE_TYPE
-              value: "q8_0"
-            - name: OLLAMA_NO_CLOUD
-              value: "1"
-          ports:
-            - containerPort: 11434
-              name: http
-          resources:
-            requests:
-              cpu: "6000m"
-              memory: 32Gi
-              nvidia.com/gpu: "2"
-            limits:
-              cpu: "24000m"
-              memory: 64Gi
-              nvidia.com/gpu: "2"
+      - name: ollama
+        image: ollama/ollama:0.32.14
+        env:
+        - name: OLLAMA_HOST
+          value: 0.0.0.0:11434
+        - name: OLLAMA_CONTEXT_LENGTH
+          value: '65536'
+        - name: OLLAMA_NUM_PARALLEL
+          value: '1'
+        - name: OLLAMA_KV_CACHE_TYPE
+          value: q8_0
+        - name: OLLAMA_NO_CLOUD
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs:/etc/ssl/squid-ca
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        ports:
+        - containerPort: 11434
+          name: http
+        resources:
+          requests:
+            cpu: 8000m
+            memory: 32Gi
+            nvidia.com/gpu: '2'
+          limits:
+            nvidia.com/gpu: '2'
+        startupProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 6
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+      volumes:
+      - name: ollama-data
+        hostPath:
+          path: /var/lib/ollama
+          type: DirectoryOrCreate
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
 ---
-# ── Profile 7: 3x 16GiB (ollama-3x16gb) ───────────────────────────────────────
-# Target Hardware: Triple 16GB GPUs (48GB total) offloading 70B model layers.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ollama-3x16gb
+  name: ollama-72gib
   namespace: llm
   labels:
-    app.kubernetes.io/name: ollama-3x16gb
+    app.kubernetes.io/name: ollama-72gib
     app.kubernetes.io/part-of: devops-cli-stack
     llm.devops.io/model: cogito-v2-70b
     llm.devops.io/backend: ollama
-    llm.devops.io/gpu-count: "3"
-    llm.devops.io/vram-per-gpu: "16GiB"
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: 72gib
+    llm.devops.io/total-vram-gib: '72'
 spec:
   replicas: 0
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: ollama-3x16gb
+      app.kubernetes.io/name: ollama-72gib
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ollama-3x16gb
+        app.kubernetes.io/name: ollama-72gib
         app.kubernetes.io/part-of: devops-cli-stack
         llm.devops.io/model: cogito-v2-70b
         llm.devops.io/backend: ollama
-        llm.devops.io/gpu-count: "3"
-        llm.devops.io/vram-per-gpu: "16GiB"
+        llm.devops.io/provider: ollama
+        llm.devops.io/vram-gib: 72gib
+        llm.devops.io/total-vram-gib: '72'
     spec:
       runtimeClassName: nvidia
       containers:
-        - name: ollama
-          image: ollama/ollama:0.32.14
-          env:
-            - name: OLLAMA_HOST
-              value: "0.0.0.0:11434"
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: "32768"
-            - name: OLLAMA_NUM_PARALLEL
-              value: "1"
-            - name: OLLAMA_KV_CACHE_TYPE
-              value: "q4_0"
-            - name: OLLAMA_NO_CLOUD
-              value: "1"
-          ports:
-            - containerPort: 11434
-              name: http
-          resources:
-            requests:
-              cpu: "6000m"
-              memory: 24Gi
-              nvidia.com/gpu: "3"
-            limits:
-              cpu: "24000m"
-              memory: 48Gi
-              nvidia.com/gpu: "3"
+      - name: ollama
+        image: ollama/ollama:0.32.14
+        env:
+        - name: OLLAMA_HOST
+          value: 0.0.0.0:11434
+        - name: OLLAMA_CONTEXT_LENGTH
+          value: '65536'
+        - name: OLLAMA_NUM_PARALLEL
+          value: '1'
+        - name: OLLAMA_KV_CACHE_TYPE
+          value: q8_0
+        - name: OLLAMA_NO_CLOUD
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs:/etc/ssl/squid-ca
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        ports:
+        - containerPort: 11434
+          name: http
+        resources:
+          requests:
+            cpu: 8000m
+            memory: 36Gi
+            nvidia.com/gpu: '3'
+          limits:
+            nvidia.com/gpu: '3'
+        startupProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 6
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+      volumes:
+      - name: ollama-data
+        hostPath:
+          path: /var/lib/ollama
+          type: DirectoryOrCreate
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
 ---
-# ── Profile 8: 3x 24GiB (ollama-3x24gb) ───────────────────────────────────────
-# Target Hardware: Triple 24GB GPUs (72GB total) serving 70B with 64K context.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ollama-3x24gb
+  name: ollama-96gib
   namespace: llm
   labels:
-    app.kubernetes.io/name: ollama-3x24gb
+    app.kubernetes.io/name: ollama-96gib
     app.kubernetes.io/part-of: devops-cli-stack
     llm.devops.io/model: cogito-v2-70b
     llm.devops.io/backend: ollama
-    llm.devops.io/gpu-count: "3"
-    llm.devops.io/vram-per-gpu: "24GiB"
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: 96gib
+    llm.devops.io/total-vram-gib: '96'
 spec:
   replicas: 0
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: ollama-3x24gb
+      app.kubernetes.io/name: ollama-96gib
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ollama-3x24gb
+        app.kubernetes.io/name: ollama-96gib
         app.kubernetes.io/part-of: devops-cli-stack
         llm.devops.io/model: cogito-v2-70b
         llm.devops.io/backend: ollama
-        llm.devops.io/gpu-count: "3"
-        llm.devops.io/vram-per-gpu: "24GiB"
+        llm.devops.io/provider: ollama
+        llm.devops.io/vram-gib: 96gib
+        llm.devops.io/total-vram-gib: '96'
     spec:
       runtimeClassName: nvidia
       containers:
-        - name: ollama
-          image: ollama/ollama:0.32.14
-          env:
-            - name: OLLAMA_HOST
-              value: "0.0.0.0:11434"
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: "65536"
-            - name: OLLAMA_NUM_PARALLEL
-              value: "1"
-            - name: OLLAMA_KV_CACHE_TYPE
-              value: "q8_0"
-            - name: OLLAMA_NO_CLOUD
-              value: "1"
-          ports:
-            - containerPort: 11434
-              name: http
-          resources:
-            requests:
-              cpu: "6000m"
-              memory: 36Gi
-              nvidia.com/gpu: "3"
-            limits:
-              cpu: "24000m"
-              memory: 72Gi
-              nvidia.com/gpu: "3"
+      - name: ollama
+        image: ollama/ollama:0.32.14
+        env:
+        - name: OLLAMA_HOST
+          value: 0.0.0.0:11434
+        - name: OLLAMA_CONTEXT_LENGTH
+          value: '65536'
+        - name: OLLAMA_NUM_PARALLEL
+          value: '1'
+        - name: OLLAMA_KV_CACHE_TYPE
+          value: q8_0
+        - name: OLLAMA_NO_CLOUD
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs:/etc/ssl/squid-ca
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        ports:
+        - containerPort: 11434
+          name: http
+        resources:
+          requests:
+            cpu: 8000m
+            memory: 48Gi
+            nvidia.com/gpu: '3'
+          limits:
+            nvidia.com/gpu: '3'
+        startupProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 6
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+      volumes:
+      - name: ollama-data
+        hostPath:
+          path: /var/lib/ollama
+          type: DirectoryOrCreate
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
 ---
-# ── Profile 9: 3x 32GiB (ollama-3x32gb) ───────────────────────────────────────
-# Target Hardware: Triple 32GB GPUs (96GB total) serving high-precision Q8 70B with 128K context.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ollama-3x32gb
+  name: ollama-128gib
   namespace: llm
   labels:
-    app.kubernetes.io/name: ollama-3x32gb
+    app.kubernetes.io/name: ollama-128gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/model: cogito-v2-70b
+    llm.devops.io/model: deepseek-r1-70b
     llm.devops.io/backend: ollama
-    llm.devops.io/gpu-count: "3"
-    llm.devops.io/vram-per-gpu: "32GiB"
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: 128gib
+    llm.devops.io/total-vram-gib: '128'
 spec:
   replicas: 0
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: ollama-3x32gb
+      app.kubernetes.io/name: ollama-128gib
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ollama-3x32gb
+        app.kubernetes.io/name: ollama-128gib
         app.kubernetes.io/part-of: devops-cli-stack
-        llm.devops.io/model: cogito-v2-70b
+        llm.devops.io/model: deepseek-r1-70b
         llm.devops.io/backend: ollama
-        llm.devops.io/gpu-count: "3"
-        llm.devops.io/vram-per-gpu: "32GiB"
+        llm.devops.io/provider: ollama
+        llm.devops.io/vram-gib: 128gib
+        llm.devops.io/total-vram-gib: '128'
     spec:
       runtimeClassName: nvidia
       containers:
-        - name: ollama
-          image: ollama/ollama:0.32.14
-          env:
-            - name: OLLAMA_HOST
-              value: "0.0.0.0:11434"
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: "131072"
-            - name: OLLAMA_NUM_PARALLEL
-              value: "2"
-            - name: OLLAMA_KV_CACHE_TYPE
-              value: "q8_0"
-            - name: OLLAMA_NO_CLOUD
-              value: "1"
-          ports:
-            - containerPort: 11434
-              name: http
-          resources:
-            requests:
-              cpu: "8000m"
-              memory: 48Gi
-              nvidia.com/gpu: "3"
-            limits:
-              cpu: "32000m"
-              memory: 96Gi
-              nvidia.com/gpu: "3"
----
-# ── Profile 10: 4x 16GiB (ollama-4x16gb) ──────────────────────────────────────
-# Target Hardware: Quad 16GB GPUs (64GB total) serving 70B flagship.
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ollama-4x16gb
-  namespace: llm
-  labels:
-    app.kubernetes.io/name: ollama-4x16gb
-    app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/model: cogito-v2-70b
-    llm.devops.io/backend: ollama
-    llm.devops.io/gpu-count: "4"
-    llm.devops.io/vram-per-gpu: "16GiB"
-spec:
-  replicas: 0
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: ollama-4x16gb
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: ollama-4x16gb
-        app.kubernetes.io/part-of: devops-cli-stack
-        llm.devops.io/model: cogito-v2-70b
-        llm.devops.io/backend: ollama
-        llm.devops.io/gpu-count: "4"
-        llm.devops.io/vram-per-gpu: "16GiB"
-    spec:
-      runtimeClassName: nvidia
-      containers:
-        - name: ollama
-          image: ollama/ollama:0.32.14
-          env:
-            - name: OLLAMA_HOST
-              value: "0.0.0.0:11434"
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: "65536"
-            - name: OLLAMA_NUM_PARALLEL
-              value: "1"
-            - name: OLLAMA_KV_CACHE_TYPE
-              value: "q4_0"
-            - name: OLLAMA_NO_CLOUD
-              value: "1"
-          ports:
-            - containerPort: 11434
-              name: http
-          resources:
-            requests:
-              cpu: "8000m"
-              memory: 32Gi
-              nvidia.com/gpu: "4"
-            limits:
-              cpu: "32000m"
-              memory: 64Gi
-              nvidia.com/gpu: "4"
----
-# ── Profile 11: 4x 24GiB (ollama-4x24gb) ──────────────────────────────────────
-# Target Hardware: Quad RTX 3090 / 4090 (96GB total) serving uncompressed Q8 70B with 128K context.
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ollama-4x24gb
-  namespace: llm
-  labels:
-    app.kubernetes.io/name: ollama-4x24gb
-    app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/model: cogito-v2-70b
-    llm.devops.io/backend: ollama
-    llm.devops.io/gpu-count: "4"
-    llm.devops.io/vram-per-gpu: "24GiB"
-spec:
-  replicas: 0
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: ollama-4x24gb
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: ollama-4x24gb
-        app.kubernetes.io/part-of: devops-cli-stack
-        llm.devops.io/model: cogito-v2-70b
-        llm.devops.io/backend: ollama
-        llm.devops.io/gpu-count: "4"
-        llm.devops.io/vram-per-gpu: "24GiB"
-    spec:
-      runtimeClassName: nvidia
-      containers:
-        - name: ollama
-          image: ollama/ollama:0.32.14
-          env:
-            - name: OLLAMA_HOST
-              value: "0.0.0.0:11434"
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: "131072"
-            - name: OLLAMA_NUM_PARALLEL
-              value: "2"
-            - name: OLLAMA_KV_CACHE_TYPE
-              value: "q8_0"
-            - name: OLLAMA_NO_CLOUD
-              value: "1"
-          ports:
-            - containerPort: 11434
-              name: http
-          resources:
-            requests:
-              cpu: "8000m"
-              memory: 48Gi
-              nvidia.com/gpu: "4"
-            limits:
-              cpu: "32000m"
-              memory: 96Gi
-              nvidia.com/gpu: "4"
----
-# ── Profile 12: 4x 32GiB (ollama-4x32gb) ──────────────────────────────────────
-# Target Hardware: Quad Tesla V100 32GB (128GB total) serving maximal Q8 70B with 128K context.
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ollama-4x32gb
-  namespace: llm
-  labels:
-    app.kubernetes.io/name: ollama-4x32gb
-    app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/model: cogito-v2-70b
-    llm.devops.io/backend: ollama
-    llm.devops.io/gpu-count: "4"
-    llm.devops.io/vram-per-gpu: "32GiB"
-spec:
-  replicas: 0
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: ollama-4x32gb
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: ollama-4x32gb
-        app.kubernetes.io/part-of: devops-cli-stack
-        llm.devops.io/model: cogito-v2-70b
-        llm.devops.io/backend: ollama
-        llm.devops.io/gpu-count: "4"
-        llm.devops.io/vram-per-gpu: "32GiB"
-    spec:
-      runtimeClassName: nvidia
-      containers:
-        - name: ollama
-          image: ollama/ollama:0.32.14
-          env:
-            - name: OLLAMA_HOST
-              value: "0.0.0.0:11434"
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: "131072"
-            - name: OLLAMA_NUM_PARALLEL
-              value: "2"
-            - name: OLLAMA_KV_CACHE_TYPE
-              value: "q8_0"
-            - name: OLLAMA_NO_CLOUD
-              value: "1"
-          ports:
-            - containerPort: 11434
-              name: http
-          resources:
-            requests:
-              cpu: "8000m"
-              memory: 64Gi
-              nvidia.com/gpu: "4"
-            limits:
-              cpu: "32000m"
-              memory: 128Gi
-              nvidia.com/gpu: "4"
+      - name: ollama
+        image: ollama/ollama:0.32.14
+        env:
+        - name: OLLAMA_HOST
+          value: 0.0.0.0:11434
+        - name: OLLAMA_CONTEXT_LENGTH
+          value: '65536'
+        - name: OLLAMA_NUM_PARALLEL
+          value: '1'
+        - name: OLLAMA_KV_CACHE_TYPE
+          value: q8_0
+        - name: OLLAMA_NO_CLOUD
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: SSL_CERT_DIR
+          value: /etc/ssl/certs:/etc/ssl/squid-ca
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        ports:
+        - containerPort: 11434
+          name: http
+        resources:
+          requests:
+            cpu: 8000m
+            memory: 64Gi
+            nvidia.com/gpu: '4'
+          limits:
+            nvidia.com/gpu: '4'
+        startupProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 11434
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 6
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+      volumes:
+      - name: ollama-data
+        hostPath:
+          path: /var/lib/ollama
+          type: DirectoryOrCreate
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false

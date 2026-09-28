@@ -31,6 +31,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
     DEFAULT_AI_GATEWAY_URL,
+    DEFAULT_OLLAMA_CLUSTER_URL,
     DEFAULT_PORTKEY_GATEWAY_URL,
     DEFAULT_VLLM_CLUSTER_URL,
     DEFAULT_VLLM_MODEL,
@@ -50,7 +51,7 @@ DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
         "virtual_model": "devops-chat",
         "target_model": "qwen2.5-coder:7b",
         "backend_type": "ollama",
-        "backend_url": "http://ollama.llm.svc.cluster.local:11434",
+        "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
     },
     {
         "virtual_model": "devops-coder",
@@ -68,7 +69,7 @@ DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
         "virtual_model": "devops-embedding",
         "target_model": "bge-m3",
         "backend_type": "ollama",
-        "backend_url": "http://ollama.llm.svc.cluster.local:11434",
+        "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
     },
 )
 
@@ -77,7 +78,7 @@ DEFAULT_PORTKEY_ROUTES: Final[tuple[dict[str, str], ...]] = (
         "virtual_model": "devops-chat",
         "target_model": "qwen2.5-coder:7b",
         "backend_type": "ollama",
-        "backend_url": "http://ollama.llm.svc.cluster.local:11434",
+        "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
     },
     {
         "virtual_model": "devops-coder",
@@ -95,7 +96,7 @@ DEFAULT_PORTKEY_ROUTES: Final[tuple[dict[str, str], ...]] = (
         "virtual_model": "devops-embedding",
         "target_model": "bge-m3",
         "backend_type": "ollama",
-        "backend_url": "http://ollama.llm.svc.cluster.local:11434",
+        "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
     },
 )
 

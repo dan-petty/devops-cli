@@ -1,17 +1,16 @@
-# NetworkPolicy for vLLM in llm namespace.
+# NetworkPolicy for vLLM provider profile workloads in the llm namespace.
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: vllm-perimeter
+  name: vllm-profiles-perimeter
   namespace: llm
   labels:
-    app.kubernetes.io/name: vllm
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: vllm
+      llm.devops.io/provider: vllm
   policyTypes:
     - Ingress
     - Egress

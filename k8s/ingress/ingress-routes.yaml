@@ -87,7 +87,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: ollama
+                name: ollama-16gib
                 port:
                   number: 11434
 ---

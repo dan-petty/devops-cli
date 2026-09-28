@@ -56,9 +56,9 @@ def _build_profiles_table(profiles: list[GpuProfile]) -> Any:
 
 
 def _build_aliases_table(aliases: dict[str, dict[str, Any]]) -> Any:
-    """Render Rich table of Kubernetes Model Service Aliases."""
+    """Render Rich table of Kubernetes Provider-VRAM Service Aliases."""
     columns = [
-        ("Model Alias", "cyan"),
+        ("Service Alias", "cyan"),
         ("Service Name", "bold"),
         ("Virtual Model", "magenta"),
         ("Target Model", "green"),
@@ -68,18 +68,19 @@ def _build_aliases_table(aliases: dict[str, dict[str, Any]]) -> Any:
     rows = []
     for alias_key, info in aliases.items():
         ports_str = ", ".join(f"{b}:{p}" for b, p in info.get("ports", {}).items())
+        target_model = str(info.get("default_model") or info.get("model_id", ""))
         rows.append(
             [
                 alias_key,
                 str(info.get("service_name", "")),
                 str(info.get("virtual_model", "")),
-                str(info.get("model_id", "")),
+                target_model,
                 ports_str,
                 str(info.get("description", "")),
             ]
         )
     return render_table(
-        title="Kubernetes Model Service Aliases",
+        title="Kubernetes Provider-VRAM Service Aliases",
         columns=columns,
         rows=rows,
     )

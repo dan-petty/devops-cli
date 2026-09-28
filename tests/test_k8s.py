@@ -825,41 +825,57 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
     repo_root = Path(__file__).resolve().parent.parent
 
-    # 1. Ollama StatefulSet: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup and liveness probes
-    ollama_path = repo_root / "k8s" / "llm" / "ollama.yaml"
-    assert ollama_path.is_file()
+    # 1. Ollama Deployment: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup, readiness and liveness probes
+    ollama_path = repo_root / "k8s" / "llm" / "profiles" / "ollama-profiles.yaml"
     ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
-    statefulset = next(d for d in ollama_docs if d and d.get("kind") == "StatefulSet")
-    container = statefulset["spec"]["template"]["spec"]["containers"][0]
+    dep = next(d for d in ollama_docs if d and d.get("kind") == "Deployment")
+    container = dep["spec"]["template"]["spec"]["containers"][0]
     resources = container.get("resources", {})
-    assert "limits" not in resources or "memory" not in resources.get("limits", {})
-    assert resources["requests"]["memory"] == "8Gi"
-    assert resources["requests"]["cpu"] == "3000m"
-
-    # Probes: verify exact probe contracts
-    assert "startupProbe" in container
-    assert container["startupProbe"]["initialDelaySeconds"] == 10
-    assert container["startupProbe"]["periodSeconds"] == 5
-    assert container["startupProbe"]["timeoutSeconds"] == 5
-    assert container["startupProbe"]["failureThreshold"] == 60
-
-    # Storage: verify hostPath contract for node-local model persistence
-    volumes = statefulset["spec"]["template"]["spec"]["volumes"]
+    startup = container["startupProbe"]
+    readiness = container["readinessProbe"]
+    liveness = container["livenessProbe"]
+    volumes = dep["spec"]["template"]["spec"]["volumes"]
     ollama_vol = next(v for v in volumes if v["name"] == "ollama-data")
-    assert ollama_vol["hostPath"]["path"] == "/var/lib/ollama"
-    assert ollama_vol["hostPath"]["type"] == "DirectoryOrCreate"
 
-    assert "readinessProbe" in container
-    assert container["readinessProbe"]["initialDelaySeconds"] == 5
-    assert container["readinessProbe"]["periodSeconds"] == 10
-    assert container["readinessProbe"]["timeoutSeconds"] == 5
-    assert container["readinessProbe"]["failureThreshold"] == 3
-
-    assert "livenessProbe" in container
-    assert container["livenessProbe"]["initialDelaySeconds"] == 15
-    assert container["livenessProbe"]["periodSeconds"] == 15
-    assert container["livenessProbe"]["timeoutSeconds"] == 10
-    assert container["livenessProbe"]["failureThreshold"] == 6
+    assert (
+        ollama_path.is_file(),
+        "memory" in resources.get("limits", {}),
+        resources["requests"]["memory"],
+        resources["requests"]["cpu"],
+        startup["initialDelaySeconds"],
+        startup["periodSeconds"],
+        startup["timeoutSeconds"],
+        startup["failureThreshold"],
+        ollama_vol["hostPath"]["path"],
+        ollama_vol["hostPath"]["type"],
+        readiness["initialDelaySeconds"],
+        readiness["periodSeconds"],
+        readiness["timeoutSeconds"],
+        readiness["failureThreshold"],
+        liveness["initialDelaySeconds"],
+        liveness["periodSeconds"],
+        liveness["timeoutSeconds"],
+        liveness["failureThreshold"],
+    ) == (
+        True,
+        False,
+        "8Gi",
+        "3000m",
+        10,
+        5,
+        5,
+        60,
+        "/var/lib/ollama",
+        "DirectoryOrCreate",
+        5,
+        10,
+        5,
+        3,
+        15,
+        15,
+        10,
+        6,
+    )
 
     # 2. Ollama Helm values: unconstrained memory limits, baseline 4Gi requests
     values_ollama = yaml.safe_load(

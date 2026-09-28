@@ -1,113 +1,338 @@
-# Standardized Kubernetes Service Aliases for LLM Model Classes.
-# Provides stable DNS endpoints mapped to backend pods based on model capability labels.
+# Standardized Kubernetes Services for LLM Inference Backends by VRAM Capacity.
+# Decouples GPU node hardware configurations from cluster routing using <llm_provider>-<vram_gib> naming.
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: model-qwen2-5-coder-7b
+  name: ollama-16gib
   namespace: llm
   labels:
-    app.kubernetes.io/name: model-qwen2-5-coder-7b
+    app.kubernetes.io/name: ollama-16gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/service-alias: "true"
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "16gib"
 spec:
   type: ClusterIP
   ports:
-    - name: http-ollama
+    - name: http
       port: 11434
       targetPort: 11434
       protocol: TCP
-    - name: http-vllm
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "16gib"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-24gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-24gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "24gib"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "24gib"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-32gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-32gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "32gib"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "32gib"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-48gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-48gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "48gib"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "48gib"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-64gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-64gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "64gib"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "64gib"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-72gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-72gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "72gib"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "72gib"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-96gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-96gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "96gib"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "96gib"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-128gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-128gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "128gib"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: "128gib"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-16gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-16gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "16gib"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
       port: 8000
       targetPort: 8000
       protocol: TCP
   selector:
-    llm.devops.io/model: qwen2.5-coder-7b
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "16gib"
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: model-qwen2-5-coder-14b
+  name: vllm-24gib
   namespace: llm
   labels:
-    app.kubernetes.io/name: model-qwen2-5-coder-14b
+    app.kubernetes.io/name: vllm-24gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/service-alias: "true"
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "24gib"
 spec:
   type: ClusterIP
   ports:
-    - name: http-vllm
+    - name: http
       port: 8000
       targetPort: 8000
       protocol: TCP
-    - name: http-ollama
-      port: 11434
-      targetPort: 11434
-      protocol: TCP
   selector:
-    llm.devops.io/model: qwen2.5-coder-14b
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "24gib"
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: model-qwen3-coder-30b
+  name: vllm-32gib
   namespace: llm
   labels:
-    app.kubernetes.io/name: model-qwen3-coder-30b
+    app.kubernetes.io/name: vllm-32gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/service-alias: "true"
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "32gib"
 spec:
   type: ClusterIP
   ports:
-    - name: http-vllm
+    - name: http
       port: 8000
       targetPort: 8000
       protocol: TCP
-    - name: http-ollama
-      port: 11434
-      targetPort: 11434
-      protocol: TCP
   selector:
-    llm.devops.io/model: qwen3-coder-30b
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "32gib"
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: model-cogito-v2-70b
+  name: vllm-48gib
   namespace: llm
   labels:
-    app.kubernetes.io/name: model-cogito-v2-70b
+    app.kubernetes.io/name: vllm-48gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/service-alias: "true"
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "48gib"
 spec:
   type: ClusterIP
   ports:
-    - name: http-vllm
+    - name: http
       port: 8000
       targetPort: 8000
       protocol: TCP
-    - name: http-ollama
-      port: 11434
-      targetPort: 11434
-      protocol: TCP
   selector:
-    llm.devops.io/model: cogito-v2-70b
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "48gib"
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: model-bge-m3
+  name: vllm-64gib
   namespace: llm
   labels:
-    app.kubernetes.io/name: model-bge-m3
+    app.kubernetes.io/name: vllm-64gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/service-alias: "true"
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "64gib"
 spec:
   type: ClusterIP
   ports:
-    - name: http-ollama
-      port: 11434
-      targetPort: 11434
+    - name: http
+      port: 8000
+      targetPort: 8000
       protocol: TCP
   selector:
-    llm.devops.io/model: bge-m3
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "64gib"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-72gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-72gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "72gib"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "72gib"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-96gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-96gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "96gib"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "96gib"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-128gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-128gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "128gib"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: "128gib"

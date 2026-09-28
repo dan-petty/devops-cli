@@ -14,8 +14,13 @@ ollama:
 pipelines:
   enabled: false
 
+# Direct Ollama backend service URLs matching specific models and hardware tiers:
+# - ollama-16gib (16GiB VRAM): Fast chat (qwen2.5-coder:7b) and semantic embeddings (bge-m3:latest)
+# - ollama-32gib (32GiB VRAM): Dedicated reasoning & multi-file code review (qwen3-coder:30b)
 ollamaUrls:
-  - http://ollama.llm.svc.cluster.local:11434
+  - http://ollama-16gib.llm.svc.cluster.local:11434
+  - http://ollama-32gib.llm.svc.cluster.local:11434
+
 # OpenAI-compatible connection to the LiteLLM gateway (vLLM and Ollama models by virtual name),
 # authenticated with the gateway master key. Applies on first start; Open WebUI persists
 # connections in its database afterwards (Admin Panel > Settings > Connections).
@@ -25,28 +30,30 @@ openaiApiKeyExistingSecret: llm-gateway-secrets
 openaiApiKeyExistingSecretKey: master-key
 
 extraEnvVars:
-  - name: OLLAMA_BASE_URL
-    value: "http://ollama.llm.svc.cluster.local:11434"
   - name: VECTOR_DB
     value: "qdrant"
   - name: QDRANT_URI
     value: "http://qdrant.llm.svc.cluster.local:6333"
+  # RAG Embedding Engine: Dedicated 16GiB Ollama node running bge-m3:latest
   - name: RAG_EMBEDDING_ENGINE
     value: "ollama"
-  - name: RAG_OLLAMA_BASE_URL
-    value: "http://ollama.llm.svc.cluster.local:11434"
   - name: RAG_EMBEDDING_MODEL
     value: "bge-m3:latest"
+  # Default virtual model served through the LiteLLM AI Gateway
   - name: DEFAULT_MODELS
     value: "devops-chat"
+  # Allowed models matched to ideal backend configurations:
+  # - devops-chat (qwen2.5-coder:7b on ollama-16gib)
+  # - devops-coder (qwen2.5-coder-14b-instruct AWQ on vllm-16gib)
+  # - devops-reasoning (qwen3-coder:30b on vllm-48gib)
+  # - devops-review (qwen3-coder:30b load-balanced across vllm-48gib & ollama-32gib)
+  # - devops-flagship (cogito-v2:70b on vllm-64gib / ollama-48gib)
   - name: MODEL_FILTER_LIST
-    value: "devops-chat;devops-coder;devops-reasoning;devops-review;qwen3-coder:30b;cogito-v2:70b;qwen2.5-coder:7b"
-  - name: OPENAI_API_BASE_URLS
-    value: "http://llm-gateway.llm.svc.cluster.local:4000/v1"
-  - name: OLLAMA_BASE_URLS
-    value: "http://ollama.llm.svc.cluster.local:11434"
+    value: "devops-chat;devops-coder;devops-reasoning;devops-review;devops-flagship;qwen3-coder:30b;cogito-v2:70b;qwen2.5-coder:7b;gemma4:31b"
   - name: WEBUI_AUTH
     value: "true"
+  - name: WEBUI_SECRET_KEY_FILE
+    value: "/app/backend/data/.webui_secret_key"
 
 # Valkey cache integration (replaces Redis)
 websocket:
