@@ -1,8 +1,8 @@
 # Task 593: Base-vs-Head Symbol Delta and Removed-Symbol Finding Exemption in Reviews
 
 **Issue**: [#593](https://github.com/dan-petty/devops-cli/issues/593)
-**Status**: In Progress
-**Milestone**: `v0.2.23`
+**Status**: Ready
+**Milestone**: `v0.2.24`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/review`, `priority/p1-high`
 
