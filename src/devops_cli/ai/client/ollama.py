@@ -377,6 +377,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             total_tokens=total_tokens,
             eval_duration_ms=eval_dur_ms,
             prompt_eval_duration_ms=prompt_eval_dur_ms,
+            model=raw_res.get("model"),
         )
 
     def _try_single_ollama_stream(

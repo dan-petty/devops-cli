@@ -11,9 +11,7 @@ import httpx2
 
 from devops_cli.ai.client.base import BaseLLMProviderMixin
 from devops_cli.ai.client.models import (
-    AIClientError,
     LLMResponse,
-    credentials_error,
     is_reasoning_model,
 )
 from devops_cli.ai.client.network import read_limited_json, stream_served_by
@@ -55,15 +53,6 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
         return headers
-
-    def _provider_http_error(self, exc: httpx2.HTTPError, failure: str) -> AIClientError:
-        """Name missing or rejected credentials instead of reporting a generic request failure."""
-        status = exc.response.status_code if isinstance(exc, httpx2.HTTPStatusError) else None
-        if status not in (401, 403):
-            return AIClientError(failure)
-        return credentials_error(
-            f"The {self._config.provider} provider", has_key=bool(self._api_key), status=status
-        )
 
     def _apply_reasoning_params(
         self, payload: dict[str, Any], limit: int | None, enable_thinking: bool
@@ -158,6 +147,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             completion_tokens=usage.get("completion_tokens"),
             total_tokens=usage.get("total_tokens"),
             served_by=served_by,
+            model=raw_json.get("model"),
         )
 
     def _openai_compat_messages(
@@ -171,15 +161,18 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         headers = inject_trace_context(self._openai_compat_headers())
         payload = self._build_compat_payload(system, messages, enable_thinking=enable_thinking)
         try:
-            with httpx2.Client(timeout=self._request_timeout()) as http_client:
-                response = http_client.post(
-                    f"{self._api_base()}/chat/completions", headers=headers, json=payload
-                )
-                response.raise_for_status()
-                wall_elapsed = time.monotonic() - start_time
-                raw_json = read_limited_json(response)
-                served_by = response.headers.get(CONST_AI_GATEWAY_SERVED_BY_HEADER)
-                return self._parse_compat_response(raw_json, wall_elapsed, served_by)
+            http_client = self._shared_client()
+            response = http_client.post(
+                f"{self._api_base()}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=self._request_timeout(),
+            )
+            response.raise_for_status()
+            wall_elapsed = time.monotonic() - start_time
+            raw_json = read_limited_json(response)
+            served_by = response.headers.get(CONST_AI_GATEWAY_SERVED_BY_HEADER)
+            return self._parse_compat_response(raw_json, wall_elapsed, served_by)
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
@@ -200,7 +193,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         )
         try:
             with (
-                httpx2.Client(timeout=self._request_timeout()) as http_client,
+                self._create_http_client() as http_client,
                 http_client.stream(
                     "POST", f"{self._api_base()}/chat/completions", headers=headers, json=payload
                 ) as response,
@@ -219,15 +212,14 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
 
     def _openai_models(self) -> list[str]:
         try:
-            with httpx2.Client(timeout=self._request_timeout()) as http_client:
-                response = http_client.get(
-                    f"{self._api_base()}/models",
-                    headers=self._openai_compat_headers(),
-                )
-                response.raise_for_status()
-                return [
-                    model_info["id"] for model_info in read_limited_json(response).get("data", [])
-                ]
+            http_client = self._shared_client()
+            response = http_client.get(
+                f"{self._api_base()}/models",
+                headers=self._openai_compat_headers(),
+                timeout=self._request_timeout(),
+            )
+            response.raise_for_status()
+            return [model_info["id"] for model_info in read_limited_json(response).get("data", [])]
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:

@@ -10,7 +10,7 @@ from typing import Any
 import httpx2
 
 from devops_cli.ai.client.base import BaseLLMProviderMixin
-from devops_cli.ai.client.models import AIClientError, LLMResponse
+from devops_cli.ai.client.models import LLMResponse
 from devops_cli.ai.client.network import read_limited_json
 from devops_cli.ai.client.streaming import (
     _consume_streaming_lines,
@@ -71,50 +71,57 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
                 payload["top_p"] = float(claude_top_p)
 
         try:
-            with httpx2.Client(timeout=self._request_timeout()) as http_client:
-                response = http_client.post(f"{base}/v1/messages", headers=headers, json=payload)
-                response.raise_for_status()
-                wall_elapsed = time.monotonic() - start_time
-                raw_json = read_limited_json(response)
-                content_blocks = raw_json.get("content", [])
-                text_parts: list[str] = []
-                thinking_parts: list[str] = []
-                for block in content_blocks:
-                    if not isinstance(block, dict):
-                        continue
-                    b_type = block.get("type")
-                    if b_type == "text":
-                        text_parts.append(str(block.get("text", "")))
-                    elif b_type == "thinking":
-                        thinking_parts.append(str(block.get("thinking", "")))
+            http_client = self._shared_client()
+            response = http_client.post(
+                f"{base}/v1/messages",
+                headers=headers,
+                json=payload,
+                timeout=self._request_timeout(),
+            )
+            response.raise_for_status()
+            wall_elapsed = time.monotonic() - start_time
+            raw_json = read_limited_json(response)
+            content_blocks = raw_json.get("content", [])
+            text_parts: list[str] = []
+            thinking_parts: list[str] = []
+            for block in content_blocks:
+                if not isinstance(block, dict):
+                    continue
+                b_type = block.get("type")
+                if b_type == "text":
+                    text_parts.append(str(block.get("text", "")))
+                elif b_type == "thinking":
+                    thinking_parts.append(str(block.get("thinking", "")))
 
-                text = "\n".join(text_parts).strip()
-                thinking_str = "\n".join(thinking_parts).strip() or None
+            text = "\n".join(text_parts).strip()
+            thinking_str = "\n".join(thinking_parts).strip() or None
 
-                usage = raw_json.get("usage", {})
-                prompt_tokens = usage.get("input_tokens")
-                completion_tokens = usage.get("output_tokens")
-                total_tokens = (
-                    (prompt_tokens + completion_tokens)
-                    if prompt_tokens is not None and completion_tokens is not None
-                    else None
-                )
-                b_info = f"claude ({self.backend_host})"
-                return LLMResponse(
-                    text,
-                    processing_seconds=None,
-                    wall_seconds=wall_elapsed,
-                    backend_info=b_info,
-                    thinking=thinking_str,
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=total_tokens,
-                )
+            usage = raw_json.get("usage", {})
+            prompt_tokens = usage.get("input_tokens")
+            completion_tokens = usage.get("output_tokens")
+            total_tokens = (
+                (prompt_tokens + completion_tokens)
+                if prompt_tokens is not None and completion_tokens is not None
+                else None
+            )
+            b_info = f"claude ({self.backend_host})"
+            return LLMResponse(
+                text,
+                processing_seconds=None,
+                wall_seconds=wall_elapsed,
+                backend_info=b_info,
+                thinking=thinking_str,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                model=raw_json.get("model"),
+            )
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
-            raise AIClientError(
-                "Claude request failed. Check provider connectivity and configuration."
+            raise self._provider_http_error(
+                exc,
+                "Claude request failed. Check provider connectivity and configuration.",
             ) from exc
 
     def _claude_stream(
@@ -157,7 +164,7 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
 
         try:
             with (
-                httpx2.Client(timeout=self._request_timeout()) as http_client,
+                self._create_http_client() as http_client,
                 http_client.stream(
                     "POST", f"{base}/v1/messages", headers=headers, json=payload
                 ) as response,
@@ -171,4 +178,4 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc
         except httpx2.HTTPError as exc:
-            raise AIClientError(f"Claude streaming failed: {exc}") from exc
+            raise self._provider_http_error(exc, f"Claude streaming failed: {exc}") from exc
