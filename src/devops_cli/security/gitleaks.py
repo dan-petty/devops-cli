@@ -11,6 +11,7 @@ from typing import Any
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_GITLEAKS, build_gitleaks_cmd
+from devops_cli.config.constants import CONST_SECRET_PLACEHOLDER_MARKERS
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -28,17 +29,17 @@ _FALLBACK_SECRET_PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
     (
         "AWS Access Key ID",
         "HIGH",
-        re.compile(r"(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}"),
+        re.compile(r"\b(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\b"),
     ),
     (
         "GitHub Personal Access Token",
         "CRITICAL",
-        re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,255}"),
+        re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,255}\b"),
     ),
     (
         "OpenAI API Key",
         "CRITICAL",
-        re.compile(r"sk-[A-Za-z0-9-_]{32,128}"),
+        re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9]{32,128}\b"),
     ),
     (
         "Private Key Block",
@@ -48,14 +49,20 @@ _FALLBACK_SECRET_PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
     (
         "Slack Token",
         "HIGH",
-        re.compile(r"xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*"),
+        re.compile(r"\bxox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*\b"),
     ),
     (
         "Stripe API Key",
         "HIGH",
-        re.compile(r"(?:sk|rk)_(?:test|live)_[0-9a-zA-Z]{24,99}"),
+        re.compile(r"\b(?:sk|rk)_(?:test|live)_[0-9a-zA-Z]{24,99}\b"),
     ),
 )
+
+
+def _is_placeholder_secret(match_str: str) -> bool:
+    """Return True if match appears to be an illustrative placeholder or documentation token."""
+    lowered = match_str.lower()
+    return any(p in lowered for p in CONST_SECRET_PLACEHOLDER_MARKERS)
 
 
 def _scan_line_for_secrets(line: str, file_path: Path, line_idx: int) -> list[Finding]:
@@ -63,7 +70,8 @@ def _scan_line_for_secrets(line: str, file_path: Path, line_idx: int) -> list[Fi
     matches: list[Finding] = []
     fix_msg = "Revoke and rotate secret immediately. Move credentials to OS Keyring or environment variables."
     for desc, sev, pattern in _FALLBACK_SECRET_PATTERNS:
-        if pattern.search(line):
+        match = pattern.search(line)
+        if match and not _is_placeholder_secret(match.group(0)):
             matches.append(
                 Finding(
                     severity=sev,

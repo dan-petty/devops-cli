@@ -170,6 +170,33 @@ Four systemic updates harden the loop against recurrence:
 3. **Deterministic Pre-Verification Invalidation**: Added deterministic short-circuit checkers for structural tuple equality, localhost default configs, POSIX signal 0 liveness, and pre-1.0 breaking change claims.
 4. **Prompt & Protocol Hardening**: Updated `src/devops_cli/ai/tasks/review.md` and `src/devops_cli/ai/tasks/verify_finding_system.md` with explicit falsification rules against tautological criteria, documentation narratives, and prompt sanitizer placeholder claims.
 
+#### Calibration Record: Session `20260928-160843`
+
+This session evaluated `release/v0.2.24` across 1,029 files, producing 293 findings (8 CRITICAL, 55 HIGH, 158 MEDIUM, 72 LOW). Deep triaging revealed recurring false-positive vectors stemming from native secret scanner regexes, tautological verification commands, and cluster overlay networking, alongside several high-value defensive hardening opportunities:
+
+| Claim | Why it was false / Remediated |
+| --- | --- |
+| Hardcoded OpenAI API key in `docs/agent/tasks/task-*.md` (13 findings, CRITICAL/HIGH) | The fallback secret regex `sk-[A-Za-z0-9-_]{32,128}` was unanchored and allowed hyphens in key body, causing task filenames like `task-677-prepare-release-v0.2.23.md` (where "task" ends in "sk-") to trigger false positives. Remediated in `gitleaks.py` with `\b` word boundaries, strict pattern `\bsk-(?:proj-)?[A-Za-z0-9]{32,128}\b`, and `_is_placeholder_secret` filtering. |
+| Insecure HTTP communication for internal LLM services (`http://ollama:*`, `http://vllm:*`) (HIGH) | Internal container-to-container and pod-to-pod networking within private Kubernetes cluster perimeters operates over plaintext HTTP by design. Broadened `HALLUCINATION-K8S-CLUSTER-OVERLAY-HTTP` in `common_hallucinations.json` and verification prompts. |
+| Potential SSRF in offline cost calculation (`src/devops_cli/ai/spend/pricing.py:71`) (HIGH) | Lexical URL parsing via `urllib.parse.urlsplit` in offline token pricing ledgers classifies local vs. cloud models in memory without performing network requests. Disarmed via `HALLUCINATION-OFFLINE-PRICING-URLSPLIT`. |
+| Missing mitigation controls in security audit ledger (`src/devops_cli/commands/audit.py`) (HIGH) | Audit and telemetry ledgers initialize dynamically with `mitigations = []`. Disarmed via `HALLUCINATION-MITIGATION-LEDGER-INITIAL-EMPTY`. |
+| Tautological criteria auto-verifying false findings (24 findings, HIGH/MEDIUM) | Personas wrote verification criteria using `git grep`, `hasattr`, or `print(__code__.co_varnames)`. Because these commands exited 0 (merely confirming code text existed), findings were falsely promoted to `VERIFIED by criteria`. Remediated in `review_environment.py` with `_is_tautological_verification_command`. |
+| Missing API key header sanitization in `src/devops_cli/ai/gateway.py:165` (CRITICAL) | **Remediated**: added `_sanitize_api_key_header` stripping newlines and rejecting non-ASCII/CRLF injection characters. |
+| Unvalidated URL scheme in benchmark probe (`src/devops_cli/ai/gateway_bench.py:180`) (HIGH) | **Remediated**: added `_validate_http_url` ensuring scheme is strictly http/https and netloc exists before `urllib.request.urlopen`. |
+| Unsanitized `run_id` in `src/devops_cli/ai/run_store.py:365` (HIGH) | **Remediated**: added strict regex validation `^[a-zA-Z0-9_\-\.]+$` and rejection of `..` path segments. |
+| Bare exception handling in tool installer (`src/devops_cli/commands/install_tools.py`) (MEDIUM) | **Remediated**: narrowed `except Exception:` to `except (httpx2.HTTPError, ValidationError, ToolDownloadError, IndexError, ValueError):`. |
+| Unhandled exceptions reading git dir pointer in `src/devops_cli/telemetry/tracer.py:64` (MEDIUM) | **Remediated**: guarded `_resolve_git_dir_from_file` against `(OSError, RuntimeError, ValueError)`. |
+| Missing git argument separators in `src/devops_cli/commands/analyze.py` (MEDIUM) | **Remediated**: added `--` argument separator and regex revision/path validation before executing `git show` and `git merge-base`. |
+| Missing MCP argument validation in `review_findings` (`src/devops_cli/ai/mcp/server.py:2764`) (LOW) | **Remediated**: added `_validate_mcp_arg("session_id", session_id)` boundary check. |
+| GitHub rate limiter paginated dictionary merge flaw (`src/devops_cli/github/rate_limiter.py:317`) (LOW) | **Remediated**: merged paginated `check_runs` lists into a unified dictionary response. |
+
+Five systemic updates harden the loop against recurrence:
+1. **Gitleaks Regex Anchoring & Placeholder Filtering**: Added strict word boundaries, explicit character sets, and placeholder filtering (`_is_placeholder_secret`) to prevent task filenames and documentation examples from matching credential patterns.
+2. **Tautological Criteria Gate**: Implemented `_is_tautological_verification_command` in `review_environment.py` to prevent text-search and reflection commands from promoting findings to verified status.
+3. **Anti-Hallucination Catalog Expansion**: Registered `HALLUCINATION-OFFLINE-PRICING-URLSPLIT` and `HALLUCINATION-MITIGATION-LEDGER-INITIAL-EMPTY`, and expanded signature patterns for `HALLUCINATION-K8S-CLUSTER-OVERLAY-HTTP`.
+4. **Prompt Instruction Hardening**: Updated `src/devops_cli/ai/tasks/verify_finding_system.md`, `src/devops_cli/ai/tasks/review.md`, and `src/devops_cli/ai/personas/devsecops/prompt.md` with explicit invalidation rules against tautological criteria, offline URL parsing, and internal cluster networking.
+5. **Defensive API & Git Execution Hardening**: Added CRLF header sanitization in gateway, URL scheme validation in gateway bench, run_id regex validation in run store, and git argument separators in analyze.
+
 ### Phase 4: Root Cause & Severity Classification
 - Isolate exact failure mechanisms and categorize severity:
   - **CRITICAL**: Exploitable vulnerability, auth bypass, credential leak, SSRF, arbitrary file write outside root, or fatal crash.

@@ -222,7 +222,7 @@ def _resolve_argo_expected_checksum(checksums_url: str, legacy_sha_url: str, gz_
     try:
         checksums_text = _download(checksums_url).decode()
         return _parse_checksum_file(checksums_text, gz_name)
-    except Exception:
+    except httpx2.HTTPError, ValidationError, ToolDownloadError, IndexError, ValueError:
         sha256_text = _download(legacy_sha_url).decode()
         return sha256_text.split()[0]
 
@@ -257,7 +257,7 @@ def _resolve_rollouts_expected_checksum(primary_url: str, fallback_url: str, bin
     try:
         checksums_text = _download(primary_url).decode()
         return _parse_checksum_file(checksums_text, bin_name)
-    except Exception:
+    except httpx2.HTTPError, ValidationError, ToolDownloadError, IndexError, ValueError:
         checksums_text = _download(fallback_url).decode()
         return _parse_checksum_file(checksums_text, bin_name)
 

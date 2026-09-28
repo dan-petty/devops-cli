@@ -527,9 +527,12 @@ def _resolve_git_dir_from_file(marker: Path) -> Path | None:
     try:
         text = marker.read_text(encoding="utf-8", errors="replace").strip()
         if text.startswith("gitdir:"):
-            target = (marker.parent / text.removeprefix("gitdir:").strip()).resolve()
+            target_str = text.removeprefix("gitdir:").strip()
+            if not target_str:
+                return None
+            target = (marker.parent / target_str).resolve()
             return target if target.is_dir() else None
-    except OSError:
+    except OSError, RuntimeError, ValueError:
         pass
     return None
 

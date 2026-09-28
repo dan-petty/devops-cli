@@ -278,6 +278,16 @@ def execute_criterion_command(
     )
 
 
+def _is_tautological_verification_command(command: str) -> bool:
+    """Return True if command merely checks file text or symbol existence without demonstrating a defect."""
+    clean = command.strip().lower()
+    if clean.startswith(("git grep", "grep")):
+        return True
+    if "co_varnames" in clean or "__code__" in clean:
+        return True
+    return any(kw in clean for kw in ("hasattr(", "getattr(", "isinstance(", "type("))
+
+
 def _evaluate_criteria_verdict(
     matched_inv: list[str],
     executable_ver: list[Any],
@@ -311,6 +321,14 @@ def _evaluate_criteria_verdict(
             f"Invalidation criterion verified: {matched_inv[0]}",
         )
     if all_ran and ver_passed > 0:
+        passing_cmds = [r.command for r in exec_results if r.command in cmd_set and r.passed]
+        if all(_is_tautological_verification_command(c) for c in passing_cmds):
+            return (
+                "UNVERIFIED",
+                None,
+                min(score, 0.5),
+                "Tautological criteria confirmed location/syntax only",
+            )
         return "VERIFIED", "criteria", score, None
     return "UNVERIFIED", None, score, None
 

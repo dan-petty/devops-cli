@@ -267,9 +267,19 @@ def _parse_remote_model_items(data: list[dict[str, Any]], clean_url: str) -> lis
     return routes
 
 
+def _sanitize_api_key_header(api_key: str | None) -> dict[str, str]:
+    """Sanitize API key header against CRLF injection and invalid characters."""
+    if not api_key or not isinstance(api_key, str):
+        return {}
+    clean = api_key.strip()
+    if any(c in clean for c in ("\r", "\n")) or not clean.isascii():
+        return {}
+    return {"Authorization": f"Bearer {clean}"}
+
+
 def _query_model_info(gateway_url: str, allow_private: bool, api_key: str | None) -> Any:
     """GET the gateway's /model/info (falling back to /models); None when unreachable."""
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    headers = _sanitize_api_key_header(api_key)
     try:
         validate_url_egress(gateway_url, purpose="AI gateway", allow_private=allow_private)
         with httpx2.Client(timeout=2.0) as client:

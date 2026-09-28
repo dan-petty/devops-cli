@@ -208,3 +208,74 @@ def test_resolve_target_file_src_layout_fallback(tmp_path: Path) -> None:
     resolved = _resolve_target_file("pkg/module.py", repo_root=repo_dir)
     assert resolved is not None
     assert resolved.resolve() == target.resolve()
+
+
+def test_tautological_verification_command_detection() -> None:
+    """Verify that text-search and reflection commands are classified as tautological."""
+    from devops_cli.ai.review.review_environment import _is_tautological_verification_command
+
+    tautological_cmds = (
+        'git grep -n "http://ollama" k8s/profiles.yaml',
+        'python -c "print(_query_model_info.__code__.co_varnames)"',
+        "python -c \"assert hasattr(obj, 'target')\"",
+        'grep -n "password" config.yaml',
+    )
+    non_tautological_cmds = (
+        "pytest tests/test_security_gitleaks.py -k test_gitleaks",
+        "python -c \"from devops_cli.security.gitleaks import scan; scan('bad')\"",
+        "ruff check src/devops_cli/",
+    )
+    tautological_results = tuple(
+        _is_tautological_verification_command(cmd) for cmd in tautological_cmds
+    )
+    non_tautological_results = tuple(
+        _is_tautological_verification_command(cmd) for cmd in non_tautological_cmds
+    )
+
+    assert (tautological_results, non_tautological_results) == (
+        (True, True, True, True),
+        (False, False, False),
+    )
+
+
+def test_offline_pricing_and_mitigation_ledger_hallucinations() -> None:
+    """Verify ground truth verification for offline pricing urlsplit and empty mitigation ledgers."""
+    pricing_entry = CommonHallucinationEntry(
+        id="HALLUCINATION-OFFLINE-PRICING-URLSPLIT",
+        category=HallucinationCategory.DOCUMENTATION_CONTEXT,
+        name="Offline Pricing Ledger URL Parsing SSRF Claim",
+        description="Offline spend pricing urlsplit is not SSRF",
+        signature_patterns=[r"urlsplit.*ssrf", r"pricing.*network.*egress"],
+        pattern_keywords=["pricing", "urlsplit", "ssrf"],
+        resolution="Dismiss offline pricing SSRF claim",
+    )
+    pricing_finding = Finding(
+        severity="HIGH",
+        location="src/devops_cli/ai/spend/pricing.py:71",
+        title="SSRF vulnerability in urlsplit parsing",
+        description="urlsplit parses URL parameter without SSRF validation",
+    )
+    pricing_file = Path("src/devops_cli/ai/spend/pricing.py")
+    pricing_verified = verify_ground_truth_hallucination(
+        pricing_finding, pricing_entry, pricing_file
+    )
+
+    ledger_entry = CommonHallucinationEntry(
+        id="HALLUCINATION-MITIGATION-LEDGER-INITIAL-EMPTY",
+        category=HallucinationCategory.DOCUMENTATION_CONTEXT,
+        name="Security Audit Mitigation Ledger Initial Empty List",
+        description="Empty mitigation list initialization is not a defect",
+        signature_patterns=[r"mitigations.*empty", r"missing.*mitigation.*control"],
+        pattern_keywords=["mitigations", "empty", "ledger"],
+        resolution="Dismiss empty mitigation list initialization defect",
+    )
+    ledger_finding = Finding(
+        severity="HIGH",
+        location="src/devops_cli/ai/review/mitigated_findings.json:1",
+        title="Empty JSON Array in Mitigation Report",
+        description="Audit ledger initializes mitigations as an empty list []",
+    )
+    ledger_file = Path("src/devops_cli/ai/review/mitigated_findings.json")
+    ledger_verified = verify_ground_truth_hallucination(ledger_finding, ledger_entry, ledger_file)
+
+    assert (pricing_verified, ledger_verified) == (True, True)

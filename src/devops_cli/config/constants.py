@@ -1242,8 +1242,21 @@ CONST_SECRET_PROVIDER_SETTINGS: Final[str] = "settings"
 CONST_SECRET_PROVIDER_TOOL: Final[str] = "tool"
 
 # Upper bound on retained credential access records, preventing unbounded growth in
-# long-running sessions. The trail records provider and outcome only, never values.
 CONST_SECRET_AUDIT_MAX_ENTRIES: Final[int] = 1000
+
+# Illustrative placeholder markers and documentation tokens ignored by native secret scanner.
+CONST_SECRET_PLACEHOLDER_MARKERS: Final[tuple[str, ...]] = (
+    "your_",
+    "placeholder",
+    "dummy",
+    "token_here",
+    "key_here",
+    "insert_",
+    "change_me",
+    "changeme",
+    "masked",
+    "xxx",
+)
 
 # Vault API paths. Fixed by the Vault HTTP API, so this set is closed and exhaustive.
 CONST_VAULT_API_PREFIX: Final[str] = "/v1"

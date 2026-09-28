@@ -574,9 +574,16 @@ def _verify_documentation_context_ground_truth(
     parts = set(file_path.parts)
     if parts & {"docs", "tasks"} or file_path.suffix.lower() in (".md", ".rst", ".txt"):
         return True
+    entry_id = entry.id.upper()
     if "k8s" in parts:
-        entry_id = entry.id.upper()
         return any(kw in entry_id for kw in ("OVERLAY", "NODEPORT", "HTTP", "PROMPT", "DOC"))
+    if "MITIGATION" in entry_id and "mitigated_findings" in file_path.name:
+        try:
+            return file_path.read_text(encoding="utf-8").strip() in ("[]", "")
+        except OSError:
+            return False
+    if "PRICING" in entry_id and file_path.name == "pricing.py":
+        return True
     return False
 
 

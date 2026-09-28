@@ -166,6 +166,8 @@ def review_pr(number: int, post: bool = False, persona: str = "devsecops") -> st
 @mcp.tool()
 def review_findings(session_id: str = "", status: str = "") -> str:
     """Inspect structured review findings for a session by verification status."""
+    if session_id:
+        _validate_mcp_arg("session_id", session_id)
     cmd = ["uv", "run", "devops", "review", "findings"]
     if session_id:
         cmd.append(session_id)
