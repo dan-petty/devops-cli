@@ -101,6 +101,7 @@ class DeploymentTune(BaseModel):
     cost_tokens_per_request: float | None = None
     requests_per_second: float = 0.0
     recommended_weight: int = 0
+    recommended_concurrency: int | None = None
 
 
 class TuneReport(BaseModel):
@@ -131,57 +132,95 @@ def discover_pool(model_info: list[dict[str, Any]], model_group: str) -> list[di
     return pool
 
 
+def _dep_field(dep: Any, field: str, default: Any = "") -> Any:
+    """Extract a deployment field whether it is an object or a dictionary."""
+    if isinstance(dep, dict):
+        return dep.get(field, default)
+    return getattr(dep, field, default)
+
+
+def _resolve_override(
+    dep_id: str,
+    backend: str,
+    overrides: dict[str, int] | None,
+) -> int | None:
+    """Resolve an override by deployment_id first, then by backend label."""
+    if not overrides:
+        return None
+    val = overrides.get(dep_id)
+    if val is not None:
+        return val
+    return overrides.get(backend) if backend else None
+
+
+def _deployment_backend_map(deployments: list[Any] | None) -> dict[str, str]:
+    """Map deployment_id to backend label for all deployments."""
+    if not deployments:
+        return {}
+    return {
+        str(_dep_field(d, "deployment_id", "")): str(_dep_field(d, "backend", ""))
+        for d in deployments
+        if _dep_field(d, "deployment_id", "")
+    }
+
+
 def recommend_weights(
     best_rates: dict[str, float],
     overrides: dict[str, int] | None = None,
+    deployments: list[Any] | None = None,
 ) -> dict[str, int]:
     """Weight each deployment by its best request rate relative to the slowest one.
 
     The slowest measured deployment gets 1. A deployment that served nothing gets 0, which
-    keeps the gateway from routing to it. Custom overrides take precedence when configured.
+    keeps the gateway from routing to it. Custom overrides take precedence when configured,
+    matched by deployment ID or backend label.
     """
     measured = [rate for rate in best_rates.values() if rate > 0]
-    if not measured:
-        weights = dict.fromkeys(best_rates, 0)
-    else:
-        floor = min(measured)
-        weights = {
-            dep: max(1, round(rate / floor)) if rate > 0 else 0 for dep, rate in best_rates.items()
-        }
-    if overrides:
-        for dep in weights:
-            if dep in overrides:
-                weights[dep] = overrides[dep]
+    floor = min(measured) if measured else 1.0
+    weights = {
+        dep: max(1, round(rate / floor)) if rate > 0 else 0 for dep, rate in best_rates.items()
+    }
+    if not overrides:
+        return weights
+    backend_map = _deployment_backend_map(deployments)
+    for dep in weights:
+        override = _resolve_override(dep, backend_map.get(dep, ""), overrides)
+        if override is not None:
+            weights[dep] = override
     return weights
 
 
-def _deployment_hardware_score(dep: Any) -> float:
-    """Compute relative throughput capacity score from GPUs and engine type."""
-    backend = str(
-        getattr(dep, "backend", None) or (dep.get("backend") if isinstance(dep, dict) else "") or ""
-    )
-    engine = str(
-        getattr(dep, "engine", None) or (dep.get("engine") if isinstance(dep, dict) else "") or ""
-    )
-    gpus = getattr(dep, "gpus", []) or (dep.get("gpus", []) if isinstance(dep, dict) else [])
+def _is_continuous_engine(engine: str, backend: str) -> bool:
+    """Check if engine or backend supports continuous batching."""
+    target = f"{engine} {backend}".lower()
+    return any(e in target for e in CONST_CONTINUOUS_BATCHING_ENGINES)
 
-    bw_sum = 0.0
+
+def _deployment_bandwidth_sum(dep: Any) -> float:
+    """Sum GPU memory bandwidths across GPUs assigned to a deployment."""
+    gpus = _dep_field(dep, "gpus", [])
+    total = 0.0
     for g in gpus:
         bw = getattr(g, "bandwidth_gbps", None) or (
             g.get("bandwidth_gbps") if isinstance(g, dict) else None
         )
-        bw_sum += float(bw) if bw else 500.0
+        total += float(bw) if bw else 500.0
+    return total
+
+
+def _deployment_hardware_score(dep: Any) -> float:
+    """Compute relative throughput capacity score from GPUs and engine type."""
+    backend = str(_dep_field(dep, "backend", ""))
+    engine = str(_dep_field(dep, "engine", ""))
+    is_continuous = _is_continuous_engine(engine, backend)
+
+    bw_sum = _deployment_bandwidth_sum(dep)
     if not bw_sum:
-        is_continuous = any(
-            e in engine.lower() or e in backend.lower() for e in CONST_CONTINUOUS_BATCHING_ENGINES
-        )
         bw_sum = 1000.0 if is_continuous else 500.0
 
     multiplier = (
         CONST_ENGINE_MULTIPLIER_CONTINUOUS_BATCHING
-        if any(
-            e in engine.lower() or e in backend.lower() for e in CONST_CONTINUOUS_BATCHING_ENGINES
-        )
+        if is_continuous
         else CONST_ENGINE_MULTIPLIER_SERIAL
     )
     return bw_sum * multiplier
@@ -196,39 +235,25 @@ def calculate_hardware_weights(
     Evaluates total GPU memory bandwidth and engine execution model (continuous batching vs
     serial execution). Custom overrides take precedence when configured.
     """
-    scores: dict[str, float] = {}
-    for dep in deployments:
-        dep_id = str(
-            getattr(dep, "deployment_id", None)
-            or (dep.get("deployment_id") if isinstance(dep, dict) else "")
-            or ""
-        )
-        if dep_id:
-            scores[dep_id] = _deployment_hardware_score(dep)
-
+    scores = {
+        str(_dep_field(dep, "deployment_id")): _deployment_hardware_score(dep)
+        for dep in deployments
+        if _dep_field(dep, "deployment_id")
+    }
     valid_scores = [s for s in scores.values() if s > 0]
     min_score = min(valid_scores) if valid_scores else 1.0
     weights = {
         dep_id: max(1, round(score / min_score)) if score > 0 else 0
         for dep_id, score in scores.items()
     }
-    if overrides:
-        for dep in deployments:
-            dep_id = str(
-                getattr(dep, "deployment_id", None)
-                or (dep.get("deployment_id") if isinstance(dep, dict) else "")
-                or ""
-            )
-            backend = str(
-                getattr(dep, "backend", None)
-                or (dep.get("backend") if isinstance(dep, dict) else "")
-                or ""
-            )
-            override_val = overrides.get(dep_id) if dep_id else None
-            if override_val is None and backend:
-                override_val = overrides.get(backend)
-            if override_val is not None and dep_id:
-                weights[dep_id] = override_val
+    if not overrides:
+        return weights
+    for dep in deployments:
+        dep_id = str(_dep_field(dep, "deployment_id", ""))
+        backend = str(_dep_field(dep, "backend", ""))
+        override = _resolve_override(dep_id, backend, overrides)
+        if override is not None and dep_id:
+            weights[dep_id] = override
     return weights
 
 
@@ -239,36 +264,19 @@ def calculate_hardware_concurrency(
     """Compute concurrency limits from engine capabilities with config overrides."""
     limits: dict[str, int] = {}
     for dep in deployments:
-        dep_id = str(
-            getattr(dep, "deployment_id", None)
-            or (dep.get("deployment_id") if isinstance(dep, dict) else "")
-            or ""
-        )
-        backend = str(
-            getattr(dep, "backend", None)
-            or (dep.get("backend") if isinstance(dep, dict) else "")
-            or ""
-        )
-        engine = str(
-            getattr(dep, "engine", None)
-            or (dep.get("engine") if isinstance(dep, dict) else "")
-            or ""
-        )
+        dep_id = str(_dep_field(dep, "deployment_id", ""))
         if not dep_id:
             continue
-        is_continuous = any(
-            e in engine.lower() or e in backend.lower() for e in CONST_CONTINUOUS_BATCHING_ENGINES
-        )
-        limits[dep_id] = (
+        backend = str(_dep_field(dep, "backend", ""))
+        engine = str(_dep_field(dep, "engine", ""))
+        is_continuous = _is_continuous_engine(engine, backend)
+        default_limit = (
             CONST_DEFAULT_CONTINUOUS_CONCURRENCY
             if is_continuous
             else CONST_DEFAULT_SERIAL_CONCURRENCY
         )
-        override_val = overrides.get(dep_id) if (overrides and dep_id) else None
-        if override_val is None and overrides and backend:
-            override_val = overrides.get(backend)
-        if override_val is not None:
-            limits[dep_id] = override_val
+        override = _resolve_override(dep_id, backend, overrides)
+        limits[dep_id] = override if override is not None else default_limit
     return limits
 
 
@@ -407,7 +415,11 @@ _KUBECTL_ATTEMPTS = 3
 
 
 def _kubectl(
-    args: list[str], *, context: str | None, timeout: float | None = 60.0
+    args: list[str],
+    *,
+    context: str | None,
+    timeout: float | None = 60.0,
+    input_data: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run kubectl, retrying when the API server was unreachable.
 
@@ -418,7 +430,12 @@ def _kubectl(
     for attempt in range(1, _KUBECTL_ATTEMPTS + 1):
         try:
             proc = subprocess.run(  # noqa: S603  # nosec B603 - fixed kubectl argv, no shell
-                cmd, capture_output=True, text=True, timeout=timeout, check=False
+                cmd,
+                input=input_data,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
             )
         except (subprocess.SubprocessError, OSError) as exc:
             raise GatewayTuneError(f"kubectl {args[0]} failed: {exc}") from exc
@@ -474,24 +491,68 @@ def _container_state(
     return next((s.get("state") or {} for s in statuses if s.get("name") == container), {})
 
 
-def _wait_for_exit(
+def _wait_for_running(
     pod: str, container: str, namespace: str, context: str | None, timeout: float, poll: float
-) -> dict[str, Any]:
-    """Poll the ephemeral container until it terminates; return its terminated state."""
+) -> None:
+    """Poll the ephemeral container until it is running."""
     deadline = time.monotonic() + timeout
     while True:
         state = _container_state(pod, container, namespace, context)
+        if "running" in state:
+            return
         if "terminated" in state:
-            terminated: dict[str, Any] = state["terminated"]
-            return terminated
+            raise GatewayTuneError(
+                f"The sweep container {container} in {namespace}/{pod} terminated prematurely."
+            )
         waiting = state.get("waiting") or {}
         if waiting.get("reason") in _IMAGE_PULL_FAILURES:
             raise GatewayTuneError(f"Cannot start the sweep container: {waiting.get('message')}")
         if time.monotonic() > deadline:
             raise GatewayTuneError(
-                f"The sweep in {namespace}/{pod} did not finish in {timeout:.0f} s."
+                f"The sweep container in {namespace}/{pod} did not start in {timeout:.0f} s."
             )
         time.sleep(poll)
+
+
+def _ensure_sweep_container(
+    pod: str,
+    namespace: str,
+    *,
+    container: str,
+    image: str,
+    context: str | None,
+    timeout: float,
+    poll: float,
+) -> str:
+    """Ensure an ephemeral debug container is running in the pod, creating one if needed."""
+    state = _container_state(pod, container, namespace, context)
+    if "running" in state:
+        return container
+    active_container = container
+    if "terminated" in state:
+        active_container = f"{container}-{uuid.uuid4().hex[:6]}"
+
+    started = _kubectl(
+        [
+            "debug",
+            f"pod/{pod}",
+            "-n",
+            namespace,
+            "--profile=restricted",
+            f"--image={image}",
+            f"--container={active_container}",
+            "--",
+            "sleep",
+            "3600",
+        ],
+        context=context,
+    )
+    if started.returncode != 0:
+        raise GatewayTuneError(
+            f"Cannot attach the sweep container to {namespace}/{pod}: {_detail(started)}"
+        )
+    _wait_for_running(pod, active_container, namespace, context, timeout, poll)
+    return active_container
 
 
 def measure_in_gateway_pod(
@@ -503,38 +564,44 @@ def measure_in_gateway_pod(
     timeout: float | None = None,
     image: str = DEFAULT_GATEWAY_TUNE_IMAGE,
     poll_seconds: float = 2.0,
+    container: str = "gateway-tune-runner",
 ) -> list[dict[str, Any]]:
     """Run the sweep in an ephemeral container attached to a gateway pod; return its results.
 
-    The script is passed as `python -c` rather than on stdin: `kubectl debug -i` can attach
-    after the container has started, and a script sent before that is lost.
+    Reuses an active debug container running ``sleep`` and pipes the sweep script via stdin
+    to avoid argv character length limits on large prompts.
     """
     pod = _gateway_pod(namespace, deployment, context)
-    container = f"gateway-tune-{uuid.uuid4().hex[:8]}"
-    started = _kubectl(
+    active_container = _ensure_sweep_container(
+        pod,
+        namespace,
+        container=container,
+        image=image,
+        context=context,
+        timeout=timeout or 600.0,
+        poll=poll_seconds,
+    )
+    script = bench_script(spec)
+    exec_res = _kubectl(
         [
-            "debug",
-            f"pod/{pod}",
+            "exec",
+            "-i",
+            pod,
             "-n",
             namespace,
-            "--profile=restricted",
-            f"--image={image}",
-            f"--container={container}",
+            "-c",
+            active_container,
             "--",
             "python",
-            "-c",
-            bench_script(spec),
+            "-",
         ],
         context=context,
+        timeout=timeout or 600.0,
+        input_data=script,
     )
-    if started.returncode != 0:
-        raise GatewayTuneError(f"Cannot attach the sweep to {namespace}/{pod}: {_detail(started)}")
-
-    terminated = _wait_for_exit(pod, container, namespace, context, timeout or 600.0, poll_seconds)
-    logs = _kubectl(["logs", pod, "-n", namespace, "-c", container], context=context)
-    if terminated.get("exitCode") != 0:
-        raise GatewayTuneError(f"The sweep failed in {namespace}/{pod}: {_detail(logs)}")
-    lines = logs.stdout.strip().splitlines()
+    if exec_res.returncode != 0:
+        raise GatewayTuneError(f"The sweep failed in {namespace}/{pod}: {_detail(exec_res)}")
+    lines = exec_res.stdout.strip().splitlines()
     try:
         results: list[dict[str, Any]] = json.loads(lines[-1])
     except (IndexError, ValueError) as exc:
@@ -590,6 +657,7 @@ def tune_pool(
     image: str = DEFAULT_GATEWAY_TUNE_IMAGE,
     on_deployment: Callable[[dict[str, Any]], None] | None = None,
     overrides: dict[str, int] | None = None,
+    concurrency_overrides: dict[str, int] | None = None,
 ) -> TuneReport:
     """Measure each deployment of ``model_group``, one at a time, and recommend weights."""
     model_info = fetch_model_info(gateway_url, allow_private, api_key)
@@ -630,15 +698,22 @@ def tune_pool(
 
     measured_rates = {t.deployment_id: t.requests_per_second for t in tuned}
     if any(rate > 0 for rate in measured_rates.values()):
-        weights = recommend_weights(measured_rates, overrides=overrides)
+        weights = recommend_weights(measured_rates, overrides=overrides, deployments=tuned)
     else:
         weights = calculate_hardware_weights(tuned, overrides=overrides)
+    concurrencies = calculate_hardware_concurrency(tuned, overrides=concurrency_overrides)
     return TuneReport(
         model_group=model_group,
         prompt_tokens=prompt_tokens,
         max_tokens=max_tokens,
         deployments=[
-            t.model_copy(update={"recommended_weight": weights[t.deployment_id]}) for t in tuned
+            t.model_copy(
+                update={
+                    "recommended_weight": weights[t.deployment_id],
+                    "recommended_concurrency": concurrencies.get(t.deployment_id),
+                }
+            )
+            for t in tuned
         ],
     )
 

@@ -25,6 +25,7 @@ from devops_cli.ai.gateway_tune import (
     gpu_inventory,
     measure_in_gateway_pod,
     recommend_weights,
+    tune_pool,
 )
 from devops_cli.commands.ai_gateway import app as gateway_cli_app
 from devops_cli.config.defaults import DEFAULT_GATEWAY_TUNE_IMAGE
@@ -341,7 +342,7 @@ class TestTune:
     def test_sweep_runs_in_an_ephemeral_container_on_a_running_gateway_pod(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Verify the sweep attaches to a gateway pod, waits for exit and parses its logs."""
+        """Verify the sweep attaches to a gateway pod and pipes script to exec."""
         kubectl = _FakeKubectl(exit_code=0, logs='noise\n[{"deployment_id": "a"}]')
         monkeypatch.setattr("devops_cli.ai.gateway_tune.subprocess.run", kubectl)
         monkeypatch.setattr("devops_cli.ai.gateway_tune.time.sleep", lambda _s: None)
@@ -351,12 +352,16 @@ class TestTune:
         )
 
         debug = kubectl.called("debug")
+        exec_call = kubectl.called("exec")
+        exec_input = kubectl.inputs[kubectl.calls.index(exec_call)]
         assert (
             result,
             debug[:5],
             debug[5:11],
-            debug[-4:-1],
-            "def measure(" in debug[-1],
+            debug[-2:],
+            exec_call[:6],
+            exec_call[-3:],
+            "def measure(" in (exec_input or ""),
             kubectl.called("pods")[-1],
         ) == (
             [{"deployment_id": "a"}],
@@ -369,10 +374,114 @@ class TestTune:
                 f"--container={kubectl.container}",
                 "--",
             ],
-            ["--", "python", "-c"],
+            ["sleep", "3600"],
+            ["kubectl", "--context", "lab", "exec", "-i", "llm-gateway-abc"],
+            ["--", "python", "-"],
             True,
             "jsonpath={.items[0].metadata.name}",
         )
+
+    def test_sweep_delivers_prompt_exceeding_argv_limit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify prompts exceeding Linux 131,072-byte argv limit are delivered via stdin."""
+        large_prompt = "x" * 150_000
+        spec = {
+            "deployments": [{"deployment_id": "a", "model": "m", "api_base": VLLM}],
+            "levels": [1],
+            "rounds": 1,
+            "prompt": large_prompt,
+            "max_tokens": 10,
+        }
+        kubectl = _FakeKubectl(exit_code=0, logs='[{"deployment_id": "a"}]')
+        monkeypatch.setattr("devops_cli.ai.gateway_tune.subprocess.run", kubectl)
+        monkeypatch.setattr("devops_cli.ai.gateway_tune.time.sleep", lambda _s: None)
+
+        result = measure_in_gateway_pod(
+            spec, namespace="llm", deployment="llm-gateway", context=None
+        )
+
+        exec_call = kubectl.called("exec")
+        exec_input = kubectl.inputs[kubectl.calls.index(exec_call)] or ""
+        assert (
+            result,
+            len(exec_input) > 131_072,
+            large_prompt in exec_input,
+            exec_call[-3:],
+        ) == (
+            [{"deployment_id": "a"}],
+            True,
+            True,
+            ["--", "python", "-"],
+        )
+
+    def test_calculate_weights_with_backend_label_overrides(self) -> None:
+        """Verify recommend_weights matches overrides by backend label when deployment IDs are distinct."""
+        deployments = [
+            {"deployment_id": "dep-1", "backend": "vllm"},
+            {"deployment_id": "dep-2", "backend": "ollama"},
+        ]
+        rates = {"dep-1": 10.0, "dep-2": 2.0}
+        weights_default = recommend_weights(rates, deployments=deployments)
+        weights_backend = recommend_weights(
+            rates, overrides={"vllm": 8, "ollama": 3}, deployments=deployments
+        )
+        weights_precedence = recommend_weights(
+            rates, overrides={"vllm": 8, "dep-1": 12}, deployments=deployments
+        )
+        assert (
+            weights_default,
+            weights_backend,
+            weights_precedence,
+        ) == (
+            {"dep-1": 5, "dep-2": 1},
+            {"dep-1": 8, "dep-2": 3},
+            {"dep-1": 12, "dep-2": 1},
+        )
+
+    def test_tune_pool_applies_concurrency_overrides(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify tune_pool calculates recommended_concurrency with config overrides."""
+        monkeypatch.setattr(
+            "devops_cli.ai.gateway_tune.fetch_model_info",
+            lambda url, allow, key: MODEL_INFO,
+        )
+        monkeypatch.setattr(
+            "devops_cli.ai.gateway_tune.deployment_gpus",
+            lambda api_base, context: [GpuInfo(name="RTX 3090", memory_mib=24576)],
+        )
+
+        def fake_measure(spec: dict[str, Any], **kwargs: Any) -> list[dict[str, Any]]:
+            dep_id = spec["deployments"][0]["deployment_id"]
+            return [
+                {
+                    "deployment_id": dep_id,
+                    "engine": {"engine": "vllm" if dep_id == "a" else "ollama"},
+                    "capacity": [_level(1, 100)],
+                    "cost": _level(1, 100),
+                }
+            ]
+
+        monkeypatch.setattr("devops_cli.ai.gateway_tune.measure_in_gateway_pod", fake_measure)
+
+        report = tune_pool(
+            gateway_url=VLLM,
+            allow_private=True,
+            api_key=None,
+            model_group="devops-review",
+            levels=[1],
+            rounds=1,
+            prompt_tokens=100,
+            max_tokens=50,
+            request_timeout=10.0,
+            namespace="llm",
+            deployment="llm-gateway",
+            overrides={"vllm": 10},
+            concurrency_overrides={"vllm": 32, "b": 4},
+        )
+
+        concurrencies = {d.deployment_id: d.recommended_concurrency for d in report.deployments}
+        weights = {d.deployment_id: d.recommended_weight for d in report.deployments}
+        assert (concurrencies, weights) == ({"a": 32, "b": 4}, {"a": 10, "b": 1})
 
     def test_unreachable_api_server_is_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify kubectl calls that never reached the API server are retried, others are not."""
@@ -429,12 +538,13 @@ class TestTune:
 
 
 class _FakeKubectl:
-    """Answer the kubectl calls of one sweep: deployment, pods, debug, pod status, logs."""
+    """Answer the kubectl calls of one sweep: deployment, pods, container state, debug, exec."""
 
     def __init__(self, *, exit_code: int, logs: str) -> None:
         self.exit_code = exit_code
         self.logs = logs
         self.calls: list[list[str]] = []
+        self.inputs: list[str | None] = []
         self.container = ""
         self.polls = 0
 
@@ -443,27 +553,26 @@ class _FakeKubectl:
 
     def __call__(self, cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         self.calls.append(cmd)
+        self.inputs.append(kwargs.get("input") or kwargs.get("input_data"))
         if "deployment" in cmd:
             out = json.dumps({"spec": {"selector": {"matchLabels": {"app": "llm-gateway"}}}})
-        elif "pods" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+        if "pods" in cmd:
             out = "llm-gateway-abc"
-        elif "debug" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+        if "debug" in cmd:
             self.container = next(a for a in cmd if a.startswith("--container=")).split("=", 1)[1]
-            out = ""
-        elif "logs" in cmd:
-            out = self.logs
-        else:
-            self.polls += 1
-            state = (
-                {"running": {}} if self.polls == 1 else {"terminated": {"exitCode": self.exit_code}}
-            )
-            out = json.dumps(
-                {
-                    "status": {
-                        "ephemeralContainerStatuses": [{"name": self.container, "state": state}]
-                    }
-                }
-            )
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        if "exec" in cmd:
+            if self.exit_code != 0:
+                return subprocess.CompletedProcess(cmd, self.exit_code, stdout="", stderr=self.logs)
+            return subprocess.CompletedProcess(cmd, 0, stdout=self.logs, stderr="")
+        self.polls += 1
+        state: dict[str, Any] = {"running": {}} if (self.polls > 1 or self.container) else {}
+        container_name = self.container or "gateway-tune-runner"
+        out = json.dumps(
+            {"status": {"ephemeralContainerStatuses": [{"name": container_name, "state": state}]}}
+        )
         return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
 
 

@@ -45,7 +45,24 @@ spec:
                     operator: In
                     values: ["16Gi"]
               - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["16Gi"]
+              - matchExpressions:
                   - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.vram-gib
+                    operator: In
+                    values: ["16Gi"]
+                  - key: nvidia.com/gpu.count
+                    operator: In
+                    values: ["1"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.vram-gib
@@ -174,7 +191,24 @@ spec:
                     operator: In
                     values: ["24Gi", "28Gi"]
               - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["24Gi", "28Gi"]
+              - matchExpressions:
                   - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.vram-gib
+                    operator: In
+                    values: ["24Gi"]
+                  - key: nvidia.com/gpu.count
+                    operator: In
+                    values: ["1"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.vram-gib
@@ -303,7 +337,24 @@ spec:
                     operator: In
                     values: ["32Gi"]
               - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["32Gi"]
+              - matchExpressions:
                   - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.vram-gib
+                    operator: In
+                    values: ["32Gi"]
+                  - key: nvidia.com/gpu.count
+                    operator: In
+                    values: ["1"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.vram-gib
@@ -431,6 +482,13 @@ spec:
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["48Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["48Gi"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
@@ -545,6 +603,13 @@ spec:
             nodeSelectorTerms:
               - matchExpressions:
                   - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["64Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
@@ -669,6 +734,13 @@ spec:
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["72Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["72Gi"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
@@ -788,6 +860,13 @@ spec:
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["96Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["96Gi"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
@@ -902,6 +981,13 @@ spec:
             nodeSelectorTerms:
               - matchExpressions:
                   - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["128Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
