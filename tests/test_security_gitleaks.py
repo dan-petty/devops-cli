@@ -195,3 +195,40 @@ def test_run_gitleaks_scan_ignore_tests_windows_paths(tmp_path: Path) -> None:
         # With ignore_tests=False, both are kept
         res_all = run_gitleaks_scan(tmp_path, ignore_tests=False)
         assert len(res_all) == 2
+
+
+def test_gitleaks_native_word_boundary_and_placeholders(tmp_path: Path) -> None:
+    """Verify word boundaries prevent 'task-*.md' matches and placeholder secrets are filtered."""
+    from devops_cli.security.gitleaks import _is_placeholder_secret
+
+    # 1. Test placeholder secret filter
+    placeholders = [
+        "ghp_your_personal_access_token",
+        "sk-proj-placeholder_value_1234567890",
+        "dummy_secret_value_12345",
+        "api_key_insert_token_here_12345",
+        "<masked-secret>",
+    ]
+    actual_placeholders = tuple(_is_placeholder_secret(p) for p in placeholders)
+    assert actual_placeholders == (True, True, True, True, True)
+
+    # Real-looking token is not treated as a placeholder
+    real_candidate = "sk-proj-" + "aB3d" * 12
+    assert _is_placeholder_secret(real_candidate) is False
+
+    # 2. Test file with task markdown links and task filenames
+    task_file = tmp_path / "task-677-prepare-release-v0.2.23.md"
+    task_file.write_text(
+        "# Task 677: Prepare Release\n"
+        "Link: [task-677-prepare-release-v0.2.23.md](file:///workspaces/devops-cli/docs/agent/tasks/task-677-prepare-release-v0.2.23.md)\n"
+        "Placeholder: ghp_your_personal_access_token\n",
+        encoding="utf-8",
+    )
+    task_findings = _scan_file_native_secrets(task_file)
+    assert len(task_findings) == 0
+
+    # 3. Test genuine OpenAI key is detected
+    secret_file = tmp_path / "real_key.env"
+    secret_file.write_text(f"OPENAI_KEY={real_candidate}\n", encoding="utf-8")
+    secret_findings = _scan_file_native_secrets(secret_file)
+    assert (len(secret_findings), "OpenAI" in secret_findings[0].title) == (1, True)

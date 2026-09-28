@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.24] - 2026-09-28
+
+### Fixed & Hardened
+- **Review Self-Improvement & Verification Feedback Loop (`devops_cli.ai.review`, `devops_cli.security`)**:
+  - Remediated session `20260928-160843` findings, eliminating native secret scanner false positives, tautological criteria auto-promotions, and cluster overlay networking hallucinations (#682).
+  - Anchored native fallback secret patterns with `\b` word boundaries and tightened OpenAI key pattern to `\bsk-(?:proj-)?[A-Za-z0-9]{32,128}\b`, preventing `task-*.md` markdown links from falsely triggering secret detection (#682).
+  - Implemented `CONST_SECRET_PLACEHOLDER_MARKERS` and `_is_placeholder_secret` to filter out documentation and illustrative placeholder tokens (#682).
+  - Implemented `_is_tautological_verification_command` in `review_environment.py` to prevent text-search (`git grep`, `grep`) and reflection commands (`__code__.co_varnames`, `hasattr`, `getattr`) from falsely promoting findings to verified status (#682).
+  - Broadened `HALLUCINATION-K8S-CLUSTER-OVERLAY-HTTP` in `common_hallucinations.json` and verification prompts to cover internal container-to-container and backend service HTTP communication (#682).
+  - Added `HALLUCINATION-OFFLINE-PRICING-URLSPLIT` and `HALLUCINATION-MITIGATION-LEDGER-INITIAL-EMPTY` to prevent false SSRF and absent-mitigation claims on offline pricing calculators and dynamic audit ledgers (#682).
+  - Added `_sanitize_api_key_header` in `gateway.py` to strip newlines and reject non-ASCII/CRLF injection characters (#682).
+  - Hardened URL scheme validation in `gateway_bench.py` before `urllib.request.urlopen` (#682).
+  - Enforced strict regex format `^[a-zA-Z0-9_\-\.]+$` on `run_id` in `run_store.py` rejecting `..` traversal (#682).
+  - Narrowed exception handlers in `install_tools.py` and guarded git directory pointer resolution in `tracer.py` against `(OSError, RuntimeError, ValueError)` (#682).
+  - Hardened git invocations in `analyze.py` with `--` argument separator and revision/path regex validation (#682).
+  - Added `_validate_mcp_arg("session_id", ...)` in MCP `review_findings` (#682).
+  - Updated `src/devops_cli/ai/tasks/verify_finding_system.md`, `src/devops_cli/ai/tasks/review.md`, and `src/devops_cli/ai/personas/devsecops/prompt.md` with explicit falsification rules against tautological criteria, documentation placeholders, and internal cluster networking (#682).
+  - Added Calibration Record for session `20260928-160843` to `docs/SELF_IMPROVEMENT.md` (#682).
+  - Exported refreshed feedback dataset with 1,219 findings via `devops review export-feedback` (#682).
+
 ## [0.2.23] - 2026-09-28
 
 ### Added

@@ -674,15 +674,18 @@
     "category": "documentation_context",
     "description": "Flagging internal Kubernetes cluster URLs (http://*.svc.cluster.local) in manifests, ConfigMaps, or internal configs as insecure HTTP communication.",
     "signature_patterns": [
-      "(?:insecure|unencrypted|plaintext)\\s+http\\s+(?:communication|endpoint|traffic).*\\.svc\\.cluster\\.local",
+      "(?:insecure|unencrypted|plaintext|plain)\\s+http\\s+(?:communication|endpoint|traffic|services?).*?(?:\\.svc\\.cluster\\.local|internal|ollama|gateway|vllm|backend)",
       "http://[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+\\.svc\\.cluster\\.local",
-      "\\b(?:insecure\\s+communication|unencrypted\\s+proxy|plaintext\\s+traffic|http\\s+endpoint).*\\b(?:llm\\s+services|proxy|squid|k8s|cluster)",
-      "\\b(?:insecure\\s+http\\s+entry\\s+points|unencrypted\\s+prometheus\\s+export)"
+      "\\b(?:insecure\\s+communication|unencrypted\\s+proxy|plaintext\\s+traffic|http\\s+endpoint|plain\\s+http).*\\b(?:llm\\s+services|proxy|squid|k8s|cluster|internal\\s+service|backend)",
+      "\\b(?:insecure\\s+http\\s+entry\\s+points|unencrypted\\s+prometheus\\s+export|plain\\s+http\\s+for\\s+internal)",
+      "\\binsecure\\s+http\\s+communication\\s+with\\s+(?:internal\\s+services|litellm\\s+gateway|model\\s+configurations)"
     ],
     "pattern_keywords": [
       "internal_k8s_http",
       "svc_cluster_local_plaintext",
-      "cluster_overlay_traffic"
+      "cluster_overlay_traffic",
+      "insecure_http_communication",
+      "internal_services"
     ],
     "file_patterns": [
       "k8s/*",
@@ -810,6 +813,52 @@
     "resolution": "devops-cli is active alpha software prior to release 1.0.0 with an explicit zero backwards compatibility guarantee; interface evolutions and clean implementations are required over legacy remnants.",
     "occurrence_count": 1,
     "last_seen": "2026-09-28T04:09:06",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-MITIGATION-LEDGER-INITIAL-EMPTY",
+    "name": "Empty Mitigation Ledger Initialization Claim",
+    "category": "documentation_context",
+    "description": "Flagging an empty array '[]' in mitigated_findings.json or initial ledger files as a critical defect or violation.",
+    "signature_patterns": [
+      "empty\\s+json\\s+array\\s+in\\s+mitigation\\s+report",
+      "mitigated_findings\\.json.*empty\\s+json\\s+array",
+      "empty\\s+array.*mitigated_findings"
+    ],
+    "pattern_keywords": [
+      "empty_mitigation_ledger",
+      "mitigated_findings_empty"
+    ],
+    "file_patterns": [
+      "*.json",
+      "*mitigated_findings*"
+    ],
+    "resolution": "An empty array '[]' in mitigated_findings.json represents the normal initial state when no findings have yet been mitigated.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-28T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-OFFLINE-PRICING-URLSPLIT",
+    "name": "Offline Pricing Ledger Classification SSRF Claim",
+    "category": "documentation_context",
+    "description": "Flagging urlsplit or hostname inspection in offline pricing calculations (pricing.py is_local) as an SSRF vulnerability.",
+    "signature_patterns": [
+      "insecure\\s+url\\s+parsing\\s+allows\\s+ssrf.*urlsplit",
+      "urlsplit\\(\\)\\s+followed\\s+by\\s+_is_local_host",
+      "pricing\\.py.*(?:ssrf|urlsplit)"
+    ],
+    "pattern_keywords": [
+      "pricing_urlsplit_ssrf",
+      "offline_pricing_classifier"
+    ],
+    "file_patterns": [
+      "src/devops_cli/ai/spend/pricing.py",
+      "*pricing.py"
+    ],
+    "resolution": "The pricing ledger is an offline cost calculation utility; inspecting strings with urlsplit performs no network requests and cannot cause SSRF.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-28T00:00:00",
     "source": "builtin"
   }
 ]
