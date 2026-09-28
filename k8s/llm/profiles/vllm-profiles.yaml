@@ -454,7 +454,7 @@ metadata:
     llm.devops.io/vram-gib: 48gib
     llm.devops.io/total-vram-gib: '48'
 spec:
-  replicas: 1
+  replicas: 0
   strategy:
     type: Recreate
   selector:

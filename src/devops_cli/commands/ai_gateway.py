@@ -330,6 +330,7 @@ def _render_tune_report(report: TuneReport) -> None:
         "Est. req/s",
         "Weight",
         "Recommended",
+        "Max Parallel",
     ]
     rows = [
         [
@@ -344,6 +345,7 @@ def _render_tune_report(report: TuneReport) -> None:
             f"{dep.requests_per_second:.2f}",
             "-" if dep.current_weight is None else f"{dep.current_weight:g}",
             str(dep.recommended_weight),
+            "-" if dep.recommended_concurrency is None else str(dep.recommended_concurrency),
         ]
         for dep in report.deployments
     ]
@@ -444,6 +446,7 @@ def tune_cmd(
             image=image,
             on_deployment=announce,
             overrides=settings.ai.gateway_weights,
+            concurrency_overrides=settings.ai.gateway_concurrency,
         )
     except (AICredentialsError, GatewayTuneError) as exc:
         print_error(str(exc))

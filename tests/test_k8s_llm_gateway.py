@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import yaml
@@ -92,7 +92,10 @@ def _deployments(group: str) -> list[dict[str, Any]]:
 def _node_selector_terms(pod_spec: dict[str, Any]) -> list[dict[str, Any]]:
     """Return required node affinity terms of a pod spec."""
     affinity = pod_spec["affinity"]["nodeAffinity"]
-    return affinity["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"]
+    return cast(
+        list[dict[str, Any]],
+        affinity["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"],
+    )
 
 
 class TestK8sLLMGatewayManifests:
@@ -150,7 +153,7 @@ class TestK8sLLMGatewayManifests:
                 "gemma4:31b",
                 "ollama/*",
             ],
-            "least-busy",
+            "simple-shuffle",
             2,
         )
 
@@ -270,8 +273,8 @@ class TestK8sLLMGatewayManifests:
         ) == (
             6,
             1,
-            64,
-            1,
+            None,
+            None,
         )
 
     def test_gateway_routes_to_provider_vram_services(self) -> None:
