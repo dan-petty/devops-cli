@@ -96,5 +96,27 @@ def test_check_run_blockers_fails_closed_on_api_error() -> None:
         blockers = _check_run_blockers(
             pr_data, pr_num=42, owner="owner", repo_name="repo", allow_pending_checks=False
         )
-        assert len(blockers) == 1
-        assert "check verification failed closed" in blockers[0]
+        assert (len(blockers), "check verification failed closed" in blockers[0]) == (1, True)
+
+
+def test_run_gh_paginated_handles_check_runs_dict() -> None:
+    from subprocess import CompletedProcess
+
+    from devops_cli.github.rate_limiter import GitHubRateLimiter, _run_gh_paginated
+
+    limiter = GitHubRateLimiter()
+    page1 = {"total_count": 2, "check_runs": [{"name": "test-1"}]}
+    page2 = {"total_count": 2, "check_runs": [{"name": "test-2"}]}
+
+    calls = [
+        CompletedProcess(["gh"], 0, json.dumps(page1), ""),
+        CompletedProcess(["gh"], 0, json.dumps(page2), ""),
+    ]
+
+    with patch("devops_cli.github.rate_limiter._execute_single_page", side_effect=calls):
+        res = _run_gh_paginated(
+            ["api", "--paginate", "--slurp", "repos/owner/repo/commits/sha/check-runs?per_page=1"],
+            limiter=limiter,
+            target_resource="checks",
+        )
+        assert (res.returncode, json.loads(res.stdout)) == (0, [page1, page2])
