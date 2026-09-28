@@ -48,6 +48,9 @@ spec:
                   - key: nvidia.com/gpu.count
                     operator: In
                     values: ["1"]
+                  - key: nvidia.com/gpu.vram-gib
+                    operator: In
+                    values: ["16Gi"]
               - matchExpressions:
                   - key: nvidia.com/gpu.architecture
                     operator: In
@@ -55,6 +58,9 @@ spec:
                   - key: nvidia.com/gpu.count
                     operator: In
                     values: ["1"]
+                  - key: nvidia.com/gpu.vram-gib
+                    operator: In
+                    values: ["16Gi"]
       containers:
       - name: vllm
         image: vllm/vllm-openai:v0.30.0
@@ -146,7 +152,7 @@ spec:
       volumes:
       - name: model-cache
         persistentVolumeClaim:
-          claimName: vllm-model-cache
+          claimName: vllm-single-model-cache
       - name: shm
         emptyDir:
           medium: Memory
@@ -479,6 +485,9 @@ spec:
                   - key: nvidia.com/gpu.count
                     operator: Gt
                     values: ["1"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["48Gi"]
               - matchExpressions:
                   - key: nvidia.com/gpu.architecture
                     operator: In
@@ -486,6 +495,9 @@ spec:
                   - key: nvidia.com/gpu.count
                     operator: Gt
                     values: ["1"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["48Gi"]
       containers:
       - name: vllm
         image: vllm/vllm-openai:v0.30.0

@@ -15,11 +15,11 @@ pipelines:
   enabled: false
 
 # Direct Ollama backend service URLs matching specific models and hardware tiers:
-# - ollama-16gib (16GiB VRAM): Fast chat (qwen2.5-coder:7b) and semantic embeddings (bge-m3:latest)
-# - ollama-32gib (32GiB VRAM): Dedicated reasoning & multi-file code review (qwen3-coder:30b)
+# - ollama-24gib (24GiB VRAM): Fast chat (qwen2.5-coder:7b) and semantic embeddings (bge-m3:latest)
+# - ollama-64gib (64GiB VRAM): Dedicated reasoning, flagship, & multi-file code review
 ollamaUrls:
-  - http://ollama-16gib.llm.svc.cluster.local:11434
-  - http://ollama-32gib.llm.svc.cluster.local:11434
+  - http://ollama-24gib.llm.svc.cluster.local:11434
+  - http://ollama-64gib.llm.svc.cluster.local:11434
 
 # OpenAI-compatible connection to the LiteLLM gateway (vLLM and Ollama models by virtual name),
 # authenticated with the gateway master key. Applies on first start; Open WebUI persists
