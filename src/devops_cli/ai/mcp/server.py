@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Literal
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.server.middleware import Middleware
 
 from devops_cli.ai.task_loader import load_task_prompt
@@ -17,6 +17,7 @@ from devops_cli.config.constants import (
     CONST_FALCO_SEVERITY_LEVELS,
     CONST_MAX_SECURITY_STREAM_TAIL_LINES,
     CONST_MCP_EAGER_DOMAINS,
+    CONST_MCP_LAZY_DOMAINS,
     CONST_MIN_SECURITY_STREAM_TAIL_LINES,
 )
 from devops_cli.config.defaults import (
@@ -2268,7 +2269,6 @@ def pr_ready(
 @mcp.tool()
 def pr_check_readiness(
     pr_number: int | None = None,
-    require_ready: bool = False,
     allow_blocked_state: bool = False,
     repo: str | None = None,
 ) -> str:
@@ -2277,8 +2277,6 @@ def pr_check_readiness(
     if pr_number is not None:
         _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
         cmd.append(str(pr_number))
-    if require_ready:
-        cmd.append("--require-ready")
     if allow_blocked_state:
         cmd.append("--allow-blocked-state")
     if repo:
@@ -3044,12 +3042,27 @@ def reset_hydrated_domains() -> None:
     _HYDRATED_DOMAINS.clear()
 
 
+def _notify_tool_list_changed(ctx: Context | None) -> None:
+    """Send tool list changed notification to client if session is active."""
+    if ctx and getattr(ctx, "session", None):
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(ctx.session.send_tool_list_changed())
+        except RuntimeError:
+            try:
+                asyncio.run(ctx.session.send_tool_list_changed())
+            except Exception:
+                pass
+
+
 @mcp.tool()
-def hydrate_tool_domain(domain: str) -> dict[str, Any]:
+def hydrate_tool_domain(domain: str, ctx: Context | None = None) -> dict[str, Any]:
     """Advertise the tools for one domain, which are withheld from the listing by default.
 
-    Call this before browsing a domain's tools. Available domains include `gh`, `k8s`,
-    `pr`, `scan`, `docker`, `tf`, `argo`, `valkey`, `sandbox`, `telemetry` and `secrets`.
+    Call this before browsing a domain's tools. Available lazy domains include `argo`,
+    `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
+    `prometheus`, `rag`, `release`, `repos`, `sandbox`, `scan`, `security`, `ssh`,
+    `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
     Pass the domain name alone, for example `k8s`.
     """
     key = domain.strip().lower().removesuffix("_")
@@ -3061,7 +3074,10 @@ def hydrate_tool_domain(domain: str) -> dict[str, Any]:
         }
     if key in CONST_MCP_EAGER_DOMAINS:
         return {"domain": key, "hydrated": False, "detail": "always advertised"}
+    if key not in CONST_MCP_LAZY_DOMAINS:
+        return {"domain": key, "hydrated": False, "detail": f"unknown domain: {key}"}
     _HYDRATED_DOMAINS.add(key)
+    _notify_tool_list_changed(ctx)
     return {"domain": key, "hydrated": True, "advertised_domains": sorted(_HYDRATED_DOMAINS)}
 
 

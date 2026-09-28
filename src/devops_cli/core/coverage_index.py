@@ -24,13 +24,16 @@ must run everything, and `select_from_index` says so rather than guessing.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from devops_cli.config.constants import (
+    CONST_PYTHON_FILE_SUFFIX,
     CONST_SOURCE_ROOT_DIR,
+    CONST_TEST_FILE_PREFIX,
     CONST_TESTS_ROOT_DIR,
 )
 
@@ -41,6 +44,75 @@ INDEX_FORMAT_VERSION = 1
 # Changing any of these can alter the outcome of tests that never import the changed
 # module, so they defeat the index entirely and force a full run.
 _FULL_RUN_TRIGGERS = ("conftest.py", "pyproject.toml", "uv.lock", ".python-version")
+
+
+def _is_test_file(path: str) -> bool:
+    """Report whether a path points to an executable test module."""
+    name = Path(path).name
+    return name.startswith(CONST_TEST_FILE_PREFIX) and name.endswith(CONST_PYTHON_FILE_SUFFIX)
+
+
+def _helper_import_pattern(helper_path: str) -> re.Pattern[str]:
+    """Build a regex matching imports of a test helper module under tests/."""
+    p = Path(helper_path)
+    stem = p.stem
+    rel_parts = list(p.parts)
+    if rel_parts and rel_parts[0] == CONST_TESTS_ROOT_DIR:
+        rel_parts = rel_parts[1:]
+    rel_without_tests = ".".join(rel_parts)[: -len(p.suffix)] if rel_parts else stem
+    dotted_full = (
+        f"{CONST_TESTS_ROOT_DIR}.{rel_without_tests}"
+        if rel_without_tests
+        else f"{CONST_TESTS_ROOT_DIR}.{stem}"
+    )
+    package, _, leaf = dotted_full.rpartition(".")
+
+    patterns = [
+        rf"\b{re.escape(dotted_full)}\b",
+        rf"from\s+{re.escape(package)}\s+import\s+\(?[^)\n]*\b{re.escape(leaf)}\b",
+        rf"from\s+(?:{CONST_TESTS_ROOT_DIR}\.)?{re.escape(rel_without_tests)}\s+import\b",
+        rf"import\s+(?:{CONST_TESTS_ROOT_DIR}\.)?{re.escape(rel_without_tests)}\b",
+    ]
+    return re.compile("|".join(patterns))
+
+
+def _find_tests_importing_helper(
+    helper_path: str, repo_root: Path, test_files: Iterable[str]
+) -> set[str]:
+    """Find test modules that import or reference a helper module under tests/."""
+    if not helper_path.endswith(CONST_PYTHON_FILE_SUFFIX):
+        return set()
+    pattern = _helper_import_pattern(helper_path)
+    matching: set[str] = set()
+    for test_rel in test_files:
+        test_abs = repo_root / test_rel
+        try:
+            content = test_abs.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if pattern.search(content):
+            matching.add(test_rel)
+    return matching
+
+
+def _normalize_source_path(path: str, repo_root: Path) -> str | None:
+    """Normalize a path to a repo-relative source path starting with CONST_SOURCE_ROOT_DIR."""
+    candidate = Path(path)
+    for root in (repo_root, repo_root.resolve()):
+        try:
+            rel = candidate.resolve().relative_to(root).as_posix()
+            if rel.startswith(f"{CONST_SOURCE_ROOT_DIR}/"):
+                return rel
+        except ValueError, RuntimeError:
+            pass
+    posix_path = candidate.as_posix()
+    if posix_path.startswith(f"{CONST_SOURCE_ROOT_DIR}/"):
+        return posix_path
+    marker = f"/{CONST_SOURCE_ROOT_DIR}/"
+    idx = posix_path.rfind(marker)
+    if idx != -1:
+        return posix_path[idx + 1 :]
+    return None
 
 
 @dataclass
@@ -92,7 +164,6 @@ def build_index_from_coverage(database: Path, repo_root: Path) -> CoverageIndex:
     if not database.is_file():
         return CoverageIndex()
 
-    source_marker = f"/{CONST_SOURCE_ROOT_DIR}/"
     covering: dict[str, set[str]] = {}
     tests: set[str] = set()
 
@@ -108,10 +179,9 @@ def build_index_from_coverage(database: Path, repo_root: Path) -> CoverageIndex:
             test_file = str(context).split("::")[0]
             if not test_file.startswith(f"{CONST_TESTS_ROOT_DIR}/"):
                 continue
-            marker = str(path).find(source_marker)
-            if marker == -1:
+            source = _normalize_source_path(str(path), repo_root)
+            if source is None:
                 continue
-            source = str(path)[marker + 1 :]
             covering.setdefault(source, set()).add(test_file)
             tests.add(test_file)
     except sqlite3.DatabaseError:
@@ -196,6 +266,8 @@ def select_from_index(
 
     selected: set[str] = set()
     unindexed: list[str] = []
+    known_tests = set(index.test_files) | _current_test_files(repo_root)
+
     for raw in changed:
         path = str(raw).replace("\\", "/")
         if Path(path).name in _FULL_RUN_TRIGGERS:
@@ -203,7 +275,14 @@ def select_from_index(
                 full_run_reason=f"{path} can change the outcome of tests that never import it"
             )
         if path.startswith(f"{CONST_TESTS_ROOT_DIR}/"):
-            selected.add(path)
+            if _is_test_file(path):
+                selected.add(path)
+            else:
+                importing = _find_tests_importing_helper(path, repo_root, known_tests)
+                if importing:
+                    selected.update(importing)
+                else:
+                    unindexed.append(path)
             continue
         if not path.startswith(f"{CONST_SOURCE_ROOT_DIR}/"):
             return IndexedSelection(

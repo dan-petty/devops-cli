@@ -78,8 +78,10 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
 | [`hydrate_tool_domain`](#hydrate-tool-domain) | Advertise the tools for one domain, which are withheld from the listing by default.
 
-Call this before browsing a domain's tools. Available domains include `gh`, `k8s`,
-`pr`, `scan`, `docker`, `tf`, `argo`, `valkey`, `sandbox`, `telemetry` and `secrets`.
+Call this before browsing a domain's tools. Available lazy domains include `argo`,
+`benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
+`prometheus`, `rag`, `release`, `repos`, `sandbox`, `scan`, `security`, `ssh`,
+`telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
 Pass the domain name alone, for example `k8s`. |
 | [`k8s_audit`](#k8s-audit) | Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | Bootstrap minikube Kubernetes cluster and deploy infrastructure stack. |
@@ -947,8 +949,10 @@ List Grafana dashboards, optionally filtered by search query.
 
 Advertise the tools for one domain, which are withheld from the listing by default.
 
-Call this before browsing a domain's tools. Available domains include `gh`, `k8s`,
-`pr`, `scan`, `docker`, `tf`, `argo`, `valkey`, `sandbox`, `telemetry` and `secrets`.
+Call this before browsing a domain's tools. Available lazy domains include `argo`,
+`benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
+`prometheus`, `rag`, `release`, `repos`, `sandbox`, `scan`, `security`, `ssh`,
+`telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
 Pass the domain name alone, for example `k8s`.
 
 **Parameters:**
@@ -1137,7 +1141,6 @@ Validate PR merge readiness: verify no unresolved review threads, no conflicts, 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `pr_number` | `integer` | No | - | - |
-| `require_ready` | `boolean` | No | `False` | - |
 | `allow_blocked_state` | `boolean` | No | `False` | - |
 | `repo` | `string` | No | - | - |
 

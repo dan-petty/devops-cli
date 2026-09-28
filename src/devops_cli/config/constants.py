@@ -62,29 +62,37 @@ CONST_MCP_JSON_NAME = "mcp.json"
 # copy of the VS Code file would hand the server a literal `${workspaceFolder}` on PATH.
 CONST_CLAUDE_MCP_JSON_NAME = ".mcp.json"
 CONST_MCP_RESOURCE_SCHEME = "resource://"
-CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
+CONST_MCP_EAGER_DOMAINS: Final[frozenset[str]] = frozenset({"ai", "review", "config", "workspace"})
+CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
     {
-        "ai",
         "argo",
         "benchmark",
-        "config",
+        "branches",
+        "ci",
         "docker",
-        "github",
+        "docs",
+        "gh",
         "grafana",
         "k8s",
+        "pr",
         "prometheus",
-        "review",
+        "rag",
+        "release",
+        "repos",
         "sandbox",
         "scan",
-        "secrets",
+        "security",
         "ssh",
         "telemetry",
         "tf",
         "tls",
         "valkey",
         "vault",
-        "workspace",
+        "verify",
     }
+)
+CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
+    CONST_MCP_EAGER_DOMAINS | CONST_MCP_LAZY_DOMAINS | {"github", "secrets", "benchmarks"}
 )
 CONST_SYSTEM_TEMP_DIRS: tuple[Path, ...] = (Path("/tmp"), Path("/var/tmp"))  # nosec B108
 CONST_FORBIDDEN_SYSTEM_DIRS: tuple[Path, ...] = (
@@ -2088,12 +2096,6 @@ CONST_OUTPUT_FORMAT_YAML: Final[str] = "yaml"
 CONST_OUTPUT_FORMATS: Final[frozenset[str]] = frozenset(
     {CONST_OUTPUT_FORMAT_TABLE, CONST_OUTPUT_FORMAT_JSON, CONST_OUTPUT_FORMAT_YAML}
 )
-# MCP tool domains advertised on every turn. The server registers 155 tools, whose names,
-# signatures and summaries alone cost roughly 5,600 tokens in each request, before the
-# per-parameter JSON Schema that the protocol adds on top. A model choosing among 155
-# tools also chooses worse than one choosing among a few dozen. Domains outside this set
-# are withheld until a caller asks for them by name.
-CONST_MCP_EAGER_DOMAINS: Final[frozenset[str]] = frozenset({"ai", "review", "config", "workspace"})
 # The roots of the exception hierarchy. Naming one of these as the expected type of a
 # `pytest.raises` block asks nothing of the code under test: any failure at all satisfies
 # it, so the assertion keeps reporting green through the very regression it was written to

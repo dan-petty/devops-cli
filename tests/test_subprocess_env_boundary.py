@@ -201,6 +201,8 @@ def test_run_subprocess_forwards_tokens_to_gh(monkeypatch: pytest.MonkeyPatch) -
 
     from devops_cli.core.process import run_subprocess
 
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setenv("DEVOPS_CLI_GITHUB_TOKEN", "ghp_devops_secret")
 
     with patch("subprocess.run") as mock_sub:
@@ -210,11 +212,16 @@ def test_run_subprocess_forwards_tokens_to_gh(monkeypatch: pytest.MonkeyPatch) -
         assert called_env.get("GH_TOKEN") == "ghp_devops_secret"
 
 
-def test_run_subprocess_forwards_explicit_env_devops_token() -> None:
+def test_run_subprocess_forwards_explicit_env_devops_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Verify explicit env override for DEVOPS_CLI_GITHUB_TOKEN maps to GH_TOKEN for gh binary."""
     from unittest.mock import MagicMock, patch
 
     from devops_cli.core.process import run_subprocess
+
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
     with patch("subprocess.run") as mock_sub:
         mock_sub.return_value = MagicMock(returncode=0, stdout="", stderr="")
