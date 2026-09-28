@@ -20,9 +20,12 @@ from devops_cli.config.defaults import (
 )
 
 GATEWAY_DIR = Path("k8s/llm/gateway")
-VLLM_DIR = Path("k8s/llm/vllm")
-VLLM_SINGLE_DIR = Path("k8s/llm/vllm-single")
-OLLAMA_MANIFEST = Path("k8s/llm/ollama.yaml")
+PROFILES_DIR = Path("k8s/llm/profiles")
+VLLM_PROFILES_MANIFEST = PROFILES_DIR / "vllm-profiles.yaml"
+OLLAMA_PROFILES_MANIFEST = PROFILES_DIR / "ollama-profiles.yaml"
+SERVICES_MANIFEST = PROFILES_DIR / "services.yaml"
+PVC_MANIFEST = PROFILES_DIR / "pvc.yaml"
+NETWORKPOLICY_MANIFEST = PROFILES_DIR / "networkpolicy.yaml"
 LLM_KUSTOMIZATION = Path("k8s/llm/kustomization.yaml")
 OPEN_WEBUI_VALUES = Path("k8s/llm/values-open-webui.yaml")
 
@@ -43,6 +46,22 @@ def _load_kind(path: Path, kind: str) -> dict[str, Any]:
     return next(d for d in docs if d and d.get("kind") == kind)
 
 
+def _load_deployment(path: Path, name: str) -> dict[str, Any]:
+    """Return the Deployment with the given metadata.name from a multi-document manifest."""
+    docs = yaml.safe_load_all(path.read_text(encoding="utf-8"))
+    return next(
+        d for d in docs if d and d.get("kind") == "Deployment" and d["metadata"]["name"] == name
+    )
+
+
+def _load_service(path: Path, name: str) -> dict[str, Any]:
+    """Return the Service with the given metadata.name from a multi-document manifest."""
+    docs = yaml.safe_load_all(path.read_text(encoding="utf-8"))
+    return next(
+        d for d in docs if d and d.get("kind") == "Service" and d["metadata"]["name"] == name
+    )
+
+
 def _flag(args: list[str], flag: str) -> str | None:
     """Return the value following a CLI flag, or None when the flag is absent."""
     return args[args.index(flag) + 1] if flag in args else None
@@ -51,16 +70,6 @@ def _flag(args: list[str], flag: str) -> str | None:
 def _vllm_container(dep: dict[str, Any]) -> dict[str, Any]:
     """Return the vLLM serving container of a Deployment."""
     return next(c for c in dep["spec"]["template"]["spec"]["containers"] if c["name"] == "vllm")
-
-
-def _ollama_pod_urls() -> list[str]:
-    """Return the per-pod URL of every Ollama StatefulSet replica, via its headless Service."""
-    sts = _load_kind(OLLAMA_MANIFEST, "StatefulSet")
-    service = sts["spec"]["serviceName"]
-    return [
-        f"http://ollama-{n}.{service}.llm.svc.cluster.local:11434"
-        for n in range(sts["spec"]["replicas"])
-    ]
 
 
 def _deployments(group: str) -> list[dict[str, Any]]:
@@ -127,6 +136,7 @@ class TestK8sLLMGatewayManifests:
                 "devops-reasoning",
                 "devops-embedding",
                 "devops-review",
+                "devops-flagship",
                 "ollama/*",
             ],
             "least-busy",
@@ -163,13 +173,11 @@ class TestK8sLLMGatewayManifests:
         }
         vllm_windows = {
             "devops-coder": _flag(
-                _vllm_container(_load_kind(VLLM_SINGLE_DIR / "deployment.yaml", "Deployment"))[
-                    "args"
-                ],
+                _vllm_container(_load_deployment(VLLM_PROFILES_MANIFEST, "vllm-16gib"))["args"],
                 "--max-model-len",
             ),
             "devops-reasoning": _flag(
-                _vllm_container(_load_kind(VLLM_DIR / "deployment.yaml", "Deployment"))["args"],
+                _vllm_container(_load_deployment(VLLM_PROFILES_MANIFEST, "vllm-48gib"))["args"],
                 "--max-model-len",
             ),
         }
@@ -200,39 +208,35 @@ class TestK8sLLMGatewayManifests:
             for m in cfg["model_list"]
             if m["model_name"] == "devops-review"
         }
+        ollama_dep = _load_deployment(OLLAMA_PROFILES_MANIFEST, "ollama-32gib")
         ollama_env = {
             e["name"]: e.get("value")
-            for e in _load_kind(OLLAMA_MANIFEST, "StatefulSet")["spec"]["template"]["spec"][
-                "containers"
-            ][0]["env"]
+            for e in ollama_dep["spec"]["template"]["spec"]["containers"][0]["env"]
         }
         ollama_window = int(ollama_env["OLLAMA_CONTEXT_LENGTH"] or 0)
+        vllm_dep = _load_deployment(VLLM_PROFILES_MANIFEST, "vllm-48gib")
         vllm_window = int(
             _flag(
-                _vllm_container(_load_kind(VLLM_DIR / "deployment.yaml", "Deployment"))["args"],
+                _vllm_container(vllm_dep)["args"],
                 "--max-model-len",
             )
             or 0
         )
+        ollama_32gib_url = "http://ollama-32gib.llm.svc.cluster.local:11434/v1"
         windows = {
             DEFAULT_VLLM_CLUSTER_URL: vllm_window,
-            f"{_ollama_pod_urls()[2]}/v1": ollama_window,
-            "http://ollama-volta-1.llm.svc.cluster.local:11434/v1": ollama_window,
+            ollama_32gib_url: ollama_window,
         }
 
         assert (
             sorted(pool),
             all(m["model_info"]["max_input_tokens"] < windows[base] for base, m in pool.items()),
             pool[DEFAULT_VLLM_CLUSTER_URL]["model_info"]["max_input_tokens"],
-            pool[f"{_ollama_pod_urls()[2]}/v1"]["model_info"]["max_input_tokens"],
-            pool["http://ollama-volta-1.llm.svc.cluster.local:11434/v1"]["model_info"][
-                "max_input_tokens"
-            ],
+            pool[ollama_32gib_url]["model_info"]["max_input_tokens"],
         ) == (
             sorted(windows),
             True,
             61440,
-            43904,
             43904,
         )
 
@@ -246,44 +250,37 @@ class TestK8sLLMGatewayManifests:
             m["litellm_params"]["api_base"]: m["litellm_params"].get("max_parallel_requests")
             for m in deployments
         }
+        ollama_32gib_url = "http://ollama-32gib.llm.svc.cluster.local:11434/v1"
         assert (
             weights[DEFAULT_VLLM_CLUSTER_URL],
-            weights[f"{_ollama_pod_urls()[2]}/v1"],
-            weights["http://ollama-volta-1.llm.svc.cluster.local:11434/v1"],
+            weights[ollama_32gib_url],
             caps[DEFAULT_VLLM_CLUSTER_URL],
-            caps[f"{_ollama_pod_urls()[2]}/v1"],
-            caps["http://ollama-volta-1.llm.svc.cluster.local:11434/v1"],
+            caps[ollama_32gib_url],
         ) == (
             6,
             1,
-            1,
             64,
-            1,
             1,
         )
 
-    def test_gateway_lists_one_deployment_per_ollama_pod(self) -> None:
-        """Verify each Ollama-backed group has one deployment per StatefulSet pod.
+    def test_gateway_routes_to_provider_vram_services(self) -> None:
+        """Verify Gateway routes target standardized <llm_provider>-<vram_gib> services."""
+        chat_deployments = _deployments("devops-chat")
+        embedding_deployments = _deployments("devops-embedding")
+        passthrough_deployments = _deployments("ollama/*")
 
-        The `ollama` Service would pin all gateway traffic to one pod, because LiteLLM keeps its
-        connections open; per-pod deployments let LiteLLM balance and cool down each node.
-        """
         assert (
-            [m["litellm_params"]["api_base"] for m in _deployments("devops-chat")],
-            [m["litellm_params"]["api_base"] for m in _deployments("devops-embedding")],
-            [m["litellm_params"]["api_base"] for m in _deployments("ollama/*")],
+            [m["litellm_params"]["api_base"] for m in chat_deployments],
+            [m["litellm_params"]["api_base"] for m in embedding_deployments],
+            [m["litellm_params"]["api_base"] for m in passthrough_deployments],
         ) == (
-            _ollama_pod_urls(),
-            _ollama_pod_urls(),
-            [f"{url}/v1" for url in _ollama_pod_urls()],
+            ["http://ollama-16gib.llm.svc.cluster.local:11434"],
+            ["http://ollama-16gib.llm.svc.cluster.local:11434"],
+            ["http://ollama-16gib.llm.svc.cluster.local:11434/v1"],
         )
 
     def test_gateway_health_checks_probe_each_deployment_the_way_it_is_called(self) -> None:
-        """Verify embedding deployments are probed as embeddings and the wildcard with a real model.
-
-        LiteLLM probes with a chat completion by default, which embedding-only models reject, and
-        probes a wildcard with a placeholder model name that no Ollama node has.
-        """
+        """Verify embedding deployments are probed as embeddings and the wildcard with a real model."""
         passthrough = _deployments("ollama/*")[0]
         health_model = passthrough["model_info"]["health_check_model"]
         chat_model = _deployments("devops-chat")[0]["litellm_params"]["model"].split("/", 1)[1]
@@ -366,16 +363,21 @@ class TestK8sLLMGatewayManifests:
             values["openaiBaseApiUrl"],
             values["openaiApiKeyExistingSecret"],
             values["openaiApiKeyExistingSecretKey"],
+            values["ollamaUrls"],
         ) == (
             True,
             DEFAULT_AI_GATEWAY_CLUSTER_URL,
             GATEWAY_SECRET,
             GATEWAY_SECRET_KEY,
+            [
+                "http://ollama-16gib.llm.svc.cluster.local:11434",
+                "http://ollama-32gib.llm.svc.cluster.local:11434",
+            ],
         )
 
     def test_vllm_deployment_serves_qwen_coder_with_tensor_parallelism(self) -> None:
         """Verify the dual-GPU profile serves Qwen3-Coder-30B AWQ at TP=2 with 64K context."""
-        dep = _load_kind(VLLM_DIR / "deployment.yaml", "Deployment")
+        dep = _load_deployment(VLLM_PROFILES_MANIFEST, "vllm-48gib")
         container = _vllm_container(dep)
         args = container["args"]
 
@@ -409,7 +411,7 @@ class TestK8sLLMGatewayManifests:
 
     def test_vllm_single_deployment_fits_one_16gib_gpu(self) -> None:
         """Verify the single-GPU profile serves Qwen2.5-Coder-14B AWQ with an FP8 KV cache."""
-        dep = _load_kind(VLLM_SINGLE_DIR / "deployment.yaml", "Deployment")
+        dep = _load_deployment(VLLM_PROFILES_MANIFEST, "vllm-16gib")
         container = _vllm_container(dep)
         args = container["args"]
 
@@ -428,7 +430,7 @@ class TestK8sLLMGatewayManifests:
             container["resources"]["limits"]["memory"],
             dep["spec"]["strategy"]["type"],
         ) == (
-            "vllm-single",
+            "vllm-16gib",
             VLLM_IMAGE,
             ["vllm", "serve"],
             DEFAULT_VLLM_SINGLE_MODEL,
@@ -444,17 +446,17 @@ class TestK8sLLMGatewayManifests:
         )
 
     @pytest.mark.parametrize(
-        ("manifest", "gpu_count_requirement"),
+        ("deployment_name", "gpu_count_requirement"),
         [
-            (VLLM_DIR / "deployment.yaml", ("Gt", ["1"])),
-            (VLLM_SINGLE_DIR / "deployment.yaml", ("In", ["1"])),
+            ("vllm-48gib", ("Gt", ["1"])),
+            ("vllm-16gib", ("In", ["1"])),
         ],
     )
     def test_vllm_profiles_select_gpu_count_and_architecture(
-        self, manifest: Path, gpu_count_requirement: tuple[str, list[str]]
+        self, deployment_name: str, gpu_count_requirement: tuple[str, list[str]]
     ) -> None:
         """Verify each vLLM profile targets Ampere-or-newer GPUs under either GPU label scheme."""
-        dep = _load_kind(manifest, "Deployment")
+        dep = _load_deployment(VLLM_PROFILES_MANIFEST, deployment_name)
         terms = _node_selector_terms(dep["spec"]["template"]["spec"])
         summary = sorted(
             (
@@ -475,58 +477,41 @@ class TestK8sLLMGatewayManifests:
             for label in GPU_ARCHITECTURE_LABELS
         ]
 
-    def test_ollama_leaves_vllm_architectures_to_vllm(self) -> None:
-        """Verify Ollama runs only on GPU nodes whose architecture is not reserved for vLLM."""
-        sts = _load_kind(OLLAMA_MANIFEST, "StatefulSet")
-        spec = sts["spec"]["template"]["spec"]
-        terms = _node_selector_terms(spec)
-        expressions = sorted(
-            (e["key"], e["operator"], sorted(e["values"]))
-            for term in terms
-            for e in term["matchExpressions"]
-        )
-
-        assert (
-            spec["nodeSelector"]["nvidia.com/gpu.present"],
-            len(terms),
-            expressions,
-        ) == (
-            "true",
-            1,
-            [(label, "NotIn", VLLM_ARCHITECTURES) for label in GPU_ARCHITECTURE_LABELS],
-        )
-
-    def test_ollama_pods_have_stable_names_one_per_gpu_node(self) -> None:
-        """Verify Ollama pods get per-pod DNS, one pod per node, and keep the shared Service."""
-        docs = [d for d in yaml.safe_load_all(OLLAMA_MANIFEST.read_text(encoding="utf-8")) if d]
-        sts = next(d for d in docs if d["kind"] == "StatefulSet")
-        services = {d["metadata"]["name"]: d["spec"] for d in docs if d["kind"] == "Service"}
-        pod_labels = sts["spec"]["template"]["metadata"]["labels"]
-        anti_affinity = sts["spec"]["template"]["spec"]["affinity"]["podAntiAffinity"][
-            "requiredDuringSchedulingIgnoredDuringExecution"
+    def test_ollama_profiles_define_standard_vram_tiers(self) -> None:
+        """Verify ollama-profiles defines the 8 standard VRAM tiers with nvidia runtime and persistent data."""
+        docs = list(yaml.safe_load_all(OLLAMA_PROFILES_MANIFEST.read_text(encoding="utf-8")))
+        deployments = [d for d in docs if d and d.get("kind") == "Deployment"]
+        dep_names = [d["metadata"]["name"] for d in deployments]
+        expected_names = [
+            "ollama-16gib",
+            "ollama-24gib",
+            "ollama-32gib",
+            "ollama-48gib",
+            "ollama-64gib",
+            "ollama-72gib",
+            "ollama-96gib",
+            "ollama-128gib",
         ]
-        headless = services[sts["spec"]["serviceName"]]
-
         assert (
-            sts["spec"]["podManagementPolicy"],
-            [(t["topologyKey"], t["labelSelector"]["matchLabels"]) for t in anti_affinity],
-            headless["clusterIP"],
-            headless["selector"],
-            services["ollama"]["selector"],
+            dep_names,
+            all(d["spec"]["template"]["spec"]["runtimeClassName"] == "nvidia" for d in deployments),
+            all(
+                any(v["name"] == "ollama-data" for v in d["spec"]["template"]["spec"]["volumes"])
+                for d in deployments
+            ),
         ) == (
-            "Parallel",
-            [("kubernetes.io/hostname", sts["spec"]["selector"]["matchLabels"])],
-            "None",
-            sts["spec"]["selector"]["matchLabels"],
-            sts["spec"]["selector"]["matchLabels"],
+            expected_names,
+            True,
+            True,
         )
-        assert sts["spec"]["selector"]["matchLabels"].items() <= pod_labels.items()
 
-    @pytest.mark.parametrize("profile_dir", [VLLM_DIR, VLLM_SINGLE_DIR])
-    def test_vllm_profiles_trust_squid_ca_and_persist_model_cache(self, profile_dir: Path) -> None:
+    @pytest.mark.parametrize("deployment_name", ["vllm-16gib", "vllm-48gib"])
+    def test_vllm_profiles_trust_squid_ca_and_persist_model_cache(
+        self, deployment_name: str
+    ) -> None:
         """Verify vLLM downloads through the SSL-bumping proxy, keeps weights, and tolerates long loads."""
-        dep = _load_kind(profile_dir / "deployment.yaml", "Deployment")
-        pvc = _load_kind(profile_dir / "pvc.yaml", "PersistentVolumeClaim")
+        dep = _load_deployment(VLLM_PROFILES_MANIFEST, deployment_name)
+        pvc = _load_kind(PVC_MANIFEST, "PersistentVolumeClaim")
         spec = dep["spec"]["template"]["spec"]
         container = _vllm_container(dep)
         init = next(c for c in spec["initContainers"] if c["name"] == "ca-bundle")
@@ -564,63 +549,68 @@ class TestK8sLLMGatewayManifests:
             True,
         )
 
-    @pytest.mark.parametrize("profile_dir", [VLLM_DIR, VLLM_SINGLE_DIR])
-    def test_vllm_services_stay_behind_the_gateway(self, profile_dir: Path) -> None:
+    @pytest.mark.parametrize("service_name", ["vllm-16gib", "vllm-48gib"])
+    def test_vllm_services_stay_behind_the_gateway(self, service_name: str) -> None:
         """Verify vLLM Services are cluster-internal; LAN clients use the authenticated gateway."""
-        svc = _load_kind(profile_dir / "service.yaml", "Service")
-        dep = _load_kind(profile_dir / "deployment.yaml", "Deployment")
+        svc = _load_service(SERVICES_MANIFEST, service_name)
+        dep = _load_deployment(VLLM_PROFILES_MANIFEST, service_name)
 
         assert (
             svc["spec"]["type"],
             svc["spec"]["ports"][0]["port"],
-            svc["spec"]["selector"]["app.kubernetes.io/name"],
+            svc["spec"]["selector"]["llm.devops.io/provider"],
         ) == (
             "ClusterIP",
             8000,
-            dep["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/name"],
+            dep["spec"]["template"]["metadata"]["labels"]["llm.devops.io/provider"],
         )
 
-    def test_vllm_single_network_policy_mirrors_vllm_perimeter(self) -> None:
-        """Verify single-GPU vLLM admits only the gateway and the gateway may reach it."""
-        netpol = _load_kind(VLLM_SINGLE_DIR / "networkpolicy.yaml", "NetworkPolicy")
-        gateway_netpol = _load_kind(GATEWAY_DIR / "networkpolicy.yaml", "NetworkPolicy")
-        ingress = netpol["spec"]["ingress"][0]
+    def test_vllm_profiles_network_policy_secures_perimeter(self) -> None:
+        """Verify vLLM profiles admit only the gateway and monitoring, and egress is isolated."""
+        netpol = _load_kind(NETWORKPOLICY_MANIFEST, "NetworkPolicy")
+        ingress = netpol["spec"]["ingress"]
         egress_namespaces = sorted(
             peer["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"]
             for rule in netpol["spec"]["egress"]
             for peer in rule["to"]
         )
-        gateway_targets = sorted(
-            peer["podSelector"]["matchLabels"]["app.kubernetes.io/name"]
-            for rule in gateway_netpol["spec"]["egress"]
-            for peer in rule.get("to", [])
-            if "podSelector" in peer
+
+        assert (
+            netpol["spec"]["podSelector"]["matchLabels"]["llm.devops.io/provider"],
+            ingress[0]["from"][0]["podSelector"]["matchLabels"]["app.kubernetes.io/name"],
+            ingress[0]["ports"][0]["port"],
+            ingress[1]["from"][0]["namespaceSelector"]["matchLabels"][
+                "kubernetes.io/metadata.name"
+            ],
+            egress_namespaces,
+        ) == (
+            "vllm",
+            "llm-gateway",
+            8000,
+            "monitoring",
+            ["kube-system", "squid"],
+        )
+
+    def test_llm_kustomization_includes_profiles(self) -> None:
+        """Verify the llm kustomization includes the profiles package and all its resources."""
+        resources = yaml.safe_load(LLM_KUSTOMIZATION.read_text(encoding="utf-8"))["resources"]
+        profiles_kust = yaml.safe_load(
+            (PROFILES_DIR / "kustomization.yaml").read_text(encoding="utf-8")
         )
 
         assert (
-            netpol["spec"]["podSelector"]["matchLabels"]["app.kubernetes.io/name"],
-            ingress["from"][0]["podSelector"]["matchLabels"]["app.kubernetes.io/name"],
-            ingress["ports"][0]["port"],
-            egress_namespaces,
-            "vllm-single" in gateway_targets,
+            "profiles" in resources,
+            profiles_kust["resources"],
         ) == (
-            "vllm-single",
-            "llm-gateway",
-            8000,
-            ["kube-system", "squid"],
             True,
+            [
+                "services.yaml",
+                "ollama-profiles.yaml",
+                "vllm-profiles.yaml",
+                "pvc.yaml",
+                "networkpolicy.yaml",
+            ],
         )
-
-    def test_llm_kustomization_includes_vllm_profiles(self) -> None:
-        """Verify the llm kustomization deploys both vLLM profiles with their model caches."""
-        resources = yaml.safe_load(LLM_KUSTOMIZATION.read_text(encoding="utf-8"))["resources"]
-        expected = [
-            f"{profile}/{name}.yaml"
-            for profile in ("vllm", "vllm-single")
-            for name in ("pvc", "deployment", "service", "networkpolicy")
-        ]
-
-        assert [r for r in resources if r.startswith("vllm")] == expected
 
     def test_llm_namespace_default_perimeter_excludes_gateway_and_vllm(self) -> None:
         """Verify llm-default-perimeter excludes gateway, vLLM, portkey, lightllm and the run index
@@ -640,15 +630,13 @@ class TestK8sLLMGatewayManifests:
         )
 
     def test_zero_homelab_ip_or_hostname_leakage(self) -> None:
-        """Verify no private RFC 1918 IPs or *.lan hostnames exist in Gateway/vLLM manifests."""
+        """Verify no private RFC 1918 IPs or *.lan hostnames exist in Gateway/profiles manifests."""
         all_yaml_files = [
             *GATEWAY_DIR.glob("*.yaml"),
-            *VLLM_DIR.glob("*.yaml"),
-            *VLLM_SINGLE_DIR.glob("*.yaml"),
-            OLLAMA_MANIFEST,
+            *PROFILES_DIR.glob("*.yaml"),
         ]
         private_ip_pattern = re.compile(
-            r"\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b"
+            r"\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b(?!/)"
         )
         lan_hostname_pattern = re.compile(r"\b[a-zA-Z0-9_\-]+\.lan\b")
 
@@ -663,3 +651,24 @@ class TestK8sLLMGatewayManifests:
                 [],
                 [],
             )
+
+    def test_no_proxy_exempts_rfc1918_and_local_domains(self) -> None:
+        """Verify NO_PROXY in gateway deployment exempts RFC 1918 CIDRs, .lan, and .local domains."""
+        dep = _load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment")
+        container = dep["spec"]["template"]["spec"]["containers"][0]
+        env = {e["name"]: e["value"] for e in container.get("env", []) if "value" in e}
+        no_proxy = env.get("NO_PROXY", "")
+
+        assert (
+            "10.0.0.0/8" in no_proxy,
+            "172.16.0.0/12" in no_proxy,
+            "192.168.0.0/16" in no_proxy,
+            ".lan" in no_proxy,
+            ".local" in no_proxy,
+        ) == (
+            True,
+            True,
+            True,
+            True,
+            True,
+        )

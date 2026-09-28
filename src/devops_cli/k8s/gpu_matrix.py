@@ -39,45 +39,156 @@ class GpuProfile(BaseModel):
     description: str = Field(default="")
 
 
-# ── Model Service Aliases ─────────────────────────────────────────────────────
-# Standardized Kubernetes Service DNS names representing model classes.
-MODEL_SERVICE_ALIASES: Final[dict[str, dict[str, Any]]] = {
-    "qwen2.5-coder-7b": {
-        "service_name": "model-qwen2-5-coder-7b",
-        "model_id": "qwen2.5-coder:7b",
-        "virtual_model": "devops-chat",
-        "ports": {"ollama": 11434, "vllm": 8000},
-        "description": "Code and chat generation (7B class)",
-    },
-    "qwen2.5-coder-14b": {
-        "service_name": "model-qwen2-5-coder-14b",
-        "model_id": "qwen2.5-coder-14b-instruct",
-        "virtual_model": "devops-coder",
-        "ports": {"ollama": 11434, "vllm": 8000},
-        "description": "High-throughput coding and reasoning (14B class)",
-    },
-    "qwen3-coder-30b": {
-        "service_name": "model-qwen3-coder-30b",
-        "model_id": "qwen3-coder:30b",
-        "virtual_model": "devops-reasoning",
-        "ports": {"ollama": 11434, "vllm": 8000},
-        "description": "Complex reasoning and multi-file code review (30B class)",
-    },
-    "cogito-v2-70b": {
-        "service_name": "model-cogito-v2-70b",
-        "model_id": "cogito-v2:70b",
-        "virtual_model": "devops-flagship",
-        "ports": {"ollama": 11434, "vllm": 8000},
-        "description": "Flagship deep reasoning and architectural synthesis (70B class)",
-    },
-    "bge-m3": {
-        "service_name": "model-bge-m3",
-        "model_id": "bge-m3:latest",
-        "virtual_model": "devops-embedding",
+# ── Provider VRAM Service Aliases ─────────────────────────────────────────────
+# Standardized Kubernetes Service DNS names representing provider and VRAM capacity (<llm_provider>-<vram_gib>).
+PROVIDER_SERVICE_ALIASES: Final[dict[str, dict[str, Any]]] = {
+    "ollama-16gib": {
+        "service_name": "ollama-16gib",
+        "provider": "ollama",
+        "vram_gib": 16,
         "ports": {"ollama": 11434},
-        "description": "Dense semantic embedding generation",
+        "default_model": "qwen2.5-coder:7b",
+        "virtual_model": "devops-chat",
+        "description": "Ollama 16GiB VRAM service (7B chat and embeddings)",
+    },
+    "ollama-24gib": {
+        "service_name": "ollama-24gib",
+        "provider": "ollama",
+        "vram_gib": 24,
+        "ports": {"ollama": 11434},
+        "default_model": "qwen2.5-coder:14b",
+        "virtual_model": "devops-coder",
+        "description": "Ollama 24GiB VRAM service (14B coding)",
+    },
+    "ollama-32gib": {
+        "service_name": "ollama-32gib",
+        "provider": "ollama",
+        "vram_gib": 32,
+        "ports": {"ollama": 11434},
+        "default_model": "qwen3-coder:30b",
+        "virtual_model": "devops-reasoning",
+        "description": "Ollama 32GiB VRAM service (30B reasoning & code review)",
+    },
+    "ollama-48gib": {
+        "service_name": "ollama-48gib",
+        "provider": "ollama",
+        "vram_gib": 48,
+        "ports": {"ollama": 11434},
+        "default_model": "cogito-v2:70b",
+        "virtual_model": "devops-flagship",
+        "description": "Ollama 48GiB VRAM service (70B deep reasoning)",
+    },
+    "ollama-64gib": {
+        "service_name": "ollama-64gib",
+        "provider": "ollama",
+        "vram_gib": 64,
+        "ports": {"ollama": 11434},
+        "default_model": "cogito-v2:70b",
+        "virtual_model": "devops-flagship",
+        "description": "Ollama 64GiB VRAM service (70B extended context)",
+    },
+    "ollama-72gib": {
+        "service_name": "ollama-72gib",
+        "provider": "ollama",
+        "vram_gib": 72,
+        "ports": {"ollama": 11434},
+        "default_model": "cogito-v2:70b",
+        "virtual_model": "devops-flagship",
+        "description": "Ollama 72GiB VRAM service (70B pipeline parallel)",
+    },
+    "ollama-96gib": {
+        "service_name": "ollama-96gib",
+        "provider": "ollama",
+        "vram_gib": 96,
+        "ports": {"ollama": 11434},
+        "default_model": "cogito-v2:70b",
+        "virtual_model": "devops-flagship",
+        "description": "Ollama 96GiB VRAM service (70B Q8 high precision)",
+    },
+    "ollama-128gib": {
+        "service_name": "ollama-128gib",
+        "provider": "ollama",
+        "vram_gib": 128,
+        "ports": {"ollama": 11434},
+        "default_model": "cogito-v2:70b",
+        "virtual_model": "devops-flagship",
+        "description": "Ollama 128GiB VRAM service (70B Q8 128K context)",
+    },
+    "vllm-16gib": {
+        "service_name": "vllm-16gib",
+        "provider": "vllm",
+        "vram_gib": 16,
+        "ports": {"vllm": 8000},
+        "default_model": "qwen2.5-coder-14b-instruct",
+        "virtual_model": "devops-coder",
+        "description": "vLLM 16GiB VRAM service (14B AWQ completions)",
+    },
+    "vllm-24gib": {
+        "service_name": "vllm-24gib",
+        "provider": "vllm",
+        "vram_gib": 24,
+        "ports": {"vllm": 8000},
+        "default_model": "qwen2.5-coder-14b-instruct",
+        "virtual_model": "devops-coder",
+        "description": "vLLM 24GiB VRAM service (14B AWQ batching)",
+    },
+    "vllm-32gib": {
+        "service_name": "vllm-32gib",
+        "provider": "vllm",
+        "vram_gib": 32,
+        "ports": {"vllm": 8000},
+        "default_model": "qwen3-coder:30b",
+        "virtual_model": "devops-reasoning",
+        "description": "vLLM 32GiB VRAM service (30B AWQ reasoning)",
+    },
+    "vllm-48gib": {
+        "service_name": "vllm-48gib",
+        "provider": "vllm",
+        "vram_gib": 48,
+        "ports": {"vllm": 8000},
+        "default_model": "qwen3-coder:30b",
+        "virtual_model": "devops-reasoning",
+        "description": "vLLM 48GiB VRAM service (30B AWQ 64K context batching)",
+    },
+    "vllm-64gib": {
+        "service_name": "vllm-64gib",
+        "provider": "vllm",
+        "vram_gib": 64,
+        "ports": {"vllm": 8000},
+        "default_model": "cogito-v2:70b",
+        "virtual_model": "devops-flagship",
+        "description": "vLLM 64GiB VRAM service (70B AWQ flagship)",
+    },
+    "vllm-72gib": {
+        "service_name": "vllm-72gib",
+        "provider": "vllm",
+        "vram_gib": 72,
+        "ports": {"vllm": 8000},
+        "default_model": "cogito-v2:70b",
+        "virtual_model": "devops-flagship",
+        "description": "vLLM 72GiB VRAM service (70B AWQ pipeline parallel)",
+    },
+    "vllm-96gib": {
+        "service_name": "vllm-96gib",
+        "provider": "vllm",
+        "vram_gib": 96,
+        "ports": {"vllm": 8000},
+        "default_model": "cogito-v2:70b",
+        "virtual_model": "devops-flagship",
+        "description": "vLLM 96GiB VRAM service (70B AWQ 64K context)",
+    },
+    "vllm-128gib": {
+        "service_name": "vllm-128gib",
+        "provider": "vllm",
+        "vram_gib": 128,
+        "ports": {"vllm": 8000},
+        "default_model": "cogito-v2:70b",
+        "virtual_model": "devops-flagship",
+        "description": "vLLM 128GiB VRAM service (70B FP8/BF16 flagship)",
     },
 }
+
+MODEL_SERVICE_ALIASES: Final[dict[str, dict[str, Any]]] = PROVIDER_SERVICE_ALIASES
 
 # ── 24 Hardware Configurations Matrix ─────────────────────────────────────────
 # Structured mapping table covering counts [1,2,3,4] x VRAM [16,24,32] x backends [ollama, vllm].
@@ -89,7 +200,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "ollama",
         "model_id": "qwen2.5-coder:7b",
         "model_alias": "qwen2.5-coder-7b",
-        "service_alias": "model-qwen2-5-coder-7b",
+        "service_alias": "ollama-16gib",
         "service_port": 11434,
         "max_model_len": 32768,
         "tensor_parallel_size": 1,
@@ -103,7 +214,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "vllm",
         "model_id": "qwen2.5-coder-14b-instruct",
         "model_alias": "qwen2.5-coder-14b",
-        "service_alias": "model-qwen2-5-coder-14b",
+        "service_alias": "vllm-16gib",
         "service_port": 8000,
         "max_model_len": 16384,
         "tensor_parallel_size": 1,
@@ -117,7 +228,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "ollama",
         "model_id": "qwen2.5-coder:14b",
         "model_alias": "qwen2.5-coder-14b",
-        "service_alias": "model-qwen2-5-coder-14b",
+        "service_alias": "ollama-24gib",
         "service_port": 11434,
         "max_model_len": 32768,
         "tensor_parallel_size": 1,
@@ -131,7 +242,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "vllm",
         "model_id": "qwen2.5-coder-14b-instruct",
         "model_alias": "qwen2.5-coder-14b",
-        "service_alias": "model-qwen2-5-coder-14b",
+        "service_alias": "vllm-24gib",
         "service_port": 8000,
         "max_model_len": 32768,
         "tensor_parallel_size": 1,
@@ -145,7 +256,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "ollama",
         "model_id": "qwen3-coder:30b",
         "model_alias": "qwen3-coder-30b",
-        "service_alias": "model-qwen3-coder-30b",
+        "service_alias": "ollama-32gib",
         "service_port": 11434,
         "max_model_len": 48000,
         "tensor_parallel_size": 1,
@@ -159,7 +270,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "vllm",
         "model_id": "qwen3-coder:30b",
         "model_alias": "qwen3-coder-30b",
-        "service_alias": "model-qwen3-coder-30b",
+        "service_alias": "vllm-32gib",
         "service_port": 8000,
         "max_model_len": 32768,
         "tensor_parallel_size": 1,
@@ -174,7 +285,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "ollama",
         "model_id": "qwen3-coder:30b",
         "model_alias": "qwen3-coder-30b",
-        "service_alias": "model-qwen3-coder-30b",
+        "service_alias": "ollama-32gib",
         "service_port": 11434,
         "max_model_len": 32768,
         "tensor_parallel_size": 2,
@@ -188,7 +299,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "vllm",
         "model_id": "qwen3-coder:30b",
         "model_alias": "qwen3-coder-30b",
-        "service_alias": "model-qwen3-coder-30b",
+        "service_alias": "vllm-32gib",
         "service_port": 8000,
         "max_model_len": 32768,
         "tensor_parallel_size": 2,
@@ -202,7 +313,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "ollama",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "ollama-48gib",
         "service_port": 11434,
         "max_model_len": 32768,
         "tensor_parallel_size": 2,
@@ -216,7 +327,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "vllm",
         "model_id": "qwen3-coder:30b",
         "model_alias": "qwen3-coder-30b",
-        "service_alias": "model-qwen3-coder-30b",
+        "service_alias": "vllm-48gib",
         "service_port": 8000,
         "max_model_len": 65536,
         "tensor_parallel_size": 2,
@@ -230,7 +341,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "ollama",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "ollama-64gib",
         "service_port": 11434,
         "max_model_len": 65536,
         "tensor_parallel_size": 2,
@@ -244,7 +355,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "vllm",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "vllm-64gib",
         "service_port": 8000,
         "max_model_len": 32768,
         "tensor_parallel_size": 2,
@@ -259,7 +370,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "ollama",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "ollama-48gib",
         "service_port": 11434,
         "max_model_len": 32768,
         "tensor_parallel_size": 3,
@@ -273,7 +384,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "vllm",
         "model_id": "qwen3-coder:30b",
         "model_alias": "qwen3-coder-30b",
-        "service_alias": "model-qwen3-coder-30b",
+        "service_alias": "vllm-48gib",
         "service_port": 8000,
         "max_model_len": 32768,
         "tensor_parallel_size": 2,
@@ -287,7 +398,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "ollama",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "ollama-72gib",
         "service_port": 11434,
         "max_model_len": 65536,
         "tensor_parallel_size": 3,
@@ -301,7 +412,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "vllm",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "vllm-72gib",
         "service_port": 8000,
         "max_model_len": 32768,
         "tensor_parallel_size": 2,
@@ -315,7 +426,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "ollama",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "ollama-96gib",
         "service_port": 11434,
         "max_model_len": 131072,
         "tensor_parallel_size": 3,
@@ -329,7 +440,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "vllm",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "vllm-96gib",
         "service_port": 8000,
         "max_model_len": 65536,
         "tensor_parallel_size": 2,
@@ -344,7 +455,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "ollama",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "ollama-64gib",
         "service_port": 11434,
         "max_model_len": 65536,
         "tensor_parallel_size": 4,
@@ -358,7 +469,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "vllm",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "vllm-64gib",
         "service_port": 8000,
         "max_model_len": 32768,
         "tensor_parallel_size": 4,
@@ -372,7 +483,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "ollama",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "ollama-96gib",
         "service_port": 11434,
         "max_model_len": 131072,
         "tensor_parallel_size": 4,
@@ -386,7 +497,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "vllm",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "vllm-96gib",
         "service_port": 8000,
         "max_model_len": 65536,
         "tensor_parallel_size": 4,
@@ -400,7 +511,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "ollama",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "ollama-128gib",
         "service_port": 11434,
         "max_model_len": 131072,
         "tensor_parallel_size": 4,
@@ -414,7 +525,7 @@ _MATRIX_ENTRIES: Final[tuple[dict[str, Any], ...]] = (
         "backend": "vllm",
         "model_id": "cogito-v2:70b",
         "model_alias": "cogito-v2-70b",
-        "service_alias": "model-cogito-v2-70b",
+        "service_alias": "vllm-128gib",
         "service_port": 8000,
         "max_model_len": 65536,
         "tensor_parallel_size": 4,
@@ -472,46 +583,49 @@ def list_gpu_profiles(
 
 
 def get_service_aliases() -> dict[str, dict[str, Any]]:
-    """Return all standardized Kubernetes model service aliases."""
-    return dict(MODEL_SERVICE_ALIASES)
+    """Return all standardized Kubernetes provider-vram service aliases (<llm_provider>-<vram_gib>)."""
+    return dict(PROVIDER_SERVICE_ALIASES)
 
 
 def get_gateway_routing_entries() -> list[dict[str, Any]]:
     """Generate LiteLLM gateway routing model_list entries targeting service aliases."""
-    entries: list[dict[str, Any]] = []
-    seen_virtual: set[str] = set()
-
-    for alias_info in MODEL_SERVICE_ALIASES.values():
-        virtual_name = alias_info["virtual_model"]
-        if virtual_name in seen_virtual:
-            continue
-        seen_virtual.add(virtual_name)
-
-        service_name = alias_info["service_name"]
-        model_id = alias_info["model_id"]
-        ports = alias_info["ports"]
-
-        if "vllm" in ports:
-            entries.append(
-                {
-                    "model_name": virtual_name,
-                    "litellm_params": {
-                        "model": f"openai/{model_id}",
-                        "api_base": f"http://{service_name}.llm.svc.cluster.local:{ports['vllm']}/v1",
-                        "api_key": "none",
-                    },
-                }
-            )
-        elif "ollama" in ports:
-            prefix = "ollama" if virtual_name == "devops-embedding" else "ollama_chat"
-            entries.append(
-                {
-                    "model_name": virtual_name,
-                    "litellm_params": {
-                        "model": f"{prefix}/{model_id}",
-                        "api_base": f"http://{service_name}.llm.svc.cluster.local:{ports['ollama']}",
-                    },
-                }
-            )
-
-    return entries
+    return [
+        {
+            "model_name": "devops-chat",
+            "litellm_params": {
+                "model": "ollama_chat/qwen2.5-coder:7b",
+                "api_base": "http://ollama-16gib.llm.svc.cluster.local:11434",
+            },
+        },
+        {
+            "model_name": "devops-coder",
+            "litellm_params": {
+                "model": "openai/qwen2.5-coder-14b-instruct",
+                "api_base": "http://vllm-16gib.llm.svc.cluster.local:8000/v1",
+                "api_key": "none",
+            },
+        },
+        {
+            "model_name": "devops-reasoning",
+            "litellm_params": {
+                "model": "openai/qwen3-coder:30b",
+                "api_base": "http://vllm-48gib.llm.svc.cluster.local:8000/v1",
+                "api_key": "none",
+            },
+        },
+        {
+            "model_name": "devops-flagship",
+            "litellm_params": {
+                "model": "openai/cogito-v2:70b",
+                "api_base": "http://vllm-64gib.llm.svc.cluster.local:8000/v1",
+                "api_key": "none",
+            },
+        },
+        {
+            "model_name": "devops-embedding",
+            "litellm_params": {
+                "model": "ollama/bge-m3",
+                "api_base": "http://ollama-16gib.llm.svc.cluster.local:11434",
+            },
+        },
+    ]

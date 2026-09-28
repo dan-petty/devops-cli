@@ -3,5 +3,7 @@ kind: Kustomization
 
 resources:
   - services.yaml
-  - vllm-profiles.yaml
   - ollama-profiles.yaml
+  - vllm-profiles.yaml
+  - pvc.yaml
+  - networkpolicy.yaml

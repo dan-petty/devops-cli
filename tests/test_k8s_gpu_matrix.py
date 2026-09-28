@@ -106,24 +106,22 @@ def test_gpu_profile_invalid_combination_raises() -> None:
 
 
 def test_service_aliases_definition_and_ports() -> None:
-    """Verify service aliases define expected model classes and ports."""
+    """Verify service aliases define expected provider classes and ports."""
     aliases = get_service_aliases()
     keys = sorted(aliases.keys())
 
     assert (
-        keys,
-        aliases["qwen2.5-coder-7b"]["service_name"],
-        aliases["qwen2.5-coder-14b"]["service_name"],
-        aliases["qwen3-coder-30b"]["service_name"],
-        aliases["cogito-v2-70b"]["service_name"],
-        aliases["bge-m3"]["service_name"],
+        len(keys),
+        "ollama-16gib" in aliases,
+        "vllm-48gib" in aliases,
+        aliases["ollama-16gib"]["ports"]["ollama"],
+        aliases["vllm-48gib"]["ports"]["vllm"],
     ) == (
-        ["bge-m3", "cogito-v2-70b", "qwen2.5-coder-14b", "qwen2.5-coder-7b", "qwen3-coder-30b"],
-        "model-qwen2-5-coder-7b",
-        "model-qwen2-5-coder-14b",
-        "model-qwen3-coder-30b",
-        "model-cogito-v2-70b",
-        "model-bge-m3",
+        16,
+        True,
+        True,
+        11434,
+        8000,
     )
 
 
@@ -151,27 +149,23 @@ def test_gateway_routing_entries_generation() -> None:
 
 
 def test_k8s_manifests_service_aliases_consistency() -> None:
-    """Verify profiles/services.yaml defines all 5 Service aliases with expected labels."""
+    """Verify profiles/services.yaml defines all 16 Service aliases with expected labels."""
     services_path = PROFILES_DIR / "services.yaml"
     docs = list(yaml.safe_load_all(services_path.read_text(encoding="utf-8")))
     services = [d for d in docs if d and d.get("kind") == "Service"]
     names = [s["metadata"]["name"] for s in services]
-    selectors = [s["spec"]["selector"] for s in services]
+    ollama_16 = next(s for s in services if s["metadata"]["name"] == "ollama-16gib")
 
     assert (
         len(services),
-        sorted(names),
-        selectors[0],
+        "ollama-16gib" in names,
+        "vllm-48gib" in names,
+        ollama_16["spec"]["selector"],
     ) == (
-        5,
-        [
-            "model-bge-m3",
-            "model-cogito-v2-70b",
-            "model-qwen2-5-coder-14b",
-            "model-qwen2-5-coder-7b",
-            "model-qwen3-coder-30b",
-        ],
-        {"llm.devops.io/model": "qwen2.5-coder-7b"},
+        16,
+        True,
+        True,
+        {"llm.devops.io/provider": "ollama", "llm.devops.io/vram-gib": "16gib"},
     )
 
 
@@ -186,8 +180,8 @@ def test_k8s_manifests_profiles_files_exist() -> None:
     kust = yaml.safe_load(kust_path.read_text(encoding="utf-8"))
 
     assert (
-        len(vllm_docs) >= 12,
-        len(ollama_docs) >= 12,
+        len(vllm_docs) == 8,
+        len(ollama_docs) == 8,
         "services.yaml" in kust.get("resources", []),
     ) == (
         True,
@@ -255,7 +249,7 @@ def test_cli_gpu_matrix_yaml_and_aliases() -> None:
         "profiles" in data,
         "service_aliases" in data,
         len(data["profiles"]),
-        "model-qwen2-5-coder-7b" in data["service_aliases"]["qwen2.5-coder-7b"]["service_name"],
+        "ollama-16gib" in data["service_aliases"]["ollama-16gib"]["service_name"],
     ) == (
         0,
         True,

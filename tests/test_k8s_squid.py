@@ -170,30 +170,52 @@ def test_squid_pvc_and_service_spec() -> None:
 
 
 def test_ollama_proxy_integration() -> None:
-    """Verify ollama.yaml configures HTTP_PROXY, HTTPS_PROXY, and squid-ca mount."""
-    docs = list(yaml.safe_load_all((K8S_DIR / "llm" / "ollama.yaml").read_text(encoding="utf-8")))
-    statefulset_doc = next(d for d in docs if d and d.get("kind") == "StatefulSet")
-    containers = statefulset_doc["spec"]["template"]["spec"]["containers"]
+    """Verify ollama-profiles.yaml configures HTTP_PROXY, HTTPS_PROXY, and squid-ca mount."""
+    docs = list(
+        yaml.safe_load_all(
+            (K8S_DIR / "llm" / "profiles" / "ollama-profiles.yaml").read_text(encoding="utf-8")
+        )
+    )
+    dep_doc = next(d for d in docs if d and d.get("kind") == "Deployment")
+    containers = dep_doc["spec"]["template"]["spec"]["containers"]
     ollama_c = next(c for c in containers if c["name"] == "ollama")
-
     env_map = {e["name"]: e["value"] for e in ollama_c.get("env", []) if "value" in e}
-    assert env_map.get("HTTP_PROXY") == "http://squid.squid.svc.cluster.local:3128"
-    assert env_map.get("HTTPS_PROXY") == "http://squid.squid.svc.cluster.local:3128"
-    assert env_map.get("SSL_CERT_DIR") == "/etc/ssl/certs:/etc/ssl/squid-ca"
-    assert "localhost" in env_map.get("NO_PROXY", "")
-
     volume_mounts = {vm["name"]: vm["mountPath"] for vm in ollama_c.get("volumeMounts", [])}
-    assert volume_mounts.get("squid-ca-cert") == "/etc/ssl/squid-ca"
+    volumes = {v["name"]: v for v in dep_doc["spec"]["template"]["spec"]["volumes"]}
+    ollama_data_vol = volumes.get("ollama-data", {})
 
-    volumes = {v["name"]: v for v in statefulset_doc["spec"]["template"]["spec"]["volumes"]}
-    assert "squid-ca-cert" in volumes
-    assert volumes["squid-ca-cert"].get("configMap", {}).get("optional") is False
-
-    # Node-local NVMe hostPath storage contract
-    assert "ollama-data" in volumes
-    ollama_data_vol = volumes["ollama-data"]
-    assert ollama_data_vol.get("hostPath", {}).get("path") == "/var/lib/ollama"
-    assert ollama_data_vol.get("hostPath", {}).get("type") == "DirectoryOrCreate"
+    no_proxy = env_map.get("NO_PROXY", "")
+    assert (
+        env_map.get("HTTP_PROXY"),
+        env_map.get("HTTPS_PROXY"),
+        env_map.get("SSL_CERT_DIR"),
+        "localhost" in no_proxy,
+        "10.0.0.0/8" in no_proxy,
+        "192.168.0.0/16" in no_proxy,
+        ".lan" in no_proxy,
+        ".local" in no_proxy,
+        volume_mounts.get("squid-ca-cert"),
+        "squid-ca-cert" in volumes,
+        volumes["squid-ca-cert"].get("configMap", {}).get("optional"),
+        "ollama-data" in volumes,
+        ollama_data_vol.get("hostPath", {}).get("path"),
+        ollama_data_vol.get("hostPath", {}).get("type"),
+    ) == (
+        "http://squid.squid.svc.cluster.local:3128",
+        "http://squid.squid.svc.cluster.local:3128",
+        "/etc/ssl/certs:/etc/ssl/squid-ca",
+        True,
+        True,
+        True,
+        True,
+        True,
+        "/etc/ssl/squid-ca",
+        True,
+        False,
+        True,
+        "/var/lib/ollama",
+        "DirectoryOrCreate",
+    )
 
 
 def test_squid_networkpolicy_security_and_ca_distribution() -> None:

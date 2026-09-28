@@ -49,7 +49,7 @@ spec:
             - name: HTTPS_PROXY
               value: "http://squid.squid.svc.cluster.local:3128"
             - name: NO_PROXY
-              value: "localhost,127.0.0.1,portkey.llm.svc.cluster.local,llm-gateway.llm.svc.cluster.local,ollama.llm.svc.cluster.local,vllm.llm.svc.cluster.local,lightllm.llm.svc.cluster.local,valkey.llm.svc.cluster.local"
+              value: "localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant"
           ports:
             - name: http
               containerPort: 8787

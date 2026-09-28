@@ -73,30 +73,38 @@ def test_prometheus_scrapes_both_vllm_servers_and_the_gateway() -> None:
     values = yaml.safe_load((K8S / "monitoring/prometheus-values.yaml").read_text("utf-8"))
     spec = values["prometheus"]["prometheusSpec"]
     monitors = {m["name"]: m for m in values["prometheus"]["additionalServiceMonitors"]}
-    services = {
-        doc["metadata"]["labels"]["app.kubernetes.io/name"]: doc
-        for name in ("vllm", "vllm-single", "gateway")
-        for doc in _yaml_docs(K8S / "llm" / name / "service.yaml")
-    }
+    all_services = list(_yaml_docs(K8S / "llm/profiles/services.yaml")) + list(
+        _yaml_docs(K8S / "llm/gateway/service.yaml")
+    )
 
     def scraped(monitor: dict[str, Any]) -> list[tuple[str, str]]:
         selector = monitor["selector"]
-        names = selector.get("matchExpressions", [{}])[0].get("values") or [
-            selector["matchLabels"]["app.kubernetes.io/name"]
+        match_labels = selector.get("matchLabels", {})
+        matched_services = [
+            svc
+            for svc in all_services
+            if all(svc["metadata"].get("labels", {}).get(k) == v for k, v in match_labels.items())
         ]
         endpoint = monitor["endpoints"][0]
         return [
-            (name, endpoint["path"])
-            for name in names
-            if endpoint["port"] in {p["name"] for p in services[name]["spec"]["ports"]}
+            (svc["metadata"]["name"], endpoint["path"])
+            for svc in matched_services
+            if endpoint["port"] in {p["name"] for p in svc["spec"]["ports"]}
         ]
+
+    vllm_scraped = scraped(monitors["vllm"])
+    gateway_scraped = scraped(monitors["llm-gateway"])
 
     assert (
         spec["serviceMonitorSelectorNilUsesHelmValues"],
-        scraped(monitors["vllm"]) + scraped(monitors["llm-gateway"]),
+        any(name == "vllm-16gib" and path == "/metrics" for name, path in vllm_scraped),
+        any(name == "vllm-48gib" and path == "/metrics" for name, path in vllm_scraped),
+        gateway_scraped,
     ) == (
         False,
-        [("vllm", "/metrics"), ("vllm-single", "/metrics"), ("llm-gateway", "/metrics/")],
+        True,
+        True,
+        [("llm-gateway", "/metrics/")],
     )
 
 
@@ -131,10 +139,9 @@ def test_network_policies_let_prometheus_reach_the_metrics_ports() -> None:
     }
 
     assert (
-        admits_monitoring(K8S / "llm/vllm/networkpolicy.yaml"),
-        admits_monitoring(K8S / "llm/vllm-single/networkpolicy.yaml"),
+        admits_monitoring(K8S / "llm/profiles/networkpolicy.yaml"),
         {8000, 4000} <= to_llm,
-    ) == (True, True, True)
+    ) == (True, True)
 
 
 def test_the_gateway_serves_its_prometheus_metrics() -> None:

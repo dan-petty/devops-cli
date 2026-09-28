@@ -42,10 +42,8 @@ prometheus:
       namespaceSelector:
         matchNames: [llm]
       selector:
-        matchExpressions:
-          - key: app.kubernetes.io/name
-            operator: In
-            values: [vllm, vllm-single]
+        matchLabels:
+          llm.devops.io/provider: vllm
       endpoints:
         - port: http
           path: /metrics

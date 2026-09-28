@@ -59,6 +59,19 @@ spec:
       ports:
         - protocol: TCP
           port: 6379
+    # Allow direct egress to private RFC 1918 inference backends without proxying through Squid
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+        - ipBlock:
+            cidr: 172.16.0.0/12
+        - ipBlock:
+            cidr: 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 11434
+        - protocol: TCP
+          port: 8000
     # DNS queries to kube-system
     - to:
         - namespaceSelector:
