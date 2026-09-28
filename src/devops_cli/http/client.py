@@ -18,10 +18,14 @@ class HTTPTimeoutTypeError(ValidationError, TypeError):
     """Raised when an invalid timeout parameter type is provided."""
 
 
-def request_timeout(*, read: float | None = None) -> httpx2.Timeout:
+def request_timeout(
+    *,
+    read: float | None = None,
+    connect: float | None = None,
+) -> httpx2.Timeout:
     """Build an httpx2.Timeout object configured with project default HTTP timeout bounds (short connect, long read)."""
     return httpx2.Timeout(
-        connect=DEFAULT_CONNECT_TIMEOUT_SECONDS,
+        connect=DEFAULT_CONNECT_TIMEOUT_SECONDS if connect is None else connect,
         read=DEFAULT_HTTP_TIMEOUT_SECONDS if read is None else read,
         write=DEFAULT_HTTP_TIMEOUT_SECONDS,
         pool=DEFAULT_POOL_TIMEOUT_SECONDS,
