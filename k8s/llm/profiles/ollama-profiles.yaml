@@ -15,7 +15,7 @@ metadata:
     llm.devops.io/vram-gib: 16gib
     llm.devops.io/total-vram-gib: '16'
 spec:
-  replicas: 1
+  replicas: 0
   strategy:
     type: Recreate
   selector:
@@ -33,14 +33,39 @@ spec:
         llm.devops.io/total-vram-gib: '16'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["16Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.vram-gib
+                    operator: In
+                    values: ["16Gi"]
+                  - key: nvidia.com/gpu.count
+                    operator: In
+                    values: ["1"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
         env:
         - name: OLLAMA_HOST
           value: 0.0.0.0:11434
+        - name: OLLAMA_MODELS
+          value: /root/.ollama/models
         - name: OLLAMA_CONTEXT_LENGTH
           value: '32768'
+        - name: OLLAMA_MAX_LOADED_MODELS
+          value: '2'
         - name: OLLAMA_NUM_PARALLEL
           value: '1'
         - name: OLLAMA_KV_CACHE_TYPE
@@ -119,7 +144,7 @@ metadata:
     llm.devops.io/vram-gib: 24gib
     llm.devops.io/total-vram-gib: '24'
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -137,14 +162,39 @@ spec:
         llm.devops.io/total-vram-gib: '24'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["24Gi", "28Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.vram-gib
+                    operator: In
+                    values: ["24Gi"]
+                  - key: nvidia.com/gpu.count
+                    operator: In
+                    values: ["1"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
         env:
         - name: OLLAMA_HOST
           value: 0.0.0.0:11434
+        - name: OLLAMA_MODELS
+          value: /root/.ollama/models
         - name: OLLAMA_CONTEXT_LENGTH
           value: '32768'
+        - name: OLLAMA_MAX_LOADED_MODELS
+          value: '2'
         - name: OLLAMA_NUM_PARALLEL
           value: '1'
         - name: OLLAMA_KV_CACHE_TYPE
@@ -164,8 +214,8 @@ spec:
           name: http
         resources:
           requests:
-            cpu: 4000m
-            memory: 12Gi
+            cpu: 3000m
+            memory: 8Gi
             nvidia.com/gpu: '1'
           limits:
             nvidia.com/gpu: '1'
@@ -223,7 +273,7 @@ metadata:
     llm.devops.io/vram-gib: 32gib
     llm.devops.io/total-vram-gib: '32'
 spec:
-  replicas: 1
+  replicas: 0
   strategy:
     type: Recreate
   selector:
@@ -241,14 +291,39 @@ spec:
         llm.devops.io/total-vram-gib: '32'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["32Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.vram-gib
+                    operator: In
+                    values: ["32Gi"]
+                  - key: nvidia.com/gpu.count
+                    operator: In
+                    values: ["1"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
         env:
         - name: OLLAMA_HOST
           value: 0.0.0.0:11434
+        - name: OLLAMA_MODELS
+          value: /root/.ollama/models
         - name: OLLAMA_CONTEXT_LENGTH
           value: '48000'
+        - name: OLLAMA_MAX_LOADED_MODELS
+          value: '2'
         - name: OLLAMA_NUM_PARALLEL
           value: '1'
         - name: OLLAMA_KV_CACHE_TYPE
@@ -268,8 +343,8 @@ spec:
           name: http
         resources:
           requests:
-            cpu: 4000m
-            memory: 16Gi
+            cpu: 2000m
+            memory: 8Gi
             nvidia.com/gpu: '1'
           limits:
             nvidia.com/gpu: '1'
@@ -345,14 +420,29 @@ spec:
         llm.devops.io/total-vram-gib: '48'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["48Gi"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
         env:
         - name: OLLAMA_HOST
           value: 0.0.0.0:11434
+        - name: OLLAMA_MODELS
+          value: /root/.ollama/models
         - name: OLLAMA_CONTEXT_LENGTH
           value: '65536'
+        - name: OLLAMA_MAX_LOADED_MODELS
+          value: '2'
         - name: OLLAMA_NUM_PARALLEL
           value: '1'
         - name: OLLAMA_KV_CACHE_TYPE
@@ -431,7 +521,7 @@ metadata:
     llm.devops.io/vram-gib: 64gib
     llm.devops.io/total-vram-gib: '64'
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -449,14 +539,29 @@ spec:
         llm.devops.io/total-vram-gib: '64'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["64Gi"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
         env:
         - name: OLLAMA_HOST
           value: 0.0.0.0:11434
+        - name: OLLAMA_MODELS
+          value: /root/.ollama/models
         - name: OLLAMA_CONTEXT_LENGTH
           value: '65536'
+        - name: OLLAMA_MAX_LOADED_MODELS
+          value: '2'
         - name: OLLAMA_NUM_PARALLEL
           value: '1'
         - name: OLLAMA_KV_CACHE_TYPE
@@ -476,8 +581,8 @@ spec:
           name: http
         resources:
           requests:
-            cpu: 8000m
-            memory: 32Gi
+            cpu: 4000m
+            memory: 8Gi
             nvidia.com/gpu: '2'
           limits:
             nvidia.com/gpu: '2'
@@ -553,14 +658,29 @@ spec:
         llm.devops.io/total-vram-gib: '72'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["72Gi"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
         env:
         - name: OLLAMA_HOST
           value: 0.0.0.0:11434
+        - name: OLLAMA_MODELS
+          value: /root/.ollama/models
         - name: OLLAMA_CONTEXT_LENGTH
           value: '65536'
+        - name: OLLAMA_MAX_LOADED_MODELS
+          value: '2'
         - name: OLLAMA_NUM_PARALLEL
           value: '1'
         - name: OLLAMA_KV_CACHE_TYPE
@@ -657,14 +777,29 @@ spec:
         llm.devops.io/total-vram-gib: '96'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["96Gi"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
         env:
         - name: OLLAMA_HOST
           value: 0.0.0.0:11434
+        - name: OLLAMA_MODELS
+          value: /root/.ollama/models
         - name: OLLAMA_CONTEXT_LENGTH
           value: '65536'
+        - name: OLLAMA_MAX_LOADED_MODELS
+          value: '2'
         - name: OLLAMA_NUM_PARALLEL
           value: '1'
         - name: OLLAMA_KV_CACHE_TYPE
@@ -761,14 +896,29 @@ spec:
         llm.devops.io/total-vram-gib: '128'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: NotIn
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["128Gi"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
         env:
         - name: OLLAMA_HOST
           value: 0.0.0.0:11434
+        - name: OLLAMA_MODELS
+          value: /root/.ollama/models
         - name: OLLAMA_CONTEXT_LENGTH
           value: '65536'
+        - name: OLLAMA_MAX_LOADED_MODELS
+          value: '2'
         - name: OLLAMA_NUM_PARALLEL
           value: '1'
         - name: OLLAMA_KV_CACHE_TYPE

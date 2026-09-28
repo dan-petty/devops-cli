@@ -62,6 +62,16 @@ def _load_service(path: Path, name: str) -> dict[str, Any]:
     )
 
 
+def _load_pvc(path: Path, name: str) -> dict[str, Any]:
+    """Return the PersistentVolumeClaim with the given metadata.name from a multi-document manifest."""
+    docs = yaml.safe_load_all(path.read_text(encoding="utf-8"))
+    return next(
+        d
+        for d in docs
+        if d and d.get("kind") == "PersistentVolumeClaim" and d["metadata"]["name"] == name
+    )
+
+
 def _flag(args: list[str], flag: str) -> str | None:
     """Return the value following a CLI flag, or None when the flag is absent."""
     return args[args.index(flag) + 1] if flag in args else None
@@ -209,7 +219,7 @@ class TestK8sLLMGatewayManifests:
             for m in cfg["model_list"]
             if m["model_name"] == "devops-review"
         }
-        ollama_dep = _load_deployment(OLLAMA_PROFILES_MANIFEST, "ollama-32gib")
+        ollama_dep = _load_deployment(OLLAMA_PROFILES_MANIFEST, "ollama-64gib")
         ollama_env = {
             e["name"]: e.get("value")
             for e in ollama_dep["spec"]["template"]["spec"]["containers"][0]["env"]
@@ -223,17 +233,17 @@ class TestK8sLLMGatewayManifests:
             )
             or 0
         )
-        ollama_32gib_url = "http://ollama-32gib.llm.svc.cluster.local:11434/v1"
+        ollama_64gib_url = "http://ollama-64gib.llm.svc.cluster.local:11434/v1"
         windows = {
             DEFAULT_VLLM_CLUSTER_URL: vllm_window,
-            ollama_32gib_url: ollama_window,
+            ollama_64gib_url: ollama_window,
         }
 
         assert (
             sorted(pool),
             all(m["model_info"]["max_input_tokens"] < windows[base] for base, m in pool.items()),
             pool[DEFAULT_VLLM_CLUSTER_URL]["model_info"]["max_input_tokens"],
-            pool[ollama_32gib_url]["model_info"]["max_input_tokens"],
+            pool[ollama_64gib_url]["model_info"]["max_input_tokens"],
         ) == (
             sorted(windows),
             True,
@@ -251,12 +261,12 @@ class TestK8sLLMGatewayManifests:
             m["litellm_params"]["api_base"]: m["litellm_params"].get("max_parallel_requests")
             for m in deployments
         }
-        ollama_32gib_url = "http://ollama-32gib.llm.svc.cluster.local:11434/v1"
+        ollama_64gib_url = "http://ollama-64gib.llm.svc.cluster.local:11434/v1"
         assert (
             weights[DEFAULT_VLLM_CLUSTER_URL],
-            weights[ollama_32gib_url],
+            weights[ollama_64gib_url],
             caps[DEFAULT_VLLM_CLUSTER_URL],
-            caps[ollama_32gib_url],
+            caps[ollama_64gib_url],
         ) == (
             6,
             1,
@@ -275,9 +285,9 @@ class TestK8sLLMGatewayManifests:
             [m["litellm_params"]["api_base"] for m in embedding_deployments],
             [m["litellm_params"]["api_base"] for m in passthrough_deployments],
         ) == (
-            ["http://ollama-16gib.llm.svc.cluster.local:11434"],
-            ["http://ollama-16gib.llm.svc.cluster.local:11434"],
-            ["http://ollama-16gib.llm.svc.cluster.local:11434/v1"],
+            ["http://ollama-24gib.llm.svc.cluster.local:11434"],
+            ["http://ollama-24gib.llm.svc.cluster.local:11434"],
+            ["http://ollama-24gib.llm.svc.cluster.local:11434/v1"],
         )
 
     def test_gateway_health_checks_probe_each_deployment_the_way_it_is_called(self) -> None:
@@ -371,8 +381,8 @@ class TestK8sLLMGatewayManifests:
             GATEWAY_SECRET,
             GATEWAY_SECRET_KEY,
             [
-                "http://ollama-16gib.llm.svc.cluster.local:11434",
-                "http://ollama-32gib.llm.svc.cluster.local:11434",
+                "http://ollama-24gib.llm.svc.cluster.local:11434",
+                "http://ollama-64gib.llm.svc.cluster.local:11434",
             ],
         )
 
@@ -512,13 +522,13 @@ class TestK8sLLMGatewayManifests:
     ) -> None:
         """Verify vLLM downloads through the SSL-bumping proxy, keeps weights, and tolerates long loads."""
         dep = _load_deployment(VLLM_PROFILES_MANIFEST, deployment_name)
-        pvc = _load_kind(PVC_MANIFEST, "PersistentVolumeClaim")
         spec = dep["spec"]["template"]["spec"]
         container = _vllm_container(dep)
         init = next(c for c in spec["initContainers"] if c["name"] == "ca-bundle")
         env = {e["name"]: e.get("value") for e in container["env"]}
         volumes = {v["name"]: v for v in spec["volumes"]}
         startup = container["startupProbe"]
+        pvc = _load_pvc(PVC_MANIFEST, volumes["model-cache"]["persistentVolumeClaim"]["claimName"])
 
         assert (
             spec["enableServiceLinks"],
