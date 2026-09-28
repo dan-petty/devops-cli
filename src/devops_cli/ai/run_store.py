@@ -352,6 +352,17 @@ def record_run(
     return keep_runs([new_run(mechanism, setup=setup, subject=subject, results=results)])[0]
 
 
+class AmbiguousRunIdError(ValueError):
+    """Raised when a run-id prefix matches multiple runs."""
+
+    def __init__(self, prefix: str, matching_ids: list[str]) -> None:
+        self.prefix = prefix
+        self.matching_ids = matching_ids
+        super().__init__(
+            f"Ambiguous run-id prefix '{prefix}' matches multiple runs: {', '.join(matching_ids)}"
+        )
+
+
 def get_run(
     run_id: str, mechanism: Mechanism | None = None, root: Path | None = None
 ) -> RunRecord | None:
@@ -361,7 +372,12 @@ def get_run(
     matches = sorted(base.glob(pattern), key=lambda p: len(p.stem))
     if matches:
         exact = [p for p in matches if p.stem == run_id]
-        chosen = exact[0] if exact else matches[0]
+        if exact:
+            chosen = exact[0]
+        elif len(matches) > 1:
+            raise AmbiguousRunIdError(run_id, [p.stem for p in matches])
+        else:
+            chosen = matches[0]
         try:
             return RunRecord.model_validate_json(chosen.read_text(encoding="utf-8"))
         except OSError, ValueError:
@@ -550,31 +566,29 @@ def _extract_backend_shares(results: dict[str, Any]) -> dict[str, float]:
     return shares
 
 
+def _extract_metric_item(metrics: dict[str, float], key: str, val: Any, decimals: int = 1) -> None:
+    if isinstance(val, (int, float)):
+        metrics[key] = round(float(val), decimals)
+
+
+def _extract_core_metrics(res: dict[str, Any]) -> dict[str, float]:
+    metrics: dict[str, float] = {}
+    _extract_metric_item(metrics, "wall_seconds", _extract_wall_seconds(res), 3)
+    _extract_metric_item(metrics, "prompt_tokens", _extract_prompt_tokens(res), 1)
+    _extract_metric_item(metrics, "completion_tokens", _extract_completion_tokens(res), 1)
+    _extract_metric_item(metrics, "recall_found", res.get("recall_found"), 4)
+    _extract_metric_item(metrics, "recall_reported", res.get("recall_reported"), 4)
+    _extract_metric_item(metrics, "recall", _extract_recall(res), 4)
+    calls = res.get("median_llm_calls") or res.get("llm_calls") or res.get("total_calls")
+    _extract_metric_item(metrics, "llm_calls", calls, 1)
+    for key in ("total_sites", "parse_failures", "comment_collisions", "tested_mutations"):
+        _extract_metric_item(metrics, key, res.get(key), 1)
+    return metrics
+
+
 def extract_metrics(record: RunRecord) -> tuple[dict[str, float], dict[str, float]]:
     """Extract standard metrics and backend busy shares from run results."""
-    res = record.results
-    metrics: dict[str, float] = {}
-    wall = _extract_wall_seconds(res)
-    if wall is not None:
-        metrics["wall_seconds"] = round(wall, 3)
-    p_tokens = _extract_prompt_tokens(res)
-    if p_tokens is not None:
-        metrics["prompt_tokens"] = round(p_tokens, 1)
-    c_tokens = _extract_completion_tokens(res)
-    if c_tokens is not None:
-        metrics["completion_tokens"] = round(c_tokens, 1)
-    recall = _extract_recall(res)
-    if recall is not None:
-        metrics["recall"] = round(recall, 4)
-    calls = res.get("median_llm_calls") or res.get("llm_calls") or res.get("total_calls")
-    if isinstance(calls, (int, float)):
-        metrics["llm_calls"] = round(float(calls), 1)
-    for key in ("total_sites", "parse_failures", "comment_collisions", "tested_mutations"):
-        val = res.get(key)
-        if isinstance(val, (int, float)):
-            metrics[key] = round(float(val), 1)
-
-    return metrics, _extract_backend_shares(res)
+    return _extract_core_metrics(record.results), _extract_backend_shares(record.results)
 
 
 class MetricDiff(BaseModel):
@@ -713,8 +727,11 @@ def check_regression(
     """Check whether current run regressed past configured limits relative to baseline."""
     tol = tolerances or RegressionTolerances()
     verdicts: list[MetricVerdict] = []
-    if "recall" in comparison.metrics:
-        verdicts.append(_evaluate_recall_verdict(comparison.metrics["recall"], tol.max_recall_drop))
+    for r_name in ("recall", "recall_found", "recall_reported"):
+        if r_name in comparison.metrics:
+            verdicts.append(
+                _evaluate_recall_verdict(comparison.metrics[r_name], tol.max_recall_drop)
+            )
     if "wall_seconds" in comparison.metrics:
         verdicts.append(
             _evaluate_increase_verdict(
@@ -738,7 +755,7 @@ def check_regression(
             )
         )
     return RegressionReport(
-        passed=all(v.passed for v in verdicts),
+        passed=bool(verdicts) and all(v.passed for v in verdicts),
         base_run_id=comparison.base_run.run_id,
         current_run_id=comparison.current_run.run_id,
         verdicts=verdicts,
@@ -747,6 +764,7 @@ def check_regression(
 
 __all__ = [
     "INDEX_PREFIX",
+    "AmbiguousRunIdError",
     "BaselineRecord",
     "Mechanism",
     "MetricDiff",

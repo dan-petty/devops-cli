@@ -8,6 +8,7 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.ai.run_store import (
+    AmbiguousRunIdError,
     BaselineRecord,
     Mechanism,
     MetricDiff,
@@ -415,6 +416,24 @@ def list_cmd(
     _render_runs_table(records)
 
 
+def _fetch_run_or_exit(
+    run_id: str,
+    mechanism: Mechanism | None = None,
+    *,
+    error_prefix: str = "Run",
+) -> RunRecord:
+    """Load a run record by exact ID or prefix, exiting with code 1 if missing or ambiguous."""
+    try:
+        record = get_run(run_id, mechanism=mechanism)
+    except AmbiguousRunIdError as err:
+        print_error(str(err))
+        raise typer.Exit(code=1) from err
+    if record is None:
+        print_error(f"{error_prefix} {escape_text(run_id)} not found.")
+        raise typer.Exit(code=1)
+    return record
+
+
 @app.command("show")
 @trace_span("ai.runs.show")
 def show_cmd(
@@ -425,10 +444,7 @@ def show_cmd(
     ] = "table",
 ) -> None:
     """Show details of a recorded run."""
-    record = get_run(run_id)
-    if record is None:
-        print_error(f"Run {escape_text(run_id)} not found.")
-        raise typer.Exit(code=1)
+    record = _fetch_run_or_exit(run_id)
 
     resolved = normalize_format(output_format)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
@@ -455,16 +471,9 @@ def compare_cmd(
     ] = "table",
 ) -> None:
     """Compare two runs or a run against its subject's baseline."""
-    rec_a = get_run(run_a)
-    if rec_a is None:
-        print_error(f"Run {escape_text(run_a)} not found.")
-        raise typer.Exit(code=1)
-
+    rec_a = _fetch_run_or_exit(run_a)
     if run_b is not None:
-        rec_b = get_run(run_b)
-        if rec_b is None:
-            print_error(f"Run {escape_text(run_b)} not found.")
-            raise typer.Exit(code=1)
+        rec_b = _fetch_run_or_exit(run_b)
         base, current = rec_a, rec_b
     else:
         baseline = get_baseline(rec_a.mechanism, rec_a.subject_key)
@@ -495,10 +504,7 @@ def baseline_set_cmd(
     run_id: Annotated[str, typer.Argument(help="Run ID to designate as baseline.")],
 ) -> None:
     """Set a run as the baseline for its subject."""
-    record = get_run(run_id)
-    if record is None:
-        print_error(f"Run {escape_text(run_id)} not found.")
-        raise typer.Exit(code=1)
+    record = _fetch_run_or_exit(run_id)
     b_record = set_baseline(record)
     print_success(
         f"Designated run {escape_text(record.run_id)} as baseline for "
@@ -528,7 +534,11 @@ def baseline_list_cmd(
 
 def _find_baseline_run(subject_or_run: str, mechanism: Mechanism | None) -> RunRecord | None:
     """Find a baseline record by subject key or run ID, with or without mechanism."""
-    run = get_run(subject_or_run)
+    try:
+        run = get_run(subject_or_run)
+    except AmbiguousRunIdError as err:
+        print_error(str(err))
+        raise typer.Exit(code=1) from err
     mech = mechanism or (run.mechanism if run else None)
     subj_key = run.subject_key if run else subject_or_run
     if mech:
@@ -605,16 +615,11 @@ def check_cmd(
     ] = "table",
 ) -> None:
     """Check a run against baseline for regressions past tolerances."""
-    record = get_run(run_id)
-    if record is None:
-        print_error(f"Run {escape_text(run_id)} not found.")
-        raise typer.Exit(code=1)
+    record = _fetch_run_or_exit(run_id)
 
+    base_record: RunRecord | None
     if baseline_id:
-        base_record = get_run(baseline_id)
-        if base_record is None:
-            print_error(f"Baseline run {escape_text(baseline_id)} not found.")
-            raise typer.Exit(code=1)
+        base_record = _fetch_run_or_exit(baseline_id, error_prefix="Baseline run")
     else:
         base_record = get_baseline(record.mechanism, record.subject_key)
         if base_record is None:
@@ -641,9 +646,12 @@ def check_cmd(
 
     _render_regression_report(report)
     if not report.passed:
-        print_error(
-            "Regression check failed: one or more metrics regressed past allowed tolerance."
-        )
+        if not report.verdicts:
+            print_error("Regression check failed: no comparable metrics found to check.")
+        else:
+            print_error(
+                "Regression check failed: one or more metrics regressed past allowed tolerance."
+            )
         raise typer.Exit(code=1)
     print_success(
         f"Run {escape_text(record.run_id)} passed all regression checks against baseline."

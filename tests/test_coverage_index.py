@@ -208,3 +208,52 @@ def test_an_indexed_source_selects_every_covering_test(tmp_path: Path) -> None:
         False,
         ["tests/test_a.py", "tests/test_c.py"],
     )
+
+
+def test_a_nested_src_directory_anchors_to_repo_root(tmp_path: Path) -> None:
+    """A checkout located inside a parent path containing /src/ must not match the parent."""
+    repo = tmp_path / "src" / "project"
+    _repo(repo, ["test_a.py"])
+    target_source = repo / "src" / "devops_cli" / "core" / "cli.py"
+    target_source.parent.mkdir(parents=True, exist_ok=True)
+    target_source.write_text("", encoding="utf-8")
+    db = _coverage_db(
+        tmp_path,
+        [(str(target_source), "tests/test_a.py::test_thing|run")],
+    )
+    index = build_index_from_coverage(db, repo)
+    assert index.covering_tests.get("src/devops_cli/core/cli.py") == ["tests/test_a.py"]
+
+
+def test_a_changed_test_helper_selects_importing_tests(tmp_path: Path) -> None:
+    """A changed helper must run the tests that import it, not the helper itself."""
+    repo = _repo(tmp_path, ["test_a.py", "test_b.py"])
+    (repo / "tests" / "mock_helper.py").write_text("class Helper: pass\n", encoding="utf-8")
+    (repo / "tests" / "test_a.py").write_text(
+        "from tests.mock_helper import Helper\n", encoding="utf-8"
+    )
+    (repo / "tests" / "test_b.py").write_text("def test_standalone(): pass\n", encoding="utf-8")
+
+    index = CoverageIndex(
+        covering_tests={"src/devops_cli/a.py": ["tests/test_b.py"]},
+        test_files=["tests/test_a.py", "tests/test_b.py"],
+    )
+    selection = select_from_index(index, ["tests/mock_helper.py"], repo)
+    assert (selection.needs_full_run, selection.test_files) == (False, ["tests/test_a.py"])
+
+
+def test_an_unmapped_test_helper_forces_a_full_run(tmp_path: Path) -> None:
+    """A helper with no visible importers cannot be trusted to run nothing."""
+    repo = _repo(tmp_path, ["test_a.py"])
+    (repo / "tests" / "orphan_helper.py").write_text("X = 1\n", encoding="utf-8")
+    (repo / "tests" / "test_a.py").write_text("def test_one(): pass\n", encoding="utf-8")
+
+    index = CoverageIndex(
+        covering_tests={"src/devops_cli/a.py": ["tests/test_a.py"]},
+        test_files=["tests/test_a.py"],
+    )
+    selection = select_from_index(index, ["tests/orphan_helper.py"], repo)
+    assert (selection.needs_full_run, selection.unindexed_sources) == (
+        True,
+        ["tests/orphan_helper.py"],
+    )

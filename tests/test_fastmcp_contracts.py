@@ -516,25 +516,24 @@ def test_fastmcp_pr_check_readiness_tool() -> None:
 
         res = pr_check_readiness(
             pr_number=187,
-            require_ready=True,
             allow_blocked_state=True,
             repo="owner/repo",
         )
-        assert "satisfies merge readiness" in res
-        mock_cmd.assert_called_with(
-            [
-                "uv",
-                "run",
-                "devops",
-                "pr",
-                "check-readiness",
-                "187",
-                "--require-ready",
-                "--allow-blocked-state",
-                "--repo",
-                "owner/repo",
-            ],
-            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        expected_cmd = [
+            "uv",
+            "run",
+            "devops",
+            "pr",
+            "check-readiness",
+            "187",
+            "--allow-blocked-state",
+            "--repo",
+            "owner/repo",
+        ]
+        assert (res, mock_cmd.call_args[0][0], mock_cmd.call_args[1]["timeout"]) == (
+            "PR #187 satisfies merge readiness",
+            expected_cmd,
+            DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
         )
 
 
@@ -807,3 +806,34 @@ def test_hydrating_invalid_domain_name_is_rejected() -> None:
         mcp_server.hydrate_tool_domain("; rm -rf /")["hydrated"],
         mcp_server.hydrate_tool_domain("k8s$bad")["hydrated"],
     ) == (False, False, False)
+
+
+def test_hydrating_unknown_domain_is_rejected() -> None:
+    """Nonexistent domains like 'secrets' are rejected with clear explanation."""
+    from devops_cli.ai.mcp import server as mcp_server
+
+    res_secrets = mcp_server.hydrate_tool_domain("secrets")
+    res_vault = mcp_server.hydrate_tool_domain("vault")
+    assert (
+        res_secrets["hydrated"],
+        res_secrets["detail"],
+        res_vault["hydrated"],
+    ) == (
+        False,
+        "unknown domain: secrets",
+        True,
+    )
+
+
+def test_hydrate_tool_domain_notifies_session() -> None:
+    """Hydrating a domain dispatches notifications/tools/list_changed if session is active."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from devops_cli.ai.mcp import server as mcp_server
+
+    mock_session = MagicMock()
+    mock_session.send_tool_list_changed = AsyncMock()
+    mock_ctx = MagicMock(session=mock_session)
+
+    res = mcp_server.hydrate_tool_domain("ssh", ctx=mock_ctx)
+    assert (res["hydrated"], mock_session.send_tool_list_changed.called) == (True, True)

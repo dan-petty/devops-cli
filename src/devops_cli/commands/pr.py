@@ -1253,31 +1253,74 @@ def _classify_check_run(run: Any) -> tuple[str | None, str | None]:
     return None, None
 
 
-def _fetch_check_runs_payload(owner: str, repo_name: str, head_sha: str) -> list[Any]:
-    """Fetch and decode the check-runs payload list from GitHub API."""
+def _extract_page_runs(page: Any) -> list[dict[str, Any]]:
+    """Extract check runs from a single API payload page."""
+    if not isinstance(page, dict):
+        raise RuntimeError("GitHub check-runs API returned invalid page structure")
+    check_runs = page.get("check_runs")
+    if isinstance(check_runs, list):
+        return check_runs
+    if "name" in page:
+        return [page]
+    raise RuntimeError("GitHub check-runs API returned page without check_runs")
+
+
+def _fetch_check_runs_payload(owner: str, repo_name: str, head_sha: str) -> list[dict[str, Any]]:
+    """Fetch and decode all check-runs pages from GitHub API with pagination."""
     res = run_gh(
-        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{head_sha}/check-runs"],
+        [
+            CONST_GH_CLI,
+            "api",
+            "--paginate",
+            "--slurp",
+            f"repos/{owner}/{repo_name}/commits/{head_sha}/check-runs?per_page=100",
+        ],
         check=False,
         quiet=True,
     )
-    if res.returncode != 0 or not res.stdout.strip():
-        return []
+    if res.returncode != 0:
+        err_msg = res.stderr.strip() or f"exit code {res.returncode}"
+        raise RuntimeError(f"GitHub check-runs API error: {err_msg}")
+    if not res.stdout.strip():
+        raise RuntimeError("GitHub check-runs API returned empty response")
     try:
-        payload = json.loads(res.stdout)
-    except json.JSONDecodeError:
-        return []
-    raw = payload.get("check_runs") if isinstance(payload, dict) else None
-    return raw if isinstance(raw, list) else []
+        data = json.loads(res.stdout)
+    except json.JSONDecodeError as err:
+        raise RuntimeError(f"Invalid JSON from check-runs API: {err}") from err
+
+    if isinstance(data, list):
+        return [run for page in data for run in _extract_page_runs(page)]
+    if isinstance(data, dict):
+        return _extract_page_runs(data)
+    raise RuntimeError("GitHub check-runs API returned unexpected payload structure")
+
+
+def _fetch_commit_statuses_payload(
+    owner: str, repo_name: str, head_sha: str
+) -> list[dict[str, Any]]:
+    """Fetch commit status contexts from GitHub status API."""
+    res = run_gh(
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{head_sha}/status"],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode != 0:
+        err_msg = res.stderr.strip() or f"exit code {res.returncode}"
+        raise RuntimeError(f"GitHub commit status API error: {err_msg}")
+    if not res.stdout.strip():
+        raise RuntimeError("GitHub commit status API returned empty response")
+    try:
+        data = json.loads(res.stdout)
+    except json.JSONDecodeError as err:
+        raise RuntimeError(f"Invalid JSON from commit status API: {err}") from err
+    if not isinstance(data, dict):
+        raise RuntimeError("GitHub commit status API returned non-object response")
+    statuses = data.get("statuses")
+    return statuses if isinstance(statuses, list) else []
 
 
 def _failing_check_runs(owner: str, repo_name: str, head_sha: str) -> tuple[list[str], list[str]]:
-    """Return the names of concluded-failing and still-running checks for a commit.
-
-    A pull request whose checks are red cannot be merged under branch protection, and this
-    command exists to say whether a pull request can be merged. It previously reported only
-    conflicts and review threads, so #335 passed readiness while a CodeQL check had been
-    failing on it for the whole release.
-    """
+    """Return the names of concluded-failing and still-running checks and statuses for a commit."""
     check_runs = _fetch_check_runs_payload(owner, repo_name, head_sha)
     failing: list[str] = []
     pending: list[str] = []
@@ -1287,6 +1330,18 @@ def _failing_check_runs(owner: str, repo_name: str, head_sha: str) -> tuple[list
             failing.append(fail)
         elif pend:
             pending.append(pend)
+
+    statuses = _fetch_commit_statuses_payload(owner, repo_name, head_sha)
+    for st in statuses:
+        if not isinstance(st, dict):
+            continue
+        context = str(st.get("context") or "status")
+        state = str(st.get("state") or "").lower()
+        if state in ("failure", "error"):
+            failing.append(context)
+        elif state == "pending":
+            pending.append(context)
+
     return failing, pending
 
 
@@ -1302,7 +1357,11 @@ def _check_run_blockers(
     if not head_sha:
         return []
 
-    failing, pending = _failing_check_runs(owner, repo_name, head_sha)
+    try:
+        failing, pending = _failing_check_runs(owner, repo_name, head_sha)
+    except RuntimeError as err:
+        return [f"PR #{pr_num} check verification failed closed: {err}"]
+
     blockers = (
         [f"PR #{pr_num} has {len(failing)} failing check(s): {', '.join(sorted(failing))}."]
         if failing

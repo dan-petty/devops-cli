@@ -1882,6 +1882,9 @@ def test_plaintext_gh_tokens_are_moved_once_the_keyring_opens(
 
     from devops_cli.commands.devcontainer import _move_plaintext_gh_tokens
 
+    for token_var in ("GH_TOKEN", "GITHUB_TOKEN", "DEVOPS_CLI_GITHUB_TOKEN"):
+        monkeypatch.delenv(token_var, raising=False)
+
     hosts_file = _write_gh_hosts(monkeypatch, tmp_path, "github.com:\n  oauth_token: FAKE-token\n")
     calls: list[tuple[list[str], dict[str, object]]] = []
 
@@ -1894,10 +1897,13 @@ def test_plaintext_gh_tokens_are_moved_once_the_keyring_opens(
 
     monkeypatch.setattr("devops_cli.commands.devcontainer.run_subprocess", fake_gh)
 
-    assert _move_plaintext_gh_tokens() == ["github.com"]
+    res = _move_plaintext_gh_tokens()
     login_cmd, login_kwargs = calls[-1]
-    assert login_cmd == ["gh", "auth", "login", "-h", "github.com", "--with-token"]
-    assert login_kwargs["input"] == "FAKE-token"
+    assert (res, login_cmd, login_kwargs["input"]) == (
+        ["github.com"],
+        ["gh", "auth", "login", "-h", "github.com", "--with-token"],
+        "FAKE-token",
+    )
     assert "DBUS_SESSION_BUS_ADDRESS" in login_kwargs["extra_allowed_env"]  # type: ignore[operator]
 
 
