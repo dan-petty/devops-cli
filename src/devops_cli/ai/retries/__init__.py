@@ -21,20 +21,25 @@ from pydantic_ai.retries import (
 )
 from tenacity import retry_if_exception, stop_after_attempt, wait_exponential
 
-DEFAULT_RETRYABLE_STATUS_CODES: tuple[int, ...] = (408, 429, 500, 502, 503, 504)
+from devops_cli.config.constants import CONST_RETRYABLE_HTTP_STATUS_CODES
+
+DEFAULT_RETRYABLE_STATUS_CODES: tuple[int, ...] = CONST_RETRYABLE_HTTP_STATUS_CODES
 
 
 def is_retryable_status_code(
     status_code: int,
     retry_statuses: tuple[int, ...] = DEFAULT_RETRYABLE_STATUS_CODES,
 ) -> bool:
-    """Predicate determining if an HTTP status code represents a transient, retryable condition."""
-    return status_code in retry_statuses
+    """Predicate determining if an HTTP status code represents a transient, retryable condition.
+
+    All 5xx server/gateway errors and transient 4xx errors (e.g. 408, 429) are considered retryable.
+    """
+    return status_code in retry_statuses or (500 <= status_code < 600)
 
 
 def create_retry_config(
-    max_attempts: int = 3,
-    min_wait: float = 0.5,
+    max_attempts: int = 5,
+    min_wait: float = 1.0,
     max_wait: float = 60.0,
     retry_statuses: tuple[int, ...] = DEFAULT_RETRYABLE_STATUS_CODES,
     reraise: bool = True,
@@ -66,8 +71,8 @@ def create_retry_config(
 
 def create_retry_transport(
     config: RetryConfig | None = None,
-    max_attempts: int = 3,
-    min_wait: float = 0.5,
+    max_attempts: int = 5,
+    min_wait: float = 1.0,
     max_wait: float = 60.0,
     retry_statuses: tuple[int, ...] = DEFAULT_RETRYABLE_STATUS_CODES,
     validate_response: Callable[[httpx2.Response], Any] | None = None,
@@ -84,7 +89,7 @@ def create_retry_transport(
     )
 
     def default_validate(resp: httpx2.Response) -> None:
-        if is_retryable_status_code(resp.status_code, retry_statuses):
+        if resp.status_code >= 400:
             resp.raise_for_status()
 
     validator = validate_response or default_validate
@@ -97,8 +102,8 @@ def create_retry_transport(
 
 def create_async_retry_transport(
     config: RetryConfig | None = None,
-    max_attempts: int = 3,
-    min_wait: float = 0.5,
+    max_attempts: int = 5,
+    min_wait: float = 1.0,
     max_wait: float = 60.0,
     retry_statuses: tuple[int, ...] = DEFAULT_RETRYABLE_STATUS_CODES,
     validate_response: Callable[[httpx2.Response], Any] | None = None,
@@ -115,7 +120,7 @@ def create_async_retry_transport(
     )
 
     def default_validate(resp: httpx2.Response) -> None:
-        if is_retryable_status_code(resp.status_code, retry_statuses):
+        if resp.status_code >= 400:
             resp.raise_for_status()
 
     validator = validate_response or default_validate

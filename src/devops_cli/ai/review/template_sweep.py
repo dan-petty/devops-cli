@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import shutil
 import subprocess
+import warnings
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -121,7 +122,9 @@ def _run_cmd_checker(cmd: list[str], input_bytes: bytes, checker_name: str) -> C
 
 def _check_python(content: str) -> CheckResult:
     try:
-        ast.parse(content)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            ast.parse(content)
         return CheckResult(checker="python-ast", status=STATUS_PASS)
     except SyntaxError as exc:
         return CheckResult(checker="python-ast", status=STATUS_FAIL, error=str(exc)[:256])

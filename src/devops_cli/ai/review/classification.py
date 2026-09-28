@@ -6,6 +6,7 @@ import ast
 import json
 import mimetypes
 import tomllib
+import warnings
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
@@ -165,7 +166,9 @@ def _classify_by_mime(file_path: Path) -> FileContextType | None:
 def _is_python_code(clean: str) -> bool:
     """Check if content can be parsed as Python code with structural definitions."""
     try:
-        tree = ast.parse(clean)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(clean)
         return any(
             isinstance(
                 n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Import, ast.ImportFrom)

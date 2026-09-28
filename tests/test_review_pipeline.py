@@ -1402,3 +1402,82 @@ def test_multi_persona_review_tracks_bare_empty_list_and_degrades_partially_on_m
         ["Senior Test Engineer"],
         {"findings": 1, "empty": 1, "unparsed": 1},
     )
+
+
+def test_execute_page_review_with_backoff_retries_and_recovers() -> None:
+    """Verify _execute_page_review_with_backoff retries on AIClientError and recovers."""
+    from devops_cli.ai.client import AIClientError
+    from devops_cli.ai.review.pipeline import _execute_page_review_with_backoff
+
+    calls = 0
+
+    def mock_single_page(*args: object, **kwargs: object) -> int:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise AIClientError("Provider request failed with HTTP 524: Cloudflare timeout")
+        return 2
+
+    payload = FileReviewPayload(file_path="src/dummy.py")
+    with patch(
+        "devops_cli.ai.review.pipeline._execute_single_page_review", side_effect=mock_single_page
+    ):
+        with patch("time.sleep", return_value=None):
+            result = _execute_page_review_with_backoff(
+                p_idx=1,
+                page_content="content",
+                fpath="src/dummy.py",
+                total_pages=1,
+                symbols="foo",
+                rag_context_str="",
+                contract_context_str="",
+                resolved_context=MagicMock(),
+                pipeline=MagicMock(),
+                persona_lookup={"qa": ("QA Engineer", "prompt")},
+                thoughts=[],
+                actual_servers=[],
+                file_findings=[],
+                file_replies=[],
+                payload=payload,
+                max_retries=3,
+            )
+
+    assert (result, calls) == (2, 3)
+
+
+def test_execute_page_review_with_backoff_exhausts_retries() -> None:
+    """Verify _execute_page_review_with_backoff re-raises after exhausting max_retries."""
+    from devops_cli.ai.client import AIClientError
+    from devops_cli.ai.review.pipeline import _execute_page_review_with_backoff
+
+    calls = 0
+
+    def mock_fail(*args: object, **kwargs: object) -> int:
+        nonlocal calls
+        calls += 1
+        raise AIClientError("Provider request failed with HTTP 500: Server error")
+
+    payload = FileReviewPayload(file_path="src/dummy.py")
+    with patch("devops_cli.ai.review.pipeline._execute_single_page_review", side_effect=mock_fail):
+        with patch("time.sleep", return_value=None):
+            with pytest.raises(AIClientError, match="Server error"):
+                _execute_page_review_with_backoff(
+                    p_idx=1,
+                    page_content="content",
+                    fpath="src/dummy.py",
+                    total_pages=1,
+                    symbols="foo",
+                    rag_context_str="",
+                    contract_context_str="",
+                    resolved_context=MagicMock(),
+                    pipeline=MagicMock(),
+                    persona_lookup={"qa": ("QA Engineer", "prompt")},
+                    thoughts=[],
+                    actual_servers=[],
+                    file_findings=[],
+                    file_replies=[],
+                    payload=payload,
+                    max_retries=2,
+                )
+
+    assert calls == 2

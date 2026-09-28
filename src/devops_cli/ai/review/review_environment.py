@@ -6,6 +6,7 @@ import ast
 import os
 import shlex
 import signal
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -163,7 +164,9 @@ def _is_safe_ast_node(node: ast.AST) -> bool:
 
 def _check_python_script(script: str) -> str | None:
     try:
-        tree = ast.parse(script)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(script)
     except SyntaxError as exc:
         return f"SyntaxError in python script: {exc}"
     for node in ast.walk(tree):
@@ -259,8 +262,12 @@ def execute_criterion_command(
             error=f"bubblewrap binary {sb.bwrap_binary} is not available on host system",
         )
 
+    exec_args = list(args)
+    if exec_args[0] in {"python", "python3"} and "-W" not in exec_args:
+        exec_args[1:1] = ["-W", "ignore::SyntaxWarning"]
+
     res = sb.execute(
-        args=args,
+        args=exec_args,
         cwd=cwd,
         timeout=timeout,
         max_output_bytes=max_output_bytes,

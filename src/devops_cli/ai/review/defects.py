@@ -21,6 +21,7 @@ import ast
 import builtins
 import random
 import re
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -172,7 +173,9 @@ def _span(regex: re.Pattern[str], text: str) -> tuple[int, int] | None:
 
 def _python_tree(lines: Lines) -> ast.Module | None:
     try:
-        return ast.parse("".join(lines))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            return ast.parse("".join(lines))
     except SyntaxError, ValueError:
         return None
 

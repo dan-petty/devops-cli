@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import random
 import re
 import time
 from collections.abc import Callable, Sequence
@@ -25,11 +26,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx2
+
 from devops_cli.ai.agents.pipeline import MultiAgentPipeline
 from devops_cli.ai.agents.pydantic_agent import PydanticAgent
 from devops_cli.ai.analyze.cache import load_cached_analysis
 from devops_cli.ai.analyze.outlines import analyze_single_file
-from devops_cli.ai.client import LLMClient
+from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS
 from devops_cli.ai.review.category_metrics import format_category_baseline_markdown
@@ -95,6 +98,9 @@ from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS,
     DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
+    DEFAULT_REVIEW_RETRY_ATTEMPTS,
+    DEFAULT_REVIEW_RETRY_MAX_BACKOFF,
+    DEFAULT_REVIEW_RETRY_MIN_BACKOFF,
 )
 from devops_cli.core.binaries import check_binary
 from devops_cli.exceptions import SecurityError
@@ -1188,6 +1194,65 @@ def _execute_single_page_review(
     return steps
 
 
+def _execute_page_review_with_backoff(
+    p_idx: int,
+    page_content: str,
+    fpath: str,
+    total_pages: int,
+    symbols: str,
+    rag_context_str: str,
+    contract_context_str: str,
+    resolved_context: FileContextType,
+    pipeline: Any,
+    persona_lookup: dict[str, tuple[str, str]],
+    thoughts: list[str],
+    actual_servers: list[str],
+    file_findings: list[SavedFinding],
+    file_replies: list[dict[str, Any]],
+    payload: FileReviewPayload,
+    max_retries: int = DEFAULT_REVIEW_RETRY_ATTEMPTS,
+) -> int:
+    """Execute review for a single page with incremental backoff on transient errors."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            return _execute_single_page_review(
+                p_idx=p_idx,
+                page_content=page_content,
+                fpath=fpath,
+                total_pages=total_pages,
+                symbols=symbols,
+                rag_context_str=rag_context_str,
+                contract_context_str=contract_context_str,
+                resolved_context=resolved_context,
+                pipeline=pipeline,
+                persona_lookup=persona_lookup,
+                thoughts=thoughts,
+                actual_servers=actual_servers,
+                file_findings=file_findings,
+                file_replies=file_replies,
+                payload=payload,
+            )
+        except (AIClientError, httpx2.HTTPError, OSError) as exc:
+            if attempt >= max_retries:
+                raise
+            backoff = min(
+                DEFAULT_REVIEW_RETRY_MIN_BACKOFF * (2 ** (attempt - 1)) + random.uniform(0.2, 0.8),
+                DEFAULT_REVIEW_RETRY_MAX_BACKOFF,
+            )
+            logger.warning(
+                "Review attempt %d/%d for %s (page %d/%d) failed with %s. Retrying in %.2fs...",
+                attempt,
+                max_retries,
+                fpath,
+                p_idx,
+                total_pages,
+                exc,
+                backoff,
+            )
+            time.sleep(backoff)
+    return 0
+
+
 def _log_reviewed_file_completion(
     fpath: str,
     idx: int,
@@ -1949,6 +2014,7 @@ class ReviewPipelineOrchestrator:
                 name=p_def.title,
                 system_prompt=sys_prompt,
                 output_type=ReviewResult,
+                retries=3,
             )
             pipeline.add_agent(agent)
 
@@ -1961,6 +2027,7 @@ class ReviewPipelineOrchestrator:
                 name=p_def.title,
                 system_prompt=_persona_system_prompt(p_def, target_conventions),
                 output_type=ReviewResult,
+                retries=3,
             )
             pipeline.add_agent(agent)
 
@@ -2049,7 +2116,7 @@ class ReviewPipelineOrchestrator:
 
             try:
                 total_step_count = sum(
-                    _execute_single_page_review(
+                    _execute_page_review_with_backoff(
                         p_idx,
                         page_content,
                         fpath,
