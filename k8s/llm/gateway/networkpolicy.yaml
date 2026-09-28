@@ -28,6 +28,12 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: ollama
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ollama-volta-1
+        - podSelector:
+            matchLabels:
+              llm.devops.io/provider: ollama
       ports:
         - protocol: TCP
           port: 11434
@@ -35,13 +41,12 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: vllm
-      ports:
-        - protocol: TCP
-          port: 8000
-    - to:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: vllm-single
+        - podSelector:
+            matchLabels:
+              llm.devops.io/provider: vllm
       ports:
         - protocol: TCP
           port: 8000

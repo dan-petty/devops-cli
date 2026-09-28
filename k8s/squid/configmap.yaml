@@ -88,6 +88,12 @@ data:
     http_access deny !Safe_ports
     http_access deny CONNECT !SSL_ports
 
+    # Protect internal cluster services from egress bypass via forward proxy
+    acl to_internal_ips dst 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 169.254.0.0/16
+    acl to_internal_domains dstdomain .cluster.local .svc .local .lan
+    http_access deny to_internal_ips
+    http_access deny to_internal_domains
+
     # Allow local network & cluster pod access
     http_access allow localnet
     http_access allow localhost

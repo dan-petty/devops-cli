@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -130,6 +131,7 @@ def test_host_sandbox_handles_namespace_refusal(tmp_path: Path) -> None:
         "bwrap: Setting up uid map: Permission denied\n",
     )
     mock_proc.returncode = 1
+    mock_proc.pid = 999999
 
     with patch("subprocess.Popen", return_value=mock_proc):
         res = sandbox.execute(["python3", "-c", "pass"], cwd=tmp_path)
@@ -159,7 +161,86 @@ def test_host_sandbox_consumes_custom_policy(tmp_path: Path) -> None:
         sandbox.policy == custom_policy,
         "--bind" in args,
         "--tmpfs" in args,
+        "--size" in args,
+        "33554432" in args,
         "/var/tmp" in args,
         "CUSTOM_SECRET" not in str(args),
         "SAFE_VAR" in str(args),
-    ) == (True, True, True, True, True, True)
+    ) == (True, True, True, True, True, True, True, True)
+
+
+def test_host_sandbox_kills_process_exceeding_output_cap(tmp_path: Path) -> None:
+    """Verify that process generating unbounded output is terminated and output is capped (#663)."""
+    sandbox = HostSandbox()
+    res = sandbox.execute(
+        ["python3", "-c", "import sys; sys.stdout.write('A' * 50000); sys.stdout.flush()"],
+        cwd=tmp_path,
+        max_output_bytes=1024,
+    )
+    assert (
+        res.passed,
+        len(res.stdout) <= 1024,
+        "Output exceeded maximum limit" in str(res.error),
+    ) == (False, True, True)
+
+
+def test_host_sandbox_nested_clone_cannot_read_parent_workspace(tmp_path: Path) -> None:
+    """Verify nearest repo root is mounted so nested clone cannot traverse parent (#663)."""
+    parent = tmp_path / "workspace"
+    parent.mkdir()
+    (parent / ".git").mkdir()
+    (parent / "secret.env").write_text("HOST_SECRET=1", encoding="utf-8")
+
+    clone = parent / "repos" / "nested"
+    clone.mkdir(parents=True)
+    (clone / ".git").mkdir()
+    (clone / "hello.txt").write_text("hello", encoding="utf-8")
+
+    sandbox = HostSandbox()
+    res = sandbox.execute(["cat", str(parent / "secret.env")], cwd=clone)
+    assert (
+        res.passed,
+        res.exit_code != 0,
+        "No such file" in res.stderr or "cannot access" in res.stderr,
+    ) == (False, True, True)
+
+
+def test_host_sandbox_linked_worktree_runs_git(tmp_path: Path) -> None:
+    """Verify linked worktree binds common git directory so git commands succeed (#663)."""
+    import subprocess
+
+    main_repo = tmp_path / "main_repo"
+    main_repo.mkdir()
+    worktree = tmp_path / "linked_worktree"
+
+    subprocess.run(["git", "init"], cwd=main_repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Tester"], cwd=main_repo, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=main_repo, check=True)
+    (main_repo / "README.md").write_text("# Main", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=main_repo, check=True)
+    subprocess.run(["git", "commit", "-m", "initial commit"], cwd=main_repo, check=True)
+    subprocess.run(
+        ["git", "worktree", "add", str(worktree), "-b", "feat"], cwd=main_repo, check=True
+    )
+
+    sandbox = HostSandbox()
+    res = sandbox.execute(["git", "log", "-n", "1", "--oneline"], cwd=worktree)
+    assert (
+        res.passed,
+        res.exit_code,
+        "initial commit" in res.stdout,
+    ) == (True, 0, True)
+
+
+def test_terminate_process_group_guards_devcontainer() -> None:
+    """Verify that _terminate_process_group safely rejects PID 1, PID 0, self, and mocks."""
+    from devops_cli.sandbox.host import _terminate_process_group
+
+    with patch("os.killpg") as mock_killpg:
+        # Should guard against non-int, PID <= 1, self, and PGID <= 1
+        _terminate_process_group(MagicMock())
+        _terminate_process_group(0)
+        _terminate_process_group(1)
+        _terminate_process_group(-5)
+        _terminate_process_group(os.getpid())
+        assert mock_killpg.called is False

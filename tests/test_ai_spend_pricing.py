@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import genai_prices
@@ -28,10 +29,11 @@ def test_pricing_registry_offline_defaults(tmp_path: Path) -> None:
 def test_pricing_registry_exact_and_normalized_matching(tmp_path: Path) -> None:
     """Verify exact and normalized model lookup resolution via genai-prices."""
     registry = PricingRegistry(data_dir=tmp_path)
+    peak_ts = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
-    p_exact = registry.get_pricing("gpt-4o")
-    p_claude = registry.get_pricing("claude-3-5-sonnet-20241022")
-    p_deepseek = registry.get_pricing("deepseek/deepseek-chat")
+    p_exact = registry.get_pricing("gpt-4o", request_timestamp=peak_ts)
+    p_claude = registry.get_pricing("claude-3-5-sonnet-20241022", request_timestamp=peak_ts)
+    p_deepseek = registry.get_pricing("deepseek/deepseek-chat", request_timestamp=peak_ts)
 
     assert (
         (p_exact.prompt_usd_per_million, p_exact.completion_usd_per_million),
@@ -194,6 +196,71 @@ def test_pricing_registry_remote_catalog_update(
             4.0,
             12.0,
             "genai_prices:mock-provider",
+        )
+    finally:
+        set_custom_snapshot(None)
+
+
+def test_pricing_registry_tiered_models_rates_and_costs(tmp_path: Path) -> None:
+    """Verify tiered models don't get double-priced for base rates and calculate exact costs."""
+    registry = PricingRegistry(data_dir=tmp_path)
+
+    # Base rates per million must come from small usage (<200k), not >200k tiered rates
+    p_sonnet = registry.get_pricing("claude-sonnet-4-5")
+    assert (p_sonnet.prompt_usd_per_million, p_sonnet.completion_usd_per_million) == (3.0, 15.0)
+
+    # Exact call calculation with 20K input and 2K output tokens:
+    # 20_000 * 3.0 / 1_000_000 = 0.06
+    # 2_000 * 15.0 / 1_000_000 = 0.03
+    # Total = 0.09
+    exact_cost = registry.calculate_request_cost(
+        "claude-sonnet-4-5",
+        prompt_tokens=20_000,
+        completion_tokens=2_000,
+    )
+    assert exact_cost == 0.09
+
+
+def test_pricing_registry_update_from_file_and_persistence(tmp_path: Path) -> None:
+    """Verify updating pricing from a local file persists snapshot and reloads on startup."""
+    import json
+
+    custom_data = [
+        {
+            "id": "file-provider",
+            "name": "File Provider",
+            "api_pattern": ".*",
+            "model_match": {"contains": "file"},
+            "models": [
+                {
+                    "id": "file-custom-model",
+                    "name": "File Custom Model",
+                    "match": {"equals": "file-custom-model"},
+                    "prices": {"input_mtok": 5.0, "output_mtok": 15.0},
+                }
+            ],
+        }
+    ]
+    file_path = tmp_path / "custom_prices.json"
+    file_path.write_text(json.dumps(custom_data), encoding="utf-8")
+
+    try:
+        registry = PricingRegistry(data_dir=tmp_path)
+        count = registry.update_from_remote(source_url=str(file_path))
+        assert count == 1
+
+        pricing = registry.get_pricing("file-custom-model")
+        assert (pricing.prompt_usd_per_million, pricing.completion_usd_per_million) == (5.0, 15.0)
+
+        # Verify snapshot file exists
+        assert (tmp_path / "ai" / "pricing_snapshot.json").is_file()
+
+        # Recreating registry reloads the snapshot from disk
+        reloaded = PricingRegistry(data_dir=tmp_path)
+        p_reloaded = reloaded.get_pricing("file-custom-model")
+        assert (p_reloaded.prompt_usd_per_million, p_reloaded.completion_usd_per_million) == (
+            5.0,
+            15.0,
         )
     finally:
         set_custom_snapshot(None)

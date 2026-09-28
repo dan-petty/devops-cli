@@ -7,6 +7,8 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from devops_cli.config.constants import CONST_CODE_EXEMPTION_RECEIVERS
+
 # The keyword patterns below match a word following "secret", "token" or "password". In
 # prose that word is usually English: "unify secret resolution" was rewritten to "unify
 # <masked-token>", and that corruption reached published release descriptions before anyone
@@ -47,9 +49,89 @@ def _mask_credential_like_value(match: re.Match[str]) -> str:
 # callable where the match also covers surrounding text that must survive.
 _Replacement = str | Callable[[re.Match[str]], str]
 
-# A value that is code rather than a credential: a call, index or collection expression, or a
-# dotted attribute path (`hashlib.md5(pw).hexdigest()`, `os.environ[...]`, `req.query.token`).
-_CODE_VALUE = re.compile(r"[(\[{]|^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$")
+
+def _handle_closing_bracket(
+    ch: str,
+    stack: list[str],
+    pairs: dict[str, str],
+    rest: str,
+    idx: int,
+) -> bool | None:
+    """Process a closing bracket; returns True/False if chain finished/invalid, or None to continue."""
+    if not stack or stack[-1] != pairs[ch]:
+        return False
+    stack.pop()
+    if stack:
+        return None
+    tail = rest[idx + 1 :]
+    return not tail or _is_code_chain_tail(tail)
+
+
+def _is_valid_bracket_chain(rest: str) -> bool:
+    """Validate that brackets in code expression are balanced and followed only by attribute or call chains."""
+    stack: list[str] = []
+    pairs = {")": "(", "]": "["}
+    for i, ch in enumerate(rest):
+        if ch in ("(", "["):
+            stack.append(ch)
+        elif ch in pairs:
+            res = _handle_closing_bracket(ch, stack, pairs, rest, i)
+            if res is not None:
+                return res
+    return False
+
+
+def _is_valid_segment(seg: str) -> bool:
+    """Check if an expression segment is an identifier or valid call/index."""
+    if not seg:
+        return False
+    for delimiter in ("(", "["):
+        if delimiter in seg:
+            idx = seg.find(delimiter)
+            return seg[:idx].isidentifier() and _is_valid_bracket_chain(seg[idx:])
+    return seg.isidentifier()
+
+
+def _is_code_chain_tail(tail: str) -> bool:
+    """Verify that a chain tail starting with '.' is composed of identifiers or calls."""
+    if not tail.startswith("."):
+        return False
+    segments = tail[1:].split(".")
+    return all(_is_valid_segment(seg) for seg in segments)
+
+
+def _is_code_call_or_index(val: str) -> bool:
+    """Check if value is a dotted identifier path followed by a call or index expression."""
+    idx_paren = val.find("(")
+    idx_bracket = val.find("[")
+    indices = [i for i in (idx_paren, idx_bracket) if i != -1]
+    if not indices:
+        return False
+    first_bracket_idx = min(indices)
+    if first_bracket_idx <= 0:
+        return False
+
+    prefix = val[:first_bracket_idx]
+    if not all(p.isidentifier() for p in prefix.split(".")):
+        return False
+
+    rest = val[first_bracket_idx:]
+    if rest in ("(", "["):
+        return True
+    return _is_valid_bracket_chain(rest)
+
+
+def _is_code_value(value: str) -> bool:
+    """Check if value is shaped like an unquoted code expression rather than a credential."""
+    val = value.strip()
+    if not val:
+        return False
+    parts = val.split(".")
+    if len(parts) >= 2 and all(p.isidentifier() for p in parts):
+        if parts[0] in CONST_CODE_EXEMPTION_RECEIVERS:
+            return True
+        return False
+    return _is_code_call_or_index(val)
 
 
 def _mask_literal(match: re.Match[str], masked: str) -> str:
@@ -58,7 +140,7 @@ def _mask_literal(match: re.Match[str], masked: str) -> str:
     Rewriting code before review hides defects: an MD5-hashed password or a token read from
     the query string turn into what look like harmless redactions.
     """
-    if not match.group("quote") and _CODE_VALUE.search(match.group("value")):
+    if not match.group("quote") and _is_code_value(match.group("value")):
         return match.group(0)
     return masked
 

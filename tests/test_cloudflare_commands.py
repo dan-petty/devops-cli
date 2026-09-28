@@ -177,9 +177,13 @@ def test_cloudflare_client_sync_tunnel_routes() -> None:
         ],
     )
 
-    with patch.object(
-        client, "update_tunnel_configuration", return_value=dummy_config
-    ) as mock_update:
+    with (
+        patch.object(client, "resolve_tunnel_id", return_value="tunnel-1"),
+        patch.object(client, "_request", return_value={"config": {"ingress": []}}),
+        patch.object(
+            client, "update_tunnel_configuration", return_value=dummy_config
+        ) as mock_update,
+    ):
         cfg = client.sync_tunnel_routes(
             tunnel_id="tunnel-1",
             domain="example.com",
@@ -342,6 +346,7 @@ def test_cli_cloudflare_dns_delete_dry_run(mock_settings: Settings) -> None:
             content="target.cfargotunnel.com",
             proxied=True,
             ttl=1,
+            comment="Managed by devops-cli",
         )
     ]
     with (
@@ -368,6 +373,7 @@ def test_cli_cloudflare_dns_delete_success(mock_settings: Settings) -> None:
             content="target.cfargotunnel.com",
             proxied=True,
             ttl=1,
+            comment="Managed by devops-cli",
         )
     ]
     with (
@@ -380,6 +386,126 @@ def test_cli_cloudflare_dns_delete_success(mock_settings: Settings) -> None:
             "Deleted" in result.output,
             mock_client.delete_dns_record.call_count,
         ) == (0, True, 1)
+
+
+def test_cli_cloudflare_dns_delete_unmanaged_protection(mock_settings: Settings) -> None:
+    """Verify unmanaged records are protected without --force and deleted with --force."""
+    mock_client = MagicMock()
+    mock_client.list_dns_records.return_value = [
+        CloudflareDNSRecord(
+            id="rec-unmanaged",
+            type="CNAME",
+            name="example.com",
+            content="target.cfargotunnel.com",
+            proxied=True,
+            ttl=1,
+            comment=None,
+        )
+    ]
+    with (
+        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
+        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
+    ):
+        res_safe = runner.invoke(app, ["dns", "delete", "example.com"])
+        res_force = runner.invoke(app, ["dns", "delete", "--force", "example.com"])
+
+    assert (
+        res_safe.exit_code,
+        "Records not found: example.com" in res_safe.output,
+        res_force.exit_code,
+        "Deleted" in res_force.output,
+        mock_client.delete_dns_record.call_count,
+    ) == (0, True, 0, True, 1)
+
+
+def test_cli_cloudflare_dns_delete_type_filtering(mock_settings: Settings) -> None:
+    """Verify --type filters DNS deletions by record type."""
+    mock_client = MagicMock()
+    mock_client.list_dns_records.return_value = [
+        CloudflareDNSRecord(
+            id="rec-cname",
+            type="CNAME",
+            name="example.com",
+            content="target.cfargotunnel.com",
+            proxied=True,
+            ttl=1,
+            comment="Managed by devops-cli",
+        ),
+        CloudflareDNSRecord(
+            id="rec-a",
+            type="A",
+            name="example.com",
+            content="1.2.3.4",
+            proxied=False,
+            ttl=1,
+            comment="Managed by devops-cli",
+        ),
+    ]
+    with (
+        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
+        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
+    ):
+        res = runner.invoke(app, ["dns", "delete", "--type", "A", "example.com"])
+
+    assert (
+        res.exit_code,
+        mock_client.delete_dns_record.call_count,
+        mock_client.delete_dns_record.call_args[0][0],
+    ) == (0, 1, "rec-a")
+
+
+def test_cloudflare_client_list_dns_records_pagination() -> None:
+    """Verify list_dns_records pages through all results when total_pages > 1."""
+    client = CloudflareClient(token="test-token", zone_id="zone-1")
+    page1 = (
+        [{"id": "rec-1", "type": "A", "name": "a.example.com", "content": "1.2.3.4"}],
+        {"total_pages": 2, "page": 1, "per_page": 1},
+    )
+    page2 = (
+        [{"id": "rec-2", "type": "A", "name": "b.example.com", "content": "1.2.3.5"}],
+        {"total_pages": 2, "page": 2, "per_page": 1},
+    )
+    with patch.object(client, "_request", side_effect=[page1, page2]):
+        records = client.list_dns_records()
+    assert (len(records), records[0].id, records[1].id) == (2, "rec-1", "rec-2")
+
+
+def test_cloudflare_client_sync_tunnel_routes_preserves_rules() -> None:
+    """Verify sync_tunnel_routes preserves custom rules and catch-all 404."""
+    client = CloudflareClient(token="test-token", account_id="acc-1")
+    existing_cfg = {
+        "config": {
+            "warp-routing": {"enabled": True},
+            "ingress": [
+                {"hostname": "custom.example.com", "service": "http://custom:8080"},
+                {"service": "http_status:404"},
+            ],
+        }
+    }
+    dummy_result = CloudflareTunnelConfig(
+        tunnel_id="tunnel-1",
+        ingress=[
+            CloudflareTunnelIngressRule(
+                hostname="custom.example.com", service="http://custom:8080"
+            ),
+            CloudflareTunnelIngressRule(hostname="example.com", service="http://traefik:80"),
+            CloudflareTunnelIngressRule(service="http_status:404"),
+        ],
+    )
+    with (
+        patch.object(client, "resolve_tunnel_id", return_value="tunnel-1"),
+        patch.object(client, "_request", return_value=existing_cfg),
+        patch.object(
+            client, "update_tunnel_configuration", return_value=dummy_result
+        ) as mock_update,
+    ):
+        cfg = client.sync_tunnel_routes(
+            tunnel_id="tunnel-1",
+            domain="example.com",
+            service="http://traefik:80",
+            subdomains=["@"],
+        )
+    assert (len(cfg.ingress), mock_update.call_count) == (3, 1)
 
 
 def test_cli_cloudflare_dns_delete_not_found(mock_settings: Settings) -> None:
@@ -507,3 +633,154 @@ def test_cli_cloudflare_access_sync_success(mock_settings: Settings) -> None:
             "Configured Cloudflare Access application" in result.output,
             mock_client.sync_access_application.call_count,
         ) == (0, True, 1)
+
+
+def test_normalize_ip_cidr_variants() -> None:
+    """Verify IP normalization converts addresses and networks to CIDR notation."""
+    from devops_cli.cloudflare.client import _normalize_ip_cidr
+    from devops_cli.exceptions.cloudflare import CloudflareAPIError
+
+    assert (
+        _normalize_ip_cidr("198.51.100.1"),
+        _normalize_ip_cidr("198.51.100.0/24"),
+        _normalize_ip_cidr("2001:db8::1"),
+    ) == (
+        "198.51.100.1/32",
+        "198.51.100.0/24",
+        "2001:db8::1/128",
+    )
+    with pytest.raises(CloudflareAPIError):
+        _normalize_ip_cidr("not-an-ip")
+
+
+def test_cloudflare_client_sync_access_with_bypass_ips() -> None:
+    """Verify synchronizing an Access application creates bypass policy for homelab IP."""
+    client = CloudflareClient(token="test-token", account_id="acc-1")
+    dummy_app = CloudflareAccessApplication(
+        id="app-1",
+        name="Homelab Ingress",
+        domain="example.com",
+    )
+    dummy_allow = CloudflareAccessPolicy(
+        id="pol-allow",
+        name="Allow homelab authorized emails",
+        decision="allow",
+        include=[{"email": {"email": "user@example.com"}}],
+    )
+    dummy_bypass = CloudflareAccessPolicy(
+        id="pol-bypass",
+        name="homelab-public-ip-bypass",
+        decision="bypass",
+        include=[{"ip": {"ip": "198.51.100.1/32"}}],
+    )
+    with (
+        patch.object(client, "list_access_applications", return_value=[dummy_app]),
+        patch.object(
+            client,
+            "create_or_update_access_policy",
+            side_effect=[dummy_allow, dummy_bypass],
+        ) as mock_policy,
+    ):
+        res = client.sync_access_application(
+            domain="example.com",
+            allowed_emails=["user@example.com"],
+            bypass_ips=["198.51.100.1"],
+        )
+        assert (
+            res.get("app_id"),
+            res.get("app_action"),
+            res.get("policy_id"),
+            res.get("bypass_policy_id"),
+            res.get("bypass_ips"),
+            mock_policy.call_count,
+        ) == (
+            "app-1",
+            "existing",
+            "pol-allow",
+            "pol-bypass",
+            ["198.51.100.1"],
+            2,
+        )
+
+
+def test_cli_cloudflare_access_sync_with_bypass_ips(mock_settings: Settings) -> None:
+    """Verify CLI access sync propagates --bypass-ips and displays bypass output."""
+    mock_settings.cloudflare.access.allowed_emails = ["admin@example.com"]
+    mock_client = MagicMock()
+    mock_client.sync_access_application.return_value = {
+        "app_id": "app-1",
+        "app_name": "Homelab Ingress",
+        "domain": "example.com",
+        "app_action": "created",
+        "policy_id": "pol-1",
+        "allowed_emails": ["admin@example.com"],
+        "bypass_ips": ["198.51.100.1/32"],
+        "bypass_policy_id": "pol-bypass-1",
+    }
+    with (
+        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
+        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
+    ):
+        result = runner.invoke(app, ["access", "sync", "--bypass-ips", "198.51.100.1"])
+        assert (
+            result.exit_code,
+            "Public IP bypass: 198.51.100.1/32" in result.output,
+            "homelab-public-ip-bypass" in result.output,
+            mock_client.sync_access_application.call_count,
+        ) == (0, True, True, 1)
+
+
+def test_cli_cloudflare_access_sync_settings_bypass_ip(mock_settings: Settings) -> None:
+    """Verify CLI access sync resolves bypass IP from settings.cloudflare.public_ip_bypass."""
+    mock_settings.cloudflare.access.allowed_emails = ["admin@example.com"]
+    mock_settings.cloudflare.public_ip_bypass = "198.51.100.5"
+    mock_client = MagicMock()
+    mock_client.sync_access_application.return_value = {
+        "app_id": "app-1",
+        "app_name": "Homelab Ingress",
+        "domain": "example.com",
+        "app_action": "existing",
+        "policy_id": "pol-1",
+        "allowed_emails": ["admin@example.com"],
+        "bypass_ips": ["198.51.100.5/32"],
+        "bypass_policy_id": "pol-bypass-2",
+    }
+    with (
+        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
+        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
+    ):
+        result = runner.invoke(app, ["access", "sync"])
+        assert (
+            result.exit_code,
+            mock_client.sync_access_application.call_args.kwargs.get("bypass_ips"),
+        ) == (0, ["198.51.100.5"])
+
+
+def test_cli_cloudflare_access_policies(mock_settings: Settings) -> None:
+    """Verify devops cloudflare access policies lists application policies."""
+    mock_client = MagicMock()
+    mock_client.get_access_policies.return_value = [
+        CloudflareAccessPolicy(
+            id="989871c6-c652-45c6-b8f0-b56e761afc35",
+            name="homelab-public-ip-bypass",
+            decision="bypass",
+            include=[{"ip": {"ip": "198.51.100.1/32"}}],
+        ),
+        CloudflareAccessPolicy(
+            id="pol-allow",
+            name="Allow homelab authorized emails",
+            decision="allow",
+            include=[{"email": {"email": "user@example.com"}}],
+        ),
+    ]
+    with (
+        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
+        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
+    ):
+        result = runner.invoke(app, ["access", "policies", "app-123"])
+        assert (
+            result.exit_code,
+            "homelab-public-ip-bypass" in result.output,
+            "bypass" in result.output,
+            "Allow homelab authorized emails" in result.output,
+        ) == (0, True, True, True)

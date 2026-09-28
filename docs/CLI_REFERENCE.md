@@ -7601,6 +7601,8 @@ devops cloudflare dns delete [OPTIONS] <targets>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--type`, `-t` | `string` | - | Filter by DNS record type (e.g. CNAME, A, TXT) |
+| `--force`, `-f` | `boolean` | - | Force deletion of records not marked as 'Managed by devops-cli' |
 | `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
 | `--dry-run` | `boolean` | - | Preview DNS record deletions without applying changes |
 | `--json`, `-j` | `boolean` | - | Output deletion results in JSON format |
@@ -7682,9 +7684,31 @@ devops cloudflare access sync [OPTIONS]
 |---|---|---|---|
 | `--domain`, `-d` | `string` | - | Domain to protect with Cloudflare Access |
 | `--allowed-emails`, `-e` | `string` | - | Comma-separated emails permitted to access |
+| `--bypass-ips`, `-b` | `string` | - | Comma-separated public IP addresses or CIDRs to bypass Access authentication (e.g. homelab public IP) |
 | `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
 | `--dry-run` | `boolean` | - | Preview Access application changes without applying |
 | `--json`, `-j` | `boolean` | - | Output Access sync summary in JSON format |
+
+#### `devops cloudflare access policies`
+
+**List Cloudflare Zero Trust Access policies for an application.**
+
+```bash
+devops cloudflare access policies [OPTIONS] <app_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<app_id>` | `string` | Yes | Access application ID |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--json`, `-j` | `boolean` | - | Output policies in JSON format |
 
 ---
 

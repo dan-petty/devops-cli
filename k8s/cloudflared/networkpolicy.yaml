@@ -15,12 +15,11 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow Prometheus metrics scraping on port 2000 from monitoring namespace
+    # Allow Prometheus metrics scraping on port 2000 strictly from monitoring namespace
     - from:
         - namespaceSelector:
             matchLabels:
-              app.kubernetes.io/part-of: devops-cli-stack
-        - podSelector: {}
+              kubernetes.io/metadata.name: monitoring
       ports:
         - protocol: TCP
           port: 2000
@@ -35,17 +34,22 @@ spec:
     - ports:
         - protocol: TCP
           port: 443
-    # Allow outbound QUIC to Cloudflare Edge
+    # Allow outbound tunnel traffic to Cloudflare Edge (QUIC UDP 7844 and TCP 7844 fallback)
     - ports:
         - protocol: UDP
           port: 7844
-    # Allow forwarding traffic to Ingress Controller within cluster
-    - ports:
+        - protocol: TCP
+          port: 7844
+    # Allow forwarding traffic exclusively to Traefik in kube-system
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
         - protocol: TCP
           port: 80
         - protocol: TCP
           port: 443
-        - protocol: TCP
-          port: 8000
-        - protocol: TCP
-          port: 8443

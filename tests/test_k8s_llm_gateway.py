@@ -676,10 +676,47 @@ class TestK8sLLMGatewayManifests:
             "192.168.0.0/16" in no_proxy,
             ".lan" in no_proxy,
             ".local" in no_proxy,
+            "*.ollama-nodes.llm.svc.cluster.local" in no_proxy,
+            "ollama-volta-1.llm.svc.cluster.local" in no_proxy,
         ) == (
             True,
             True,
             True,
             True,
             True,
+            True,
+            True,
         )
+
+    def test_gateway_egress_admits_all_backends_in_configmap(self) -> None:
+        """Verify the gateway's network policy admits egress to all backends configured in configmap."""
+        netpol = _load_kind(GATEWAY_DIR / "networkpolicy.yaml", "NetworkPolicy")
+
+        egress_selectors = [
+            peer["podSelector"]["matchLabels"]
+            for rule in netpol["spec"]["egress"]
+            if "to" in rule
+            for peer in rule["to"]
+            if "podSelector" in peer
+        ]
+        allowed_names = {
+            sel["app.kubernetes.io/name"]
+            for sel in egress_selectors
+            if "app.kubernetes.io/name" in sel
+        }
+        allowed_providers = {
+            sel["llm.devops.io/provider"]
+            for sel in egress_selectors
+            if "llm.devops.io/provider" in sel
+        }
+
+        assert (
+            "ollama-volta-1" in allowed_names,
+            "ollama" in allowed_names,
+            "vllm" in allowed_names,
+            "vllm-single" in allowed_names,
+            "lightllm" in allowed_names,
+            "valkey" in allowed_names,
+            "ollama" in allowed_providers,
+            "vllm" in allowed_providers,
+        ) == (True, True, True, True, True, True, True, True)

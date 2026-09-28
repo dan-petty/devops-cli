@@ -6,7 +6,7 @@ import contextlib
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextvars import ContextVar
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -77,7 +77,7 @@ SELECT
     COALESCE(SUM(total_tokens), 0) as t_tokens,
     COALESCE(SUM(cost_usd), 0.0) as s_cost
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= datetime('now', ?))
+WHERE (? IS NULL OR timestamp >= ?)
 GROUP BY stage_name
 ORDER BY s_cost DESC, t_tokens DESC;
 """
@@ -95,7 +95,7 @@ SELECT
     MIN(timestamp) as first_ts,
     MAX(timestamp) as last_ts
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= datetime('now', ?));
+WHERE (? IS NULL OR timestamp >= ?);
 """
 
 _QUERY_SERVER_BREAKDOWN = """
@@ -111,7 +111,7 @@ SELECT
     MIN(timestamp) as f_seen,
     MAX(timestamp) as l_seen
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= datetime('now', ?))
+WHERE (? IS NULL OR timestamp >= ?)
 GROUP BY server, provider
 ORDER BY s_cost DESC, t_tokens DESC;
 """
@@ -126,7 +126,7 @@ SELECT
     COALESCE(SUM(total_tokens), 0) as t_tokens,
     COALESCE(SUM(cost_usd), 0.0) as m_cost
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= datetime('now', ?))
+WHERE (? IS NULL OR timestamp >= ?)
 GROUP BY model, provider
 ORDER BY m_cost DESC, t_tokens DESC;
 """
@@ -139,7 +139,7 @@ SELECT
     COALESCE(SUM(cost_usd), 0.0) as p_cost,
     COUNT(DISTINCT server) as s_count
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= datetime('now', ?))
+WHERE (? IS NULL OR timestamp >= ?)
 GROUP BY provider
 ORDER BY p_cost DESC;
 """
@@ -154,7 +154,7 @@ SELECT
     COALESCE(SUM(total_tokens), 0) as t_tokens,
     COALESCE(AVG(duration_seconds), 0.0) as mean_duration
 FROM ai_spend_records
-WHERE served_by IS NOT NULL AND (? IS NULL OR timestamp >= datetime('now', ?))
+WHERE served_by IS NOT NULL AND (? IS NULL OR timestamp >= ?)
 GROUP BY served_by
 ORDER BY req_count DESC, t_tokens DESC;
 """
@@ -228,9 +228,17 @@ class SpendLedger:
             conn.execute(_QUERY_CREATE_TABLE)
             columns = {row["name"] for row in conn.execute(_QUERY_TABLE_COLUMNS).fetchall()}
             if "served_by" not in columns:
-                conn.execute(_QUERY_ADD_SERVED_BY)
+                try:
+                    conn.execute(_QUERY_ADD_SERVED_BY)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
             if "stage" not in columns:
-                conn.execute(_QUERY_ADD_STAGE)
+                try:
+                    conn.execute(_QUERY_ADD_STAGE)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
             conn.execute(_QUERY_IDX_SERVED_BY)
             conn.execute(_QUERY_IDX_STAGE)
             conn.execute(_QUERY_IDX_TIMESTAMP)
@@ -307,8 +315,8 @@ class SpendLedger:
         """Construct parameterized filter values for date range."""
         if days is None or days <= 0:
             return (None, None)
-        offset = f"-{days} days"
-        return (offset, offset)
+        cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        return (cutoff, cutoff)
 
     @staticmethod
     def _resolve_reference_model(reference_model: str | None = None) -> str:
@@ -597,8 +605,19 @@ def track_request_spend(
     )
 
     active_ledger = ledger or get_spend_ledger()
-    pricing = get_pricing_registry().get_pricing(model, server=server, provider=provider)
-    cost = pricing.calculate_cost(prompt_tokens, completion_tokens) if not cached else 0.0
+    now_utc = datetime.now(UTC)
+    cost = (
+        get_pricing_registry().calculate_request_cost(
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            server=server,
+            provider=provider,
+            request_timestamp=now_utc,
+        )
+        if not cached
+        else 0.0
+    )
     effective_stage = resolve_spend_stage(stage)
     try:
         rec = active_ledger.record_request(
@@ -613,6 +632,7 @@ def track_request_spend(
             cached=cached,
             request_type=request_type,
             duration_seconds=duration_seconds,
+            timestamp=now_utc.isoformat(),
             stage=effective_stage,
         )
     except Exception:

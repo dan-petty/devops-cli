@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Annotated, Any
 
 import typer
@@ -16,6 +16,7 @@ from devops_cli.config.constants import (
     CONST_ADDRESSING_MODES,
     CONST_ADDRESSING_NODEPORT,
     CONST_ADDRESSING_PROXY,
+    CONST_AI_GATEWAY_PROVIDER,
     CONST_K8S_URL_SCHEME,
     CONST_LOCAL_DOMAIN_SUFFIXES,
     CONST_LOCAL_HOSTNAMES,
@@ -395,6 +396,34 @@ def _configure_infra_stack_urls(
             configured["otel.endpoint"] = otel_url
 
 
+def _should_update_valkey(settings: Any, valkey_url: str | None) -> bool:
+    """Determine whether detected valkey_url should update valkey host/port configuration."""
+    from urllib.parse import urlparse
+
+    from devops_cli.config.constants import CONST_LOCAL_HOSTNAMES
+
+    if not valkey_url:
+        return False
+    valkey_cfg = getattr(settings, "valkey", None)
+    if valkey_cfg is None:
+        return True
+
+    existing_url = getattr(valkey_cfg, "url", None)
+    if existing_url and not _should_update_url(existing_url, valkey_url):
+        return False
+
+    existing_host_raw = getattr(valkey_cfg, "host", "") or ""
+    existing_host = existing_host_raw.split(":")[0].strip().lower()
+    new_host = (urlparse(valkey_url).hostname or "").strip().lower()
+    if (
+        existing_host
+        and existing_host not in CONST_LOCAL_HOSTNAMES
+        and new_host in CONST_LOCAL_HOSTNAMES
+    ):
+        return False
+    return True
+
+
 def _configure_llm_stack_urls(
     effective_context: str | None,
     settings: Any,
@@ -430,7 +459,7 @@ def _configure_llm_stack_urls(
         getattr(settings.qdrant, "url", None),
         default_url=DEFAULT_QDRANT_URL,
     )
-    if valkey_url and _should_update_url(getattr(settings.valkey, "url", None), valkey_url):
+    if valkey_url and _should_update_valkey(settings, valkey_url):
         dotted_set(settings, "valkey.url", valkey_url)
         p_valkey = urlparse(valkey_url)
         if p_valkey.port:
@@ -538,7 +567,27 @@ def _preview_nodeport_addresses(stacks: Sequence[str]) -> dict[str, str]:
     return preview
 
 
-def _extract_rule_hosts(rules: list[dict[str, Any]], svc_hosts: dict[str, list[str]]) -> None:
+def _record_host_for_service(
+    svc_hosts: dict[str, list[str]],
+    svc_name: str,
+    host: str,
+    namespace: str | None = None,
+) -> None:
+    """Append host to service entry and optional namespace-qualified entry."""
+    hosts = svc_hosts.setdefault(svc_name, [])
+    if host not in hosts:
+        hosts.append(host)
+    if namespace:
+        ns_hosts = svc_hosts.setdefault(f"{namespace}:{svc_name}", [])
+        if host not in ns_hosts:
+            ns_hosts.append(host)
+
+
+def _extract_rule_hosts(
+    rules: list[dict[str, Any]],
+    svc_hosts: dict[str, list[str]],
+    namespace: str | None = None,
+) -> None:
     """Extract backend service host mappings from ingress rules."""
     for rule in rules:
         host = rule.get("host")
@@ -547,9 +596,7 @@ def _extract_rule_hosts(rules: list[dict[str, Any]], svc_hosts: dict[str, list[s
         for path_entry in rule.get("http", {}).get("paths", []):
             svc_name = path_entry.get("backend", {}).get("service", {}).get("name")
             if svc_name:
-                hosts = svc_hosts.setdefault(svc_name, [])
-                if host not in hosts:
-                    hosts.append(host)
+                _record_host_for_service(svc_hosts, svc_name, host, namespace)
 
 
 def _discover_ingress_hosts(effective_ctx: str | None = None) -> dict[str, list[str]]:
@@ -570,7 +617,8 @@ def _discover_ingress_hosts(effective_ctx: str | None = None) -> dict[str, list[
             return {}
         svc_hosts: dict[str, list[str]] = {}
         for item in json.loads(res.stdout).get("items", []):
-            _extract_rule_hosts(item.get("spec", {}).get("rules", []), svc_hosts)
+            ns = item.get("metadata", {}).get("namespace")
+            _extract_rule_hosts(item.get("spec", {}).get("rules", []), svc_hosts, namespace=ns)
         return svc_hosts
     except Exception as exc:
         logger.debug("Failed discovering Ingress hosts: %s", exc)
@@ -589,18 +637,107 @@ def _select_best_ingress_host(hosts: list[str], preferred_domain: str | None = N
     return hosts[0]
 
 
-def _find_service_ingress_url(
+def _ingress_matches(key: str, hosts: list[str], service_pattern: str) -> bool:
+    """Check if service pattern matches ingress key or any of its hostnames."""
+    return service_pattern in key or any(service_pattern in h for h in hosts)
+
+
+def _search_ingress_hosts(
+    items: Iterable[tuple[str, list[str]]],
     service_pattern: str,
-    ingress_map: dict[str, list[str]],
-    preferred_domain: str | None = None,
+    preferred_domain: str | None,
 ) -> str | None:
-    """Find and construct HTTPS endpoint for a service pattern from discovered ingress hosts."""
-    for svc_name, hosts in ingress_map.items():
-        if service_pattern in svc_name:
+    """Search ingress items for matching service pattern and return https URL if found."""
+    for key, hosts in items:
+        if _ingress_matches(key, hosts, service_pattern):
             chosen = _select_best_ingress_host(hosts, preferred_domain=preferred_domain)
             if chosen:
                 return f"https://{chosen}"
     return None
+
+
+def _find_service_ingress_url(
+    service_pattern: str,
+    ingress_map: dict[str, list[str]],
+    preferred_domain: str | None = None,
+    namespace: str | None = None,
+) -> str | None:
+    """Find and construct HTTPS endpoint for a service pattern from discovered ingress hosts."""
+    if namespace:
+        prefix = f"{namespace}:"
+        ns_items = ((k, v) for k, v in ingress_map.items() if k.startswith(prefix))
+        found = _search_ingress_hosts(ns_items, service_pattern, preferred_domain)
+        if found:
+            return found
+    return _search_ingress_hosts(ingress_map.items(), service_pattern, preferred_domain)
+
+
+_FQDN_TARGETS_INFRA: tuple[tuple[str, str], ...] = (
+    ("argocd.url", "argocd"),
+    ("grafana.url", "grafana"),
+    ("prometheus.url", "prome-prometheus"),
+)
+_FQDN_TARGETS_LLM: tuple[tuple[str, str], ...] = (
+    ("open_webui.url", "open-webui"),
+    ("qdrant.url", "qdrant"),
+)
+
+
+def _apply_fqdn_targets(
+    settings: Any,
+    configured: dict[str, str],
+    ingress_map: dict[str, list[str]],
+    domain: str | None,
+    targets: Sequence[tuple[str, str]],
+) -> None:
+    """Apply resolved FQDN ingress URLs for specified service targets."""
+    for key, pattern in targets:
+        url = _find_service_ingress_url(pattern, ingress_map, preferred_domain=domain)
+        if url:
+            _apply_service_url(
+                settings,
+                configured,
+                key,
+                url,
+                getattr(getattr(settings, key.split(".")[0], None), "url", None),
+            )
+
+
+def _update_task_gateway_urls(settings: Any, full_gw: str) -> None:
+    """Update gateway URL for tasks explicitly configured with the gateway provider."""
+    from devops_cli.config.settings import dotted_set
+
+    tasks_cfg = getattr(getattr(settings, "ai", None), "tasks", None)
+    if not tasks_cfg:
+        return
+    for task_name in ("analysis", "chat"):
+        task_cfg = getattr(tasks_cfg, task_name, None)
+        if task_cfg and getattr(task_cfg, "provider", None) == CONST_AI_GATEWAY_PROVIDER:
+            if _should_update_url(getattr(task_cfg, "api_base_url", None), full_gw):
+                dotted_set(settings, f"ai.tasks.{task_name}.api_base_url", full_gw)
+
+
+def _configure_fqdn_gateway(
+    settings: Any,
+    configured: dict[str, str],
+    ingress_map: dict[str, list[str]],
+    domain: str | None,
+) -> None:
+    """Configure AI gateway URL from discovered ingress endpoints."""
+    from devops_cli.config.settings import dotted_set
+
+    gw_url = _find_service_ingress_url(
+        "ai", ingress_map, preferred_domain=domain, namespace="llm"
+    ) or _find_service_ingress_url(
+        "llm-gateway", ingress_map, preferred_domain=domain, namespace="llm"
+    )
+    if gw_url:
+        full_gw = f"{gw_url}/v1"
+        existing_gw = getattr(getattr(settings, "ai", None), "gateway_url", None)
+        if _should_update_url(existing_gw, full_gw):
+            dotted_set(settings, "ai.gateway_url", full_gw)
+            configured["ai.gateway_url"] = full_gw
+        _update_task_gateway_urls(settings, full_gw)
 
 
 def _configure_fqdn_urls(
@@ -610,8 +747,6 @@ def _configure_fqdn_urls(
     stacks: Sequence[str],
 ) -> None:
     """Detect Ingress hosts and configure domain-based FQDN service URLs."""
-    from devops_cli.config.settings import dotted_set
-
     ingress_map = _discover_ingress_hosts(effective_context)
     if not ingress_map:
         return
@@ -621,44 +756,10 @@ def _configure_fqdn_urls(
     )
 
     if "infra" in stacks:
-        for key, pattern in (
-            ("argocd.url", "argocd"),
-            ("grafana.url", "grafana"),
-            ("prometheus.url", "prome-prometheus"),
-        ):
-            url = _find_service_ingress_url(pattern, ingress_map, preferred_domain=domain)
-            if url:
-                _apply_service_url(
-                    settings,
-                    configured,
-                    key,
-                    url,
-                    getattr(getattr(settings, key.split(".")[0], None), "url", None),
-                )
-
+        _apply_fqdn_targets(settings, configured, ingress_map, domain, _FQDN_TARGETS_INFRA)
     if "llm" in stacks:
-        for key, pattern in (
-            ("open_webui.url", "open-webui"),
-            ("qdrant.url", "qdrant"),
-        ):
-            url = _find_service_ingress_url(pattern, ingress_map, preferred_domain=domain)
-            if url:
-                _apply_service_url(
-                    settings,
-                    configured,
-                    key,
-                    url,
-                    getattr(getattr(settings, key.split(".")[0], None), "url", None),
-                )
-
-        gw_url = _find_service_ingress_url("llm-gateway", ingress_map, preferred_domain=domain)
-        if gw_url:
-            full_gw = f"{gw_url}/v1"
-            dotted_set(settings, "ai.gateway_url", full_gw)
-            settings.ai.gateway_enabled = True
-            dotted_set(settings, "ai.tasks.analysis.api_base_url", full_gw)
-            dotted_set(settings, "ai.tasks.chat.api_base_url", full_gw)
-            configured["ai.gateway_url"] = full_gw
+        _apply_fqdn_targets(settings, configured, ingress_map, domain, _FQDN_TARGETS_LLM)
+        _configure_fqdn_gateway(settings, configured, ingress_map, domain)
 
 
 def _preview_fqdn_addresses(stacks: Sequence[str]) -> dict[str, str]:
@@ -698,9 +799,7 @@ def _dispatch_nodeport_urls(
     configured: dict[str, str],
     stacks: Sequence[str],
 ) -> None:
-    """Configure URLs in nodeport mode with optional FQDN ingress fallback."""
-    if getattr(getattr(settings, "k8s", None), "domain", None):
-        _configure_fqdn_urls(effective_ctx, settings, configured, stacks)
+    """Configure URLs in nodeport mode."""
     if "infra" in stacks:
         _configure_infra_stack_urls(effective_ctx, settings, configured)
     if "llm" in stacks:
@@ -728,12 +827,10 @@ def _resolve_effective_addressing(addressing: str | None, settings: Any) -> str:
     if addressing is not None:
         return addressing
     configured_mode = getattr(getattr(settings, "k8s", None), "addressing", None)
-    if configured_mode in (CONST_ADDRESSING_FQDN, CONST_ADDRESSING_INGRESS, CONST_ADDRESSING_PROXY):
+    if configured_mode in CONST_ADDRESSING_MODES:
         return str(configured_mode)
     if getattr(getattr(settings, "k8s", None), "domain", None):
         return CONST_ADDRESSING_FQDN
-    if configured_mode in CONST_ADDRESSING_MODES:
-        return str(configured_mode)
     return CONST_ADDRESSING_NODEPORT
 
 

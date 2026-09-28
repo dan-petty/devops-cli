@@ -288,6 +288,11 @@ def test_sanitizing_still_removes_praise_reasoning_and_leaks(text: str, expected
         ("password: hunter2hunter2", True),
         ('password = "hunter2(x)y"', True),
         ("https://bob:s3cr3tpass@db.example.com/x", True),
+        ("password: hunter2(x)y", True),
+        ("password=Xk9{mP2[qL7z", True),
+        ("password: correct.horse.battery", True),
+        ("token=Ab3dEf[gh]Ij9kLmN", True),
+        ("--password=Pa(ss)word1!", True),
     ],
 )
 def test_redaction_masks_secrets_but_not_code(code: str, masked: bool) -> None:

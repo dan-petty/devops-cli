@@ -20,6 +20,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_PRICING_OVERRIDES_FILENAME,
 )
 from devops_cli.config.settings import load_settings
+from devops_cli.core.repo import resolve_data_path
 
 
 def _normalize_model_name(model: str) -> str:
@@ -97,18 +98,27 @@ def _candidate_models(model: str) -> tuple[str, ...]:
     return tuple(candidates)
 
 
-def _query_genai_prices(model: str, provider: str | None = None) -> ModelPricing | None:
+def _query_genai_prices(
+    model: str,
+    provider: str | None = None,
+    request_timestamp: datetime | None = None,
+) -> ModelPricing | None:
     import genai_prices
 
-    usage = genai_prices.Usage(input_tokens=1_000_000, output_tokens=1_000_000)
+    usage = genai_prices.Usage(input_tokens=1_000, output_tokens=1_000)
     candidates = _candidate_models(model)
     prov_id = provider.strip().lower() if provider else None
     for cand in candidates:
         try:
-            p = genai_prices.calc_price(usage, cand, provider_id=prov_id)
+            p = genai_prices.calc_price(
+                usage,
+                cand,
+                provider_id=prov_id,
+                genai_request_timestamp=request_timestamp,
+            )
             return ModelPricing(
-                prompt_usd_per_million=float(p.input_price),
-                completion_usd_per_million=float(p.output_price),
+                prompt_usd_per_million=round(float(p.input_price) * 1_000.0, 6),
+                completion_usd_per_million=round(float(p.output_price) * 1_000.0, 6),
                 source=f"genai_prices:{p.provider.id}",
             )
         except Exception:
@@ -116,10 +126,14 @@ def _query_genai_prices(model: str, provider: str | None = None) -> ModelPricing
     if prov_id is not None:
         for cand in candidates:
             try:
-                p = genai_prices.calc_price(usage, cand)
+                p = genai_prices.calc_price(
+                    usage,
+                    cand,
+                    genai_request_timestamp=request_timestamp,
+                )
                 return ModelPricing(
-                    prompt_usd_per_million=float(p.input_price),
-                    completion_usd_per_million=float(p.output_price),
+                    prompt_usd_per_million=round(float(p.input_price) * 1_000.0, 6),
+                    completion_usd_per_million=round(float(p.output_price) * 1_000.0, 6),
                     source=f"genai_prices:{p.provider.id}",
                 )
             except Exception:
@@ -132,19 +146,41 @@ class PricingRegistry:
 
     def __init__(self, data_dir: Path | None = None) -> None:
         if data_dir is not None:
-            self.data_dir = data_dir
+            self.data_dir = Path(data_dir)
         else:
             settings = load_settings()
-            self.data_dir = settings.data.dir
+            self.data_dir = resolve_data_path(Path(settings.data.dir))
         self.ai_dir = self.data_dir / "ai"
         self.overrides_path = self.ai_dir / DEFAULT_AI_PRICING_OVERRIDES_FILENAME
+        self.snapshot_path = self.ai_dir / "pricing_snapshot.json"
         self._catalog: dict[str, ModelPricing] = {}
         self._overrides: dict[str, ModelPricing] = {}
         self._pricing_cache: dict[str, ModelPricing] = {}
         self._load_local_data()
 
     def _load_local_data(self) -> None:
-        """Load user-defined pricing overrides if present."""
+        """Load user-defined pricing overrides and cached remote snapshot if present."""
+        self._load_persisted_snapshot()
+        self._load_persisted_overrides()
+
+    def _load_persisted_snapshot(self) -> None:
+        """Load cached snapshot from disk to restore previously updated prices."""
+        if not self.snapshot_path.is_file():
+            return
+        try:
+            from genai_prices.data_snapshot import DataSnapshot, set_custom_snapshot
+            from genai_prices.types import _providers_from_raw
+
+            raw_snap = json.loads(self.snapshot_path.read_text(encoding="utf-8"))
+            if isinstance(raw_snap, list):
+                set_custom_snapshot(
+                    DataSnapshot(_providers_from_raw(raw_snap), from_auto_update=True)
+                )
+        except Exception:
+            pass
+
+    def _load_persisted_overrides(self) -> None:
+        """Load user custom pricing overrides file."""
         if not self.overrides_path.is_file():
             return
         try:
@@ -156,24 +192,31 @@ class PricingRegistry:
         except Exception:
             self._overrides = {}
 
-    def get_pricing(
-        self,
-        model: str,
-        server: str | None = None,
-        provider: str | None = None,
-    ) -> ModelPricing:
-        """Resolve token pricing in priority order: overrides, local zero-cost, genai-prices lookup."""
+    def _get_override_pricing(self, model: str, server: str | None) -> ModelPricing | None:
+        """Resolve custom pricing override if configured for model or server."""
         m_key = model.strip().lower()
         if m_key in self._overrides:
             return self._overrides[m_key]
         norm_key = _normalize_model_name(model)
         if norm_key in self._overrides:
             return self._overrides[norm_key]
-
         if server:
             srv_pricing = self._overrides.get(server.strip().lower())
             if srv_pricing is not None:
                 return srv_pricing
+        return None
+
+    def get_pricing(
+        self,
+        model: str,
+        server: str | None = None,
+        provider: str | None = None,
+        request_timestamp: datetime | None = None,
+    ) -> ModelPricing:
+        """Resolve token pricing in priority order: overrides, local zero-cost, genai-prices lookup."""
+        override = self._get_override_pricing(model, server)
+        if override is not None:
+            return override
 
         if _is_local(server=server, provider=provider):
             return ModelPricing(
@@ -183,23 +226,100 @@ class PricingRegistry:
             )
 
         prov_clean = provider.strip().lower() if provider else ""
-        cache_key = f"{prov_clean}:{m_key}"
-        cached = self._pricing_cache.get(cache_key)
-        if cached is not None:
-            return cached
+        cache_key = f"{prov_clean}:{model.strip().lower()}"
+        if request_timestamp is None and cache_key in self._pricing_cache:
+            return self._pricing_cache[cache_key]
 
-        resolved = _query_genai_prices(model, provider=provider)
-        if resolved is not None:
-            self._pricing_cache[cache_key] = resolved
-            return resolved
-
-        unknown = ModelPricing(
+        resolved = _query_genai_prices(
+            model, provider=provider, request_timestamp=request_timestamp
+        )
+        pricing = resolved or ModelPricing(
             prompt_usd_per_million=0.0,
             completion_usd_per_million=0.0,
             source="unknown",
         )
-        self._pricing_cache[cache_key] = unknown
-        return unknown
+        if request_timestamp is None:
+            self._pricing_cache[cache_key] = pricing
+        return pricing
+
+    def _check_override_cost(
+        self, model: str, server: str | None, prompt_tokens: int, completion_tokens: int
+    ) -> float | None:
+        """Calculate cost from custom override if registered."""
+        m_key = model.strip().lower()
+        if m_key in self._overrides:
+            return self._overrides[m_key].calculate_cost(prompt_tokens, completion_tokens)
+        norm_key = _normalize_model_name(model)
+        if norm_key in self._overrides:
+            return self._overrides[norm_key].calculate_cost(prompt_tokens, completion_tokens)
+        if server:
+            srv_pricing = self._overrides.get(server.strip().lower())
+            if srv_pricing is not None:
+                return srv_pricing.calculate_cost(prompt_tokens, completion_tokens)
+        return None
+
+    def _calc_exact_genai_cost(
+        self,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        provider: str | None,
+        request_timestamp: datetime | None,
+    ) -> float | None:
+        """Calculate real request cost using genai-prices exact tiered usage."""
+        import genai_prices
+
+        usage = genai_prices.Usage(input_tokens=prompt_tokens, output_tokens=completion_tokens)
+        candidates = _candidate_models(model)
+        prov_id = provider.strip().lower() if provider else None
+        req_ts = request_timestamp or datetime.now(UTC)
+        for cand in candidates:
+            try:
+                p = genai_prices.calc_price(
+                    usage, cand, provider_id=prov_id, genai_request_timestamp=req_ts
+                )
+                return round(float(p.total_price), 6)
+            except Exception:
+                continue
+        if prov_id is not None:
+            for cand in candidates:
+                try:
+                    p = genai_prices.calc_price(usage, cand, genai_request_timestamp=req_ts)
+                    return round(float(p.total_price), 6)
+                except Exception:
+                    continue
+        return None
+
+    def calculate_request_cost(
+        self,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        server: str | None = None,
+        provider: str | None = None,
+        request_timestamp: datetime | None = None,
+    ) -> float:
+        """Calculate exact cost for a request using real token usage and request timestamp."""
+        if prompt_tokens <= 0 and completion_tokens <= 0:
+            return 0.0
+
+        override_cost = self._check_override_cost(model, server, prompt_tokens, completion_tokens)
+        if override_cost is not None:
+            return override_cost
+
+        if _is_local(server=server, provider=provider):
+            return 0.0
+
+        exact_cost = self._calc_exact_genai_cost(
+            model, prompt_tokens, completion_tokens, provider, request_timestamp
+        )
+        if exact_cost is not None:
+            return exact_cost
+
+        pricing = self.get_pricing(
+            model, server=server, provider=provider, request_timestamp=request_timestamp
+        )
+        return pricing.calculate_cost(prompt_tokens, completion_tokens)
 
     def set_custom_pricing(
         self, target: str, prompt_rate: float, completion_rate: float
@@ -237,7 +357,7 @@ class PricingRegistry:
         import genai_prices
 
         catalog: dict[str, ModelPricing] = {}
-        usage = genai_prices.Usage(input_tokens=1_000_000, output_tokens=1_000_000)
+        usage = genai_prices.Usage(input_tokens=1_000, output_tokens=1_000)
         ds = genai_prices.data_snapshot.get_snapshot()
         for prov in ds.providers:
             for m in prov.models:
@@ -247,8 +367,8 @@ class PricingRegistry:
                 try:
                     p = genai_prices.calc_price(usage, m.id, provider_id=prov.id)
                     catalog[m_key] = ModelPricing(
-                        prompt_usd_per_million=float(p.input_price),
-                        completion_usd_per_million=float(p.output_price),
+                        prompt_usd_per_million=round(float(p.input_price) * 1_000.0, 6),
+                        completion_usd_per_million=round(float(p.output_price) * 1_000.0, 6),
                         source=f"genai_prices:{prov.id}",
                     )
                 except Exception:
@@ -263,21 +383,52 @@ class PricingRegistry:
         merged.update(self._overrides)
         return merged
 
-    def update_from_remote(self, source_url: str | None = None, timeout: float = 15.0) -> int:
-        """Synchronize model pricing catalog from remote genai-prices registry."""
-        import genai_prices
+    @staticmethod
+    def _fetch_raw_pricing_payload(source_url: str | None, timeout: float) -> object:
+        """Fetch raw JSON pricing payload from local file, custom URL, or default registry."""
         import httpx2
-        from genai_prices.data_snapshot import set_custom_snapshot
 
-        updater = (
-            genai_prices.UpdatePrices(url=source_url) if source_url else genai_prices.UpdatePrices()
-        )
-        updater.request_timeout = httpx2.Timeout(timeout)
-        snapshot = updater.fetch()
-        if snapshot is None:
-            raise RuntimeError("Pricing update returned no snapshot")
+        if source_url:
+            p = Path(source_url)
+            if p.is_file():
+                return json.loads(p.read_text(encoding="utf-8"))
+            r = httpx2.get(source_url, timeout=timeout)
+            r.raise_for_status()
+            return json.loads(r.content)
 
+        import genai_prices
+
+        updater = genai_prices.UpdatePrices(request_timeout=httpx2.Timeout(timeout))
+        url = getattr(updater, "url", None)
+        if url:
+            r = httpx2.get(url, timeout=timeout)
+            r.raise_for_status()
+            return json.loads(r.content)
+        return updater.fetch()
+
+    def update_from_remote(self, source_url: str | None = None, timeout: float = 15.0) -> int:
+        """Synchronize model pricing catalog from remote genai-prices registry or file."""
+        from genai_prices.data_snapshot import DataSnapshot, set_custom_snapshot
+        from genai_prices.types import _providers_from_raw
+
+        fetched = self._fetch_raw_pricing_payload(source_url, timeout)
+        if isinstance(fetched, DataSnapshot):
+            snapshot = fetched
+            set_custom_snapshot(snapshot)
+            self._pricing_cache.clear()
+            self._catalog.clear()
+            return sum(len(p.models) for p in snapshot.providers)
+
+        if not isinstance(fetched, list):
+            raise ValueError("Expected fetched prices payload to be a provider array")
+
+        providers = _providers_from_raw(fetched)
+        snapshot = DataSnapshot(providers, from_auto_update=True)
         set_custom_snapshot(snapshot)
+
+        self.ai_dir.mkdir(parents=True, exist_ok=True)
+        self.snapshot_path.write_text(json.dumps(fetched), encoding="utf-8")
+
         self._pricing_cache.clear()
         self._catalog.clear()
         return sum(len(p.models) for p in snapshot.providers)
