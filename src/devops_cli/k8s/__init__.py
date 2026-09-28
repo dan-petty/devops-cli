@@ -8,12 +8,20 @@ from devops_cli.k8s.informer import ResourceInformer
 from devops_cli.k8s.logs import stream_multi_pod_logs
 from devops_cli.k8s.policy import validate_k8s_policy
 from devops_cli.k8s.service import KubernetesService
+from devops_cli.k8s.template import (
+    render_manifest_path,
+    render_manifest_template,
+    resolve_template_domain,
+)
 
 __all__ = [
     "KubernetesService",
     "ResourceInformer",
     "diff_helm_release",
     "execute_chaos_experiment",
+    "render_manifest_path",
+    "render_manifest_template",
+    "resolve_template_domain",
     "stream_multi_pod_logs",
     "validate_k8s_policy",
 ]

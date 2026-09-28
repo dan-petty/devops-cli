@@ -32,11 +32,11 @@ class HostSandboxResult:
     error: str | None = None
 
 
-def _terminate_process_group(pid: int) -> None:
+def _terminate_process_group(pid: int, sig: signal.Signals = signal.SIGTERM) -> None:
     """Safely terminate a POSIX process group hierarchy."""
     try:
         pgid = os.getpgid(pid)
-        os.killpg(pgid, signal.SIGTERM)
+        os.killpg(pgid, sig)
     except OSError:
         pass
 
@@ -47,8 +47,12 @@ def _handle_timeout(
 ) -> tuple[int | None, str, str, str | None]:
     """Handle subprocess timeout by killing the process group."""
     if proc is not None:
-        _terminate_process_group(proc.pid)
-        stdout, stderr = proc.communicate()
+        _terminate_process_group(proc.pid, signal.SIGTERM)
+        try:
+            stdout, stderr = proc.communicate(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            _terminate_process_group(proc.pid, signal.SIGKILL)
+            stdout, stderr = proc.communicate()
     else:
         stdout, stderr = "", ""
     return -1, stdout, stderr, f"Criterion execution timed out after {timeout}s"

@@ -23,6 +23,7 @@ from devops_cli.output import (
     print_info,
     print_success,
     print_warning,
+    write_stdout,
 )
 
 logger = logging.getLogger(__name__)
@@ -134,11 +135,46 @@ def status() -> None:
     print(format_k8s_nodes_table(nodes.items))
 
 
+def _apply_template(
+    path: str,
+    dry_run: bool,
+    namespace: str | None,
+    domain: str | None,
+) -> None:
+    """Render manifest template with domain substitution and apply to cluster."""
+    from devops_cli.k8s.template import render_manifest_path, resolve_template_domain
+
+    effective_domain = resolve_template_domain(domain)
+    rendered_yaml = render_manifest_path(path, domain=effective_domain)
+
+    cmd = ["kubectl", "apply", "-f", "-"]
+    if dry_run or is_dry_run():
+        cmd += ["--dry-run=client"]
+    if namespace:
+        cmd += ["--namespace", namespace]
+
+    if is_dry_run():
+        render_dry_run_result(
+            command="devops k8s apply",
+            target=path,
+            action="kubectl_apply_template",
+            details={"cmd": " ".join(cmd), "domain": effective_domain, "namespace": namespace},
+        )
+        return
+    runtime._run_cmd(cmd, input=rendered_yaml, check=True)
+
+
 def apply(
     path: Annotated[str, typer.Argument(help=HELP.k8s.manifest_path)],
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
     namespace: Annotated[
         str | None, typer.Option("--namespace", "-n", help=HELP.options.namespace)
+    ] = None,
+    template: Annotated[
+        bool, typer.Option("--template", "-t", help=HELP.k8s.template_flag)
+    ] = False,
+    domain: Annotated[
+        str | None, typer.Option("--domain", "-d", help=HELP.k8s.template_domain)
     ] = None,
 ) -> None:
     """Apply a Kubernetes manifest (delegates to kubectl)."""
@@ -159,6 +195,11 @@ def apply(
 
     if namespace:
         runtime._validate_k8s_identifier(namespace, "namespace", namespace=True)
+
+    if template or domain is not None:
+        _apply_template(path=path, dry_run=dry_run, namespace=namespace, domain=domain)
+        return
+
     cmd = ["kubectl", "apply", "-f", path]
     if dry_run or is_dry_run():
         cmd += ["--dry-run=client"]
@@ -173,6 +214,21 @@ def apply(
         )
         return
     runtime._run_cmd(cmd, check=True)
+
+
+def render(
+    path: Annotated[str, typer.Argument(help=HELP.k8s.manifest_path)],
+    domain: Annotated[
+        str | None, typer.Option("--domain", "-d", help=HELP.k8s.template_domain)
+    ] = None,
+) -> None:
+    """Render Kubernetes manifest templates with domain and variables substituted."""
+    validate_no_path_traversal(path, error_cls=KubernetesContextError, label="Manifest path")
+    from devops_cli.k8s.template import render_manifest_path, resolve_template_domain
+
+    effective_domain = resolve_template_domain(domain)
+    rendered_yaml = render_manifest_path(path, domain=effective_domain)
+    write_stdout(rendered_yaml if rendered_yaml.endswith("\n") else f"{rendered_yaml}\n")
 
 
 def _is_logql_request(pod: str, query: str | None, query_arg: str | None = None) -> bool:

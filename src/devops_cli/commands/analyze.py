@@ -135,10 +135,14 @@ def _process_single_repo_file_meta(
 
 def _fetch_git_file_content(repo: Path, revision: str, rel_path: str) -> str | None:
     """Fetch content of a file at a specific git revision using git show."""
+    if not revision or revision.startswith("-") or not rel_path or rel_path.startswith("-"):
+        return None
+    if ".." in Path(rel_path).parts:
+        return None
     try:
         from devops_cli.core.process import run_subprocess
 
-        proc = run_subprocess(["git", "show", f"{revision}:{rel_path}"], cwd=repo)
+        proc = run_subprocess(["git", "--no-pager", "show", f"{revision}:{rel_path}"], cwd=repo)
         if proc.returncode == 0:
             return proc.stdout
     except Exception:

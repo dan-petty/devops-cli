@@ -136,7 +136,8 @@
         "anthropic.claude-code",
         "google.google-antigravity",
         "github.vscode-github-actions",
-        "ms-vscode.makefile-tools"
+        "ms-vscode.makefile-tools",
+        "golang.Go"
       ],
       "settings": {
         "editor.formatOnSave": true,

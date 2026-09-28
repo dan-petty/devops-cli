@@ -8,6 +8,8 @@ resources:
   - valkey.yaml
   - valkey-runs.yaml
   - ollama.yaml
+  - ollama-volta-1.yaml
+  - profiles/services.yaml
   - gateway/configmap.yaml
   - gateway/deployment.yaml
   - gateway/service.yaml

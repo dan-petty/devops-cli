@@ -729,8 +729,8 @@ def test_calculate_parallel_review_workers() -> None:
     assert workers_default == DEFAULT_REVIEW_CONCURRENCY
 
     # 3. High capacity capped by DEFAULT_REVIEW_MAX_CONCURRENCY
-    clients.analysis._config.ollama_urls = [f"http://example.com:{11434 + i}" for i in range(10)]
-    workers_max = _calculate_parallel_review_workers(clients, num_tasks=20)
+    clients.analysis._config.ollama_urls = [f"http://example.com:{11434 + i}" for i in range(20)]
+    workers_max = _calculate_parallel_review_workers(clients, num_tasks=50)
     assert workers_max == DEFAULT_REVIEW_MAX_CONCURRENCY
 
 

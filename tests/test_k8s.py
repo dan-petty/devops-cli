@@ -104,6 +104,7 @@ def test_k8s_configure_urls_dry_run() -> None:
         set_dry_run(False)
 
 
+@patch("devops_cli.commands.k8s.networking.save_settings")
 @patch("devops_cli.commands.k8s._detect_service_url")
 @patch("devops_cli.commands.k8s._cluster_reachable", return_value=True)
 @patch("devops_cli.commands.k8s._minikube_running", return_value=True)
@@ -111,6 +112,7 @@ def test_k8s_configure_urls_success(
     mock_running: MagicMock,
     mock_cluster: MagicMock,
     mock_detect: MagicMock,
+    mock_save: MagicMock,
 ) -> None:
     """k8s configure-urls must query service URLs and update configuration."""
 
@@ -120,8 +122,11 @@ def test_k8s_configure_urls_success(
     set_dry_run(False)
     mock_detect.side_effect = fake_detect
     result = runner.invoke(app, ["configure-urls"])
-    assert result.exit_code == 0
-    assert "Configured Service Targets" in result.output
+    assert (result.exit_code, "Configured Service Targets" in result.output, mock_save.called) == (
+        0,
+        True,
+        True,
+    )
 
 
 @patch("devops_cli.commands.k8s._cluster_reachable", return_value=False)
@@ -444,6 +449,7 @@ def test_k8s_apply_logs_and_urls(tmp_path: Path) -> None:
         patch(
             "devops_cli.commands.k8s._resolve_accessible_url", return_value="http://localhost:8080"
         ),
+        patch("devops_cli.commands.k8s.networking.save_settings"),
         patch("devops_cli.config.settings.save_settings"),
     ):
         res_urls = runner.invoke(app, ["configure-urls", "--stack", "infra"])

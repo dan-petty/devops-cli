@@ -19,6 +19,8 @@ import httpx2
 from pydantic import BaseModel, Field
 
 from devops_cli.ai.gateway_tune import backend_label
+from devops_cli.config.constants import CONST_MAX_PROMETHEUS_WINDOW_SECONDS
+from devops_cli.core.validation import validate_url_egress
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.models.prometheus import PrometheusQueryResult
 
@@ -40,10 +42,11 @@ class PoolLoadError(DevOpsCLIError):
 
 def prometheus_query(base_url: str, timeout: float) -> Query:
     """Instant queries against a Prometheus server; series without a number are left out."""
+    validate_url_egress(base_url, purpose="Prometheus", allow_private=True)
 
     def query(expr: str) -> list[tuple[dict[str, str], float]]:
         try:
-            with httpx2.Client() as client:
+            with httpx2.Client(timeout=timeout) as client:
                 response = client.get(
                     f"{base_url}/api/v1/query", params={"query": expr}, timeout=timeout
                 )
@@ -64,7 +67,10 @@ def window_seconds(window: str) -> int:
     match = _WINDOW.match(window)
     if not match:
         raise ValueError(f"window {window!r} is not a duration such as 30m, 2h or 1d")
-    return int(match.group(1)) * _UNIT_SECONDS[match.group(2)]
+    seconds = int(match.group(1)) * _UNIT_SECONDS[match.group(2)]
+    if seconds > CONST_MAX_PROMETHEUS_WINDOW_SECONDS:
+        raise ValueError(f"window duration exceeds maximum permitted limit (30 days): {window!r}")
+    return seconds
 
 
 class BackendLoad(BaseModel):

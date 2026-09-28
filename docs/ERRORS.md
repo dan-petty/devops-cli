@@ -33,6 +33,9 @@ names the class each row describes. One code never maps to two exit statuses.
 | `CapabilityDegradationError` | `CAPABILITY_DEGRADATION` | `1` | Ai | Raised when a fallback or failover model breaches minimum capability tier requirements. |
 | `ChaosExecutionError` | `CHAOS_EXECUTION_ERROR` | `1` | K8s | Raised when chaos engineering injection or validation fails. |
 | `ChecksumMismatchError` | `ChecksumMismatchError` | `1` | Tools | Raised when downloaded tool archive SHA-256 does not match expected checksum. |
+| `CloudflareAPIError` | `CLOUDFLARE_API_ERROR` | `1` | Cloudflare | Raised when a Cloudflare API call returns an error response. |
+| `CloudflareAuthError` | `CLOUDFLARE_AUTH_ERROR` | `1` | Cloudflare | Raised when Cloudflare authentication or token verification fails. |
+| `CloudflareError` | `CLOUDFLARE_ERROR` | `1` | Cloudflare | Base exception for Cloudflare domain errors. |
 | `ConcurrencyLimitExceeded` | `CONCURRENCY_LIMIT_EXCEEDED` | `25` | Ai | Raised when the concurrency queue depth exceeds max_queued. |
 | `ConfigurationError` | `CONFIGURATION_ERROR` | `1` | Config | Base exception for configuration loading, validation, and serialization errors. |
 | `ConstellationFailoverError` | `CONSTELLATION_FAILOVER_ERROR` | `1` | Ai | Raised when emergency failover routing fails. |

@@ -63,22 +63,18 @@ data:
         model_info:
           mode: embedding
 
-      # devops-review: one virtual model spread over every inference server, so a review's
-      # parallel persona and verification calls use all of them. Each deployment's weight is its
-      # share of requests, in proportion to measured throughput: the dual-GPU vLLM batches the
-      # most, the single-GPU vLLM less, and each Ollama node serves one request at a time
-      # (OLLAMA_NUM_PARALLEL=1). Pre-call checks keep a prompt off any deployment whose window it
-      # exceeds; the remaining weights still apply.
-      #
-      # No max_parallel_requests: LiteLLM waits on it only after choosing a deployment, so
-      # requests queued behind a cap are invisible to routing and pile up there while larger
-      # servers idle. vLLM and Ollama queue excess requests themselves.
+      # devops-review: unified virtual model spread across the dual-GPU inference engines.
+      # Dynamic concurrency-aware least-busy routing with per-backend caps directs traffic:
+      # - vLLM on dual-GPU node (2x RTX 3090, TP=2): continuous dynamic batching engine.
+      # - Ollama on multi-GPU Volta node GPU 0 (Tesla V100 32GB): dedicated inference worker (max 1 concurrent).
+      # - Ollama on multi-GPU Volta node GPU 1 (Tesla V100 32GB): dedicated inference worker (max 1 concurrent).
       - model_name: devops-review
         litellm_params:
           model: openai/qwen3-coder:30b
           api_base: http://vllm.llm.svc.cluster.local:8000/v1
           api_key: none
-          weight: 5
+          weight: 6
+          max_parallel_requests: 64
         model_info:
           max_input_tokens: 61440
       # max_input_tokens is OLLAMA_CONTEXT_LENGTH (48000) minus 4K tokens for the reply.
@@ -88,6 +84,16 @@ data:
           api_base: http://ollama-2.ollama-nodes.llm.svc.cluster.local:11434/v1
           api_key: none
           weight: 1
+          max_parallel_requests: 1
+        model_info:
+          max_input_tokens: 43904
+      - model_name: devops-review
+        litellm_params:
+          model: openai/qwen3-coder:30b
+          api_base: http://ollama-volta-1.llm.svc.cluster.local:11434/v1
+          api_key: none
+          weight: 1
+          max_parallel_requests: 1
         model_info:
           max_input_tokens: 43904
 
@@ -125,12 +131,11 @@ data:
       drop_params: true
 
     router_settings:
-      # Weighted random choice spreads a burst of simultaneous calls (a review sends one per
-      # persona at once) by weight. least-busy counts a request only once its backend call
-      # starts, so a burst lands on the first-listed deployment. Deployments without a weight
-      # share equally.
-      routing_strategy: simple-shuffle
-      num_retries: 2
+      # least-busy routing combined with per-backend max_parallel_requests keeps both
+      # dedicated V100 Ollama workers continuously busy (max 1 each) without
+      # queue stalls, while routing all concurrent overflow to the vLLM batching engine.
+      routing_strategy: least-busy
+      num_retries: 3
       # Long code reviews on the 32B model can generate for several minutes.
       timeout: 600
       # Check prompt size against max_input_tokens before calling a backend, so an oversized

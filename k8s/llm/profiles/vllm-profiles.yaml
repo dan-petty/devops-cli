@@ -1,0 +1,786 @@
+# vLLM Inference Engine Profiles for Traditional Homelab GPU Configurations.
+# Covers GPU counts [1, 2, 3, 4] and per-GPU VRAM sizes [16GiB, 24GiB, 32GiB].
+---
+# ── Profile 1: 1x 16GiB (vllm-1x16gb) ─────────────────────────────────────────
+# Target Hardware: Single RTX 4080 (16GB), RTX 4060 Ti 16GB, T4 (16GB), V100 16GB.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-1x16gb
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-1x16gb
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: qwen2.5-coder-14b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: "1"
+    llm.devops.io/vram-per-gpu: "16GiB"
+spec:
+  replicas: 0  # Enabled when targeting 1x16GiB nodes
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-1x16gb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-1x16gb
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: qwen2.5-coder-14b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: "1"
+        llm.devops.io/vram-per-gpu: "16GiB"
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["vllm", "serve"]
+          args:
+            - "Qwen/Qwen2.5-Coder-14B-Instruct-AWQ"
+            - "--served-model-name"
+            - "qwen2.5-coder-14b-instruct"
+            - "--tensor-parallel-size"
+            - "1"
+            - "--max-model-len"
+            - "16384"
+            - "--kv-cache-dtype"
+            - "fp8"
+            - "--gpu-memory-utilization"
+            - "0.95"
+            - "--max-num-seqs"
+            - "16"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "2"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 24Gi
+              nvidia.com/gpu: "1"
+---
+# ── Profile 2: 1x 24GiB (vllm-1x24gb) ─────────────────────────────────────────
+# Target Hardware: Single RTX 3090 (24GB), RTX 4090 (24GB), RTX A5000 (24GB).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-1x24gb
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-1x24gb
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: qwen2.5-coder-14b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: "1"
+    llm.devops.io/vram-per-gpu: "24GiB"
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-1x24gb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-1x24gb
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: qwen2.5-coder-14b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: "1"
+        llm.devops.io/vram-per-gpu: "24GiB"
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["vllm", "serve"]
+          args:
+            - "Qwen/Qwen2.5-Coder-14B-Instruct-AWQ"
+            - "--served-model-name"
+            - "qwen2.5-coder-14b-instruct"
+            - "--tensor-parallel-size"
+            - "1"
+            - "--max-model-len"
+            - "32768"
+            - "--gpu-memory-utilization"
+            - "0.95"
+            - "--max-num-seqs"
+            - "32"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "4"
+              memory: 24Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "12"
+              memory: 36Gi
+              nvidia.com/gpu: "1"
+---
+# ── Profile 3: 1x 32GiB (vllm-1x32gb) ─────────────────────────────────────────
+# Target Hardware: Single Tesla V100 32GB, RTX 5000 Ada 32GB.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-1x32gb
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-1x32gb
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: qwen3-coder-30b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: "1"
+    llm.devops.io/vram-per-gpu: "32GiB"
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-1x32gb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-1x32gb
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: qwen3-coder-30b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: "1"
+        llm.devops.io/vram-per-gpu: "32GiB"
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["vllm", "serve"]
+          args:
+            - "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ"
+            - "--served-model-name"
+            - "qwen3-coder:30b"
+            - "--tensor-parallel-size"
+            - "1"
+            - "--max-model-len"
+            - "32768"
+            - "--gpu-memory-utilization"
+            - "0.95"
+            - "--max-num-seqs"
+            - "32"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "4"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "16"
+              memory: 48Gi
+              nvidia.com/gpu: "1"
+---
+# ── Profile 4: 2x 16GiB (vllm-2x16gb) ─────────────────────────────────────────
+# Target Hardware: Dual RTX 4080 (16GB), Dual T4, Dual V100 16GB (32GB total, TP=2).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-2x16gb
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-2x16gb
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: qwen3-coder-30b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: "2"
+    llm.devops.io/vram-per-gpu: "16GiB"
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-2x16gb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-2x16gb
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: qwen3-coder-30b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: "2"
+        llm.devops.io/vram-per-gpu: "16GiB"
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["vllm", "serve"]
+          args:
+            - "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ"
+            - "--served-model-name"
+            - "qwen3-coder:30b"
+            - "--tensor-parallel-size"
+            - "2"
+            - "--max-model-len"
+            - "32768"
+            - "--gpu-memory-utilization"
+            - "0.95"
+            - "--max-num-seqs"
+            - "32"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "4"
+              memory: 24Gi
+              nvidia.com/gpu: "2"
+            limits:
+              cpu: "16"
+              memory: 40Gi
+              nvidia.com/gpu: "2"
+---
+# ── Profile 5: 2x 24GiB (vllm-2x24gb) ─────────────────────────────────────────
+# Target Hardware: Dual RTX 3090 / RTX 4090 workstation (48GB total, TP=2).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-2x24gb
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-2x24gb
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: qwen3-coder-30b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: "2"
+    llm.devops.io/vram-per-gpu: "24GiB"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-2x24gb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-2x24gb
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: qwen3-coder-30b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: "2"
+        llm.devops.io/vram-per-gpu: "24GiB"
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["vllm", "serve"]
+          args:
+            - "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ"
+            - "--served-model-name"
+            - "qwen3-coder:30b"
+            - "--tensor-parallel-size"
+            - "2"
+            - "--max-model-len"
+            - "65536"
+            - "--gpu-memory-utilization"
+            - "0.95"
+            - "--max-num-seqs"
+            - "64"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "4"
+              memory: 32Gi
+              nvidia.com/gpu: "2"
+            limits:
+              cpu: "16"
+              memory: 48Gi
+              nvidia.com/gpu: "2"
+---
+# ── Profile 6: 2x 32GiB (vllm-2x32gb) ─────────────────────────────────────────
+# Target Hardware: Dual Tesla V100 32GB (64GB total, TP=2) serving 70B flagship.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-2x32gb
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-2x32gb
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: cogito-v2-70b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: "2"
+    llm.devops.io/vram-per-gpu: "32GiB"
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-2x32gb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-2x32gb
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: cogito-v2-70b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: "2"
+        llm.devops.io/vram-per-gpu: "32GiB"
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["vllm", "serve"]
+          args:
+            - "QuantTrio/Cogito-v2-70B-Instruct-AWQ"
+            - "--served-model-name"
+            - "cogito-v2:70b"
+            - "--tensor-parallel-size"
+            - "2"
+            - "--max-model-len"
+            - "32768"
+            - "--gpu-memory-utilization"
+            - "0.95"
+            - "--max-num-seqs"
+            - "32"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "6"
+              memory: 40Gi
+              nvidia.com/gpu: "2"
+            limits:
+              cpu: "24"
+              memory: 64Gi
+              nvidia.com/gpu: "2"
+---
+# ── Profile 7: 3x 16GiB (vllm-3x16gb) ─────────────────────────────────────────
+# Target Hardware: Triple 16GB GPUs (48GB total, TP=2 primary + 1 spare/overflow).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-3x16gb
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-3x16gb
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: qwen3-coder-30b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: "3"
+    llm.devops.io/vram-per-gpu: "16GiB"
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-3x16gb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-3x16gb
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: qwen3-coder-30b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: "3"
+        llm.devops.io/vram-per-gpu: "16GiB"
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["vllm", "serve"]
+          args:
+            - "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ"
+            - "--served-model-name"
+            - "qwen3-coder:30b"
+            - "--tensor-parallel-size"
+            - "2"
+            - "--max-model-len"
+            - "32768"
+            - "--gpu-memory-utilization"
+            - "0.95"
+            - "--max-num-seqs"
+            - "32"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "6"
+              memory: 32Gi
+              nvidia.com/gpu: "3"
+            limits:
+              cpu: "24"
+              memory: 48Gi
+              nvidia.com/gpu: "3"
+---
+# ── Profile 8: 3x 24GiB (vllm-3x24gb) ─────────────────────────────────────────
+# Target Hardware: Triple 24GB GPUs (72GB total) serving 70B flagship.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-3x24gb
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-3x24gb
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: cogito-v2-70b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: "3"
+    llm.devops.io/vram-per-gpu: "24GiB"
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-3x24gb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-3x24gb
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: cogito-v2-70b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: "3"
+        llm.devops.io/vram-per-gpu: "24GiB"
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["vllm", "serve"]
+          args:
+            - "QuantTrio/Cogito-v2-70B-Instruct-AWQ"
+            - "--served-model-name"
+            - "cogito-v2:70b"
+            - "--pipeline-parallel-size"
+            - "3"
+            - "--max-model-len"
+            - "32768"
+            - "--gpu-memory-utilization"
+            - "0.95"
+            - "--max-num-seqs"
+            - "32"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "8"
+              memory: 48Gi
+              nvidia.com/gpu: "3"
+            limits:
+              cpu: "24"
+              memory: 72Gi
+              nvidia.com/gpu: "3"
+---
+# ── Profile 9: 3x 32GiB (vllm-3x32gb) ─────────────────────────────────────────
+# Target Hardware: Triple 32GB GPUs (96GB total) serving 70B flagship.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-3x32gb
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-3x32gb
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: cogito-v2-70b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: "3"
+    llm.devops.io/vram-per-gpu: "32GiB"
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-3x32gb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-3x32gb
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: cogito-v2-70b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: "3"
+        llm.devops.io/vram-per-gpu: "32GiB"
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["vllm", "serve"]
+          args:
+            - "QuantTrio/Cogito-v2-70B-Instruct-AWQ"
+            - "--served-model-name"
+            - "cogito-v2:70b"
+            - "--pipeline-parallel-size"
+            - "3"
+            - "--max-model-len"
+            - "65536"
+            - "--gpu-memory-utilization"
+            - "0.95"
+            - "--max-num-seqs"
+            - "64"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "8"
+              memory: 64Gi
+              nvidia.com/gpu: "3"
+            limits:
+              cpu: "32"
+              memory: 96Gi
+              nvidia.com/gpu: "3"
+---
+# ── Profile 10: 4x 16GiB (vllm-4x16gb) ────────────────────────────────────────
+# Target Hardware: Quad 16GB GPUs (64GB total, TP=4) serving 70B AWQ.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-4x16gb
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-4x16gb
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: cogito-v2-70b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: "4"
+    llm.devops.io/vram-per-gpu: "16GiB"
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-4x16gb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-4x16gb
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: cogito-v2-70b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: "4"
+        llm.devops.io/vram-per-gpu: "16GiB"
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["vllm", "serve"]
+          args:
+            - "QuantTrio/Cogito-v2-70B-Instruct-AWQ"
+            - "--served-model-name"
+            - "cogito-v2:70b"
+            - "--tensor-parallel-size"
+            - "4"
+            - "--max-model-len"
+            - "32768"
+            - "--gpu-memory-utilization"
+            - "0.95"
+            - "--max-num-seqs"
+            - "32"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "8"
+              memory: 48Gi
+              nvidia.com/gpu: "4"
+            limits:
+              cpu: "32"
+              memory: 64Gi
+              nvidia.com/gpu: "4"
+---
+# ── Profile 11: 4x 24GiB (vllm-4x24gb) ────────────────────────────────────────
+# Target Hardware: Quad RTX 3090 / 4090 server (96GB total, TP=4) serving 70B flagship.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-4x24gb
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-4x24gb
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: cogito-v2-70b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: "4"
+    llm.devops.io/vram-per-gpu: "24GiB"
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-4x24gb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-4x24gb
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: cogito-v2-70b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: "4"
+        llm.devops.io/vram-per-gpu: "24GiB"
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["vllm", "serve"]
+          args:
+            - "QuantTrio/Cogito-v2-70B-Instruct-AWQ"
+            - "--served-model-name"
+            - "cogito-v2:70b"
+            - "--tensor-parallel-size"
+            - "4"
+            - "--max-model-len"
+            - "65536"
+            - "--gpu-memory-utilization"
+            - "0.95"
+            - "--max-num-seqs"
+            - "64"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "8"
+              memory: 64Gi
+              nvidia.com/gpu: "4"
+            limits:
+              cpu: "32"
+              memory: 96Gi
+              nvidia.com/gpu: "4"
+---
+# ── Profile 12: 4x 32GiB (vllm-4x32gb) ────────────────────────────────────────
+# Target Hardware: Quad Tesla V100 32GB (128GB total, TP=4) serving 70B FP8/BF16.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-4x32gb
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-4x32gb
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: cogito-v2-70b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: "4"
+    llm.devops.io/vram-per-gpu: "32GiB"
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-4x32gb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-4x32gb
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: cogito-v2-70b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: "4"
+        llm.devops.io/vram-per-gpu: "32GiB"
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["vllm", "serve"]
+          args:
+            - "QuantTrio/Cogito-v2-70B-Instruct-AWQ"
+            - "--served-model-name"
+            - "cogito-v2:70b"
+            - "--tensor-parallel-size"
+            - "4"
+            - "--max-model-len"
+            - "65536"
+            - "--kv-cache-dtype"
+            - "fp8"
+            - "--gpu-memory-utilization"
+            - "0.95"
+            - "--max-num-seqs"
+            - "64"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "8"
+              memory: 64Gi
+              nvidia.com/gpu: "4"
+            limits:
+              cpu: "32"
+              memory: 128Gi
+              nvidia.com/gpu: "4"

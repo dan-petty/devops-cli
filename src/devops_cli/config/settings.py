@@ -18,6 +18,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import devops_cli.config.options as opt
 from devops_cli.config.constants import (
+    CONST_ADDRESSING_NODEPORT,
     CONST_AI_GATEWAY_PROVIDER,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
@@ -287,6 +288,26 @@ class KubernetesConfig(BaseModel):
         default=None,
         description="Base domain name for homelab ingress routes and tunnel services (e.g. retric.ai)",
     )
+    addressing: str = Field(
+        default=CONST_ADDRESSING_NODEPORT,
+        description="Default addressing mode for cluster services: nodeport, proxy, or fqdn.",
+    )
+
+
+class CloudflareAccessConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    enabled: bool = Field(
+        default=False,
+        description="Whether Cloudflare Zero Trust Access protection is enabled",
+    )
+    allowed_emails: list[str] = Field(
+        default_factory=list,
+        description="List of email addresses permitted to authenticate through Cloudflare Access",
+    )
+    idp: str = Field(
+        default="google",
+        description="Identity provider name (e.g. google, one_time_pin)",
+    )
 
 
 class CloudflareConfig(BaseModel):
@@ -298,6 +319,18 @@ class CloudflareConfig(BaseModel):
     tunnel: str | None = Field(
         default=None,
         description="Cloudflare tunnel name or identifier (e.g. homelab)",
+    )
+    account_id: str | None = Field(
+        default=None,
+        description="Cloudflare Account ID",
+    )
+    zone_id: str | None = Field(
+        default=None,
+        description="Cloudflare Zone ID",
+    )
+    access: CloudflareAccessConfig = Field(
+        default_factory=CloudflareAccessConfig,
+        description="Cloudflare Zero Trust Access application and policy configuration",
     )
 
 
@@ -379,6 +412,8 @@ class AIConfig(BaseModel):
     gateway_provider: str = DEFAULT_AI_GATEWAY_PROVIDER
     gateway_url: str = DEFAULT_AI_GATEWAY_URL
     gateway_enabled: bool = DEFAULT_AI_GATEWAY_ENABLED
+    gateway_weights: dict[str, int] = Field(default_factory=dict)
+    gateway_concurrency: dict[str, int] = Field(default_factory=dict)
     portkey_url: str = DEFAULT_PORTKEY_GATEWAY_URL
     lightllm_url: str = DEFAULT_LIGHTLLM_URL
     vllm_url: str = DEFAULT_VLLM_URL
@@ -999,6 +1034,11 @@ def get_runs_index_password(settings: Settings) -> str | None:
 def get_logfire_token(settings: Settings) -> str | None:
     """Resolve the Logfire telemetry write token."""
     return _resolve(opt.TELEMETRY_LOGFIRE_TOKEN, settings)
+
+
+def get_cloudflare_api_token(settings: Settings) -> str | None:
+    """Resolve the Cloudflare API token."""
+    return _resolve(opt.CLOUDFLARE_API_TOKEN, settings)
 
 
 def get_llm_client(task: str | None = None) -> Any:

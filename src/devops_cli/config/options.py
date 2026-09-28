@@ -84,6 +84,12 @@ K8S_DOMAIN = "k8s.domain"
 # Cloudflare Zero Trust & Tunnel Configuration
 CLOUDFLARE_DOMAIN = "cloudflare.domain"
 CLOUDFLARE_TUNNEL = "cloudflare.tunnel"
+CLOUDFLARE_ACCOUNT_ID = "cloudflare.account_id"
+CLOUDFLARE_ZONE_ID = "cloudflare.zone_id"
+CLOUDFLARE_API_TOKEN = "cloudflare.api_token"
+CLOUDFLARE_ACCESS_ENABLED = "cloudflare.access.enabled"
+CLOUDFLARE_ACCESS_ALLOWED_EMAILS = "cloudflare.access.allowed_emails"
+CLOUDFLARE_ACCESS_IDP = "cloudflare.access.idp"
 
 # Data Storage & Artifact Paths
 DATA_DIR = "data.dir"
@@ -185,6 +191,16 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     TELEMETRY_LOGFIRE,
     TELEMETRY_LOGFIRE_TOKEN,
     SANDBOX_EXCLUDE_HOME_DIR,
+    K8S_CONTEXT,
+    K8S_DOMAIN,
+    CLOUDFLARE_DOMAIN,
+    CLOUDFLARE_TUNNEL,
+    CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_ZONE_ID,
+    CLOUDFLARE_API_TOKEN,
+    CLOUDFLARE_ACCESS_ENABLED,
+    CLOUDFLARE_ACCESS_ALLOWED_EMAILS,
+    CLOUDFLARE_ACCESS_IDP,
 )
 
 SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
@@ -199,6 +215,7 @@ SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
         VALKEY_PASSWORD,
         RUNS_INDEX_PASSWORD,
         TELEMETRY_LOGFIRE_TOKEN,
+        CLOUDFLARE_API_TOKEN,
     }
 )
 
@@ -213,4 +230,5 @@ KEYRING_KEYS: dict[str, str] = {
     VALKEY_PASSWORD: "valkey_password",
     RUNS_INDEX_PASSWORD: "runs_index_password",
     TELEMETRY_LOGFIRE_TOKEN: "logfire_token",
+    CLOUDFLARE_API_TOKEN: "cloudflare_api_token",
 }

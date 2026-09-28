@@ -443,6 +443,7 @@ def tune_cmd(
             context=resolve_context(context),
             image=image,
             on_deployment=announce,
+            overrides=settings.ai.gateway_weights,
         )
     except (AICredentialsError, GatewayTuneError) as exc:
         print_error(str(exc))

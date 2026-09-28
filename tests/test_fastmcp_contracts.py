@@ -796,3 +796,14 @@ def test_the_hydration_tool_is_always_advertised() -> None:
     from devops_cli.ai.mcp import server as mcp_server
 
     assert mcp_server._is_advertised("hydrate_tool_domain") is True
+
+
+def test_hydrating_invalid_domain_name_is_rejected() -> None:
+    """Invalid characters or empty strings are rejected without mutating hydrated domains."""
+    from devops_cli.ai.mcp import server as mcp_server
+
+    assert (
+        mcp_server.hydrate_tool_domain("")["hydrated"],
+        mcp_server.hydrate_tool_domain("; rm -rf /")["hydrated"],
+        mcp_server.hydrate_tool_domain("k8s$bad")["hydrated"],
+    ) == (False, False, False)

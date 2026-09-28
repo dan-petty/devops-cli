@@ -28,6 +28,11 @@ from pydantic import BaseModel, Field
 from devops_cli.ai import gateway, gateway_bench
 from devops_cli.ai.gateway import fetch_model_info
 from devops_cli.config.constants import (
+    CONST_CONTINUOUS_BATCHING_ENGINES,
+    CONST_DEFAULT_CONTINUOUS_CONCURRENCY,
+    CONST_DEFAULT_SERIAL_CONCURRENCY,
+    CONST_ENGINE_MULTIPLIER_CONTINUOUS_BATCHING,
+    CONST_ENGINE_MULTIPLIER_SERIAL,
     CONST_GPU_MEMORY_BANDWIDTH_GBPS,
     CONST_REVIEW_CHARS_PER_TOKEN,
 )
@@ -126,17 +131,145 @@ def discover_pool(model_info: list[dict[str, Any]], model_group: str) -> list[di
     return pool
 
 
-def recommend_weights(best_rates: dict[str, float]) -> dict[str, int]:
+def recommend_weights(
+    best_rates: dict[str, float],
+    overrides: dict[str, int] | None = None,
+) -> dict[str, int]:
     """Weight each deployment by its best request rate relative to the slowest one.
 
     The slowest measured deployment gets 1. A deployment that served nothing gets 0, which
-    keeps the gateway from routing to it.
+    keeps the gateway from routing to it. Custom overrides take precedence when configured.
     """
     measured = [rate for rate in best_rates.values() if rate > 0]
     if not measured:
-        return dict.fromkeys(best_rates, 0)
-    floor = min(measured)
-    return {dep: max(1, round(rate / floor)) if rate > 0 else 0 for dep, rate in best_rates.items()}
+        weights = dict.fromkeys(best_rates, 0)
+    else:
+        floor = min(measured)
+        weights = {
+            dep: max(1, round(rate / floor)) if rate > 0 else 0 for dep, rate in best_rates.items()
+        }
+    if overrides:
+        for dep in weights:
+            if dep in overrides:
+                weights[dep] = overrides[dep]
+    return weights
+
+
+def _deployment_hardware_score(dep: Any) -> float:
+    """Compute relative throughput capacity score from GPUs and engine type."""
+    backend = str(
+        getattr(dep, "backend", None) or (dep.get("backend") if isinstance(dep, dict) else "") or ""
+    )
+    engine = str(
+        getattr(dep, "engine", None) or (dep.get("engine") if isinstance(dep, dict) else "") or ""
+    )
+    gpus = getattr(dep, "gpus", []) or (dep.get("gpus", []) if isinstance(dep, dict) else [])
+
+    bw_sum = 0.0
+    for g in gpus:
+        bw = getattr(g, "bandwidth_gbps", None) or (
+            g.get("bandwidth_gbps") if isinstance(g, dict) else None
+        )
+        bw_sum += float(bw) if bw else 500.0
+    if not bw_sum:
+        is_continuous = any(
+            e in engine.lower() or e in backend.lower() for e in CONST_CONTINUOUS_BATCHING_ENGINES
+        )
+        bw_sum = 1000.0 if is_continuous else 500.0
+
+    multiplier = (
+        CONST_ENGINE_MULTIPLIER_CONTINUOUS_BATCHING
+        if any(
+            e in engine.lower() or e in backend.lower() for e in CONST_CONTINUOUS_BATCHING_ENGINES
+        )
+        else CONST_ENGINE_MULTIPLIER_SERIAL
+    )
+    return bw_sum * multiplier
+
+
+def calculate_hardware_weights(
+    deployments: list[Any],
+    overrides: dict[str, int] | None = None,
+) -> dict[str, int]:
+    """Dynamically calculate recommended routing weights from discovered hardware properties.
+
+    Evaluates total GPU memory bandwidth and engine execution model (continuous batching vs
+    serial execution). Custom overrides take precedence when configured.
+    """
+    scores: dict[str, float] = {}
+    for dep in deployments:
+        dep_id = str(
+            getattr(dep, "deployment_id", None)
+            or (dep.get("deployment_id") if isinstance(dep, dict) else "")
+            or ""
+        )
+        if dep_id:
+            scores[dep_id] = _deployment_hardware_score(dep)
+
+    valid_scores = [s for s in scores.values() if s > 0]
+    min_score = min(valid_scores) if valid_scores else 1.0
+    weights = {
+        dep_id: max(1, round(score / min_score)) if score > 0 else 0
+        for dep_id, score in scores.items()
+    }
+    if overrides:
+        for dep in deployments:
+            dep_id = str(
+                getattr(dep, "deployment_id", None)
+                or (dep.get("deployment_id") if isinstance(dep, dict) else "")
+                or ""
+            )
+            backend = str(
+                getattr(dep, "backend", None)
+                or (dep.get("backend") if isinstance(dep, dict) else "")
+                or ""
+            )
+            override_val = overrides.get(dep_id) if dep_id else None
+            if override_val is None and backend:
+                override_val = overrides.get(backend)
+            if override_val is not None and dep_id:
+                weights[dep_id] = override_val
+    return weights
+
+
+def calculate_hardware_concurrency(
+    deployments: list[Any],
+    overrides: dict[str, int] | None = None,
+) -> dict[str, int]:
+    """Compute concurrency limits from engine capabilities with config overrides."""
+    limits: dict[str, int] = {}
+    for dep in deployments:
+        dep_id = str(
+            getattr(dep, "deployment_id", None)
+            or (dep.get("deployment_id") if isinstance(dep, dict) else "")
+            or ""
+        )
+        backend = str(
+            getattr(dep, "backend", None)
+            or (dep.get("backend") if isinstance(dep, dict) else "")
+            or ""
+        )
+        engine = str(
+            getattr(dep, "engine", None)
+            or (dep.get("engine") if isinstance(dep, dict) else "")
+            or ""
+        )
+        if not dep_id:
+            continue
+        is_continuous = any(
+            e in engine.lower() or e in backend.lower() for e in CONST_CONTINUOUS_BATCHING_ENGINES
+        )
+        limits[dep_id] = (
+            CONST_DEFAULT_CONTINUOUS_CONCURRENCY
+            if is_continuous
+            else CONST_DEFAULT_SERIAL_CONCURRENCY
+        )
+        override_val = overrides.get(dep_id) if (overrides and dep_id) else None
+        if override_val is None and overrides and backend:
+            override_val = overrides.get(backend)
+        if override_val is not None:
+            limits[dep_id] = override_val
+    return limits
 
 
 def gpu_bandwidth_gbps(name: str) -> float | None:
@@ -456,6 +589,7 @@ def tune_pool(
     context: str | None = None,
     image: str = DEFAULT_GATEWAY_TUNE_IMAGE,
     on_deployment: Callable[[dict[str, Any]], None] | None = None,
+    overrides: dict[str, int] | None = None,
 ) -> TuneReport:
     """Measure each deployment of ``model_group``, one at a time, and recommend weights."""
     model_info = fetch_model_info(gateway_url, allow_private, api_key)
@@ -494,7 +628,11 @@ def tune_pool(
             )
         )
 
-    weights = recommend_weights({t.deployment_id: t.requests_per_second for t in tuned})
+    measured_rates = {t.deployment_id: t.requests_per_second for t in tuned}
+    if any(rate > 0 for rate in measured_rates.values()):
+        weights = recommend_weights(measured_rates, overrides=overrides)
+    else:
+        weights = calculate_hardware_weights(tuned, overrides=overrides)
     return TuneReport(
         model_group=model_group,
         prompt_tokens=prompt_tokens,
@@ -514,6 +652,8 @@ __all__ = [
     "backend_label",
     "backend_pods",
     "bench_script",
+    "calculate_hardware_concurrency",
+    "calculate_hardware_weights",
     "deployment_gpus",
     "deployment_prompt_tokens",
     "discover_pool",

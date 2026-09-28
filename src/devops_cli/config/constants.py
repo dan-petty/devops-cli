@@ -231,6 +231,13 @@ CONST_URL_GITHUB_COPILOT_API_BASE = "https://api.githubcopilot.com"
 CONST_URL_OPENAI_API_BASE = "https://api.openai.com"
 CONST_URL_GITHUB_API_BASE = "https://api.github.com"
 CONST_URL_GITHUB_GRAPHQL = "https://api.github.com/graphql"
+CONST_URL_CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
+CONST_CLOUDFLARE_CFARGOTUNNEL_SUFFIX = ".cfargotunnel.com"
+CONST_CLOUDFLARE_DEFAULT_SERVICE = "http://traefik.kube-system.svc.cluster.local:80"
+CONST_CLOUDFLARE_CATCHALL_SERVICE = "http_status:404"
+CONST_CLOUDFLARE_DEFAULT_SUBDOMAINS: tuple[str, ...] = ("*", "@")
+
+
 CONST_URL_K8S_DOWNLOAD_BASE = "https://dl.k8s.io"
 CONST_URL_HELM_DOWNLOAD_BASE = "https://get.helm.sh"
 CONST_URL_GITHUB_KUSTOMIZE_RELEASES_BASE = (
@@ -248,6 +255,9 @@ CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE = (
 CONST_K8S_LABEL_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 CONST_K8S_SUBDOMAIN_RE: re.Pattern[str] = re.compile(r"^[a-z0-9]([a-z0-9.\-]{0,251}[a-z0-9])?$")
 CONST_K8S_NODE_ROLE_LABEL_PREFIX = "node-role.kubernetes.io/"
+CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER: Final[str] = "example.com"
+CONST_K8S_TEMPLATE_DOMAIN_VARS: Final[tuple[str, ...]] = ("DOMAIN", "K8S_DOMAIN")
+CONST_K8S_TEMPLATE_EXTENSIONS: Final[tuple[str, ...]] = (".yaml", ".yml")
 
 # ── AI Prompt & Injection Mitigation ──────────────────────────────────────────
 CONST_PROMPT_INJECTION_TAGS_RE: re.Pattern[str] = re.compile(
@@ -1766,6 +1776,9 @@ CONST_LOCAL_TRANSPORT_LABELS: Final[frozenset[str]] = frozenset(
 CONST_LOCAL_DOMAIN_SUFFIXES: Final[tuple[str, ...]] = (
     ".local",
     ".localhost",
+    ".cluster.local",
+    ".internal",
+    ".lan",
 )
 
 CONST_RESEARCH_DIR_NAME: Final[str] = "research"
@@ -2011,8 +2024,23 @@ CONST_K8S_SERVICE_PROXY_TEMPLATE: Final[str] = (
 # no host and therefore resolve on whichever cluster is active.
 CONST_ADDRESSING_NODEPORT: Final[str] = "nodeport"
 CONST_ADDRESSING_PROXY: Final[str] = "proxy"
+CONST_ADDRESSING_FQDN: Final[str] = "fqdn"
+CONST_ADDRESSING_INGRESS: Final[str] = "ingress"
 CONST_ADDRESSING_MODES: Final[frozenset[str]] = frozenset(
-    {CONST_ADDRESSING_NODEPORT, CONST_ADDRESSING_PROXY}
+    {
+        CONST_ADDRESSING_NODEPORT,
+        CONST_ADDRESSING_PROXY,
+        CONST_ADDRESSING_FQDN,
+        CONST_ADDRESSING_INGRESS,
+    }
+)
+CONST_K8S_INGRESS_SERVICE_PATTERNS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("argocd.url", "argocd", "argocd"),
+    ("grafana.url", "monitoring", "grafana"),
+    ("prometheus.url", "monitoring", "prometheus"),
+    ("open_webui.url", "llm", "chat"),
+    ("qdrant.url", "llm", "qdrant"),
+    ("ai.gateway_url", "llm", "ai"),
 )
 # Lines held between the stream reader and the renderer. Bounded so a producer faster than
 # the terminal cannot grow it without limit; the log buffer is the retention mechanism.
@@ -2093,6 +2121,15 @@ CONST_MAX_SCHEMA_REFLECTION_ERRORS: Final[int] = 5
 # Maximum character length for representing the erroneous input value in error reflection.
 CONST_MAX_INPUT_VALUE_REPR_LENGTH: Final[int] = 60
 
+# ── LLM Gateway Dynamic Hardware Routing Constants ────────────────────────────
+CONST_CONTINUOUS_BATCHING_ENGINES: Final[frozenset[str]] = frozenset(
+    {"vllm", "lightllm", "sglang", "tgi"}
+)
+CONST_ENGINE_MULTIPLIER_CONTINUOUS_BATCHING: Final[float] = 3.0
+CONST_ENGINE_MULTIPLIER_SERIAL: Final[float] = 1.0
+CONST_DEFAULT_CONTINUOUS_CONCURRENCY: Final[int] = 64
+CONST_DEFAULT_SERIAL_CONCURRENCY: Final[int] = 1
+
 # ── Bubblewrap Host Sandbox Confinement Constants ──────────────────────────────
 CONST_HOST_SANDBOX_DEFAULT_ENV: tuple[tuple[str, str], ...] = (
     ("HOME", "/tmp"),  # nosec B108
@@ -2104,3 +2141,7 @@ CONST_HOST_SANDBOX_DEFAULT_ENV: tuple[tuple[str, str], ...] = (
 )
 CONST_HOST_SANDBOX_SYSTEM_SYMLINKS: tuple[str, ...] = ("/bin", "/lib", "/lib64", "/sbin")
 CONST_HOST_SANDBOX_SYSTEM_DIRS: tuple[str, ...] = ("/usr",)
+
+# Maximum window duration permitted for Prometheus pool load queries (30 days in seconds)
+# to prevent resource exhaustion and unbounded range vectors (CWE-400).
+CONST_MAX_PROMETHEUS_WINDOW_SECONDS: Final[int] = 30 * 86400

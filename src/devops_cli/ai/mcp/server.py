@@ -3053,7 +3053,13 @@ def hydrate_tool_domain(domain: str) -> dict[str, Any]:
     Pass the domain name alone, for example `k8s`.
     """
     key = domain.strip().lower().removesuffix("_")
-    if not key or key in CONST_MCP_EAGER_DOMAINS:
+    if not key or not re.match(r"^[a-z0-9_-]{1,64}$", key):
+        return {
+            "domain": key[:64] if key else "",
+            "hydrated": False,
+            "detail": "invalid domain name",
+        }
+    if key in CONST_MCP_EAGER_DOMAINS:
         return {"domain": key, "hydrated": False, "detail": "always advertised"}
     _HYDRATED_DOMAINS.add(key)
     return {"domain": key, "hydrated": True, "advertised_domains": sorted(_HYDRATED_DOMAINS)}

@@ -24,6 +24,7 @@ from devops_cli.commands.k8s.cluster_context import (
     apply,
     contexts,
     logs,
+    render,
     status,
     switch_context,
 )
@@ -43,6 +44,7 @@ from devops_cli.commands.k8s.diagnostics import (
     security_stream_cmd,
     stream_logs_cmd,
 )
+from devops_cli.commands.k8s.gpu_matrix import gpu_matrix_cmd
 from devops_cli.commands.k8s.networking import (
     _detect_service_url,
     _extract_first_node_ip,
@@ -95,6 +97,7 @@ app.command()(contexts)
 app.command("switch-context")(switch_context)
 app.command()(status)
 app.command()(apply)
+app.command()(render)
 app.command()(logs)
 app.command("bootstrap")(bootstrap)
 app.command("bootstrap-openwebui")(bootstrap_openwebui)
@@ -119,6 +122,7 @@ app.command(name="diff-helm")(diff_helm_cmd)
 app.command(name="chaos")(chaos_cmd)
 app.command(name="pods")(pods_cmd)
 app.command(name="security-stream")(security_stream_cmd)
+app.command(name="gpu-matrix")(gpu_matrix_cmd)
 
 __all__ = [
     "VALID_STACKS",
@@ -154,6 +158,7 @@ __all__ = [
     "deploy_stack",
     "diff_helm_cmd",
     "enable_tls_stack",
+    "gpu_matrix_cmd",
     "k8s_audit",
     "k8s_check_deprecated",
     "k8s_lint",
@@ -162,6 +167,7 @@ __all__ = [
     "pods_cmd",
     "port_forward",
     "rbac_audit",
+    "render",
     "run_subprocess",
     "security_stream_cmd",
     "should_autostart_minikube",

@@ -11,10 +11,14 @@ import typer
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.config.constants import (
+    CONST_ADDRESSING_FQDN,
+    CONST_ADDRESSING_INGRESS,
     CONST_ADDRESSING_MODES,
     CONST_ADDRESSING_NODEPORT,
     CONST_ADDRESSING_PROXY,
     CONST_K8S_URL_SCHEME,
+    CONST_LOCAL_DOMAIN_SUFFIXES,
+    CONST_LOCAL_HOSTNAMES,
     CONST_PLACEHOLDER_NODE,
     CONST_PLACEHOLDER_PORT,
 )
@@ -236,6 +240,31 @@ def _resolve_loopback_fallback(scheme: str, port: int) -> str:
     return localhost_url
 
 
+def _is_fqdn_url(url: str | None) -> bool:
+    """Check whether a URL points to a non-loopback, non-IP fully-qualified domain name."""
+    if not url:
+        return False
+    try:
+        import ipaddress
+        from urllib.parse import urlparse
+
+        host = urlparse(url).hostname
+        if not host or "." not in host:
+            return False
+        host_lower = host.lower()
+        if host_lower in CONST_LOCAL_HOSTNAMES or any(
+            host_lower.endswith(suffix) for suffix in CONST_LOCAL_DOMAIN_SUFFIXES
+        ):
+            return False
+        try:
+            ipaddress.ip_address(host)
+            return False
+        except ValueError:
+            return True
+    except Exception:
+        return False
+
+
 def _should_update_url(
     existing_url: str | None,
     new_url: str | None,
@@ -248,10 +277,11 @@ def _should_update_url(
         return False
     if not existing_url or existing_url == default_url or existing_url == new_url:
         return True
+    if _is_fqdn_url(existing_url) and not _is_fqdn_url(new_url):
+        return False
     existing_host = urlparse(existing_url).hostname or ""
     new_host = urlparse(new_url).hostname or ""
-    loopback_hosts = ("localhost", "127.0.0.1", "::1")
-    return not (existing_host not in loopback_hosts and new_host in loopback_hosts)
+    return not (existing_host not in CONST_LOCAL_HOSTNAMES and new_host in CONST_LOCAL_HOSTNAMES)
 
 
 def _apply_service_url(
@@ -508,11 +538,203 @@ def _preview_nodeport_addresses(stacks: Sequence[str]) -> dict[str, str]:
     return preview
 
 
+def _extract_rule_hosts(rules: list[dict[str, Any]], svc_hosts: dict[str, list[str]]) -> None:
+    """Extract backend service host mappings from ingress rules."""
+    for rule in rules:
+        host = rule.get("host")
+        if not host:
+            continue
+        for path_entry in rule.get("http", {}).get("paths", []):
+            svc_name = path_entry.get("backend", {}).get("service", {}).get("name")
+            if svc_name:
+                hosts = svc_hosts.setdefault(svc_name, [])
+                if host not in hosts:
+                    hosts.append(host)
+
+
+def _discover_ingress_hosts(effective_ctx: str | None = None) -> dict[str, list[str]]:
+    """Discover service-to-hostname mappings from Kubernetes Ingress resources."""
+    import json
+
+    ctx_args = ["--context", effective_ctx] if effective_ctx else []
+    try:
+        res = runtime.run_subprocess(
+            ["kubectl", "get", "ingress", "-A", "-o", "json"] + ctx_args,
+            capture_output=True,
+            text=True,
+            check=False,
+            quiet=True,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        )
+        if res.returncode != 0 or not res.stdout.strip():
+            return {}
+        svc_hosts: dict[str, list[str]] = {}
+        for item in json.loads(res.stdout).get("items", []):
+            _extract_rule_hosts(item.get("spec", {}).get("rules", []), svc_hosts)
+        return svc_hosts
+    except Exception as exc:
+        logger.debug("Failed discovering Ingress hosts: %s", exc)
+        return {}
+
+
+def _select_best_ingress_host(hosts: list[str], preferred_domain: str | None = None) -> str | None:
+    """Select the best Ingress hostname matching preferred domain or the first available."""
+    if not hosts:
+        return None
+    if preferred_domain:
+        norm = preferred_domain.strip().lower().lstrip(".")
+        for h in hosts:
+            if h.lower().endswith(norm):
+                return h
+    return hosts[0]
+
+
+def _find_service_ingress_url(
+    service_pattern: str,
+    ingress_map: dict[str, list[str]],
+    preferred_domain: str | None = None,
+) -> str | None:
+    """Find and construct HTTPS endpoint for a service pattern from discovered ingress hosts."""
+    for svc_name, hosts in ingress_map.items():
+        if service_pattern in svc_name:
+            chosen = _select_best_ingress_host(hosts, preferred_domain=preferred_domain)
+            if chosen:
+                return f"https://{chosen}"
+    return None
+
+
+def _configure_fqdn_urls(
+    effective_context: str | None,
+    settings: Any,
+    configured: dict[str, str],
+    stacks: Sequence[str],
+) -> None:
+    """Detect Ingress hosts and configure domain-based FQDN service URLs."""
+    from devops_cli.config.settings import dotted_set
+
+    ingress_map = _discover_ingress_hosts(effective_context)
+    if not ingress_map:
+        return
+
+    domain = getattr(getattr(settings, "k8s", None), "domain", None) or getattr(
+        getattr(settings, "cloudflare", None), "domain", None
+    )
+
+    if "infra" in stacks:
+        for key, pattern in (
+            ("argocd.url", "argocd"),
+            ("grafana.url", "grafana"),
+            ("prometheus.url", "prome-prometheus"),
+        ):
+            url = _find_service_ingress_url(pattern, ingress_map, preferred_domain=domain)
+            if url:
+                _apply_service_url(
+                    settings,
+                    configured,
+                    key,
+                    url,
+                    getattr(getattr(settings, key.split(".")[0], None), "url", None),
+                )
+
+    if "llm" in stacks:
+        for key, pattern in (
+            ("open_webui.url", "open-webui"),
+            ("qdrant.url", "qdrant"),
+        ):
+            url = _find_service_ingress_url(pattern, ingress_map, preferred_domain=domain)
+            if url:
+                _apply_service_url(
+                    settings,
+                    configured,
+                    key,
+                    url,
+                    getattr(getattr(settings, key.split(".")[0], None), "url", None),
+                )
+
+        gw_url = _find_service_ingress_url("llm-gateway", ingress_map, preferred_domain=domain)
+        if gw_url:
+            full_gw = f"{gw_url}/v1"
+            dotted_set(settings, "ai.gateway_url", full_gw)
+            settings.ai.gateway_enabled = True
+            dotted_set(settings, "ai.tasks.analysis.api_base_url", full_gw)
+            dotted_set(settings, "ai.tasks.chat.api_base_url", full_gw)
+            configured["ai.gateway_url"] = full_gw
+
+
+def _preview_fqdn_addresses(stacks: Sequence[str]) -> dict[str, str]:
+    """Render the domain-based FQDN address each key will receive in dry-run mode."""
+    preview: dict[str, str] = {}
+    if "infra" in stacks:
+        preview.update(
+            {
+                "argocd.url": "https://argocd.example.com",
+                "grafana.url": "https://grafana.example.com",
+                "prometheus.url": "https://prometheus.example.com",
+            }
+        )
+    if "llm" in stacks:
+        preview.update(
+            {
+                "open_webui.url": "https://chat.example.com",
+                "qdrant.url": "https://qdrant.example.com",
+                "ai.gateway_url": "https://ai.example.com/v1",
+            }
+        )
+    return preview
+
+
 def _dry_run_preview(stacks: Sequence[str], addressing: str) -> dict[str, str]:
     """Describe what `configure-urls` would write under the requested addressing mode."""
+    if addressing in (CONST_ADDRESSING_FQDN, CONST_ADDRESSING_INGRESS):
+        return _preview_fqdn_addresses(stacks)
     if addressing == CONST_ADDRESSING_PROXY:
         return _preview_proxy_addresses(stacks)
     return _preview_nodeport_addresses(stacks)
+
+
+def _dispatch_nodeport_urls(
+    effective_ctx: str | None,
+    settings: Any,
+    configured: dict[str, str],
+    stacks: Sequence[str],
+) -> None:
+    """Configure URLs in nodeport mode with optional FQDN ingress fallback."""
+    if getattr(getattr(settings, "k8s", None), "domain", None):
+        _configure_fqdn_urls(effective_ctx, settings, configured, stacks)
+    if "infra" in stacks:
+        _configure_infra_stack_urls(effective_ctx, settings, configured)
+    if "llm" in stacks:
+        _configure_llm_stack_urls(effective_ctx, settings, configured)
+
+
+def _dispatch_addressing_configuration(
+    effective_ctx: str | None,
+    settings: Any,
+    configured: dict[str, str],
+    stacks: Sequence[str],
+    addressing: str,
+) -> None:
+    """Route service URL configuration to the appropriate addressing handler."""
+    if addressing in (CONST_ADDRESSING_FQDN, CONST_ADDRESSING_INGRESS):
+        _configure_fqdn_urls(effective_ctx, settings, configured, stacks)
+    elif addressing == CONST_ADDRESSING_PROXY:
+        _configure_proxy_urls(effective_ctx, settings, configured, stacks)
+    else:
+        _dispatch_nodeport_urls(effective_ctx, settings, configured, stacks)
+
+
+def _resolve_effective_addressing(addressing: str | None, settings: Any) -> str:
+    """Determine effective addressing mode from CLI argument or settings defaults."""
+    if addressing is not None:
+        return addressing
+    configured_mode = getattr(getattr(settings, "k8s", None), "addressing", None)
+    if configured_mode in (CONST_ADDRESSING_FQDN, CONST_ADDRESSING_INGRESS, CONST_ADDRESSING_PROXY):
+        return str(configured_mode)
+    if getattr(getattr(settings, "k8s", None), "domain", None):
+        return CONST_ADDRESSING_FQDN
+    if configured_mode in CONST_ADDRESSING_MODES:
+        return str(configured_mode)
+    return CONST_ADDRESSING_NODEPORT
 
 
 def configure_urls(
@@ -521,13 +743,15 @@ def configure_urls(
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
     addressing: Annotated[
-        str, typer.Option("--addressing", "-a", help=HELP.k8s.addressing)
-    ] = CONST_ADDRESSING_NODEPORT,
+        str | None, typer.Option("--addressing", "-a", help=HELP.k8s.addressing)
+    ] = None,
 ) -> None:
     """Auto-detect Kubernetes stack URLs and update CLI config."""
-    if addressing not in CONST_ADDRESSING_MODES:
+    settings = load_settings()
+    effective_addressing = _resolve_effective_addressing(addressing, settings)
+    if effective_addressing not in CONST_ADDRESSING_MODES:
         print_error(
-            f"Unknown addressing mode '{addressing}'. Choose one of: "
+            f"Unknown addressing mode '{effective_addressing}'. Choose one of: "
             f"{', '.join(sorted(CONST_ADDRESSING_MODES))}."
         )
         raise typer.Exit(2)
@@ -541,7 +765,7 @@ def configure_urls(
         render_dry_run_result(
             command="devops k8s configure-urls",
             action="configure_monitoring_urls",
-            details=_dry_run_preview(selected_stacks, addressing),
+            details=_dry_run_preview(selected_stacks, effective_addressing),
         )
         return
 
@@ -554,17 +778,10 @@ def configure_urls(
         prefix=False,
     )
 
-    settings = load_settings()
     configured: dict[str, str] = {}
-
-    if addressing == CONST_ADDRESSING_PROXY:
-        _configure_proxy_urls(effective_context, settings, configured, selected_stacks)
-    else:
-        if "infra" in selected_stacks:
-            _configure_infra_stack_urls(effective_context, settings, configured)
-
-        if "llm" in selected_stacks:
-            _configure_llm_stack_urls(effective_context, settings, configured)
+    _dispatch_addressing_configuration(
+        effective_context, settings, configured, selected_stacks, effective_addressing
+    )
 
     if configured:
         save_settings(settings)

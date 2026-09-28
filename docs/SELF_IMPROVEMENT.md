@@ -122,6 +122,27 @@ The last row is a different failure and deserves naming separately: the finding 
 
 The lesson this record adds to the previous one: **the failures are not distributed like the difficulty.** Every false positive above was refutable in under a minute by reading one file, running one comparison, or noticing a placeholder — while the five real defects each took real tracing. Confidence tracked neither. A loop that spends its verification budget uniformly spends nearly all of it on the claims that needed none.
 
+#### Calibration Record: Session `20260927-150737`
+
+This session produced 301 findings across the repository, marking 182 as `VERIFIED` (5 CRITICAL, 48 HIGH, 101 MEDIUM, 28 LOW). Analysis revealed three recurrent architectural false-positive classes alongside genuine security and reliability defects:
+
+| Claim | Why it was false / Remediated |
+| --- | --- |
+| SQL injection and auth bypass in `tests/golden/review_findings.json` (CRITICAL) | Synthetic golden test dataset containing known vulnerability exemplars used specifically to test review parser and scanner behavior. |
+| Insecure HTTP communication in `k8s/llm/gateway/configmap.yaml` (`http://*.svc.cluster.local:8000/v1`) | Internal Kubernetes cluster overlay networking standardly communicates over plaintext HTTP across pod/namespace boundaries without service mesh. |
+| NodePort service exposes gateway to LAN without authentication in `k8s/llm/gateway/service.yaml` | Local development and devcontainer Minikube clusters require NodePort service specifications for host workstation tooling access. |
+| Missing SSRF check in `src/devops_cli/ai/gateway.py:275` | Overlooked preceding guard: line 273 immediately prior explicitly executed `validate_url_egress(gateway_url, ...)`. |
+| Missing HTTP client timeout in `src/devops_cli/ai/pool_load.py` (CRITICAL) | **Remediated**: instantiated `httpx2.Client(timeout=timeout)`, added `validate_url_egress(base_url, ...)` check, and capped duration to 30 days (`CONST_MAX_PROMETHEUS_WINDOW_SECONDS`). |
+| Potential command injection in `hydrate_tool_domain` (`src/devops_cli/ai/mcp/server.py`) | **Remediated**: added strict regex validation (`^[a-z0-9_-]{1,64}$`) on incoming `domain` argument. |
+| Potential argument injection in `_fetch_git_file_content` (`src/devops_cli/commands/analyze.py`) | **Remediated**: sanitized `revision` and `rel_path` rejecting dashes and `..` path traversals before executing `git --no-pager show`. |
+| Subprocess hang on timeout in `src/devops_cli/sandbox/host.py` | **Remediated**: implemented two-phase process group termination (`SIGTERM` with 2.0s bounded wait, escalating to `SIGKILL`). |
+
+Four systemic updates harden the loop against recurrence:
+1. **Catalog Entries Added**: `HALLUCINATION-GOLDEN-TEST-FIXTURE-EXEMPLAR`, `HALLUCINATION-K8S-CLUSTER-OVERLAY-HTTP`, and `HALLUCINATION-LOCAL-DEV-NODEPORT-EXPOSURE` in `common_hallucinations.json`.
+2. **Verifier Falsification Rules**: Added explicit invalidation for synthetic test fixtures, cluster overlay networking, local NodePorts, preceding scope guards, and white-box test inspections to `src/devops_cli/ai/tasks/verify_finding_system.md`.
+3. **Repository Conventions**: Documented settled claims in `.devops/review.md` and phase grounding in `src/devops_cli/ai/tasks/review.md`.
+4. **Targeted Security Hardening**: Validated Prometheus queries, host sandbox process termination, and MCP domain gating with regression tests.
+
 ### Phase 4: Root Cause & Severity Classification
 - Isolate exact failure mechanisms and categorize severity:
   - **CRITICAL**: Exploitable vulnerability, auth bypass, credential leak, SSRF, arbitrary file write outside root, or fatal crash.

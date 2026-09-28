@@ -62,5 +62,7 @@ devops kustomize apply [OPTIONS] <path>
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--template`, `-t` | `boolean` | - | Render manifest as a template substituting domain from config or --domain before applying. |
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
 
 ---

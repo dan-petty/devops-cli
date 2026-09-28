@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
+import re
 import shlex
 import sys
 import time
@@ -179,20 +180,51 @@ def _section(title: str) -> None:
     _get("print_section")(f" {title} ", style="cyan")
 
 
+def _is_active_coverage_worker(path: Path) -> bool:
+    """Check if a .coverage worker file belongs to an active running process."""
+    match = re.search(r"[._]pid(\d+)[._]", path.name)
+    if not match:
+        return False
+    try:
+        os.kill(int(match.group(1)), 0)
+        return True
+    except OSError:
+        return False
+
+
+def _is_recent_coverage_file(path: Path, threshold_seconds: float = 60.0) -> bool:
+    """Check if a coverage file was written recently and may be in active use."""
+    try:
+        return (time.time() - path.stat().st_mtime) < threshold_seconds
+    except OSError:
+        return False
+
+
+def _unlink_coverage_path(path: Path, *, force: bool) -> None:
+    """Unlink a coverage file if not protected by active process ownership."""
+    if not force and (_is_active_coverage_worker(path) or _is_recent_coverage_file(path)):
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def _clean_coverage_artifacts(*, force: bool = False) -> None:
     """Clean up residual temporary .coverage.* worker files from the checked tree and .data/."""
     if not force and os.getenv("PYTEST_CURRENT_TEST"):
         return
 
     current_root = _get_project_root()
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        workspace_root = Path(__file__).resolve().parent.parent.parent.parent
+        if current_root.resolve() == workspace_root.resolve():
+            return
 
     for target_dir in (current_root, current_root / ".data"):
         if target_dir.exists():
             for path in target_dir.glob(".coverage*"):
-                try:
-                    path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                _unlink_coverage_path(path, force=force)
     root_coverage_xml = current_root / "coverage.xml"
     if root_coverage_xml.exists():
         try:
