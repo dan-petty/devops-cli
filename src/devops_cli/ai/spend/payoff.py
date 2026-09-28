@@ -20,7 +20,7 @@ def _calculate_days_active(
         t1 = datetime.fromisoformat(last_ts)
         diff = (t1 - t0).total_seconds() / 86400.0
         return max(1.0, round(diff, 2))
-    except Exception:
+    except ValueError, TypeError:
         return 1.0
 
 

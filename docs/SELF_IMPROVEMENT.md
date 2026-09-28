@@ -143,6 +143,33 @@ Four systemic updates harden the loop against recurrence:
 3. **Repository Conventions**: Documented settled claims in `.devops/review.md` and phase grounding in `src/devops_cli/ai/tasks/review.md`.
 4. **Targeted Security Hardening**: Validated Prometheus queries, host sandbox process termination, and MCP domain gating with regression tests.
 
+#### Calibration Record: Session `20260928-040906`
+
+This session evaluated `release/v0.2.23` across 669 files, producing 174 findings (2 CRITICAL, 48 HIGH, 93 MEDIUM, 31 LOW). Systematic analysis identified 5 recurring false-positive classes alongside genuine defensive hardening opportunities:
+
+| Claim | Why it was false / Remediated |
+| --- | --- |
+| Use of untrusted dependency `httpx2` in `tests/test_ai_served_by.py:10` (CRITICAL) | `httpx2` is an approved modern HTTP/2 client library declared in `pyproject.toml` and verified by lockfile integrity. Prohibited by `AGENTS.md`. `verify_ground_truth_hallucination` had a gap that skipped `DEPENDENCY_ECOSYSTEM` verification. |
+| Hardcoded password `<masked-password>` in `src/devops_cli/ai/run_store.py:227` (CRITICAL) | The review prompt sanitizer masked `password=password` with `<masked-password>`, which the reviewer flagged as a hardcoded credential. Line 227 contains parameter `password: str \| None`, with zero string literals. |
+| Hardcoded API key `sk-gateway` in `tests/test_ai_gateway.py:477` (HIGH) | Synthetic test mock fixture token in unit tests. `CONST_FIXTURE_CREDENTIAL_KEYWORDS` lacked API key variants. |
+| Incorrect assertion logic in `tests/test_agent_task_files.py:29` (HIGH) | Consolidated structural tuple equality (`assert (a, b, c) == (...)`) is an intentional architectural invariant mandated by `AGENTS.md` to cap cyclomatic complexity $M \le 10$. |
+| Insecure default URL for LightLLM (`DEFAULT_LIGHTLLM_URL`) (HIGH) | `AGENTS.md` explicitly mandates committed templates and defaults use localhost/loopback (`http://localhost:8000/v1`) to prevent private LAN or homelab leaks. |
+| Process signal check race condition in `src/devops_cli/commands/ci.py:189` (HIGH) | Standard POSIX `os.kill(pid, 0)` is the canonical Python idiom to check process liveness without delivering a signal. |
+| Inconsistent CLI flag naming in `src/devops_cli/ai/mcp/server.py:2845` (MEDIUM) | `devops-cli` is active alpha software prior to release 1.0.0 with an explicit zero backwards compatibility guarantee. |
+| Malformed command syntax in `k8s/README.md:65` (MEDIUM) | The secret sanitizer masked `password="$(openssl rand -hex 32)"` into `<masked-password> rand -hex 32)`, causing the reviewer to flag the masked output as malformed syntax. |
+| Narrative summaries of calibration tables in `docs/SELF_IMPROVEMENT.md` (32 findings, MEDIUM) | Tautological criteria verification: findings summarized prior calibration entries and used `git grep` as verification criteria. Since `git grep` exited 0, they were falsely marked `VERIFIED`. |
+| Potential path traversal in `get_run(run_id, ...)` (`src/devops_cli/ai/run_store.py:360`) | **Remediated**: sanitized `run_id` rejecting `/`, `\\`, `..` and ensured all matched paths strictly reside within `runs_dir()`. |
+| Bare exception handling in `src/devops_cli/cloudflare/client.py:194` | **Remediated**: narrowed `except Exception:` to `except (ValueError, json.JSONDecodeError):`. |
+| Bare exception handling in `src/devops_cli/ai/analyze/symbols.py:14` | **Remediated**: narrowed `except Exception:` to `except (SyntaxError, ValueError, RecursionError):`. |
+| Bare exception handling in `src/devops_cli/ai/spend/payoff.py:23` | **Remediated**: narrowed `except Exception:` to `except (ValueError, TypeError):`. |
+| Outdated manifest reference in `src/devops_cli/ai/knowledge_base/it_domains/tools/ollama.md:82` | **Remediated**: updated `k8s/llm/ollama.yaml` to `k8s/llm/profiles/ollama-profiles.yaml`. |
+
+Four systemic updates harden the loop against recurrence:
+1. **Catalog Additions**: Added `HALLUCINATION-STRUCTURAL-TUPLE-EQUALITY`, `HALLUCINATION-LOCALHOST-DEFAULT-CONFIG`, `HALLUCINATION-POSIX-SIGNAL-ZERO-LIVENESS`, and `HALLUCINATION-PRE-1-0-BREAKING-CHANGE` to `common_hallucinations.json`, and broadened signature patterns for `HALLUCINATION-LOCAL-DEV-NODEPORT-EXPOSURE` and `HALLUCINATION-K8S-CLUSTER-OVERLAY-HTTP`.
+2. **Ground Truth Dispatch**: Refactored `verify_ground_truth_hallucination` into dedicated per-category helpers (`DEPENDENCY_ECOSYSTEM`, `TEST_MOCKS`, `DOCUMENTATION_CONTEXT`, `SECRET_SCANNING`, etc.) with dictionary dispatch, closing the verification gap for dependency and test fixture claims.
+3. **Deterministic Pre-Verification Invalidation**: Added deterministic short-circuit checkers for structural tuple equality, localhost default configs, POSIX signal 0 liveness, and pre-1.0 breaking change claims.
+4. **Prompt & Protocol Hardening**: Updated `src/devops_cli/ai/tasks/review.md` and `src/devops_cli/ai/tasks/verify_finding_system.md` with explicit falsification rules against tautological criteria, documentation narratives, and prompt sanitizer placeholder claims.
+
 ### Phase 4: Root Cause & Severity Classification
 - Isolate exact failure mechanisms and categorize severity:
   - **CRITICAL**: Exploitable vulnerability, auth bypass, credential leak, SSRF, arbitrary file write outside root, or fatal crash.
