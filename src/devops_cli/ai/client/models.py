@@ -94,6 +94,7 @@ class LLMResponse(str):
     eval_duration_ms: float | None
     prompt_eval_duration_ms: float | None
     served_by: str | None
+    model: str | None
 
     def __new__(
         cls,
@@ -109,6 +110,7 @@ class LLMResponse(str):
         prompt_eval_duration_ms: float | None = None,
         cached: bool = False,
         served_by: str | None = None,
+        model: str | None = None,
     ) -> LLMResponse:
         obj = str.__new__(cls, content)
         obj.processing_seconds = processing_seconds
@@ -123,6 +125,7 @@ class LLMResponse(str):
         obj.cached = cached
         # The backend a gateway routed the call to; None when no gateway named one.
         obj.served_by = served_by
+        obj.model = model
         return obj
 
     @property
@@ -179,6 +182,7 @@ class LLMResponse(str):
             completion_tokens=out_tokens,
             total_tokens=tot_tokens,
             cached=cached,
+            model=response.model_name,
         )
 
 

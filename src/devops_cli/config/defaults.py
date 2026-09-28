@@ -284,6 +284,7 @@ DEFAULT_DOCKER_STATS_STREAM_SAMPLES: int = 1
 # to fail fast when endpoints are unreachable, while response/read timeouts remain
 # high (up to 3600s) to accommodate homelab performance and local AI/LLM inference.
 DEFAULT_CONNECT_TIMEOUT_SECONDS: float = 1.0
+DEFAULT_AI_CONNECT_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_POOL_TIMEOUT_SECONDS: float = 1.0
 DEFAULT_REVIEW_TIMEOUT_SECONDS: float = 1200.0
 DEFAULT_REVIEW_WINDOW_SIZE_FACTOR: float = 0.8

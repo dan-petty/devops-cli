@@ -37,6 +37,7 @@ from devops_cli.config.constants import (
     CONST_URL_OPENAI_API_BASE,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_AI_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_AI_CONTEXT_WINDOW,
     DEFAULT_AI_GATEWAY_URL,
     DEFAULT_AI_MAX_RESPONSE_BYTES,
@@ -65,8 +66,13 @@ def _set_timing_span_attributes(span_handle: Any, res: LLMResponse) -> None:
     if res.eval_duration_ms is not None:
         span_handle.set_attribute("llm.eval_duration_ms", res.eval_duration_ms)
         if res.completion_tokens and res.eval_duration_ms > 0:
-            tok_rate = res.completion_tokens / (res.eval_duration_ms / 1000.0)
-            span_handle.set_attribute("gen_ai.token_rate_tok_per_sec", round(tok_rate, 2))
+            tok_rate = round(res.completion_tokens / (res.eval_duration_ms / 1000.0), 2)
+            span_handle.set_attribute("gen_ai.token_rate_tok_per_sec", tok_rate)
+            span_handle.set_attribute("gen_ai.tokens_per_second", tok_rate)
+    elif res.wall_seconds and res.wall_seconds > 0 and res.completion_tokens:
+        tok_rate = round(res.completion_tokens / res.wall_seconds, 2)
+        span_handle.set_attribute("gen_ai.tokens_per_second", tok_rate)
+        span_handle.set_attribute("gen_ai.token_rate_tok_per_sec", tok_rate)
     if res.prompt_eval_duration_ms is not None:
         span_handle.set_attribute("llm.prompt_eval_duration_ms", res.prompt_eval_duration_ms)
     if res.processing_seconds is not None:
@@ -79,6 +85,10 @@ def _set_response_span_attributes(span_handle: Any, res: LLMResponse, p: str) ->
     """Set standard GenAI telemetry attributes on response span."""
     if res.backend_info:
         span_handle.set_attribute("gen_ai.server.address", res.backend_info)
+    if getattr(res, "served_by", None):
+        span_handle.set_attribute("gen_ai.server.served_by", res.served_by)
+    if getattr(res, "model", None):
+        span_handle.set_attribute("gen_ai.response.model", res.model)
     if res.prompt_tokens is not None:
         span_handle.set_attribute("gen_ai.usage.prompt_tokens", res.prompt_tokens)
         span_handle.set_attribute("gen_ai.usage.input_tokens", res.prompt_tokens)
@@ -91,14 +101,16 @@ def _set_response_span_attributes(span_handle: Any, res: LLMResponse, p: str) ->
     span_handle.set_attribute("gen_ai.response.finish_reasons", ["stop"])
     span_handle.set_attribute("gen_ai.response_preview", res.text[:200].replace("\n", " ").strip())
     span_handle.set_attribute("gen_ai.thinking", bool(res.thinking))
-    span_handle.add_event(
-        "llm_response_received",
-        {
-            "total_tokens": res.total_tokens or 0,
-            "wall_seconds": res.wall_seconds or 0.0,
-            "backend": res.backend_info or p,
-        },
-    )
+    event_payload: dict[str, Any] = {
+        "total_tokens": res.total_tokens or 0,
+        "wall_seconds": res.wall_seconds or 0.0,
+        "backend": res.backend_info or p,
+    }
+    if getattr(res, "served_by", None):
+        event_payload["served_by"] = res.served_by
+    if getattr(res, "model", None):
+        event_payload["model"] = res.model
+    span_handle.add_event("llm_response_received", event_payload)
 
 
 class LLMClient(
@@ -288,24 +300,10 @@ class LLMClient(
         return True
 
     def _request_timeout(self) -> httpx2.Timeout:
-        return request_timeout(read=self._request_timeout_seconds or DEFAULT_HTTP_TIMEOUT_SECONDS)
-
-    def _create_retry_transport(self) -> Any:
-        """Create a native HTTPX2TenacityTransport with exponential backoff and Retry-After support."""
-        from devops_cli.ai.retries import create_retry_transport
-
-        retries = getattr(self._config, "max_retries", None)
-        max_attempts = int(retries) if retries is not None and int(retries) > 0 else 3
-        return create_retry_transport(max_attempts=max_attempts)
-
-    def _create_http_client(self, timeout: httpx2.Timeout | None = None) -> httpx2.Client:
-        """Create an httpx2.Client with standard timeout and native retry transport."""
-        req_timeout = timeout or self._request_timeout()
-        try:
-            transport = self._create_retry_transport()
-            return httpx2.Client(timeout=req_timeout, transport=transport)
-        except Exception:
-            return httpx2.Client(timeout=req_timeout)
+        return request_timeout(
+            read=self._request_timeout_seconds or DEFAULT_HTTP_TIMEOUT_SECONDS,
+            connect=DEFAULT_AI_CONNECT_TIMEOUT_SECONDS,
+        )
 
     def _allow_private_network(self) -> bool:
         if self._config.allow_private_network:
@@ -359,21 +357,24 @@ class LLMClient(
             else (priority or network.current_request_priority.get())
         )
 
-        with trace_span(
-            "ai.llm.dispatch",
-            {
-                "gen_ai.system": p,
-                "gen_ai.operation.name": "chat",
-                "gen_ai.request.model": self._config.model,
-                "gen_ai.request.message_count": len(messages),
-                "gen_ai.request.system_prompt_length": len(system),
-                "gen_ai.request.enable_thinking": enable_thinking,
-                "gen_ai.request.priority": resolved_priority.value,
-                "gen_ai.prompt_preview": prompt_preview,
-                "provider": p,
-                "model": self._config.model,
-            },
-        ) as span_handle:
+        dispatch_attrs: dict[str, Any] = {
+            "gen_ai.system": p,
+            "gen_ai.operation.name": "chat",
+            "gen_ai.request.model": self._config.model,
+            "gen_ai.request.message_count": len(messages),
+            "gen_ai.request.system_prompt_length": len(system),
+            "gen_ai.request.enable_thinking": enable_thinking,
+            "gen_ai.request.priority": resolved_priority.value,
+            "gen_ai.prompt_preview": prompt_preview,
+            "provider": p,
+            "model": self._config.model,
+        }
+        if getattr(self._config, "temperature", None) is not None:
+            dispatch_attrs["gen_ai.request.temperature"] = self._config.temperature
+        if getattr(self._config, "top_p", None) is not None:
+            dispatch_attrs["gen_ai.request.top_p"] = self._config.top_p
+
+        with trace_span("ai.llm.dispatch", dispatch_attrs) as span_handle:
             res = self._invoke_provider_messages(
                 p, system, messages, enable_thinking, resolved_priority
             )

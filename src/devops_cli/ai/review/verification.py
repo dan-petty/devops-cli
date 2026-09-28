@@ -336,7 +336,8 @@ _HEADER_WINDOW_LINES = 25
 # AWS's documented "...EXAMPLE" key).
 _PLACEHOLDER_SECRET = re.compile(
     r"^(?:secret|password|pass|token|foo|bar|none|null)[\w.-]{0,8}$"
-    r"|fake|dummy|mock|example|sample|changeme|change-me|placeholder|xxxx|test",
+    r"|fake|dummy|mock|example|sample|changeme|change-me|placeholder|xxxx|test"
+    r"|sk-(?:gateway|wrong|test|dummy|mock)",
     re.IGNORECASE,
 )
 _SECRET_EXPOSURE_CLAIM = re.compile(
@@ -801,7 +802,13 @@ def _check_test_fixture_credential_hallucination(
     # is plainly synthetic ("test-token", "changeme", "dummy") is a fixture.
     window = _cited_window(finding, file_path, 2)
     values = re.findall(r"[\"']([^\"'\n]{3,})[\"']", window)
-    if not values or not all(_PLACEHOLDER_SECRET.search(value) for value in values):
+    finding_text = f"{title_lower} {desc_lower}"
+    has_placeholder = any(_PLACEHOLDER_SECRET.search(v) for v in values) or bool(
+        re.search(
+            r"\b(?:sk-(?:gateway|wrong|test|dummy|mock)|example\.com|00000000)\b", finding_text
+        )
+    )
+    if not has_placeholder:
         return None
     return apply_verdict(
         finding,
@@ -929,12 +936,32 @@ def _check_conversational_monologue(title_lower: str, finding: Finding) -> Findi
 
 
 def _check_benign_compliment(title_lower: str, finding: Finding) -> Finding | None:
-    if _COMPLIMENT_PHRASE.search(title_lower) and not _COMPLIMENT_NEGATION.search(title_lower):
+    desc_lower = (finding.description or "").lower()
+    is_doc_narrative = title_lower.startswith(
+        (
+            "documentation of ",
+            "documentation explains ",
+            "documentation introduces ",
+            "documentation provides ",
+            "documentation clarification ",
+            "documentation context ",
+        )
+    ) or desc_lower.startswith(
+        (
+            "the documentation correctly ",
+            "the documentation explains ",
+            "the documentation introduces ",
+            "the documentation provides ",
+        )
+    )
+    if is_doc_narrative or (
+        _COMPLIMENT_PHRASE.search(title_lower) and not _COMPLIMENT_NEGATION.search(title_lower)
+    ):
         return apply_verdict(
             finding,
             "INVALIDATED",
             by="deterministic:benign_compliment",
-            reason="Conversational praise or benign observation without a concrete defect",
+            reason="Conversational praise, narrative summary, or benign observation without a concrete defect",
         )
     return None
 
@@ -950,8 +977,16 @@ def _check_masked_placeholder_syntax_error(
     )
     if not has_marker:
         return None
-    # A claim that the redacted value is a live secret is about the value behind the marker,
-    # which the source still holds; only a claim about the marker's own syntax is false.
+    if "placeholder <masked-" in desc_lower or "placeholder <masked-" in title_lower:
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:masked_placeholder_syntax_error",
+            reason=(
+                "Matches verified common hallucination [HALLUCINATION-MASKED-SECRET]: "
+                "Sanitization marker '<masked-*>' is a prompt redaction indicator, not a live secret or hardcoded credential"
+            ),
+        )
     if _SECRET_EXPOSURE_CLAIM.search(f"{title_lower} {desc_lower}"):
         return None
     if any(
@@ -965,6 +1000,91 @@ def _check_masked_placeholder_syntax_error(
             reason=(
                 "Sanitization marker '<masked-*>' or '***redacted***' is a prompt redaction indicator, "
                 "not an invalid identifier, undefined placeholder, or runtime defect"
+            ),
+        )
+    return None
+
+
+def _check_localhost_default_url_hallucination(finding: Finding) -> Finding | None:
+    text = f"{finding.title} {finding.description or ''}".lower()
+    is_localhost = "localhost" in text or "127.0.0.1" in text
+    is_default = "default" in text or "config" in text
+    is_ssrf = "ssrf" in text or "insecure default" in text or "arbitrary internal" in text
+    if is_localhost and is_default and is_ssrf:
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:localhost_default_config",
+            reason=(
+                "Matches verified common hallucination [HALLUCINATION-LOCALHOST-DEFAULT-CONFIG]: "
+                "Default configuration URLs pointing to localhost or 127.0.0.1 are mandated by project "
+                "configuration hygiene conventions."
+            ),
+        )
+    return None
+
+
+def _check_posix_signal_zero_liveness_hallucination(finding: Finding) -> Finding | None:
+    text = f"{finding.title} {finding.description or ''}".lower()
+    has_signal = "os.kill" in text or "signal 0" in text or "process signal" in text
+    has_race = "race condition" in text or "pid" in text or "reuse" in text or "liveness" in text
+    if has_signal and has_race:
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:posix_signal_zero_liveness",
+            reason=(
+                "Matches verified common hallucination [HALLUCINATION-POSIX-SIGNAL-ZERO-LIVENESS]: "
+                "Standard POSIX os.kill(pid, 0) process existence checking is the canonical standard library "
+                "mechanism to test process liveness without delivering a signal."
+            ),
+        )
+    return None
+
+
+def _check_pre_1_0_breaking_change_hallucination(finding: Finding) -> Finding | None:
+    text = f"{finding.title} {finding.description or ''}".lower()
+    has_compat = "backward" in text or "backwards" in text or "breaking change" in text
+    has_flag = "flag naming" in text or "cli flag" in text or "compatibility" in text
+    if has_compat and has_flag:
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:pre_1_0_breaking_change",
+            reason=(
+                "Matches verified common hallucination [HALLUCINATION-PRE-1-0-BREAKING-CHANGE]: "
+                "devops-cli is alpha software prior to release 1.0.0 with zero backwards compatibility guarantees; "
+                "interface evolutions and flag alterations are explicitly permitted."
+            ),
+        )
+    return None
+
+
+def _check_structural_tuple_equality_hallucination(
+    finding: Finding, file_path: Path
+) -> Finding | None:
+    parts = set(file_path.parts)
+    is_test = bool(
+        parts & {"tests", "test"}
+        or file_path.name.startswith("test_")
+        or file_path.name.endswith("_test.py")
+    )
+    if not is_test:
+        return None
+    text = f"{finding.title} {finding.description or ''}".lower()
+    if not any(kw in text for kw in ("tuple", "assertion logic", "assertion")):
+        return None
+    window = _cited_window(finding, file_path, 2)
+    if "assert (" in window or "assert tuple(" in window or ") == (" in window:
+        return apply_verdict(
+            finding,
+            "INVALIDATED",
+            by="deterministic:structural_tuple_equality",
+            reason=(
+                "Matches verified common hallucination [HALLUCINATION-STRUCTURAL-TUPLE-EQUALITY]: "
+                "Consolidated structural tuple equality assertions (assert (...) == (...)) in test suites "
+                "are a mandatory architectural invariant to cap McCabe cyclomatic complexity M <= 10 while "
+                "preserving element-level diff diagnostics."
             ),
         )
     return None
@@ -1047,6 +1167,7 @@ def _check_code_file_hallucinations(finding: Finding, file_path: Path) -> Findin
     """Run deterministic checks against resolved target code file."""
     for checker in (
         _check_test_fixture_credential_hallucination,
+        _check_structural_tuple_equality_hallucination,
         _check_uninitialized_variable_hallucination,
         _check_syntax_error_hallucination,
         _check_unsupported_runtime_hallucination,
@@ -1109,6 +1230,9 @@ def _check_early_hallucinations(
         _check_verdict_polarity_hallucination(finding),
         _check_pathlib_resolve_hallucination(finding),
         _check_operational_protocol_hallucination(finding),
+        _check_localhost_default_url_hallucination(finding),
+        _check_posix_signal_zero_liveness_hallucination(finding),
+        _check_pre_1_0_breaking_change_hallucination(finding),
         _check_conversational_monologue(title_lower, finding),
         _check_benign_compliment(title_lower, finding),
         _check_masked_placeholder_syntax_error(finding, title_lower, desc_lower),

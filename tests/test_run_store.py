@@ -24,6 +24,7 @@ from devops_cli.ai.run_store import (
     INDEX_PREFIX,
     Mechanism,
     RunIndex,
+    get_run,
     load_runs,
     new_run,
     record_run,
@@ -374,3 +375,34 @@ def test_an_installed_package_reports_no_commit(
     monkeypatch.setattr(run_store, "__file__", str(package / "run_store.py"))
 
     assert run_store.source_commit() is None
+
+
+def test_get_run_rejects_path_traversal_and_invalid_ids(tmp_path: Path) -> None:
+    """Verify get_run returns None on empty IDs or path traversal characters."""
+    assert (
+        get_run("", root=tmp_path),
+        get_run("../../etc/passwd", root=tmp_path),
+        get_run("sub/dir/id", root=tmp_path),
+        get_run("..\\win\\path", root=tmp_path),
+    ) == (None, None, None, None)
+
+
+def test_get_run_retrieves_saved_run(tmp_path: Path) -> None:
+    """Verify get_run retrieves an existing run record by id or prefix."""
+    record = new_run(
+        Mechanism.PROMPT_EVAL,
+        setup={"a": 1},
+        subject={"s": 1},
+        results={"score": 100},
+    )
+    save_run(record, root=tmp_path)
+
+    retrieved = get_run(record.run_id, root=tmp_path)
+    prefix_retrieved = get_run(record.run_id[:8], root=tmp_path)
+
+    assert (
+        retrieved is not None,
+        retrieved.run_id if retrieved else "",
+        prefix_retrieved is not None,
+        prefix_retrieved.run_id if prefix_retrieved else "",
+    ) == (True, record.run_id, True, record.run_id)
