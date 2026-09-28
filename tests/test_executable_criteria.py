@@ -282,7 +282,7 @@ def test_finding_invalidation_criterion_invalidates_finding(tmp_path: Path) -> N
         title="False defect",
         location="app.py:1",
         severity="HIGH",
-        verification_criteria=["python -c 'assert True'"],
+        verification_criteria=[],
         invalidation_criteria=["python -c 'assert 1 + 1 == 2'"],
     )
     updated = execute_finding_criteria(finding, repo_root=tmp_path)

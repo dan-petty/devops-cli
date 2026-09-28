@@ -480,3 +480,17 @@ def _handle_schema_validation_retry(
         messages.append(build_schema_reflection_message(reflection_source))
         return True, output_retries + 1
     return False, output_retries
+
+
+def is_structured_output_schema(schema: Any) -> bool:
+    """Return True if schema requires structured JSON/model validation."""
+    if schema is None or schema is str:
+        return False
+    from devops_cli.ai.output import TextOutput, unwrap_output_spec
+
+    if isinstance(schema, TextOutput):
+        return False
+    unwrapped = unwrap_output_spec(schema)
+    if unwrapped and (unwrapped[0] is str or isinstance(unwrapped[0], TextOutput)):
+        return False
+    return True

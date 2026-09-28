@@ -278,6 +278,43 @@ def execute_criterion_command(
     )
 
 
+def _evaluate_criteria_verdict(
+    matched_inv: list[str],
+    executable_ver: list[Any],
+    exec_results: list[Any],
+) -> tuple[str, str | None, float, str | None]:
+    """Returns (verdict, by, confidence_score, reason)."""
+    if not executable_ver:
+        if matched_inv:
+            return (
+                "INVALIDATED",
+                "criteria",
+                0.0,
+                f"Invalidation criterion verified: {matched_inv[0]}",
+            )
+        return "NOOP", None, 0.0, None
+
+    cmd_set = {c.command for c in executable_ver}
+    all_ran = len(
+        {r.command for r in exec_results if r.command in cmd_set and r.exit_code != -1}
+    ) == len(cmd_set)
+    ver_passed = sum(1 for r in exec_results if r.command in cmd_set and r.passed)
+    score = round(ver_passed / len(executable_ver), 2)
+
+    if matched_inv and ver_passed > 0:
+        return "UNVERIFIED", None, score, None
+    if matched_inv:
+        return (
+            "INVALIDATED",
+            "criteria",
+            0.0,
+            f"Invalidation criterion verified: {matched_inv[0]}",
+        )
+    if all_ran and ver_passed > 0:
+        return "VERIFIED", "criteria", score, None
+    return "UNVERIFIED", None, score, None
+
+
 def _reconcile_finding_from_criteria(
     finding: Any,
     exec_results: list[Any],
@@ -299,39 +336,21 @@ def _reconcile_finding_from_criteria(
         for c in finding.verification_criteria
         if getattr(c, "executable", False) and getattr(c, "command", None)
     ]
-    if matched_inv:
-        return apply_verdict(
-            finding,
-            "INVALIDATED",
-            by="criteria",
-            reason=f"Invalidation criterion verified: {matched_inv[0]}",
-            confidence_score=0.0,
-            **extra_kwargs,
-        )
-    if executable_ver:
-        cmd_set = {c.command for c in executable_ver}
-        all_ran = len(
-            {r.command for r in exec_results if r.command in cmd_set and r.exit_code != -1}
-        ) == len(cmd_set)
-        ver_passed = sum(1 for r in exec_results if r.command in cmd_set and r.passed)
-        score = round(ver_passed / len(executable_ver), 2)
-        if all_ran and ver_passed > 0:
-            return apply_verdict(
-                finding,
-                "VERIFIED",
-                by="criteria",
-                confidence_score=score,
-                **extra_kwargs,
-            )
-        return apply_verdict(
-            finding,
-            "UNVERIFIED",
-            by=None,
-            confidence_score=score,
-            **extra_kwargs,
-        )
-
-    return finding.model_copy(update=extra_kwargs)
+    verdict, by, score, reason = _evaluate_criteria_verdict(
+        matched_inv, executable_ver, exec_results
+    )
+    if verdict == "NOOP":
+        return finding.model_copy(update=extra_kwargs)
+    apply_kwargs = dict(extra_kwargs)
+    if reason:
+        apply_kwargs["reason"] = reason
+    return apply_verdict(
+        finding,
+        verdict,
+        by=by,
+        confidence_score=score,
+        **apply_kwargs,
+    )
 
 
 def _run_criteria_group(criteria: list[Any], repo_root: Path) -> tuple[list[Any], list[str]]:

@@ -19,7 +19,10 @@ from devops_cli.ai.review_schema import (
     _extract_code_symbols,
     _parse_location,
 )
-from devops_cli.config.constants import REVIEW_GENERIC_SYMBOL_STOPWORDS
+from devops_cli.config.constants import (
+    CONST_ABSENCE_FINDING_MARKERS,
+    REVIEW_GENERIC_SYMBOL_STOPWORDS,
+)
 
 if TYPE_CHECKING:
     from devops_cli.ai.review_schema import Finding
@@ -324,24 +327,21 @@ def _build_relocation_result(finding: Finding, file_part: str, reloc: AstConstru
     )
 
 
+def is_absence_finding(finding: Finding) -> bool:
+    """Return True if finding reports the absence or omission of a construct."""
+    text = f"{finding.title} {finding.description}".lower()
+    return any(marker in text for marker in CONST_ABSENCE_FINDING_MARKERS)
+
+
 def _build_invalidation_result(finding: Finding, candidate: str, file_path: Path) -> Finding:
     """Build invalidated Finding when cited construct is absent from file."""
     reason = f"Construct '{candidate}' cited in finding is absent from {file_path.name}"
-    res = apply_verdict(
+    return apply_verdict(
         finding,
         "INVALIDATED",
         by="deterministic:construct_location",
         reason=reason,
     )
-    try:
-        from devops_cli.ai.review.common_hallucinations import (
-            auto_record_invalidated_finding,
-        )
-
-        auto_record_invalidated_finding(res, file_path=file_path, reason=reason)
-    except Exception:
-        pass
-    return res
 
 
 def _is_inspectable_python_file(path: Path) -> bool:
@@ -455,6 +455,9 @@ def _resolve_repaired_finding(
             return _build_relocation_result(finding, file_part, text_reloc)
 
     if any(_is_candidate_present_in_text(content, cand) for cand in candidates):
+        return finding
+
+    if is_absence_finding(finding):
         return finding
 
     if _candidate_in_removed_symbols(candidates, removed_symbols):

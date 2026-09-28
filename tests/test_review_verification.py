@@ -379,10 +379,10 @@ def test_format_related_file_block(tmp_path: Path) -> None:
             None,
         ),
         (
-            # A mitigation missing mechanism and perimeter degrades to UNVERIFIED (reportable=False) (#587).
+            # A mitigation missing mechanism and perimeter degrades to UNVERIFIED (reportable=True) (#660).
             {"mitigated": True, "verified": False, "reason": "Input is bounded at line 12."},
             "UNVERIFIED",
-            False,
+            True,
             False,
             None,
         ),
@@ -1384,7 +1384,7 @@ def test_an_unadjudicated_finding_is_not_exported_as_human_reviewed() -> None:
         ({"status": "INVALIDATED", "reason": "The guard is on line 4."}, ("INVALIDATED", False)),
         ({"invalidated": "true", "citation_line": 4}, ("INVALIDATED", False)),
         ({"invalidated": "true"}, ("UNVERIFIED", True)),
-        ({"status": "MITIGATED"}, ("UNVERIFIED", False)),
+        ({"status": "MITIGATED"}, ("UNVERIFIED", True)),
         (
             {
                 "status": "MITIGATED",

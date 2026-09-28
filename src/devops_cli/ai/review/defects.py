@@ -782,9 +782,10 @@ def _pipe_downloaded_script(match: re.Match[str]) -> str:
     return f"{command} | sh"
 
 
-# A download saved to a script file, the whole command on one line: curl ... -o x.sh URL.
+# A download saved to a script file, the whole command on one line: curl ... -o x.sh URL or curl -O URL.
 _SCRIPT_DOWNLOAD = (
-    r"^(\s*(?:RUN\s+)?(?:curl|wget)\b[^|;&#\n\\]*?)\s+(?:-o|-O|--output)\s+\S+\.(?:sh|bash)\b"
+    r"^(\s*(?:RUN\s+)?(?:curl|wget)\b[^|;&#\n\\]*?)"
+    r"(?:\s+(?:-o|--output)\s+\S+\.(?:sh|bash)\b|\s+-O\s+(?!https?://)\S+\.(?:sh|bash)\b|\s+-O\b)"
     r"([^|;&#\n\\]*)$"
 )
 
