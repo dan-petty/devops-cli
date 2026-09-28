@@ -182,8 +182,10 @@ class QdrantClient:
         from devops_cli.k8s.service_proxy import is_service_url
 
         if not is_service_url(self.base_url):
+            port = urllib.parse.urlparse(self.base_url).port
             return NativeQdrantClient(
                 url=self.base_url,
+                port=port,
                 api_key=self.api_key,
                 timeout=int(self.timeout),
                 check_compatibility=False,
@@ -192,8 +194,10 @@ class QdrantClient:
         from devops_cli.k8s.service_proxy import parse_service_url, resolve_proxy_connection
 
         connection = resolve_proxy_connection(parse_service_url(self.base_url))
+        port = urllib.parse.urlparse(connection.base_url).port
         return NativeQdrantClient(
             url=connection.base_url,
+            port=port,
             prefix=connection.prefix,
             headers=connection.headers,
             verify=connection.ssl_context,

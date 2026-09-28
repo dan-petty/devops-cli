@@ -121,3 +121,26 @@ def test_qdrant_delete_collection() -> None:
     client._client = mock_native
 
     assert client.delete_collection("devops_code") is True
+
+
+def test_qdrant_build_client_port_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    from typing import Any
+
+    captured_calls: list[tuple[str, int | None]] = []
+
+    def mock_native_init(url: str, port: int | None = None, **kwargs: Any) -> MagicMock:
+        captured_calls.append((url, port))
+        return MagicMock()
+
+    monkeypatch.setattr("devops_cli.ai.rag.qdrant.NativeQdrantClient", mock_native_init)
+
+    c1 = QdrantClient("https://example.com", allow_private_network=True)
+    _ = c1._build_client()
+
+    c2 = QdrantClient("http://localhost:6333", allow_private_network=True)
+    _ = c2._build_client()
+
+    assert captured_calls == [
+        ("https://example.com", None),
+        ("http://localhost:6333", 6333),
+    ]
