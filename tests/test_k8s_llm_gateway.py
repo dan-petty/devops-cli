@@ -137,6 +137,7 @@ class TestK8sLLMGatewayManifests:
                 "devops-embedding",
                 "devops-review",
                 "devops-flagship",
+                "gemma4:31b",
                 "ollama/*",
             ],
             "least-busy",

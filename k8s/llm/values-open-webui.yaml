@@ -49,7 +49,7 @@ extraEnvVars:
   # - devops-review (qwen3-coder:30b load-balanced across vllm-48gib & ollama-32gib)
   # - devops-flagship (cogito-v2:70b on vllm-64gib / ollama-48gib)
   - name: MODEL_FILTER_LIST
-    value: "devops-chat;devops-coder;devops-reasoning;devops-review;devops-flagship;qwen3-coder:30b;cogito-v2:70b;qwen2.5-coder:7b"
+    value: "devops-chat;devops-coder;devops-reasoning;devops-review;devops-flagship;qwen3-coder:30b;cogito-v2:70b;qwen2.5-coder:7b;gemma4:31b"
   - name: WEBUI_AUTH
     value: "true"
   - name: WEBUI_SECRET_KEY_FILE

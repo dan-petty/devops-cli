@@ -74,6 +74,13 @@ data:
         model_info:
           max_input_tokens: 32768
 
+      - model_name: gemma4:31b
+        litellm_params:
+          model: ollama_chat/gemma4:31b
+          api_base: http://ollama-32gib.llm.svc.cluster.local:11434
+        model_info:
+          max_input_tokens: 32768
+
       - model_name: ollama/*
         litellm_params:
           model: openai/*
