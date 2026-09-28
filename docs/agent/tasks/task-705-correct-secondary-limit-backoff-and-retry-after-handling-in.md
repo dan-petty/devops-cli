@@ -1,7 +1,7 @@
 # Task 705: Correct Secondary-Limit Backoff and Retry-After Handling in `run_gh`
 
 **Issue**: [#705](https://github.com/dan-petty/devops-cli/issues/705)
-**Status**: Backlog
+**Status**: Done
 **Milestone**: `v0.2.24`
 **Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/cli`, `priority/p0-critical`
@@ -10,14 +10,36 @@
 
 ## 1. Description & Objectives
 
-`run_gh` (`src/devops_cli/github/rate_limiter.py:1646`) is already the single `gh` seam, with quota-derived pacing, a read cache and a retry loop. `calculate_backoff_delay` (`:1013`) never checks `remaining`: whenever a future reset is tracked it sleeps until the primary reset, and one almost always is, because missing or stale state is refreshed before a request is paced (`:711`). Otherwise it retries after 2 to 5 s with no secondary floor. `Retry-After` is never parsed (`:562`), and the only tracked-reset test (`tests/test_github_rate_limiter.py:791`) uses remaining=0. AGENTS.md's 'Zero Bare `gh` Invocations' claims jittered secondary backoff, and nothing enforces its bare-`gh` ban. The httpx2 GraphQL path raises on 403/429 (`graphql.py:780`). vibes records a 20-PR triage stalled for an hour by a retry loop.
+`run_gh` (`src/devops_cli/github/rate_limiter.py`) is the centralized `gh` seam, with quota-derived pacing, a read cache, and an automated retry loop. Previously, `calculate_backoff_delay` never checked whether remaining quota reached zero: whenever a future reset epoch was tracked, it waited until the primary reset epoch regardless of remaining quota. On secondary rate limits, it lacked a floor, and `Retry-After` headers were ignored.
 
-#### Key Deliverables:
-- Context & Rationale*: `run_gh` (`src/devops_cli/github/rate_limiter.py:1646`) is already the single `gh` seam, with quota-derived pacing, a read cache and a retry loop. `calculate_backoff_delay` (`:1013`) never checks `remaining`: whenever a future reset is tracked it sleeps until the primary reset, and one almost always is, because missing or stale state is refreshed before a request is paced (`:711`). Otherwise it retries after 2 to 5 s with no secondary floor. `Retry-After` is never parsed (`:562`), and the only tracked-reset test (`tests/test_github_rate_limiter.py:791`) uses remaining=0. AGENTS.md's 'Zero Bare `gh` Invocations' claims jittered secondary backoff, and nothing enforces its bare-`gh` ban. The httpx2 GraphQL path raises on 403/429 (`graphql.py:780`). vibes records a 20-PR triage stalled for an hour by a retry loop.
-- Deliverable*: PR1 (the P0): classify primary (remaining zero), secondary and `Retry-After`. Wait for the reset only on a primary limit. On a secondary limit wait a configured floor (default 60 s, PyGithub `GithubRetry`'s `DEFAULT_SECONDARY_RATE_WAIT`, as `client.py:42` gets), then tenacity `wait_random_exponential` under a local cap. Return a server `Retry-After` unchanged. Declare tenacity in `pyproject.toml` (today only transitive), and do not reuse `pydantic_ai`'s `wait_retry_after`, which clamps. Add throttle and wait counters to the persisted quota meta (`_save_disk_quota`) so `devops gh rate-limit`, a separate process, shows them. Correct the AGENTS.md sentence. P1 follow-ups: route GraphQL 403/429 through the same classifier via the existing `HTTPX2TenacityTransport` seam, and add an AST invariant to `tests/test_architectural_invariants.py` allowlisting only `devcontainer.py`'s `gh auth token` and `gh auth login --with-token` (credential migration, no API quota). P2: replace `ratelimit` (`:54`) and the hardcoded `AsyncLimiter(max_rate=60, time_period=60)` (`:650`), both contradicting the docstring at `:6`, with one configured pyrate-limiter ceiling (sync and async). Pre-flight bulk budgeting stays with Proportional API Rate Budgeting & GraphQL Circuit Breaker Guard.
-- Constraint*: Clamping to `min(retry_after, cap)` retries early and turns a primary limit into a secondary one; sleeping silently through the primary window looks like a hang. When the required wait exceeds a configured maximum, raise `GitHubRateLimitError` stating the wait and reset time, as `GithubRetry`'s `max_rate_limit_wait` does when set (it defaults to None). Two tests pin both halves: a server `Retry-After` is returned unchanged, and the local cap bounds only the client's own growth; the remaining=0 test keeps passing. The invariant must be AST-based: grep flags docstrings and cannot tell whether a command list reaches `run_gh` or a raw subprocess.
-- Measured*: `uv run python probe/rewrite_backoff.py`: after `update_quota('core', remaining=4999, limit=5000, reset_epoch=now+3000)`, `calculate_backoff_delay` on a secondary-limit message returns 3000.0 s. Same probe with no tracked quota: attempt 1 waits 2.2–3.0 s, attempt 2 waits 4.2–5.0 s. `grep -n -A6 '^name = "ratelimit"' uv.lock`: 2.2.1, upload-time 2018-12-17.
-- Source*: vibes `observations/devops-cli/06-rate-limits-and-anti-brittle-heuristics.md`, vibes `examples/fastmcp-token-bucket-gateway/README.md`, vibes `examples/fastmcp-token-bucket-gateway/gateway.py`, vibes `examples/fastmcp-token-bucket-gateway/test_gateway.py`
-- Unit and integration test coverage with structural tuple equality assertions.
-- Maintain cyclomatic complexity $M \le 10$ and nesting depth $\le 5$.
-- 100% passing across Gated CI validation suite (`uv run devops ci`).
+This implementation delivers PR1 (P0):
+- Classifies primary limits (`remaining == 0`), secondary rate limits, and server `Retry-After`.
+- Waits for the primary reset epoch only on primary limit exhaustion (`remaining == 0`).
+- On secondary rate limits, enforces a configured floor (`DEFAULT_GH_SECONDARY_RATE_WAIT = 60.0`), followed by tenacity `wait_random_exponential` bounded by `DEFAULT_GH_SECONDARY_MAX_CAP = 300.0`.
+- Returns server `Retry-After` unchanged without local cap clamping.
+- Supports `DEFAULT_GH_MAX_RATE_LIMIT_WAIT` (`max_rate_limit_wait`), raising `GitHubRateLimitError` stating the wait and reset time when exceeded.
+- Persists `total_throttles` and `total_wait_seconds` in `_global` metadata on disk and displays them in `devops gh rate-limit` (both table and JSON formats).
+- Declares `tenacity` in `pyproject.toml` and updates `AGENTS.md`.
+
+---
+
+## 2. Deliverables & Checklist
+
+- [x] Declare `tenacity==9.1.4` in `dependencies` in `pyproject.toml` and lock in `uv.lock`.
+- [x] Define `CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS` and add `retry-after` patterns to `CONST_GITHUB_RATE_LIMIT_PATTERNS` in `src/devops_cli/config/constants.py`.
+- [x] Define `DEFAULT_GH_SECONDARY_RATE_WAIT = 60.0`, `DEFAULT_GH_SECONDARY_MAX_CAP = 300.0`, `DEFAULT_GH_MAX_RATE_LIMIT_WAIT = None` in `src/devops_cli/config/defaults.py` and export in `src/devops_cli/config/__init__.py`.
+- [x] Implement `extract_retry_after`, `_handle_retry_after_wait`, `_is_primary_exhausted`, `_calculate_primary_delay`, and `_calculate_secondary_delay` helpers in `src/devops_cli/github/rate_limiter.py`.
+- [x] Update `calculate_backoff_delay` to strictly differentiate primary reset (`remaining == 0`), server `Retry-After` (unchanged), and secondary floor + exponential backoff under local cap.
+- [x] Persist `total_throttles` and `total_wait_seconds` in `_global` disk quota metadata and record throttles during rate-limit pauses in `_handle_attempt_backoff`.
+- [x] Display `Rate Limiter Activity` in `devops gh rate-limit` table format and include `total_throttles` and `total_wait_seconds` in JSON output.
+- [x] Align `AGENTS.md` instructions under `Zero Bare gh Invocations` and `Honoring HTTP 429 & Secondary Limits`.
+- [x] Unit and integration tests with structural tuple equality assertions in `tests/test_github_rate_limiter.py` and `tests/test_gh_cmd.py`.
+- [x] 100% pass across Gated CI quality gates (`uv run devops ci`).
+
+---
+
+## 3. Verification & Results
+
+- `uv run pytest tests/test_github_rate_limiter.py tests/test_gh_cmd.py`: 98 passed.
+- `uv run pytest tests/test_architectural_invariants.py`: 13 passed.
+- `uv run devops scan complexity src/devops_cli/github/rate_limiter.py`: Cyclomatic complexity $M \le 10$ and nesting depth $\le 5$ fully compliant across all functions.

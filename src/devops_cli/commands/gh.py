@@ -61,7 +61,7 @@ from devops_cli.github.projects import (
     sync_remote_project,
     sync_remote_project_views,
 )
-from devops_cli.github.rate_limiter import run_gh
+from devops_cli.github.rate_limiter import get_github_rate_limiter, run_gh
 from devops_cli.github.roadmap_sync import sync_roadmap_to_issues
 from devops_cli.github.secrets import (
     list_repository_secrets,
@@ -1661,7 +1661,13 @@ def rate_limit_cmd(
 
     data = _parse_rate_limit_payload(res.stdout)
 
+    limiter = get_github_rate_limiter()
+    throttles = limiter.get_total_throttles()
+    wait_sec = limiter.get_total_wait_seconds()
+
     if output_format == "json":
+        data["total_throttles"] = throttles
+        data["total_wait_seconds"] = round(wait_sec, 2)
         from devops_cli.output import write_stream
 
         write_stream(json.dumps(data, indent=2) + "\n")
@@ -1671,6 +1677,9 @@ def rate_limit_cmd(
         title="GitHub API Rate Limits & Quotas",
         columns=["Resource", "Limit", "Used", "Remaining", "Reset"],
         rows=_format_rate_limit_rows(data["resources"]),
+    )
+    print_info(
+        f"Rate Limiter Activity: {throttles} throttle(s), {wait_sec:.1f}s total backoff wait"
     )
 
 

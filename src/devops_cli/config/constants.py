@@ -231,6 +231,15 @@ CONST_GITHUB_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
     "too many requests",
     "http 429",
     "wait a few minutes before you try again",
+    "retry-after",
+    "retry after",
+)
+CONST_GITHUB_SECONDARY_RATE_LIMIT_PATTERNS: tuple[str, ...] = (
+    "secondary rate limit",
+    "abuse-rate-limit",
+    "wait a few minutes before you try again",
+    "please retry your request again later",
+    "exceeded a secondary rate limit",
 )
 
 CONST_URL_OLLAMA_LOCALHOST = "http://localhost:11434"

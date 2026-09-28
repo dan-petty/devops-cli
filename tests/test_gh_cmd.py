@@ -353,10 +353,13 @@ def test_gh_rate_limit_table() -> None:
         ),
     ):
         result = runner.invoke(app, ["rate-limit"])
-        assert result.exit_code == 0
-        assert "GitHub API Rate Limits" in result.output
-        assert "graphql" in result.output
-        assert "4990" in result.output
+        assert (
+            result.exit_code,
+            "GitHub API Rate Limits" in result.output,
+            "graphql" in result.output,
+            "4990" in result.output,
+            "Rate Limiter Activity" in result.output,
+        ) == (0, True, True, True, True)
 
 
 def test_gh_runs_list() -> None:
@@ -542,9 +545,13 @@ def test_gh_rate_limit_json() -> None:
         ),
     ):
         result = runner.invoke(app, ["rate-limit", "--format", "json"])
-        assert result.exit_code == 0
         parsed = json.loads(result.output)
-        assert "resources" in parsed
+        assert (
+            result.exit_code,
+            "resources" in parsed,
+            "total_throttles" in parsed,
+            "total_wait_seconds" in parsed,
+        ) == (0, True, True, True)
 
 
 def test_gh_rate_limit_invalid_format() -> None:
