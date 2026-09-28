@@ -33,14 +33,26 @@ spec:
         llm.devops.io/total-vram-gib: '16'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["pascal"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
         env:
         - name: OLLAMA_HOST
           value: 0.0.0.0:11434
+        - name: OLLAMA_MODELS
+          value: /root/.ollama/models
         - name: OLLAMA_CONTEXT_LENGTH
           value: '32768'
+        - name: OLLAMA_MAX_LOADED_MODELS
+          value: '2'
         - name: OLLAMA_NUM_PARALLEL
           value: '1'
         - name: OLLAMA_KV_CACHE_TYPE
@@ -241,14 +253,26 @@ spec:
         llm.devops.io/total-vram-gib: '32'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["volta"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
         env:
         - name: OLLAMA_HOST
           value: 0.0.0.0:11434
+        - name: OLLAMA_MODELS
+          value: /root/.ollama/models
         - name: OLLAMA_CONTEXT_LENGTH
           value: '48000'
+        - name: OLLAMA_MAX_LOADED_MODELS
+          value: '2'
         - name: OLLAMA_NUM_PARALLEL
           value: '1'
         - name: OLLAMA_KV_CACHE_TYPE
@@ -268,8 +292,8 @@ spec:
           name: http
         resources:
           requests:
-            cpu: 4000m
-            memory: 16Gi
+            cpu: 2000m
+            memory: 8Gi
             nvidia.com/gpu: '1'
           limits:
             nvidia.com/gpu: '1'
