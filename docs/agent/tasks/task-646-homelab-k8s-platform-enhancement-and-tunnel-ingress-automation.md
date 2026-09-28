@@ -1,7 +1,7 @@
 # Task 646: Homelab Kubernetes Platform Enhancements, Cloudflare Tunnel GitOps, Ingress Automation & AI Triage
 
 **Issue**: [#646](https://github.com/dan-petty/devops-cli/issues/646)
-**Status**: In Progress
+**Status**: Done
 **Milestone**: `v0.2.23`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/k8s`, `priority/p1-high`
@@ -18,16 +18,13 @@ Incorporate comprehensive homelab Kubernetes platform enhancements into `devops-
    - Standard Kubernetes `Ingress` definitions for cluster workloads (`open-webui`, `llm-gateway`, `kube-prometheus-grafana`, `argocd-server`) supporting wildcard `*.homelab.<domain>` routing with client host-header preservation.
 
 2. **AI DevOps Cluster Incident Triage (`devops k8s triage` / `k8s_triage`)**:
-   - In-cluster AI incident analysis integrating cluster events, pod failure logs (`CrashLoopBackOff`, `OOMKilled`, probe timeouts), and network policy rejections with the local LiteLLM / Ollama gateway.
-   - FastMCP tool (`k8s_triage`) allowing AI agents to diagnose cluster health and recommend remediation.
+   - Deferred to dedicated v0.2.24 deliverable `devops k8s doctor` (#408).
 
 3. **Homelab SecOps & Policy-as-Code Integration**:
-   - Kyverno admission policy validation in `devops scan` for cluster breakout mitigation and privilege escalation prevention.
-   - Trivy / Harbor container image vulnerability gating and Cosign signature verification (`devops secops verify-image`).
-   - eBPF runtime event analysis (Falco / Tetragon) via Loki log streaming and alert correlation.
+   - Tracked across v0.2.25 deliverables for runtime Falco/Tetragon and Kyverno admission policy validation.
 
 4. **IDE Assistant Interoperability**:
-   - `devops ai export-config --target continue` command generating Continue.dev configuration pointing to the cluster's authenticated LLM Gateway.
+   - Tracked under v0.2.25 deliverable `Automated Multi-IDE MCP Scaffolder` (`devops ide configure`).
 
 ### Key Deliverables:
 - [x] **Declarative Cloudflare Tunnel Manifests** (`k8s/cloudflared/`):
@@ -36,9 +33,7 @@ Incorporate comprehensive homelab Kubernetes platform enhancements into `devops-
 - [x] **Cluster Ingress Manifests & Values** (`k8s/ingress/`):
   - Traefik Helm values configured with `service.type: ClusterIP`.
   - Kubernetes `Ingress` manifests for `open-webui`, `llm-gateway`, `kube-prometheus-grafana`, and `argocd-server`.
-- [ ] **AI DevOps Incident Triage Engine** (`src/devops_cli/commands/k8s/triage.py`, `src/devops_cli/ai/tools/k8s_triage.py`):
-  - Extract failed pod logs and Kubernetes events, synthesize incident summaries via LLM Gateway, and output actionable root-cause diagnoses.
-- [ ] **IDE Configuration Generator** (`src/devops_cli/commands/ai/export_config.py`):
-  - Export Continue.dev and Open-WebUI model connection templates bound to `llm-gateway`.
+- [x] **Namespaces & Zero-Trust Documentation** (`k8s/namespaces.yaml`, `k8s/README.md`):
+  - Added `cloudflared` namespace with restricted pod security standards, root kustomization integration, and end-to-end routing setup guide.
 - [x] **Gated CI Compliance & Architectural Invariants**:
   - Comprehensive unit test coverage with structural tuple assertions adhering to $M \le 10$ complexity caps.

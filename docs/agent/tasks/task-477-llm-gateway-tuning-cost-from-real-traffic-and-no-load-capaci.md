@@ -2,7 +2,7 @@
 
 **Issue**: [#477](https://github.com/dan-petty/devops-cli/issues/477)
 **Status**: Backlog
-**Milestone**: `v0.2.23`
+**Milestone**: `v0.2.24`
 **Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/ai`, `priority/p2-medium`
 
