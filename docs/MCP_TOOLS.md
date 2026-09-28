@@ -8,7 +8,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 |---|---|
 | [`ai_architecture`](#ai-architecture) | Analyze architectural module boundaries, dependency graphs, and cyclic imports. |
 | [`ai_ast_graph`](#ai-ast-graph) | Synthesize whole-repository code symbol and reference graph across polyglot languages. |
-| [`ai_ast_parse`](#ai-ast-parse) | Parse a polyglot source file (Python, TypeScript, Go, Rust, Java, HCL) into syntax symbols or execute S-expression query. |
+| [`ai_ast_parse`](#ai-ast-parse) | Parse a polyglot source file (Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell, Markdown) into syntax symbols or execute S-expression query. |
 | [`ai_backend_probe`](#ai-backend-probe) | Directly probe health, latency, and registered models of an inference backend. |
 | [`ai_chaos_model`](#ai-chaos-model) | Execute model dependency chaos fault injection and verify automated fallback recovery. |
 | [`ai_constellation_status`](#ai-constellation-status) | Display constellation fleet status, active fallback routes, and suspended tasks. |
@@ -76,6 +76,13 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_views_audit`](#gh-views-audit) | Audit remote project views against standardized view template specifications. |
 | [`gh_views_sync`](#gh-views-sync) | Synchronize standardized GitHub Projects v2 views with the remote repository project. |
 | [`grafana_dashboards`](#grafana-dashboards) | List Grafana dashboards, optionally filtered by search query. |
+| [`hydrate_tool_domain`](#hydrate-tool-domain) | Advertise the tools for one domain, which are withheld from the listing by default.
+
+Call this before browsing a domain's tools. Available lazy domains include `argo`,
+`benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
+`prometheus`, `rag`, `release`, `repos`, `sandbox`, `scan`, `security`, `ssh`,
+`telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
+Pass the domain name alone, for example `k8s`. |
 | [`k8s_audit`](#k8s-audit) | Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | Bootstrap minikube Kubernetes cluster and deploy infrastructure stack. |
 | [`k8s_chaos`](#k8s-chaos) | Inject or validate Kubernetes chaos engineering experiments and cluster resilience. |
@@ -188,7 +195,7 @@ Synthesize whole-repository code symbol and reference graph across polyglot lang
 
 ### `ai_ast_parse`
 
-Parse a polyglot source file (Python, TypeScript, Go, Rust, Java, HCL) into syntax symbols or execute S-expression query.
+Parse a polyglot source file (Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell, Markdown) into syntax symbols or execute S-expression query.
 
 **Parameters:**
 
@@ -248,6 +255,7 @@ Emergency failover controller re-routing tasks to designated fallback endpoints.
 | `target_provider` | `string` | No | `ollama` | - |
 | `target_model` | `string` | No | `qwen2.5-coder:7b` | - |
 | `dry_run` | `boolean` | No | `False` | - |
+| `force` | `boolean` | No | `False` | - |
 
 ### `ai_gateway_failover`
 
@@ -259,6 +267,7 @@ Trigger or test circuit-breaker failover of a virtual model to secondary backend
 |---|---|---|---|---|
 | `virtual_model` | `string` | Yes | - | - |
 | `simulate` | `boolean` | No | `True` | - |
+| `force` | `boolean` | No | `False` | - |
 
 ### `ai_gateway_routes`
 
@@ -417,6 +426,8 @@ Report approximate AI spend per backend service, model, or provider over time.
 |---|---|---|---|---|
 | `days` | `integer` | No | - | - |
 | `group_by` | `string` | No | `server` | - |
+| `reference_model` | `string` | No | - | - |
+| `hardware_cost` | `number` | No | - | - |
 
 ### `ai_subagent_offload`
 
@@ -934,6 +945,22 @@ List Grafana dashboards, optionally filtered by search query.
 |---|---|---|---|---|
 | `query` | `string` | No | `` | - |
 
+### `hydrate_tool_domain`
+
+Advertise the tools for one domain, which are withheld from the listing by default.
+
+Call this before browsing a domain's tools. Available lazy domains include `argo`,
+`benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
+`prometheus`, `rag`, `release`, `repos`, `sandbox`, `scan`, `security`, `ssh`,
+`telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
+Pass the domain name alone, for example `k8s`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `domain` | `string` | Yes | - | - |
+
 ### `k8s_audit`
 
 Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks.
@@ -1114,7 +1141,6 @@ Validate PR merge readiness: verify no unresolved review threads, no conflicts, 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `pr_number` | `integer` | No | - | - |
-| `require_ready` | `boolean` | No | `False` | - |
 | `allow_blocked_state` | `boolean` | No | `False` | - |
 | `repo` | `string` | No | - | - |
 

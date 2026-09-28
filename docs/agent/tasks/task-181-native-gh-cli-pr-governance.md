@@ -1,8 +1,7 @@
 # Task 181: Implement Native DevOps CLI Functionality for GH Operations and PR Governance
 
 **Issue**: [#181](https://github.com/dan-petty/devops-cli/issues/181)
-**PR**: [#187](https://github.com/dan-petty/devops-cli/pull/187)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/github`

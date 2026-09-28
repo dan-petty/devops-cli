@@ -19,6 +19,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
+from devops_cli.core.repo import resolve_data_path
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.k8s.service_http import describe_endpoint
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
@@ -420,7 +421,8 @@ def fetch_telemetry_status() -> TelemetrySummary:
 
 
 def _reviews_root() -> Path | None:
-    """Resolve the directory holding review sessions."""
+    """Resolve the directory holding review sessions: a relative data directory is under the
+    main worktree, where the review writer puts them, from any worktree."""
     raw_data_dir = os.getenv("DEVOPS_CLI_DATA_DIR")
     if not raw_data_dir:
         try:
@@ -430,7 +432,7 @@ def _reviews_root() -> Path | None:
             raw_data_dir = "./.data"
     try:
         validate_no_path_traversal(raw_data_dir, label="DEVOPS_CLI_DATA_DIR")
-        data_path = Path(raw_data_dir).resolve()
+        data_path = resolve_data_path(Path(raw_data_dir)).resolve()
         if is_forbidden_system_path(data_path):
             return None
     except (DevOpsCLIError, OSError, ValueError) as exc:

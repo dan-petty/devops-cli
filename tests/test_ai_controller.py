@@ -289,6 +289,39 @@ class TestConstellationManager:
         assert task.fallback_provider is None
         assert task.status == "suspended"
 
+    def test_failover_capability_gating_and_force(self, manager: ConstellationManager) -> None:
+        """Verify failover blocks underpowered models for reasoning tasks unless forced."""
+        from devops_cli.exceptions.ai import CapabilityDegradationError
+
+        manager.register_task(
+            task_id="reasoning-task-1",
+            task_type=AgentTaskType.REVIEW_LOOP,
+            name="architecture-reviewer",
+            provider="vllm",
+            model="devops-reasoning",
+        )
+        manager.quiesce(reason="Upgrade")
+
+        # Fails without force (7B < 30B)
+        with pytest.raises(CapabilityDegradationError) as exc_info:
+            manager.failover(target_provider="ollama", target_model="qwen2.5-coder:7b")
+
+        # Succeeds with force=True
+        res = manager.failover(
+            target_provider="ollama",
+            target_model="qwen2.5-coder:7b",
+            force=True,
+        )
+        assert (
+            exc_info.value.details["required_tier_b"],
+            res.success,
+            res.state,
+        ) == (
+            30,
+            True,
+            QuiesceState.FAILOVER,
+        )
+
     def test_resume_execution(self, manager: ConstellationManager) -> None:
         """Verify resume restores tasks to active status and clears quiesced state."""
         manager.register_task(

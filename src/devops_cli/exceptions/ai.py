@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import pydantic_ai.exceptions as p_exc
 
 from devops_cli.config.constants import (
+    CONST_ERROR_CODE_CAPABILITY_DEGRADATION,
     CONST_ERROR_CODE_CONSTELLATION_FAILOVER,
     CONST_ERROR_CODE_CONSTELLATION_QUIESCE,
     CONST_ERROR_CODE_CONSTELLATION_RESUME,
@@ -96,6 +97,38 @@ class ModelUnavailableError(LLMInferenceError):
             exit_code=12,
             error_code="MODEL_UNAVAILABLE",
             details=details,
+        )
+
+
+class CapabilityDegradationError(DevOpsCLIError, ValueError):
+    """Raised when a fallback or failover model breaches minimum capability tier requirements."""
+
+    DEFAULT_ERROR_CODE = CONST_ERROR_CODE_CAPABILITY_DEGRADATION
+    DEFAULT_EXIT_CODE = CONST_EXIT_FAILURE
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        role: str,
+        required_tier_b: int,
+        model: str,
+        candidate_tier_b: int | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details: dict[str, Any] = {
+            "role": role,
+            "required_tier_b": required_tier_b,
+            "model": model,
+            "candidate_tier_b": candidate_tier_b,
+        }
+        if details:
+            err_details.update(details)
+        super().__init__(
+            message,
+            exit_code=self.DEFAULT_EXIT_CODE,
+            error_code=self.DEFAULT_ERROR_CODE,
+            details=err_details,
         )
 
 
@@ -683,6 +716,7 @@ __all__ = [
     "AgentRunError",
     "ApprovalRequired",
     "CallDeferred",
+    "CapabilityDegradationError",
     "ConcurrencyLimitExceeded",
     "ConstellationFailoverError",
     "ConstellationQuiesceError",

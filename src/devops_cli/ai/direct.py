@@ -7,6 +7,7 @@ and asynchronous model requests, streaming execution, and telemetry integration.
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncGenerator, Generator, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -103,6 +104,7 @@ def direct_model_request_sync(
         "pydantic_ai.direct.model_request_sync",
         attributes={"gen_ai.request.model": model_repr, "gen_ai.messages_count": len(msgs)},
     ):
+        started = time.monotonic()
         resp = model_request_sync(
             resolved_model,
             msgs,
@@ -111,7 +113,7 @@ def direct_model_request_sync(
             instrument=instrument,
         )
         if resp.usage:
-            from devops_cli.ai.spend import track_request_spend
+            from devops_cli.ai.spend import current_stage, track_request_spend
 
             track_request_spend(
                 provider="pydantic_ai_direct",
@@ -120,6 +122,8 @@ def direct_model_request_sync(
                 prompt_tokens=resp.usage.input_tokens or 0,
                 completion_tokens=resp.usage.output_tokens or 0,
                 request_type="direct_sync",
+                duration_seconds=time.monotonic() - started,
+                stage=current_stage.get(),
             )
         return resp
 
@@ -145,6 +149,7 @@ async def direct_model_request(
         "pydantic_ai.direct.model_request",
         attributes={"gen_ai.request.model": model_repr, "gen_ai.messages_count": len(msgs)},
     ):
+        started = time.monotonic()
         resp = await model_request(
             resolved_model,
             msgs,
@@ -153,7 +158,7 @@ async def direct_model_request(
             instrument=instrument,
         )
         if resp.usage:
-            from devops_cli.ai.spend import track_request_spend
+            from devops_cli.ai.spend import current_stage, track_request_spend
 
             track_request_spend(
                 provider="pydantic_ai_direct",
@@ -162,6 +167,8 @@ async def direct_model_request(
                 prompt_tokens=resp.usage.input_tokens or 0,
                 completion_tokens=resp.usage.output_tokens or 0,
                 request_type="direct_async",
+                duration_seconds=time.monotonic() - started,
+                stage=current_stage.get(),
             )
         return resp
 

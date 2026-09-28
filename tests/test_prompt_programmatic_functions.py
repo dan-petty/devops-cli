@@ -255,8 +255,7 @@ class TestPreservationOfValidFindings:
             title="Unchecked input",
             description="Missing validation",
         )
-        # LLM returns empty dictionary or omits 'verified'
+        # LLM returns empty dictionary or omits 'verified'. The finding is neither confirmed
+        # nor refuted, so it stays unverified and reported, as with no verdict at all (#513).
         updated = _apply_single_finding_verification(f, {}, now_iso="2026-09-03T00:00:00Z")
-        assert updated.verified is False
-        assert updated.status == "UNVERIFIED"
-        assert updated.reportable is False
+        assert (updated.verified, updated.status, updated.reportable) == (False, "UNVERIFIED", True)

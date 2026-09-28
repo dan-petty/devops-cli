@@ -492,3 +492,23 @@ def test_compact_roadmap_preserves_scheduled_milestones(compactor: DocCompactor)
         "Multi-Region Mesh | Service Mesh | High | High | v0.3.0 | 💡 Future Vision |" in compacted,
     )
     assert (all(milestone_checks), all(matrix_checks)) == (True, True)
+
+
+def test_compactor_series_bullets_do_not_contain_prompt_mutation_testing() -> None:
+    """Ensure compactor series bullets never reintroduce prompt mutation testing claims."""
+    from devops_cli.docs.compactor import (
+        _SERIES_RELEASE_NOTES_BULLETS,
+        _SERIES_ROADMAP_BULLETS,
+    )
+
+    roadmap_has_mutation = any(
+        "prompt mutation" in bullet.lower()
+        for bullets in _SERIES_ROADMAP_BULLETS.values()
+        for bullet in bullets
+    )
+    release_notes_has_mutation = any(
+        "prompt mutation" in bullet.lower()
+        for bullets in _SERIES_RELEASE_NOTES_BULLETS.values()
+        for bullet in bullets
+    )
+    assert (roadmap_has_mutation, release_notes_has_mutation) == (False, False)

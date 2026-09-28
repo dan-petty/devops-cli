@@ -19,11 +19,14 @@ import typer
 from devops_cli.ai.instruction_generator import scaffold_agent_instructions
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
+    CONST_CLAUDE_MCP_JSON_NAME,
     CONST_DEVCONTAINER_DIR_NAME,
     CONST_DEVCONTAINER_IMAGE_PREFIX,
     CONST_DEVCONTAINER_JSON_NAME,
     CONST_DEVCONTAINER_JSON_PATH,
     CONST_DEVCONTAINER_PUBLISHED_IMAGE,
+    CONST_KEYRING_PACKAGES,
+    CONST_KEYRING_PROMPT_TIMEOUT_SECONDS,
     CONST_MCP_JSON_NAME,
     CONST_PYPROJECT_FILENAME,
     CONST_ROOT_DIR,
@@ -35,6 +38,7 @@ from devops_cli.config.metadata import get_project_python_version
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer, repo_label
 from devops_cli.core.process import run_subprocess
+from devops_cli.core.serialization import strip_json_comments
 from devops_cli.core.templating import render_json_template
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.exceptions import DevOpsCLIError
@@ -159,6 +163,19 @@ def init(
         )
         print_success(MESSAGES.devcontainer.created_file.format(path=mcp_file))
 
+    # The Claude Code extension reads its own project-scoped file, and it is not a copy of
+    # the VS Code one: `${workspaceFolder}` is a VS Code substitution Claude Code does not
+    # expand, so sharing the file would put a literal `${workspaceFolder}` on the server's
+    # PATH. Claude Code already runs a stdio server with the project root as its working
+    # directory, so the Claude template needs neither that variable nor `cwd`.
+    claude_mcp_file = repo_path / CONST_CLAUDE_MCP_JSON_NAME
+    if not claude_mcp_file.exists() or force:
+        write_text_file(
+            claude_mcp_file,
+            render_json_template("claude_mcp.json.j2", project_name=name),
+        )
+        print_success(MESSAGES.devcontainer.created_file.format(path=claude_mcp_file))
+
     # Scaffold AI agent instruction files (AGENTS.md, CLAUDE.md, .github/copilot-instructions.md)
     agent_files = scaffold_agent_instructions(repo_path, force=force, template=True)
     for af in agent_files:
@@ -198,13 +215,6 @@ def update(
 # =============================================================================
 # Validation Logic
 # =============================================================================
-
-
-def _strip_json_comments(text: str) -> str:
-    """Strip single-line and multi-line comments from JSON text (JSONC support)."""
-    text = re.sub(r"//.*", "", text)
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    return text
 
 
 def _validate_manifest_content(data: object, base_dir: Path) -> list[str]:
@@ -303,7 +313,7 @@ def validate(
 
     try:
         raw_text = dc_file.read_text(encoding="utf-8")
-        clean_text = _strip_json_comments(raw_text)
+        clean_text = strip_json_comments(raw_text)
         data = json.loads(clean_text)
     except Exception as exc:
         print_error(ERRORS.devcontainer.parse_failed.format(path=dc_file, exc=exc), prefix=False)
@@ -429,7 +439,7 @@ def _extract_dc_mounts(dc_file: Path, workspace_dir: Path) -> list[tuple[Path, s
     """Extract mount specs from a devcontainer.json configuration."""
     results: list[tuple[Path, str]] = []
     try:
-        clean_text = _strip_json_comments(dc_file.read_text(encoding="utf-8"))
+        clean_text = strip_json_comments(dc_file.read_text(encoding="utf-8"))
         data = json.loads(clean_text)
         mounts = data.get("mounts", [])
         if isinstance(mounts, list):
@@ -639,6 +649,16 @@ def _sync_mcp_configuration(workspace_dir: Path, *, dry_run: bool = False) -> li
             )
         actions.append(f"Scaffolded MCP configuration at {vscode_mcp}")
 
+    claude_mcp = workspace_dir / CONST_CLAUDE_MCP_JSON_NAME
+    if not claude_mcp.exists() and (workspace_dir / CONST_PYPROJECT_FILENAME).exists():
+        if not dry_run:
+            claude_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", workspace_dir.name)
+            write_text_file(
+                claude_mcp,
+                render_json_template("claude_mcp.json.j2", project_name=claude_name),
+            )
+        actions.append(f"Scaffolded Claude MCP configuration at {claude_mcp}")
+
     if vscode_mcp.exists():
         for mcp_dest in (
             Path.home() / ".gemini" / "config" / "mcp_config.json",
@@ -690,6 +710,12 @@ def _bootstrap_developer_tools(*, dry_run: bool = False) -> list[str]:
             "Installed standalone claude CLI into $HOME/.local/bin",
             "Warning: Failed to install standalone claude CLI",
         ),
+        (
+            "semgrep",
+            ["uv", "tool", "install", "semgrep"],
+            "Installed standalone semgrep tool into $HOME/.local/bin",
+            "Warning: Failed to install standalone semgrep tool via uv",
+        ),
     )
     for bin_name, cmd, success_msg, failure_msg in tool_installers:
         if shutil.which(bin_name) is None:
@@ -698,15 +724,88 @@ def _bootstrap_developer_tools(*, dry_run: bool = False) -> list[str]:
     return actions
 
 
-def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> list[str]:
+def _bootstrap_managed_tools(
+    target_dir: Path | None = None,
+    *,
+    dry_run: bool = False,
+    skip: bool = False,
+) -> list[str]:
+    """Bootstrap missing managed DevOps tool binaries into target_dir."""
+    if dry_run or skip:
+        return []
+    if os.environ.get("DEVOPS_CLI_SKIP_TOOL_BOOTSTRAP", "").strip().lower() in ("1", "true", "yes"):
+        return []
+    try:
+        from devops_cli.commands.install_tools import install_managed_tools
+
+        dest = target_dir or (Path.home() / ".local" / "bin")
+        return install_managed_tools(target_dir=dest, only_missing=True)
+    except Exception as exc:
+        return [f"Warning: Failed to bootstrap managed DevOps tools ({exc})"]
+
+
+# Sourced by bash and zsh alike. It asks only while post-start's marker says the keyring is
+# still locked, and flock keeps several restored terminals from all prompting at once.
+_KEYRING_UNLOCK_HOOK_MARKER = "devops-cli keyring unlock"
+_KEYRING_UNLOCK_HOOK = (
+    f"\n# ── {_KEYRING_UNLOCK_HOOK_MARKER} ──────────────────────────────────────────────\n"
+    '_devops_kr="${DBUS_SESSION_BUS_ADDRESS#unix:path=}"\n'
+    '_devops_kr="${_devops_kr%/*}"\n'
+    'if [ -t 0 ] && [ -e "$_devops_kr/.keyring-unlock-pending" ] \\\n'
+    "  && command -v devops >/dev/null 2>&1; then\n"
+    "  if command -v flock >/dev/null 2>&1; then\n"
+    '    flock -n "$_devops_kr/.keyring-unlock.lock" devops devcontainer unlock-keyring || true\n'
+    "  else\n"
+    "    devops devcontainer unlock-keyring || true\n"
+    "  fi\n"
+    "fi\n"
+    "unset _devops_kr\n"
+)
+
+
+def _install_keyring_packages(*, dry_run: bool = False) -> list[str]:
+    """Install gnome-keyring on images that lack it, so the configured bus can serve secrets.
+
+    The published image ships it; a project scaffolded onto another image gets the same
+    Secret Service here instead of gh falling back to a plaintext token.
+    """
+    if dry_run or _session_bus_socket() is None or shutil.which("gnome-keyring-daemon"):
+        return []
+    if not shutil.which("apt-get"):
+        return ["Warning: gnome-keyring is not installed and apt-get is unavailable"]
+
+    get_euid = getattr(os, "geteuid", None)
+    as_root = [] if get_euid is not None and get_euid() == 0 else ["sudo"]
+    apt = [*as_root, "env", "DEBIAN_FRONTEND=noninteractive", "apt-get"]
+    for cmd in (
+        [*apt, "update"],
+        [*apt, "install", "-y", "--no-install-recommends", *CONST_KEYRING_PACKAGES],
+    ):
+        res = run_subprocess(cmd, check=False, quiet=True, timeout=900)
+        if res.returncode != 0:
+            return [f"Warning: Failed to install gnome-keyring (exit {res.returncode})"]
+    return [f"Installed {', '.join(CONST_KEYRING_PACKAGES)} for the container's keyring"]
+
+
+def _run_post_create_lifecycle(
+    workspace_dir: Path,
+    *,
+    dry_run: bool = False,
+    skip_tools: bool = False,
+    target_dir: Path | None = None,
+) -> list[str]:
     """Execute DevContainer post-create setup tasks in pure Python."""
     actions: list[str] = []
 
     # 1. Volume mount permissions & ownership
     actions.extend(_setup_volume_mount_permissions(workspace_dir, dry_run=dry_run))
 
-    # 2. Bootstrap tools if not present
+    # 2. Bootstrap tools if not present, including the keyring on images that lack it
     actions.extend(_bootstrap_developer_tools(dry_run=dry_run))
+    actions.extend(
+        _bootstrap_managed_tools(target_dir=target_dir, dry_run=dry_run, skip=skip_tools)
+    )
+    actions.extend(_install_keyring_packages(dry_run=dry_run))
 
     # 3. Persistent bash history
     hist_file = Path.home() / ".bash_history"
@@ -740,6 +839,10 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
         )
         actions.append("Added shell completion and dot alias to ~/.bashrc")
 
+    if _KEYRING_UNLOCK_HOOK_MARKER not in bashrc_content:
+        bashrc_additions.append(_KEYRING_UNLOCK_HOOK)
+        actions.append("Added the keyring unlock prompt to ~/.bashrc")
+
     if bashrc_additions and not dry_run:
         with bashrc.open("a", encoding="utf-8") as file_handle:
             for addition in bashrc_additions:
@@ -760,6 +863,10 @@ def _run_post_create_lifecycle(workspace_dir: Path, *, dry_run: bool = False) ->
             "fi\n"
         )
         actions.append("Added shell completion and dot alias to ~/.zshrc")
+
+    if _KEYRING_UNLOCK_HOOK_MARKER not in zshrc_content:
+        zshrc_additions.append(_KEYRING_UNLOCK_HOOK)
+        actions.append("Added the keyring unlock prompt to ~/.zshrc")
 
     if zshrc_additions and not dry_run:
         with zshrc.open("a", encoding="utf-8") as file_handle:
@@ -1075,7 +1182,12 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
     if auto_git_daemon:
         actions.extend(_start_git_daemon(workspace_dir, dry_run=dry_run))
 
-    # 8. Align kubectl with the configured context -- last, because the minikube supervisor
+    # 8. D-Bus session bus, on which gnome-keyring is activated for gh, git and Python keyring,
+    # and any gh token that fell back to plain text while the keyring was unavailable
+    actions.extend(_start_session_bus(dry_run=dry_run))
+    actions.extend(_gh_plaintext_token_warnings())
+
+    # 9. Align kubectl with the configured context -- last, because the minikube supervisor
     # above runs `minikube start`, and that rewrites current-context to "minikube". Aligning
     # any earlier is undone immediately, which is exactly how a container configured for one
     # cluster ends up pointing at another on every rebuild.
@@ -1155,6 +1267,284 @@ def _start_git_daemon(workspace_dir: Path, *, dry_run: bool = False) -> list[str
     return actions
 
 
+def _session_bus_socket() -> Path | None:
+    """Return the socket path named by a unix:path= DBUS_SESSION_BUS_ADDRESS, if one is set."""
+    address = os.getenv("DBUS_SESSION_BUS_ADDRESS", "")
+    if not address.startswith("unix:path="):
+        return None
+    return Path(address.removeprefix("unix:path=").split(",", 1)[0])
+
+
+def _is_session_bus_running(socket_path: Path) -> bool:
+    """Check whether a D-Bus daemon accepts connections on the socket."""
+    import socket
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.2)
+        try:
+            sock.connect(str(socket_path))
+        except OSError:
+            return False
+    return True
+
+
+def _start_session_bus(*, dry_run: bool = False) -> list[str]:
+    """Ensure the session bus that gnome-keyring is D-Bus activated on is running.
+
+    The socket and its runtime directory stay under /run, which is private to each container:
+    /tmp is a volume shared between containers, where one container's keyring daemon would
+    replace another's control socket.
+    """
+    actions: list[str] = []
+    socket_path = _session_bus_socket()
+    if socket_path is None or not shutil.which("dbus-daemon"):
+        return actions
+    if _is_session_bus_running(socket_path):
+        actions.append(f"D-Bus session bus is already running at {socket_path}")
+        return actions
+
+    runtime_dir = socket_path.parent
+    if not dry_run:
+        _safe_mkdir_path(runtime_dir)
+        _ensure_path_ownership(runtime_dir)
+        _safe_chmod_path(runtime_dir, 0o700, "700")
+        socket_path.unlink(missing_ok=True)  # a socket nobody answers on is stale
+        res = run_subprocess(
+            [
+                "dbus-daemon",
+                "--session",
+                "--fork",
+                "--nopidfile",
+                f"--address=unix:path={socket_path}",
+            ],
+            env={"XDG_RUNTIME_DIR": str(runtime_dir)},
+            extra_allowed_env={"DISPLAY", "WAYLAND_DISPLAY"},
+            check=False,
+            quiet=True,
+        )
+        if res.returncode != 0:
+            actions.append(
+                f"Warning: Failed to start D-Bus session bus (exit {res.returncode}): {res.stderr}"
+            )
+            return actions
+        # A fresh bus means a fresh keyring daemon, and that always starts locked. The marker
+        # tells post-start and the first interactive shell to ask for the password.
+        if shutil.which("gnome-keyring-daemon"):
+            _keyring_unlock_pending(socket_path).touch()
+    actions.append(
+        f"Started D-Bus session bus at {socket_path}; "
+        "run `devops devcontainer unlock-keyring` to unlock the keyring"
+    )
+    return actions
+
+
+def _gh_hosts_file() -> Path:
+    """Return the file gh keeps per-host login state in."""
+    config_home = os.getenv("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(os.getenv("GH_CONFIG_DIR") or Path(config_home) / "gh") / "hosts.yml"
+
+
+def _gh_plaintext_token_hosts() -> list[str]:
+    """Return the hosts gh keeps a plaintext token for instead of using the keyring.
+
+    gh falls back to hosts.yml whenever the keyring is locked or unreachable at login, and
+    a token there wins over the keyring, so a fallback stays in effect until moved.
+    """
+    import yaml
+
+    try:
+        hosts = yaml.safe_load(_gh_hosts_file().read_text(encoding="utf-8"))
+    except OSError, yaml.YAMLError:
+        return []
+    if not isinstance(hosts, dict):
+        return []
+
+    found: list[str] = []
+    for host, entry in hosts.items():
+        if not isinstance(entry, dict):
+            continue
+        users = entry.get("users")
+        user_entries = users.values() if isinstance(users, dict) else []
+        if entry.get("oauth_token") or any(
+            isinstance(user, dict) and user.get("oauth_token") for user in user_entries
+        ):
+            found.append(str(host))
+    return found
+
+
+def _gh_plaintext_token_warnings() -> list[str]:
+    """Explain how to move each plaintext gh token into the keyring without minting a new one."""
+    hosts_file = _gh_hosts_file()
+    return [
+        f"Warning: gh keeps a plaintext token for {host} in {hosts_file}; once the keyring is "
+        f"unlocked, move it with `gh auth token -h {host} | gh auth login -h {host} --with-token`"
+        for host in _gh_plaintext_token_hosts()
+    ]
+
+
+def _login_keyring_file() -> Path:
+    """Return the file gnome-keyring keeps the login keyring in."""
+    data_home = os.getenv("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(data_home) / "keyrings" / "login.keyring"
+
+
+def _keyring_is_locked() -> bool | None:
+    """Report whether the default Secret Service collection is locked; None if it is missing."""
+    import contextlib
+
+    import secretstorage
+
+    try:
+        with contextlib.closing(secretstorage.dbus_init()) as connection:
+            return bool(secretstorage.get_default_collection(connection).is_locked())
+    except secretstorage.exceptions.SecretStorageException:
+        return None
+
+
+# =============================================================================
+# Command: devops devcontainer unlock-keyring
+# =============================================================================
+
+
+@app.command("unlock-keyring")
+def unlock_keyring() -> None:
+    """Create or unlock the gnome-keyring login keyring that gh, git and devops store secrets in."""
+    if not _unlock_keyring(timeout=None):
+        raise typer.Exit(1)
+
+
+def _keyring_unlock_pending(socket_path: Path) -> Path:
+    """Return the marker post-start leaves while the keyring it started is still locked."""
+    return socket_path.parent / ".keyring-unlock-pending"
+
+
+def _stdin_is_terminal() -> bool:
+    """Report whether someone could be typing into stdin."""
+    import sys
+
+    return sys.stdin.isatty()
+
+
+def _read_password(prompt: str, timeout: int | None) -> str:
+    """Read a password without echo, giving up with TimeoutError after timeout seconds."""
+    import getpass
+    import signal
+
+    if timeout is None or not hasattr(signal, "SIGALRM"):
+        return getpass.getpass(prompt)
+
+    def expire(_signum: int, _frame: object) -> None:
+        raise TimeoutError
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.alarm(timeout)
+    try:
+        return getpass.getpass(prompt)  # getpass restores echo on the way out
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def _move_plaintext_gh_tokens() -> list[str]:
+    """Move each plaintext gh token into the unlocked keyring, reusing the same token.
+
+    Returns the hosts moved. Logging in again with the token already held mints nothing, unlike
+    `gh auth refresh`, which counts against GitHub's ten-tokens-per-app limit.
+    """
+    if any(os.getenv(name) for name in ("GH_TOKEN", "GITHUB_TOKEN", "DEVOPS_CLI_GITHUB_TOKEN")):
+        return []  # gh prefers an environment token and refuses to log in over it
+    # gh needs the bus to reach the keyring; without it the login falls back to plain text again.
+    gh_env = {"DBUS_SESSION_BUS_ADDRESS", "GH_CONFIG_DIR", "XDG_CONFIG_HOME"}
+    moved: list[str] = []
+    for host in _gh_plaintext_token_hosts():
+        token = run_subprocess(
+            ["gh", "auth", "token", "-h", host], extra_allowed_env=gh_env, check=False, quiet=True
+        )
+        if token.returncode != 0 or not token.stdout.strip():
+            continue
+        run_subprocess(
+            ["gh", "auth", "login", "-h", host, "--with-token"],
+            input=token.stdout.strip(),
+            extra_allowed_env=gh_env,
+            check=False,
+            quiet=True,
+        )
+        if host not in _gh_plaintext_token_hosts():
+            moved.append(host)
+    return moved
+
+
+def _unlock_keyring(*, timeout: int | None) -> bool:
+    """Prompt for the keyring password, unlock or create the keyring, and move gh tokens into it.
+
+    With a timeout, an unanswered prompt gives up instead of blocking the caller.
+    """
+    socket_path = _session_bus_socket()
+    if socket_path is None or not shutil.which("gnome-keyring-daemon"):
+        print_error(ERRORS.devcontainer.keyring_unavailable)
+        return False
+    _start_session_bus()  # a no-op once post-start has started it
+    pending = _keyring_unlock_pending(socket_path)
+
+    first_time = not _login_keyring_file().exists()
+    # Checked only for an existing keyring: probing a missing one asks gnome-keyring to prompt.
+    if not first_time and _keyring_is_locked() is False:
+        pending.unlink(missing_ok=True)
+        print_info(MESSAGES.devcontainer.keyring_already_unlocked, prefix=False)
+        return True
+
+    try:
+        password = _read_password(
+            MESSAGES.devcontainer.keyring_new_password
+            if first_time
+            else MESSAGES.devcontainer.keyring_password,
+            timeout,
+        )
+        if not password:
+            # An empty password stores every secret in the keyring file as plain text.
+            print_error(ERRORS.devcontainer.keyring_empty_password)
+            return False
+        if (
+            first_time
+            and _read_password(MESSAGES.devcontainer.keyring_repeat_password, timeout) != password
+        ):
+            print_error(ERRORS.devcontainer.keyring_password_mismatch)
+            return False
+    except TimeoutError, EOFError, KeyboardInterrupt:
+        print_info(MESSAGES.devcontainer.keyring_unlock_skipped, prefix=False)
+        return False
+
+    # --unlock reads the password from stdin and creates the login keyring when it is missing.
+    # Only --replace reaches the daemon already running, and a wrong password still exits 0,
+    # so the lock state is read back afterwards. The replacement daemon gets its own session:
+    # otherwise closing the terminal it was started from -- or the pty VS Code gives
+    # post-start -- hangs it up, and D-Bus activates a fresh, locked one on the next request.
+    new_session = ["setsid"] if shutil.which("setsid") else []
+    run_subprocess(
+        [*new_session, "gnome-keyring-daemon", "--replace", "--unlock", "--components=secrets"],
+        input=password,
+        env={"XDG_RUNTIME_DIR": str(socket_path.parent)},
+        extra_allowed_env={"DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "WAYLAND_DISPLAY"},
+        check=False,
+        quiet=True,
+    )
+    locked = _keyring_is_locked()
+    if locked is None:
+        print_error(ERRORS.devcontainer.keyring_not_created)
+        return False
+    if locked:
+        print_error(ERRORS.devcontainer.keyring_wrong_password)
+        return False
+
+    pending.unlink(missing_ok=True)
+    print_success(MESSAGES.devcontainer.keyring_unlocked, prefix=False)
+    for host in _move_plaintext_gh_tokens():
+        print_success(MESSAGES.devcontainer.gh_token_moved.format(host=host), prefix=False)
+    for warning in _gh_plaintext_token_warnings():
+        print_warning(warning, prefix=False)
+    return True
+
+
 # =============================================================================
 # Command: devops devcontainer post-create
 # =============================================================================
@@ -1166,6 +1556,10 @@ def post_create(
         Path, typer.Option("--workspace", "-w", help=HELP.options.workspace_dir)
     ] = DEFAULT_CURRENT_PATH,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+    skip_tools: Annotated[
+        bool,
+        typer.Option("--skip-tools", help="Skip bootstrapping missing DevOps tool binaries."),
+    ] = False,
 ) -> None:
     """Execute DevContainer post-create setup tasks (history, shell completions, config prep)."""
     ws = workspace.resolve()
@@ -1178,7 +1572,7 @@ def post_create(
         return
 
     print_info(MESSAGES.devcontainer.post_create_start.format(workspace=ws), prefix=False)
-    actions = _run_post_create_lifecycle(ws, dry_run=False)
+    actions = _run_post_create_lifecycle(ws, dry_run=False, skip_tools=skip_tools)
     for action in actions:
         print_info(f"  [green]✓[/green] {action}", prefix=False)
     print_success(MESSAGES.devcontainer.post_create_ready, prefix=False)
@@ -1210,6 +1604,13 @@ def post_start(
     actions = _run_post_start_lifecycle(ws, dry_run=False)
     for action in actions:
         print_info(f"  [green]✓[/green] {action}", prefix=False)
+
+    # VS Code runs lifecycle commands on a pty, so the keyring can be unlocked right here. If
+    # nobody answers in time, the first interactive terminal asks instead (post-create hook).
+    socket_path = _session_bus_socket()
+    pending = socket_path is not None and _keyring_unlock_pending(socket_path).exists()
+    if pending and _stdin_is_terminal():
+        _unlock_keyring(timeout=CONST_KEYRING_PROMPT_TIMEOUT_SECONDS)
     print_success(MESSAGES.devcontainer.post_start_ready, prefix=False)
 
 

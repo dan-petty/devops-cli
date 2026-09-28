@@ -95,17 +95,6 @@ def render_review_result(persona: Any, result: Any) -> None:
         print(format_network_references_table(refs))
         write_stdout("\n")
 
-    positive = getattr(result, "positive_observations", None)
-    if positive:
-        print(MESSAGES.review.positive_observations, level="info", prefix=False)
-        for observation in positive:
-            print(
-                f"  [green]\u2713[/green] {escape_text(str(observation))}",
-                level="info",
-                prefix=False,
-            )
-        write_stdout("\n")
-
     summary = getattr(result, "summary", None)
     if summary:
         print(MESSAGES.review.summary, level="info", prefix=False)

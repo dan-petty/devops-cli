@@ -6,7 +6,8 @@ resources:
   - networkpolicy.yaml
   - ca-configmap.yaml
   - valkey.yaml
-  - ollama-daemonset.yaml
+  - valkey-runs.yaml
+  - profiles
   - gateway/configmap.yaml
   - gateway/deployment.yaml
   - gateway/service.yaml
@@ -15,9 +16,3 @@ resources:
   - portkey/deployment.yaml
   - portkey/service.yaml
   - portkey/networkpolicy.yaml
-  - vllm/deployment.yaml
-  - vllm/service.yaml
-  - vllm/networkpolicy.yaml
-  - lightllm/deployment.yaml
-  - lightllm/service.yaml
-  - lightllm/networkpolicy.yaml

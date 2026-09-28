@@ -21,10 +21,10 @@ from devops_cli.ai.benchmark.tasks import BENCHMARK_TASKS, get_benchmark_tasks
 
 __all__ = [
     "BENCHMARK_TASKS",
-    "BenchmarkRunner",
-    "BenchmarkSuiteRunner",
     "EMBEDDING_DISTRACTORS",
     "EMBEDDING_EVAL_PAIRS",
+    "BenchmarkRunner",
+    "BenchmarkSuiteRunner",
     "EmbeddingBenchmarkRunner",
     "EmbeddingEvalPair",
     "calculate_suite_metrics",

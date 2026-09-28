@@ -1,7 +1,6 @@
 # Task: Complete Security Scanner Migration to BaseSecurityScanner & ScannerRegistry (#88)
 
-**Issue**: #88
-**PR**: #93
+**Issue**: [#88](https://github.com/dan-petty/devops-cli/issues/88)
 **Status**: Done
 **Milestone**: v0.2.15
 **Priority**: priority/p0-critical

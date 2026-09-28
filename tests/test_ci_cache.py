@@ -31,7 +31,11 @@ def isolated_cache_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_resolve_ci_cache_path(isolated_cache_dir: Path) -> None:
     """Test resolution of CI cache destination path."""
     cache_path = resolve_ci_cache_path()
-    assert (cache_path.name, cache_path.parent) == ("ci_cache.json", isolated_cache_dir)
+    assert (
+        cache_path.name.startswith("ci_cache-"),
+        cache_path.suffix,
+        cache_path.parent,
+    ) == (True, ".json", isolated_cache_dir)
 
 
 def test_compute_workspace_fingerprint_git(tmp_path: Path) -> None:
@@ -147,6 +151,7 @@ def test_get_ci_cache_pre_commit_subset_match(tmp_path: Path, isolated_cache_dir
         file_hashes={"src/a.py": hash_a, "src/b.py": hash_b},
         options={},
         passed=True,
+        root=tmp_path,
     )
 
     # Subset match with different global fingerprint
@@ -172,7 +177,7 @@ def test_get_ci_cache_pre_commit_subset_match(tmp_path: Path, isolated_cache_dir
 
 def test_clear_ci_cache(isolated_cache_dir: Path) -> None:
     """Test cache invalidation via clear_ci_cache."""
-    cache_file = isolated_cache_dir / "ci_cache.json"
+    cache_file = resolve_ci_cache_path()
     cache_file.write_text("{}", encoding="utf-8")
     assert cache_file.exists() is True
 
@@ -185,7 +190,7 @@ def test_ci_cli_cache_hit_and_force(
 ) -> None:
     """Test CLI execution using cache hit and bypassing with --force."""
     runner = CliRunner()
-    cache_path = isolated_cache_dir / "ci_cache.json"
+    cache_path = resolve_ci_cache_path()
 
     entry = CICacheEntry(
         fingerprint="cli-test-fp",

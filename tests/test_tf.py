@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,7 +17,9 @@ from devops_cli.commands.tf import (
     _resolve_tf_binary,
     app,
 )
+from devops_cli.config.constants import CONST_TF_AWS_DIR
 from devops_cli.core.validation import validate_dir
+from devops_cli.lang import MESSAGES
 
 runner = CliRunner()
 
@@ -235,7 +239,7 @@ def test_tf_status_command(temp_tf_dir: Path) -> None:
 
 def test_deploy_cloud_command(temp_tf_dir: Path) -> None:
     with (
-        patch("devops_cli.commands.tf.find_top_level_repo_root", return_value=temp_tf_dir),
+        patch("devops_cli.commands.tf.find_worktree_root", return_value=temp_tf_dir),
         patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
         patch("devops_cli.commands.tf._get_cloud_dir", return_value=temp_tf_dir),
         patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run,
@@ -247,7 +251,7 @@ def test_deploy_cloud_command(temp_tf_dir: Path) -> None:
 
 def test_deploy_cloud_dry_run(temp_tf_dir: Path) -> None:
     with (
-        patch("devops_cli.commands.tf.find_top_level_repo_root", return_value=temp_tf_dir),
+        patch("devops_cli.commands.tf.find_worktree_root", return_value=temp_tf_dir),
         patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
         patch("devops_cli.commands.tf._get_cloud_dir", return_value=temp_tf_dir),
         patch("devops_cli.commands.tf.is_dry_run", return_value=True),
@@ -304,3 +308,159 @@ def test_tf_lint_command(temp_tf_dir: Path) -> None:
         res_clean = runner.invoke(app, ["lint", str(temp_tf_dir)])
         assert res_clean.exit_code == 0
         assert "No Terraform" in res_clean.output
+
+
+def test_deploy_cloud_targets_the_nested_worktrees_configuration(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `devops tf deploy-cloud` from a worktree under `.claude/worktrees/` initialises
+    and applies that worktree's provider configuration, not the checkout's (#582)."""
+    _, nested = nested_worktree
+    monkeypatch.chdir(nested)
+
+    with (
+        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
+        patch("devops_cli.commands.tf.is_dry_run", return_value=True),
+        patch("devops_cli.commands.tf.render_dry_run_result") as render,
+    ):
+        result = runner.invoke(app, ["deploy-cloud", "--provider", "aws"])
+
+    targets = [call.kwargs["target"] for call in render.call_args_list]
+    assert (result.exit_code, targets) == (0, [str(nested.resolve() / CONST_TF_AWS_DIR)] * 2)
+
+
+def _deploy_from_the_worktree(
+    nested_worktree: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    args: list[str],
+    *,
+    answer: str = "",
+    state_in: tuple[Path, ...] = (),
+    checkout_state: tuple[str, str] = ("terraform.tfstate", "{}"),
+) -> tuple[int, list[Path], str]:
+    """Run `devops tf deploy-cloud --provider aws` from a nested worktree, with the main
+    checkout's tf/aws holding `checkout_state` (a relative path and its contents, local state
+    by default); the exit code, the tofu cwds and the output."""
+    main, nested = nested_worktree
+    for tree in (main, nested):
+        (tree / CONST_TF_AWS_DIR).mkdir(parents=True)
+    state_name, state_text = checkout_state
+    (main / CONST_TF_AWS_DIR / state_name).parent.mkdir(parents=True, exist_ok=True)
+    (main / CONST_TF_AWS_DIR / state_name).write_text(state_text, encoding="utf-8")
+    for tree in state_in:
+        (tree / CONST_TF_AWS_DIR / "terraform.tfstate").write_text("{}", encoding="utf-8")
+    cwds: list[Path] = []
+
+    def record(_cmd: list[str], **kwargs: Any) -> MagicMock:
+        cwds.append(Path(kwargs["cwd"]))
+        return MagicMock(returncode=0)
+
+    monkeypatch.chdir(nested)
+    with (
+        patch("devops_cli.commands.tf._resolve_tf_binary", return_value="tofu"),
+        patch("devops_cli.commands.tf.run_subprocess", side_effect=record),
+    ):
+        result = runner.invoke(app, ["deploy-cloud", "--provider", "aws", *args], input=answer)
+    return result.exit_code, cwds, "".join(result.output.split())
+
+
+def test_deploy_cloud_refuses_to_auto_approve_a_worktree_without_the_checkouts_state(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify an auto-approved deploy from a worktree with no local state, while the main
+    checkout holds that provider's state, stops before `init` rather than planning to create
+    every resource again from empty state."""
+    main, _ = nested_worktree
+
+    exit_code, cwds, output = _deploy_from_the_worktree(
+        nested_worktree, monkeypatch, ["--auto-approve"]
+    )
+
+    main_state = "".join(str((main / CONST_TF_AWS_DIR).resolve()).split())
+    assert (exit_code, cwds, main_state in output) == (1, [], True)
+
+
+@pytest.mark.parametrize(("answer", "expected_exit", "runs"), [("n\n", 1, 0), ("y\n", 0, 2)])
+def test_deploy_cloud_asks_before_deploying_a_worktree_without_the_checkouts_state(
+    nested_worktree: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    answer: str,
+    expected_exit: int,
+    runs: int,
+) -> None:
+    """Verify a deploy from such a worktree asks first: declining stops it, and confirming
+    runs `init` and `apply` in the worktree's own configuration."""
+    _, nested = nested_worktree
+
+    exit_code, cwds, _ = _deploy_from_the_worktree(nested_worktree, monkeypatch, [], answer=answer)
+
+    assert (exit_code, cwds) == (expected_exit, [(nested / CONST_TF_AWS_DIR).resolve()] * runs)
+
+
+def test_deploy_cloud_runs_unprompted_where_the_worktree_holds_its_own_state(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a worktree with a state file of its own deploys without the empty-state guard."""
+    _, nested = nested_worktree
+
+    exit_code, cwds, _ = _deploy_from_the_worktree(
+        nested_worktree, monkeypatch, ["--auto-approve"], state_in=(nested,)
+    )
+
+    assert (exit_code, cwds) == (0, [(nested / CONST_TF_AWS_DIR).resolve()] * 2)
+
+
+def test_a_dry_run_deploy_warns_of_the_missing_state_without_asking(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a dry run from a worktree without the checkout's state warns, targets the
+    worktree's provider directory rather than the main checkout's, and runs nothing."""
+    main, nested = nested_worktree
+    monkeypatch.setattr("devops_cli.commands.tf.is_dry_run", lambda: True)
+
+    exit_code, cwds, output = _deploy_from_the_worktree(
+        nested_worktree, monkeypatch, ["--auto-approve"]
+    )
+
+    cloud_dir, checkout_dir = ((tree / CONST_TF_AWS_DIR).resolve() for tree in (nested, main))
+    warning = MESSAGES.tf.deploy_cloud_state_in_checkout.format(
+        path=cloud_dir, checkout=checkout_dir
+    )
+    header = MESSAGES.tf.deploy_cloud_header.format(provider="AWS", path=cloud_dir)
+    expected = [
+        "".join(text.replace("[cyan]", "").replace("[/cyan]", "").split())
+        for text in (warning, header)
+    ]
+    assert (exit_code, cwds, [text in output for text in expected]) == (0, [], [True, True])
+
+
+_S3_BACKEND_CACHE = json.dumps(
+    {"version": 3, "backend": {"type": "s3", "config": {"bucket": "state"}}, "modules": []}
+)
+
+
+@pytest.mark.parametrize(
+    ("checkout_state", "expected_exit", "runs"),
+    [
+        ((".terraform/terraform.tfstate", _S3_BACKEND_CACHE), 0, 2),
+        ((".terraform/terraform.tfstate", json.dumps({"version": 4, "resources": []})), 1, 0),
+    ],
+    ids=["remote-backend-cache", "local-state-under-dot-terraform"],
+)
+def test_deploy_cloud_guards_only_local_resource_state_in_the_checkout(
+    nested_worktree: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    checkout_state: tuple[str, str],
+    expected_exit: int,
+    runs: int,
+) -> None:
+    """Verify the empty-state guard ignores the backend configuration that `init` caches in
+    `.terraform/terraform.tfstate` for a remote backend, whose state no worktree lacks, and
+    still stops an auto-approved deploy when that file holds local resource state."""
+    _, nested = nested_worktree
+
+    exit_code, cwds, _ = _deploy_from_the_worktree(
+        nested_worktree, monkeypatch, ["--auto-approve"], checkout_state=checkout_state
+    )
+
+    assert (exit_code, cwds) == (expected_exit, [(nested / CONST_TF_AWS_DIR).resolve()] * runs)

@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.config.constants import (
     CONST_STATUS_INVALIDATED,
+    CONST_VERIFIED_BY_UNKNOWN,
 )
 from devops_cli.exceptions import SecurityError
 
@@ -36,6 +37,8 @@ class FeedbackRecord(BaseModel):
     invalidation_reason: str | None = None
     verified_at: str | None = None
     verified_by: str | None = "human"
+    citation_line: int | None = None
+    mitigating_mechanism: str | None = None
 
 
 def _build_feedback_record(f: dict[str, Any], session_id: str, f_status: str) -> FeedbackRecord:
@@ -54,7 +57,12 @@ def _build_feedback_record(f: dict[str, Any], session_id: str, f_status: str) ->
         fix=f.get("fix"),
         invalidation_reason=f.get("invalidation_reason"),
         verified_at=f.get("verified_at"),
-        verified_by=f.get("verified_by") or "human",
+        # A missing adjudicator is unknown, not human. Defaulting to "human" put every
+        # record the verifier never reached into the human ground-truth bucket -- the one
+        # part of this dataset that is trusted precisely because a person wrote it.
+        verified_by=f.get("verified_by") or CONST_VERIFIED_BY_UNKNOWN,
+        citation_line=f.get("citation_line"),
+        mitigating_mechanism=f.get("mitigating_mechanism"),
     )
 
 
@@ -111,12 +119,9 @@ def export_invalidated_feedback(
         out_path = output_file
     else:
         from devops_cli.config.settings import load_settings
-        from devops_cli.core.repo import find_top_level_repo_root
+        from devops_cli.core.repo import resolve_data_path
 
-        settings = load_settings()
-        out_path = settings.data.feedback_dataset_path
-        if not out_path.is_absolute():
-            out_path = (find_top_level_repo_root() / out_path).resolve()
+        out_path = resolve_data_path(load_settings().data.feedback_dataset_path)
 
     if output_file is not None:
         resolved_out = output_file.resolve()

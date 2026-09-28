@@ -69,7 +69,13 @@ def test_export_ai_spend_prometheus_with_records(seeded_ledger: SpendLedger) -> 
         'devops_cli_ai_requests_total{model="gpt-4o",provider="openai"} 1' in text,
         'devops_cli_ai_tokens_total{model="gpt-4o",provider="openai",type="total"} 3000' in text,
         'devops_cli_ai_server_spend_usd{provider="openai",server="example.com"}' in text,
+        "devops_cli_ai_local_cost_equivalent_usd" in text,
+        "devops_cli_ai_counterfactual_spend_usd" in text,
+        "devops_cli_ai_counterfactual_savings_usd" in text,
     ) == (
+        True,
+        True,
+        True,
         True,
         True,
         True,

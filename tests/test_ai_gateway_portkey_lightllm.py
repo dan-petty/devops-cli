@@ -19,6 +19,7 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER_PORTKEY,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
 )
+from devops_cli.config.defaults import DEFAULT_VLLM_CLUSTER_URL, DEFAULT_VLLM_SERVED_MODEL_NAME
 from devops_cli.config.settings import AIConfig
 
 runner = CliRunner()
@@ -47,6 +48,24 @@ class TestPortkeyGatewayRouter:
             CONST_AI_GATEWAY_VIRTUAL_MODELS,
             CONST_AI_BACKEND_LIGHTLLM,
             True,
+        )
+
+    def test_portkey_reasoning_targets_vllm_served_model(self) -> None:
+        """Verify Portkey default routes and ConfigMap address vLLM by its served model name."""
+        router = GatewayRouter(AIConfig(gateway_provider=CONST_AI_GATEWAY_PROVIDER_PORTKEY))
+        reasoning = next(r for r in router.list_routes() if r.virtual_model == "devops-reasoning")
+        docs = yaml.safe_load_all((PORTKEY_DIR / "configmap.yaml").read_text(encoding="utf-8"))
+        cm = next(d for d in docs if d and d.get("kind") == "ConfigMap")
+        targets = {t["virtual_key"]: t for t in json.loads(cm["data"]["config.json"])["targets"]}
+
+        assert (
+            reasoning.target_model,
+            reasoning.backend_url,
+            targets["vllm-backend"]["override_params"]["model"],
+        ) == (
+            DEFAULT_VLLM_SERVED_MODEL_NAME,
+            DEFAULT_VLLM_CLUSTER_URL,
+            DEFAULT_VLLM_SERVED_MODEL_NAME,
         )
 
     def test_portkey_probe_gateway_success(self) -> None:
@@ -211,7 +230,7 @@ class TestLightLLMScaleAndProbe:
         router = GatewayRouter(config)
         mock_vllm = MagicMock(
             status_code=200,
-            json=lambda: {"data": [{"id": "llama-3.3-70b-instruct"}]},
+            json=lambda: {"data": [{"id": DEFAULT_VLLM_SERVED_MODEL_NAME}]},
         )
         mock_ollama = MagicMock(
             status_code=200,
@@ -470,7 +489,7 @@ class TestK8sPortkeyAndLightLLMManifests:
         """Verify zero RFC 1918 IPs or *.lan hostnames exist in Portkey and LightLLM manifests."""
         all_yamls = list(PORTKEY_DIR.glob("*.yaml")) + list(LIGHTLLM_DIR.glob("*.yaml"))
         private_ip_pattern = re.compile(
-            r"\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b"
+            r"\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b(?!/)"
         )
         lan_hostname_pattern = re.compile(r"\b[a-zA-Z0-9_\-]+\.lan\b")
 

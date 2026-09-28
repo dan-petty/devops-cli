@@ -1,7 +1,6 @@
 # Task 274: Agentic Information Foraging & Scent Tracker (`devops ai research forage`)
 
 **Issue**: [#274](https://github.com/dan-petty/devops-cli/issues/274)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.21`
 **Priority**: `priority/p0-critical`

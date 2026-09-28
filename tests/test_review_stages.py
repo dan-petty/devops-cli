@@ -1,79 +1,9 @@
-"""Unit tests for modular review pipeline stages."""
+"""Unit tests for the review stages the orchestrator runs: adversarial debate."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from devops_cli.ai.review.stages.adversarial_debate import run_adversarial_debate_stage
-from devops_cli.ai.review.stages.persona_review import run_persona_review_stage
-from devops_cli.ai.review.stages.pre_analysis import run_pre_analysis_stage
-from devops_cli.ai.review.stages.reporting import run_reporting_stage
-from devops_cli.ai.review.stages.reranking import run_reranking_stage
-from devops_cli.ai.review.stages.static_scan import run_static_scan_stage
-from devops_cli.ai.review.stages.verification import run_verification_stage
-from devops_cli.ai.review_schema import (
-    FileReviewPayload,
-    SavedFinding,
-)
-
-
-def test_pre_analysis_stage(tmp_path: Path) -> None:
-    test_file = tmp_path / "app.py"
-    test_file.write_text("def hello(): pass\n")
-    cached_meta, meta_dict = run_pre_analysis_stage(tmp_path, "local", "path")
-    assert len(meta_dict) >= 1
-
-
-def test_static_scan_stage(tmp_path: Path) -> None:
-    test_py = tmp_path / "app.py"
-    test_py.write_text("import subprocess\nsubprocess.run(['ls'])\n")
-
-    test_yaml = tmp_path / "deploy.yaml"
-    test_yaml.write_text("apiVersion: apps/v1\nkind: Deployment\n")
-
-    findings, deps, nets = run_static_scan_stage([str(test_py), str(test_yaml)], tmp_path, {})
-    assert str(test_py) in findings
-    assert str(test_yaml) in findings
-    assert isinstance(deps, list)
-    assert isinstance(nets, list)
-
-
-def test_persona_review_stage(tmp_path: Path) -> None:
-    payload1 = FileReviewPayload(
-        file_path="src/app.py",
-        file_hash="12345",
-        findings=[],
-    )
-    payload2 = FileReviewPayload(
-        file_path="src/utils.py",
-        file_hash="67890",
-        findings=[],
-    )
-    run_persona_review_stage(
-        [payload1, payload2],
-        {"src/app.py": "def test(): pass", "src/utils.py": "def util(): pass"},
-    )
-    assert payload1.file_path == "src/app.py"
-    assert payload2.file_path == "src/utils.py"
-
-
-def test_verification_stage() -> None:
-    finding = SavedFinding(
-        id="f1",
-        title="Test Finding",
-        severity="HIGH",
-        location="src/app.py:10",
-        description="A potential flaw",
-        status="UNVERIFIED",
-        persona="devsecops",
-    )
-    payload = FileReviewPayload(
-        file_path="src/app.py",
-        file_hash="12345",
-        findings=[finding],
-    )
-    run_verification_stage([payload])
-    assert len(payload.findings) == 1
+from devops_cli.ai.review_schema import FileReviewPayload, SavedFinding
 
 
 def test_adversarial_debate_stage() -> None:
@@ -117,51 +47,3 @@ def test_adversarial_debate_stage() -> None:
     assert f_spec.status == "INVALIDATED"
     assert f_style.status == "INVALIDATED"
     assert f_valid.status == "UNVERIFIED"
-
-
-def test_reranking_stage() -> None:
-    f1 = SavedFinding(
-        id="f1",
-        title="Low issue",
-        severity="LOW",
-        location="src/b.py:10",
-        description="Minor style",
-        status="UNVERIFIED",
-        persona="devsecops",
-    )
-    f2 = SavedFinding(
-        id="f2",
-        title="Critical vuln",
-        severity="CRITICAL",
-        location="src/a.py:5",
-        description="Major RCE",
-        status="UNVERIFIED",
-        persona="devsecops",
-    )
-    reranked = run_reranking_stage([f1, f2, f1])
-    assert len(reranked) == 2
-    assert reranked[0].severity == "CRITICAL"
-    assert reranked[1].severity == "LOW"
-
-
-def test_reporting_stage(tmp_path: Path) -> None:
-    finding = SavedFinding(
-        id="f1",
-        title="Critical vuln",
-        severity="CRITICAL",
-        location="src/a.py:5",
-        description="Major RCE",
-        status="UNVERIFIED",
-        persona="devsecops",
-    )
-    session_dir = tmp_path / "reviews" / "test-session"
-    report_path = run_reporting_stage(
-        session_id="test-session",
-        session_dir=session_dir,
-        reportable_findings=[finding],
-        all_deps=[],
-        all_nets=[],
-        n_files=1,
-    )
-    assert report_path.exists()
-    assert (session_dir / "findings.json").exists()

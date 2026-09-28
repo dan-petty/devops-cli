@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import operator
 import os
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +17,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import devops_cli.config.options as opt
+from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_PROVIDER,
+    CONST_SETTINGS_CACHE_SETTLE_SECONDS,
+)
 from devops_cli.config.constants import (
     CONST_CONFIG_PATH as CONFIG_PATH,
 )
@@ -35,10 +42,12 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_ENABLED,
     DEFAULT_AI_GATEWAY_PROVIDER,
     DEFAULT_AI_GATEWAY_URL,
+    DEFAULT_AI_HARDWARE_COST_USD,
     DEFAULT_AI_MAX_RETRIES,
     DEFAULT_AI_MODEL,
     DEFAULT_AI_PROVIDER,
     DEFAULT_AI_REASONING_EFFORT,
+    DEFAULT_AI_REFERENCE_MODEL,
     DEFAULT_AI_TEMPERATURE,
     DEFAULT_AI_TOP_P,
     DEFAULT_ANALYSIS_DATA_DIR,
@@ -68,6 +77,8 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_TOP_K,
     DEFAULT_REPOS_BASE_DIR,
     DEFAULT_REVIEWS_DATA_DIR,
+    DEFAULT_RUNS_DATA_DIR,
+    DEFAULT_SAMPLES_DATA_DIR,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_KEY_PREFIX,
@@ -90,20 +101,33 @@ class SecretStorageError(RuntimeError):
     """Raised when a secret cannot be stored in the configured keyring backend."""
 
 
+class KeyringLockedError(SecretStorageError):
+    """Raised when the keyring exists but is locked, so nothing can be stored until unlocked."""
+
+
+_KEYRING_LOCKED_HINT = "the OS keyring is locked; run `devops devcontainer unlock-keyring`"
+
+
+def _is_unencrypted_backend(backend: object) -> bool:
+    """Report whether a backend keeps secrets in plain text."""
+    return "Plaintext" in type(backend).__name__ or "keyrings.alt" in type(backend).__module__
+
+
 def _ensure_keyring_backend() -> bool:
     """Ensure keyring has a usable, encrypted backend and reject unencrypted backends."""
     import keyring
+    from keyring.backends.chainer import ChainerBackend
     from keyring.backends.fail import Keyring as FailKeyring
 
     backend = keyring.get_keyring()
     if backend is None or isinstance(backend, FailKeyring):
         return False
 
-    # Check priority and reject known unencrypted/insecure backends
-    backend_class_name = type(backend).__name__
-    backend_module = type(backend).__module__
-
-    if "Plaintext" in backend_class_name or "keyrings.alt" in backend_module:
+    # keyring picks the chainer whenever several backends are viable, and the chainer falls
+    # through to the next one when a write fails -- a locked Secret Service would hand the
+    # secret to any plaintext backend behind it. Every backend it chains must be encrypted.
+    members = list(backend.backends) if isinstance(backend, ChainerBackend) else [backend]
+    if not members or any(_is_unencrypted_backend(member) for member in members):
         return False
 
     priority = getattr(backend, "priority", 0)
@@ -198,6 +222,15 @@ def _normalize_valkey_host(raw_host: str, raw_port: Any, data: dict[str, Any]) -
         data["host"] = f"{clean}:{raw_port}"
 
 
+class RunsConfig(BaseModel):
+    """The evaluation run store's shared index; records stay in `data.runs_dir` without it."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    # A Valkey URL such as `valkey://host:port`; unset keeps runs on this workstation only.
+    index_url: str | None = None
+
+
 class ValkeyConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     host: str = "localhost:6379"
@@ -249,6 +282,66 @@ class KubernetesConfig(BaseModel):
     context: str = Field(
         default="minikube",
         description="Active Kubernetes cluster context name (e.g. minikube, docker-desktop, kind-cluster, or cloud context)",
+    )
+    domain: str | None = Field(
+        default=None,
+        description="Base domain name for homelab ingress routes and tunnel services (e.g. retric.ai)",
+    )
+    addressing: str | None = Field(
+        default=None,
+        description="Default addressing mode for cluster services: nodeport, proxy, or fqdn.",
+    )
+
+
+class CloudflareAccessConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    enabled: bool = Field(
+        default=False,
+        description="Whether Cloudflare Zero Trust Access protection is enabled",
+    )
+    allowed_emails: list[str] = Field(
+        default_factory=list,
+        description="List of email addresses permitted to authenticate through Cloudflare Access",
+    )
+    idp: str = Field(
+        default="google",
+        description="Identity provider name (e.g. google, one_time_pin)",
+    )
+    bypass_ips: list[str] = Field(
+        default_factory=list,
+        description="List of public IP addresses or CIDR blocks permitted to bypass Cloudflare Access authentication",
+    )
+    public_ip_bypass: str | None = Field(
+        default=None,
+        description="Homelab public IP address or CIDR block permitted to bypass Cloudflare Access authentication",
+    )
+
+
+class CloudflareConfig(BaseModel):
+    model_config = ConfigDict(frozen=False)
+    domain: str | None = Field(
+        default=None,
+        description="Root or zone domain name managed in Cloudflare (e.g. retric.ai)",
+    )
+    tunnel: str | None = Field(
+        default=None,
+        description="Cloudflare tunnel name or identifier (e.g. homelab)",
+    )
+    account_id: str | None = Field(
+        default=None,
+        description="Cloudflare Account ID",
+    )
+    zone_id: str | None = Field(
+        default=None,
+        description="Cloudflare Zone ID",
+    )
+    public_ip_bypass: str | None = Field(
+        default=None,
+        description="Homelab public IP address or CIDR block permitted to bypass Cloudflare Access authentication",
+    )
+    access: CloudflareAccessConfig = Field(
+        default_factory=CloudflareAccessConfig,
+        description="Cloudflare Zero Trust Access application and policy configuration",
     )
 
 
@@ -304,6 +397,9 @@ class AITasksConfig(BaseModel):
     chat: AITaskOverride = AITaskOverride()
     metadata: AITaskOverride = AITaskOverride()
     analysis: AITaskOverride = AITaskOverride()
+    # Review verification: layered on `analysis`, so only what differs needs setting. Unset,
+    # reviews verify with the analysis model.
+    verification: AITaskOverride = AITaskOverride()
     compose: AITaskOverride = AITaskOverride()
     embedding: AITaskOverride = Field(
         default_factory=lambda: AITaskOverride(model=DEFAULT_RAG_EMBEDDING_MODEL)
@@ -314,6 +410,8 @@ class AIConfig(BaseModel):
     model_config = ConfigDict(frozen=False)
     provider: str = DEFAULT_AI_PROVIDER  # ollama | claude | copilot | openai
     model: str = DEFAULT_AI_MODEL
+    reference_model: str = DEFAULT_AI_REFERENCE_MODEL
+    hardware_cost_usd: float = DEFAULT_AI_HARDWARE_COST_USD
     reasoning_effort: str | None = DEFAULT_AI_REASONING_EFFORT
     temperature: float = DEFAULT_AI_TEMPERATURE
     top_p: float = DEFAULT_AI_TOP_P
@@ -325,6 +423,8 @@ class AIConfig(BaseModel):
     gateway_provider: str = DEFAULT_AI_GATEWAY_PROVIDER
     gateway_url: str = DEFAULT_AI_GATEWAY_URL
     gateway_enabled: bool = DEFAULT_AI_GATEWAY_ENABLED
+    gateway_weights: dict[str, int] = Field(default_factory=dict)
+    gateway_concurrency: dict[str, int] = Field(default_factory=dict)
     portkey_url: str = DEFAULT_PORTKEY_GATEWAY_URL
     lightllm_url: str = DEFAULT_LIGHTLLM_URL
     vllm_url: str = DEFAULT_VLLM_URL
@@ -336,6 +436,7 @@ class AIConfig(BaseModel):
     rag: AIRAGConfig = AIRAGConfig()
     cache: AICacheConfig = AICacheConfig()
     durable: AIDurableConfig = AIDurableConfig()
+    task_name: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -387,13 +488,32 @@ class AIConfig(BaseModel):
                 "max_tokens": override.max_tokens,
                 "ollama_urls": override.ollama_urls,
                 "ollama_max_parallel": override.ollama_max_parallel,
-                "api_base_url": override.api_base_url,
                 "max_retries": override.max_retries,
                 "timeout": override.timeout,
             }.items()
             if v is not None
-        }
+        } | self._task_endpoint_updates(override)
+        if task in AITasksConfig.model_fields:
+            updates["task_name"] = task
+        else:
+            updates["task_name"] = None
         return self.model_copy(update=updates) if updates else self
+
+    def _task_endpoint_updates(self, override: AITaskOverride) -> dict[str, str | None]:
+        """Resolve a task's endpoints so no request reaches a base URL set for another provider.
+
+        A task's own api_base_url applies to its provider; on a gateway task it is that task's
+        gateway address. The global api_base_url carries over only to tasks that keep the global
+        provider.
+        """
+        provider = override.provider or self.provider
+        updates: dict[str, str | None] = {}
+        if override.api_base_url:
+            key = "gateway_url" if provider == CONST_AI_GATEWAY_PROVIDER else "api_base_url"
+            updates[key] = override.api_base_url
+        if provider != self.provider and "api_base_url" not in updates:
+            updates["api_base_url"] = None
+        return updates
 
 
 _DEFAULT_CHILD_DATA_PATHS: tuple[tuple[str, Path, Path], ...] = (
@@ -404,6 +524,8 @@ _DEFAULT_CHILD_DATA_PATHS: tuple[tuple[str, Path, Path], ...] = (
     ("cache_dir", DEFAULT_CACHE_DATA_DIR, Path("cache")),
     ("benchmarks_dir", DEFAULT_BENCHMARKS_DATA_DIR, Path("benchmarks")),
     ("rag_dir", DEFAULT_RAG_DATA_DIR, Path("rag")),
+    ("samples_dir", DEFAULT_SAMPLES_DATA_DIR, Path("samples")),
+    ("runs_dir", DEFAULT_RUNS_DATA_DIR, Path("runs")),
     ("tls_dir", DEFAULT_TLS_DATA_DIR, Path("tls")),
     ("audit_log_path", DEFAULT_AUDIT_LOG_PATH, Path("logs/audit.jsonl")),
     ("feedback_dataset_path", DEFAULT_FEEDBACK_DATASET_PATH, Path("feedback_dataset.jsonl")),
@@ -417,6 +539,8 @@ _CHILD_DATA_ENV_MAP: dict[str, str] = {
     "cache_dir": "DEVOPS_CLI_DATA_CACHE_DIR",
     "benchmarks_dir": "DEVOPS_CLI_DATA_BENCHMARKS_DIR",
     "rag_dir": "DEVOPS_CLI_DATA_RAG_DIR",
+    "samples_dir": "DEVOPS_CLI_DATA_SAMPLES_DIR",
+    "runs_dir": "DEVOPS_CLI_DATA_RUNS_DIR",
     "tls_dir": "DEVOPS_CLI_DATA_TLS_DIR",
     "audit_log_path": "DEVOPS_CLI_DATA_AUDIT_LOG_PATH",
     "feedback_dataset_path": "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH",
@@ -430,6 +554,8 @@ _DEFAULT_CHILD_DATA_MAP: dict[str, Path] = {
     "cache_dir": DEFAULT_CACHE_DATA_DIR,
     "benchmarks_dir": DEFAULT_BENCHMARKS_DATA_DIR,
     "rag_dir": DEFAULT_RAG_DATA_DIR,
+    "samples_dir": DEFAULT_SAMPLES_DATA_DIR,
+    "runs_dir": DEFAULT_RUNS_DATA_DIR,
     "tls_dir": DEFAULT_TLS_DATA_DIR,
     "audit_log_path": DEFAULT_AUDIT_LOG_PATH,
     "feedback_dataset_path": DEFAULT_FEEDBACK_DATASET_PATH,
@@ -447,6 +573,8 @@ class DataConfig(BaseModel):
     cache_dir: Path = Field(default_factory=lambda: DEFAULT_CACHE_DATA_DIR)
     benchmarks_dir: Path = Field(default_factory=lambda: DEFAULT_BENCHMARKS_DATA_DIR)
     rag_dir: Path = Field(default_factory=lambda: DEFAULT_RAG_DATA_DIR)
+    samples_dir: Path = Field(default_factory=lambda: DEFAULT_SAMPLES_DATA_DIR)
+    runs_dir: Path = Field(default_factory=lambda: DEFAULT_RUNS_DATA_DIR)
     tls_dir: Path = Field(default_factory=lambda: DEFAULT_TLS_DATA_DIR)
     audit_log_path: Path = Field(default_factory=lambda: DEFAULT_AUDIT_LOG_PATH)
     feedback_dataset_path: Path = Field(default_factory=lambda: DEFAULT_FEEDBACK_DATASET_PATH)
@@ -476,9 +604,15 @@ class Settings(BaseSettings):
     argocd: ArgoCDConfig = ArgoCDConfig()
     qdrant: QdrantConfig = QdrantConfig()
     valkey: ValkeyConfig = ValkeyConfig()
+    runs: RunsConfig = RunsConfig()
     jaeger: JaegerConfig = JaegerConfig()
     telemetry: TelemetryConfig = TelemetryConfig()
     k8s: KubernetesConfig = KubernetesConfig()
+    cloudflare: CloudflareConfig = CloudflareConfig()
+    domain: str | None = Field(
+        default=None,
+        description="Default domain name for the environment or workstation",
+    )
     sandbox: SandboxConfig = SandboxConfig()
     ai: AIConfig = AIConfig()
     open_webui: OpenWebUIConfig = OpenWebUIConfig()
@@ -490,7 +624,7 @@ _EPHEMERAL_CI_SECRETS: dict[str, str] = {}
 
 def _keyring_get(key: str) -> str | None:
     import keyring
-    from keyring.errors import NoKeyringError
+    from keyring.errors import KeyringLocked, NoKeyringError
 
     if key in _EPHEMERAL_CI_SECRETS:
         return _EPHEMERAL_CI_SECRETS[key]
@@ -502,6 +636,9 @@ def _keyring_get(key: str) -> str | None:
         return keyring.get_password(KEYRING_SERVICE, key)
     except NoKeyringError:
         return None
+    except KeyringLocked:
+        logger.warning("Cannot read a secret: %s", _KEYRING_LOCKED_HINT)
+        return None
     except Exception as exc:
         logger.warning("Failed to retrieve secret from OS Keyring: %s", type(exc).__name__)
         return None
@@ -510,7 +647,7 @@ def _keyring_get(key: str) -> str | None:
 def _keyring_has(key: str) -> bool:
     """Check whether a secret key exists in OS keyring or ephemeral store."""
     import keyring
-    from keyring.errors import NoKeyringError
+    from keyring.errors import KeyringLocked, NoKeyringError
 
     if key in _EPHEMERAL_CI_SECRETS:
         return True
@@ -521,6 +658,9 @@ def _keyring_has(key: str) -> bool:
     try:
         val = keyring.get_password(KEYRING_SERVICE, key)
         return bool(val is not None)
+    except KeyringLocked:
+        logger.warning("Cannot check for a secret: %s", _KEYRING_LOCKED_HINT)
+        return False
     except (NoKeyringError, Exception) as exc:
         logger.debug("Keyring check failed: %s", type(exc).__name__)
         return False
@@ -530,7 +670,7 @@ def _keyring_set(key: str, value: str) -> None:
     import os
 
     import keyring
-    from keyring.errors import NoKeyringError
+    from keyring.errors import KeyringLocked, NoKeyringError
 
     if os.environ.get("DEVOPS_CLI_HEADLESS_AUTH", "").lower() in ("true", "1", "yes"):
         _EPHEMERAL_CI_SECRETS[key] = value
@@ -544,6 +684,8 @@ def _keyring_set(key: str, value: str) -> None:
         keyring.set_password(KEYRING_SERVICE, key, value)
     except NoKeyringError:
         _EPHEMERAL_CI_SECRETS[key] = value
+    except KeyringLocked as exc:
+        raise KeyringLockedError(f"Cannot store {key}: {_KEYRING_LOCKED_HINT}") from exc
     except Exception as exc:
         raise SecretStorageError(f"Failed to store secret in keyring: {exc}") from exc
 
@@ -586,9 +728,11 @@ def _apply_env_overrides(settings: Settings) -> None:
             continue
         try:
             dotted_set(settings, option_key, env_value)
-        except AttributeError, ValueError:
-            # Ignore invalid or unknown env overrides and keep existing settings.
-            continue
+        except (AttributeError, ValueError) as exc:
+            # An override that cannot apply is an error, not a silent no-op.
+            raise ConfigurationError(
+                f"Environment variable {env_var} cannot set {option_key}: {exc}", key=option_key
+            ) from exc
 
 
 def _resolve_data_config(raw_data: dict[str, Any], current_data_dir: Path) -> DataConfig:
@@ -611,25 +755,116 @@ def _resolve_data_config(raw_data: dict[str, Any], current_data_dir: Path) -> Da
     return DataConfig.model_validate(explicit_data)
 
 
-def load_settings() -> Settings:
-    """Load settings: global config → project config → env vars (each layer wins)."""
+_FileStamp = tuple[str, int, int]
+_ConfigCacheEntry = tuple[Path | None, tuple[_FileStamp, _FileStamp], dict[str, Any]]
+
+_CONFIG_CACHE_LOCK = threading.Lock()
+# Keyed on everything that selects which files are read -- the global path (tests rebind
+# it), DEVOPS_CLI_CONFIG, and the working directory the project lookup walks up from.
+_CONFIG_CACHE: dict[tuple[str, str, str], _ConfigCacheEntry] = {}
+
+
+def _file_stamp(path: Path | None) -> _FileStamp:
+    """Summarise a configuration file as its path, modification time and size.
+
+    A file that is absent stamps as zeroes rather than being omitted, so that creating it
+    later reads as a change instead of as the same "no file" it was before.
+    """
+    if path is None:
+        return ("", 0, 0)
+    try:
+        stat = path.stat()
+    except OSError:
+        return (str(path), 0, 0)
+    return (str(path), stat.st_mtime_ns, stat.st_size)
+
+
+def _stamps_are_settled(stamps: tuple[_FileStamp, _FileStamp]) -> bool:
+    """Report whether every stamped file has been still long enough to be trusted."""
+    cutoff_ns = (time.time() - CONST_SETTINGS_CACHE_SETTLE_SECONDS) * 1_000_000_000
+    return all(mtime_ns < cutoff_ns for _, mtime_ns, _ in stamps)
+
+
+def _read_config_layers(project_path: Path | None) -> dict[str, Any]:
+    """Merge the global configuration file with the project layer, the project winning."""
     raw: dict[str, Any] = {}
     if CONFIG_PATH.exists():
         raw = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
-
-    # DEVOPS_CLI_CONFIG env var or local/devcontainer project config lookup.
-    project_path = _find_project_config_path()
     if project_path and project_path.exists():
         project_raw: dict[str, Any] = yaml.safe_load(project_path.read_text(encoding="utf-8")) or {}
         _deep_merge(raw, project_raw)
+    return raw
+
+
+def _merged_config_data() -> dict[str, Any]:
+    """Return the merged file configuration, re-reading only when a source file changed.
+
+    Settings are consulted from per-request paths, yet each call otherwise walked the
+    directory tree hunting for a project config and re-parsed both YAML layers to arrive
+    at the identical mapping. Reuse is conditional on the files that supplied the values
+    still carrying the stamp they had when parsed, so an edit made by any process is
+    honoured on the next call rather than a snapshot living for the process lifetime.
+    Only the discovery walk is taken on trust: a project config file created after the
+    first load is picked up once the cache is reset, because a stamp of a file that did
+    not exist cannot report where a new one appeared.
+
+    The caller receives a copy, since the settings built from this mapping are mutable and
+    a caller editing one before saving must not rewrite what every later load sees.
+    """
+    cache_key = (str(CONFIG_PATH), os.environ.get(PROJECT_CONFIG_ENV, ""), os.getcwd())
+    with _CONFIG_CACHE_LOCK:
+        entry = _CONFIG_CACHE.get(cache_key)
+    if entry is not None:
+        cached_path, cached_stamps, cached_data = entry
+        if cached_stamps == (_file_stamp(CONFIG_PATH), _file_stamp(cached_path)):
+            return copy.deepcopy(cached_data)
+
+    # Stamped before the read, so a write that races the read leaves a stamp that looks
+    # older than the content held -- which costs a re-read, never a stale answer.
+    project_path = _find_project_config_path()
+    stamps = (_file_stamp(CONFIG_PATH), _file_stamp(project_path))
+    data = _read_config_layers(project_path)
+    if _stamps_are_settled(stamps):
+        with _CONFIG_CACHE_LOCK:
+            # A different key means a different working directory or configuration path,
+            # which strands the previous entry; keeping it would grow without bound.
+            _CONFIG_CACHE.clear()
+            _CONFIG_CACHE[cache_key] = (project_path, stamps, copy.deepcopy(data))
+    return data
+
+
+def reset_settings_cache() -> None:
+    """Discard parsed configuration so the next load reads the files from disk again."""
+    with _CONFIG_CACHE_LOCK:
+        _CONFIG_CACHE.clear()
+
+
+def load_settings() -> Settings:
+    """Load settings: global config → project config → env vars (each layer wins)."""
+    raw = _merged_config_data()
 
     settings = Settings.model_validate(raw)
+    # Environment overrides stay outside the cache: they cost microseconds to reapply, and
+    # a variable exported after the first load must still take effect.
     _apply_env_overrides(settings)
 
     raw_data = raw.get("data", {}) if isinstance(raw.get("data"), dict) else {}
     settings.data = _resolve_data_config(raw_data, settings.data.dir)
 
     return settings
+
+
+def _match_dir_candidate(d: Path, candidate_names: tuple[str, ...]) -> Path | None:
+    """Find the first non-forbidden regular config file candidate in directory d."""
+    from devops_cli.core.paths import is_forbidden_system_path
+
+    for name in candidate_names:
+        p = d / name
+        if p.is_file() and not p.is_symlink():
+            resolved = p.resolve()
+            if not is_forbidden_system_path(resolved):
+                return resolved
+    return None
 
 
 def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
@@ -649,14 +884,9 @@ def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
     )
     start_dir = (base_dir or Path.cwd()).resolve()
     for d in (start_dir, *start_dir.parents):
-        for name in candidate_names:
-            p = d / name
-            if p.is_file() and not p.is_symlink():
-                from devops_cli.core.paths import is_forbidden_system_path
-
-                resolved = p.resolve()
-                if not is_forbidden_system_path(resolved):
-                    return resolved
+        candidate = _match_dir_candidate(d, candidate_names)
+        if candidate is not None:
+            return candidate
         if (d / ".git").exists() or (d / ".devcontainer").exists():
             break
     return None
@@ -725,6 +955,9 @@ def save_settings(settings: Settings, target_path: Path | None = None) -> None:
     tmp = dest_path.with_suffix(".yaml.tmp")
     tmp.write_text(content, encoding="utf-8")
     os.replace(tmp, dest_path)
+    # The writer knows the values changed, so it says so outright rather than leaving the
+    # next load to infer it from a timestamp the filesystem may not yet have advanced.
+    reset_settings_cache()
 
 
 # NOTE (Design Justification - AGENTS.md §4): Every credential resolves through the single
@@ -804,9 +1037,19 @@ def get_valkey_password(settings: Settings) -> str | None:
     return _resolve(opt.VALKEY_PASSWORD, settings)
 
 
+def get_runs_index_password(settings: Settings) -> str | None:
+    """Resolve the password of the Valkey holding the shared run index."""
+    return _resolve(opt.RUNS_INDEX_PASSWORD, settings)
+
+
 def get_logfire_token(settings: Settings) -> str | None:
     """Resolve the Logfire telemetry write token."""
     return _resolve(opt.TELEMETRY_LOGFIRE_TOKEN, settings)
+
+
+def get_cloudflare_api_token(settings: Settings) -> str | None:
+    """Resolve the Cloudflare API token."""
+    return _resolve(opt.CLOUDFLARE_API_TOKEN, settings)
 
 
 def get_llm_client(task: str | None = None) -> Any:
@@ -843,25 +1086,55 @@ def _coerce_setting_value(current_val: Any, new_value: Any, is_list_field: bool)
 
 
 def dotted_set(settings: Settings, key: str, value: str) -> None:
-    """Set a config value by dotted key. Secret keys go to the OS keyring."""
+    """Set a config value by dotted key, at any depth. Secret keys go to the OS keyring.
+
+    `ai.tasks.chat.model` walks the nested sections; a key naming no field raises
+    ConfigurationError rather than setting nothing.
+    """
     if key in _SECRET_FIELDS:
         _keyring_set(_KEYRING_KEYS[key], value)
         return
     normalized_key = "telemetry." + key[5:] if key.startswith("otel.") else key
-    parts = normalized_key.split(".", 1)
-    if len(parts) == 1:
-        target = getattr(settings, parts[0], None)
+    *path, field_name = normalized_key.split(".")
+    if not path:
+        target = getattr(settings, field_name, None)
         if isinstance(target, BaseModel):
             raise ConfigurationError(
-                f"Cannot set top-level section '{parts[0]}' directly to a string. "
-                f"Use dotted key (e.g. '{parts[0]}.<field>').",
-                key=parts[0],
+                f"Cannot set top-level section '{field_name}' directly to a string. "
+                f"Use dotted key (e.g. '{field_name}.<field>').",
+                key=field_name,
             )
-        setattr(settings, parts[0], value)
+        setattr(settings, field_name, value)
         return
-    section = getattr(settings, parts[0])
-    field_name = parts[1]
+    section = _settings_section(settings, path, key)
+    if field_name not in type(section).model_fields:
+        raise ConfigurationError(f"Unknown configuration key '{key}'.", key=key)
     current = getattr(section, field_name, None)
-    is_list = field_name.endswith("s")
-    coerced = _coerce_setting_value(current, value, is_list)
+    if current is None:
+        current = _typed_placeholder(type(section).model_fields[field_name].annotation)
+    coerced = _coerce_setting_value(current, value, field_name.endswith("s"))
     setattr(section, field_name, coerced)
+
+
+def _settings_section(settings: Settings, path: list[str], key: str) -> BaseModel:
+    """The nested settings model a dotted key's field belongs to."""
+    section: BaseModel = settings
+    for part in path:
+        child = getattr(section, part, None)
+        if not isinstance(child, BaseModel):
+            raise ConfigurationError(f"Unknown configuration key '{key}'.", key=key)
+        section = child
+    return section
+
+
+def _typed_placeholder(annotation: Any) -> Any:
+    """A value of the type a field holds, for coercing input into a field that is unset."""
+    import typing
+
+    args = typing.get_args(annotation) or (annotation,)
+    for candidate, placeholder in ((bool, False), (int, 0), (float, 0.0), (Path, Path())):
+        if candidate in args:
+            return placeholder
+    if any(typing.get_origin(a) is list for a in args):
+        return []
+    return None

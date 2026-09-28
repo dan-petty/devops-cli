@@ -543,8 +543,8 @@ def get_engine() -> DockerEngineService:
 
 __all__ = [
     "DockerEngineService",
-    "decode_stream",
     "build_cache_report",
+    "decode_stream",
     "get_engine",
     "project_container_state",
     "project_container_stats",

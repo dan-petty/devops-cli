@@ -1,8 +1,7 @@
 # Task 325: Template Rendering Engine Sandboxing, Pre-Compiled AST Caching & Variable Validation Research
 
 **Issue**: [#325](https://github.com/dan-petty/devops-cli/issues/325)
-**PR**: [#378](https://github.com/dan-petty/devops-cli/pull/378)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.22`
 **Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/cli`, `priority/p2-medium`

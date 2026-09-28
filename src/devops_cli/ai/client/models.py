@@ -6,6 +6,13 @@ import json
 from enum import StrEnum
 from typing import Any
 
+from devops_cli.config.constants import (
+    CONST_REASONING_MODEL_EXACT,
+    CONST_REASONING_MODEL_PREFIXES,
+    CONST_REASONING_MODEL_SUBSTRINGS,
+)
+from devops_cli.config.env import ENV_AI_API_KEY
+from devops_cli.config.options import AI_API_KEY
 from devops_cli.exceptions import LLMInferenceError
 
 MAX_STREAM_BYTES = 50 * 1024 * 1024  # 50MB maximum streamed response size
@@ -53,6 +60,26 @@ class AIClientError(LLMInferenceError, RuntimeError):
     """Raised when an AI provider request fails with a user-actionable message."""
 
 
+class AICredentialsError(AIClientError):
+    """Raised when a provider rejects the request's credentials; retrying cannot help."""
+
+
+def credentials_error(subject: str, *, has_key: bool, status: int) -> AICredentialsError:
+    """Build the error for a 401/403, naming whether the key is missing and where it comes from.
+
+    ``subject`` names what refused the request, e.g. "The gateway provider".
+    """
+    problem = (
+        "rejected the configured API key"
+        if has_key
+        else "requires an API key, but no API key is configured"
+    )
+    return AICredentialsError(
+        f"{subject} {problem} (HTTP {status}). "
+        f"Set {ENV_AI_API_KEY} or run `devops config set {AI_API_KEY}`."
+    )
+
+
 class LLMResponse(str):
     """String response from LLM with optional execution timing and backend metadata."""
 
@@ -66,6 +93,8 @@ class LLMResponse(str):
     cached: bool
     eval_duration_ms: float | None
     prompt_eval_duration_ms: float | None
+    served_by: str | None
+    model: str | None
 
     def __new__(
         cls,
@@ -80,6 +109,8 @@ class LLMResponse(str):
         eval_duration_ms: float | None = None,
         prompt_eval_duration_ms: float | None = None,
         cached: bool = False,
+        served_by: str | None = None,
+        model: str | None = None,
     ) -> LLMResponse:
         obj = str.__new__(cls, content)
         obj.processing_seconds = processing_seconds
@@ -92,6 +123,9 @@ class LLMResponse(str):
         obj.eval_duration_ms = eval_duration_ms
         obj.prompt_eval_duration_ms = prompt_eval_duration_ms
         obj.cached = cached
+        # The backend a gateway routed the call to; None when no gateway named one.
+        obj.served_by = served_by
+        obj.model = model
         return obj
 
     @property
@@ -148,6 +182,7 @@ class LLMResponse(str):
             completion_tokens=out_tokens,
             total_tokens=tot_tokens,
             cached=cached,
+            model=response.model_name,
         )
 
 
@@ -178,10 +213,6 @@ def is_reasoning_model(model: str | None) -> bool:
     m = model.strip().lower()
     if ":thinking" in m:
         return True
-    if m in ("o1", "o3") or m.startswith(("o1-", "o3-", "o4-")):
+    if any(sub in m for sub in CONST_REASONING_MODEL_SUBSTRINGS):
         return True
-    if "deepseek-r1" in m or "deepseek-reasoner" in m:
-        return True
-    if "qwq" in m:
-        return True
-    return False
+    return m in CONST_REASONING_MODEL_EXACT or m.startswith(CONST_REASONING_MODEL_PREFIXES)

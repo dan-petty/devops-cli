@@ -1,8 +1,7 @@
 # Task 169: Require Concise Commit Messages Stating Direct Effect of Change
 
 **Issue**: [#169](https://github.com/dan-petty/devops-cli/issues/169)
-**PR**: None
-**Status**: In Progress
+**Status**: Done
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/cli`

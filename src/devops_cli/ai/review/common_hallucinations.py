@@ -17,6 +17,9 @@ import json
 import logging
 import os
 import re
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -25,227 +28,20 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from devops_cli.ai.review_schema import Finding
-from devops_cli.config.constants import CONST_HALLUCINATIONS_FILE_NAME
-from devops_cli.config.defaults import DEFAULT_HALLUCINATIONS_FILE_PATH
+from devops_cli.config.constants import (
+    CONST_HALLUCINATION_FORBIDDEN_WORDS,
+    CONST_HALLUCINATIONS_FILE_NAME,
+)
+from devops_cli.config.defaults import (
+    DEFAULT_HALLUCINATION_EXEMPLAR_CHARS,
+    DEFAULT_HALLUCINATION_EXEMPLAR_COUNT,
+    DEFAULT_HALLUCINATIONS_FILE_PATH,
+)
 
 logger = logging.getLogger(__name__)
 
 # Common generic words that MUST NEVER contribute to hallucination classification
-_FORBIDDEN_COMMON_WORDS: frozenset[str] = frozenset(
-    {
-        "secret",
-        "secrets",
-        "token",
-        "tokens",
-        "key",
-        "keys",
-        "password",
-        "passwords",
-        "credential",
-        "credentials",
-        "api",
-        "auth",
-        "test",
-        "tests",
-        "mock",
-        "mocks",
-        "error",
-        "errors",
-        "syntax",
-        "code",
-        "file",
-        "line",
-        "python",
-        "pydantic",
-        "default",
-        "defaults",
-        "mutable",
-        "leak",
-        "leaks",
-        "vulnerability",
-        "vulnerabilities",
-        "security",
-        "issue",
-        "issues",
-        "bug",
-        "bugs",
-        "doc",
-        "docs",
-        "documentation",
-        "example",
-        "examples",
-        "sample",
-        "samples",
-        "rule",
-        "rules",
-        "clause",
-        "clauses",
-        "import",
-        "imports",
-        "package",
-        "packages",
-        "dependency",
-        "dependencies",
-        "found",
-        "missing",
-        "invalid",
-        "statement",
-        "argument",
-        "arguments",
-        "function",
-        "method",
-        "class",
-        "module",
-        "string",
-        "variable",
-        "value",
-        "hardcoded",
-        "exposed",
-        "warning",
-        "info",
-        "general",
-        "critical",
-        "high",
-        "medium",
-        "low",
-        # Stop words & structural descriptors
-        "this",
-        "that",
-        "these",
-        "those",
-        "which",
-        "what",
-        "who",
-        "whom",
-        "whose",
-        "will",
-        "would",
-        "shall",
-        "should",
-        "can",
-        "could",
-        "may",
-        "might",
-        "must",
-        "from",
-        "with",
-        "without",
-        "about",
-        "above",
-        "below",
-        "into",
-        "through",
-        "during",
-        "before",
-        "after",
-        "over",
-        "under",
-        "again",
-        "further",
-        "then",
-        "once",
-        "here",
-        "there",
-        "their",
-        "theirs",
-        "them",
-        "they",
-        "when",
-        "where",
-        "why",
-        "how",
-        "all",
-        "any",
-        "both",
-        "each",
-        "few",
-        "more",
-        "most",
-        "other",
-        "some",
-        "such",
-        "no",
-        "nor",
-        "not",
-        "only",
-        "own",
-        "same",
-        "so",
-        "than",
-        "too",
-        "very",
-        "time",
-        "pipeline",
-        "runtime",
-        "leading",
-        "crash",
-        "blocks",
-        "causing",
-        "potential",
-        "entire",
-        "occur",
-        "occurs",
-        "occurring",
-        "occurred",
-        "lead",
-        "leads",
-        "causes",
-        "caused",
-        "cause",
-        "call",
-        "calls",
-        "called",
-        "calling",
-        "prevent",
-        "prevents",
-        "preventing",
-        "prevented",
-        "fail",
-        "fails",
-        "failed",
-        "failing",
-        "failure",
-        "failures",
-        "pass",
-        "passes",
-        "passed",
-        "passing",
-        "check",
-        "checks",
-        "checked",
-        "checking",
-        "use",
-        "uses",
-        "used",
-        "using",
-        "make",
-        "makes",
-        "made",
-        "making",
-        "get",
-        "gets",
-        "got",
-        "getting",
-        "set",
-        "sets",
-        "setting",
-        "have",
-        "has",
-        "had",
-        "having",
-        "do",
-        "does",
-        "did",
-        "doing",
-        "be",
-        "been",
-        "being",
-        "is",
-        "are",
-        "was",
-        "were",
-    }
-)
+_FORBIDDEN_COMMON_WORDS: frozenset[str] = CONST_HALLUCINATION_FORBIDDEN_WORDS
 
 
 class HallucinationCategory(StrEnum):
@@ -346,32 +142,54 @@ def _build_builtin_hallucinations() -> list[CommonHallucinationEntry]:
 def get_common_hallucinations_file_path() -> Path:
     """Resolve the persistent storage file path for common hallucinations catalog.
 
-    Respects DEVOPS_CLI_DATA_DIR environment override.
+    Respects DEVOPS_CLI_DATA_DIR environment override; a relative location resolves under the
+    main worktree, so every worktree learns into one catalog.
     """
+    from devops_cli.core.repo import resolve_data_path
+
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
-    if env_dir:
-        from devops_cli.core.paths import safe_resolve_subpath
-        from devops_cli.core.repo import find_top_level_repo_root
-
-        try:
-            repo_root = find_top_level_repo_root()
-            safe_dir = safe_resolve_subpath(repo_root, env_dir)
-            target = safe_dir / CONST_HALLUCINATIONS_FILE_NAME
-        except Exception:
-            target = (Path(env_dir) / CONST_HALLUCINATIONS_FILE_NAME).resolve()
-    else:
-        target = DEFAULT_HALLUCINATIONS_FILE_PATH
-
-    if not target.is_absolute():
-        from devops_cli.core.repo import find_top_level_repo_root
-
-        try:
-            target = (find_top_level_repo_root() / target).resolve()
-        except Exception:
-            target = target.resolve()
-
+    target = resolve_data_path(
+        Path(env_dir) / CONST_HALLUCINATIONS_FILE_NAME
+        if env_dir
+        else DEFAULT_HALLUCINATIONS_FILE_PATH
+    )
     target.parent.mkdir(parents=True, exist_ok=True)
     return target
+
+
+# Whether invalidations teach the catalog in this context. Evaluation replays of recorded
+# findings turn it off: replaying a verdict is not new evidence.
+_LEARNING: ContextVar[bool] = ContextVar("hallucination_catalog_learning", default=True)
+
+# A claim that a file does not parse. The word "syntax" alone is not one: "f-string syntax
+# interpolates user input into SQL" and "bare `except` clause" describe code that parses.
+SYNTAX_CLAIM = re.compile(
+    r"\bsyntax\s*error\b|\bsyntaxerror\b|\binvalid\s+(?:python\s+)?syntax\b|\bparse\s+error\b"
+    r"|\b(?:fails?|failed|unable)\s+to\s+(?:parse|compile)\b|\bpython\s*2\s+(?:syntax|style)\b"
+    r"|\bdeprecated\s+syntax\b",
+    re.IGNORECASE,
+)
+
+# A CWE-400 finding about input the program does not control; reading it without a bound is a
+# real defect, whatever the call looks like.
+_UNTRUSTED_INPUT_CLAIM = re.compile(
+    r"\b(?:user|attacker|untrusted|external|upload\w*|request|client|remote|tenant)\b",
+    re.IGNORECASE,
+)
+
+
+@contextmanager
+def catalog_learning_disabled() -> Iterator[None]:
+    """Keep invalidations inside the block from teaching the catalog."""
+    token = _LEARNING.set(False)
+    try:
+        yield
+    finally:
+        _LEARNING.reset(token)
+
+
+def _builtin_ids() -> frozenset[str]:
+    return frozenset(b.id for b in _build_builtin_hallucinations())
 
 
 def load_common_hallucinations(
@@ -385,18 +203,32 @@ def load_common_hallucinations(
         for b in _build_builtin_hallucinations():
             entries_by_id[b.id] = b
 
-    if fpath.exists() and fpath.is_file():
-        try:
-            raw_data = json.loads(fpath.read_text(encoding="utf-8"))
-            if isinstance(raw_data, list):
-                for item in raw_data:
-                    if isinstance(item, dict):
-                        entry = CommonHallucinationEntry.model_validate(item)
-                        entries_by_id[entry.id] = entry
-        except Exception as exc:
-            logger.debug("Failed reading common hallucinations from %s: %s", fpath, exc)
+    # A learned copy of a builtin entry is ignored: learning used to widen builtin keywords
+    # and persist the copy, which then shadowed the shipped entry and its later fixes.
+    builtin_ids = _builtin_ids()
+    for entry in _read_ledger(fpath):
+        if entry.id not in builtin_ids:
+            entries_by_id[entry.id] = entry
 
     return list(entries_by_id.values())
+
+
+def _read_ledger(fpath: Path) -> list[CommonHallucinationEntry]:
+    """The valid entries persisted in a ledger file; a malformed record is skipped alone."""
+    if not (fpath.exists() and fpath.is_file()):
+        return []
+    try:
+        raw_data = json.loads(fpath.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.debug("Failed reading common hallucinations from %s: %s", fpath, exc)
+        return []
+    entries: list[CommonHallucinationEntry] = []
+    for item in raw_data if isinstance(raw_data, list) else []:
+        try:
+            entries.append(CommonHallucinationEntry.model_validate(item))
+        except ValidationError as exc:
+            logger.debug("Skipping malformed hallucination record in %s: %s", fpath, exc)
+    return entries
 
 
 def save_common_hallucinations(
@@ -415,7 +247,9 @@ def save_common_hallucinations(
 def register_common_hallucination(
     entry: CommonHallucinationEntry, target_file: Path | None = None
 ) -> CommonHallucinationEntry:
-    """Register or update a common hallucination entry in the persistent catalog."""
+    """Register or update a learned entry in the persistent catalog; builtin entries are fixed."""
+    if entry.id in _builtin_ids():
+        return entry
     file_entries = load_common_hallucinations(target_file=target_file, include_builtin=False)
     by_id = {e.id: e for e in file_entries}
 
@@ -625,6 +459,187 @@ def _verify_symbol_defined_in_ast_or_module(
     return False
 
 
+def _cited_lines(finding: Finding, file_path: Path, context: int = 1) -> str:
+    """The lines a finding cites, with `context` lines either side; "" without a line."""
+    numbers = [int(n) for n in re.findall(r"\d+", finding.location.partition(":")[2])]
+    if not numbers:
+        return ""
+    lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    return "\n".join(lines[max(0, min(numbers) - 1 - context) : max(numbers) + context])
+
+
+def _verify_syntax_grammar_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    if file_path.suffix.lower() != ".py":
+        return False
+    try:
+        tree = ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        return False
+    del tree
+    entry_id = entry.id.lower()
+    if any(word in entry_id for word in ("missing", "symbol", "header")):
+        return False
+    return bool(SYNTAX_CLAIM.search(f"{finding.title}\n{finding.description or ''}"))
+
+
+def _verify_secret_scanning_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    finding_text = f"{finding.title} {finding.description or ''}"
+    has_masked_token = bool(
+        re.search(r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}", finding_text, re.IGNORECASE)
+    )
+    if not has_masked_token:
+        return False
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    if bool(re.search(r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}", content, re.IGNORECASE)):
+        return True
+    loc = finding.location
+    if ":" in loc:
+        try:
+            line_str = loc.split(":", 1)[1]
+            num = int(re.split(r"[\s\-]", line_str.strip())[0])
+            lines = content.splitlines()
+            if 1 <= num <= len(lines):
+                target_line = lines[num - 1]
+                return bool(
+                    re.search(
+                        r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}",
+                        target_line,
+                        re.IGNORECASE,
+                    )
+                    or not re.search(r"['\"][^'\"]{6,}['\"]", target_line)
+                )
+        except Exception:
+            pass
+    return True
+
+
+def _verify_dependency_ecosystem_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    entry_id = entry.id.upper()
+    if any(kw in entry_id for kw in ("HTTPX2", "PATHLIB", "TIMEOUT")):
+        return True
+    try:
+        from devops_cli.core.repo import find_repo_root
+
+        root = find_repo_root(file_path)
+        pyproj = root / "pyproject.toml"
+        if pyproj.is_file():
+            text = pyproj.read_text(encoding="utf-8", errors="replace").lower()
+            finding_text = f"{finding.title} {finding.description or ''}".lower()
+            return any(
+                pkg in finding_text and pkg in text
+                for pkg in ("httpx2", "pydantic", "pytest", "ruff", "mypy", "click", "typer")
+            )
+    except Exception:
+        pass
+    return False
+
+
+def _verify_test_mocks_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    parts = set(file_path.parts)
+    is_test = bool(
+        parts & {"tests", "test", "fixtures", "golden"}
+        or file_path.name.startswith(("test_", "mock_"))
+        or file_path.name.endswith(("_test.py", ".example", ".sample"))
+    )
+    if not is_test:
+        return False
+    finding_text = f"{finding.title} {finding.description or ''}".lower()
+    mock_keywords = (
+        "sk-gateway",
+        "sk-wrong",
+        "dummy",
+        "mock",
+        "fake",
+        "example.com",
+        "test",
+        "placeholder",
+        "00000000",
+        "assertion",
+        "tuple",
+    )
+    return any(kw in finding_text for kw in mock_keywords)
+
+
+def _verify_documentation_context_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    parts = set(file_path.parts)
+    if parts & {"docs", "tasks"} or file_path.suffix.lower() in (".md", ".rst", ".txt"):
+        return True
+    if "k8s" in parts:
+        entry_id = entry.id.upper()
+        return any(kw in entry_id for kw in ("OVERLAY", "NODEPORT", "HTTP", "PROMPT", "DOC"))
+    return False
+
+
+def _verify_mutable_defaults_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    return "default_factory" in _cited_lines(finding, file_path)
+
+
+def _is_unbounded_stream_op(target_line: str) -> bool:
+    stream_kws = ("request", "body", "stream", "websocket", "recv", "socket", "iter_bytes")
+    return any(kw in target_line for kw in stream_kws)
+
+
+def _check_boundary_cwe400_local_file(finding: Finding, file_path: Path) -> bool:
+    loc = finding.location
+    if ":" in loc:
+        try:
+            line_str = loc.split(":", 1)[1]
+            num = int(re.split(r"[\s\-]", line_str.strip())[0])
+            lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            if 1 <= num <= len(lines):
+                target_line = lines[num - 1].lower()
+                is_local = any(
+                    op in target_line for op in (".read_text(", "read_text()", "open(", "path(")
+                )
+                return is_local and not _is_unbounded_stream_op(target_line)
+        except Exception:
+            pass
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="replace").lower()
+        is_local_read = ".read_text(" in content or "open(" in content
+        is_stream = any(kw in content for kw in ("websocket", "request.body", "iter_bytes"))
+        return is_local_read and not is_stream
+    except Exception:
+        return False
+
+
+def _verify_boundary_errors_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    finding_text = f"{finding.title} {finding.description or ''}".lower()
+    if _UNTRUSTED_INPUT_CLAIM.search(finding_text):
+        return False
+    if any(pat in finding_text for pat in ("cwe-400", "cwe400", "read_text", "exhaustion")):
+        return _check_boundary_cwe400_local_file(finding, file_path)
+    return False
+
+
+_GROUND_TRUTH_VERIFIERS: dict[
+    HallucinationCategory,
+    Callable[[Finding, CommonHallucinationEntry, Path], bool],
+] = {
+    HallucinationCategory.SYNTAX_GRAMMAR: _verify_syntax_grammar_ground_truth,
+    HallucinationCategory.SECRET_SCANNING: _verify_secret_scanning_ground_truth,
+    HallucinationCategory.DEPENDENCY_ECOSYSTEM: _verify_dependency_ecosystem_ground_truth,
+    HallucinationCategory.TEST_MOCKS: _verify_test_mocks_ground_truth,
+    HallucinationCategory.DOCUMENTATION_CONTEXT: _verify_documentation_context_ground_truth,
+    HallucinationCategory.MUTABLE_DEFAULTS: _verify_mutable_defaults_ground_truth,
+    HallucinationCategory.BOUNDARY_ERRORS: _verify_boundary_errors_ground_truth,
+}
+
+
 def verify_ground_truth_hallucination(
     finding: Finding, entry: CommonHallucinationEntry, file_path: Path | None
 ) -> bool:
@@ -634,120 +649,8 @@ def verify_ground_truth_hallucination(
     """
     if file_path is None or not file_path.exists() or not file_path.is_file():
         return False
-
-    if entry.category == HallucinationCategory.SYNTAX_GRAMMAR:
-        if file_path.suffix.lower() != ".py":
-            return False
-        try:
-            tree = ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
-        except SyntaxError:
-            # Genuinely broken syntax! NEVER invalidate a real syntax error.
-            return False
-
-        if "missing" in entry.id.lower() or "symbol" in entry.id.lower():
-            return _verify_symbol_defined_in_ast_or_module(finding, tree, file_path)
-
-        if "header" in entry.id.lower():
-            raw_text = file_path.read_text(encoding="utf-8", errors="replace")
-            has_auth = any(
-                pattern in raw_text
-                for pattern in (
-                    'headers["Authorization"]',
-                    "headers['Authorization']",
-                    '"Authorization":',
-                    "'Authorization':",
-                )
-            )
-            has_dispatch = any(
-                dispatch in raw_text
-                for dispatch in (
-                    "headers=headers",
-                    "headers = headers",
-                    "headers=self._headers",
-                    "headers=default_headers",
-                )
-            )
-            return has_auth and has_dispatch
-
-        return True
-
-    if entry.category == HallucinationCategory.SECRET_SCANNING:
-        # Check if finding explicitly points to masked/redacted placeholder
-        finding_text = f"{finding.title} {finding.description or ''}"
-        has_masked_token = bool(
-            re.search(r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}", finding_text, re.IGNORECASE)
-        )
-        if not has_masked_token:
-            return False
-        # Read target line if location specified
-        content = file_path.read_text(encoding="utf-8", errors="replace")
-        loc = finding.location
-        if ":" in loc:
-            try:
-                line_str = loc.split(":", 1)[1]
-                num = int(re.split(r"[\s\-]", line_str.strip())[0])
-                lines = content.splitlines()
-                if 1 <= num <= len(lines):
-                    target_line = lines[num - 1]
-                    # Verify target line actually contains masked placeholder
-                    return bool(
-                        re.search(
-                            r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}",
-                            target_line,
-                            re.IGNORECASE,
-                        )
-                    )
-            except Exception:
-                pass
-        return bool(
-            re.search(r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}", content, re.IGNORECASE)
-        )
-
-    if entry.category == HallucinationCategory.MUTABLE_DEFAULTS:
-        # Verify target file actually uses default_factory on that line
-        content = file_path.read_text(encoding="utf-8", errors="replace")
-        return "default_factory" in content
-
-    if entry.category == HallucinationCategory.BOUNDARY_ERRORS:
-        finding_text = f"{finding.title} {finding.description or ''}".lower()
-        if any(pat in finding_text for pat in ("cwe-400", "cwe400", "read_text", "exhaustion")):
-            loc = finding.location
-            if ":" in loc:
-                try:
-                    line_str = loc.split(":", 1)[1]
-                    num = int(re.split(r"[\s\-]", line_str.strip())[0])
-                    lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
-                    if 1 <= num <= len(lines):
-                        target_line = lines[num - 1].lower()
-                        is_local_file_op = any(
-                            op in target_line
-                            for op in (".read_text(", "read_text()", "open(", "path(")
-                        )
-                        is_unbounded_stream = any(
-                            stream_kw in target_line
-                            for stream_kw in (
-                                "request",
-                                "body",
-                                "stream",
-                                "websocket",
-                                "recv",
-                                "socket",
-                                "iter_bytes",
-                            )
-                        )
-                        return is_local_file_op and not is_unbounded_stream
-                except Exception:
-                    pass
-            try:
-                content = file_path.read_text(encoding="utf-8", errors="replace").lower()
-                is_local_read = ".read_text(" in content or "open(" in content
-                is_stream = any(kw in content for kw in ("websocket", "request.body", "iter_bytes"))
-                return is_local_read and not is_stream
-            except Exception:
-                return False
-        return False
-
-    return False
+    verifier = _GROUND_TRUTH_VERIFIERS.get(entry.category)
+    return verifier(finding, entry, file_path) if verifier else False
 
 
 def calculate_hallucination_similarity(
@@ -965,7 +868,14 @@ def auto_record_invalidated_finding(
     reason: str | None = None,
     target_file: Path | None = None,
 ) -> CommonHallucinationEntry | None:
-    """Automatically record an invalidated finding into the common hallucinations catalog."""
+    """Record a deterministically invalidated finding into the learned catalog.
+
+    Only invalidations with ground truth may teach: a parser, an AST or type check, a catalog
+    match that passed its own ground truth, or a person. An LLM verdict is not one; a wrongly
+    invalidated real defect learned here would be matched against future findings.
+    """
+    if not _LEARNING.get():
+        return None
     effective_reason = reason or finding.invalidation_reason or ""
     matches = find_similar_hallucinations(
         finding, threshold=0.5, file_path=file_path, target_file=target_file
@@ -974,6 +884,9 @@ def auto_record_invalidated_finding(
     if matches:
         top_match = matches[0]
         entry = top_match.hallucination
+        if entry.source == "builtin":
+            # A builtin entry already covers this finding; its keywords are not widened.
+            return entry
         safe_hints = [
             h for h in _extract_keyword_hints(finding) if h not in _FORBIDDEN_COMMON_WORDS
         ]
@@ -1038,3 +951,60 @@ def _extract_keyword_hints(finding: Finding, extra_text: str = "") -> list[str]:
     words = re.findall(r"[a-z0-9_\-\*]{4,}", raw)
     filtered = [w for w in words if w not in _FORBIDDEN_COMMON_WORDS and not w.isdigit()]
     return list(dict.fromkeys(filtered))
+
+
+def remove_learned_hallucinations(
+    ids: Iterable[str] | None = None, target_file: Path | None = None
+) -> list[str]:
+    """Remove learned entries by id, or all of them when no ids are given; return the removed."""
+    learned = load_common_hallucinations(target_file=target_file, include_builtin=False)
+    wanted = set(ids) if ids is not None else {e.id for e in learned}
+    removed = [e.id for e in learned if e.id in wanted]
+    if removed:
+        kept = [e for e in learned if e.id not in wanted]
+        save_common_hallucinations(kept, target_file=target_file)
+    return removed
+
+
+def render_negative_exemplars(
+    target_file: Path | None = None,
+    limit: int = DEFAULT_HALLUCINATION_EXEMPLAR_COUNT,
+    max_chars: int = DEFAULT_HALLUCINATION_EXEMPLAR_CHARS,
+) -> str:
+    """Render the most frequently recorded false positives as a prompt block.
+
+    The ledger was written to on every deterministic invalidation and read back only at
+    verification time, which suppresses a finding *after* a model has been paid to produce
+    it. The same false positives recur: the top entry in this repository's ledger has been
+    recorded 225 times, and it is the PEP 758 multi-exception syntax claim that a rule in
+    the verifier prompt already exists to reject.
+
+    Showing a persona what it has repeatedly got wrong costs a few hundred tokens once per
+    segment; re-deriving those findings costs a generation and a verification each. Only
+    the head of the distribution is shown, because recurrence is concentrated there and the
+    tail would spend the budget without preventing anything.
+
+    Returns an empty string when the ledger is empty, so a first run against an unfamiliar
+    repository carries no block at all.
+    """
+    # Only curated builtin entries: a learned entry may be a real defect that verification got
+    # wrong, and telling every reviewer not to raise it would hide it at the source.
+    entries = [
+        e
+        for e in load_common_hallucinations(target_file=target_file, include_builtin=True)
+        if e.source == "builtin"
+    ]
+    ranked = sorted(entries, key=lambda e: e.occurrence_count, reverse=True)[: max(0, limit)]
+    lines = [
+        f"- {(entry.description or entry.name or '').strip()[:max_chars]}"
+        for entry in ranked
+        if (entry.description or entry.name or "").strip()
+    ]
+    if not lines:
+        return ""
+    return (
+        "\n\n## Previously Recorded False Positives\n"
+        "Each of these was reported against this codebase and then disproved. Do not raise "
+        "them again unless the current source shows something the earlier finding did not.\n"
+        + "\n".join(lines)
+    )

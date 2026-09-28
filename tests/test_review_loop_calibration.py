@@ -44,16 +44,19 @@ def _finding(
     )
 
 
-def test_same_defect_at_different_line_ranges_is_consolidated() -> None:
-    """Near-identical titles in one file merge even when the cited line ranges differ.
+def test_similar_titles_far_apart_stay_separate_without_a_shared_symbol() -> None:
+    """Similar titles 40 lines apart are kept as two findings unless they name the same symbol.
 
-    Personas routinely cite different (and often both wrong) line ranges for one defect.
+    Personas do cite one defect at different, often wrong, line ranges. But two instances of
+    one kind of defect look the same, and review pages carry no line numbers yet (#499), so
+    the two cannot be told apart. A kept duplicate costs a line of the report; a wrong merge
+    loses a defect (#512).
     """
     findings = [
         _finding("TTL parameter ignored in cache set operation", "src/k8s/service.py:115-122"),
         _finding("TTL parameter ignored in cache setter", "src/k8s/service.py:162-170"),
     ]
-    assert len(consolidate_duplicate_findings(findings)) == 1
+    assert len(consolidate_duplicate_findings(findings)) == 2
 
 
 def test_shared_title_symbol_with_overlapping_lines_is_consolidated() -> None:

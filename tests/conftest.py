@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+import subprocess
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -99,13 +100,35 @@ def prevent_external_network_calls():
         yield
 
 
+# Rich reads COLUMNS once, when a console is built, and `devops_cli.output.console` caches one per
+# process. Set the terminal before any test module is imported, so a console built during
+# collection is not left at the 80-column non-terminal default for its whole xdist worker.
+_TERMINAL_ENV = {"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"}
+os.environ.update(_TERMINAL_ENV)
+
+
+@pytest.fixture(autouse=True)
+def preserve_cwd():
+    """Ensure working directory is always restored to repository root after each test."""
+    orig_cwd = os.getcwd()
+    try:
+        yield
+    finally:
+        try:
+            os.chdir(orig_cwd)
+        except OSError:
+            pass
+
+
 @pytest.fixture(autouse=True)
 def reset_dry_run_state():
-    """Ensure dry-run environment variable is cleared and terminal width/color is standardized."""
-    os.environ["COLUMNS"] = "250"
-    os.environ["NO_COLOR"] = "1"
-    os.environ["TERM"] = "dumb"
+    """Clear dry-run state and give each test a freshly built, standard-width console."""
+    import devops_cli.output.console as console_module
+
+    os.environ.update(_TERMINAL_ENV)
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
+    console_module._CONSOLE = None
+    console_module._STDERR_CONSOLE = None
     yield
     os.environ.pop("DEVOPS_CLI_DRY_RUN", None)
 
@@ -132,10 +155,27 @@ def isolate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
+def isolate_session_bus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Keep tests off the devcontainer's session bus, where gnome-keyring holds real secrets."""
+    monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))  # the bus fallback is $XDG_RUNTIME_DIR/bus
+
+
+@pytest.fixture(autouse=True)
+def isolate_gh_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Keep tests from reading the developer's gh login, which may hold a plaintext token."""
+    monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path / "gh-config"))
+
+
+@pytest.fixture(autouse=True)
 def protect_workspace_config():
     """Ensure workspace config.yaml is never modified during test execution."""
     workspace_config = (Path(__file__).parent.parent / "config.yaml").resolve()
-    initial_content = workspace_config.read_bytes() if workspace_config.exists() else None
+    try:
+        initial_stat = workspace_config.stat() if workspace_config.exists() else None
+    except OSError:
+        initial_stat = None
+    initial_content = workspace_config.read_bytes() if initial_stat is not None else None
     yield
     if initial_content is None:
         if workspace_config.exists():
@@ -145,6 +185,21 @@ def protect_workspace_config():
         workspace_config.write_bytes(initial_content)
         pytest.fail(f"Test deleted workspace config at {workspace_config}!")
     else:
+        try:
+            curr_stat = workspace_config.stat()
+            curr_mtime = getattr(curr_stat, "st_mtime_ns", None)
+            init_mtime = getattr(initial_stat, "st_mtime_ns", None)
+            curr_size = getattr(curr_stat, "st_size", None)
+            init_size = getattr(initial_stat, "st_size", None)
+            if (
+                curr_mtime is not None
+                and init_mtime is not None
+                and curr_mtime == init_mtime
+                and curr_size == init_size
+            ):
+                return
+        except OSError:
+            pass
         current_content = workspace_config.read_bytes()
         if current_content != initial_content:
             workspace_config.write_bytes(initial_content)
@@ -154,8 +209,12 @@ def protect_workspace_config():
 @pytest.fixture(autouse=True)
 def isolate_devops_cli_config(tmp_path_factory: pytest.TempPathFactory):
     """Ensure tests do not load or mutate local workspace config.yaml or ~/.config."""
+    from devops_cli.config.settings import reset_settings_cache
     from devops_cli.telemetry.tracer import reset_tracer
 
+    # Parsed configuration is held process-wide, so a test starts from disk rather than
+    # from whatever the previous test happened to leave behind.
+    reset_settings_cache()
     reset_tracer()
     config_dir = tmp_path_factory.mktemp("isolated_test_config")
     dummy_config = config_dir / "config.yaml"
@@ -175,7 +234,44 @@ def isolate_devops_cli_config(tmp_path_factory: pytest.TempPathFactory):
         patch("devops_cli.config.settings.CONFIG_PATH", dummy_config),
     ):
         yield dummy_config
+    reset_settings_cache()
     reset_tracer()
+
+
+@pytest.fixture
+def git() -> Callable[..., None]:
+    """Run `git -C <repo> <args>` with a throwaway identity; a git error fails the test.
+
+    Tests that build real repositories and worktrees in `tmp_path` share it.
+    """
+
+    def run(repo: Path, *args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+            check=True,
+            capture_output=True,
+        )
+
+    return run
+
+
+@pytest.fixture
+def nested_worktree(tmp_path: Path, git: Callable[..., None]) -> tuple[Path, Path]:
+    """A checkout and a linked worktree nested under its `.claude/worktrees/`, as Claude Code
+    places them; the checkout ignores `.claude/`, and its pyproject enables only ruff's
+    unused-import rule."""
+    main = tmp_path / "main"
+    main.mkdir()
+    git(main, "init", "--quiet")
+    (main / ".gitignore").write_text(".claude/\n", encoding="utf-8")
+    (main / "pyproject.toml").write_text(
+        '[project]\nname = "main"\n\n[tool.ruff.lint]\nselect = ["F401"]\n', encoding="utf-8"
+    )
+    git(main, "add", ".")
+    git(main, "commit", "--quiet", "-m", "first")
+    nested = main / ".claude" / "worktrees" / "wt"
+    git(main, "worktree", "add", "--quiet", "-b", "nested", str(nested))
+    return main, nested
 
 
 @pytest.fixture

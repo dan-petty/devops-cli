@@ -1,0 +1,165 @@
+{
+  "about": "Open-source repositories pinned by commit, one or more per category of technical project, for validating devops ai tooling beyond Python. Permissive licences only; each entry's paths are the parts the tooling is run over. Fetch with `devops review samples fetch`.",
+  "samples": [
+    {
+      "name": "click",
+      "category": "python",
+      "languages": ["python"],
+      "repository": "https://github.com/pallets/click",
+      "commit": "06b2a678741131fd577ce170e23e5ca0aeba0309",
+      "license": "BSD-3-Clause",
+      "license_files": ["LICENSE.txt"],
+      "paths": ["src/click"]
+    },
+    {
+      "name": "ky",
+      "category": "typescript-javascript",
+      "languages": ["typescript"],
+      "repository": "https://github.com/sindresorhus/ky",
+      "commit": "0d59458a0a58e1c3d7c6db0ab17ed5c7cd671e47",
+      "license": "MIT",
+      "license_files": ["license"],
+      "paths": ["source"]
+    },
+    {
+      "name": "express",
+      "category": "typescript-javascript",
+      "languages": ["javascript"],
+      "repository": "https://github.com/expressjs/express",
+      "commit": "9a34acf03cb818ff3f8bc40e44176e277a25cbb9",
+      "license": "MIT",
+      "license_files": ["LICENSE"],
+      "paths": ["lib"]
+    },
+    {
+      "name": "cobra",
+      "category": "go",
+      "languages": ["go"],
+      "repository": "https://github.com/spf13/cobra",
+      "commit": "adbc8813901bba65827259daa8e22ff94ec1f30e",
+      "license": "Apache-2.0",
+      "license_files": ["LICENSE.txt"],
+      "paths": ["command.go", "args.go", "cobra.go", "completions.go", "flag_groups.go"]
+    },
+    {
+      "name": "serde-json",
+      "category": "rust",
+      "languages": ["rust"],
+      "repository": "https://github.com/serde-rs/json",
+      "commit": "afdf6fc67247dd7fa4fcde1381e6ecc6bcc7a30e",
+      "license": "MIT OR Apache-2.0",
+      "license_files": ["LICENSE-MIT", "LICENSE-APACHE"],
+      "paths": ["src"]
+    },
+    {
+      "name": "gson",
+      "category": "java",
+      "languages": ["java"],
+      "repository": "https://github.com/google/gson",
+      "commit": "854c8255b625cf1e13c701a83ea9ccb4caaa576a",
+      "license": "Apache-2.0",
+      "license_files": ["LICENSE"],
+      "paths": ["gson/src/main/java/com/google/gson"]
+    },
+    {
+      "name": "serilog",
+      "category": "csharp-dotnet",
+      "languages": ["csharp"],
+      "repository": "https://github.com/serilog/serilog",
+      "commit": "bebc7719004f76187ae72e64ce138ec2540f2070",
+      "license": "Apache-2.0",
+      "license_files": ["LICENSE"],
+      "paths": ["src/Serilog"]
+    },
+    {
+      "name": "cjson",
+      "category": "c-cpp",
+      "languages": ["c"],
+      "repository": "https://github.com/DaveGamble/cJSON",
+      "commit": "6d9f2443ab071f86e5d9b43025a40929ec41c46c",
+      "license": "MIT",
+      "license_files": ["LICENSE"],
+      "paths": ["cJSON.c", "cJSON.h", "cJSON_Utils.c", "cJSON_Utils.h"]
+    },
+    {
+      "name": "fmt",
+      "category": "c-cpp",
+      "languages": ["cpp"],
+      "repository": "https://github.com/fmtlib/fmt",
+      "commit": "6d71f74624be5daa548073ff8e4e0c8aa5476010",
+      "license": "MIT",
+      "license_files": ["LICENSE"],
+      "paths": ["include/fmt", "src"]
+    },
+    {
+      "name": "terraform-aws-vpc",
+      "category": "terraform",
+      "languages": ["hcl"],
+      "repository": "https://github.com/terraform-aws-modules/terraform-aws-vpc",
+      "commit": "b3abd6df2ecf052451a361ed55b8f06f8742a795",
+      "license": "Apache-2.0",
+      "license_files": ["LICENSE"],
+      "paths": ["main.tf", "variables.tf", "outputs.tf", "versions.tf", "vpc-flow-logs.tf"]
+    },
+    {
+      "name": "prometheus-node-exporter-chart",
+      "category": "kubernetes-helm",
+      "languages": ["yaml", "helm"],
+      "repository": "https://github.com/prometheus-community/helm-charts",
+      "commit": "5c390e0f45c531dcd2a72c5baf1329730ab0730f",
+      "license": "Apache-2.0",
+      "license_files": ["LICENSE"],
+      "paths": ["charts/prometheus-node-exporter"]
+    },
+    {
+      "name": "kubernetes-examples",
+      "category": "kubernetes-helm",
+      "languages": ["yaml"],
+      "repository": "https://github.com/kubernetes/examples",
+      "commit": "d6b8cd27eacb51e651a1aa6f7c190a28713eff6e",
+      "license": "Apache-2.0",
+      "license_files": ["LICENSE"],
+      "paths": ["web/guestbook-go", "AI/vllm-deployment"]
+    },
+    {
+      "name": "docker-nginx",
+      "category": "dockerfile",
+      "languages": ["dockerfile", "shell"],
+      "repository": "https://github.com/nginx/docker-nginx",
+      "commit": "ef5a25a6314e652a2dcfbce6074bef729f4d9639",
+      "license": "BSD-2-Clause",
+      "license_files": ["LICENSE"],
+      "paths": ["mainline/debian", "mainline/alpine-slim"]
+    },
+    {
+      "name": "docker-python",
+      "category": "dockerfile",
+      "languages": ["dockerfile"],
+      "repository": "https://github.com/docker-library/python",
+      "commit": "8f2cb2e1c9cae4d8f772fe61f1427c96acea3257",
+      "license": "MIT",
+      "license_files": ["LICENSE"],
+      "paths": ["3.14/slim-trixie", "3.14/alpine3.24"]
+    },
+    {
+      "name": "nvm",
+      "category": "shell",
+      "languages": ["shell"],
+      "repository": "https://github.com/nvm-sh/nvm",
+      "commit": "a885b885fef16fac4bc544188fb25e9e37ae83e8",
+      "license": "MIT",
+      "license_files": ["LICENSE.md"],
+      "paths": ["nvm.sh", "install.sh", "nvm-exec"]
+    },
+    {
+      "name": "kind-docs",
+      "category": "documentation",
+      "languages": ["markdown"],
+      "repository": "https://github.com/kubernetes-sigs/kind",
+      "commit": "aa74c7f3e55dbadccd61199b75c01a591a6c2267",
+      "license": "Apache-2.0",
+      "license_files": ["LICENSE"],
+      "paths": ["site/content/docs/user"]
+    }
+  ]
+}

@@ -1,8 +1,7 @@
 # Task 326: Rich Renderables Architecture, Terminal Capability Negotiation & Universal Output Serialization Research
 
 **Issue**: [#326](https://github.com/dan-petty/devops-cli/issues/326)
-**PR**: [#391](https://github.com/dan-petty/devops-cli/pull/391)
-**Status**: Merged
+**Status**: Done
 **Milestone**: `v0.2.22`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/cli`, `priority/p1-high`

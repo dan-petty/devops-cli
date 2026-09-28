@@ -22,13 +22,17 @@ from devops_cli.config.defaults import (
     DEFAULT_SANDBOX_IMAGE,
     DEFAULT_SANDBOX_MEMORY,
     DEFAULT_SANDBOX_NETWORK,
-    DEFAULT_SANDBOX_PIDS_LIMIT,
 )
 from devops_cli.docker.engine import decode_stream as _decode_logs
 from devops_cli.docker.engine import get_engine
 from devops_cli.exceptions.docker import DockerSandboxError
 from devops_cli.sandbox.engine import is_home_or_subpath
-from devops_cli.sandbox.models import SandboxNetworkConfig, SandboxNetworkMode
+from devops_cli.sandbox.models import (
+    DEFAULT_SANDBOX_POLICY,
+    SandboxNetworkConfig,
+    SandboxNetworkMode,
+    SandboxPolicy,
+)
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
@@ -52,6 +56,7 @@ class WorkloadSandboxConfig(BaseModel):
     read_only: bool = True
     memory_limit: str = DEFAULT_SANDBOX_MEMORY
     cpu_limit: float = DEFAULT_SANDBOX_CPUS
+    policy: SandboxPolicy = Field(default_factory=lambda: DEFAULT_SANDBOX_POLICY)
     network_config: SandboxNetworkConfig = Field(
         default_factory=lambda: SandboxNetworkConfig(mode=SandboxNetworkMode.ISOLATED)
     )
@@ -265,10 +270,8 @@ class WorkloadSandboxRunner:
             "user": user_str,
             "mem_limit": self.config.memory_limit,
             "nano_cpus": int(self.config.cpu_limit * 1e9) if self.config.cpu_limit else None,
-            "cap_drop": ["ALL"],
-            "security_opt": ["no-new-privileges:true"],
-            "pids_limit": DEFAULT_SANDBOX_PIDS_LIMIT,
             "detach": True,
+            **self.config.policy.to_docker_security_kwargs(read_only=self.config.read_only),
             **self._network_create_kwargs(),
         }
 

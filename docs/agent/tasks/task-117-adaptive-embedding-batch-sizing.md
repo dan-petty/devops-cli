@@ -1,8 +1,7 @@
 # Task 117: Adaptive Embedding Batch Sizing Circuit Breaker and Timeout Fallback
 
 **Issue**: [#117](https://github.com/dan-petty/devops-cli/issues/117)
-**PR**: [#223](https://github.com/dan-petty/devops-cli/pull/223)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/ai`

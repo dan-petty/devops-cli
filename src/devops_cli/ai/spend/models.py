@@ -32,6 +32,8 @@ class SpendRecord(BaseModel):
     provider: str
     server: str
     backend_info: str | None = None
+    # The backend a gateway routed the call to (its api_base); None without a gateway.
+    served_by: str | None = None
     model: str
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -40,6 +42,7 @@ class SpendRecord(BaseModel):
     cached: bool = False
     request_type: str = "chat"
     duration_seconds: float = 0.0
+    stage: str | None = None
 
 
 class ServerSpendSummary(BaseModel):
@@ -57,6 +60,8 @@ class ServerSpendSummary(BaseModel):
     models: list[str] = Field(default_factory=list)
     first_seen: str | None = None
     last_seen: str | None = None
+    is_local: bool = False
+    cost_equivalent_usd: float = 0.0
 
 
 class ModelSpendSummary(BaseModel):
@@ -73,6 +78,7 @@ class ModelSpendSummary(BaseModel):
     approx_spend_usd: float = 0.0
     prompt_usd_per_million: float = 0.0
     completion_usd_per_million: float = 0.0
+    cost_equivalent_usd: float = 0.0
 
 
 class ProviderSpendSummary(BaseModel):
@@ -85,6 +91,33 @@ class ProviderSpendSummary(BaseModel):
     total_tokens: int = 0
     approx_spend_usd: float = 0.0
     server_count: int = 1
+
+
+class BackendSpendSummary(BaseModel):
+    """Usage of one backend that a gateway routed calls to."""
+
+    served_by: str
+    models: list[str] = Field(default_factory=list)
+    request_count: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    completion_tokens_per_request: float = 0.0
+    mean_duration_seconds: float = 0.0
+
+
+class StageSpendSummary(BaseModel):
+    """Aggregated spend and token metrics for an execution stage or task."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    stage: str
+    request_count: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    approx_spend_usd: float = 0.0
+    cost_equivalent_usd: float = 0.0
 
 
 class LifetimeSpendReport(BaseModel):
@@ -105,3 +138,31 @@ class LifetimeSpendReport(BaseModel):
     servers: list[ServerSpendSummary] = Field(default_factory=list)
     models: list[ModelSpendSummary] = Field(default_factory=list)
     providers: list[ProviderSpendSummary] = Field(default_factory=list)
+    backends: list[BackendSpendSummary] = Field(default_factory=list)
+    stages: list[StageSpendSummary] = Field(default_factory=list)
+    reference_model: str = "gpt-4o"
+    local_requests: int = 0
+    local_prompt_tokens: int = 0
+    local_completion_tokens: int = 0
+    local_tokens: int = 0
+    local_cost_equivalent_usd: float = 0.0
+    counterfactual_spend_usd: float = 0.0
+    counterfactual_savings_usd: float = 0.0
+    hardware_cost_usd: float = 0.0
+    hardware_payoff: HardwarePayoffSummary | None = None
+
+
+class HardwarePayoffSummary(BaseModel):
+    """Hardware investment payoff and ROI tracking from local LLM inference savings."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    hardware_cost_usd: float = 0.0
+    cumulative_savings_usd: float = 0.0
+    net_value_usd: float = 0.0
+    payoff_percentage: float = 0.0
+    is_paid_off: bool = False
+    remaining_usd: float = 0.0
+    daily_savings_usd: float = 0.0
+    estimated_days_to_payoff: float | None = None
+    reference_model: str = "gpt-4o"

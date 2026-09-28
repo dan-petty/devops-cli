@@ -1,8 +1,7 @@
 # Task 128: Streaming Reasoning Think Token Parser & Bounded Stream Sanitizer
 
 **Issue**: [#128](https://github.com/dan-petty/devops-cli/issues/128)
-**PR**: [#241](https://github.com/dan-petty/devops-cli/pull/241)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p2-medium`
 **Scope**: `scope/ai`

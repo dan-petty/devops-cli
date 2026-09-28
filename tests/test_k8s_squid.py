@@ -92,9 +92,16 @@ def test_squid_conf_caching_and_observability_directives() -> None:
     assert "logformat json_k8s" in conf_text
     assert "access_log /var/log/squid/access.log json_k8s" in conf_text
     assert "acl manager proto cache_object" in conf_text
-    assert "http_access allow manager localhost" in conf_text
     assert "snmp_port 3401" in conf_text
     assert "snmp_access allow snmppublic localnet" in conf_text
+
+    # Egress Policy Bypass Protection: Block cluster-internal destinations
+    assert (
+        "acl to_internal_ips dst 10.0.0.0/8" in conf_text,
+        "acl to_internal_domains dstdomain .cluster.local" in conf_text,
+        "http_access deny to_internal_ips" in conf_text,
+        "http_access deny to_internal_domains" in conf_text,
+    ) == (True, True, True, True)
 
 
 def test_squid_deployment_and_sidecar_exporter() -> None:
@@ -169,33 +176,53 @@ def test_squid_pvc_and_service_spec() -> None:
     assert ports.get("metrics") == 9301
 
 
-def test_ollama_daemonset_proxy_integration() -> None:
-    """Verify ollama-daemonset.yaml configures HTTP_PROXY, HTTPS_PROXY, and squid-ca mount."""
+def test_ollama_proxy_integration() -> None:
+    """Verify ollama-profiles.yaml configures HTTP_PROXY, HTTPS_PROXY, and squid-ca mount."""
     docs = list(
-        yaml.safe_load_all((K8S_DIR / "llm" / "ollama-daemonset.yaml").read_text(encoding="utf-8"))
+        yaml.safe_load_all(
+            (K8S_DIR / "llm" / "profiles" / "ollama-profiles.yaml").read_text(encoding="utf-8")
+        )
     )
-    daemonset_doc = next(d for d in docs if d and d.get("kind") == "DaemonSet")
-    containers = daemonset_doc["spec"]["template"]["spec"]["containers"]
+    dep_doc = next(d for d in docs if d and d.get("kind") == "Deployment")
+    containers = dep_doc["spec"]["template"]["spec"]["containers"]
     ollama_c = next(c for c in containers if c["name"] == "ollama")
-
     env_map = {e["name"]: e["value"] for e in ollama_c.get("env", []) if "value" in e}
-    assert env_map.get("HTTP_PROXY") == "http://squid.squid.svc.cluster.local:3128"
-    assert env_map.get("HTTPS_PROXY") == "http://squid.squid.svc.cluster.local:3128"
-    assert env_map.get("SSL_CERT_DIR") == "/etc/ssl/certs:/etc/ssl/squid-ca"
-    assert "localhost" in env_map.get("NO_PROXY", "")
-
     volume_mounts = {vm["name"]: vm["mountPath"] for vm in ollama_c.get("volumeMounts", [])}
-    assert volume_mounts.get("squid-ca-cert") == "/etc/ssl/squid-ca"
+    volumes = {v["name"]: v for v in dep_doc["spec"]["template"]["spec"]["volumes"]}
+    ollama_data_vol = volumes.get("ollama-data", {})
 
-    volumes = {v["name"]: v for v in daemonset_doc["spec"]["template"]["spec"]["volumes"]}
-    assert "squid-ca-cert" in volumes
-    assert volumes["squid-ca-cert"].get("configMap", {}).get("optional") is False
-
-    # Node-local NVMe hostPath storage contract
-    assert "ollama-data" in volumes
-    ollama_data_vol = volumes["ollama-data"]
-    assert ollama_data_vol.get("hostPath", {}).get("path") == "/var/lib/ollama"
-    assert ollama_data_vol.get("hostPath", {}).get("type") == "DirectoryOrCreate"
+    no_proxy = env_map.get("NO_PROXY", "")
+    assert (
+        env_map.get("HTTP_PROXY"),
+        env_map.get("HTTPS_PROXY"),
+        env_map.get("SSL_CERT_DIR"),
+        "localhost" in no_proxy,
+        "10.0.0.0/8" in no_proxy,
+        "192.168.0.0/16" in no_proxy,
+        ".lan" in no_proxy,
+        ".local" in no_proxy,
+        volume_mounts.get("squid-ca-cert"),
+        "squid-ca-cert" in volumes,
+        volumes["squid-ca-cert"].get("configMap", {}).get("optional"),
+        "ollama-data" in volumes,
+        ollama_data_vol.get("hostPath", {}).get("path"),
+        ollama_data_vol.get("hostPath", {}).get("type"),
+    ) == (
+        "http://squid.squid.svc.cluster.local:3128",
+        "http://squid.squid.svc.cluster.local:3128",
+        "/etc/ssl/certs:/etc/ssl/squid-ca",
+        True,
+        True,
+        True,
+        True,
+        True,
+        "/etc/ssl/squid-ca",
+        True,
+        False,
+        True,
+        "/var/lib/ollama",
+        "DirectoryOrCreate",
+    )
 
 
 def test_squid_networkpolicy_security_and_ca_distribution() -> None:
@@ -227,3 +254,22 @@ def test_squid_networkpolicy_security_and_ca_distribution() -> None:
     assert ".initialized" in entrypoint_text
     assert "/etc/squid/ssl-ca" in entrypoint_text
     assert "FATAL: Pre-provisioned Root CA missing" in entrypoint_text
+
+
+def test_squid_forwards_ollama_blob_ranges_before_whole_object_default() -> None:
+    """Verify ranged Ollama blob requests pass through while other ranges still fetch whole objects.
+
+    Squid applies the first matching range_offset_limit line, so the Ollama exception must precede
+    the -1 default; otherwise each of Ollama's parallel ranges waits for the object from byte 0.
+    """
+    cm_doc = yaml.safe_load((SQUID_DIR / "configmap.yaml").read_text(encoding="utf-8"))
+    lines = [line.strip() for line in cm_doc["data"]["squid.conf"].splitlines()]
+    range_rules = [line for line in lines if line.startswith("range_offset_limit")]
+
+    assert (
+        "acl ollama_blob_storage dstdomain .r2.cloudflarestorage.com" in lines,
+        range_rules,
+    ) == (
+        True,
+        ["range_offset_limit 0 ollama_blob_storage", "range_offset_limit -1"],
+    )

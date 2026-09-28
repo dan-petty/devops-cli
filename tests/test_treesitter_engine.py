@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.ast.engine import TreeSitterEngine, detect_language
@@ -22,14 +23,16 @@ def test_language_detection() -> None:
     assert detect_language(Path("app.py")) == "python"
     assert detect_language(Path("types.pyi")) == "python"
     assert detect_language(Path("index.ts")) == "typescript"
-    assert detect_language(Path("component.tsx")) == "typescript"
+    # TSX has its own grammar: the TypeScript one rejects JSX.
+    assert detect_language(Path("component.tsx")) == "tsx"
     assert detect_language(Path("script.js")) == "javascript"
     assert detect_language(Path("main.go")) == "go"
     assert detect_language(Path("lib.rs")) == "rust"
     assert detect_language(Path("Service.java")) == "java"
     assert detect_language(Path("main.tf")) == "hcl"
     assert detect_language(Path("config.hcl")) == "hcl"
-    assert detect_language(Path("README.md")) is None
+    assert detect_language(Path("README.md")) == "markdown"
+    assert detect_language(Path("notes.txt")) is None
 
 
 def test_fallback_python_parsing() -> None:
@@ -305,3 +308,18 @@ def test_cli_ast_parse(tmp_path: Path) -> None:
     res = runner.invoke(app, ["ai", "ast", "parse", str(test_file)])
     assert res.exit_code == 0
     assert "hello" in res.output
+
+
+def test_code_graph_indexes_a_nested_worktree(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify the code graph of a worktree under `.claude/worktrees/`, given or run from, is
+    read with that worktree's ignore rules; the checkout's `.claude/` rule emptied it (#582)."""
+    _, nested = nested_worktree
+    (nested / "src").mkdir()
+    (nested / "src" / "calc.py").write_text("def add(x: int, y: int) -> int:\n    return x + y\n")
+    monkeypatch.chdir(nested)
+
+    indexed = (CodeGraphBuilder(root_dir=nested).build().files, CodeGraphBuilder().build().files)
+
+    assert [[Path(file).name for file in files] for files in indexed] == [["calc.py"]] * 2

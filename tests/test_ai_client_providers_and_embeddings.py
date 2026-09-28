@@ -752,6 +752,7 @@ def test_copilot_and_openai_streaming_and_errors(monkeypatch: pytest.MonkeyPatch
 
     class MockCopilotStreamResponse:
         status_code = 200
+        headers: dict[str, str] = {}
 
         def __enter__(self) -> MockCopilotStreamResponse:
             return self

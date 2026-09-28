@@ -1,8 +1,7 @@
 # Task 252: Universal Trailing --dry-run Option Propagation Across Subcommands
 
 **Issue**: [#252](https://github.com/dan-petty/devops-cli/issues/252)
-**PR**: None (Draft pending)
-**Status**: In Progress
+**Status**: Done
 **Milestone**: `v0.2.20`
 **Priority**: `priority/p2-medium`
 **Scope**: `scope/cli`

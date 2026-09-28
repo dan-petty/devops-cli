@@ -1,7 +1,6 @@
 # Task 107: Protocol-Agnostic Endpoint Readiness & Health Probing Subsystem
 
 **Issue**: [#107](https://github.com/dan-petty/devops-cli/issues/107)
-**PR**: [#163](https://github.com/dan-petty/devops-cli/pull/163)
 **Status**: Done
 **Milestone**: `v0.2.17`
 **Priority**: `priority/p0-critical`

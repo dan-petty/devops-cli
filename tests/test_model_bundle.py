@@ -25,5 +25,5 @@ def test_bundle_ollama_models(tmp_path: Path) -> None:
 
 def test_model_bundler_validates_output_directory(tmp_path: Path) -> None:
     # Traversal outside root directory is rejected
-    with pytest.raises(ValueError, match="traversal|outside|invalid"):
+    with pytest.raises(ValueError, match=r"traversal|outside|invalid"):
         bundle_ollama_models(output_dir=Path("/../../etc"))

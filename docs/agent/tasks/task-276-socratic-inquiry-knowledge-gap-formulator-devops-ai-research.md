@@ -1,7 +1,6 @@
 # Task 276: Socratic Inquiry & Knowledge Gap Formulator (`devops ai research socratic`)
 
 **Issue**: [#276](https://github.com/dan-petty/devops-cli/issues/276)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.21`
 **Priority**: `priority/p1-high`

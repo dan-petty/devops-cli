@@ -81,10 +81,16 @@ def test_daemon_manager_stop_forwards(tmp_path: Path) -> None:
     )
     mgr.save_forwards([item])
 
-    with patch("os.kill") as mock_kill:
+    # Termination now signals the forward's process group, so the group has to be
+    # resolvable; `os.kill` still stands in for the liveness probe in `is_alive`.
+    with (
+        patch("os.kill") as mock_kill,
+        patch("os.getpgid", side_effect=lambda pid: 4242 if pid else 7),
+        patch("os.killpg") as mock_killpg,
+    ):
         stopped = mgr.stop_forwards()
         assert stopped == 1
-        assert mock_kill.called
+        assert mock_kill.called and mock_killpg.called
 
     remaining = mgr.list_forwards()
     assert len(remaining) == 0
@@ -165,3 +171,66 @@ def test_daemon_manager_stop_filter_and_dead_process(tmp_path: Path) -> None:
     remaining_raw = json.loads((tmp_path / "port_forwards.json").read_text(encoding="utf-8"))
     assert len(remaining_raw) == 1
     assert remaining_raw[0]["service"] == "svc/prometheus"
+
+
+# =============================================================================
+# Process group containment
+# =============================================================================
+
+
+def test_stopping_a_forward_signals_its_whole_group() -> None:
+    """A forward runs in its own session, so `kubectl` leads a group of its own.
+
+    Signalling only the pid left anything it spawned running and the local port still
+    bound, which reads as "stopped" in the daemon listing while the port is held.
+    """
+    from unittest.mock import patch
+
+    from devops_cli.k8s import port_forward_daemon as module
+
+    with (
+        patch.object(module.os, "getpgid", side_effect=lambda pid: 4242 if pid else 7),
+        patch.object(module.os, "killpg") as killpg,
+        patch.object(module.os, "kill") as kill,
+    ):
+        stopped = module._terminate_process_group(9001)
+    assert (stopped, killpg.call_count, kill.call_count) == (True, 1, 0)
+
+
+def test_a_forward_sharing_this_processes_group_is_signalled_alone() -> None:
+    """A forward recorded before sessions were used still shares the CLI's group.
+
+    Signalling that group would kill the CLI running the stop command.
+    """
+    from unittest.mock import patch
+
+    from devops_cli.k8s import port_forward_daemon as module
+
+    with (
+        patch.object(module.os, "getpgid", return_value=4242),
+        patch.object(module.os, "killpg") as killpg,
+        patch.object(module.os, "kill") as kill,
+    ):
+        stopped = module._terminate_process_group(9001)
+    assert (stopped, killpg.call_count, kill.call_count) == (True, 0, 1)
+
+
+def test_an_already_dead_forward_is_not_counted_as_stopped() -> None:
+    """A stale record must not report a termination that did not happen."""
+    from unittest.mock import patch
+
+    from devops_cli.k8s import port_forward_daemon as module
+
+    with patch.object(module.os, "getpgid", side_effect=ProcessLookupError):
+        assert module._terminate_process_group(9001) is False
+
+
+def test_a_forward_is_started_in_its_own_session() -> None:
+    """`port-forward status` calls these background daemons; that holds only if detached."""
+    import inspect
+
+    from devops_cli.commands.k8s import networking
+
+    source = inspect.getsource(networking)
+    forward_call = source[source.index("kubectl") : source.index("active_forwards.append")]
+    assert "start_new_session=True" in forward_call

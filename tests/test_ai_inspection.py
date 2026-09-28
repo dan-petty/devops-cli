@@ -305,7 +305,8 @@ def test_polyglot_structural_outlines(tmp_path: Path) -> None:
     )
     sh_outline = generate_semantic_outline(sh_file, level=FocalLevel.TOPOLOGY, repo_root=tmp_path)
     assert (
-        sh_outline.language in ("sh", "shell"),
+        # Shell is parsed by the bash grammar (#506).
+        sh_outline.language == "bash",
         sh_outline.topology is not None,
     ) == (True, True)
 

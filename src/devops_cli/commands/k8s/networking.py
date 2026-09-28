@@ -4,17 +4,22 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Annotated, Any
 
 import typer
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.config.constants import (
+    CONST_ADDRESSING_FQDN,
+    CONST_ADDRESSING_INGRESS,
     CONST_ADDRESSING_MODES,
     CONST_ADDRESSING_NODEPORT,
     CONST_ADDRESSING_PROXY,
+    CONST_AI_GATEWAY_PROVIDER,
     CONST_K8S_URL_SCHEME,
+    CONST_LOCAL_DOMAIN_SUFFIXES,
+    CONST_LOCAL_HOSTNAMES,
     CONST_PLACEHOLDER_NODE,
     CONST_PLACEHOLDER_PORT,
 )
@@ -236,6 +241,90 @@ def _resolve_loopback_fallback(scheme: str, port: int) -> str:
     return localhost_url
 
 
+def _is_fqdn_url(url: str | None) -> bool:
+    """Check whether a URL points to a non-loopback, non-IP fully-qualified domain name."""
+    if not url:
+        return False
+    try:
+        import ipaddress
+        from urllib.parse import urlparse
+
+        host = urlparse(url).hostname
+        if not host or "." not in host:
+            return False
+        host_lower = host.lower()
+        if host_lower in CONST_LOCAL_HOSTNAMES or any(
+            host_lower.endswith(suffix) for suffix in CONST_LOCAL_DOMAIN_SUFFIXES
+        ):
+            return False
+        try:
+            ipaddress.ip_address(host)
+            return False
+        except ValueError:
+            return True
+    except Exception:
+        return False
+
+
+def _should_update_url(
+    existing_url: str | None,
+    new_url: str | None,
+    default_url: str | None = None,
+) -> bool:
+    """Determine whether a detected service URL should update existing configuration."""
+    from urllib.parse import urlparse
+
+    if not new_url:
+        return False
+    if not existing_url or existing_url == default_url or existing_url == new_url:
+        return True
+    if _is_fqdn_url(existing_url) and not _is_fqdn_url(new_url):
+        return False
+    existing_host = urlparse(existing_url).hostname or ""
+    new_host = urlparse(new_url).hostname or ""
+    return not (existing_host not in CONST_LOCAL_HOSTNAMES and new_host in CONST_LOCAL_HOSTNAMES)
+
+
+def _apply_service_url(
+    settings: Any,
+    configured: dict[str, str],
+    key: str,
+    new_url: str | None,
+    existing_url: str | None,
+    default_url: str | None = None,
+) -> None:
+    """Set configured service URL on settings if update criteria are satisfied."""
+    from devops_cli.config.settings import dotted_set
+
+    if new_url and _should_update_url(existing_url, new_url, default_url=default_url):
+        dotted_set(settings, key, new_url)
+        configured[key] = new_url
+
+
+def _update_ollama_urls(
+    settings: Any,
+    configured: dict[str, str],
+    ollama_url: str | None,
+) -> None:
+    """Update settings.ai.ollama_urls preserving existing custom non-loopback endpoints."""
+    from urllib.parse import urlparse
+
+    from devops_cli.config.defaults import DEFAULT_OLLAMA_URLS
+
+    if not ollama_url:
+        return
+    existing = list(settings.ai.ollama_urls or [])
+    is_loopback = (urlparse(ollama_url).hostname or "") in ("localhost", "127.0.0.1", "::1")
+    if not existing or existing == list(DEFAULT_OLLAMA_URLS):
+        settings.ai.ollama_urls = [ollama_url]
+        configured["ai.ollama_urls"] = ollama_url
+    elif ollama_url in existing:
+        configured["ai.ollama_urls"] = ", ".join(existing)
+    elif not is_loopback:
+        settings.ai.ollama_urls.append(ollama_url)
+        configured["ai.ollama_urls"] = ", ".join(settings.ai.ollama_urls)
+
+
 def _resolve_accessible_url(
     detected_url: str | None,
     preferred_localhost_ports: list[int] | None = None,
@@ -248,17 +337,17 @@ def _resolve_accessible_url(
     if detected_url:
         parsed_orig = urlparse(detected_url)
         scheme = parsed_orig.scheme or default_scheme
+        if _verify_url_reachability(detected_url):
+            return detected_url
 
     preferred = _check_preferred_ports(scheme, preferred_localhost_ports)
     if preferred:
         return preferred
 
-    if not detected_url or _verify_url_reachability(detected_url):
-        return detected_url
-
-    parsed = urlparse(detected_url)
-    if parsed.port:
-        return _resolve_loopback_fallback(parsed.scheme or scheme, parsed.port)
+    if detected_url:
+        parsed = urlparse(detected_url)
+        if parsed.port:
+            return _resolve_loopback_fallback(parsed.scheme or scheme, parsed.port)
 
     return detected_url
 
@@ -269,6 +358,8 @@ def _configure_infra_stack_urls(
     configured: dict[str, str],
 ) -> None:
     """Detect and configure accessible URLs for infrastructure stack services."""
+    from urllib.parse import urlparse
+
     from devops_cli.config.settings import dotted_set
 
     raw_argocd = _detect_service_url("argocd-server", "argocd", context=effective_context)
@@ -285,20 +376,52 @@ def _configure_infra_stack_urls(
     prom_url = _resolve_accessible_url(raw_prom, preferred_localhost_ports=[8090, 9090])
     jaeger_url = _resolve_accessible_url(raw_jaeger, preferred_localhost_ports=[16686])
 
-    if argocd_url:
-        dotted_set(settings, "argocd.url", argocd_url)
-        configured["argocd.url"] = argocd_url
-    if grafana_url:
-        dotted_set(settings, "grafana.url", grafana_url)
-        configured["grafana.url"] = grafana_url
-    if prom_url:
-        dotted_set(settings, "prometheus.url", prom_url)
-        configured["prometheus.url"] = prom_url
-    if jaeger_url:
+    _apply_service_url(
+        settings, configured, "argocd.url", argocd_url, getattr(settings.argocd, "url", None)
+    )
+    _apply_service_url(
+        settings, configured, "grafana.url", grafana_url, getattr(settings.grafana, "url", None)
+    )
+    _apply_service_url(
+        settings, configured, "prometheus.url", prom_url, getattr(settings.prometheus, "url", None)
+    )
+    if jaeger_url and _should_update_url(getattr(settings.jaeger, "url", None), jaeger_url):
         dotted_set(settings, "jaeger.url", jaeger_url)
         configured["jaeger.url"] = jaeger_url
-        dotted_set(settings, "otel.endpoint", "http://localhost:4318")
-        configured["otel.endpoint"] = "http://localhost:4318"
+        j_host = urlparse(jaeger_url).hostname or "localhost"
+        otel_url = f"http://{j_host}:4318"
+        telemetry_endpoint = getattr(getattr(settings, "telemetry", None), "endpoint", None)
+        if _should_update_url(telemetry_endpoint, otel_url):
+            dotted_set(settings, "otel.endpoint", otel_url)
+            configured["otel.endpoint"] = otel_url
+
+
+def _should_update_valkey(settings: Any, valkey_url: str | None) -> bool:
+    """Determine whether detected valkey_url should update valkey host/port configuration."""
+    from urllib.parse import urlparse
+
+    from devops_cli.config.constants import CONST_LOCAL_HOSTNAMES
+
+    if not valkey_url:
+        return False
+    valkey_cfg = getattr(settings, "valkey", None)
+    if valkey_cfg is None:
+        return True
+
+    existing_url = getattr(valkey_cfg, "url", None)
+    if existing_url and not _should_update_url(existing_url, valkey_url):
+        return False
+
+    existing_host_raw = getattr(valkey_cfg, "host", "") or ""
+    existing_host = existing_host_raw.split(":")[0].strip().lower()
+    new_host = (urlparse(valkey_url).hostname or "").strip().lower()
+    if (
+        existing_host
+        and existing_host not in CONST_LOCAL_HOSTNAMES
+        and new_host in CONST_LOCAL_HOSTNAMES
+    ):
+        return False
+    return True
 
 
 def _configure_llm_stack_urls(
@@ -309,6 +432,7 @@ def _configure_llm_stack_urls(
     """Detect and configure accessible URLs for LLM stack services."""
     from urllib.parse import urlparse
 
+    from devops_cli.config.defaults import DEFAULT_QDRANT_URL
     from devops_cli.config.settings import dotted_set
 
     raw_ollama = _detect_service_url("ollama", "llm", context=effective_context)
@@ -323,16 +447,19 @@ def _configure_llm_stack_urls(
         raw_valkey, preferred_localhost_ports=[6379], default_scheme="tcp"
     )
 
-    if ollama_url:
-        settings.ai.ollama_urls = [ollama_url]
-        configured["ai.ollama_urls"] = ollama_url
-    if webui_url:
-        dotted_set(settings, "open_webui.url", webui_url)
-        configured["open_webui.url"] = webui_url
-    if qdrant_url:
-        dotted_set(settings, "qdrant.url", qdrant_url)
-        configured["qdrant.url"] = qdrant_url
-    if valkey_url:
+    _update_ollama_urls(settings, configured, ollama_url)
+    _apply_service_url(
+        settings, configured, "open_webui.url", webui_url, getattr(settings.open_webui, "url", None)
+    )
+    _apply_service_url(
+        settings,
+        configured,
+        "qdrant.url",
+        qdrant_url,
+        getattr(settings.qdrant, "url", None),
+        default_url=DEFAULT_QDRANT_URL,
+    )
+    if valkey_url and _should_update_valkey(settings, valkey_url):
         dotted_set(settings, "valkey.url", valkey_url)
         p_valkey = urlparse(valkey_url)
         if p_valkey.port:
@@ -440,11 +567,271 @@ def _preview_nodeport_addresses(stacks: Sequence[str]) -> dict[str, str]:
     return preview
 
 
+def _record_host_for_service(
+    svc_hosts: dict[str, list[str]],
+    svc_name: str,
+    host: str,
+    namespace: str | None = None,
+) -> None:
+    """Append host to service entry and optional namespace-qualified entry."""
+    hosts = svc_hosts.setdefault(svc_name, [])
+    if host not in hosts:
+        hosts.append(host)
+    if namespace:
+        ns_hosts = svc_hosts.setdefault(f"{namespace}:{svc_name}", [])
+        if host not in ns_hosts:
+            ns_hosts.append(host)
+
+
+def _extract_rule_hosts(
+    rules: list[dict[str, Any]],
+    svc_hosts: dict[str, list[str]],
+    namespace: str | None = None,
+) -> None:
+    """Extract backend service host mappings from ingress rules."""
+    for rule in rules:
+        host = rule.get("host")
+        if not host:
+            continue
+        for path_entry in rule.get("http", {}).get("paths", []):
+            svc_name = path_entry.get("backend", {}).get("service", {}).get("name")
+            if svc_name:
+                _record_host_for_service(svc_hosts, svc_name, host, namespace)
+
+
+def _discover_ingress_hosts(effective_ctx: str | None = None) -> dict[str, list[str]]:
+    """Discover service-to-hostname mappings from Kubernetes Ingress resources."""
+    import json
+
+    ctx_args = ["--context", effective_ctx] if effective_ctx else []
+    try:
+        res = runtime.run_subprocess(
+            ["kubectl", "get", "ingress", "-A", "-o", "json"] + ctx_args,
+            capture_output=True,
+            text=True,
+            check=False,
+            quiet=True,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        )
+        if res.returncode != 0 or not res.stdout.strip():
+            return {}
+        svc_hosts: dict[str, list[str]] = {}
+        for item in json.loads(res.stdout).get("items", []):
+            ns = item.get("metadata", {}).get("namespace")
+            _extract_rule_hosts(item.get("spec", {}).get("rules", []), svc_hosts, namespace=ns)
+        return svc_hosts
+    except Exception as exc:
+        logger.debug("Failed discovering Ingress hosts: %s", exc)
+        return {}
+
+
+def _select_best_ingress_host(hosts: list[str], preferred_domain: str | None = None) -> str | None:
+    """Select the best Ingress hostname matching preferred domain or the first available."""
+    if not hosts:
+        return None
+    if preferred_domain:
+        norm = preferred_domain.strip().lower().lstrip(".")
+        for h in hosts:
+            if h.lower().endswith(norm):
+                return h
+    return hosts[0]
+
+
+def _ingress_matches(key: str, hosts: list[str], service_pattern: str) -> bool:
+    """Check if service pattern matches ingress key or any of its hostnames."""
+    return service_pattern in key or any(service_pattern in h for h in hosts)
+
+
+def _search_ingress_hosts(
+    items: Iterable[tuple[str, list[str]]],
+    service_pattern: str,
+    preferred_domain: str | None,
+) -> str | None:
+    """Search ingress items for matching service pattern and return https URL if found."""
+    for key, hosts in items:
+        if _ingress_matches(key, hosts, service_pattern):
+            chosen = _select_best_ingress_host(hosts, preferred_domain=preferred_domain)
+            if chosen:
+                return f"https://{chosen}"
+    return None
+
+
+def _find_service_ingress_url(
+    service_pattern: str,
+    ingress_map: dict[str, list[str]],
+    preferred_domain: str | None = None,
+    namespace: str | None = None,
+) -> str | None:
+    """Find and construct HTTPS endpoint for a service pattern from discovered ingress hosts."""
+    if namespace:
+        prefix = f"{namespace}:"
+        ns_items = ((k, v) for k, v in ingress_map.items() if k.startswith(prefix))
+        found = _search_ingress_hosts(ns_items, service_pattern, preferred_domain)
+        if found:
+            return found
+    return _search_ingress_hosts(ingress_map.items(), service_pattern, preferred_domain)
+
+
+_FQDN_TARGETS_INFRA: tuple[tuple[str, str], ...] = (
+    ("argocd.url", "argocd"),
+    ("grafana.url", "grafana"),
+    ("prometheus.url", "prome-prometheus"),
+)
+_FQDN_TARGETS_LLM: tuple[tuple[str, str], ...] = (
+    ("open_webui.url", "open-webui"),
+    ("qdrant.url", "qdrant"),
+)
+
+
+def _apply_fqdn_targets(
+    settings: Any,
+    configured: dict[str, str],
+    ingress_map: dict[str, list[str]],
+    domain: str | None,
+    targets: Sequence[tuple[str, str]],
+) -> None:
+    """Apply resolved FQDN ingress URLs for specified service targets."""
+    for key, pattern in targets:
+        url = _find_service_ingress_url(pattern, ingress_map, preferred_domain=domain)
+        if url:
+            _apply_service_url(
+                settings,
+                configured,
+                key,
+                url,
+                getattr(getattr(settings, key.split(".")[0], None), "url", None),
+            )
+
+
+def _update_task_gateway_urls(settings: Any, full_gw: str) -> None:
+    """Update gateway URL for tasks explicitly configured with the gateway provider."""
+    from devops_cli.config.settings import dotted_set
+
+    tasks_cfg = getattr(getattr(settings, "ai", None), "tasks", None)
+    if not tasks_cfg:
+        return
+    for task_name in ("analysis", "chat"):
+        task_cfg = getattr(tasks_cfg, task_name, None)
+        if task_cfg and getattr(task_cfg, "provider", None) == CONST_AI_GATEWAY_PROVIDER:
+            if _should_update_url(getattr(task_cfg, "api_base_url", None), full_gw):
+                dotted_set(settings, f"ai.tasks.{task_name}.api_base_url", full_gw)
+
+
+def _configure_fqdn_gateway(
+    settings: Any,
+    configured: dict[str, str],
+    ingress_map: dict[str, list[str]],
+    domain: str | None,
+) -> None:
+    """Configure AI gateway URL from discovered ingress endpoints."""
+    from devops_cli.config.settings import dotted_set
+
+    gw_url = _find_service_ingress_url(
+        "ai", ingress_map, preferred_domain=domain, namespace="llm"
+    ) or _find_service_ingress_url(
+        "llm-gateway", ingress_map, preferred_domain=domain, namespace="llm"
+    )
+    if gw_url:
+        full_gw = f"{gw_url}/v1"
+        existing_gw = getattr(getattr(settings, "ai", None), "gateway_url", None)
+        if _should_update_url(existing_gw, full_gw):
+            dotted_set(settings, "ai.gateway_url", full_gw)
+            configured["ai.gateway_url"] = full_gw
+        _update_task_gateway_urls(settings, full_gw)
+
+
+def _configure_fqdn_urls(
+    effective_context: str | None,
+    settings: Any,
+    configured: dict[str, str],
+    stacks: Sequence[str],
+) -> None:
+    """Detect Ingress hosts and configure domain-based FQDN service URLs."""
+    ingress_map = _discover_ingress_hosts(effective_context)
+    if not ingress_map:
+        return
+
+    domain = getattr(getattr(settings, "k8s", None), "domain", None) or getattr(
+        getattr(settings, "cloudflare", None), "domain", None
+    )
+
+    if "infra" in stacks:
+        _apply_fqdn_targets(settings, configured, ingress_map, domain, _FQDN_TARGETS_INFRA)
+    if "llm" in stacks:
+        _apply_fqdn_targets(settings, configured, ingress_map, domain, _FQDN_TARGETS_LLM)
+        _configure_fqdn_gateway(settings, configured, ingress_map, domain)
+
+
+def _preview_fqdn_addresses(stacks: Sequence[str]) -> dict[str, str]:
+    """Render the domain-based FQDN address each key will receive in dry-run mode."""
+    preview: dict[str, str] = {}
+    if "infra" in stacks:
+        preview.update(
+            {
+                "argocd.url": "https://argocd.example.com",
+                "grafana.url": "https://grafana.example.com",
+                "prometheus.url": "https://prometheus.example.com",
+            }
+        )
+    if "llm" in stacks:
+        preview.update(
+            {
+                "open_webui.url": "https://chat.example.com",
+                "qdrant.url": "https://qdrant.example.com",
+                "ai.gateway_url": "https://ai.example.com/v1",
+            }
+        )
+    return preview
+
+
 def _dry_run_preview(stacks: Sequence[str], addressing: str) -> dict[str, str]:
     """Describe what `configure-urls` would write under the requested addressing mode."""
+    if addressing in (CONST_ADDRESSING_FQDN, CONST_ADDRESSING_INGRESS):
+        return _preview_fqdn_addresses(stacks)
     if addressing == CONST_ADDRESSING_PROXY:
         return _preview_proxy_addresses(stacks)
     return _preview_nodeport_addresses(stacks)
+
+
+def _dispatch_nodeport_urls(
+    effective_ctx: str | None,
+    settings: Any,
+    configured: dict[str, str],
+    stacks: Sequence[str],
+) -> None:
+    """Configure URLs in nodeport mode."""
+    if "infra" in stacks:
+        _configure_infra_stack_urls(effective_ctx, settings, configured)
+    if "llm" in stacks:
+        _configure_llm_stack_urls(effective_ctx, settings, configured)
+
+
+def _dispatch_addressing_configuration(
+    effective_ctx: str | None,
+    settings: Any,
+    configured: dict[str, str],
+    stacks: Sequence[str],
+    addressing: str,
+) -> None:
+    """Route service URL configuration to the appropriate addressing handler."""
+    if addressing in (CONST_ADDRESSING_FQDN, CONST_ADDRESSING_INGRESS):
+        _configure_fqdn_urls(effective_ctx, settings, configured, stacks)
+    elif addressing == CONST_ADDRESSING_PROXY:
+        _configure_proxy_urls(effective_ctx, settings, configured, stacks)
+    else:
+        _dispatch_nodeport_urls(effective_ctx, settings, configured, stacks)
+
+
+def _resolve_effective_addressing(addressing: str | None, settings: Any) -> str:
+    """Determine effective addressing mode from CLI argument or settings defaults."""
+    if addressing is not None:
+        return addressing
+    configured_mode = getattr(getattr(settings, "k8s", None), "addressing", None)
+    if configured_mode in CONST_ADDRESSING_MODES:
+        return str(configured_mode)
+    if getattr(getattr(settings, "k8s", None), "domain", None):
+        return CONST_ADDRESSING_FQDN
+    return CONST_ADDRESSING_NODEPORT
 
 
 def configure_urls(
@@ -453,13 +840,15 @@ def configure_urls(
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
     ] = None,
     addressing: Annotated[
-        str, typer.Option("--addressing", "-a", help=HELP.k8s.addressing)
-    ] = CONST_ADDRESSING_NODEPORT,
+        str | None, typer.Option("--addressing", "-a", help=HELP.k8s.addressing)
+    ] = None,
 ) -> None:
     """Auto-detect Kubernetes stack URLs and update CLI config."""
-    if addressing not in CONST_ADDRESSING_MODES:
+    settings = load_settings()
+    effective_addressing = _resolve_effective_addressing(addressing, settings)
+    if effective_addressing not in CONST_ADDRESSING_MODES:
         print_error(
-            f"Unknown addressing mode '{addressing}'. Choose one of: "
+            f"Unknown addressing mode '{effective_addressing}'. Choose one of: "
             f"{', '.join(sorted(CONST_ADDRESSING_MODES))}."
         )
         raise typer.Exit(2)
@@ -473,7 +862,7 @@ def configure_urls(
         render_dry_run_result(
             command="devops k8s configure-urls",
             action="configure_monitoring_urls",
-            details=_dry_run_preview(selected_stacks, addressing),
+            details=_dry_run_preview(selected_stacks, effective_addressing),
         )
         return
 
@@ -486,22 +875,123 @@ def configure_urls(
         prefix=False,
     )
 
-    settings = load_settings()
     configured: dict[str, str] = {}
-
-    if addressing == CONST_ADDRESSING_PROXY:
-        _configure_proxy_urls(effective_context, settings, configured, selected_stacks)
-    else:
-        if "infra" in selected_stacks:
-            _configure_infra_stack_urls(effective_context, settings, configured)
-
-        if "llm" in selected_stacks:
-            _configure_llm_stack_urls(effective_context, settings, configured)
+    _dispatch_addressing_configuration(
+        effective_context, settings, configured, selected_stacks, effective_addressing
+    )
 
     if configured:
         save_settings(settings)
 
     print(format_k8s_service_targets_table(configured, stack))
+
+
+def _build_port_forward_details(
+    selected_stacks: Sequence[str],
+    ports: dict[str, int],
+) -> dict[str, str]:
+    """Build key-to-URL mappings for port-forward dry run output."""
+    details: dict[str, str] = {}
+    if "infra" in selected_stacks:
+        details.update(
+            {
+                "argocd.url": f"http://localhost:{ports['argocd']}",
+                "grafana.url": f"http://localhost:{ports['grafana']}",
+                "prometheus.url": f"http://localhost:{ports['prometheus']}",
+                "jaeger.url": f"http://localhost:{ports['jaeger']}",
+                "otel.endpoint": f"http://localhost:{ports['otel']}",
+            }
+        )
+    if "llm" in selected_stacks:
+        details.update(
+            {
+                "ollama.url": f"http://localhost:{ports['ollama']}",
+                "open_webui.url": f"http://localhost:{ports['open_webui']}",
+                "qdrant.url": f"http://localhost:{ports['qdrant']}",
+                "valkey.url": f"tcp://localhost:{ports['valkey']}",
+            }
+        )
+    return details
+
+
+def _collect_port_forward_services(
+    selected_stacks: Sequence[str],
+    ports: dict[str, int],
+) -> list[tuple[str, str, int, int]]:
+    """Build list of (namespace, service, local_port, remote_port) for port forwarding."""
+    services: list[tuple[str, str, int, int]] = []
+    if "infra" in selected_stacks:
+        services.extend(
+            [
+                ("argocd", "svc/argocd-server", ports["argocd"], 80),
+                ("monitoring", "svc/kube-prometheus-grafana", ports["grafana"], 80),
+                (
+                    "monitoring",
+                    "svc/kube-prometheus-kube-prome-prometheus",
+                    ports["prometheus"],
+                    9090,
+                ),
+                ("otel", "svc/jaeger", ports["jaeger"], 16686),
+                ("otel", "svc/jaeger", ports["otel"], 4318),
+            ]
+        )
+    if "llm" in selected_stacks:
+        services.extend(
+            [
+                ("llm", "svc/ollama", ports["ollama"], 11434),
+                ("llm", "svc/open-webui", ports["open_webui"], 8080),
+                ("llm", "svc/qdrant", ports["qdrant"], 6333),
+                ("llm", "svc/valkey", ports["valkey"], 6379),
+            ]
+        )
+    return services
+
+
+def _launch_port_forwards(
+    services: list[tuple[str, str, int, int]],
+    effective_context: str | None,
+    address: str,
+    stack: str,
+) -> None:
+    """Launch detached kubectl port-forward processes and record active daemons."""
+    from devops_cli.k8s.port_forward_daemon import PortForwardInfo, get_daemon_manager
+
+    daemon_mgr = get_daemon_manager()
+    active_forwards: list[PortForwardInfo] = daemon_mgr.list_forwards()
+    ctx_args = ["--context", effective_context] if effective_context else []
+    for ns, svc, lport, rport in services:
+        cmd = [
+            "kubectl",
+            "port-forward",
+            "--address",
+            address,
+            "-n",
+            ns,
+            svc,
+            f"{lport}:{rport}",
+        ] + ctx_args
+        # Its own session, so the forward outlives the command that started it and does
+        # not take a terminal's SIGINT along with the CLI. `devops k8s port-forward status`
+        # lists these as background daemons, which is only true if they are detached.
+        proc = subprocess.Popen(  # nosec B603
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        active_forwards.append(
+            PortForwardInfo(
+                pid=proc.pid,
+                service=svc,
+                namespace=ns,
+                local_port=lport,
+                remote_port=rport,
+                address=address,
+                stack=stack,
+            )
+        )
+        print_success(f"Forwarding {svc} ({ns}) to http://{address}:{lport} (pid {proc.pid})")
+    daemon_mgr.save_forwards(active_forwards)
 
 
 def port_forward(
@@ -539,8 +1029,15 @@ def port_forward(
     address: Annotated[
         str, typer.Option("--address", help=HELP.k8s.bind_address)
     ] = DEFAULT_REST_HOST,
+    update_config: Annotated[
+        bool,
+        typer.Option(
+            "--update-config/--no-update-config",
+            help=HELP.k8s.update_config_flag,
+        ),
+    ] = False,
 ) -> None:
-    """Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config."""
+    """Port-forward k8s monitoring / LLM stack services to localhost ports."""
     import time
 
     effective_context = runtime.resolve_effective_context(context)
@@ -548,33 +1045,23 @@ def port_forward(
         runtime._validate_kubeconfig_context_name(effective_context, "context")
 
     selected_stacks = _resolve_stacks(stack)
-
-    details: dict[str, str] = {}
-    if "infra" in selected_stacks:
-        details.update(
-            {
-                "argocd.url": f"http://localhost:{argocd_port}",
-                "grafana.url": f"http://localhost:{grafana_port}",
-                "prometheus.url": f"http://localhost:{prometheus_port}",
-                "jaeger.url": f"http://localhost:{jaeger_port}",
-                "otel.endpoint": f"http://localhost:{otel_port}",
-            }
-        )
-    if "llm" in selected_stacks:
-        details.update(
-            {
-                "ollama.url": f"http://localhost:{ollama_port}",
-                "open_webui.url": f"http://localhost:{open_webui_port}",
-                "qdrant.url": f"http://localhost:{qdrant_port}",
-                "valkey.url": f"tcp://localhost:{valkey_port}",
-            }
-        )
+    ports = {
+        "argocd": argocd_port,
+        "grafana": grafana_port,
+        "prometheus": prometheus_port,
+        "jaeger": jaeger_port,
+        "otel": otel_port,
+        "ollama": ollama_port,
+        "open_webui": open_webui_port,
+        "qdrant": qdrant_port,
+        "valkey": valkey_port,
+    }
 
     if is_dry_run():
         render_dry_run_result(
             command="devops k8s port-forward",
             action="k8s_port_forward",
-            details=details,
+            details=_build_port_forward_details(selected_stacks, ports),
         )
         return
 
@@ -586,62 +1073,11 @@ def port_forward(
         f"[bold cyan]Port-forwarding k8s {stack} services to localhost ports...[/bold cyan]",
         prefix=False,
     )
-
-    services: list[tuple[str, str, int, int]] = []
-    if "infra" in selected_stacks:
-        services.extend(
-            [
-                ("argocd", "svc/argocd-server", argocd_port, 80),
-                ("monitoring", "svc/kube-prometheus-grafana", grafana_port, 80),
-                ("monitoring", "svc/kube-prometheus-kube-prome-prometheus", prometheus_port, 9090),
-                ("otel", "svc/jaeger", jaeger_port, 16686),
-                ("otel", "svc/jaeger", otel_port, 4318),
-            ]
-        )
-    if "llm" in selected_stacks:
-        services.extend(
-            [
-                ("llm", "svc/ollama", ollama_port, 11434),
-                ("llm", "svc/open-webui", open_webui_port, 8080),
-                ("llm", "svc/qdrant", qdrant_port, 6333),
-                ("llm", "svc/valkey", valkey_port, 6379),
-            ]
-        )
-
-    from devops_cli.k8s.port_forward_daemon import PortForwardInfo, get_daemon_manager
-
-    daemon_mgr = get_daemon_manager()
-    active_forwards: list[PortForwardInfo] = daemon_mgr.list_forwards()
-
-    ctx_args = ["--context", effective_context] if effective_context else []
-    for ns, svc, lport, rport in services:
-        cmd = [
-            "kubectl",
-            "port-forward",
-            "--address",
-            address,
-            "-n",
-            ns,
-            svc,
-            f"{lport}:{rport}",
-        ] + ctx_args
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        active_forwards.append(
-            PortForwardInfo(
-                pid=proc.pid,
-                service=svc,
-                namespace=ns,
-                local_port=lport,
-                remote_port=rport,
-                address=address,
-                stack=stack,
-            )
-        )
-        print_success(f"Forwarding {svc} ({ns}) to http://{address}:{lport} (pid {proc.pid})")
-
-    daemon_mgr.save_forwards(active_forwards)
+    services = _collect_port_forward_services(selected_stacks, ports)
+    _launch_port_forwards(services, effective_context, address, stack)
     time.sleep(1.0)
-    configure_urls(stack=stack, context=effective_context)
+    if update_config:
+        configure_urls(stack=stack, context=effective_context)
 
 
 def port_forward_status() -> None:

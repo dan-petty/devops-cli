@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.sandbox import app
 from devops_cli.exceptions.docker import DockerEngineError
 from devops_cli.exceptions.sandbox import SandboxNotFoundError
+from devops_cli.exceptions.security import SecurityError
 from devops_cli.sandbox.engine import WorkloadSandboxEngine
 from devops_cli.sandbox.logs import (
     archive_incident,
@@ -118,7 +119,7 @@ def test_archive_incident_path_traversal_rejection(tmp_path: Path) -> None:
         panic_type=PanicType.SEGFAULT,
         message="segfault",
     )
-    with pytest.raises(Exception):
+    with pytest.raises(SecurityError):
         archive_incident(incident, base_dir=tmp_path)
 
 
@@ -485,13 +486,16 @@ def test_archive_incident_atomic_replacement(tmp_path: Path) -> None:
     assert len(tmp_files) == 0
 
 
-def test_archive_incident_records_archive_error(tmp_path: Path) -> None:
+def test_archive_incident_records_archive_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify _create_incident_record captures archive_error when base_dir cannot be written."""
     from devops_cli.sandbox.logs import _create_incident_record
 
-    unwritable_dir = tmp_path / "read_only"
-    unwritable_dir.mkdir(parents=True)
-    unwritable_dir.chmod(0o400)
+    def fail_archive(*args: object, **kwargs: object) -> None:
+        raise OSError("Permission denied: simulated archive write failure")
+
+    monkeypatch.setattr("devops_cli.sandbox.logs.archive_incident", fail_archive)
 
     incident = _create_incident_record(
         instance_id="inst-fail",
@@ -502,9 +506,8 @@ def test_archive_incident_records_archive_error(tmp_path: Path) -> None:
         stream="stderr",
         timestamp=None,
         archive=True,
-        base_dir=unwritable_dir / "nested_dir",
+        base_dir=tmp_path / "nested_dir",
     )
-    unwritable_dir.chmod(0o700)
     assert incident.archive_error is not None
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -147,7 +148,7 @@ def test_the_rejection_names_the_likely_cause(monkeypatch: pytest.MonkeyPatch) -
 
 def test_an_unknown_template_reports_the_name() -> None:
     """A renamed template should fail with something actionable."""
-    with pytest.raises(TemplateRenderError, match="absent.j2"):
+    with pytest.raises(TemplateRenderError, match=re.escape("absent.j2")):
         render_template("absent.j2")
 
 
@@ -174,3 +175,30 @@ def test_the_sandbox_blocks_attribute_escapes() -> None:
     template = template_environment().from_string("{{ ''.__class__.__mro__ }}")
     with pytest.raises(SecurityError):
         template.render()
+
+
+# =============================================================================
+# Container Environment
+# =============================================================================
+
+
+def test_clients_are_pointed_at_the_container_local_session_bus() -> None:
+    """/tmp is a volume shared between containers; the keyring bus must live under /run."""
+    env = json.loads(devcontainer())["containerEnv"]
+    assert env["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/run/user/1000/bus"
+
+
+def test_github_git_credentials_go_through_gh_not_the_host() -> None:
+    """VS Code appends a helper that forwards to the host's credential store.
+
+    Command-scope config is read last, so its empty reset drops that helper for github.com and
+    only gh -- backed by this identity's keyring -- answers. A locked keyring then fails the
+    fetch instead of silently using the host's credentials.
+    """
+    env = json.loads(devcontainer())["containerEnv"]
+    count = int(env["GIT_CONFIG_COUNT"])
+    entries = [(env[f"GIT_CONFIG_KEY_{i}"], env[f"GIT_CONFIG_VALUE_{i}"]) for i in range(count)]
+
+    for host in ("github.com", "gist.github.com"):
+        key = f"credential.https://{host}.helper"
+        assert [value for name, value in entries if name == key] == ["", "!gh auth git-credential"]

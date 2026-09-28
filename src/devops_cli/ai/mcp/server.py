@@ -7,14 +7,17 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
+from fastmcp.server.middleware import Middleware
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_FALCO_SEVERITY_LEVELS,
     CONST_MAX_SECURITY_STREAM_TAIL_LINES,
+    CONST_MCP_EAGER_DOMAINS,
+    CONST_MCP_LAZY_DOMAINS,
     CONST_MIN_SECURITY_STREAM_TAIL_LINES,
 )
 from devops_cli.config.defaults import (
@@ -167,9 +170,9 @@ def review_findings(session_id: str = "", status: str = "") -> str:
     if session_id:
         cmd.append(session_id)
     if status:
-        st_clean = status.lower().strip("-")
-        if st_clean in {"verified", "unverified", "mitigated"}:
-            cmd.append(f"--{st_clean}")
+        st_clean = status.upper().strip().lstrip("-")
+        if st_clean in {"VERIFIED", "UNVERIFIED", "INVALIDATED", "MITIGATED"}:
+            cmd.extend(["--status", st_clean])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
@@ -969,7 +972,7 @@ def ai_repomap(target_dir: str = ".") -> str:
 
 @mcp.tool()
 def ai_ast_parse(file_path: str, query: str = "") -> str:
-    """Parse a polyglot source file (Python, TypeScript, Go, Rust, Java, HCL) into syntax symbols or execute S-expression query."""
+    """Parse a polyglot source file (Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell, Markdown) into syntax symbols or execute S-expression query."""
     _validate_mcp_arg("file_path", file_path)
     cmd = ["uv", "run", "devops", "ai", "ast", "parse", file_path, "--json"]
     if query:
@@ -2266,7 +2269,6 @@ def pr_ready(
 @mcp.tool()
 def pr_check_readiness(
     pr_number: int | None = None,
-    require_ready: bool = False,
     allow_blocked_state: bool = False,
     repo: str | None = None,
 ) -> str:
@@ -2275,8 +2277,6 @@ def pr_check_readiness(
     if pr_number is not None:
         _validate_mcp_int_bound("pr_number", pr_number, min_val=1)
         cmd.append(str(pr_number))
-    if require_ready:
-        cmd.append("--require-ready")
     if allow_blocked_state:
         cmd.append("--allow-blocked-state")
     if repo:
@@ -2576,6 +2576,7 @@ def ai_failover(
     target_provider: str = DEFAULT_AI_FALLBACK_PROVIDER,
     target_model: str = DEFAULT_AI_FALLBACK_MODEL,
     dry_run: bool = False,
+    force: bool = False,
 ) -> str:
     """Emergency failover controller re-routing tasks to designated fallback endpoints."""
     _validate_mcp_arg("target_provider", target_provider)
@@ -2593,6 +2594,8 @@ def ai_failover(
     ]
     if dry_run:
         cmd.append("--dry-run")
+    if force:
+        cmd.append("--force")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
@@ -2730,6 +2733,7 @@ def ai_gateway_routes(
 def ai_gateway_failover(
     virtual_model: str,
     simulate: bool = True,
+    force: bool = False,
 ) -> str:
     """Trigger or test circuit-breaker failover of a virtual model to secondary backends."""
     _validate_mcp_arg("virtual_model", virtual_model)
@@ -2745,6 +2749,8 @@ def ai_gateway_failover(
         "--format",
         "json",
     ]
+    if force:
+        cmd.append("--force")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
@@ -2823,6 +2829,8 @@ def get_ai_gateway_resource() -> str:
 def ai_spend_report(
     days: int | None = None,
     group_by: str = "server",
+    reference_model: str | None = None,
+    hardware_cost: float | None = None,
 ) -> str:
     """Report approximate AI spend per backend service, model, or provider over time."""
     cmd = [
@@ -2832,13 +2840,17 @@ def ai_spend_report(
         "ai",
         "cost",
         "report",
-        "--group-by",
+        "--by",
         group_by,
         "--format",
         "json",
     ]
     if days is not None:
         cmd.extend(["--days", str(days)])
+    if reference_model is not None:
+        cmd.extend(["--reference-model", reference_model])
+    if hardware_cost is not None:
+        cmd.extend(["--hardware-cost", str(hardware_cost)])
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS)
 
 
@@ -2846,7 +2858,7 @@ def ai_spend_report(
 def get_ai_spend_resource() -> str:
     """Return lifetime AI spend report aggregated by backend server in JSON format."""
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "ai", "cost", "report", "--group-by", "server", "--format", "json"],
+        ["uv", "run", "devops", "ai", "cost", "report", "--by", "server", "--format", "json"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 
@@ -2923,7 +2935,10 @@ _ARCHITECTURE_ANALYSIS_PROMPT_TEMPLATE = load_task_prompt("architecture_analysis
 @mcp.prompt()
 def code_review_prompt(persona: str = "devsecops", target: str = ".") -> str:
     """Prompt template for performing an AI code review with a specialized persona."""
-    return _CODE_REVIEW_PROMPT_TEMPLATE.format(persona=persona, target=target)
+    rendered = _CODE_REVIEW_PROMPT_TEMPLATE.format(target=target)
+    if persona:
+        return f"Persona: {persona}\n\n{rendered}"
+    return rendered
 
 
 @mcp.prompt()
@@ -2945,8 +2960,14 @@ def architecture_analysis_prompt(target: str = "src") -> str:
 
 
 def list_mcp_tools() -> list[MCPToolInfo]:
-    """Return a list of tool names and descriptions registered on the FastMCP server."""
-    tools = asyncio.run(mcp.list_tools())
+    """Return every tool registered on the FastMCP server, gated or not.
+
+    This documents the catalogue -- it drives `devops ai mcp export-schemas` and
+    `docs/MCP_TOOLS.md` -- so it reads the registry rather than the client-facing listing.
+    `mcp.list_tools()` runs the domain gate and would report only what a client is offered
+    before hydrating, which would silently shrink the published reference to a quarter.
+    """
+    tools = asyncio.run(mcp._list_tools())
     return [
         MCPToolInfo(
             name=t.name,
@@ -2970,3 +2991,94 @@ def run_mcp_server(
         mcp.run(transport="sse", host=host, port=port)
     else:
         mcp.run(transport="stdio", show_banner=False)
+
+
+# =============================================================================
+# Lazy domain-gated tool hydration
+# =============================================================================
+
+# Domains a caller has asked for, beyond the eager set. This filters what is advertised;
+# it never removes a tool from the server. An earlier version did remove them, which
+# mutated a process-wide object every consumer shares -- the schema exporter, the
+# in-process bridge and every later test saw whatever the last caller left behind, and a
+# launch rejected for binding a non-loopback address had already withheld its tools before
+# the security check ran.
+_HYDRATED_DOMAINS: set[str] = set()
+
+
+def _tool_domain(name: str) -> str:
+    """Return the domain prefix a tool name belongs to."""
+    return name.split("_", 1)[0]
+
+
+def _is_advertised(name: str) -> bool:
+    """Report whether a tool belongs to the set currently offered to a client."""
+    domain = _tool_domain(name)
+    return (
+        name == "hydrate_tool_domain"
+        or domain in CONST_MCP_EAGER_DOMAINS
+        or domain in _HYDRATED_DOMAINS
+    )
+
+
+class DomainGateMiddleware(Middleware):
+    """Advertise only the eager domains until a caller hydrates the rest.
+
+    The server registers 155 tools. Their names and summaries alone cost roughly 2,700
+    tokens in every request, before the per-parameter JSON Schema the protocol adds on top,
+    and a model choosing among 155 tools chooses worse than one choosing among a few dozen.
+
+    Calling a withheld tool still works; only the listing is filtered. A client that
+    already knows a tool's name is not forced through a hydration round trip to use it.
+    """
+
+    async def on_list_tools(self, context: Any, call_next: Any) -> Any:
+        tools = await call_next(context)
+        return [tool for tool in tools if _is_advertised(tool.name)]
+
+
+def reset_hydrated_domains() -> None:
+    """Forget every hydrated domain, restoring the eager-only listing."""
+    _HYDRATED_DOMAINS.clear()
+
+
+def _notify_tool_list_changed(ctx: Context | None) -> None:
+    """Send tool list changed notification to client if session is active."""
+    if ctx and getattr(ctx, "session", None):
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(ctx.session.send_tool_list_changed())
+        except RuntimeError:
+            try:
+                asyncio.run(ctx.session.send_tool_list_changed())
+            except Exception:
+                pass
+
+
+@mcp.tool()
+def hydrate_tool_domain(domain: str, ctx: Context | None = None) -> dict[str, Any]:
+    """Advertise the tools for one domain, which are withheld from the listing by default.
+
+    Call this before browsing a domain's tools. Available lazy domains include `argo`,
+    `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
+    `prometheus`, `rag`, `release`, `repos`, `sandbox`, `scan`, `security`, `ssh`,
+    `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
+    Pass the domain name alone, for example `k8s`.
+    """
+    key = domain.strip().lower().removesuffix("_")
+    if not key or not re.match(r"^[a-z0-9_-]{1,64}$", key):
+        return {
+            "domain": key[:64] if key else "",
+            "hydrated": False,
+            "detail": "invalid domain name",
+        }
+    if key in CONST_MCP_EAGER_DOMAINS:
+        return {"domain": key, "hydrated": False, "detail": "always advertised"}
+    if key not in CONST_MCP_LAZY_DOMAINS:
+        return {"domain": key, "hydrated": False, "detail": f"unknown domain: {key}"}
+    _HYDRATED_DOMAINS.add(key)
+    _notify_tool_list_changed(ctx)
+    return {"domain": key, "hydrated": True, "advertised_domains": sorted(_HYDRATED_DOMAINS)}
+
+
+mcp.add_middleware(DomainGateMiddleware())

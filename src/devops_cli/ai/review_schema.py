@@ -5,7 +5,9 @@ from __future__ import annotations
 import ast
 import json
 import re
-from collections.abc import Hashable, Iterable
+from collections import defaultdict
+from collections.abc import Hashable, Iterable, Sequence
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -24,6 +26,8 @@ from devops_cli.config import (
     DEFAULT_REVIEW_TITLE_SIMILARITY_THRESHOLD,
 )
 from devops_cli.config.constants import (
+    CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES,
+    CONST_REVIEW_TITLE_FILLER_WORDS,
     REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD,
     REVIEW_GENERIC_SYMBOL_STOPWORDS,
     REVIEW_STRONG_SYMBOL_MIN_LENGTH,
@@ -46,6 +50,23 @@ _SEVERITY_RANK: dict[str, int] = {
 }
 
 VALID_SEVERITIES: frozenset[str] = frozenset(_SEVERITY_RANK.keys())
+# Severity names models use outside the schema. Folding them all into MEDIUM turned a BLOCKER
+# into a request for changes and a suggestion into one.
+_SEVERITY_SYNONYMS: dict[str, str] = {
+    "BLOCKER": "CRITICAL",
+    "SEVERE": "CRITICAL",
+    "P0": "CRITICAL",
+    "P1": "HIGH",
+    "MAJOR": "HIGH",
+    "P2": "MEDIUM",
+    "MODERATE": "MEDIUM",
+    "P3": "LOW",
+    "MINOR": "LOW",
+    "TRIVIAL": "LOW",
+    "SUGGESTION": "INFO",
+    "INFORMATIONAL": "INFO",
+    "NOTE": "INFO",
+}
 VALID_STATUSES: frozenset[str] = frozenset({"UNVERIFIED", "VERIFIED", "INVALIDATED", "MITIGATED"})
 VALID_RECOMMENDATIONS: frozenset[str] = frozenset({"APPROVE", "REQUEST CHANGES", "BLOCK"})
 
@@ -67,11 +88,20 @@ _RECOMMENDATION_ALIASES: dict[str, str] = {
 }
 
 
+def _safe_literal_eval(val: str) -> Any:
+    """Safely evaluate Python literal suppressing SyntaxWarnings from invalid escape sequences."""
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        return ast.literal_eval(val)
+
+
 def _parse_stringified_collection(s: str) -> list[Any] | None:
     """Attempt parsing a stringified Python/JSON list or tuple."""
     if not ((s.startswith("[") and s.endswith("]")) or (s.startswith("(") and s.endswith(")"))):
         return None
-    for parser in (ast.literal_eval, json.loads):
+    for parser in (json.loads, _safe_literal_eval):
         try:
             parsed = parser(s)
             if isinstance(parsed, (list, tuple, set)):
@@ -107,10 +137,15 @@ def format_clean_text_field(val: Any) -> str:
     return str(val)
 
 
+# Words that open many unrelated findings ("Missing timeout", "Missing authorization check").
+# Counting them as shared words merges different defects.
+_TITLE_FILLER_WORDS = CONST_REVIEW_TITLE_FILLER_WORDS
+
+
 def _tokenize_title(title: str) -> set[str]:
-    """Tokenize finding title into lowercase word tokens."""
+    """The words of a finding's text that tell it apart from other findings."""
     words = re.findall(r"\b[a-zA-Z0-9_]+\b", title.lower())
-    return {w for w in words if len(w) > 2}
+    return {w for w in words if len(w) > 2 and w not in _TITLE_FILLER_WORDS}
 
 
 def _parse_finding_references(raw_ref: Any) -> list[str]:
@@ -126,8 +161,9 @@ def _parse_finding_references(raw_ref: Any) -> list[str]:
     return [r.strip() for r in cleaned.split(",") if r.strip()]
 
 
+# A leaked prompt section ("Verification criteria: ..."), not a finding about criteria.
 _PROMPT_CRITERIA_SPLIT_REGEX = re.compile(
-    r"(?:Verification\s+criteria|Invalidation\s+criteria|:\s*line\s+where)",
+    r"(?:(?:Verification|Invalidation)\s+criteria\s*:|:\s*line\s+where)",
     re.IGNORECASE,
 )
 
@@ -136,11 +172,39 @@ _INSTRUCTION_HEADER_PREFIX_REGEX = re.compile(
     re.IGNORECASE,
 )
 
-_PROMPT_PLACEHOLDER_BASENAMES: frozenset[str] = frozenset(
-    {"file.ext", "filename.ext", "path/to/file.ext", "src/file.py", "path/to/file.py", "example.py"}
-)
+_PROMPT_PLACEHOLDER_BASENAMES: frozenset[str] = CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES
 
 _MARKDOWN_LINK_REGEX = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+
+# Characters a path segment may hold: letters and digits of any script, and the punctuation file
+# names use (`c++`, `@scope`, `logo@2x`, `~/.config`, `100%`). A narrower class cut a path at the
+# first other character and kept the fragment before it.
+_SEGMENT_CHARS = r"\w\-.+@~%"
+_WINDOWS_DRIVE_PREFIX = r"(?:[a-zA-Z]:[/\\])"
+_PATH_CHARS = rf"{_SEGMENT_CHARS}/\\"
+_LOCATION_REGEX = re.compile(
+    rf"^({_WINDOWS_DRIVE_PREFIX}?[{_PATH_CHARS}]+?)(?::(\d+)(?:-(\d+))?)?$"
+)
+_TARGET_LOCATION_REGEX = re.compile(
+    rf"^({_WINDOWS_DRIVE_PREFIX}?[{_PATH_CHARS}]+?):([{_PATH_CHARS}]+)$"
+)
+_EMBEDDED_LOCATION_REGEX = re.compile(
+    rf"(?:^|[\s:\"'`])({_WINDOWS_DRIVE_PREFIX}?[{_PATH_CHARS}]+/[{_SEGMENT_CHARS}]+|[\w\-]+\.[\w\-]+)"
+    r"(?::(\d+)(?:-(\d+))?)?"
+)
+
+
+def _is_structural_path_or_location(candidate: str) -> bool:
+    """Validate that candidate string structurally resembles a path or location identifier."""
+    cand = candidate.strip()
+    if not cand or any(p in cand for p in (". ", "?", "!", ";", "\n")):
+        return False
+    if "/" in cand or "\\" in cand or re.match(r"^[a-zA-Z]:", cand):
+        return True
+    if re.search(r"\.[a-zA-Z0-9]{1,8}$", cand):
+        return True
+    words = cand.split()
+    return len(words) <= 3 and not cand.endswith(".")
 
 
 _SCRATCHPAD_PREFIX_REGEX = re.compile(
@@ -189,18 +253,17 @@ def sanitize_finding_text(text: str) -> str:
         if val:
             val = val[0].upper() + val[1:]
 
-    # Strip leading chain-of-thought scratchpad sentences
-    while True:
-        m = _SCRATCHPAD_PREFIX_REGEX.match(val)
-        if not m:
-            break
+    # Strip leading chain-of-thought scratchpad sentences, but never the only sentence:
+    # "Checking of token expiry is missing." is the finding itself.
+    while (m := _SCRATCHPAD_PREFIX_REGEX.match(val)) and val[m.end() :].strip():
         val = val[m.end() :].strip()
     # Strip trailing prompt criteria leakage
     if _PROMPT_CRITERIA_SPLIT_REGEX.search(val):
         val = _PROMPT_CRITERIA_SPLIT_REGEX.split(val)[0].strip()
 
-    # Check for pure praise / no-issue confirmation
-    if _PRAISE_PREFIX_REGEX.match(val):
+    # Check for pure praise / no-issue confirmation; "Looks good overall, but the token is
+    # logged in plaintext" is a finding.
+    if _PRAISE_PREFIX_REGEX.match(val) and not _DEFECT_KEYWORD_REGEX.search(val):
         return ""
     if val.endswith(
         ("Good.", "Good", "Looks good.", "Looks solid.")
@@ -224,14 +287,80 @@ def unique_items[T: Hashable](items: Iterable[T]) -> list[T]:
     return result
 
 
-def canonicalize_finding_location(location: str) -> str:
-    """Canonicalize raw LLM location text into standard path/to/file.ext:start-end or path/to/file.ext:line."""
+# A bare file name: a name with an extension, which only the file under review may carry.
+_FILE_NAME = re.compile(r"\.[A-Za-z0-9]{1,8}$")
+# The name a bare location starts with, and a line range after a space when it has no colon:
+# `getBodySize:18-24`, `nvm_alias_path() { 1368-1374`.
+_BARE_NAME = re.compile(r"\s*([\w.$-]+)")
+_SPACED_LINES = re.compile(r"\s(\d+(?:-\d+)?)\s*$")
+
+
+def anchor_location(location: str, file_path: str, page_text: str = "") -> str:
+    """Tie a location that names no directory to the file under review, keeping its lines.
+
+    A model may name the file alone (`Dockerfile:7`) or a function in it (`getBodySize:18-24`).
+    The location becomes the reviewed file's path when it names that file, or a symbol the page
+    under review shows. Otherwise it is left as it is: it may name another file.
+    """
+    loc = location.strip()
+    if not loc:
+        return file_path
+    head, _, tail = loc.partition(":")
+    name_match = _BARE_NAME.match(head)
+    if "/" in head or "\\" in head or not name_match:
+        return loc
+    name = name_match.group(1)
+    if _FILE_NAME.search(name) or name.lower() == PurePosixPath(file_path).name.lower():
+        names_this_file = name.lower() == PurePosixPath(file_path).name.lower()
+    else:
+        names_this_file = bool(
+            page_text and re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", page_text)
+        )
+    if not names_this_file:
+        return loc
+    if tail.strip():
+        return f"{file_path}:{tail.strip()}"
+    lines = _SPACED_LINES.search(head)
+    return f"{file_path}:{lines.group(1)}" if lines else file_path
+
+
+def _format_location_with_lines(
+    file_path: str, s_str: str | None, e_str: str | None, had_leakage: bool = False
+) -> str:
+    """Format file path with normalized line or range boundaries."""
+    norm_path = file_path.strip().replace("\\", "/")
+    if not s_str:
+        return f"{norm_path}:1" if had_leakage else norm_path
+    s_line = int(s_str)
+    e_line = int(e_str) if e_str else None
+    if e_line is not None and s_line > e_line:
+        s_line, e_line = e_line, s_line
+    if e_line is not None and e_line != s_line:
+        return f"{norm_path}:{s_line}-{e_line}"
+    return f"{norm_path}:{s_line}"
+
+
+def _extract_embedded_location(loc: str) -> str:
+    """Extract embedded valid file location if present in conversational or scratchpad text."""
+    m_embedded = _EMBEDDED_LOCATION_REGEX.search(loc)
+    if not m_embedded:
+        return ""
+    candidate_file = m_embedded.group(1).strip().replace("\\", "/").rstrip(".")
+    if (
+        candidate_file.lower() in _PROMPT_PLACEHOLDER_BASENAMES
+        or Path(candidate_file).name.lower() in _PROMPT_PLACEHOLDER_BASENAMES
+    ):
+        return ""
+    return _format_location_with_lines(candidate_file, m_embedded.group(2), m_embedded.group(3))
+
+
+def _pre_clean_location(location: str) -> tuple[str, bool]:
+    """Clean raw location string, stripping markdown noise and prompt leakage."""
     loc = normalize_unicode_text(str(location)).strip()
     if not loc or "\n" in loc or "```" in loc:
-        return ""
-
+        return "", False
     if loc.startswith("#") or not any(c.isalnum() for c in loc):
-        return ""
+        return "", False
 
     m_link = _MARKDOWN_LINK_REGEX.search(loc)
     if m_link:
@@ -239,7 +368,7 @@ def canonicalize_finding_location(location: str) -> str:
 
     loc = loc.strip("`'\"()[]*# ")
     if not loc or not any(c.isalnum() for c in loc):
-        return ""
+        return "", False
 
     had_prompt_leakage = False
     if _PROMPT_CRITERIA_SPLIT_REGEX.search(loc):
@@ -255,81 +384,174 @@ def canonicalize_finding_location(location: str) -> str:
     ).rstrip("-")
     loc = re.sub(r"\s*:\s*", ":", loc)
     loc = re.sub(r"(\d+)\s*[-–—]\s*(\d+)", r"\1-\2", loc)
+    return loc, had_prompt_leakage
 
-    loc_file = loc.split(":")[0].strip()
-    from pathlib import Path
 
+def _extract_base_file_path(loc: str) -> str:
+    """Extract base file path from location string, preserving Windows drive letters."""
+    if re.match(r"^[a-zA-Z]:[/\\]", loc):
+        drive = loc[:2]
+        rest = loc[2:].split(":")[0]
+        return f"{drive}{rest}".strip()
+    return loc.split(":")[0].strip()
+
+
+def canonicalize_finding_location(location: str) -> str:
+    """Canonicalize raw LLM location text into standard path/to/file.ext:start-end or path/to/file.ext:line."""
+    loc, had_prompt_leakage = _pre_clean_location(location)
+    if not loc:
+        return ""
+
+    if " " in loc:
+        embedded = _extract_embedded_location(loc)
+        if embedded:
+            return embedded
+
+    loc_file = _extract_base_file_path(loc)
     if (
         loc_file.lower() in _PROMPT_PLACEHOLDER_BASENAMES
         or Path(loc_file).name.lower() in _PROMPT_PLACEHOLDER_BASENAMES
     ):
         return ""
 
-    m_loc = re.match(r"^([a-zA-Z0-9_\-./\\]+)(?::(\d+)(?:-(\d+))?)?$", loc)
-    if m_loc:
-        file_path = m_loc.group(1).replace("\\", "/")
-        s_str = m_loc.group(2)
-        e_str = m_loc.group(3)
-
-        if not s_str:
-            return f"{file_path}:1" if had_prompt_leakage else file_path
-
-        s_line = int(s_str)
-        e_line = int(e_str) if e_str else None
-
-        if e_line is not None and s_line > e_line:
-            s_line, e_line = e_line, s_line
-
-        if e_line is not None and e_line != s_line:
-            return f"{file_path}:{s_line}-{e_line}"
-        return f"{file_path}:{s_line}"
-
-    # Match general target specifiers without spaces, e.g. uv.lock:jinja2, Dockerfile:cve-1, k8s/app.yaml:Deployment/app
-    m_target = re.match(r"^([a-zA-Z0-9_\-./\\]+):([a-zA-Z0-9_\-./\\]+)$", loc)
-    if m_target:
-        return f"{m_target.group(1).replace('\\', '/')}:{m_target.group(2)}"
-
-    # Extract embedded valid file location if present in conversational or scratchpad text
-    m_embedded = re.search(
-        r"(?:^|[\s:\"'`])([a-zA-Z0-9_\-./\\]+/[a-zA-Z0-9_\-.]+|[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+)(?::(\d+)(?:-(\d+))?)?",
-        loc,
-    )
-    if m_embedded:
-        candidate_file = m_embedded.group(1).replace("\\", "/").rstrip(".")
-        if (
-            candidate_file.lower() not in _PROMPT_PLACEHOLDER_BASENAMES
-            and Path(candidate_file).name.lower() not in _PROMPT_PLACEHOLDER_BASENAMES
-        ):
-            s_str = m_embedded.group(2)
-            e_str = m_embedded.group(3)
-            if s_str:
-                s_line = int(s_str)
-                e_line = int(e_str) if e_str else None
-                if e_line is not None and s_line > e_line:
-                    s_line, e_line = e_line, s_line
-                if e_line is not None and e_line != s_line:
-                    return f"{candidate_file}:{s_line}-{e_line}"
-                return f"{candidate_file}:{s_line}"
-            return candidate_file
-
-    # Reject conversational scratchpad or prompt instruction leakage
-    has_scratchpad_phrase = bool(
-        re.search(
-            r"\b(?:file path and line numbers|we need to|let's|where the vulnerability occurs)\b",
-            loc,
-            re.IGNORECASE,
+    if m_loc := _LOCATION_REGEX.match(loc):
+        return _format_location_with_lines(
+            m_loc.group(1), m_loc.group(2), m_loc.group(3), had_prompt_leakage
         )
-    )
-    is_conversational_sentence = len(loc.split()) > 3 and any(p in loc for p in (".", "!", "?"))
-    if has_scratchpad_phrase or is_conversational_sentence:
-        return ""
 
-    return loc
+    if m_target := _TARGET_LOCATION_REGEX.match(loc):
+        return f"{m_target.group(1).strip().replace('\\', '/')}:{m_target.group(2).strip()}"
+
+    if _is_structural_path_or_location(loc_file):
+        return loc
+
+    return _extract_embedded_location(loc)
+
+
+class VerificationCriterion(BaseModel):
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    command: str | None = Field(
+        default=None,
+        description="Read-only allowlisted command to execute for verification or invalidation.",
+    )
+    description: str = Field(
+        default="",
+        description="Human-readable description of the condition or rationale if unexecutable.",
+    )
+    executable: bool = Field(
+        default=False,
+        description="Whether this criterion is an executable command from the allowlist.",
+    )
+
+    def __str__(self) -> str:
+        return self.command if (self.executable and self.command) else self.description
+
+    def __hash__(self) -> int:
+        return hash((self.command, self.description, self.executable))
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, str):
+            return other in (self.command, self.description)
+        if isinstance(other, VerificationCriterion):
+            return (self.command, self.description, self.executable) == (
+                other.command,
+                other.description,
+                other.executable,
+            )
+        return False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_criterion(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            text = data.strip()
+            from devops_cli.ai.review.review_environment import validate_criteria_command
+
+            is_valid, _, _ = validate_criteria_command(text)
+            if is_valid:
+                return {"command": text, "description": text, "executable": True}
+            return {"command": None, "description": text, "executable": False}
+        if isinstance(data, dict):
+            cmd = data.get("command")
+            cmd_str = str(cmd).strip() if cmd else None
+            desc = data.get("description") or (cmd_str if cmd_str else "")
+            is_exec = bool(data.get("executable", False))
+            if is_exec:
+                if not cmd_str:
+                    raise ValueError("Executable criterion requires a non-empty command")
+                from devops_cli.ai.review.review_environment import validate_criteria_command
+
+                is_valid, reason, _ = validate_criteria_command(cmd_str)
+                if not is_valid:
+                    raise ValueError(
+                        f"Criterion marked executable but command is not in closed read-only allowlist: {reason}"
+                    )
+            return {
+                "command": cmd_str,
+                "description": str(desc).strip(),
+                "executable": is_exec,
+            }
+        return data
+
+
+class CriterionExecutionResult(BaseModel):
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    command: str | None = None
+    description: str = ""
+    executable: bool = False
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    duration_seconds: float = 0.0
+    passed: bool = False
+    error: str | None = None
+
+    def __hash__(self) -> int:
+        return hash((self.command, self.exit_code, self.passed, self.error))
+
+
+def _parse_single_criterion(raw: Any) -> VerificationCriterion | None:
+    if isinstance(raw, VerificationCriterion):
+        return raw
+    try:
+        return VerificationCriterion.model_validate(raw)
+    except Exception:
+        if isinstance(raw, dict):
+            desc = str(raw.get("description") or raw.get("command") or "").strip()
+            return VerificationCriterion(command=None, description=desc, executable=False)
+        if isinstance(raw, str) and raw.strip():
+            return VerificationCriterion(command=None, description=raw.strip(), executable=False)
+        return None
+
+
+def _parse_finding_criteria(raw: Any) -> list[VerificationCriterion]:
+    """Parse criteria from list, stringified collection, or string."""
+    if isinstance(raw, list):
+        items = raw
+    elif isinstance(raw, str):
+        coll = _parse_stringified_collection(raw.strip())
+        items = coll if coll is not None else [raw.strip()]
+    else:
+        return []
+
+    result: list[VerificationCriterion] = []
+    for item in items:
+        crit = _parse_single_criterion(item)
+        if crit is not None and (crit.command or crit.description):
+            result.append(crit)
+    return result
 
 
 class Finding(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    finding_id: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("finding_id", "id", "index"),
+        description="Structural positional oracle identifier for deterministic verification binding",
+    )
     severity: str = Field(
         default="MEDIUM", validation_alias=AliasChoices("severity", "level", "priority")
     )
@@ -356,12 +578,13 @@ class Finding(BaseModel):
         ),
     )
     references: list[str] = Field(default_factory=list)
-    verification_criteria: list[str] = Field(
+    verification_criteria: list[VerificationCriterion] = Field(
         default_factory=list, validation_alias=AliasChoices("verification_criteria", "verification")
     )
-    invalidation_criteria: list[str] = Field(
+    invalidation_criteria: list[VerificationCriterion] = Field(
         default_factory=list, validation_alias=AliasChoices("invalidation_criteria", "invalidation")
     )
+    criteria_execution_results: list[CriterionExecutionResult] = Field(default_factory=list)
     verified_criteria_matched: list[str] = Field(default_factory=list)
     invalidated_criteria_matched: list[str] = Field(default_factory=list)
     reportable: bool = True
@@ -373,6 +596,40 @@ class Finding(BaseModel):
     verified_by: str | None = None  # "llm" | "human"
     verified_at: str | None = None
     confidence_score: float | None = None
+    # Why this finding carries no verdict, when the reason is that verification could not
+    # run at all. Set only by the verification pipeline; `parse_review_response` clears
+    # whatever a model supplies, because a model that could write here could announce its
+    # own verification outage and tell a reader to discard the findings below.
+    verification_note: str | None = None
+    relocated_from: str | None = None
+    citation_line: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("citation_line", "cited_line", "line", "refutation_line"),
+    )
+    mitigating_mechanism: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("mitigating_mechanism", "mechanism", "mitigation"),
+    )
+    perimeter_files: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("perimeter_files", "perimeter", "perimeters"),
+    )
+    regression_test: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("regression_test", "test", "regression"),
+    )
+    category: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("category", "type", "classification", "defect_class"),
+    )
+    observed_value: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("observed_value", "observed", "actual_value", "actual"),
+    )
+    expected_value: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("expected_value", "expected"),
+    )
     thinking: str | None = None
 
     @property
@@ -391,6 +648,19 @@ class Finding(BaseModel):
         if not file_part or file_part in {"none", "n/a", "na", "null", "undefined"}:
             return True
         return False
+
+    @field_validator("finding_id", mode="before")
+    @classmethod
+    def _clean_finding_id(cls, v: object) -> int | None:
+        """Parse structural positional finding_id safely, ignoring non-integer identifier strings."""
+        if v is None:
+            return None
+        if isinstance(v, int):
+            return v
+        try:
+            return int(str(v).strip())
+        except ValueError, TypeError:
+            return None
 
     @field_validator("description", "fix", mode="before")
     @classmethod
@@ -429,8 +699,6 @@ class Finding(BaseModel):
 
     @field_validator(
         "references",
-        "verification_criteria",
-        "invalidation_criteria",
         "verified_criteria_matched",
         "invalidated_criteria_matched",
         mode="before",
@@ -439,11 +707,22 @@ class Finding(BaseModel):
     def _clean_references(cls, v: object) -> list[str]:
         return _parse_finding_references(v)
 
+    @field_validator(
+        "verification_criteria",
+        "invalidation_criteria",
+        mode="before",
+    )
+    @classmethod
+    def _clean_criteria(cls, v: object) -> list[VerificationCriterion]:
+        return _parse_finding_criteria(v)
+
     @field_validator("severity", mode="before")
     @classmethod
     def _normalize_severity(cls, v: object) -> str:
-        s = str(v).upper().strip()
-        return s if s in VALID_SEVERITIES else "MEDIUM"
+        s = str(v).upper().replace("SEVERITY", "").strip(" :-_")
+        if s in VALID_SEVERITIES:
+            return s
+        return _SEVERITY_SYNONYMS.get(s, "MEDIUM")
 
     @field_validator("status", mode="before")
     @classmethod
@@ -455,6 +734,35 @@ class Finding(BaseModel):
     @classmethod
     def _normalize_confidence(cls, v: object) -> float | None:
         return _parse_confidence_score(v)
+
+    @field_validator("observed_value", "expected_value", mode="before")
+    @classmethod
+    def _clean_polarity_value(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        text = str(v).strip()
+        return text if text else None
+
+    @model_validator(mode="after")
+    def _validate_polarity(self) -> Finding:
+        if getattr(self, "status", None) == "INVALIDATED":
+            return self
+        obs = self.observed_value
+        exp = self.expected_value
+        if obs is None and exp is None:
+            return self
+        if obs is None or exp is None:
+            self.observed_value = None
+            self.expected_value = None
+            return self
+        if obs.strip().lower() == exp.strip().lower():
+            self.status = "INVALIDATED"
+            self.reportable = False
+            self.verified = False
+            self.verified_by = "deterministic:verdict_polarity"
+            self.invalidation_reason = f"Observed value '{obs}' is identical to expected value '{exp}' (no defect polarity)"
+            return self
+        return self
 
 
 def _parse_confidence_score(v: object) -> float | None:
@@ -473,7 +781,9 @@ def _filter_non_empty_findings[T: (Finding, SavedFinding)](v: list[T]) -> list[T
     return [f for f in v if not f.is_empty]
 
 
-def _parse_location(location: str) -> tuple[str, int | None, int | None]:
+def _parse_location(
+    location: str, preserve_case: bool = True
+) -> tuple[str, int | None, int | None]:
     """Extract normalized (filepath, start_line, end_line) from a location string."""
     loc = location.strip()
     if not loc:
@@ -485,9 +795,11 @@ def _parse_location(location: str) -> tuple[str, int | None, int | None]:
         re.IGNORECASE,
     )
     if not m:
-        return loc.lower().replace("\\", "/"), None, None
+        raw_part = loc.replace("\\", "/")
+        return (raw_part if preserve_case else raw_part.lower()), None, None
 
-    file_part = (m.group(1) or "").strip().lower().replace("\\", "/")
+    raw_file = (m.group(1) or "").strip().replace("\\", "/")
+    file_part = raw_file if preserve_case else raw_file.lower()
     s_line_str = m.group(2)
     e_line_str = m.group(3)
 
@@ -556,63 +868,86 @@ def _share_distinctive_symbol(primary: Finding, candidate: Finding) -> bool:
     return overlap >= REVIEW_DESCRIPTION_SIMILARITY_THRESHOLD
 
 
-def _are_findings_duplicate(primary: Finding, candidate: Finding) -> bool:
-    """Determine if two findings describe the same underlying issue across personas or segments."""
-    primary_file, primary_start, primary_end = _parse_location(primary.location)
-    candidate_file, candidate_start, candidate_end = _parse_location(candidate.location)
-    primary_title = primary.title.strip().lower()
-    candidate_title = candidate.title.strip().lower()
+_DISMISSED_STATUSES = frozenset({"INVALIDATED", "MITIGATED"})
 
-    if not primary_file or not candidate_file or primary_file != candidate_file:
-        return False
 
-    if primary_title == candidate_title:
-        return True
-
-    primary_tokens = _tokenize_title(primary_title)
-    candidate_tokens = _tokenize_title(candidate_title)
-
-    intersection = primary_tokens & candidate_tokens
-    union = primary_tokens | candidate_tokens
-    jaccard = len(intersection) / len(union) if union else 0.0
-
-    same_line_range = (
-        primary_start is not None
-        and primary_end is not None
-        and candidate_start is not None
-        and candidate_end is not None
-        and max(primary_start, candidate_start)
-        <= min(primary_end, candidate_end) + LINE_OVERLAP_TOLERANCE
+def _title_similarity(primary: Finding, candidate: Finding) -> tuple[float, float]:
+    """Jaccard and overlap coefficients of two findings' distinguishing title words."""
+    primary_terms = _tokenize_title(primary.title)
+    candidate_terms = _tokenize_title(candidate.title)
+    if not primary_terms or not candidate_terms:
+        return 0.0, 0.0
+    shared = len(primary_terms & candidate_terms)
+    return (
+        shared / len(primary_terms | candidate_terms),
+        shared / min(len(primary_terms), len(candidate_terms)),
     )
 
-    if (primary_start == candidate_start and primary_end == candidate_end) or (
-        primary_start is None and candidate_start is None
+
+def _are_findings_duplicate(primary: Finding, candidate: Finding) -> bool:
+    """Determine if two findings describe the same underlying issue across personas or segments.
+
+    A missed merge leaves a duplicate in the report; a wrong merge loses a defect, so merging
+    needs positive evidence. Findings at overlapping lines merge when their distinguishing title
+    words agree. Findings far apart merge only with near-identical titles naming the same code
+    symbol: personas do cite one defect at different lines, but two hardcoded secrets or two
+    unbounded requests in one file are separate defects.
+    """
+    primary_file, primary_start, primary_end = _parse_location(primary.location)
+    candidate_file, candidate_start, candidate_end = _parse_location(candidate.location)
+    if not primary_file or primary_file.lower() != candidate_file.lower():
+        return False
+    if (primary.status in _DISMISSED_STATUSES) != (candidate.status in _DISMISSED_STATUSES):
+        return False
+
+    same_title = primary.title.strip().lower() == candidate.title.strip().lower()
+    jaccard, overlap = _title_similarity(primary, candidate)
+    if (
+        primary_start is None
+        or primary_end is None
+        or candidate_start is None
+        or candidate_end is None
     ):
-        if jaccard >= TITLE_SIMILARITY_THRESHOLD or (
-            primary_tokens
-            and candidate_tokens
-            and len(intersection) / min(len(primary_tokens), len(candidate_tokens)) >= 0.6
-        ):
-            return True
-    elif same_line_range:
-        if jaccard >= 0.4 or (
-            primary_tokens
-            and candidate_tokens
-            and len(intersection) / min(len(primary_tokens), len(candidate_tokens)) >= 0.5
-        ):
-            return True
+        # Without lines to compare, the code each finding names is the only other evidence:
+        # "Hardcoded secret: `AWS_KEY`" and "Hardcoded secret: `DB_PASSWORD`" are two findings,
+        # even after verification has dropped a miscounted line from one of them.
+        if _name_different_symbols(primary, candidate):
+            return False
+        return same_title or jaccard >= TITLE_SIMILARITY_THRESHOLD or overlap >= 0.6
 
-    # Personas frequently cite the same defect at different line ranges, because each
-    # reviews a different segment of the file or quotes the enclosing block rather than
-    # the offending line. Title wording alone therefore under-merges, so fall back to
-    # two range-independent signals.
-    if jaccard >= TITLE_SIMILARITY_THRESHOLD:
-        return True
+    overlapping = (
+        max(primary_start, candidate_start)
+        <= min(primary_end, candidate_end) + LINE_OVERLAP_TOLERANCE
+    )
+    if overlapping:
+        return (
+            same_title
+            or jaccard >= 0.4
+            or overlap >= 0.5
+            or _share_title_symbol_and_word(primary, candidate)
+        )
+    return (same_title or jaccard >= 0.8) and _share_distinctive_symbol(primary, candidate)
 
-    if same_line_range and _share_distinctive_symbol(primary, candidate):
-        return True
 
-    return False
+def _name_different_symbols(primary: Finding, candidate: Finding) -> bool:
+    """Both findings name code symbols, and none of them in common."""
+    primary_symbols = _extract_code_symbols(f"{primary.title} {primary.description}")
+    candidate_symbols = _extract_code_symbols(f"{candidate.title} {candidate.description}")
+    return bool(primary_symbols and candidate_symbols) and not primary_symbols & candidate_symbols
+
+
+def _share_title_symbol_and_word(primary: Finding, candidate: Finding) -> bool:
+    """Both titles name the same code symbol and share one more distinguishing symbol or word.
+
+    "Uninitialized _watcher leads to ineffective stop()" and "`_watcher` never set, `stop()` may
+    not terminate" are one defect; "`parse_config` swallows exceptions" and "`parse_config`
+    reads without a size limit" are two defects in one function.
+    """
+    shared_symbols = _extract_code_symbols(primary.title) & _extract_code_symbols(candidate.title)
+    if not _is_distinctive_symbol_overlap(shared_symbols):
+        return False
+    shared_words = _tokenize_title(primary.title) & _tokenize_title(candidate.title)
+    return len(shared_words | shared_symbols) >= 2
 
 
 def _merge_two_findings[F: Finding](base: F, other: F) -> F:
@@ -641,8 +976,27 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         if status_order.get(base.status, 99) <= status_order.get(other.status, 99)
         else other.status
     )
-    verified = base.verified or other.verified
-    mitigated = (base.mitigated or other.mitigated) if not verified else False
+    verified_by: str | None
+    if best_status == "VERIFIED":
+        verified = True
+        mitigated = False
+        reportable = True
+        verified_by = base.verified_by or other.verified_by or "criteria"
+    elif best_status == "INVALIDATED":
+        verified = False
+        mitigated = False
+        reportable = False
+        verified_by = base.verified_by or other.verified_by
+    elif best_status == "MITIGATED":
+        verified = base.verified or other.verified
+        mitigated = True
+        reportable = True
+        verified_by = base.verified_by or other.verified_by
+    else:
+        verified = False
+        mitigated = False
+        reportable = True
+        verified_by = None
 
     desc = (
         base.description if len(base.description) >= len(other.description) else other.description
@@ -657,10 +1011,9 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
     inv_match = list(
         dict.fromkeys(base.invalidated_criteria_matched + other.invalidated_criteria_matched)
     )
-    if not verified and (base.mitigated or other.mitigated):
-        reportable = base.reportable and other.reportable
-    else:
-        reportable = base.reportable or other.reportable
+    crit_results = list(
+        dict.fromkeys(base.criteria_execution_results + other.criteria_execution_results)
+    )
 
     updates: dict[str, Any] = {
         "severity": best_sev,
@@ -668,14 +1021,24 @@ def _merge_two_findings[F: Finding](base: F, other: F) -> F:
         "status": best_status,
         "verified": verified,
         "mitigated": mitigated,
+        "reportable": reportable,
+        "verified_by": verified_by,
         "description": desc,
         "fix": fix,
         "references": refs,
         "verification_criteria": ver_crit,
         "invalidation_criteria": inv_crit,
+        "criteria_execution_results": crit_results,
         "verified_criteria_matched": ver_match,
         "invalidated_criteria_matched": inv_match,
-        "reportable": reportable,
+        "relocated_from": base.relocated_from or other.relocated_from,
+        "category": base.category or other.category,
+        "observed_value": base.observed_value or other.observed_value,
+        "expected_value": base.expected_value or other.expected_value,
+        "finding_id": base.finding_id if base.finding_id is not None else other.finding_id,
+        "mitigating_mechanism": base.mitigating_mechanism or other.mitigating_mechanism,
+        "perimeter_files": list(dict.fromkeys(base.perimeter_files + other.perimeter_files)),
+        "regression_test": base.regression_test or other.regression_test,
     }
 
     if isinstance(base, SavedFinding):
@@ -767,6 +1130,8 @@ class ReviewSessionPayload(BaseModel):
     dependency_vulnerabilities: list[VulnerabilityRecord] = Field(default_factory=list)
     network_references: list[NetworkReference] = Field(default_factory=list)
     network_reputations: list[NetworkReputationRecord] = Field(default_factory=list)
+    removed_symbol_findings_count: int = 0
+    symbol_delta_summary: dict[str, int] = Field(default_factory=dict)
 
     @field_validator("findings", mode="after")
     @classmethod
@@ -797,13 +1162,21 @@ def derive_recommendation(findings: list[Finding]) -> str:
 
 class ReviewResult(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
-    positive_observations: list[str] = Field(default_factory=list)
     recommendation: str = "REQUEST CHANGES"
     summary: str = ""
     thinking: str | None = None
     confidence_score: float | None = None
     external_dependencies: list[DependencySpec] = Field(default_factory=list)
     network_references: list[NetworkReference] = Field(default_factory=list)
+    report_markdown: str | None = None
+    static_analyzers: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("findings", mode="before")
+    @classmethod
+    def _ensure_finding_items(cls, v: object) -> list[Any]:
+        if not isinstance(v, list):
+            return []
+        return [item for item in v if isinstance(item, (dict, Finding))]
 
     @field_validator("findings", mode="after")
     @classmethod
@@ -828,13 +1201,6 @@ class ReviewResult(BaseModel):
         cleaned = unique_lines(normalize_unicode_text(str(v)))
         return cleaned if cleaned.strip() else None
 
-    @field_validator("positive_observations", mode="before")
-    @classmethod
-    def _clean_positive_observations(cls, v: object) -> list[str]:
-        if isinstance(v, list):
-            return [normalize_unicode_text(str(r)).strip() for r in v if str(r).strip()]
-        return []
-
     @field_validator("recommendation", mode="before")
     @classmethod
     def _normalize_recommendation(cls, v: object) -> str:
@@ -858,9 +1224,6 @@ class ReviewResult(BaseModel):
         merged_conf = round(sum(scores) / len(scores), 2) if scores else None
         return ReviewResult(
             findings=merged_findings,
-            positive_observations=list(
-                dict.fromkeys(self.positive_observations + other.positive_observations)
-            ),
             recommendation=recommendation,
             summary=self.summary or other.summary,
             confidence_score=merged_conf,
@@ -889,33 +1252,168 @@ def _validate_raw_findings_list(data: list[Any]) -> list[Finding]:
     return parsed_findings
 
 
+def reset_verification_state[F: Finding](finding: F) -> F:
+    """A copy of a model-written finding with every field only verification may set cleared.
+
+    A reviewer's reply is untrusted text parsed into the full finding schema, so it can mark
+    its own finding INVALIDATED or MITIGATED, which skips verification and drops the finding
+    from the report, or VERIFIED, which reports it unchecked.
+    """
+    return finding.model_copy(
+        update={
+            "finding_id": None,
+            "status": DEFAULT_FINDING_STATUS,
+            "reportable": True,
+            "verified": False,
+            "mitigated": False,
+            "invalidation_reason": None,
+            "verified_criteria_matched": [],
+            "invalidated_criteria_matched": [],
+            "verified_by": None,
+            "verified_at": None,
+            "verification_note": None,
+        }
+    )
+
+
+def _strip_model_set_verification_state(result: ReviewResult) -> ReviewResult:
+    """Clear any verification note a model supplied in its own output.
+
+    `ReviewResult` is parsed directly from untrusted model text, so every field on it is
+    model-writable. `verification_note` exists to tell a reader the verifier never ran; a
+    model able to set it could announce a fabricated outage over findings that were
+    verified normally. Only the verification pipeline may write it, so it is cleared here
+    on the way in.
+    """
+    for finding in result.findings:
+        finding.verification_note = None
+    return result
+
+
+# Keys models use for the findings list when they do not follow the schema exactly.
+_FINDINGS_KEYS = ("findings", "issues", "results", "vulnerabilities", "problems")
+
+
+def _findings_list(data: dict[str, Any]) -> list[Any] | None:
+    """The findings list of a reply, under the schema's key, a synonym, or one level down."""
+    for key in _FINDINGS_KEYS:
+        if isinstance(value := data.get(key), list):
+            return value
+    for value in data.values():
+        if isinstance(value, dict):
+            nested = next((v for k in _FINDINGS_KEYS if isinstance(v := value.get(k), list)), None)
+            if nested is not None:
+                return nested
+    return None
+
+
+def _review_result_from_dict(data: dict[str, Any]) -> ReviewResult | None:
+    """Validate a reply object, keeping every valid finding when other fields are malformed."""
+    if "findings" in data:
+        try:
+            return ReviewResult.model_validate(data)
+        except Exception:
+            pass
+    raw_findings = _findings_list(data)
+    if raw_findings is None:
+        try:
+            return ReviewResult.model_validate(data)
+        except Exception:
+            return None
+    summary = data.get("summary")
+    return ReviewResult(
+        findings=_validate_raw_findings_list(raw_findings),
+        summary=summary if isinstance(summary, str) else "",
+    )
+
+
+def _review_result_from_list(data: list[Any]) -> ReviewResult | None:
+    """Construct ReviewResult from a list response (empty or list of finding dicts)."""
+    if not data:
+        return ReviewResult(findings=[], summary="")
+    if findings := _validate_raw_findings_list(data):
+        return ReviewResult(findings=findings, summary=f"Extracted {len(findings)} finding(s)")
+    return None
+
+
 def parse_review_response(response: str | Any) -> ReviewResult | None:
-    """Parse review LLM response, prioritizing standard Pydantic and pydantic_ai.messages structured output."""
+    """Parse a review reply into its findings.
+
+    One malformed field must not cost the reply's valid findings: a reply whose object fails
+    validation keeps each finding that validates on its own, and findings under a synonym key
+    (`issues`, `results`) or one level down are found.
+    """
     from devops_cli.ai.response_repair import fix_llm_response
 
     fixed = fix_llm_response(response, schema=ReviewResult)
-    if fixed.parsed_model is not None and isinstance(fixed.parsed_model, ReviewResult):
-        if fixed.thinking and not fixed.parsed_model.thinking:
-            fixed.parsed_model.thinking = fixed.thinking
-        return fixed.parsed_model
-
     data = fixed.json_data or extract_json_block(fixed.content)
-    if isinstance(data, list):
-        parsed_findings = _validate_raw_findings_list(data)
-        if parsed_findings:
-            return ReviewResult(
-                findings=parsed_findings,
-                recommendation="APPROVE" if not parsed_findings else "REQUEST CHANGES",
-                summary=f"Extracted {len(parsed_findings)} finding(s)",
-                thinking=fixed.thinking,
-            )
-    elif isinstance(data, dict):
-        try:
-            res = ReviewResult.model_validate(data)
-            if fixed.thinking and not res.thinking:
-                res.thinking = fixed.thinking
-            return res
-        except Exception:
-            pass
+    result: ReviewResult | None = None
+    if isinstance(data, dict):
+        result = _review_result_from_dict(data)
+    elif isinstance(fixed.parsed_model, ReviewResult):
+        result = fixed.parsed_model
+    elif isinstance(data, list):
+        result = _review_result_from_list(data)
+    if result is None:
+        return None
+    if fixed.thinking and not result.thinking:
+        result.thinking = fixed.thinking
+    return _strip_model_set_verification_state(result)
 
-    return None
+
+def compute_verdict_distributions(
+    findings: Sequence[Finding | SavedFinding],
+) -> dict[str, Any]:
+    """Compute distributions for core verdict fields and per-adjudicator citation rates.
+
+    Returns a mapping of verdict field name to value counts and citation rates across all findings.
+    """
+    status_counts: dict[str, int] = defaultdict(int)
+    reportable_counts: dict[str, int] = {"true": 0, "false": 0}
+    verified_counts: dict[str, int] = {"true": 0, "false": 0}
+    mitigated_counts: dict[str, int] = {"true": 0, "false": 0}
+    adj_totals: dict[str, int] = defaultdict(int)
+    adj_cited: dict[str, int] = defaultdict(int)
+
+    for f in findings:
+        st_raw = getattr(f, "status", None)
+        st = (
+            st_raw.upper().strip()
+            if isinstance(st_raw, str) and st_raw.strip()
+            else DEFAULT_FINDING_STATUS
+        )
+        status_counts[st] += 1
+        rep_key = "true" if bool(getattr(f, "reportable", False)) else "false"
+        reportable_counts[rep_key] += 1
+        ver_key = "true" if bool(getattr(f, "verified", False)) else "false"
+        verified_counts[ver_key] += 1
+        mit_key = "true" if bool(getattr(f, "mitigated", False)) else "false"
+        mitigated_counts[mit_key] += 1
+
+        adj_raw = getattr(f, "verified_by", None)
+        adj = adj_raw.strip() if isinstance(adj_raw, str) and adj_raw.strip() else "unknown"
+        adj_totals[adj] += 1
+        if getattr(f, "citation_line", None) is not None:
+            adj_cited[adj] += 1
+
+    citation_rates: dict[str, float] = {
+        adj: round(adj_cited[adj] / total, 2) for adj, total in adj_totals.items() if total > 0
+    }
+
+    return {
+        "status": dict(status_counts),
+        "reportable": reportable_counts,
+        "verified": verified_counts,
+        "mitigated": mitigated_counts,
+        "citation_rates": citation_rates,
+    }
+
+
+def is_field_discriminating(counts: dict[str, int]) -> bool:
+    """Report whether a verdict field distribution discriminates between outcomes.
+
+    A field discriminates if at least two distinct values have non-zero counts.
+    If only one value was ever observed (or total is 0), the field acts as a constant rather than a discriminator.
+    """
+    non_zero = sum(1 for c in counts.values() if c > 0)
+    return non_zero > 1

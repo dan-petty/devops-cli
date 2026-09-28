@@ -6,8 +6,10 @@ and normalizes responses across all LLM providers using standard pydantic_ai.mes
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
+from collections.abc import Callable, Sequence
 from typing import Any, cast
 
 import json_repair
@@ -42,39 +44,61 @@ _TOOL_EXTRACT_PAGE_SIZE = DEFAULT_TOOL_EXTRACT_PAGE_SIZE
 _TOOL_EXTRACT_OVERLAP = DEFAULT_TOOL_EXTRACT_OVERLAP
 
 
-def repair_json_string(text: str, *, max_length: int | None = None) -> Any:
-    """Extract and repair valid or partially-malformed JSON from text using json-repair."""
+# A ```json or bare ``` fence; a fence naming another language holds code, not the answer.
+_JSON_FENCE = re.compile(r"```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```", re.IGNORECASE)
+
+
+def _clean_repair_text(text: str, max_length: int | None = None) -> str | None:
     effective_max = DEFAULT_JSON_REPAIR_MAX_LENGTH if max_length is None else max_length
     if not text or not text.strip() or len(text) > effective_max:
         return None
+    cleaned = _strip_reasoning(normalize_unicode_text(text))
+    return cleaned if cleaned else None
 
-    from devops_cli.ai.thinking_stream import strip_think_blocks
 
-    cleaned = strip_think_blocks(normalize_unicode_text(text)).strip()
-    if not cleaned:
+def _find_fenced_json(cleaned: str) -> Any:
+    for block in _JSON_FENCE.findall(cleaned):
+        data = _repair_loads(block.strip())
+        if isinstance(data, dict | list) and data:
+            return data
+    return None
+
+
+def repair_json_string(text: str, *, max_length: int | None = None) -> Any:
+    """Extract and repair valid or partially-malformed JSON from text using json-repair."""
+    cleaned = _clean_repair_text(text, max_length)
+    if cleaned is None:
         return None
 
-    # 1. First pass: use standard json_repair to parse JSON, objects, lists, or markdown fences
+    # 1. Parse the whole cleaned text first.
+    data = _repair_loads(cleaned)
+    if isinstance(data, dict | list) and data:
+        return data
+
+    # 2. Fall back to fenced JSON blocks only when whole text yields no dict or list.
+    fenced = _find_fenced_json(cleaned)
+    if fenced is not None:
+        return fenced
+
+    return data if data not in ("", None) else None
+
+
+def _strip_reasoning(text: str) -> str:
+    """Remove <think> blocks from a complete reply.
+
+    An unclosed <think> counts as reasoning cut off mid-stream only when it opens the reply;
+    anywhere else it is literal text, such as a finding that quotes the tag, and must not
+    truncate the reply.
+    """
+    clean = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    return "" if clean.startswith("<think>") else clean
+
+
+def _repair_loads(text: str) -> Any:
     try:
-        data = json_repair.loads(cleaned)
-        if data != "" and data is not None:
-            return data
+        return json_repair.loads(text)
     except Exception:
-        pass
-
-    # 2. If surrounded by markdown fences, extract and repair candidate block
-    for pattern in (r"```(?:json)?\s*([\s\S]*?)```",):
-        matched_block = re.search(pattern, cleaned, re.DOTALL)
-        if matched_block:
-            candidate = matched_block.group(1).strip()
-            try:
-                data = json_repair.loads(candidate)
-                if data != "" and data is not None:
-                    return data
-            except Exception:
-                pass
-
-    return None
+        return None
 
 
 class ExtractedToolCall(BaseModel):
@@ -96,6 +120,8 @@ class FormattedLLMResponse[T](BaseModel):
     model_response: ModelResponse | None = None
     json_data: Any = None
     parsed_model: T | None = None
+    validation_error: str | None = None
+    schema_reflection: Any = None
     was_repaired: bool = False
     repair_notes: list[str] = Field(default_factory=list)
 
@@ -210,6 +236,31 @@ def extract_tool_invocations(
     return all_calls
 
 
+def _extract_thinking_parts(norm_text: str, raw_response: Any) -> list[ThinkingPart]:
+    parts: list[ThinkingPart] = []
+    seen: set[str] = set()
+
+    raw_thinking = getattr(raw_response, "thinking", None)
+    if raw_thinking and isinstance(raw_thinking, str) and raw_thinking.strip():
+        clean_raw = unique_lines(raw_thinking.strip())
+        parts.append(ThinkingPart(content=clean_raw))
+        seen.add(clean_raw)
+
+    for think_match in re.findall(r"<think>(.*?)(?:</think>|$)", norm_text, flags=re.DOTALL):
+        think_clean = unique_lines(think_match.strip())
+        if think_clean and think_clean not in seen:
+            seen.add(think_clean)
+            parts.append(ThinkingPart(content=think_clean))
+    return parts
+
+
+def _extract_response_tool_parts(clean_text: str, norm_text: str) -> list[ToolCallPart]:
+    tool_calls = extract_tool_invocations(clean_text)
+    if not tool_calls and norm_text != clean_text:
+        tool_calls = extract_tool_invocations(norm_text)
+    return [ToolCallPart(tool_name=tc.tool_name, args=tc.arguments) for tc in tool_calls]
+
+
 def parse_model_response(
     raw_response: str | Any,
     model_name: str | None = None,
@@ -225,36 +276,11 @@ def parse_model_response(
 
     raw_str = str(raw_response) if raw_response is not None else ""
     norm_text = normalize_unicode_text(raw_str)
+    clean_text = _strip_reasoning(norm_text)
 
     parts: list[ModelResponsePart] = []
-
-    # Check for direct thinking attribute on response object
-    raw_thinking = getattr(raw_response, "thinking", None)
-    if raw_thinking and isinstance(raw_thinking, str) and raw_thinking.strip():
-        parts.append(ThinkingPart(content=unique_lines(raw_thinking.strip())))
-
-    # Extract all <think>...</think> and unclosed <think> blocks
-    think_matches = re.findall(r"<think>(.*?)(?:</think>|$)", norm_text, flags=re.DOTALL)
-    for think_match in think_matches:
-        think_clean = unique_lines(think_match.strip())
-        if think_clean and not any(
-            isinstance(p, ThinkingPart) and p.content == think_clean for p in parts
-        ):
-            parts.append(ThinkingPart(content=think_clean))
-
-    # Clean text outside <think> tags
-    clean_text = re.sub(r"<think>.*?</think>", "", norm_text, flags=re.DOTALL).strip()
-    if "<think>" in clean_text:
-        clean_text = re.sub(r"<think>[\s\S]*$", "", clean_text).strip()
-
-    # Extract tool calls from clean text, or fall back to full normalized text if tool calls were inside reasoning
-    tool_calls = extract_tool_invocations(clean_text)
-    if not tool_calls and norm_text != clean_text:
-        tool_calls = extract_tool_invocations(norm_text)
-
-    for tc in tool_calls:
-        parts.append(ToolCallPart(tool_name=tc.tool_name, args=tc.arguments))
-
+    parts.extend(_extract_thinking_parts(norm_text, raw_response))
+    parts.extend(_extract_response_tool_parts(clean_text, norm_text))
     if clean_text:
         parts.append(TextPart(content=clean_text))
 
@@ -273,16 +299,114 @@ def extract_model_response_parts(
     return clean_text, thinking_text, tool_calls
 
 
-def fix_llm_response[T = Any](
-    raw_response: str | Any,
-    schema: type[T] | None = None,
-    available_tools: list[str] | set[str] | None = None,
-) -> FormattedLLMResponse[T]:
-    """Universal AI/LLM response parser and formatter built on pydantic_ai.messages.ModelResponse."""
-    resp = parse_model_response(raw_response)
-    final_content, thinking_str, tool_parts = extract_model_response_parts(resp)
+def _text_only_function(function: Callable[..., object]) -> Callable[[str], object] | None:
+    """The text output function when it can run here: synchronous, taking the text alone.
 
-    tool_calls = [
+    A text output function may also take a `RunContext`, or be async; without a run context or
+    an event loop, the reply is left to the schema-free path rather than called wrongly.
+    """
+    if inspect.iscoroutinefunction(function):
+        return None
+    try:
+        parameters = inspect.signature(function).parameters
+    except TypeError, ValueError:
+        return None
+    return cast(Callable[[str], object], function) if len(parameters) == 1 else None
+
+
+def _try_model_validate[T](
+    target_schema: Any,
+    json_data: Any,
+    notes: list[str],
+) -> tuple[T | None, Any | None]:
+    """Validate json_data using model_validate if available."""
+    from pydantic import ValidationError
+
+    validator = getattr(target_schema, "model_validate", None)
+    if callable(validator) and isinstance(json_data, dict | list):
+        try:
+            return validator(json_data), None
+        except ValidationError as val_err:
+            return None, val_err
+        except Exception as exc:
+            notes.append(f"Model validation error: {exc}")
+    return None, None
+
+
+def _try_python_validate[T](
+    target_schema: Any,
+    json_data: Any,
+    notes: list[str],
+) -> tuple[T | None, Any | None]:
+    """Validate json_data using TypeAdapter.validate_python."""
+    from pydantic import ValidationError
+
+    try:
+        return cast(T, TypeAdapter(target_schema).validate_python(json_data)), None
+    except ValidationError as val_err:
+        return None, val_err
+    except Exception as exc:
+        notes.append(f"Python validation error: {exc}")
+    return None, None
+
+
+def _try_json_validate[T](
+    target_schema: Any,
+    final_content: str,
+    notes: list[str],
+) -> tuple[T | None, Any | None]:
+    """Validate raw final_content string using TypeAdapter.validate_json."""
+    from pydantic import ValidationError
+
+    try:
+        return TypeAdapter(target_schema).validate_json(final_content), None
+    except ValidationError as val_err:
+        return None, val_err
+    except Exception as exc:
+        notes.append(f"JSON validation error: {exc}")
+    return None, None
+
+
+def _parse_schema_model[T](
+    target_schema: Any,
+    json_data: Any,
+    final_content: str,
+) -> tuple[T | None, str | None, Any | None, list[str]]:
+    """Attempt parsing and validating response against target schema with error reflection."""
+    from devops_cli.ai.schema_reflection import extract_schema_reflection
+
+    notes: list[str] = []
+
+    model, last_err = _try_model_validate(target_schema, json_data, notes)
+    if model is not None:
+        return model, None, None, notes
+
+    if json_data is not None:
+        model, py_err = _try_python_validate(target_schema, json_data, notes)
+        if model is not None:
+            return model, None, None, notes
+        last_err = py_err or last_err
+
+    if final_content:
+        model, json_err = _try_json_validate(target_schema, final_content, notes)
+        if model is not None:
+            return model, None, None, notes
+        last_err = last_err or json_err
+
+    if last_err is not None:
+        report = extract_schema_reflection(last_err)
+        notes.extend([v.fix_hint for v in report.violations if v.fix_hint])
+        return None, report.format_error_summary(), report, notes
+
+    return None, None, None, notes
+
+
+def _build_extracted_tool_calls(
+    tool_parts: Sequence[ToolCallPart],
+    available_tools: list[str] | set[str] | None,
+) -> list[ExtractedToolCall]:
+    """Construct and filter ExtractedToolCall list from model response parts."""
+    calls = [
         ExtractedToolCall(
             tool_name=p.tool_name,
             arguments=p.args if isinstance(p.args, dict) else {},
@@ -292,40 +416,52 @@ def fix_llm_response[T = Any](
     ]
     if available_tools:
         known = set(available_tools)
-        tool_calls = [c for c in tool_calls if c.tool_name in known]
+        return [c for c in calls if c.tool_name in known]
+    return calls
 
+
+def _resolve_schema_parsed_model[T](
+    schema: Any,
+    json_data: Any,
+    final_content: str,
+) -> tuple[T | None, str | None, Any | None, list[str]]:
+    """Resolve parsed model against TextOutput or structured model schema."""
+    if schema is None:
+        return None, None, None, []
+
+    from devops_cli.ai.output import TextOutput, unwrap_output_spec
+
+    if isinstance(schema, TextOutput):
+        parse_text = _text_only_function(schema.output_function)
+        if parse_text is not None:
+            try:
+                return cast(T, parse_text(final_content)), None, None, []
+            except Exception as exc:
+                return None, f"Text output function error: {exc}", None, []
+        return None, None, None, []
+
+    unwrapped = unwrap_output_spec(schema)
+    target_schema = unwrapped[0] if unwrapped else schema
+    if target_schema is str:
+        return cast(T, final_content), None, None, []
+    return _parse_schema_model(target_schema, json_data, final_content)
+
+
+def fix_llm_response[T = Any](
+    raw_response: str | Any,
+    schema: type[T] | None = None,
+    available_tools: list[str] | set[str] | None = None,
+) -> FormattedLLMResponse[T]:
+    """Universal AI/LLM response parser and formatter built on pydantic_ai.messages.ModelResponse."""
+    resp = parse_model_response(raw_response)
+    final_content, thinking_str, tool_parts = extract_model_response_parts(resp)
+    tool_calls = _build_extracted_tool_calls(tool_parts, available_tools)
     thoughts = [p.content for p in resp.parts if isinstance(p, ThinkingPart) and p.has_content()]
 
     json_data = repair_json_string(final_content)
-    parsed_model: T | None = None
-
-    if schema is not None:
-        from devops_cli.ai.output import TextOutput, unwrap_output_spec
-
-        if isinstance(schema, TextOutput):
-            try:
-                parsed_model = cast(T, schema.output_function(final_content))
-            except Exception:
-                pass
-        else:
-            unwrapped = unwrap_output_spec(schema)
-            target_schema = unwrapped[0] if unwrapped else schema
-            validator = getattr(target_schema, "model_validate", None)
-            if callable(validator) and isinstance(json_data, dict | list):
-                try:
-                    parsed_model = validator(json_data)
-                except Exception:
-                    pass
-            if parsed_model is None and json_data is not None:
-                try:
-                    parsed_model = cast(T, TypeAdapter(target_schema).validate_python(json_data))
-                except Exception:
-                    pass
-            if parsed_model is None and final_content:
-                try:
-                    parsed_model = TypeAdapter(target_schema).validate_json(final_content)
-                except Exception:
-                    pass
+    parsed_model, validation_err, schema_refl, notes = _resolve_schema_parsed_model(
+        schema, json_data, final_content
+    )
 
     raw_str = str(raw_response) if raw_response is not None else ""
     was_repaired = bool(
@@ -344,6 +480,8 @@ def fix_llm_response[T = Any](
         model_response=resp,
         json_data=json_data,
         parsed_model=parsed_model,
+        validation_error=validation_err,
+        schema_reflection=schema_refl,
         was_repaired=was_repaired,
-        repair_notes=[],
+        repair_notes=notes,
     )

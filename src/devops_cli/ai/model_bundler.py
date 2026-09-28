@@ -8,7 +8,14 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from devops_cli import __version__
-from devops_cli.config.defaults import DEFAULT_BUNDLE_MODELS, DEFAULT_MODELS_DATA_DIR
+from devops_cli.config.defaults import DEFAULT_BUNDLE_MODELS
+from devops_cli.config.settings import load_settings
+from devops_cli.core.paths import (
+    is_forbidden_system_path,
+    safe_resolve_subpath,
+    validate_no_path_traversal,
+)
+from devops_cli.core.repo import main_worktree_root, resolve_data_path
 from devops_cli.exceptions.ai import ModelBundleError
 
 
@@ -21,6 +28,24 @@ class ModelBundleManifest(BaseModel):
     target_dir: str
 
 
+def _bundle_directory(output_dir: Path | None) -> Path:
+    """The directory a bundle is written to: `output_dir`, else the configured models directory.
+
+    `output_dir` overrides `data.models_dir`, so a relative one is a data path like it: the same
+    value names the same directory under the main worktree, shared by every worktree.
+    """
+    if output_dir is None:
+        return resolve_data_path(load_settings().data.models_dir)
+    target = validate_no_path_traversal(
+        output_dir, error_cls=ModelBundleError, label="output directory"
+    )
+    if not target.is_absolute():
+        return safe_resolve_subpath(main_worktree_root(), target, error_cls=ModelBundleError)
+    if is_forbidden_system_path(target):
+        raise ModelBundleError(f"Output directory outside allowed workspace: {output_dir}")
+    return target.resolve()
+
+
 def bundle_ollama_models(
     models: list[str] | None = None,
     output_dir: Path | None = None,
@@ -29,24 +54,7 @@ def bundle_ollama_models(
 
     Returns (count, bundle_path).
     """
-    if output_dir is not None:
-        from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_traversal
-
-        target = validate_no_path_traversal(
-            output_dir, error_cls=ModelBundleError, label="output directory"
-        )
-        if target.is_absolute():
-            if is_forbidden_system_path(target):
-                raise ModelBundleError(f"Output directory outside allowed workspace: {output_dir}")
-            target = target.resolve()
-        else:
-            from devops_cli.core.paths import safe_resolve_subpath
-            from devops_cli.core.repo import find_top_level_repo_root
-
-            repo_root = find_top_level_repo_root()
-            target = safe_resolve_subpath(repo_root, target, error_cls=ModelBundleError)
-    else:
-        target = DEFAULT_MODELS_DATA_DIR
+    target = _bundle_directory(output_dir)
     target.mkdir(parents=True, exist_ok=True)
 
     model_list = models or list(DEFAULT_BUNDLE_MODELS)

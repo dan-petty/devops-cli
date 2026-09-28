@@ -18,6 +18,8 @@ ARGOCD_TOKEN = "argocd.token"
 ARGOCD_PASSWORD = "argocd.password"
 AI_PROVIDER = "ai.provider"
 AI_MODEL = "ai.model"
+AI_REFERENCE_MODEL = "ai.reference_model"
+AI_HARDWARE_COST_USD = "ai.hardware_cost_usd"
 AI_OLLAMA_URLS = "ai.ollama_urls"
 AI_OLLAMA_MAX_PARALLEL = "ai.ollama_max_parallel"
 AI_API_BASE_URL = "ai.api_base_url"
@@ -67,12 +69,30 @@ VALKEY_DB = "valkey.db"
 VALKEY_TIMEOUT = "valkey.timeout"
 AI_CACHE_BACKEND = "ai.cache.backend"
 
+# Evaluation Run Store: the shared index of benchmark and evaluation runs
+RUNS_INDEX_URL = "runs.index_url"
+RUNS_INDEX_PASSWORD = "runs.index_password"
+
 # Telemetry & Structured Observability
 TELEMETRY_LOGFIRE = "telemetry.logfire"
 TELEMETRY_LOGFIRE_TOKEN = "telemetry.logfire_token"
 
 # Kubernetes Cluster & Minikube Configuration
 K8S_CONTEXT = "k8s.context"
+K8S_DOMAIN = "k8s.domain"
+
+# Cloudflare Zero Trust & Tunnel Configuration
+CLOUDFLARE_DOMAIN = "cloudflare.domain"
+CLOUDFLARE_TUNNEL = "cloudflare.tunnel"
+CLOUDFLARE_ACCOUNT_ID = "cloudflare.account_id"
+CLOUDFLARE_ZONE_ID = "cloudflare.zone_id"
+CLOUDFLARE_API_TOKEN = "cloudflare.api_token"
+CLOUDFLARE_PUBLIC_IP_BYPASS = "cloudflare.public_ip_bypass"
+CLOUDFLARE_ACCESS_ENABLED = "cloudflare.access.enabled"
+CLOUDFLARE_ACCESS_ALLOWED_EMAILS = "cloudflare.access.allowed_emails"
+CLOUDFLARE_ACCESS_IDP = "cloudflare.access.idp"
+CLOUDFLARE_ACCESS_BYPASS_IPS = "cloudflare.access.bypass_ips"
+CLOUDFLARE_ACCESS_PUBLIC_IP_BYPASS = "cloudflare.access.public_ip_bypass"
 
 # Data Storage & Artifact Paths
 DATA_DIR = "data.dir"
@@ -83,6 +103,8 @@ DATA_MODELS_DIR = "data.models_dir"
 DATA_CACHE_DIR = "data.cache_dir"
 DATA_BENCHMARKS_DIR = "data.benchmarks_dir"
 DATA_RAG_DIR = "data.rag_dir"
+DATA_SAMPLES_DIR = "data.samples_dir"
+DATA_RUNS_DIR = "data.runs_dir"
 DATA_TLS_DIR = "data.tls_dir"
 DATA_AUDIT_LOG_PATH = "data.audit_log_path"
 DATA_FEEDBACK_DATASET_PATH = "data.feedback_dataset_path"
@@ -112,6 +134,8 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     ARGOCD_PASSWORD,
     AI_PROVIDER,
     AI_MODEL,
+    AI_REFERENCE_MODEL,
+    AI_HARDWARE_COST_USD,
     AI_OLLAMA_URLS,
     AI_OLLAMA_MAX_PARALLEL,
     AI_API_BASE_URL,
@@ -152,6 +176,8 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     VALKEY_DB,
     VALKEY_TIMEOUT,
     AI_CACHE_BACKEND,
+    RUNS_INDEX_URL,
+    RUNS_INDEX_PASSWORD,
     DATA_DIR,
     DATA_ANALYSIS_DIR,
     DATA_REVIEWS_DIR,
@@ -160,12 +186,27 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     DATA_CACHE_DIR,
     DATA_BENCHMARKS_DIR,
     DATA_RAG_DIR,
+    DATA_SAMPLES_DIR,
+    DATA_RUNS_DIR,
     DATA_TLS_DIR,
     DATA_AUDIT_LOG_PATH,
     DATA_FEEDBACK_DATASET_PATH,
     TELEMETRY_LOGFIRE,
     TELEMETRY_LOGFIRE_TOKEN,
     SANDBOX_EXCLUDE_HOME_DIR,
+    K8S_CONTEXT,
+    K8S_DOMAIN,
+    CLOUDFLARE_DOMAIN,
+    CLOUDFLARE_TUNNEL,
+    CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_ZONE_ID,
+    CLOUDFLARE_API_TOKEN,
+    CLOUDFLARE_PUBLIC_IP_BYPASS,
+    CLOUDFLARE_ACCESS_ENABLED,
+    CLOUDFLARE_ACCESS_ALLOWED_EMAILS,
+    CLOUDFLARE_ACCESS_IDP,
+    CLOUDFLARE_ACCESS_BYPASS_IPS,
+    CLOUDFLARE_ACCESS_PUBLIC_IP_BYPASS,
 )
 
 SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
@@ -178,7 +219,9 @@ SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(
         AI_API_KEY,
         QDRANT_API_KEY,
         VALKEY_PASSWORD,
+        RUNS_INDEX_PASSWORD,
         TELEMETRY_LOGFIRE_TOKEN,
+        CLOUDFLARE_API_TOKEN,
     }
 )
 
@@ -191,5 +234,7 @@ KEYRING_KEYS: dict[str, str] = {
     AI_API_KEY: "ai_api_key",
     QDRANT_API_KEY: "qdrant_api_key",
     VALKEY_PASSWORD: "valkey_password",
+    RUNS_INDEX_PASSWORD: "runs_index_password",
     TELEMETRY_LOGFIRE_TOKEN: "logfire_token",
+    CLOUDFLARE_API_TOKEN: "cloudflare_api_token",
 }

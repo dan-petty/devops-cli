@@ -20,6 +20,8 @@ from devops_cli.config.constants import (
     CONST_MODELS_DIR_NAME,
     CONST_RAG_DIR_NAME,
     CONST_REVIEWS_DIR_NAME,
+    CONST_RUNS_DIR_NAME,
+    CONST_SAMPLES_DIR_NAME,
     CONST_TLS_DIR_NAME,
     CONST_URL_OLLAMA_LOCALHOST,
 )
@@ -38,6 +40,8 @@ DEFAULT_AUDIT_LOG_PATH = DEFAULT_LOGS_DATA_DIR / CONST_AUDIT_LOG_NAME
 DEFAULT_FEEDBACK_DATASET_PATH = DEFAULT_DATA_DIR / CONST_FEEDBACK_DATASET_NAME
 DEFAULT_TLS_DATA_DIR = DEFAULT_DATA_DIR / CONST_TLS_DIR_NAME
 DEFAULT_RAG_DATA_DIR = DEFAULT_DATA_DIR / CONST_RAG_DIR_NAME
+DEFAULT_SAMPLES_DATA_DIR = DEFAULT_DATA_DIR / CONST_SAMPLES_DIR_NAME
+DEFAULT_RUNS_DATA_DIR = DEFAULT_DATA_DIR / CONST_RUNS_DIR_NAME
 DEFAULT_RAG_INDEX_CACHE_PATH = DEFAULT_RAG_DATA_DIR / CONST_INDEX_CACHE_FILENAME
 DEFAULT_HALLUCINATIONS_FILE_PATH = DEFAULT_DATA_DIR / CONST_HALLUCINATIONS_FILE_NAME
 DEFAULT_SANDBOX_DATA_DIR = DEFAULT_DATA_DIR / "sandbox"
@@ -60,6 +64,8 @@ DEFAULT_AI_PROVIDER = "ollama"
 DEFAULT_AI_MODEL = "gemma4:26b"
 DEFAULT_AI_FALLBACK_PROVIDER = "ollama"
 DEFAULT_AI_FALLBACK_MODEL = "qwen2.5-coder:7b"
+DEFAULT_AI_REFERENCE_MODEL: str = "gpt-4o"
+DEFAULT_AI_HARDWARE_COST_USD: float = 0.0
 DEFAULT_CONSTELLATION_DRAIN_TIMEOUT: float = 5.0
 DEFAULT_AI_REASONING_EFFORT: str | None = None
 DEFAULT_AI_TEMPERATURE: float = 0.1
@@ -82,10 +88,29 @@ DEFAULT_PORTKEY_GATEWAY_CLUSTER_URL: str = "http://portkey.llm.svc.cluster.local
 DEFAULT_LIGHTLLM_URL: str = "http://localhost:8000/v1"
 DEFAULT_LIGHTLLM_CLUSTER_URL: str = "http://lightllm.llm.svc.cluster.local:8000/v1"
 DEFAULT_VLLM_URL: str = "http://localhost:8000/v1"
-DEFAULT_VLLM_CLUSTER_URL: str = "http://vllm.llm.svc.cluster.local:8000/v1"
+DEFAULT_VLLM_CLUSTER_URL: str = "http://vllm-48gib.llm.svc.cluster.local:8000/v1"
+DEFAULT_VLLM_MODEL: str = "QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ"
+DEFAULT_VLLM_SERVED_MODEL_NAME: str = "qwen3-coder:30b"
+DEFAULT_VLLM_SINGLE_CLUSTER_URL: str = "http://vllm-16gib.llm.svc.cluster.local:8000/v1"
+DEFAULT_VLLM_SINGLE_MODEL: str = "Qwen/Qwen2.5-Coder-14B-Instruct-AWQ"
+DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME: str = "qwen2.5-coder-14b-instruct"
+DEFAULT_OLLAMA_CLUSTER_URL: str = "http://ollama-16gib.llm.svc.cluster.local:11434"
 DEFAULT_AI_GATEWAY_ENABLED: bool = False
 DEFAULT_AI_GATEWAY_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS: float = 5.0
+# `devops ai gateway tune`: the sweep runs in an ephemeral container attached to the gateway pod,
+# since the inference backends admit traffic only from the gateway. The image tracks this
+# project's Python.
+DEFAULT_AI_GATEWAY_DEPLOYMENT: str = "llm-gateway"
+DEFAULT_GATEWAY_TUNE_IMAGE: str = "python:3.14-slim"
+DEFAULT_GATEWAY_TUNE_MODEL_GROUP: str = "devops-review"
+DEFAULT_GATEWAY_TUNE_CONCURRENCY: str = "1,4,8"
+DEFAULT_GATEWAY_TUNE_ROUNDS: int = 2
+# `devops ai gateway load` looks back this far unless told otherwise.
+DEFAULT_POOL_LOAD_WINDOW = "1h"
+# Reply length for the capacity pass, and the cap on natural replies in the cost pass.
+DEFAULT_GATEWAY_TUNE_MAX_TOKENS: int = 200
+DEFAULT_GATEWAY_TUNE_REQUEST_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_STRUCTURED_OUTPUT_MAX_RETRIES: int = 2
 DEFAULT_STRUCTURED_RETRY_BACKOFF_SECONDS: float = 0.5
 DEFAULT_AI_DURABLE_ENGINE: str = "sqlite"
@@ -194,6 +219,11 @@ DEFAULT_TOOL_DIFF_MAX_CHARS: int = 4000
 DEFAULT_TOOL_MAX_FILES: int = 100
 DEFAULT_TOOL_MAX_SEARCH_MATCHES: int = 50
 DEFAULT_TOOL_BUFFER_CHUNK_SIZE: int = 65536
+# Bounds the per-stream ring buffer that drains a backgrounded command's pipes. The pipes
+# must be drained continuously or the child blocks once the kernel buffer fills, and an
+# unbounded sink would then trade that deadlock for unbounded memory growth on a chatty
+# long-running process, so the retained window is capped instead.
+DEFAULT_SHELL_BG_OUTPUT_LINES: int = 1000
 DEFAULT_AGENT_MAX_TURNS: int = 10
 DEFAULT_MCP_SERVER_PORT: int = 8000
 DEFAULT_MCP_TRANSPORT = "stdio"
@@ -254,6 +284,7 @@ DEFAULT_DOCKER_STATS_STREAM_SAMPLES: int = 1
 # to fail fast when endpoints are unreachable, while response/read timeouts remain
 # high (up to 3600s) to accommodate homelab performance and local AI/LLM inference.
 DEFAULT_CONNECT_TIMEOUT_SECONDS: float = 1.0
+DEFAULT_AI_CONNECT_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_POOL_TIMEOUT_SECONDS: float = 1.0
 DEFAULT_REVIEW_TIMEOUT_SECONDS: float = 1200.0
 DEFAULT_REVIEW_WINDOW_SIZE_FACTOR: float = 0.8
@@ -336,9 +367,6 @@ DEFAULT_LLM_MAX_TOKENS: int = 8192
 DEFAULT_AI_TEST_PROMPT: str = "Hello, world!"
 DEFAULT_ESTIMATED_PROMPT_TOKENS: int = 1500
 DEFAULT_MAX_AST_FILE_SIZE_BYTES: int = 50 * 1024 * 1024  # 50MB DoS protection limit
-DEFAULT_OPEN_SOURCE_PRICING_URL: str = (
-    "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
-)
 DEFAULT_AI_SPEND_DB_FILENAME: str = "spend.db"
 DEFAULT_AI_PRICING_CATALOG_FILENAME: str = "pricing_catalog.json"
 DEFAULT_AI_PRICING_OVERRIDES_FILENAME: str = "pricing_overrides.json"
@@ -350,6 +378,20 @@ DEFAULT_BASE_BRANCH: str = "main"
 DEFAULT_MATCH_ALL_PATTERN: str = "*"
 DEFAULT_REVIEW_PERSONA: str = "devsecops"
 DEFAULT_REVIEW_MAX_DIFF_CHARS: int = 128000
+# Smallest review page, so a tiny context window cannot split a diff into hundreds of calls.
+DEFAULT_REVIEW_MIN_DIFF_CHARS: int = 8000
+# Reply caps, so a runaway generation cannot stall a review: a persona's findings list, and a
+# verification verdict sized to the findings it covers (base plus a share per finding).
+DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS: int = 8192
+DEFAULT_REVIEW_VERIFICATION_REPLY_BASE_TOKENS: int = 2048
+DEFAULT_REVIEW_VERIFICATION_REPLY_TOKENS_PER_FINDING: int = 384
+DEFAULT_REVIEW_VERIFICATION_REPLY_MAX_TOKENS: int = 8192
+# Runs per review benchmark; findings vary between identical runs, so medians need several.
+DEFAULT_REVIEW_BENCHMARK_RUNS: int = 3
+# `.devops/review.md` is read in full up to this many characters, for personas and verifier.
+DEFAULT_REVIEW_CONVENTIONS_MAX_CHARS: int = 8000
+# Seed for synthetic defect corpora; the same seed and files give the same injections.
+DEFAULT_REVIEW_CORPUS_SEED: int = 1
 DEFAULT_REVIEW_LINE_OVERLAP_TOLERANCE: int = 2
 DEFAULT_REVIEW_TITLE_SIMILARITY_THRESHOLD: float = 0.5
 DEFAULT_REVIEW_MAX_TITLE_LENGTH: int = 200
@@ -358,13 +400,16 @@ DEFAULT_LOCATION_CONTEXT_LINES: int = 12
 DEFAULT_DIFF_CONTEXT_LINES: int = 12
 DEFAULT_MAX_RELATED_FILES: int = 3
 DEFAULT_RELATED_FILE_MAX_CHARS: int = 1500
+DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS: Final[float] = 5.0
+DEFAULT_CRITERIA_MAX_OUTPUT_BYTES: Final[int] = 4096
+DEFAULT_HOST_SANDBOX_BINARY: Final[str] = "/usr/bin/bwrap"
 DEFAULT_PRE_ANALYSIS_WORKERS: int = 4
 DEFAULT_REVIEW_MAX_WORKERS: int = 4
 DEFAULT_REVIEW_CONCURRENCY: int = 4
-DEFAULT_REVIEW_MAX_CONCURRENCY: int = 8
+DEFAULT_GATEWAY_REVIEW_CONCURRENCY: int = 16
+DEFAULT_REVIEW_MAX_CONCURRENCY: int = 32
 DEFAULT_REVIEW_RATE_LIMIT: float = 10.0
 DEFAULT_REVIEW_RATE_CAPACITY: float = 10.0
-DEFAULT_APPLY_PATCH_INDEX: int = 1
 DEFAULT_INVALIDATED_STATUS: str = "INVALIDATED"
 DEFAULT_BANDIT_SEVERITY: str = "medium"
 DEFAULT_BANDIT_EXCLUDE: str = "B608"
@@ -429,6 +474,10 @@ DEFAULT_PR_LIMIT: int = 30
 DEFAULT_OTEL_COUNTER_AMOUNT: float = 1.0
 DEFAULT_OTEL_TEST_TIMEOUT: float = 1.0
 DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS: int = 50
+# Longest a command's exit waits for telemetry exports still in flight.
+DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS: float = 1.0
+# How often an interactive user is told, per endpoint, that telemetry exports fail.
+DEFAULT_OTEL_WARNING_INTERVAL_SECONDS: int = 86400
 DEFAULT_TELEMETRY_TEST_NAME: str = "devops-cli.manual_test"
 
 # ── AI Formatting & XML Prompt Serialization Defaults ────────────────────────
@@ -486,7 +535,7 @@ DEFAULT_AI_PROMPT_CACHE_TTL: str = "5m"
 DEFAULT_AI_USAGE_REQUEST_LIMIT: int = 50
 DEFAULT_FINDING_STATUS: str = "UNVERIFIED"
 DEFAULT_ROUTER_LATENCY_TIER: str = "fast-interactive"
-DEFAULT_SYNTHESIZED_TEST_STATUS: str = "SYNTHESIZED"
+DEFAULT_SYNTHESIZED_TEST_STATUS: str = "UNEXECUTED"
 DEFAULT_AGENT_NAME: str = "Assistant"
 DEFAULT_AGENT_SYSTEM_PROMPT: str = "You are a helpful DevOps assistant."
 DEFAULT_PLAN_REMINDER_CADENCE: int = 3
@@ -538,6 +587,8 @@ DEFAULT_GUARDRAIL_CAPABILITY_ID: str = "guardrails"
 # ── Valkey Defaults ─────────────────────────────────────────────────────────
 DEFAULT_VALKEY_HOST: str = "localhost"
 DEFAULT_VALKEY_TIMEOUT_SECONDS: float = 2.0
+# Commands wait at most this long on the run index before keeping a run locally only.
+DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0
 DEFAULT_VALKEY_PATTERN: str = "*"
 DEFAULT_VALKEY_RATE_KEY_PREFIX: str = "rate:limiter"
 DEFAULT_VALKEY_RATE_PER_MINUTE: int = 60
@@ -758,3 +809,14 @@ DEFAULT_HTTP_MAX_KEEPALIVE_CONNECTIONS: int = 20
 # Idle connections are dropped after this long. Long enough to span a burst of agent calls,
 # short enough that an endpoint restarting does not leave the pool holding dead sockets.
 DEFAULT_HTTP_KEEPALIVE_EXPIRY_SECONDS: float = 30.0
+
+# How many recorded false positives are shown to a persona before it reviews. The ledger
+# holds hundreds; the recurrence is concentrated in a handful, so the tail costs tokens on
+# every segment and prevents almost nothing.
+DEFAULT_HALLUCINATION_EXEMPLAR_COUNT: Final[int] = 8
+DEFAULT_HALLUCINATION_EXEMPLAR_CHARS: Final[int] = 160
+
+# How long a finished background command waits for its reader threads to bank the rest of
+# the pipe before its output is reported. `poll()` returns an exit status before the
+# readers have necessarily drained, so rendering immediately truncated the output.
+DEFAULT_SHELL_DRAIN_TIMEOUT_SECONDS: Final[float] = 2.0

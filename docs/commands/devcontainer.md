@@ -88,6 +88,16 @@ devops devcontainer list [OPTIONS]
 
 ---
 
+## `devops devcontainer unlock-keyring`
+
+**Create or unlock the gnome-keyring login keyring that gh, git and devops store secrets in.**
+
+```bash
+devops devcontainer unlock-keyring
+```
+
+---
+
 ## `devops devcontainer post-create`
 
 **Execute DevContainer post-create setup tasks (history, shell completions, config prep).**
@@ -102,6 +112,7 @@ devops devcontainer post-create [OPTIONS]
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--skip-tools` | `boolean` | - | Skip bootstrapping missing DevOps tool binaries. |
 
 ---
 

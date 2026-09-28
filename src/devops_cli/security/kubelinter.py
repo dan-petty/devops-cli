@@ -20,47 +20,51 @@ from devops_cli.security.base import BaseSecurityScanner
 logger = logging.getLogger(__name__)
 
 
+def _manifest_location(target_path: str) -> str:
+    """The scanned manifest's path relative to the working tree the scan runs in.
+
+    A path outside that tree is named by its file name alone.
+    """
+    if not target_path:
+        return ""
+    manifest = Path(target_path)
+    try:
+        from devops_cli.core.repo import find_worktree_root
+
+        return str(manifest.resolve().relative_to(find_worktree_root(Path.cwd())))
+    except Exception:
+        return manifest.name
+
+
+def _reported_object(report: dict[str, Any]) -> tuple[str, str, str]:
+    """The kind, name and namespace of the Kubernetes object a Kube-linter report is about."""
+    obj_info = (report.get("Object") or {}).get("K8sObject") or {}
+    kind = (obj_info.get("GroupVersionKind") or {}).get("Kind") or "Resource"
+    return kind, obj_info.get("Name") or "unnamed", obj_info.get("Namespace") or "default"
+
+
+def _finding_from_report(report: dict[str, Any], manifest: str) -> Finding:
+    """One Kube-linter report as a Finding located at `manifest`, or at its object when empty."""
+    diag = report.get("Diagnostic") or {}
+    msg = diag.get("Message") or "Kube-linter static manifest diagnostic warning"
+    check_name = diag.get("Check") or "kube-linter-check"
+    kind, name, namespace = _reported_object(report)
+    location_str = f"{manifest}:{kind}/{name}" if manifest else f"{kind}/{name} ({namespace})"
+
+    return Finding(
+        severity="MEDIUM",
+        location=location_str,
+        title=f"[{check_name}] K8s Security Lint Warning",
+        description=f"{msg} for {kind} '{name}' in namespace '{namespace}'.",
+        fix=f"Update K8s manifest spec for {kind} '{name}' to resolve {check_name}",
+        confidence_score=None,
+    )
+
+
 def parse_kubelinter_json(data: dict[str, Any], target_path: str = "") -> list[Finding]:
     """Parse Kube-linter JSON output payload into Finding objects."""
-    findings: list[Finding] = []
-    reports = data.get("Reports") or []
-
-    clean_target = ""
-    if target_path:
-        p = Path(target_path)
-        try:
-            from devops_cli.core.repo import find_top_level_repo_root
-
-            root = find_top_level_repo_root(Path.cwd())
-            clean_target = str(p.resolve().relative_to(root))
-        except Exception:
-            clean_target = p.name
-
-    for report in reports:
-        diag = report.get("Diagnostic") or {}
-        msg = diag.get("Message") or "Kube-linter static manifest diagnostic warning"
-        check_name = diag.get("Check") or "kube-linter-check"
-
-        obj_info = (report.get("Object") or {}).get("K8sObject") or {}
-        kind = (obj_info.get("GroupVersionKind") or {}).get("Kind") or "Resource"
-        name = obj_info.get("Name") or "unnamed"
-        namespace = obj_info.get("Namespace") or "default"
-        location_str = (
-            f"{clean_target}:{kind}/{name}" if clean_target else f"{kind}/{name} ({namespace})"
-        )
-
-        findings.append(
-            Finding(
-                severity="MEDIUM",
-                location=location_str,
-                title=f"[{check_name}] K8s Security Lint Warning",
-                description=f"{msg} for {kind} '{name}' in namespace '{namespace}'.",
-                fix=f"Update K8s manifest spec for {kind} '{name}' to resolve {check_name}",
-                confidence_score=None,
-            )
-        )
-
-    return findings
+    manifest = _manifest_location(target_path)
+    return [_finding_from_report(report, manifest) for report in data.get("Reports") or []]
 
 
 class KubelinterScanner(BaseSecurityScanner):

@@ -13,7 +13,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES,
     DEFAULT_REPOMAP_MAX_FILES,
 )
-from devops_cli.core.repo import find_repo_root, find_top_level_repo_root, is_ignored_by_git
+from devops_cli.core.repo import find_repo_root, find_worktree_root, is_ignored_by_git
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +248,7 @@ def generate_repo_map(
     multilingual: bool = False,
 ) -> list[FileMapNode]:
     """Traverse repository source files and generate symbol maps."""
-    base_root = root_dir or find_top_level_repo_root(Path.cwd())
+    base_root = root_dir or find_worktree_root(Path.cwd())
     src_dir = base_root / "src"
     target_dir = src_dir if src_dir.is_dir() else base_root
 

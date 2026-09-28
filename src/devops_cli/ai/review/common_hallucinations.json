@@ -641,5 +641,175 @@
     "occurrence_count": 1,
     "last_seen": "2026-09-21T00:00:00",
     "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-GOLDEN-TEST-FIXTURE-EXEMPLAR",
+    "name": "Synthetic Golden Test Dataset Vulnerability Exemplar",
+    "category": "test_mocks",
+    "description": "Flagging deliberate synthetic vulnerability exemplars (such as SQL injection, plaintext tokens, auth bypasses, or malformed data) in test fixtures or golden datasets as production vulnerabilities.",
+    "signature_patterns": [
+      "(?:sql injection|auth(?:orization)? bypass|hardcoded (?:token|password|secret)|plaintext token).*tests/(?:golden|fixtures)",
+      "golden.*review_findings\\.json",
+      "synthetic.*test fixture"
+    ],
+    "pattern_keywords": [
+      "golden_test_fixture",
+      "synthetic_vulnerability_exemplar",
+      "test_dataset_flagged"
+    ],
+    "file_patterns": [
+      "tests/golden/*",
+      "tests/fixtures/*",
+      "*.golden.*",
+      "*golden*.json"
+    ],
+    "resolution": "Golden datasets and synthetic test fixtures deliberately contain vulnerability exemplars to test scanner and analyzer verification.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-27T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-K8S-CLUSTER-OVERLAY-HTTP",
+    "name": "Kubernetes Internal Cluster Overlay HTTP Insecure Flagging",
+    "category": "documentation_context",
+    "description": "Flagging internal Kubernetes cluster URLs (http://*.svc.cluster.local) in manifests, ConfigMaps, or internal configs as insecure HTTP communication.",
+    "signature_patterns": [
+      "(?:insecure|unencrypted|plaintext)\\s+http\\s+(?:communication|endpoint|traffic).*\\.svc\\.cluster\\.local",
+      "http://[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+\\.svc\\.cluster\\.local",
+      "\\b(?:insecure\\s+communication|unencrypted\\s+proxy|plaintext\\s+traffic|http\\s+endpoint).*\\b(?:llm\\s+services|proxy|squid|k8s|cluster)",
+      "\\b(?:insecure\\s+http\\s+entry\\s+points|unencrypted\\s+prometheus\\s+export)"
+    ],
+    "pattern_keywords": [
+      "internal_k8s_http",
+      "svc_cluster_local_plaintext",
+      "cluster_overlay_traffic"
+    ],
+    "file_patterns": [
+      "k8s/*",
+      "*.yaml",
+      "*.yml"
+    ],
+    "resolution": "Kubernetes internal cluster overlay networking standardly communicates over plaintext HTTP between pods within cluster boundaries.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-27T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-LOCAL-DEV-NODEPORT-EXPOSURE",
+    "name": "Local Development NodePort Service External Exposure Claim",
+    "category": "documentation_context",
+    "description": "Flagging NodePort service configurations in local development, devcontainer, or Minikube manifests as unrestricted external exposure or insecure network exposure.",
+    "signature_patterns": [
+      "nodeport\\s+service\\s+exposes.*without\\s+authentication",
+      "unrestricted\\s+external\\s+exposure.*nodeport",
+      "\\bnodeport\\b.*(?:exposure|exposes|attack\\s+surface|risk|without\\s+authentication|insecure)",
+      "(?:nodeport\\s+service\\s+exposure|exposure\\s+risk.*nodeport)"
+    ],
+    "pattern_keywords": [
+      "local_dev_nodeport",
+      "nodeport_exposure_claim",
+      "devcontainer_service_access"
+    ],
+    "file_patterns": [
+      "k8s/*",
+      "*.yaml",
+      "*.yml"
+    ],
+    "resolution": "NodePort services in local development stacks are required to expose cluster services to the host developer workstation.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-27T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-STRUCTURAL-TUPLE-EQUALITY",
+    "name": "Structural Tuple Equality in Test Assertions",
+    "category": "test_mocks",
+    "description": "Claiming that consolidated structural tuple equality checks (e.g. 'assert (a, b) == (x, y)') in test suites represent flawed assertion logic or mixed-type comparison bugs.",
+    "signature_patterns": [
+      "(?:tuple\\s+comparison|structural\\s+tuple|assertion\\s+logic).*(?:flawed|incorrect|bug|fail)",
+      "(?:incorrect|flawed)\\s+assertion\\s+logic.*(?:tuple|validation)"
+    ],
+    "pattern_keywords": [
+      "structural_tuple_equality",
+      "tuple_comparison_assertion",
+      "assertion_logic_tuple"
+    ],
+    "file_patterns": [
+      "test_*",
+      "*_test.py",
+      "tests/*"
+    ],
+    "resolution": "Consolidating multiple linear assertions into structural tuple equality checks is an intentional architectural invariant in test suites to prevent McCabe cyclomatic complexity M <= 10 violations while preserving element-level diff diagnostics.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-28T04:09:06",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-LOCALHOST-DEFAULT-CONFIG",
+    "name": "Localhost / Loopback Default Configuration SSRF False Positive",
+    "category": "boundary_errors",
+    "description": "Flagging default configuration fallback URLs pointing to localhost or 127.0.0.1 (e.g. 'http://localhost:8000/v1' or 'http://localhost:11434') as SSRF vulnerabilities.",
+    "signature_patterns": [
+      "(?:default_lightllm_url|default_.*_url|default\\s+url).*\\b(?:localhost|127\\.0\\.0\\.1)\\b.*(?:ssrf|server-side\\s+request)",
+      "\\b(?:ssrf|server-side\\s+request).*\\b(?:localhost|127\\.0\\.0\\.1)\\b.*(?:default|fallback)"
+    ],
+    "pattern_keywords": [
+      "localhost_default_url",
+      "loopback_default_ssrf",
+      "default_lightllm_url"
+    ],
+    "file_patterns": [
+      "src/devops_cli/config/*",
+      "src/devops_cli/ai/*",
+      "config.example.yaml"
+    ],
+    "resolution": "Committed configuration templates and defaults are strictly required to use generic localhost or loopback endpoints to prevent homelab or internal network leakage.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-28T04:09:06",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-POSIX-SIGNAL-ZERO-LIVENESS",
+    "name": "POSIX Signal 0 Process Liveness Probing False Positive",
+    "category": "syntax_grammar",
+    "description": "Claiming that standard POSIX os.kill(pid, 0) process existence checking is a race condition or security vulnerability.",
+    "signature_patterns": [
+      "os\\.kill\\(.*,\\s*0\\).*(?:race\\s+condition|vulnerable|vulnerability)",
+      "(?:race\\s+condition|vulnerable|vulnerability).*os\\.kill\\(.*,\\s*0\\)"
+    ],
+    "pattern_keywords": [
+      "os_kill_signal_zero",
+      "signal_zero_liveness",
+      "process_signal_check"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "Standard POSIX os.kill(pid, 0) sends signal 0 to perform an OS-level process existence and access check without delivering a signal, which is the canonical standard library mechanism in Python.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-28T04:09:06",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-PRE-1-0-BREAKING-CHANGE",
+    "name": "Pre-1.0 Software Backwards Compatibility Regressions False Positive",
+    "category": "general",
+    "description": "Claiming that CLI flag naming evolutions, interface alterations, or schema redesigns break backwards compatibility in pre-1.0 software.",
+    "signature_patterns": [
+      "(?:breaks?\\s+backward|inconsistent\\s+cli\\s+flag).*(?:compatibility|deprecated)",
+      "(?:breaks?\\s+compatibility|backwards?\\s+compatibility).*(?:pre-1\\.0|alpha)"
+    ],
+    "pattern_keywords": [
+      "cli_flag_compatibility",
+      "backward_compatibility_pre_1_0",
+      "alpha_software_breaking_change"
+    ],
+    "file_patterns": [
+      "src/devops_cli/*"
+    ],
+    "resolution": "devops-cli is active alpha software prior to release 1.0.0 with an explicit zero backwards compatibility guarantee; interface evolutions and clean implementations are required over legacy remnants.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-28T04:09:06",
+    "source": "builtin"
   }
 ]

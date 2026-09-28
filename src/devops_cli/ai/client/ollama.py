@@ -307,6 +307,9 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         )
         if ctx_win:
             ollama_opts["num_ctx"] = int(ctx_win)
+        reply_limit = self._completion_limit()
+        if reply_limit is not None:
+            ollama_opts["num_predict"] = reply_limit
         if ollama_opts:
             payload["options"] = ollama_opts
         headers = inject_trace_context({"Content-Type": "application/json"})
@@ -374,6 +377,7 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
             total_tokens=total_tokens,
             eval_duration_ms=eval_dur_ms,
             prompt_eval_duration_ms=prompt_eval_dur_ms,
+            model=raw_res.get("model"),
         )
 
     def _try_single_ollama_stream(

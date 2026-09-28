@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -210,7 +211,7 @@ def test_apply_application_patches_when_already_present(crd_api: Any) -> None:
 
 def test_apply_resource_requires_manifest_name(crd_api: Any) -> None:
     """A manifest without metadata.name is rejected with an actionable message."""
-    with pytest.raises(ArgoError, match="missing 'metadata.name'"):
+    with pytest.raises(ArgoError, match=re.escape("missing 'metadata.name'")):
         _service(crd_api).apply_resource(CONST_ARGO_PLURAL_APPLICATIONS, {}, namespace="argocd")
 
 

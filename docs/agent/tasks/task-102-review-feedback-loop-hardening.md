@@ -1,6 +1,6 @@
 # Task: Strengthen Review Prompts, Feedback Dataset Export & Self-Improvement Loop (#102)
 
-**Issue**: #102
+**Issue**: [#102](https://github.com/dan-petty/devops-cli/issues/102)
 **Status**: Done
 **Milestone**: v0.2.15
 **Priority**: priority/p1-high

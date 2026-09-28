@@ -68,8 +68,17 @@ ENV_VALKEY_PORT = "DEVOPS_CLI_VALKEY_PORT"
 ENV_VALKEY_PASSWORD = "DEVOPS_CLI_VALKEY_PASSWORD"
 ENV_VALKEY_DB = "DEVOPS_CLI_VALKEY_DB"
 ENV_VALKEY_TIMEOUT = "DEVOPS_CLI_VALKEY_TIMEOUT"
+ENV_RUNS_INDEX_URL = "DEVOPS_CLI_RUNS_INDEX_URL"
+ENV_RUNS_INDEX_PASSWORD = "DEVOPS_CLI_RUNS_INDEX_PASSWORD"
 ENV_AI_CACHE_BACKEND = "DEVOPS_CLI_AI_CACHE_BACKEND"
 ENV_K8S_CONTEXT = "DEVOPS_CLI_K8S_CONTEXT"
+ENV_K8S_DOMAIN = "DEVOPS_CLI_K8S_DOMAIN"
+ENV_CLOUDFLARE_DOMAIN = "DEVOPS_CLI_CLOUDFLARE_DOMAIN"
+ENV_CLOUDFLARE_TUNNEL = "DEVOPS_CLI_CLOUDFLARE_TUNNEL"
+ENV_CLOUDFLARE_ACCOUNT_ID = "DEVOPS_CLI_CLOUDFLARE_ACCOUNT_ID"
+ENV_CLOUDFLARE_ZONE_ID = "DEVOPS_CLI_CLOUDFLARE_ZONE_ID"
+ENV_CLOUDFLARE_API_TOKEN = "DEVOPS_CLI_CLOUDFLARE_API_TOKEN"
+
 
 # Data Storage & Artifact Path environment variables
 ENV_DATA_DIR = "DEVOPS_CLI_DATA_DIR"
@@ -80,6 +89,8 @@ ENV_DATA_MODELS_DIR = "DEVOPS_CLI_DATA_MODELS_DIR"
 ENV_DATA_CACHE_DIR = "DEVOPS_CLI_DATA_CACHE_DIR"
 ENV_DATA_BENCHMARKS_DIR = "DEVOPS_CLI_DATA_BENCHMARKS_DIR"
 ENV_DATA_RAG_DIR = "DEVOPS_CLI_DATA_RAG_DIR"
+ENV_DATA_SAMPLES_DIR = "DEVOPS_CLI_DATA_SAMPLES_DIR"
+ENV_DATA_RUNS_DIR = "DEVOPS_CLI_DATA_RUNS_DIR"
 ENV_DATA_TLS_DIR = "DEVOPS_CLI_DATA_TLS_DIR"
 ENV_DATA_AUDIT_LOG_PATH = "DEVOPS_CLI_DATA_AUDIT_LOG_PATH"
 ENV_DATA_FEEDBACK_DATASET_PATH = "DEVOPS_CLI_DATA_FEEDBACK_DATASET_PATH"
@@ -138,8 +149,16 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.VALKEY_PASSWORD: ENV_VALKEY_PASSWORD,
     opt.VALKEY_DB: ENV_VALKEY_DB,
     opt.VALKEY_TIMEOUT: ENV_VALKEY_TIMEOUT,
+    opt.RUNS_INDEX_URL: ENV_RUNS_INDEX_URL,
+    opt.RUNS_INDEX_PASSWORD: ENV_RUNS_INDEX_PASSWORD,
     opt.AI_CACHE_BACKEND: ENV_AI_CACHE_BACKEND,
     opt.K8S_CONTEXT: ENV_K8S_CONTEXT,
+    opt.K8S_DOMAIN: ENV_K8S_DOMAIN,
+    opt.CLOUDFLARE_DOMAIN: ENV_CLOUDFLARE_DOMAIN,
+    opt.CLOUDFLARE_TUNNEL: ENV_CLOUDFLARE_TUNNEL,
+    opt.CLOUDFLARE_ACCOUNT_ID: ENV_CLOUDFLARE_ACCOUNT_ID,
+    opt.CLOUDFLARE_ZONE_ID: ENV_CLOUDFLARE_ZONE_ID,
+    opt.CLOUDFLARE_API_TOKEN: ENV_CLOUDFLARE_API_TOKEN,
     opt.DATA_DIR: ENV_DATA_DIR,
     opt.DATA_ANALYSIS_DIR: ENV_DATA_ANALYSIS_DIR,
     opt.DATA_REVIEWS_DIR: ENV_DATA_REVIEWS_DIR,
@@ -148,6 +167,8 @@ OPTION_TO_ENV_VAR: dict[str, str] = {
     opt.DATA_CACHE_DIR: ENV_DATA_CACHE_DIR,
     opt.DATA_BENCHMARKS_DIR: ENV_DATA_BENCHMARKS_DIR,
     opt.DATA_RAG_DIR: ENV_DATA_RAG_DIR,
+    opt.DATA_SAMPLES_DIR: ENV_DATA_SAMPLES_DIR,
+    opt.DATA_RUNS_DIR: ENV_DATA_RUNS_DIR,
     opt.DATA_TLS_DIR: ENV_DATA_TLS_DIR,
     opt.DATA_AUDIT_LOG_PATH: ENV_DATA_AUDIT_LOG_PATH,
     opt.DATA_FEEDBACK_DATASET_PATH: ENV_DATA_FEEDBACK_DATASET_PATH,
@@ -468,6 +489,18 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             "Valkey network socket connection/read timeout in seconds (default: 5.0)",
         ),
         EnvVarSpec(
+            ENV_RUNS_INDEX_URL,
+            opt.RUNS_INDEX_URL,
+            False,
+            "Valkey holding the run index shared by workstations (set by `devops ai runs connect`)",
+        ),
+        EnvVarSpec(
+            ENV_RUNS_INDEX_PASSWORD,
+            opt.RUNS_INDEX_PASSWORD,
+            True,
+            "Run index Valkey password (stored in OS keyring)",
+        ),
+        EnvVarSpec(
             ENV_AI_CACHE_BACKEND,
             opt.AI_CACHE_BACKEND,
             False,
@@ -478,6 +511,42 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.K8S_CONTEXT,
             False,
             "Active Kubernetes cluster context (e.g. minikube, kind, or remote cluster)",
+        ),
+        EnvVarSpec(
+            ENV_K8S_DOMAIN,
+            opt.K8S_DOMAIN,
+            False,
+            "Base or root domain name for homelab ingress routes and tunnel services",
+        ),
+        EnvVarSpec(
+            ENV_CLOUDFLARE_DOMAIN,
+            opt.CLOUDFLARE_DOMAIN,
+            False,
+            "Root or zone domain name managed in Cloudflare",
+        ),
+        EnvVarSpec(
+            ENV_CLOUDFLARE_TUNNEL,
+            opt.CLOUDFLARE_TUNNEL,
+            False,
+            "Cloudflare tunnel name or identifier",
+        ),
+        EnvVarSpec(
+            ENV_CLOUDFLARE_ACCOUNT_ID,
+            opt.CLOUDFLARE_ACCOUNT_ID,
+            False,
+            "Cloudflare Account ID",
+        ),
+        EnvVarSpec(
+            ENV_CLOUDFLARE_ZONE_ID,
+            opt.CLOUDFLARE_ZONE_ID,
+            False,
+            "Cloudflare Zone ID",
+        ),
+        EnvVarSpec(
+            ENV_CLOUDFLARE_API_TOKEN,
+            opt.CLOUDFLARE_API_TOKEN,
+            True,
+            "Cloudflare API Token (stored in OS keyring)",
         ),
         EnvVarSpec(
             ENV_DATA_DIR,
@@ -526,6 +595,18 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             opt.DATA_RAG_DIR,
             False,
             "Storage directory for local vector embedding index cache and retrieval data",
+        ),
+        EnvVarSpec(
+            ENV_DATA_SAMPLES_DIR,
+            opt.DATA_SAMPLES_DIR,
+            False,
+            "Storage directory for open-source sample repositories fetched at their pinned commits",
+        ),
+        EnvVarSpec(
+            ENV_DATA_RUNS_DIR,
+            opt.DATA_RUNS_DIR,
+            False,
+            "Storage directory for benchmark and evaluation run records, the run store's source of truth",
         ),
         EnvVarSpec(
             ENV_DATA_TLS_DIR,

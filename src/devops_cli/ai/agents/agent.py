@@ -46,11 +46,13 @@ from devops_cli.ai.agents.runner import (
     _execute_stream_tool_step,
     _find_deferred_tool_handler,
     _handle_deferred_resolution,
+    _handle_schema_validation_retry,
     _is_scratchpad_deliberation,
     _record_and_broadcast_thoughts,
     _resolve_fallback_output,
     _resolve_thinking_preference,
     _validate_agent_output,
+    is_structured_output_schema,
 )
 from devops_cli.ai.agents.tools import (
     AbstractToolset,
@@ -582,7 +584,9 @@ class PydanticAgent[T, DepsT = Any]:
             include_type_defs=include_type_defs,
         )
 
-    def _build_system_prompt_with_tools(self, ctx: RunContext[Any] | None = None) -> str:
+    def _build_system_prompt_with_tools(
+        self, ctx: RunContext[Any] | None = None, *, skip_memory_summary: bool = False
+    ) -> str:
         base_prompt: str = str(self.system_prompt)
         if "{{" in base_prompt and ctx and ctx.deps is not None:
             base_prompt = TemplateStr(base_prompt).render(ctx.deps)
@@ -625,7 +629,7 @@ class PydanticAgent[T, DepsT = Any]:
                 catalog_lines.append(f"- `{u_cap.id}`: {desc}")
             prompt_parts.append("\n".join(catalog_lines))
 
-        if self.memory and self.memory.summary:
+        if not skip_memory_summary and self.memory and self.memory.summary:
             raw_summary = self.memory.summary.strip()
             sanitized_summary = "".join(
                 c for c in raw_summary.replace("\n", " ") if 32 <= ord(c) <= 126
@@ -812,11 +816,13 @@ class PydanticAgent[T, DepsT = Any]:
             if message_history is not None
             else len(self.memory.to_chat_messages())
         )
-        self.memory.add_interaction("user", user_prompt)
-        if max_turns > 1 and len(self.memory.entries) > self.memory.max_entries:
-            self.memory.auto_summarize_if_needed(llm_client=self.client)
+        skip_memory = message_history is not None and len(message_history) == 0
+        if not skip_memory:
+            self.memory.add_interaction("user", user_prompt)
+            if max_turns > 1 and len(self.memory.entries) > self.memory.max_entries:
+                self.memory.auto_summarize_if_needed(llm_client=self.client)
 
-        system = self._build_system_prompt_with_tools(ctx=ctx)
+        system = self._build_system_prompt_with_tools(ctx=ctx, skip_memory_summary=skip_memory)
 
         # RAG investigation step
         if not skip_rag:
@@ -957,6 +963,19 @@ class PydanticAgent[T, DepsT = Any]:
             final_output = _resolve_fallback_output(final_output, tool_calls, all_thoughts)
 
             # Output validation stage
+            if is_structured_output_schema(self.output_schema) and fixed.parsed_model is None:
+                retried, output_retries = _handle_schema_validation_retry(
+                    fixed,
+                    response_text,
+                    messages,
+                    turn,
+                    max_turns,
+                    output_retries,
+                    active_retries.output,
+                )
+                if retried:
+                    continue
+
             if self._output_validators and (
                 fixed.parsed_model is not None or self.output_schema is None
             ):
@@ -974,8 +993,9 @@ class PydanticAgent[T, DepsT = Any]:
                     messages.append(ChatMessage(role="user", content=retry_prompt))
                     continue
 
-            self.memory.add_interaction("assistant", final_output)
-            self.memory.auto_summarize_if_needed(llm_client=self.client)
+            if not skip_memory:
+                self.memory.add_interaction("assistant", final_output)
+                self.memory.auto_summarize_if_needed(llm_client=self.client)
             messages.append(ChatMessage(role="assistant", content=final_output))
 
             from devops_cli.ai.agents.testing import _RUN_MESSAGES_CAPTURE
@@ -1000,8 +1020,9 @@ class PydanticAgent[T, DepsT = Any]:
                 new_messages_list=list(messages[prior_history_count:]),
             )
 
-        self.memory.add_interaction("assistant", response_text)
-        self.memory.auto_summarize_if_needed(llm_client=self.client)
+        if not skip_memory:
+            self.memory.add_interaction("assistant", response_text)
+            self.memory.auto_summarize_if_needed(llm_client=self.client)
         messages.append(ChatMessage(role="assistant", content=response_text))
 
         from devops_cli.ai.agents.testing import _RUN_MESSAGES_CAPTURE

@@ -4,21 +4,30 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx2
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai.client import AICredentialsError
 from devops_cli.ai.gateway import (
     GatewayRouter,
 )
 from devops_cli.commands.ai_gateway import app as gateway_cli_app
 from devops_cli.config.constants import (
-    CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
 )
+from devops_cli.config.defaults import (
+    DEFAULT_VLLM_CLUSTER_URL,
+    DEFAULT_VLLM_MODEL,
+    DEFAULT_VLLM_SERVED_MODEL_NAME,
+    DEFAULT_VLLM_SINGLE_CLUSTER_URL,
+    DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME,
+)
 from devops_cli.config.settings import AIConfig
+from devops_cli.exceptions.ai import CapabilityDegradationError
 
 runner = CliRunner()
 
@@ -61,8 +70,8 @@ class TestGatewayRouter:
             True,
             "http://example.com/v1",
             False,
-            3,
-            1,
+            2,
+            2,
         )
 
     def test_probe_gateway_degraded_http_status(self) -> None:
@@ -99,59 +108,59 @@ class TestGatewayRouter:
             True,
         )
 
-    def test_resolve_model_context_thresholds(self) -> None:
-        """Verify token counts and tasks correctly steer between chat, coder, reasoning, and embedding."""
-        router = GatewayRouter()
-
-        small_chat = router.resolve_model("summarize", token_count=1000, complexity="low")
-        coder_task = router.resolve_model("persona_review", token_count=2000, complexity="medium")
-        large_context = router.resolve_model("deep_review", token_count=35000, complexity="low")
-        frontier_task = router.resolve_model("synthesis", token_count=5000, complexity="frontier")
-        embedding = router.resolve_model("embed_documents", token_count=500)
-
-        assert (
-            small_chat,
-            coder_task,
-            large_context,
-            frontier_task,
-            embedding,
-        ) == (
-            (CONST_AI_GATEWAY_PROVIDER, "devops-chat"),
-            (CONST_AI_GATEWAY_PROVIDER, "devops-coder"),
-            (CONST_AI_GATEWAY_PROVIDER, "devops-reasoning"),
-            (CONST_AI_GATEWAY_PROVIDER, "devops-reasoning"),
-            (CONST_AI_GATEWAY_PROVIDER, "devops-embedding"),
-        )
-
     def test_trigger_failover_simulation_and_execution(self, tmp_path: Path) -> None:
         """Verify simulated failover leaves routes untouched while non-simulated alters table."""
         state_file = tmp_path / "gateway_state.json"
         router = GatewayRouter(state_file=state_file)
 
-        simulated = router.trigger_failover("devops-reasoning", simulate=True)
+        # devops-coder fails over to devops-chat (7b >= 7b), satisfying capability tier
+        simulated = router.trigger_failover("devops-coder", simulate=True)
+        executed = router.trigger_failover("devops-coder", simulate=False)
         assert (
             simulated["fallback_target"],
             simulated["simulated"],
-            router.list_routes()[2].target_model,
-        ) == (
-            "devops-coder",
-            True,
-            "llama-3.3-70b-instruct",
-        )
-
-        executed = router.trigger_failover("devops-reasoning", simulate=False)
-        assert (
+            router.list_routes()[1].backend_type,
             executed["fallback_target"],
             executed["target_model"],
             executed["simulated"],
-            router.list_routes()[2].target_model,
-            router.list_routes()[2].backend_type,
         ) == (
-            "devops-coder",
-            "qwen2.5-coder:14b",
-            False,
-            "qwen2.5-coder:14b",
+            "devops-chat",
+            True,
             "failover:ollama",
+            "devops-chat",
+            "qwen2.5-coder:7b",
+            False,
+        )
+
+    def test_trigger_failover_capability_gating(self, tmp_path: Path) -> None:
+        """Verify reasoning failover to underpowered tier is blocked without --force."""
+        state_file = tmp_path / "gateway_state.json"
+        router = GatewayRouter(state_file=state_file)
+
+        with pytest.raises(CapabilityDegradationError) as exc_info:
+            router.trigger_failover("devops-reasoning", simulate=True)
+
+        forced = router.trigger_failover("devops-reasoning", simulate=True, force=True)
+        assert (
+            exc_info.value.details["required_tier_b"],
+            forced["simulated"],
+            forced["status"],
+        ) == (
+            30,
+            True,
+            "simulated",
+        )
+
+    def test_default_routes_target_vllm_profiles(self) -> None:
+        """Verify reasoning and coder aliases route to the dual- and single-GPU vLLM profiles."""
+        routes = {
+            r.virtual_model: (r.target_model, r.backend_type, r.backend_url)
+            for r in GatewayRouter().list_routes()
+        }
+
+        assert (routes["devops-reasoning"], routes["devops-coder"]) == (
+            (DEFAULT_VLLM_SERVED_MODEL_NAME, "vllm", DEFAULT_VLLM_CLUSTER_URL),
+            (DEFAULT_VLLM_SINGLE_SERVED_MODEL_NAME, "vllm", DEFAULT_VLLM_SINGLE_CLUSTER_URL),
         )
 
     def test_trigger_failover_invalid_model_raises_value_error(self) -> None:
@@ -167,6 +176,8 @@ class TestGatewayRouter:
         custom_scale = router.scale_vllm(replicas=2, tensor_parallel_size=4)
 
         assert (
+            default_scale["model"],
+            default_scale["served_model_name"],
             default_scale["replicas"],
             default_scale["tensor_parallel_size"],
             default_scale["total_vram_gb"],
@@ -175,6 +186,8 @@ class TestGatewayRouter:
             custom_scale["total_vram_gb"],
             custom_scale["vram_per_replica_gb"],
         ) == (
+            DEFAULT_VLLM_MODEL,
+            DEFAULT_VLLM_SERVED_MODEL_NAME,
             1,
             2,
             48,
@@ -232,15 +245,19 @@ class TestAIGatewayCLI:
 
     def test_failover_command_execution(self) -> None:
         """Verify 'devops ai gateway failover' triggers simulated and active transitions."""
-        res_sim = runner.invoke(
+        res_blocked = runner.invoke(
             gateway_cli_app,
             ["failover", "devops-reasoning", "--simulate", "--format", "json"],
+        )
+        res_sim = runner.invoke(
+            gateway_cli_app,
+            ["failover", "devops-reasoning", "--force", "--simulate", "--format", "json"],
         )
         parsed_sim = json.loads(res_sim.output)
 
         res_exec = runner.invoke(
             gateway_cli_app,
-            ["failover", "devops-reasoning", "--no-simulate"],
+            ["failover", "devops-reasoning", "--force", "--no-simulate"],
         )
 
         res_err = runner.invoke(
@@ -249,12 +266,14 @@ class TestAIGatewayCLI:
         )
 
         assert (
+            res_blocked.exit_code,
             res_sim.exit_code,
             parsed_sim["simulated"],
             res_exec.exit_code,
             "Failover status: failover_active" in res_exec.output,
             res_err.exit_code,
         ) == (
+            1,
             0,
             True,
             0,
@@ -314,29 +333,7 @@ class TestFastMCPGatewayTools:
 
 
 class TestRouterAndClientGatewayIntegration:
-    """Test suite for Router fallback chain and LLMClient gateway provider dispatch."""
-
-    def test_router_fallback_chain_respects_gateway_enabled(self) -> None:
-        """Verify gateway is only inserted into fallback chain when gateway_enabled is True."""
-        from devops_cli.ai.router import DataSensitivity, LLMRouter, TaskComplexity
-
-        router_disabled = LLMRouter(AIConfig(gateway_enabled=False))
-        chain_disabled = router_disabled._build_fallback_chain(
-            "ollama", "qwen2.5-coder:7b", TaskComplexity.LOW, DataSensitivity.INTERNAL
-        )
-
-        router_enabled = LLMRouter(AIConfig(gateway_enabled=True))
-        chain_enabled = router_enabled._build_fallback_chain(
-            "ollama", "qwen2.5-coder:7b", TaskComplexity.LOW, DataSensitivity.INTERNAL
-        )
-
-        assert (
-            any(prov == "gateway" for prov, _ in chain_disabled),
-            chain_enabled[0][0],
-        ) == (
-            False,
-            "gateway",
-        )
+    """Test suite for LLMClient gateway provider dispatch."""
 
     def test_unified_client_gateway_dispatch(self) -> None:
         """Verify LLMClient dispatches to OpenAI compatible handler when provider is gateway."""
@@ -411,3 +408,128 @@ class TestRouterAndClientGatewayIntegration:
             True,
             True,
         )
+
+
+GATEWAY_URL = "http://gateway.example.com:4000/v1"
+
+
+def _model_info(status: int = 200) -> tuple[list[dict[str, str]], Any]:
+    """Serve a LiteLLM /model/info with two deployments and one expanded wildcard."""
+    requests: list[dict[str, str]] = []
+    wildcard = [
+        {
+            "model_name": name,
+            "litellm_params": {"model": name, "api_base": "http://ollama.example.com:11434/v1"},
+            "model_info": {"id": "wild"},
+        }
+        for name in ("ollama/gpt-4", "ollama/gpt-4o", "ollama/o3")
+    ]
+    data = [
+        {
+            "model_name": "devops-review",
+            "litellm_params": {
+                "model": "openai/qwen2.5-coder-32b-instruct",
+                "api_base": "http://vllm.example.com:8000/v1",
+            },
+            "model_info": {"id": "a"},
+        },
+        {
+            "model_name": "devops-review",
+            "litellm_params": {
+                "model": "ollama_chat/gpt-oss:20b",
+                "api_base": "http://ollama.example.com:11434",
+            },
+            "model_info": {"id": "b"},
+        },
+        *wildcard,
+    ]
+
+    def fake_get(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+        requests.append({"url": url, **(kwargs.get("headers") or {})})
+        body = {"data": data} if status == 200 else {"error": {"message": "No api key"}}
+        return httpx2.Response(status, json=body, request=httpx2.Request("GET", url))
+
+    return requests, fake_get
+
+
+class TestGatewayRouteDiscovery:
+    """Live route discovery authenticates and reports the gateway's real deployments."""
+
+    def test_discovery_authenticates_and_collapses_wildcard_expansions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify /model/info is read with the key and a wildcard's expansions become one route."""
+        requests, fake_get = _model_info()
+        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        router = GatewayRouter(AIConfig(allow_private_network=True), api_key="sk-gateway")
+
+        routes = router.list_routes(GATEWAY_URL)
+
+        assert (
+            [(r.virtual_model, r.target_model) for r in routes],
+            [(r["url"], r.get("Authorization")) for r in requests],
+        ) == (
+            [
+                ("devops-review", "openai/qwen2.5-coder-32b-instruct"),
+                ("devops-review", "ollama_chat/gpt-oss:20b"),
+                ("ollama/*", "ollama/*"),
+            ],
+            [(f"{GATEWAY_URL}/model/info", "Bearer sk-gateway")],
+        )
+
+    @pytest.mark.parametrize(
+        ("api_key", "expected"),
+        [(None, "no API key is configured"), ("sk-wrong", "rejected the configured API key")],
+    )
+    def test_rejected_discovery_names_the_key_instead_of_showing_defaults(
+        self, monkeypatch: pytest.MonkeyPatch, api_key: str | None, expected: str
+    ) -> None:
+        """Verify a 401 raises a credentials error rather than falling back to default routes."""
+        requests, fake_get = _model_info(status=401)
+        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        router = GatewayRouter(AIConfig(allow_private_network=True), api_key=api_key)
+
+        with pytest.raises(AICredentialsError) as exc_info:
+            router.list_routes(GATEWAY_URL)
+
+        assert (
+            expected in str(exc_info.value),
+            "DEVOPS_CLI_AI_API_KEY" in str(exc_info.value),
+            [r.get("Authorization") for r in requests],
+        ) == (True, True, [f"Bearer {api_key}" if api_key else None])
+
+    def test_routes_command_queries_the_configured_gateway(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify `routes` reads the configured gateway, with its key, without --gateway-url."""
+        requests, fake_get = _model_info()
+        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        settings = MagicMock()
+        settings.ai = AIConfig(gateway_url=GATEWAY_URL, allow_private_network=True)
+        monkeypatch.setattr("devops_cli.commands.ai_gateway.load_settings", lambda: settings)
+        monkeypatch.setattr("devops_cli.commands.ai_gateway.get_ai_api_key", lambda _s: "sk-gw")
+
+        result = runner.invoke(gateway_cli_app, ["routes", "--format", "json"])
+
+        assert (
+            result.exit_code,
+            [r["target_model"] for r in json.loads(result.output)],
+            [r.get("Authorization") for r in requests],
+        ) == (
+            0,
+            ["openai/qwen2.5-coder-32b-instruct", "ollama_chat/gpt-oss:20b", "ollama/*"],
+            ["Bearer sk-gw"],
+        )
+
+    def test_routes_command_reports_missing_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify `routes` exits non-zero and names the key when the gateway rejects it."""
+        _requests, fake_get = _model_info(status=401)
+        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        settings = MagicMock()
+        settings.ai = AIConfig(gateway_url=GATEWAY_URL, allow_private_network=True)
+        monkeypatch.setattr("devops_cli.commands.ai_gateway.load_settings", lambda: settings)
+        monkeypatch.setattr("devops_cli.commands.ai_gateway.get_ai_api_key", lambda _s: None)
+
+        result = runner.invoke(gateway_cli_app, ["routes"])
+
+        assert (result.exit_code, "DEVOPS_CLI_AI_API_KEY" in result.output) == (1, True)

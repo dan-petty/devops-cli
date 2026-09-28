@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import ast
+import tomllib
+from collections.abc import Sequence
 from pathlib import Path
 
+from devops_cli.config.constants import (
+    CONST_BLIND_EXCEPTION_TYPES,
+    CONST_TEST_ASSERTION_LINT_RULES,
+)
 from devops_cli.exceptions.base import DevOpsCLIError
 
 
@@ -251,6 +257,28 @@ def _resolve_import_from_edge(
             graph[mod].add(child_mod)
 
 
+def _record_import_edges(
+    mod: str,
+    py_file: Path,
+    module_files: dict[str, Path],
+    graph: dict[str, set[str]],
+) -> None:
+    """Add one module's import edges to the dependency graph.
+
+    Extracted from the caller so the walk does not sit six blocks deep. AGENTS.md caps
+    nesting at 5, and the commit-time sentinel added in #443 enforces it across every
+    staged Python file -- including this one, which predated the gate.
+    """
+    tree = ast.parse(py_file.read_text(encoding="utf-8"))
+    pkg_parts = list(py_file.relative_to(Path("src")).parent.parts)
+    for node in tree.body:
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Import):
+                _resolve_import_edge(sub, mod, module_files, graph)
+            elif isinstance(sub, ast.ImportFrom):
+                _resolve_import_from_edge(sub, mod, pkg_parts, module_files, graph)
+
+
 def test_no_circular_imports_in_decoupled_subsystems() -> None:
     """Ensure decoupled subsystems (k8s commands, output, ai.review, config) have zero circular imports."""
     from collections import defaultdict
@@ -276,15 +304,7 @@ def test_no_circular_imports_in_decoupled_subsystems() -> None:
             module_files[mod] = py_file
 
         for mod, py_file in module_files.items():
-            tree = ast.parse(py_file.read_text(encoding="utf-8"))
-            rel = py_file.relative_to(Path("src"))
-            pkg_parts = list(rel.parent.parts)
-            for node in tree.body:
-                for sub in ast.walk(node):
-                    if isinstance(sub, ast.Import):
-                        _resolve_import_edge(sub, mod, module_files, graph)
-                    elif isinstance(sub, ast.ImportFrom):
-                        _resolve_import_from_edge(sub, mod, pkg_parts, module_files, graph)
+            _record_import_edges(mod, py_file, module_files, graph)
 
         # Tarjan's SCC
         index = 0
@@ -414,3 +434,101 @@ def test_devcontainer_image_path_filter_covers_dockerfile_sources() -> None:
         "changing the image name, tag, cache source, or builder version alters the "
         "published image without touching any build input."
     )
+
+
+def _expected_exception_name(call: ast.Call) -> str | None:
+    """Name the exception type a `pytest.raises` call expects, when it is a plain name."""
+    is_raises = isinstance(call.func, ast.Attribute) and call.func.attr == "raises"
+    expected = call.args[0] if (is_raises and call.args) else None
+    return expected.id if isinstance(expected, ast.Name) else None
+
+
+def _ruff_enforces(rule: str, select: Sequence[str], ignore: Sequence[str]) -> bool:
+    """Report whether Ruff would actually run one rule under a given configuration.
+
+    Ruff selects and ignores by *prefix*, resolving the longest match, so comparing codes
+    as literal strings is wrong in both directions. With `ignore = ["B"]` Ruff suppresses
+    B017 entirely while a set-difference still reports it enforced -- a test that certifies
+    the very rule it is meant to pin. With `select = ["B"]`, the family-level spelling this
+    release schedules, the set difference reports B017 missing although Ruff runs it.
+
+    `ALL` selects everything, so it is the least specific match: any explicit ignore beats
+    it. A tie goes to ignore, matching Ruff's own resolution.
+    """
+
+    def specificity(prefixes: Sequence[str]) -> int | None:
+        matches = [len(p) for p in prefixes if p == "ALL" or rule.startswith(p)]
+        widened = [
+            0 if p == "ALL" else len(p) for p in prefixes if p == "ALL" or rule.startswith(p)
+        ]
+        return max(widened) if matches else None
+
+    selected = specificity(select)
+    if selected is None:
+        return False
+    ignored = specificity(ignore)
+    return ignored is None or ignored < selected
+
+
+def _blind_exception_assertions(tests_dir: Path) -> list[str]:
+    """Report every `file:line` in the suite that expects a root exception type."""
+    sites: list[str] = []
+    for path in sorted(tests_dir.rglob("test_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        sites.extend(
+            f"{path.name}:{node.lineno}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and _expected_exception_name(node) in CONST_BLIND_EXCEPTION_TYPES
+        )
+    return sites
+
+
+def test_no_test_certifies_a_failure_without_checking_it() -> None:
+    """A test that expects a failure must say which failure, and Ruff must keep it saying so.
+
+    `pytest.raises(Exception)` is satisfied by a `TypeError` an unrelated refactor
+    introduced, so it keeps reporting green through the very regression it exists to catch.
+    An unescaped `match=` pattern is the same defect in miniature: `"missing 'metadata.name'"`
+    accepts any character where the dots are, so the assertion is weaker than it reads.
+    Neither is visible in review -- both read as correct tests -- so the Ruff rules that
+    catch them are pinned here beside the scan, and dropping either rule fails this test.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    config = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+    lint = config["tool"]["ruff"]["lint"]
+    unenforced = sorted(
+        rule
+        for rule in CONST_TEST_ASSERTION_LINT_RULES
+        if not _ruff_enforces(rule, lint["select"], lint.get("ignore", []))
+    )
+
+    assert (_blind_exception_assertions(repo_root / "tests"), unenforced) == ([], [])
+
+
+def test_rule_enforcement_matches_ruffs_prefix_resolution() -> None:
+    """Ruff selects and ignores by prefix, resolving the longest match.
+
+    The first version of the invariant above compared codes as literal strings, so
+    `select = ["B"]` — the family-level spelling the adjacent roadmap item schedules for
+    this release — made it report B017 unenforced while Ruff runs it.
+
+    Each case here was checked against Ruff itself rather than reasoned about, which
+    matters: an adversarial review of this change also claimed `ignore = ["B"]` suppresses
+    an explicitly selected B017. Ruff still reports it, because the longer prefix wins.
+    """
+    cases = [
+        _ruff_enforces("B017", ["E", "F", "B017"], ["E501"]),
+        _ruff_enforces("B017", ["E", "F", "B017"], ["B"]),
+        _ruff_enforces("B017", ["E", "F", "B"], []),
+        _ruff_enforces("B017", ["E", "F"], []),
+    ]
+    assert cases == [True, True, True, False]
+
+
+def test_a_broad_ignore_defeats_a_broad_select() -> None:
+    """`ALL` is the least specific selection, so any explicit ignore outranks it."""
+    assert (
+        _ruff_enforces("RUF043", ["ALL"], ["RUF"]),
+        _ruff_enforces("RUF043", ["ALL"], []),
+    ) == (False, True)

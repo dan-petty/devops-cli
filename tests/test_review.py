@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -86,13 +87,6 @@ def test_review_pr_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     ):
         res = runner.invoke(review_app, ["pr", "10", "--persona", "qa"])
         assert res.exit_code == 0
-
-
-def test_review_verify_and_apply_patch(tmp_path: Path) -> None:
-    """Verify apply-patch subcommand execution."""
-    with patch("devops_cli.commands.review.stage_finding_patch", return_value=True):
-        res_patch = runner.invoke(review_app, ["apply-patch", "session-123", "--index", "1"])
-        assert res_patch.exit_code == 0
 
 
 def test_review_findings_stats_export_feedback(tmp_path: Path) -> None:
@@ -264,11 +258,6 @@ def test_review_error_branches_and_patch_failure(tmp_path: Path) -> None:
         res_find_none = runner.invoke(review_app, ["findings", "--session", "empty_sess"])
         assert res_find_none.exit_code == 0
 
-    # 3. apply-patch failure
-    with patch("devops_cli.commands.review.stage_finding_patch", return_value=False):
-        res_patch_fail = runner.invoke(review_app, ["apply-patch", "sess-1", "--index", "1"])
-        assert res_patch_fail.exit_code == 1
-
 
 def test_review_multiple_targets_and_findings_options(tmp_path: Path) -> None:
     """Verify review path with multiple file targets, patterns, and findings formatting."""
@@ -362,16 +351,12 @@ def test_review_stats_command(tmp_path: Path) -> None:
     """Verify review stats command execution across saved sessions."""
     _create_sample_review_session(tmp_path)
     res_stats = runner.invoke(review_app, ["stats", "--reviews-dir", str(tmp_path)])
-    assert res_stats.exit_code == 0
-    assert "Finding Status Breakdown" in res_stats.output
-    assert "Persona False Positive Rate" in res_stats.output
-
-
-def test_review_apply_patch_success() -> None:
-    """Verify review apply-patch delegation when patching succeeds."""
-    with patch("devops_cli.commands.review.stage_finding_patch", return_value=True):
-        res_patch_ok = runner.invoke(review_app, ["apply-patch", "rev_sess_1", "--index", "1"])
-        assert res_patch_ok.exit_code == 0
+    assert (
+        res_stats.exit_code,
+        "Finding Status Breakdown" in res_stats.output,
+        "Persona False Positive Rate" in res_stats.output,
+        "Category False Positive Rate (Invalidated)" in res_stats.output,
+    ) == (0, True, True, True)
 
 
 def test_review_findings_details_pretty_printing(tmp_path: Path) -> None:
@@ -446,3 +431,66 @@ def test_finding_location_and_title_sanitizes_criteria_leakage() -> None:
     assert f.location == "src/devops_cli/commands/install_tools.py:1"
     assert "Provide verification criteria" not in f.title
     assert "Invalidation criteria" not in f.location
+
+
+def test_tally_single_session_findings_splits_comma_joined_personas(tmp_path: Path) -> None:
+    """Verify that _tally_single_session_findings splits comma-joined persona strings."""
+    from devops_cli.ai.review_schema import SavedFinding
+    from devops_cli.commands.review import _tally_single_session_findings
+
+    findings_file = tmp_path / "findings.json"
+    f1 = SavedFinding(
+        title="SQL Injection",
+        location="src/db.py:10",
+        description="Raw SQL concatenation",
+        fix="Use parameters",
+        status="INVALIDATED",
+        persona="devsecops, architect",
+    )
+    f2 = SavedFinding(
+        title="Unbounded Concurrency",
+        location="src/worker.py:20",
+        description="Missing semaphore",
+        fix="Add semaphore",
+        status="VERIFIED",
+        persona="architect, performance",
+    )
+    f3 = SavedFinding(
+        title="Missing Test",
+        location="src/test_api.py:1",
+        description="No test coverage",
+        fix="Add tests",
+        status="UNVERIFIED",
+        persona="",
+    )
+    payload = ReviewSessionPayload(
+        target_type="path",
+        target_ref=str(tmp_path),
+        findings=[f1, f2, f3],
+        generated_at=datetime.now(UTC).isoformat(),
+    )
+    findings_file.write_text(payload.model_dump_json(), encoding="utf-8")
+
+    by_status: dict[str, int] = {}
+    by_persona_total: dict[str, int] = {}
+    by_persona_invalidated: dict[str, int] = {}
+    all_findings: list[Any] = []
+
+    count = _tally_single_session_findings(
+        findings_file,
+        by_status,
+        by_persona_total,
+        by_persona_invalidated,
+        all_findings,
+    )
+
+    expected_status = {"INVALIDATED": 1, "VERIFIED": 1, "UNVERIFIED": 1}
+    expected_total = {"devsecops": 1, "architect": 2, "performance": 1, "unknown": 1}
+    expected_invalidated = {"devsecops": 1, "architect": 1}
+    assert (count, by_status, by_persona_total, by_persona_invalidated, len(all_findings)) == (
+        3,
+        expected_status,
+        expected_total,
+        expected_invalidated,
+        3,
+    )

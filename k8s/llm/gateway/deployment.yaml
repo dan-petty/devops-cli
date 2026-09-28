@@ -29,7 +29,7 @@ spec:
 
       containers:
         - name: litellm
-          image: ghcr.io/berriai/litellm:v1.61.16
+          image: ghcr.io/berriai/litellm:v1.102.1
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -45,6 +45,18 @@ spec:
             - "--host"
             - "0.0.0.0"
           env:
+            # Clients authenticate with this key (`Authorization: Bearer <key>`). Create it once per
+            # cluster; it must start with `sk-`:
+            #   kubectl -n llm create secret generic llm-gateway-secrets \
+            #     --from-literal=master-key="sk-$(openssl rand -hex 24)"
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-gateway-secrets
+                  key: master-key
+            # Use the bundled model cost map; egress is limited to the inference backends.
+            - name: LITELLM_LOCAL_MODEL_COST_MAP
+              value: "True"
             - name: LITELLM_REDIS_HOST
               value: "valkey.llm.svc.cluster.local"
             - name: LITELLM_REDIS_PORT
@@ -54,7 +66,7 @@ spec:
             - name: HTTPS_PROXY
               value: "http://squid.squid.svc.cluster.local:3128"
             - name: NO_PROXY
-              value: "localhost,127.0.0.1,llm-gateway.llm.svc.cluster.local,ollama.llm.svc.cluster.local,vllm.llm.svc.cluster.local,valkey.llm.svc.cluster.local"
+              value: "localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant,*.ollama-nodes.llm.svc.cluster.local,ollama-volta-1.llm.svc.cluster.local"
           ports:
             - name: http
               containerPort: 4000

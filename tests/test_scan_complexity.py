@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.scan import app as scan_app
@@ -160,3 +161,32 @@ def test_complexity_boolops_match_and_syntax_error(tmp_path: Path) -> None:
     non_py = tmp_path / "readme.md"
     non_py.write_text("# Readme", encoding="utf-8")
     assert run_complexity_scan(non_py) == []
+
+
+def test_complexity_findings_are_located_relative_to_a_nested_worktree(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify findings from a worktree under `.claude/worktrees/` name paths inside that
+    worktree, not paths through the checkout around it (#582)."""
+    _, nested = nested_worktree
+    (nested / "src").mkdir()
+    (nested / "src" / "deep.py").write_text(
+        "def deep_nesting(val: int) -> None:\n"
+        "    if val > 0:\n"
+        "        if val > 1:\n"
+        "            if val > 2:\n"
+        "                if val > 3:\n"
+        "                    if val > 4:\n"
+        "                        if val > 5:\n"
+        "                            print(val)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(nested)
+
+    findings = run_complexity_scan(nested / "src", max_complexity=2, max_nesting_depth=3)
+
+    locations = [finding.location for finding in findings]
+    assert (
+        bool(locations),
+        all(loc.startswith("src/") and ".claude" not in loc for loc in locations),
+    ) == (True, True)

@@ -1,7 +1,6 @@
 # Task: Optimize Caching Configuration Across All GitHub Workflows (#99)
 
-**Issue**: #99
-**PR**: #100
+**Issue**: [#99](https://github.com/dan-petty/devops-cli/issues/99)
 **Status**: Done
 **Milestone**: v0.2.15
 **Priority**: priority/p2-medium

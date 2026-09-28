@@ -31,7 +31,7 @@ from devops_cli.ai.analyze.outlines import _mask_sensitive_data
 from devops_cli.ai.review_schema import extract_json_block
 from devops_cli.config.defaults import DEFAULT_AGENT_MAX_TURNS
 from devops_cli.exceptions import ValidationError
-from devops_cli.models.ai import ScratchpadBuffer
+from devops_cli.models.ai import ChatMessage, ScratchpadBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -129,8 +129,13 @@ class MultiAgentPipeline[T]:
         parallel: bool = False,
         skip_rag: bool = False,
         max_workers: int | None = None,
+        message_history: list[ChatMessage] | None = None,
     ) -> MultiAgentPipelineResult[T]:
-        """Run the multi-agent pipeline sequentially or in parallel, passing accumulated context forward."""
+        """Run the multi-agent pipeline sequentially or in parallel, passing accumulated context forward.
+
+        ``message_history`` replaces each agent's own memory as the conversation sent to the model;
+        an empty list sends only the current prompt. ``None`` keeps each agent's memory.
+        """
         if parallel:
             return self.run_parallel(
                 initial_prompt,
@@ -138,6 +143,7 @@ class MultiAgentPipeline[T]:
                 enable_thinking=enable_thinking,
                 skip_rag=skip_rag,
                 max_workers=max_workers,
+                message_history=message_history,
             )
         if max_turns_per_agent <= 0:
             msg = f"max_turns_per_agent must be a positive integer, got {max_turns_per_agent}"
@@ -165,6 +171,7 @@ class MultiAgentPipeline[T]:
                 prompt,
                 max_turns=max_turns_per_agent,
                 enable_thinking=enable_thinking,
+                message_history=message_history,
             )
 
             total_turns += res.turns
@@ -219,6 +226,7 @@ class MultiAgentPipeline[T]:
         enable_thinking: bool = False,
         skip_rag: bool = True,
         max_workers: int | None = None,
+        message_history: list[ChatMessage] | None = None,
     ) -> MultiAgentPipelineResult[T]:
         """Run multi-agent pipeline stages concurrently across available worker threads."""
         if not self.agents:
@@ -237,6 +245,7 @@ class MultiAgentPipeline[T]:
                 max_turns=max_turns_per_agent,
                 enable_thinking=enable_thinking,
                 skip_rag=skip_rag,
+                message_history=message_history,
             )
             step = PipelineStepResult(
                 agent_name=agent.name,

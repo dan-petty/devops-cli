@@ -279,6 +279,29 @@ def sync_single_release_epic(
     return "created", None
 
 
+def _closed_milestone_titles(repo: str) -> set[str]:
+    """Titles of the repository's closed milestones; none when they cannot be read."""
+    from devops_cli.github.client import GhCliClient
+
+    try:
+        return {m["title"] for m in GhCliClient(repo).get_milestones(repo, state="closed")}
+    except Exception as exc:
+        logger.warning("Failed to fetch closed milestones: %s", exc)
+        return set()
+
+
+def _mark_shipped_releases(specs: list[ReleaseEpicSpec], closed_milestones: set[str]) -> None:
+    """Treat a release whose milestone is closed as completed.
+
+    The roadmap header is edited by hand during the next release, so it lags: v0.2.22 shipped
+    with its milestone closed while its header still read "Active Release", which kept its
+    epic open and rendered as active.
+    """
+    for spec in specs:
+        if spec.milestone_version in closed_milestones:
+            spec.milestone_status = "Completed"
+
+
 def sync_all_release_epics(
     repo: str,
     roadmap_path: Path = Path("docs/ROADMAP.md"),
@@ -296,6 +319,7 @@ def sync_all_release_epics(
     if version_filter:
         cleaned_filter = f"v{version_filter.lstrip('v')}"
         specs = [s for s in specs if s.milestone_version == cleaned_filter]
+    _mark_shipped_releases(specs, _closed_milestone_titles(repo))
 
     result = ReleaseEpicSyncResult(
         total_milestones=len(specs),

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from devops_cli.commands.scan import scan_trivy as scan_main
 from devops_cli.security.kubelinter import parse_kubelinter_json, run_kubelinter_scan
-from devops_cli.security.pluto import parse_pluto_json, run_pluto_scan
+from devops_cli.security.pluto import PlutoScanner, parse_pluto_json, run_pluto_scan
 from devops_cli.security.popeye import parse_popeye_json, run_popeye_scan
 from devops_cli.security.trivy import parse_trivy_json, run_trivy_scan
 
@@ -181,10 +183,24 @@ def test_kubelinter_scanner_execution(tmp_path: Path) -> None:
 
 
 def test_pluto_scanner_execution(tmp_path: Path) -> None:
-    """Verify pluto subprocess execution and exit 127 handling."""
+    """Verify pluto subprocess execution, command building, and exit 127 handling."""
     import json
     import subprocess
     from unittest.mock import patch
+
+    from devops_cli.config.commands import BIN_PLUTO
+
+    scanner = PlutoScanner()
+    manifest_file = tmp_path / "deployment.yaml"
+    manifest_file.touch()
+
+    assert (
+        scanner.build_command(tmp_path),
+        scanner.build_command(manifest_file),
+    ) == (
+        [BIN_PLUTO, "detect-files", "-d", str(tmp_path), "-o", "json"],
+        [BIN_PLUTO, "detect", str(manifest_file), "-o", "json"],
+    )
 
     pluto_json = json.dumps(
         {
@@ -205,8 +221,7 @@ def test_pluto_scanner_execution(tmp_path: Path) -> None:
     )
     with patch("devops_cli.security.pluto.run_subprocess", return_value=mock_pluto_proc):
         pluto_findings = run_pluto_scan(tmp_path)
-        assert len(pluto_findings) == 1
-        assert pluto_findings[0].severity == "HIGH"
+        assert (len(pluto_findings), pluto_findings[0].severity) == (1, "HIGH")
 
     mock_127 = subprocess.CompletedProcess(
         args=["cmd"], returncode=127, stdout="", stderr="not found"
@@ -260,3 +275,20 @@ def test_secops_scanners_dry_run(tmp_path: Path) -> None:
 
     with patch("devops_cli.security.popeye.is_dry_run", return_value=True):
         assert len(run_popeye_scan()) == 1
+
+
+def test_kubelinter_locations_are_relative_to_the_nested_worktree(
+    nested_worktree: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a finding scanned from a worktree under `.claude/worktrees/` names the manifest
+    inside that worktree, not a path through the checkout around it (#582)."""
+    _, nested = nested_worktree
+    manifest = nested / "k8s" / "deployment.yaml"
+    manifest.parent.mkdir()
+    manifest.write_text("kind: Deployment\n", encoding="utf-8")
+    report = {"Object": {"K8sObject": {"GroupVersionKind": {"Kind": "Deployment"}, "Name": "web"}}}
+    monkeypatch.chdir(nested)
+
+    findings = parse_kubelinter_json({"Reports": [report]}, target_path=str(manifest))
+
+    assert [finding.location for finding in findings] == ["k8s/deployment.yaml:Deployment/web"]

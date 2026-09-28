@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from devops_cli.sandbox.engine import WorkloadSandboxEngine
+from devops_cli.sandbox.host import HostSandbox, HostSandboxResult
 from devops_cli.sandbox.metrics import (
     collect_sandbox_metrics,
     evaluate_threshold_warnings,
@@ -12,6 +13,7 @@ from devops_cli.sandbox.metrics import (
     scrape_prometheus_metrics,
 )
 from devops_cli.sandbox.models import (
+    DEFAULT_SANDBOX_POLICY,
     CgroupV2Metrics,
     EndpointProbeResult,
     PortBinding,
@@ -22,6 +24,7 @@ from devops_cli.sandbox.models import (
     SandboxExecResult,
     SandboxInstance,
     SandboxMetricsSnapshot,
+    SandboxPolicy,
     SandboxProbeReport,
     SandboxStatus,
 )
@@ -36,8 +39,11 @@ from devops_cli.sandbox.probe import (
 from devops_cli.sandbox.registry import SandboxRegistry, get_default_sandbox_registry_path
 
 __all__ = [
+    "DEFAULT_SANDBOX_POLICY",
     "CgroupV2Metrics",
     "EndpointProbeResult",
+    "HostSandbox",
+    "HostSandboxResult",
     "PortBinding",
     "ProbeProtocol",
     "ProbeStatus",
@@ -46,6 +52,7 @@ __all__ = [
     "SandboxExecResult",
     "SandboxInstance",
     "SandboxMetricsSnapshot",
+    "SandboxPolicy",
     "SandboxProbeReport",
     "SandboxRegistry",
     "SandboxStatus",

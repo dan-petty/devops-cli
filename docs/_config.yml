@@ -1,0 +1,12 @@
+# GitHub Pages builds this directory with Jekyll, which parses `{% ... %}` and
+# `{{ ... }}` as Liquid before rendering Markdown. Agent task files document this
+# project's Jinja2 templating and CI expressions, so they contain those delimiters as
+# prose. Liquid tries to execute them: `{% if minikube %}` in task 325 is read as an
+# unclosed tag and aborts the whole build, which has been failing every Pages deployment
+# on main since that task merged.
+#
+# These files are internal tracking artifacts rather than published documentation, so
+# they are excluded from the site rather than escaped one by one -- there are 60 of them
+# and each new task adds another.
+exclude:
+  - agent/

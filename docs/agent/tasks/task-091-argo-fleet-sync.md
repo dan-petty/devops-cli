@@ -1,7 +1,6 @@
 # Task: Multi-Cluster ArgoCD Fleet Sync & Rollouts (#91)
 
-**Issue**: #91
-**PR**: #98
+**Issue**: [#91](https://github.com/dan-petty/devops-cli/issues/91)
 **Status**: Done
 **Milestone**: v0.2.15
 **Priority**: priority/p1-high

@@ -1,7 +1,6 @@
 # Task 218: Fix Release Draft PR Description Generator and Milestone Deliverable Resolution
 
 **Issue**: [#218](https://github.com/dan-petty/devops-cli/issues/218)
-**PR**: [#219](https://github.com/dan-petty/devops-cli/pull/219)
 **Status**: Done
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p1-high`

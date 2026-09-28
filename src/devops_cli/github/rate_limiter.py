@@ -1272,6 +1272,37 @@ def _is_rate_limit_exempt(args: list[str]) -> bool:
     return _is_rate_limit_check(clean)
 
 
+def _parse_resource_quota(
+    r_name: str, r_info: dict[str, Any]
+) -> tuple[int, float | None, int | None, int | None]:
+    try:
+        reset_val = r_info.get("reset")
+        reset_epoch = float(reset_val) if reset_val is not None else None
+        rem_val = int(r_info["remaining"])
+        limit_val = int(r_info["limit"]) if r_info.get("limit") is not None else None
+        used_val = int(r_info["used"]) if r_info.get("used") is not None else None
+        return rem_val, reset_epoch, limit_val, used_val
+    except (ValueError, TypeError) as exc:
+        raise GitHubRateLimitError(
+            f"Malformed rate limit metric for resource '{r_name}': {exc}",
+            operation="refresh_quota",
+            details={"resource": str(r_name)[:256], "error": str(exc)[:256]},
+        ) from exc
+
+
+def _update_single_resource_quota(r_name: str, r_info: Any, limiter: GitHubRateLimiter) -> None:
+    if not isinstance(r_info, dict) or r_info.get("remaining") is None:
+        return
+    rem_val, reset_epoch, limit_val, used_val = _parse_resource_quota(r_name, r_info)
+    limiter.update_quota(
+        r_name,
+        remaining=rem_val,
+        limit=limit_val,
+        used=used_val,
+        reset_epoch=reset_epoch,
+    )
+
+
 def _extract_rate_limit_endpoint_response(output: str, limiter: GitHubRateLimiter) -> None:
     """Update quotas directly from /rate_limit endpoint response."""
     payload = extract_json_payload(output)
@@ -1287,32 +1318,7 @@ def _extract_rate_limit_endpoint_response(output: str, limiter: GitHubRateLimite
             operation="refresh_quota",
         )
     for r_name, r_info in resources.items():
-        if isinstance(r_info, dict) and "remaining" in r_info and r_info["remaining"] is not None:
-            try:
-                reset_val = r_info.get("reset")
-                reset_epoch = float(reset_val) if reset_val is not None else None
-                rem_val = int(r_info["remaining"])
-                limit_val = (
-                    int(r_info["limit"])
-                    if "limit" in r_info and r_info["limit"] is not None
-                    else None
-                )
-                used_val = (
-                    int(r_info["used"]) if "used" in r_info and r_info["used"] is not None else None
-                )
-            except (ValueError, TypeError) as exc:
-                raise GitHubRateLimitError(
-                    f"Malformed rate limit metric for resource '{r_name}': {exc}",
-                    operation="refresh_quota",
-                    details={"resource": str(r_name)[:256], "error": str(exc)[:256]},
-                ) from exc
-            limiter.update_quota(
-                r_name,
-                remaining=rem_val,
-                limit=limit_val,
-                used=used_val,
-                reset_epoch=reset_epoch,
-            )
+        _update_single_resource_quota(r_name, r_info, limiter)
 
 
 def _extract_page_per_page(url_or_endpoint: str) -> int:
@@ -1381,28 +1387,34 @@ def _execute_single_page(
     return proc
 
 
-def _run_gh_paginated(
-    clean_args: list[str],
+def _append_paginated_data(combined_items: list[Any], data: Any, per_page: int) -> bool:
+    """Append page items and return True if more pages may exist."""
+    if isinstance(data, dict) and "check_runs" in data:
+        combined_items.append(data)
+        check_runs = data.get("check_runs", [])
+        total_count = data.get("total_count", 0)
+        return len(check_runs) >= per_page and len(combined_items) * per_page < total_count
+
+    if isinstance(data, list):
+        combined_items.extend(data)
+        return len(data) >= per_page
+
+    return False
+
+
+def _fetch_all_pages(
+    args_no_paginate: list[str],
+    endpoint_idx: int,
+    base_endpoint: str,
+    per_page: int,
     limiter: GitHubRateLimiter,
     target_resource: str,
-    cwd: Path | None = None,
-    quiet: bool = False,
-    timeout: float = 30.0,
-    max_pages: int = DEFAULT_GH_MAX_PAGINATED_PAGES,
-) -> subprocess.CompletedProcess[str]:
-    """Execute a paginated gh api request page-by-page with mandatory delay prepended."""
-    args_no_paginate = [a for a in clean_args if a != "--paginate"]
-    endpoint_idx = _find_api_endpoint_idx(args_no_paginate)
-    if endpoint_idx == -1:
-        return cast(
-            subprocess.CompletedProcess[str],
-            _burst_protected_subprocess(
-                [CONST_GH_CLI, *clean_args], cwd=cwd, check=False, quiet=quiet, timeout=timeout
-            ),
-        )
-
-    base_endpoint = args_no_paginate[endpoint_idx]
-    per_page = _extract_page_per_page(base_endpoint)
+    cwd: Path | None,
+    quiet: bool,
+    timeout: float,
+    max_pages: int,
+) -> tuple[subprocess.CompletedProcess[str] | None, list[Any], bool]:
+    """Execute pages up to max_pages and return (last_proc, combined_items, is_exhausted)."""
     combined_items: list[Any] = []
     page = 1
     last_proc: subprocess.CompletedProcess[str] | None = None
@@ -1421,26 +1433,64 @@ def _run_gh_paginated(
         )
         last_proc = proc
         if proc.returncode != 0:
-            return proc
+            return proc, combined_items, False
 
         stdout_trimmed = (proc.stdout or "").strip()
-        if not stdout_trimmed or stdout_trimmed == "[]":
+        if stdout_trimmed in ("", "[]"):
             break
 
         data = extract_json_payload(stdout_trimmed)
-        if not isinstance(data, list):
-            return proc
-
-        combined_items.extend(data)
-        if len(data) < per_page:
+        if not _append_paginated_data(combined_items, data, per_page):
+            if not combined_items and isinstance(data, dict):
+                return proc, combined_items, False
             break
         page += 1
+
+    return last_proc, combined_items, True
+
+
+def _run_gh_paginated(
+    clean_args: list[str],
+    limiter: GitHubRateLimiter,
+    target_resource: str,
+    cwd: Path | None = None,
+    quiet: bool = False,
+    timeout: float = 30.0,
+    max_pages: int = DEFAULT_GH_MAX_PAGINATED_PAGES,
+) -> subprocess.CompletedProcess[str]:
+    """Execute a paginated gh api request page-by-page with mandatory delay prepended."""
+    args_no_paginate = [a for a in clean_args if a not in ("--paginate", "--slurp")]
+    endpoint_idx = _find_api_endpoint_idx(args_no_paginate)
+    if endpoint_idx == -1:
+        return cast(
+            subprocess.CompletedProcess[str],
+            _burst_protected_subprocess(
+                [CONST_GH_CLI, *clean_args], cwd=cwd, check=False, quiet=quiet, timeout=timeout
+            ),
+        )
+
+    base_endpoint = args_no_paginate[endpoint_idx]
+    per_page = _extract_page_per_page(base_endpoint)
+    proc, items, ok = _fetch_all_pages(
+        args_no_paginate,
+        endpoint_idx,
+        base_endpoint,
+        per_page,
+        limiter,
+        target_resource,
+        cwd,
+        quiet,
+        timeout,
+        max_pages,
+    )
+    if not ok and proc is not None:
+        return proc
 
     return subprocess.CompletedProcess(
         args=[CONST_GH_CLI, *clean_args],
         returncode=0,
-        stdout=json.dumps(combined_items),
-        stderr=last_proc.stderr if last_proc else "",
+        stdout=json.dumps(items),
+        stderr=proc.stderr if proc else "",
     )
 
 

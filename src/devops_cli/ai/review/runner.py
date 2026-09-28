@@ -2,30 +2,43 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
-from collections.abc import Callable
+from collections import Counter
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from devops_cli.ai.analyze.cache import _load_file_analysis_metas
 from devops_cli.ai.client import AIClientError, LLMClient
+from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.ai.personas import PERSONAS, Persona, PersonaDefinition
 from devops_cli.ai.review.chunker import (
     _extract_header_filenames,
     _split_source_file_blocks,
 )
+from devops_cli.ai.review.classification import _persona_system_prompt
 from devops_cli.ai.review.flags import ReviewStageFlags
+from devops_cli.ai.review.profile import (
+    ReviewProfile,
+    ReviewProfiler,
+    active_profiler,
+    profiling,
+    report_profile,
+    review_stage,
+)
 from devops_cli.ai.review.review_environment import (
     _get_reviews_base_dir as _get_reviews_base_dir,
 )
 from devops_cli.ai.review.review_environment import (
     _read_candidate_conventions_file as _read_candidate_conventions_file,
 )
+from devops_cli.ai.review.verdicts import apply_verdict, assert_verdict_invariants
 from devops_cli.ai.review.verification import (
     _merge_segment_results,
     _reconcile_verified,
@@ -36,6 +49,7 @@ from devops_cli.ai.review_schema import (
     ReviewResult,
     ReviewSessionPayload,
     SavedFinding,
+    compute_verdict_distributions,
     consolidate_duplicate_findings,
     parse_review_response,
 )
@@ -47,6 +61,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_REVIEW_MAX_DIFF_CHARS,
+    DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
@@ -79,17 +94,27 @@ _DEFAULT_CONTEXT_LINES = 2
 
 _PAGINATED_REVIEW_PROTOCOL = load_task_prompt("paginated_review_protocol.md")
 _REVIEW_OUTPUT_INSTRUCTION = "\n" + load_task_prompt("review_output_instruction.md")
-_GUARDRAILS_PROMPT = "\n\n" + load_task_prompt("guardrails_isolation.md")
 _PATH_REVIEW_PROMPT_TEMPLATE = load_task_prompt("path_review_prompt.md")
 
 
 class ReviewClients(BaseModel):
-    """LLM clients resolved per review task, each potentially using a different model."""
+    """LLM clients resolved per review task, each potentially using a different model.
+
+    ``verification`` checks the findings ``analysis`` produced. It defaults to the analysis
+    client, so generation and verification share a model unless verification is configured.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     analysis: Any
     compose: Any
+    verification: Any = None
+
+    @model_validator(mode="after")
+    def _verify_with_analysis_by_default(self) -> ReviewClients:
+        if self.verification is None:
+            self.verification = self.analysis
+        return self
 
 
 def _personas_to_run(all_personas: bool, persona: Persona | None) -> list[PersonaDefinition]:
@@ -185,24 +210,6 @@ def _llm_request_preview(client: Any, system: str, user: str) -> dict[str, Any]:
             ],
         },
     }
-
-
-def _persona_system_prompt(persona: PersonaDefinition, agents_md: str) -> str:
-    """Compose the per-file/segment system prompt for this persona."""
-    if not agents_md:
-        return persona.system_prompt + _GUARDRAILS_PROMPT
-
-    clean_agents = sanitize_prompt_boundary_tags(agents_md)
-    return (
-        f"{persona.system_prompt}\n\n"
-        "## Target Project Conventions & Reference Instructions\n"
-        "<project_conventions_context>\n"
-        f"{clean_agents}\n"
-        "</project_conventions_context>\n\n"
-        "Adhere to target project conventions. Do not raise findings that merely "
-        "restate or contradict the conventions explicitly documented above."
-        f"{_GUARDRAILS_PROMPT}"
-    )
 
 
 def _persona_format_section(persona: PersonaDefinition) -> str:
@@ -402,10 +409,22 @@ def _save_segments(pages: list[str], session_dir: Path) -> None:
         target.chmod(0o600)
 
 
+def _compute_delta_summary(analysis_metas: dict[str, FileAnalysisMeta] | None) -> dict[str, int]:
+    """Calculate symbol delta counts from analysis metadata."""
+    if not analysis_metas:
+        return {}
+    return {
+        "added": sum(len(m.symbols_added) for m in analysis_metas.values()),
+        "removed": sum(len(m.symbols_removed) for m in analysis_metas.values()),
+        "retained": sum(len(m.symbols_retained) for m in analysis_metas.values()),
+    }
+
+
 def _save_findings_json(
     completed: list[tuple[PersonaDefinition, ReviewResult | str]],
     session_dir: Path,
     show_status: bool = False,
+    analysis_metas: dict[str, FileAnalysisMeta] | None = None,
 ) -> bool:
     target = session_dir / "findings.json"
     findings: list[SavedFinding] = []
@@ -422,11 +441,17 @@ def _save_findings_json(
                 )
             )
     findings = consolidate_duplicate_findings(findings)
+    assert_verdict_invariants(findings)
+    removed_count = sum(1 for f in findings if f.verification_note == "cites removed symbol")
+    delta_summary = _compute_delta_summary(analysis_metas)
     payload = ReviewSessionPayload(
         generated_at=datetime.now().isoformat(),
         personas=[pd.name for pd, _ in completed],
         findings=findings,
+        removed_symbol_findings_count=removed_count,
+        symbol_delta_summary=delta_summary,
     )
+
     try:
         target.write_text(
             payload.model_dump_json(indent=2),
@@ -441,6 +466,26 @@ def _save_findings_json(
         return False
 
 
+def _format_finding_markdown(f: Finding) -> list[str]:
+    """Format an individual finding for markdown output."""
+    verified = ""
+    if f.mitigated:
+        verified = " *(mitigated)*"
+    elif not f.verified:
+        verified = " *(unverified)*"
+    lines = [
+        f"### [{f.severity}] {f.title}{verified}",
+        f"**Location:** `{f.location}`\n",
+    ]
+    if f.description:
+        lines.append(f"{f.description}\n")
+    if f.fix:
+        lines.append(f"**Fix:** {f.fix}\n")
+    if f.references:
+        lines.append(f"**References:** {', '.join(f.references)}\n")
+    return lines
+
+
 def _review_to_markdown(review: ReviewResult | str) -> str:
     if isinstance(review, str):
         from devops_cli.ai.thinking_stream import strip_think_blocks
@@ -448,33 +493,157 @@ def _review_to_markdown(review: ReviewResult | str) -> str:
         clean_text = strip_think_blocks(review)
         parsed = parse_review_response(clean_text)
         return _review_to_markdown(parsed) if parsed else clean_text
+    if getattr(review, "report_markdown", None):
+        return str(review.report_markdown)
     lines: list[str] = [f"**Recommendation: {review.recommendation}**\n"]
     if review.findings:
         lines.append("## Findings\n")
         for f in review.sorted_findings:
-            verified = (
-                ""
-                if f.verified and not f.mitigated
-                else " *(mitigated)*"
-                if f.mitigated
-                else " *(unverified)*"
-            )
-            lines.append(f"### [{f.severity}] {f.title}{verified}")
-            lines.append(f"**Location:** `{f.location}`\n")
-            if f.description:
-                lines.append(f.description + "\n")
-            if f.fix:
-                lines.append(f"**Fix:** {f.fix}\n")
-            if f.references:
-                lines.append(f"**References:** {', '.join(f.references)}\n")
-    if review.positive_observations:
-        lines.append("## Positive Observations\n")
-        lines.extend(f"- {obs}" for obs in review.positive_observations)
-        lines.append("")
+            lines.extend(_format_finding_markdown(f))
     if review.summary:
-        lines.append("## Summary\n")
+        lines.append("## Model Notes (Not Verified)\n")
         lines.append(review.summary)
     return "\n".join(lines)
+
+
+def _has_review_findings(reviews: list[tuple[PersonaDefinition, ReviewResult | str]]) -> bool:
+    """Return True if any review contains actionable findings."""
+    for _, rev in reviews:
+        if isinstance(rev, ReviewResult) and any(
+            getattr(f, "reportable", True) for f in rev.findings
+        ):
+            return True
+        if isinstance(rev, str):
+            from devops_cli.ai.thinking_stream import strip_think_blocks
+            from devops_cli.core.serialization import extract_json_block
+
+            clean = strip_think_blocks(rev)
+            parsed = extract_json_block(clean, default=None)
+            if isinstance(parsed, dict) and parsed.get("findings"):
+                return True
+            if "## Detailed Findings" in clean or "### [" in clean:
+                return True
+    return False
+
+
+def _extract_review_summaries(
+    reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
+) -> list[tuple[str, str]]:
+    """Extract non-empty summaries from persona reviews."""
+    summaries: list[tuple[str, str]] = []
+    for pd, rev in reviews:
+        text = ""
+        if isinstance(rev, ReviewResult) and rev.summary:
+            text = rev.summary.strip()
+        elif isinstance(rev, str):
+            from devops_cli.ai.thinking_stream import strip_think_blocks
+            from devops_cli.core.serialization import extract_json_block
+
+            clean = strip_think_blocks(rev)
+            parsed = extract_json_block(clean, default=None)
+            if isinstance(parsed, dict) and parsed.get("summary"):
+                text = str(parsed["summary"]).strip()
+        if text:
+            summaries.append((pd.title, text))
+    return summaries
+
+
+def _resolve_static_analyzer_states(target_dir: Path, files: list[str]) -> dict[str, str]:
+    """Map static analyzer execution states based on file types in target directory."""
+    from devops_cli.ai.review.pipeline import _static_analyzer_states
+
+    file_paths = [target_dir / f for f in files]
+    py_paths = [p for p in file_paths if p.suffix.lower() == ".py"]
+    yaml_paths = [p for p in file_paths if p.suffix.lower() in (".yaml", ".yml")]
+    container_paths = [
+        p
+        for p in file_paths
+        if p.name.lower() in ("dockerfile", "containerfile") or p.suffix in (".lock", ".lockb")
+    ]
+    return _static_analyzer_states(
+        {
+            "python": py_paths,
+            "yaml": yaml_paths,
+            "container": container_paths,
+            "any": file_paths,
+        }
+    )
+
+
+def _format_zero_findings_comment(
+    reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
+    files: list[str] | None,
+    static_analyzers: dict[str, str] | None,
+) -> str:
+    """Construct fixed zero-findings comment naming files, personas, and analyzers that ran."""
+    files_list = files or []
+    files_str = ", ".join(f"`{f}`" for f in files_list) if files_list else "None"
+    personas_str = ", ".join(pd.title for pd, _ in reviews) if reviews else "None"
+
+    if static_analyzers:
+        ran = [
+            name
+            for name, state in static_analyzers.items()
+            if state in ("ran", "built-in patterns")
+        ]
+        analyzers_str = ", ".join(sorted(ran)) if ran else "None"
+    else:
+        analyzers_str = "None"
+
+    lines = [
+        "## 🤖 AI Code Review\n",
+        "Zero findings identified.\n",
+        f"- **Files checked:** {files_str}",
+        f"- **Personas:** {personas_str}",
+        f"- **Analyzers:** {analyzers_str}",
+    ]
+
+    summaries = _extract_review_summaries(reviews)
+    if summaries:
+        lines.append("\n## Model Notes (Not Verified)\n")
+        if len(summaries) == 1:
+            lines.append(summaries[0][1])
+        else:
+            for persona_title, summary_text in summaries:
+                lines.append(f"### {persona_title}\n\n{summary_text}\n")
+
+    return "\n".join(lines).strip() + "\n"
+
+
+def format_pr_review_comment(
+    reviews: list[tuple[PersonaDefinition, ReviewResult | str]],
+    files: list[str] | None = None,
+    target_dir: Path | None = None,
+    static_analyzers: dict[str, str] | None = None,
+) -> str:
+    """Format PR comment body for post_comment review workflow.
+
+    Emits a fixed zero-findings comment naming files, personas, and analyzers when zero
+    findings are identified, routing model suggestions under 'Model Notes (Not Verified)'.
+    Emits persona finding sections when findings exist.
+    """
+    if not reviews:
+        return ""
+
+    if is_dry_run():
+        effective_analyzers: dict[str, str] = {}
+    elif static_analyzers is not None:
+        effective_analyzers = static_analyzers
+    else:
+        analyzers_found = None
+        for _, rev in reviews:
+            if isinstance(rev, ReviewResult) and getattr(rev, "static_analyzers", None) is not None:
+                analyzers_found = rev.static_analyzers
+                break
+        effective_analyzers = analyzers_found if analyzers_found is not None else {}
+
+    if not _has_review_findings(reviews):
+        return _format_zero_findings_comment(reviews, files, effective_analyzers)
+
+    sections = "\n\n---\n\n".join(
+        f"## Review by {pd.title}\n\n{_review_to_markdown(text)}" for pd, text in reviews
+    )
+    return f"## 🤖 AI Code Review\n\n{sections}\n"
 
 
 def _save_persona_review(
@@ -490,6 +659,48 @@ def _save_persona_review(
     return dest
 
 
+def _format_analysis_summary_lines(
+    analysis_metas: dict[str, FileAnalysisMeta],
+    completed: list[tuple[PersonaDefinition, ReviewResult | str]],
+) -> list[str]:
+    """Format markdown analysis metadata section with symbol delta and removed symbols."""
+    lines = [
+        "## Analysis Metadata\n",
+        f"**Files analyzed:** {len(analysis_metas)}  \n",
+    ]
+    delta_summary = _compute_delta_summary(analysis_metas)
+    if any(delta_summary.values()):
+        lines.append(
+            f"**Symbol Delta:** +{delta_summary.get('added', 0)} / -{delta_summary.get('removed', 0)} / ={delta_summary.get('retained', 0)}  \n"
+        )
+    removed_count = sum(
+        1
+        for _, rev in completed
+        if isinstance(rev, ReviewResult)
+        for f in rev.findings
+        if f.verification_note == "cites removed symbol"
+    )
+    if removed_count > 0:
+        lines.append(f"**Removed-Symbol Findings:** {removed_count} cited removed symbol(s)  \n")
+    lines.append("### File Summaries\n")
+    for path, fmeta in analysis_metas.items():
+        lines.append(
+            f"**{path}** — purpose: {fmeta.primary_purpose}"
+            f"{', complexity: ' + fmeta.complexity_score if fmeta.complexity_score else ''}"
+        )
+        if fmeta.key_symbols:
+            lines.append(f"> Symbols: {', '.join(fmeta.key_symbols[:10])}")
+    lines.append("| File Path | Language | Purpose | Complexity |")
+    lines.append("|---|---|---|---|")
+    for path, fmeta in analysis_metas.items():
+        clean_p = path.replace("|", "\\|").replace("\n", " ").strip()
+        clean_purp = (fmeta.primary_purpose or "—").replace("|", "\\|").replace("\n", " ").strip()
+        clean_comp = (fmeta.complexity_score or "—").replace("|", "\\|").replace("\n", " ").strip()
+        lines.append(f"| `{clean_p}` | {fmeta.language} | {clean_purp} | {clean_comp} |")
+    lines.append("")
+    return lines
+
+
 def _write_summary(
     title: str,
     session_dir: Path,
@@ -499,7 +710,7 @@ def _write_summary(
 ) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     if completed:
-        _save_findings_json(completed, session_dir, show_status=True)
+        _save_findings_json(completed, session_dir, show_status=True, analysis_metas=analysis_metas)
     lines: list[str] = [
         f"# Review: {title}",
         f"**Date:** {now}  ",
@@ -507,28 +718,7 @@ def _write_summary(
         f"**Session:** `{session_dir}`\n",
     ]
     if analysis_metas:
-        lines.append("## Analysis Metadata\n")
-        lines.append(f"**Files analyzed:** {len(analysis_metas)}  \n")
-        lines.append("### File Summaries\n")
-        for path, fmeta in analysis_metas.items():
-            lines.append(
-                f"**{path}** — purpose: {fmeta.primary_purpose}"
-                f"{', complexity: ' + fmeta.complexity_score if fmeta.complexity_score else ''}"
-            )
-            if fmeta.key_symbols:
-                lines.append(f"> Symbols: {', '.join(fmeta.key_symbols[:10])}")
-        lines.append("| File Path | Language | Purpose | Complexity |")
-        lines.append("|---|---|---|---|")
-        for path, fmeta in analysis_metas.items():
-            clean_p = path.replace("|", "\\|").replace("\n", " ").strip()
-            clean_purp = (
-                (fmeta.primary_purpose or "—").replace("|", "\\|").replace("\n", " ").strip()
-            )
-            clean_comp = (
-                (fmeta.complexity_score or "—").replace("|", "\\|").replace("\n", " ").strip()
-            )
-            lines.append(f"| `{clean_p}` | {fmeta.language} | {clean_purp} | {clean_comp} |")
-        lines.append("")
+        lines.extend(_format_analysis_summary_lines(analysis_metas, completed))
     if completed:
         lines.append("## Personas\n")
         lines.append("| Persona | Recommendation | Report |")
@@ -557,19 +747,16 @@ def _write_summary(
 
 def _build_dry_run_segment_result(file_label: str, title: str) -> ReviewResult:
     """Construct mock ReviewResult for dry-run simulation of a segment."""
+    finding = Finding(
+        severity="INFO",
+        location=title,
+        title=f"[dry-run] {file_label} Analysis",
+        description=f"Dry run analysis performed for {file_label}.",
+        fix="No action required (dry-run mode).",
+    )
+    apply_verdict(finding, "VERIFIED", by="deterministic:dry_run")
     return ReviewResult(
-        findings=[
-            Finding(
-                severity="INFO",
-                location=title,
-                title=f"[dry-run] {file_label} Analysis",
-                description=f"Dry run analysis performed for {file_label}.",
-                fix="No action required (dry-run mode).",
-                verified=True,
-                status="VERIFIED",
-            )
-        ],
-        positive_observations=["Segment code passed dry-run analysis."],
+        findings=[finding],
         recommendation="APPROVE",
         summary=f"Dry run {file_label} review simulation.",
     )
@@ -613,22 +800,18 @@ def _log_segment_empty(
 
 def _build_dry_run_persona_result(title: str, persona_name: str, total: int) -> ReviewResult:
     """Construct mock ReviewResult for dry-run simulation of a persona."""
+    finding = Finding(
+        severity="INFO",
+        location=title,
+        title="[dry-run] Simulated Review Execution",
+        description=(
+            f"Dry run analysis performed for persona {persona_name} across {total} segment(s)."
+        ),
+        fix="No changes required (dry-run mode).",
+    )
+    apply_verdict(finding, "VERIFIED", by="deterministic:dry_run")
     return ReviewResult(
-        findings=[
-            Finding(
-                severity="INFO",
-                location=title,
-                title="[dry-run] Simulated Review Execution",
-                description=(
-                    f"Dry run analysis performed for persona {persona_name} "
-                    f"across {total} segment(s)."
-                ),
-                fix="No changes required (dry-run mode).",
-                verified=True,
-                status="VERIFIED",
-            )
-        ],
-        positive_observations=["Dry run command execution completed successfully."],
+        findings=[finding],
         recommendation="APPROVE",
         summary=f"Dry run execution of review for {title}.",
     )
@@ -677,11 +860,12 @@ def _execute_review_segment_attempt(
         seg_start = time.monotonic()
         proc_sec: float | None = None
         try:
-            res_obj = clients.analysis.chat(
-                system=analysis_system,
-                user=user_prompt,
-                validator=lambda text: parse_review_response(text) is not None,
-            )
+            with limit_completion_tokens(DEFAULT_REVIEW_PERSONA_REPLY_MAX_TOKENS):
+                res_obj = clients.analysis.chat(
+                    system=analysis_system,
+                    user=user_prompt,
+                    validator=lambda text: parse_review_response(text) is not None,
+                )
             result_text = str(res_obj)
             proc_sec = getattr(res_obj, "processing_seconds", None)
             res_backend = getattr(res_obj, "backend_info", None) or getattr(
@@ -813,7 +997,7 @@ def _validate_single_segment_findings(
     validated, proc_sec, _ = _validate_segment_findings(
         parsed,
         pages,
-        clients.analysis,
+        clients.verification,
         analysis_metas=file_analysis_metas,
         repo_root=repo_target,
     )
@@ -1160,33 +1344,16 @@ def _print_review(persona: PersonaDefinition, review: ReviewResult | str) -> Non
     print_markdown(review)
 
 
-def _resolve_review_clients(settings: Settings | None = None) -> ReviewClients:
-    cfg = settings or load_settings()
-    api_key = get_ai_api_key(cfg)
+def _nearest_conventions(start: Path) -> str:
+    """Return the nearest project conventions file, from the start directory up to its repo root."""
+    from devops_cli.ai.review.review_environment import nearest_conventions
 
-    def _make(task: str) -> LLMClient:
-        return LLMClient(
-            cfg.ai,
-            api_key=api_key,
-            request_timeout_seconds=float(DEFAULT_REVIEW_TIMEOUT_SECONDS),
-        )
-
-    return ReviewClients(
-        analysis=_make("analysis"),
-        compose=_make("compose"),
-    )
+    return nearest_conventions(start)
 
 
 def _load_agents_md(start: Path) -> str:
-    """Return sanitized project conventions from target repo, start dir, or CWD repo root."""
-    start_resolved = start.resolve()
-    target_repo = _git_repo_root(start_resolved)
-    raw_content = _read_candidate_conventions_file(target_repo) if target_repo else ""
-
-    if not raw_content:
-        base_dir = start_resolved if start_resolved.is_dir() else start_resolved.parent
-        raw_content = _read_candidate_conventions_file(base_dir)
-
+    """Return the sanitized nearest project conventions for a review target."""
+    raw_content = _nearest_conventions(start)
     if not raw_content:
         return ""
 
@@ -1196,8 +1363,6 @@ def _load_agents_md(start: Path) -> str:
     )
 
     return sanitize_prompt_boundary_tags(redact_text(raw_content))
-
-    return ""
 
 
 def _git_repo_root(path: Path) -> Path | None:
@@ -1271,14 +1436,22 @@ def _is_candidate_file_included(
     return rel.match(pattern)
 
 
+def _review_candidate_files(root: Path, pattern: str) -> list[Path]:
+    """The files under root that a path review reads, in review order."""
+    repo_root = _git_repo_root(root)
+    candidates, is_from_git, root_ignored = _list_git_tracked_candidates(root, repo_root)
+    return [
+        p
+        for p in sorted(candidates)
+        if _is_candidate_file_included(p, root, repo_root, is_from_git, root_ignored, pattern)
+    ]
+
+
 def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
     blocks: list[str] = []
     repo_root = _git_repo_root(root)
-    candidates, is_from_git, root_ignored = _list_git_tracked_candidates(root, repo_root)
 
-    for p in sorted(candidates):
-        if not _is_candidate_file_included(p, root, repo_root, is_from_git, root_ignored, pattern):
-            continue
+    for p in _review_candidate_files(root, pattern):
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -1295,6 +1468,19 @@ def _collect_file_blocks(root: Path, pattern: str) -> list[str]:
         suffix = rel.suffix.lstrip(".") or "text"
         blocks.extend(_split_source_file_blocks(file_label, suffix, text, _MAX_DIFF_CHARS))
     return blocks
+
+
+def _corpus_digest(targets: list[Path], pattern: str) -> str:
+    """Fingerprint the files a path review reads, so benchmarks of the same corpus can be matched."""
+    digest = hashlib.sha256()
+    for target in targets:
+        resolved = target.resolve()
+        if resolved.is_file():
+            digest.update(resolved.read_bytes())
+            continue
+        for block in _collect_file_blocks(resolved, pattern):
+            digest.update(block.encode())
+    return digest.hexdigest()[:16]
 
 
 def _collect_files(root: Path, pattern: str) -> str:
@@ -1337,16 +1523,34 @@ def _make_review_clients(
     cache_enabled: bool | None = None,
     append_cache: bool | None = None,
 ) -> ReviewClients:
-    """Build unified LLM clients for analysis and compose tasks."""
+    """Build LLM clients for the analysis, compose and verification review tasks.
+
+    Verification overrides apply on top of the analysis task, so `ai.tasks.verification` need only
+    name what differs, such as a stronger model on the same gateway.
+    """
     api_key = get_ai_api_key(settings)
-    return ReviewClients(
-        analysis=LLMClient(
-            settings.ai.for_task("analysis"),
+    analysis_config = settings.ai.for_task("analysis")
+    analysis = LLMClient(
+        analysis_config,
+        api_key=api_key,
+        request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+        cache_enabled=cache_enabled,
+        append_cache=append_cache,
+    )
+    verification = (
+        LLMClient(
+            analysis_config.for_task("verification"),
             api_key=api_key,
             request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
             cache_enabled=cache_enabled,
             append_cache=append_cache,
-        ),
+        )
+        if settings.ai.tasks.verification.model_dump(exclude_none=True)
+        else analysis
+    )
+    return ReviewClients(
+        analysis=analysis,
+        verification=verification,
         compose=LLMClient(
             settings.ai.for_task("compose"),
             api_key=api_key,
@@ -1468,7 +1672,7 @@ def _prepare_path_content(target: Path, pattern: str) -> tuple[list[str], str, s
         )
         suffix = target_resolved.suffix.lstrip(".") or "text"
         content = target_resolved.read_text(encoding="utf-8", errors="replace")
-        blocks = [f"### File: {file_label}\n```{suffix}\n{content}\n```"]
+        blocks = _split_source_file_blocks(Path(file_label), suffix, content, _MAX_DIFF_CHARS)
         title = str(file_label)
     else:
         collecting_msg = MESSAGES.review.collecting_files.format(
@@ -1629,7 +1833,18 @@ def _prepare_branch_content(
         raise typer.Exit(0)
 
     title = f"Branch `{target_branch}` vs `{effective_base}`"
-    agents_md = _load_agents_md(repo_path)
+    agents_md = ""
+    if effective_base:
+        show_proc = _run_subprocess(
+            ["git", "--no-pager", "show", f"{effective_base}:AGENTS.md"],
+            capture_output=True,
+            text=True,
+            cwd=repo_path,
+        )
+        if show_proc.returncode == 0 and show_proc.stdout.strip():
+            agents_md = show_proc.stdout.strip()
+    if not agents_md:
+        agents_md = _load_agents_md(repo_path)
     pages = [redact_text(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
     return pages, title, agents_md, target_branch
 
@@ -1664,9 +1879,163 @@ def _prepare_pr_content(
     pull = gh.get_pull(repo, number)
     diff = gh.get_pr_diff(repo, number)
     title = f"PR #{number}: {pull.title}"
-    agents_md = _load_agents_md(Path.cwd())
+    head_dir: Path | None = kwargs.get("head_dir")
+    if head_dir is not None:
+        _materialize_pr_head(gh, repo, pull, head_dir)
+    agents_md = _load_agents_md(head_dir or Path.cwd())
     pages = [redact_text(p) for p in diff_pages(diff, _MAX_DIFF_CHARS)]
     return pages, title, agents_md, pull, repo
+
+
+def _materialize_pr_head(gh: Any, repo: str, pull: Any, dest: Path) -> int:
+    """Write PR head's version of changed files, and base conventions, under `dest`."""
+    from devops_cli.ai.review.review_environment import _TARGET_CONVENTIONS_CANDIDATES
+    from devops_cli.config.constants import CONST_REVIEW_CONVENTIONS_FILE
+
+    head_obj = getattr(pull, "head", None)
+    base_obj = getattr(pull, "base", None)
+    head_repo = getattr(getattr(head_obj, "repo", None), "full_name", None) or repo
+    base_repo = getattr(getattr(base_obj, "repo", None), "full_name", None) or repo
+    base_ref = getattr(base_obj, "sha", None) or getattr(base_obj, "ref", None) or "main"
+    head_sha = getattr(head_obj, "sha", None) or "HEAD"
+    changed = [
+        f.filename
+        for f in (pull.get_files() if hasattr(pull, "get_files") else [])
+        if getattr(f, "status", "") != "removed"
+    ]
+    convention_files = set(_TARGET_CONVENTIONS_CANDIDATES) | {CONST_REVIEW_CONVENTIONS_FILE}
+    root = dest.resolve()
+    written = 0
+
+    for rel in convention_files:
+        target = (root / rel).resolve()
+        if not target.is_relative_to(root):
+            continue
+        text = gh.get_file_at(base_repo, rel, base_ref) if gh else None
+        if text is None and (gh is None or not base_repo):
+            local_conv = Path.cwd() / rel
+            if local_conv.exists() and local_conv.is_file():
+                text = local_conv.read_text(encoding="utf-8")
+        if text is not None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+            written += 1
+
+    for rel in changed:
+        if rel in convention_files:
+            continue
+        target = (root / rel).resolve()
+        if not target.is_relative_to(root):
+            continue
+        text = gh.get_file_at(head_repo, rel, head_sha)
+        if text is None:
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        written += 1
+
+    return written
+
+
+def _record_profile_findings(payloads: list[Any], candidates: int) -> None:
+    """Record candidate, verified and reported finding counts on the active review profile."""
+    profiler = active_profiler()
+    if profiler is None:
+        return
+    findings = [f for p in payloads for f in p.findings]
+    profiler.set_findings(
+        candidates=candidates,
+        verified=sum(1 for f in findings if f.verified),
+        reported=sum(1 for f in findings if f.reportable),
+        verdict_distributions=compute_verdict_distributions(findings),
+    )
+    if not profiler._persona_replies:
+        for p in payloads:
+            for r in getattr(p, "ai_scratchpad", {}).get("persona_replies", []):
+                profiler.record_persona_reply(
+                    file=getattr(p, "file_path", ""),
+                    persona=r.get("persona", "unknown"),
+                    outcome=r.get("outcome", "unparsed"),
+                    persona_title=r.get("persona_title", ""),
+                    page=r.get("page", 1),
+                )
+
+
+def _write_review_profile(
+    profiler: ReviewProfiler, orchestrator: Any, target: str, files: int
+) -> ReviewProfile:
+    """Write the session's profile.json and summarise where the time went."""
+    profile = profiler.build(session_id=orchestrator.session_id, target=target, files=files)
+    path = profile.write(orchestrator.session_dir)
+    report_profile(profile)
+    stages = ", ".join(
+        f"{s.name} {format_duration(s.wall_seconds)} ({s.llm_calls} calls)"
+        for s in profile.stages
+        if s.wall_seconds >= 1 or s.llm_calls
+    )
+    print_info(
+        f"[dim]Profile: {format_duration(profile.total_wall_seconds)}, "
+        f"{profile.llm_calls} LLM calls; {stages} -> {path}[/dim]",
+        prefix=False,
+    )
+    return profile
+
+
+def _record_review_metrics(
+    results: list[tuple[PersonaDefinition, ReviewResult | str]],
+    seconds: float,
+    target_type: str,
+) -> None:
+    """Send the review's wall time, and its findings by persona, severity and status."""
+    from devops_cli.telemetry.instruments import FINDINGS_TOTAL, REVIEW_DURATION, emit
+
+    emit(REVIEW_DURATION, seconds, {"target_type": target_type})
+    counts = Counter(
+        (persona.name, finding.severity.upper(), finding.status.upper())
+        for persona, result in results
+        if isinstance(result, ReviewResult)
+        for finding in result.findings
+    )
+    for (persona, severity, status), count in counts.items():
+        emit(FINDINGS_TOTAL, count, {"persona": persona, "severity": severity, "status": status})
+
+
+def _run_profiled_session(
+    orchestrator: Any,
+    all_files: list[str],
+    target_dir: Path,
+    pages: list[str],
+    active_p: list[str],
+    persona: Persona | None,
+    target_type: Literal["branch", "pr", "path"],
+    target_ref: str,
+    stage_flags: ReviewStageFlags | None,
+) -> list[tuple[PersonaDefinition, ReviewResult | str]] | None:
+    """Run the orchestrated review under a profiler; None when there are no files to review."""
+    with profiling() as profiler:
+        with review_stage("pre_analysis"):
+            metadata_by_path = orchestrator.run_pre_analysis_refresh(
+                target_dir=target_dir,
+                target_type=target_type,
+                target_ref=target_ref,
+                stage_flags=stage_flags,
+            )
+        if not all_files:
+            return None
+        results = _run_orchestrator_review(
+            orchestrator,
+            all_files,
+            metadata_by_path,
+            target_dir,
+            pages,
+            active_p,
+            persona,
+            stage_flags=stage_flags,
+        )
+        if not is_dry_run():
+            profile = _write_review_profile(profiler, orchestrator, target_ref, len(all_files))
+            _record_review_metrics(results, profile.total_wall_seconds, target_type)
+        return results
 
 
 def _run_orchestrator_review(
@@ -1680,20 +2049,60 @@ def _run_orchestrator_review(
     stage_flags: ReviewStageFlags | None = None,
 ) -> list[tuple[PersonaDefinition, ReviewResult | str]]:
     """Execute orchestrator pipeline review for all files."""
-    payloads = orchestrator.init_per_file_payloads(
-        all_files, metadata_by_path, target_dir=target_dir, stage_flags=stage_flags
-    )
-    if not is_dry_run():
-        diff_map = {f: "\n".join([p for p in pages if f in p]) for f in all_files}
-        orchestrator.execute_multi_persona_review(
-            payloads, diff_text_by_file=diff_map, personas=active_p, stage_flags=stage_flags
+    with review_stage("payloads"):
+        payloads = orchestrator.init_per_file_payloads(
+            all_files, metadata_by_path, target_dir=target_dir, stage_flags=stage_flags
         )
-        orchestrator.execute_finding_verification(payloads, stage_flags=stage_flags)
-        orchestrator.execute_finding_reranking(payloads, stage_flags=stage_flags)
+    if not is_dry_run():
+        # Each file gets the pages whose headers name it; a substring match gave `a.py` the
+        # pages of `data.py` as well.
+        diff_map = {
+            f: "\n".join(p for p in pages if f in _extract_header_filenames(p)) for f in all_files
+        }
+        with review_stage("persona_review"):
+            orchestrator.execute_multi_persona_review(
+                payloads, diff_text_by_file=diff_map, personas=active_p, stage_flags=stage_flags
+            )
+        candidates = sum(len(p.findings) for p in payloads)
+        with review_stage("verification"):
+            orchestrator.execute_finding_verification(payloads, stage_flags=stage_flags)
+        with review_stage("reranking"):
+            orchestrator.execute_finding_reranking(payloads, stage_flags=stage_flags)
+        _record_profile_findings(payloads, candidates)
 
-    _, report_md = orchestrator.generate_consolidated_report(payloads, stage_flags=stage_flags)
+    with review_stage("report"):
+        payload_data, report_md = orchestrator.generate_consolidated_report(
+            payloads, stage_flags=stage_flags
+        )
     p_def = PERSONAS[persona or Persona.DEVSECOPS]
-    return [(p_def, report_md)]
+    raw_findings = payload_data.get("findings", []) if isinstance(payload_data, dict) else []
+    findings_list = [Finding(**f) if isinstance(f, dict) else f for f in raw_findings]
+    raw_analyzers = getattr(orchestrator, "static_analyzers", None)
+    analyzers_dict = raw_analyzers if isinstance(raw_analyzers, dict) else {}
+    result = ReviewResult(
+        findings=findings_list,
+        report_markdown=report_md,
+        static_analyzers=analyzers_dict,
+        summary="",
+    )
+    return [(p_def, result)]
+
+
+def _check_and_warn_perimeter_changes(target_type: str, changed_files: Sequence[str]) -> None:
+    """Warn if review targets branch/pr diff intersecting with mitigated findings perimeters."""
+    if target_type not in {"branch", "pr"} or not changed_files:
+        return
+    try:
+        from devops_cli.ai.review.mitigations import (
+            find_perimeter_changes,
+            format_perimeter_warning,
+        )
+
+        matches = find_perimeter_changes(changed_files)
+        if matches:
+            print_warning(format_perimeter_warning(matches), prefix=False)
+    except Exception as exc:
+        logger.debug("Failed checking perimeter changes: %s", exc)
 
 
 def _execute_review_workflow(
@@ -1722,8 +2131,10 @@ def _execute_review_workflow(
         print_info(f"[dim]{spans_msg}[/dim]", prefix=False)
 
     all_files = sorted(list({fn for page in pages for fn in _extract_header_filenames(page)}))
+    _check_and_warn_perimeter_changes(target_type, all_files)
     orchestrator = ReviewPipelineOrchestrator(
         llm_client=clients.analysis,
+        verification_client=clients.verification,
         target_dir=target_dir,
         concurrency=concurrency,
         parallel=parallel,
@@ -1750,23 +2161,19 @@ def _execute_review_workflow(
                 f"for {n_af} file(s) via {server_info}...[/bold cyan]",
                 prefix=False,
             )
-            metadata_by_path = orchestrator.run_pre_analysis_refresh(
-                target_dir=target_dir,
-                target_type=target_type,
-                target_ref=target_ref,
-                stage_flags=stage_flags,
+            results = _run_profiled_session(
+                orchestrator,
+                all_files,
+                target_dir,
+                pages,
+                active_p,
+                persona,
+                target_type,
+                target_ref,
+                stage_flags,
             )
-            if all_files:
-                return _run_orchestrator_review(
-                    orchestrator,
-                    all_files,
-                    metadata_by_path,
-                    target_dir,
-                    pages,
-                    active_p,
-                    persona,
-                    stage_flags=stage_flags,
-                )
+            if results is not None:
+                return results
 
     if summary_only:
         print_info(f"[dim]{MESSAGES.review.generating_metadata}[/dim]", prefix=False)

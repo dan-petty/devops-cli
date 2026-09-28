@@ -1,8 +1,7 @@
 # Task 207: Sandbox Multi-Tier Networking Configuration Options
 
 **Issue**: [#207](https://github.com/dan-petty/devops-cli/issues/207)
-**PR**: [#208](https://github.com/dan-petty/devops-cli/pull/208)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.18`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/security`, `scope/cli`

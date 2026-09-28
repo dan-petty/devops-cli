@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Annotated, Any, cast
 
@@ -27,6 +28,8 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
+
+logger = logging.getLogger(__name__)
 
 app = new_typer(
     help=HELP.pr.app,
@@ -820,6 +823,26 @@ def _print_created_pr_message(stdout: str, base: str) -> None:
         print_success(f"Pull request created successfully targeting base [bold]{base}[/bold]")
 
 
+def _report_create_failure(res: Any, target_base: str) -> None:
+    """Explain why a pull request could not be created.
+
+    `run_gh` captures the GitHub CLI's output, so a failure here printed nothing at all --
+    the command exited non-zero with no message beyond its own elapsed time. Three
+    invocations in one session produced no pull request and no indication of why: the base
+    branch had been deleted when its release merged, and nothing said so.
+    """
+    from devops_cli.security.sanitizer import mask_secrets
+
+    detail = mask_secrets((res.stderr or res.stdout or "").strip()[:512])
+    print_error(
+        f"Could not create the pull request against base '{target_base}'."
+        + (f"\n{detail}" if detail else ""),
+        safe=True,
+    )
+    if detail and "must first push" in detail:
+        print_info("Push the branch first: git push -u origin HEAD")
+
+
 def _fallback_create_pr(
     title: str,
     body: str,
@@ -914,6 +937,7 @@ def create_pr(
     if res.returncode != 0:
         if _fallback_create_pr(title, body, target_base, draft, repo):
             return
+        _report_create_failure(res, target_base)
         raise typer.Exit(res.returncode)
     print_success(f"Pull request created successfully targeting base [bold]{target_base}[/bold]")
 
@@ -1217,14 +1241,183 @@ def _evaluate_threads_blockers(
     return [f"PR #{pr_num} has {len(unresolved)} unresolved review discussion thread(s)."]
 
 
+def _classify_check_run(run: Any) -> tuple[str | None, str | None]:
+    """Classify a single check run into (failing_name, pending_name)."""
+    if not isinstance(run, dict):
+        return None, None
+    name = str(run.get("name") or "check")
+    if run.get("status") != "completed":
+        return None, name
+    if str(run.get("conclusion") or "").lower() in CONST_GH_FAILING_CHECK_CONCLUSIONS:
+        return name, None
+    return None, None
+
+
+def _extract_page_runs(page: Any) -> list[dict[str, Any]]:
+    """Extract check runs from a single API payload page."""
+    if not isinstance(page, dict):
+        raise RuntimeError("GitHub check-runs API returned invalid page structure")
+    check_runs = page.get("check_runs")
+    if isinstance(check_runs, list):
+        return check_runs
+    if "name" in page:
+        return [page]
+    raise RuntimeError("GitHub check-runs API returned page without check_runs")
+
+
+def _fetch_check_runs_payload(owner: str, repo_name: str, head_sha: str) -> list[dict[str, Any]]:
+    """Fetch and decode all check-runs pages from GitHub API with pagination."""
+    res = run_gh(
+        [
+            CONST_GH_CLI,
+            "api",
+            "--paginate",
+            "--slurp",
+            f"repos/{owner}/{repo_name}/commits/{head_sha}/check-runs?per_page=100",
+        ],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode != 0:
+        err_msg = res.stderr.strip() or f"exit code {res.returncode}"
+        raise RuntimeError(f"GitHub check-runs API error: {err_msg}")
+    if not res.stdout.strip():
+        raise RuntimeError("GitHub check-runs API returned empty response")
+    try:
+        data = json.loads(res.stdout)
+    except json.JSONDecodeError as err:
+        raise RuntimeError(f"Invalid JSON from check-runs API: {err}") from err
+
+    if isinstance(data, list):
+        return [run for page in data for run in _extract_page_runs(page)]
+    if isinstance(data, dict):
+        return _extract_page_runs(data)
+    raise RuntimeError("GitHub check-runs API returned unexpected payload structure")
+
+
+def _fetch_commit_statuses_payload(
+    owner: str, repo_name: str, head_sha: str
+) -> list[dict[str, Any]]:
+    """Fetch commit status contexts from GitHub status API."""
+    res = run_gh(
+        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{head_sha}/status"],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode != 0:
+        err_msg = res.stderr.strip() or f"exit code {res.returncode}"
+        raise RuntimeError(f"GitHub commit status API error: {err_msg}")
+    if not res.stdout.strip():
+        raise RuntimeError("GitHub commit status API returned empty response")
+    try:
+        data = json.loads(res.stdout)
+    except json.JSONDecodeError as err:
+        raise RuntimeError(f"Invalid JSON from commit status API: {err}") from err
+    if not isinstance(data, dict):
+        raise RuntimeError("GitHub commit status API returned non-object response")
+    statuses = data.get("statuses")
+    return statuses if isinstance(statuses, list) else []
+
+
+def _failing_check_runs(owner: str, repo_name: str, head_sha: str) -> tuple[list[str], list[str]]:
+    """Return the names of concluded-failing and still-running checks and statuses for a commit."""
+    check_runs = _fetch_check_runs_payload(owner, repo_name, head_sha)
+    failing: list[str] = []
+    pending: list[str] = []
+    for run in check_runs:
+        fail, pend = _classify_check_run(run)
+        if fail:
+            failing.append(fail)
+        elif pend:
+            pending.append(pend)
+
+    statuses = _fetch_commit_statuses_payload(owner, repo_name, head_sha)
+    for st in statuses:
+        if not isinstance(st, dict):
+            continue
+        context = str(st.get("context") or "status")
+        state = str(st.get("state") or "").lower()
+        if state in ("failure", "error"):
+            failing.append(context)
+        elif state == "pending":
+            pending.append(context)
+
+    return failing, pending
+
+
+def _check_run_blockers(
+    pr_data: dict[str, Any],
+    pr_num: int,
+    owner: str,
+    repo_name: str,
+    allow_pending_checks: bool,
+) -> list[str]:
+    """Report failing checks as blockers, and pending ones unless explicitly allowed."""
+    head_sha = str(pr_data.get("head", {}).get("sha") or "")
+    if not head_sha:
+        return []
+
+    try:
+        failing, pending = _failing_check_runs(owner, repo_name, head_sha)
+    except RuntimeError as err:
+        return [f"PR #{pr_num} check verification failed closed: {err}"]
+
+    blockers = (
+        [f"PR #{pr_num} has {len(failing)} failing check(s): {', '.join(sorted(failing))}."]
+        if failing
+        else []
+    )
+
+    if pending:
+        message = (
+            f"PR #{pr_num} has {len(pending)} check(s) still running: {', '.join(sorted(pending))}."
+        )
+        if allow_pending_checks:
+            print_warning(message)
+        else:
+            blockers.append(message)
+    return blockers
+
+
+def _fetch_pr_changed_files(pr_num: int, owner: str, repo_name: str) -> list[str]:
+    """Fetch changed file paths for a PR."""
+    res = run_gh(
+        [CONST_GH_CLI, "pr", "diff", str(pr_num), "--name-only", "--repo", f"{owner}/{repo_name}"],
+        check=False,
+        quiet=True,
+    )
+    if res.returncode == 0 and res.stdout.strip():
+        return [line.strip() for line in res.stdout.splitlines() if line.strip()]
+    return []
+
+
+def _check_pr_perimeter_changes(pr_num: int, owner: str, repo_name: str) -> None:
+    """Warn if PR changed files intersect with the mitigated findings perimeter ledger."""
+    try:
+        from devops_cli.ai.review.mitigations import (
+            find_perimeter_changes,
+            format_perimeter_warning,
+        )
+
+        changed_files = _fetch_pr_changed_files(pr_num, owner, repo_name)
+        if not changed_files:
+            return
+        matches = find_perimeter_changes(changed_files)
+        if matches:
+            print_warning(format_perimeter_warning(matches))
+    except Exception as exc:
+        logger.debug("Failed checking PR perimeter changes: %s", exc)
+
+
 def _evaluate_pr_blockers(
     pr_data: dict[str, Any],
     pr_num: int,
     owner: str,
     repo_name: str,
-    require_ready: bool,
+    allow_draft: bool = False,
     allow_blocked_state: bool = False,
     allow_replied_threads: bool = False,
+    allow_pending_checks: bool = False,
 ) -> list[str]:
     """Inspect PR data and unresolved discussion threads for merge blockers."""
     if pr_data.get("merged") is True:
@@ -1240,12 +1433,15 @@ def _evaluate_pr_blockers(
     if merge_err:
         blockers.append(merge_err)
 
-    if require_ready and is_draft:
-        blockers.append(f"PR #{pr_num} is currently in draft status (convert to ready for review).")
+    # A draft cannot be merged, so it is a blocker rather than a warning. GitHub still
+    # reports `mergeable_state: clean` for one, which is how a draft passed this check and
+    # was reported ready.
+    if is_draft and not allow_draft:
+        blockers.append(f"PR #{pr_num} is in draft status; GitHub refuses to merge a draft.")
     elif is_draft:
-        print_warning(
-            f"PR #{pr_num} is currently in draft status (merging is blocked on GitHub until ready)."
-        )
+        print_warning(f"PR #{pr_num} is in draft status and cannot be merged as-is.")
+
+    blockers.extend(_check_run_blockers(pr_data, pr_num, owner, repo_name, allow_pending_checks))
 
     unresolved: list[Any] = []
     try:
@@ -1256,6 +1452,7 @@ def _evaluate_pr_blockers(
     blockers.extend(
         _evaluate_threads_blockers(unresolved, pr_num, allow_replied_threads=allow_replied_threads)
     )
+    _check_pr_perimeter_changes(pr_num, owner, repo_name)
     return blockers
 
 
@@ -1320,9 +1517,13 @@ def check_readiness(
         int | None,
         typer.Argument(help="PR number to verify (defaults to current branch PR)"),
     ] = None,
-    require_ready: Annotated[
+    allow_draft: Annotated[
         bool,
-        typer.Option("--require-ready", help="Fail if the pull request is in draft status"),
+        typer.Option("--allow-draft", help=HELP.pr.readiness_allow_draft),
+    ] = False,
+    allow_pending_checks: Annotated[
+        bool,
+        typer.Option("--allow-pending-checks", help=HELP.pr.readiness_allow_pending_checks),
     ] = False,
     allow_blocked_state: Annotated[
         bool,
@@ -1368,9 +1569,10 @@ def check_readiness(
         pr_num,
         owner,
         repo_name,
-        require_ready,
+        allow_draft=allow_draft,
         allow_blocked_state=allow_blocked_state,
         allow_replied_threads=allow_replied_threads,
+        allow_pending_checks=allow_pending_checks,
     )
     _emit_readiness_status(blockers, pr_num)
 

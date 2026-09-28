@@ -13,8 +13,8 @@ from devops_cli.ci.cache import (
 )
 
 __all__ = [
-    "CICachedCheck",
     "CICacheEntry",
+    "CICachedCheck",
     "clear_ci_cache",
     "compute_workspace_fingerprint",
     "get_ci_cache",

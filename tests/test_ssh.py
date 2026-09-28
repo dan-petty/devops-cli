@@ -107,6 +107,28 @@ def test_get_ssh_key_prefix_resolution(tmp_path: Path) -> None:
         assert get_ssh_key_prefix(plain_dir) == "my_plain_repo"
 
 
+def test_devcontainer_name_survives_urls_next_to_comments(tmp_path: Path) -> None:
+    """Verify the devcontainer name is the prefix when a string holds `//` beside real comments.
+
+    Stripping `//` to the end of the line cut `"credential.https://github.com.helper"` in half,
+    so the manifest stopped parsing and keys were named after the checkout directory instead.
+    """
+    from devops_cli.crypto.ssh_keys import get_ssh_key_prefix
+
+    dev_dir = tmp_path / "checkout-worktree"
+    (dev_dir / ".devcontainer").mkdir(parents=True)
+    (dev_dir / ".devcontainer" / "devcontainer.json").write_text(
+        '// Development container\n{\n  "name": "devops-cli", // the key prefix\n'
+        '  "containerEnv": {"GIT_CONFIG_KEY_0": "credential.https://github.com.helper"}\n}\n'
+    )
+
+    with patch("devops_cli.config.settings.load_settings") as mock_load:
+        settings = MagicMock()
+        settings.ssh.key_prefix = None
+        mock_load.return_value = settings
+        assert get_ssh_key_prefix(dev_dir) == "devops-cli"
+
+
 def test_get_key_age_days(tmp_path: Path) -> None:
     past = (date.today() - timedelta(days=10)).strftime("%Y%m%d")
     key_path = tmp_path / f"id_ed25519-{past}"

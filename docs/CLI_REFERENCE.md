@@ -30,6 +30,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops tf`](#devops-tf) — OpenTofu and Terraform Infrastructure-as-Code operations.
 - [`devops tls`](#devops-tls) — Generate and manage homelab TLS certificates and CAs.
 - [`devops telemetry`](#devops-telemetry) — OpenTelemetry tracing, metrics, and Jaeger observability.
+- [`devops cloudflare`](#devops-cloudflare) — Cloudflare Zero Trust tunnels and DNS management.
 - [`devops serve`](#devops-serve) — FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics.
 - [`devops test`](#devops-test) — Test suite orchestration, git-diff aware test selector, and load testing.
 - [`devops pipeline`](#devops-pipeline) — Programmable containerized pipeline execution (Dagger).
@@ -403,6 +404,14 @@ devops devcontainer list [OPTIONS]
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
 
+### `devops devcontainer unlock-keyring`
+
+**Create or unlock the gnome-keyring login keyring that gh, git and devops store secrets in.**
+
+```bash
+devops devcontainer unlock-keyring
+```
+
 ### `devops devcontainer post-create`
 
 **Execute DevContainer post-create setup tasks (history, shell completions, config prep).**
@@ -417,6 +426,7 @@ devops devcontainer post-create [OPTIONS]
 |---|---|---|---|
 | `--workspace`, `-w` | `path` | `.` | Workspace root directory path. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--skip-tools` | `boolean` | - | Skip bootstrapping missing DevOps tool binaries. |
 
 ### `devops devcontainer post-start`
 
@@ -545,7 +555,11 @@ devops workspace open [OPTIONS]
 
 ### `devops workspace clean`
 
-**Clean stale review sessions, old analysis caches, and temporary traces under .data/.**
+**Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory.**
+
+Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory.
+
+Child directories configured on their own, such as `data.reviews_dir`, are left alone.
 
 ```bash
 devops workspace clean [OPTIONS]
@@ -634,6 +648,28 @@ devops k8s apply [OPTIONS] <path>
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--template`, `-t` | `boolean` | - | Render manifest as a template substituting domain from config or --domain before applying. |
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
+
+### `devops k8s render`
+
+**Render Kubernetes manifest templates with domain and variables substituted.**
+
+```bash
+devops k8s render [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `string` | Yes | Manifest file or directory path. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
 
 ### `devops k8s logs`
 
@@ -716,6 +752,8 @@ devops k8s deploy-stack [OPTIONS]
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--wait`, `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
 | `--timeout`, `-t` | `string` | `10m` | Timeout for Helm operations when waiting. |
+| `--port-forward`, `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
+| `--configure-urls`, `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
 
 ### `devops k8s sync-secrets`
 
@@ -747,7 +785,7 @@ devops k8s configure-urls [OPTIONS]
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
-| `--addressing`, `-a` | `string` | `nodeport` | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward. |
+| `--addressing`, `-a` | `string` | - | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward, 'fqdn' discovers Ingress hostnames and writes domain-based URLs. |
 
 ### `devops k8s service-url`
 
@@ -777,7 +815,7 @@ devops k8s service-url [OPTIONS] <service>
 
 ### `devops k8s port-forward`
 
-**Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config.**
+**Port-forward k8s monitoring / LLM stack services to localhost ports.**
 
 ```bash
 devops k8s port-forward [OPTIONS]
@@ -799,6 +837,7 @@ devops k8s port-forward [OPTIONS]
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP. |
 | `--valkey-port` | `integer` | `<masked>` | Local port for Valkey. |
 | `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding. |
+| `--update-config`, `--no-update-config` | `boolean` | - | Update devops-cli configuration with port-forwarded service URLs. |
 
 ### `devops k8s port-forward-status`
 
@@ -1106,6 +1145,24 @@ devops k8s security-stream [OPTIONS]
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--output`, `-o` | `path` | - | Export discovered alerts to JSON file |
 
+### `devops k8s gpu-matrix`
+
+**Query traditional homelab GPU matrix and model service alias mappings.**
+
+```bash
+devops k8s gpu-matrix [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--gpus`, `-g` | `integer` | - | Filter by GPU count (1, 2, 3, 4). |
+| `--vram`, `-v` | `integer` | - | Filter by VRAM per GPU in GiB (16, 24, 32). |
+| `--backend`, `-b` | `string` | - | Filter by inference backend: ollama or vllm. |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
+| `--aliases`, `-a` | `boolean` | - | Include Kubernetes model service aliases mapping. |
+
 ---
 
 ## devops kustomize
@@ -1166,6 +1223,8 @@ devops kustomize apply [OPTIONS] <path>
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--template`, `-t` | `boolean` | - | Render manifest as a template substituting domain from config or --domain before applying. |
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
 
 ---
 
@@ -2766,13 +2825,14 @@ devops ai config [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--provider`, `-p` | `string` | - | Provider: ollama, claude, copilot, openai |
+| `--provider`, `-p` | `string` | - | Provider: ollama, claude, copilot, openai, gateway |
 | `--model`, `-m` | `string` | - | AI model identifier. |
 | `--ollama-urls` | `string` | - | Ollama server base URLs (comma-separated). |
 | `--ollama-max-parallel` | `integer` | - | Maximum number of simultaneous requests allowed per Ollama server node. |
-| `--api-base-url` | `string` | - | Override API base URL for any provider. |
+| `--api-base-url` | `string` | - | Override the provider's API base URL (provider gateway uses ai.gateway_url). |
 | `--api-key` | `string` | - | API key — stored in OS keyring, not config file. |
 | `--max-retries` | `integer` | - | Maximum retry count for AI requests upon failure. |
+| `--task`, `-t` | `string` | - | Set these for one task (chat, metadata, analysis, verification, compose, embedding) instead of every AI call. |
 
 ### `devops ai models`
 
@@ -2874,7 +2934,7 @@ devops ai bundle-models [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | `path` | - | Directory path for generated output files. |
+| `--output`, `-o` | `path` | - | Bundle directory; a relative path is a data path under the main worktree, like data.models_dir (default: the configured models directory). |
 
 ### `devops ai pipeline`
 
@@ -2921,28 +2981,6 @@ devops ai token-count [OPTIONS] <target>
 | `--budget`, `-b` | `integer` | `32768` | Max context token budget limit. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
-### `devops ai route`
-
-**Evaluate task complexity and determine the optimal LLM provider and model route.**
-
-```bash
-devops ai route [OPTIONS] <task>
-```
-
-**Arguments:**
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `<task>` | `string` | Yes | Task name (e.g. review, scan). |
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--tokens`, `-t` | `integer` | `<masked>` | Estimated tokens. |
-| `--frontier`, `-f` | `boolean` | - | Force routing to frontier tier models. |
-| `--json` | `boolean` | - | Output findings or metrics as JSON. |
-
 ### `devops ai spec`
 
 **Verify codebase against executable markdown architecture specification contracts.**
@@ -2980,7 +3018,7 @@ devops ai repomap [OPTIONS]
 | `--target`, `-t`, `--dir`, `-d` | `path` | - | Target source directory to verify or analyze. |
 | `--max-files`, `-n` | `integer` | `100` | Maximum source files to include. |
 | `--include-tests` | `boolean` | - | Include test modules in symbol map. |
-| `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, Go, Rust, Java, and HCL. |
+| `--multilingual`, `-m` | `boolean` | - | Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3090,7 +3128,7 @@ devops ai prompt-eval [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--persona`, `-p` | `string` | `devsecops` | Persona whose recorded findings to measure the layer against. |
-| `--dataset`, `-d` | `path` | - | Path to feedback dataset jsonl. |
+| `--dataset`, `-d` | `path` | - | Feedback dataset JSONL; a relative path is a data path under the main worktree, like data.feedback_dataset_path (default: the configured feedback dataset). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -3172,6 +3210,7 @@ devops ai failover [OPTIONS]
 | `--target-model` | `string` | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 
 ### `devops ai resume`
 
@@ -3246,7 +3285,7 @@ devops ai review path [OPTIONS] <targets>
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-verification` | `boolean` | - | Disable finding verification and adversarial debate. |
+| `--no-verification` | `boolean` | - | Disable finding verification and false-positive filtering. |
 | `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
@@ -3292,7 +3331,7 @@ devops ai review branch [OPTIONS] <branch_name>
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-verification` | `boolean` | - | Disable finding verification and adversarial debate. |
+| `--no-verification` | `boolean` | - | Disable finding verification and false-positive filtering. |
 | `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
@@ -3336,7 +3375,7 @@ devops ai review pr [OPTIONS] <number>
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-verification` | `boolean` | - | Disable finding verification and adversarial debate. |
+| `--no-verification` | `boolean` | - | Disable finding verification and false-positive filtering. |
 | `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
@@ -3372,6 +3411,7 @@ devops ai review findings [OPTIONS] <session>
 | `--unverified` | `boolean` | - | Show unverified findings only. |
 | `--invalidated` | `boolean` | - | Show invalidated findings only. |
 | `--verified` | `boolean` | - | Show verified findings only. |
+| `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
 | `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
 #### `devops ai review verify`
@@ -3397,6 +3437,8 @@ devops ai review verify [OPTIONS] <session>
 | `--title`, `-t` | `string` | - | Match finding by substring in title. |
 | `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
+| `--perimeter`, `-p` | `string` | - | Perimeter file path(s) protecting against finding recurrence (repeatable). |
+| `--regression-test` | `string` | - | Path to regression test guarding against finding recurrence. |
 
 #### `devops ai review stats`
 
@@ -3411,6 +3453,31 @@ devops ai review stats [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
+
+#### `devops ai review benchmark`
+
+**Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage.**
+
+```bash
+devops ai review benchmark [OPTIONS] <targets>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<targets>` | `path` | Yes | File(s) or directory(ies) to review on every run; keep them fixed to compare benchmarks. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
 
 #### `devops ai review export-feedback`
 
@@ -3428,49 +3495,215 @@ devops ai review export-feedback [OPTIONS]
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
 | `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 
-#### `devops ai review apply-patch`
-
-**Apply suggested LLM code fix for a verified finding.**
+#### `devops ai review corpus`
 
 ```bash
-devops ai review apply-patch [OPTIONS] <session>
+devops ai review corpus COMMAND [ARGS]...
+```
+
+##### `devops ai review corpus generate`
+
+**Copy source files with one known defect injected into each, and record where.**
+
+```bash
+devops ai review corpus generate [OPTIONS] <sources>
 ```
 
 **Arguments:**
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<session>` | `string` | Yes | Session ID or substring (default: latest). |
+| `<sources>` | `path` | Yes | Clean file(s) or directory(ies) to inject defects into; each becomes a folder of the corpus. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--index`, `-idx` | `integer` | `1` | 1-based finding index in session to verify. |
-| `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively. |
+| `--out`, `-o` | `path` | - | Corpus directory to create (default: corpora/\<source\>-\<seed\> under the reviews directory). |
+| `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--template`, `-t` | `string` | - | Defect template to inject (repeatable; default: all). |
 
-#### `devops ai review auto-fix`
+##### `devops ai review corpus score`
 
-**Create a corrective topic branch with verified unit test patch for an approved finding.**
+**Score a review of a corpus: which injected defects it found, and what verification kept.**
 
 ```bash
-devops ai review auto-fix [OPTIONS] <finding_id>
+devops ai review corpus score [OPTIONS] <corpus_dir>
 ```
 
 **Arguments:**
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<finding_id>` | `string` | Yes | Finding ID or title to create remediation branch for. |
+| `<corpus_dir>` | `path` | Yes | Corpus directory created by `devops review corpus generate`. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--file`, `-f` | `string` | `src/devops_cli/main.py` | Target source file to apply fix to. |
-| `--branch`, `-b` | `string` | - | Custom topic branch name. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--session`, `-s` | `string` | - | Review session to score (default: the latest review of the corpus). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+#### `devops ai review samples`
+
+```bash
+devops ai review samples COMMAND [ARGS]...
+```
+
+##### `devops ai review samples list`
+
+**List the sample catalog, and whether each sample is fetched at its commit.**
+
+```bash
+devops ai review samples list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+
+##### `devops ai review samples fetch`
+
+**Fetch samples at their pinned commits, verifying commit, licence files and paths.**
+
+```bash
+devops ai review samples fetch [OPTIONS] <names>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<names>` | `string` | No | Sample(s) to fetch (default: every sample, or every one in --category). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+
+##### `devops ai review samples validate`
+
+**Run devops ai tooling over fetched samples and save a JSON report per category.**
+
+```bash
+devops ai review samples validate [OPTIONS] <names>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<names>` | `string` | No | Sample(s) to validate (default: every sample, or every one in --category). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
+
+#### `devops ai review templates`
+
+```bash
+devops ai review templates COMMAND [ARGS]...
+```
+
+##### `devops ai review templates list`
+
+**List registered synthetic defect templates and their supported languages.**
+
+```bash
+devops ai review templates list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+##### `devops ai review templates sweep`
+
+**Sweep synthetic defect templates over sample repositories, validating syntax and comment isolation.**
+
+```bash
+devops ai review templates sweep [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
+| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+##### `devops ai review templates check`
+
+**Sweep synthetic defect templates over sample repositories, validating syntax and comment isolation.**
+
+```bash
+devops ai review templates check [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
+| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai review hallucinations`
+
+```bash
+devops ai review hallucinations COMMAND [ARGS]...
+```
+
+##### `devops ai review hallucinations list`
+
+**List catalog entries: builtin ones shipped with the tool, and learned ones from this workspace.**
+
+```bash
+devops ai review hallucinations list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--learned` | `boolean` | - | Show learned entries only. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+##### `devops ai review hallucinations remove`
+
+**Remove learned catalog entries; builtin entries cannot be removed.**
+
+```bash
+devops ai review hallucinations remove [OPTIONS] <ids>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<ids>` | `string` | No | Ids of learned entries to remove. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--all-learned` | `boolean` | - | Remove every learned entry. |
 
 ### `devops ai analyze`
 
@@ -3725,7 +3958,7 @@ devops ai benchmark [OPTIONS]
 | `--provider`, `-p` | `string` | - | AI or cloud provider. |
 | `--type`, `--mode` | `string` | `auto` | Benchmark mode: 'auto', 'chat', 'embedding', 'suite'. |
 | `--suite` | `boolean` | - | Run multi-model evaluation suite grounded in feedback datasets. |
-| `--dataset` | `path` | - | Path to feedback dataset JSONL file (defaults to .data/feedback_dataset.jsonl). |
+| `--dataset` | `path` | - | Feedback dataset JSONL for --suite; a relative path is a data path under the main worktree, like data.feedback_dataset_path (default: the configured feedback dataset). |
 | `--tasks`, `-t` | `string` | - | Filter specific task categories or IDs (e.g. 'security,kubernetes'). |
 | `--concurrency`, `-c` | `integer` | `4` | Number of concurrent model server workers (default: automatic per model count). |
 | `--output`, `-o` | `path` | - | Destination path for output report or artifacts. |
@@ -4029,6 +4262,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--simulate`, `--no-simulate` | `boolean` | `True` | Simulate failover without altering active routing table. |
+| `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
 #### `devops ai gateway scale`
@@ -4070,6 +4304,232 @@ devops ai gateway probe-backend [OPTIONS] <backend>
 | `--backend-url`, `-u` | `string` | - | Optional backend base URL override. |
 | `--format`, `-f` | `string` | `table` | Output format: table or json. |
 
+#### `devops ai gateway tune`
+
+**Measure each deployment of a gateway model group and recommend routing weights.**
+
+Measure each deployment of a gateway model group and recommend routing weights.
+
+Each deployment is measured on its own from an ephemeral container attached to the gateway
+pod, since the backends admit only the gateway. Read-only: the gateway configuration is not
+changed.
+
+```bash
+devops ai gateway tune [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--model`, `-m` | `string` | `devops-review` | Gateway model group to measure. |
+| `--concurrency`, `-c` | `string` | `1,4,8` | Comma-separated concurrency levels to measure. |
+| `--rounds` | `integer` | `2` | Requests per worker at each concurrency level. |
+| `--prompt-tokens` | `integer` | - | Prompt size in tokens (default: one review page for the analysis task). |
+| `--max-tokens` | `integer` | `<masked>` | Completion tokens requested per call. |
+| `--gateway-url`, `-u` | `string` | - | Optional gateway base URL override. |
+| `--namespace`, `-n` | `string` | `llm` | Namespace of the gateway deployment. |
+| `--deployment` | `string` | `llm-gateway` | Gateway deployment to run the sweep in. |
+| `--context` | `string` | - | Kubernetes context override. |
+| `--image` | `string` | `python:3.14-slim` | Python image for the sweep container. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai gateway load`
+
+**Report how busy each LLM backend and GPU was over a window, from Prometheus.**
+
+Report how busy each LLM backend and GPU was over a window, from Prometheus.
+
+Mean in flight is the gateway's call seconds per second on each deployment, so it covers the
+Ollama nodes too; busy share and queue come from the vLLM servers themselves.
+
+```bash
+devops ai gateway load [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--window`, `-w` | `string` | `1h` | How far back to look, e.g. 30m, 2h or 1d. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops ai runs`
+
+**Benchmark and evaluation runs, kept in the data directory and shared through Valkey.**
+
+```bash
+devops ai runs COMMAND [ARGS]...
+```
+
+#### `devops ai runs reindex`
+
+**Rebuild the shared run index in Valkey from the run records in the data directory.**
+
+```bash
+devops ai runs reindex [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Only index runs of this mechanism. |
+
+#### `devops ai runs connect`
+
+**Find the cluster's run index, check it answers, share runs through it, and index them.**
+
+```bash
+devops ai runs connect [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context` | `string` | - | Kubernetes context (default: current). |
+| `--namespace`, `-n` | `string` | `llm` | Namespace of the run index. |
+| `--service` | `string` | `valkey-runs` | Service of the run index's Valkey. |
+| `--secret` | `string` | `<masked>` | Secret holding the Valkey password. |
+
+#### `devops ai runs list`
+
+**List recorded benchmark and evaluation runs.**
+
+```bash
+devops ai runs list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Only list runs of this mechanism. |
+| `--subject-key`, `-s` | `string` | - | Only list runs matching this subject key or prefix. |
+| `--limit`, `-n` | `integer` | `20` | Maximum number of runs to show. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai runs show`
+
+**Show details of a recorded run.**
+
+```bash
+devops ai runs show [OPTIONS] <run_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<run_id>` | `string` | Yes | Run ID or prefix to show. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai runs compare`
+
+**Compare two runs or a run against its subject's baseline.**
+
+```bash
+devops ai runs compare [OPTIONS] <run_a> <run_b>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<run_a>` | `string` | Yes | First run ID (or current run if second run is omitted). |
+| `<run_b>` | `string` | No | Second run ID (optional; defaults to subject baseline). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai runs check`
+
+**Check a run against baseline for regressions past tolerances.**
+
+```bash
+devops ai runs check [OPTIONS] <run_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<run_id>` | `string` | Yes | Run ID to check against baseline. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--baseline`, `-b` | `string` | - | Override baseline run ID to compare against. |
+| `--max-recall-drop` | `float` | `0.0` | Maximum allowable relative drop in recall (e.g. 0.05 for 5%). |
+| `--max-duration-increase` | `float` | `0.15` | Maximum allowable relative increase in duration (e.g. 0.15 for 15%). |
+| `--max-tokens-increase` | `float` | `<masked>` | Maximum allowable relative increase in prompt tokens (e.g. 0.20 for 20%). |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops ai runs baseline`
+
+```bash
+devops ai runs baseline COMMAND [ARGS]...
+```
+
+##### `devops ai runs baseline set`
+
+**Set a run as the baseline for its subject.**
+
+```bash
+devops ai runs baseline set <run_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<run_id>` | `string` | Yes | Run ID to designate as baseline. |
+
+##### `devops ai runs baseline list`
+
+**List all configured baselines.**
+
+```bash
+devops ai runs baseline list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+##### `devops ai runs baseline show`
+
+**Show the baseline for a subject or run.**
+
+```bash
+devops ai runs baseline show [OPTIONS] <subject_or_run>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<subject_or_run>` | `string` | Yes | Subject key or run ID to inspect baseline for. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--mechanism`, `-m` | `choice (review-benchmark|sample-validation|corpus-score|gateway-tune|prompt-eval|ai-benchmark|template-sweep)` | - | Mechanism for subject lookup. |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
 ### `devops ai cost`
 
 **Track approximate lifetime spend and manage model pricing.**
@@ -4082,8 +4542,10 @@ devops ai cost [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, all. |
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o). |
+| `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
 
@@ -4099,9 +4561,29 @@ devops ai cost report [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, all. |
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o). |
+| `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai cost roi`
+
+**Monitor pay-off in value for local hardware purchases and local LLM savings.**
+
+```bash
+devops ai cost roi [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--hardware-cost`, `-H` | `float` | - | Total hardware purchase cost in USD (e.g. 1599.0 for GPU/workstation). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o). |
+| `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
 
 #### `devops ai cost prometheus`
@@ -4185,8 +4667,10 @@ devops ai spend [OPTIONS] COMMAND [ARGS]...
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, all. |
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o). |
+| `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, markdown. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
 
@@ -4202,9 +4686,29 @@ devops ai spend report [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, all. |
+| `--by`, `-b` | `string` | `server` | Breakdown grouping dimension: server, model, provider, backend, stage, all. |
 | `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o). |
+| `--hardware-cost`, `-H` | `float` | - | Hardware purchase cost in USD to track pay-off against. |
 | `--format`, `-f` | `string` | `table` | Output format: table, json, yaml, prometheus. |
+| `--json` | `boolean` | - | First-class alias for --format json. |
+
+#### `devops ai spend roi`
+
+**Monitor pay-off in value for local hardware purchases and local LLM savings.**
+
+```bash
+devops ai spend roi [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--hardware-cost`, `-H` | `float` | - | Total hardware purchase cost in USD (e.g. 1599.0 for GPU/workstation). |
+| `--reference-model`, `-m` | `string` | - | Reference model for counterfactual pricing (default: gpt-4o). |
+| `--days`, `-d` | `integer` | - | Filter usage to the last N days (default: all lifetime). |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
 | `--json` | `boolean` | - | First-class alias for --format json. |
 
 #### `devops ai spend prometheus`
@@ -4312,7 +4816,7 @@ devops review path [OPTIONS] <targets>
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-verification` | `boolean` | - | Disable finding verification and adversarial debate. |
+| `--no-verification` | `boolean` | - | Disable finding verification and false-positive filtering. |
 | `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
@@ -4358,7 +4862,7 @@ devops review branch [OPTIONS] <branch_name>
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-verification` | `boolean` | - | Disable finding verification and adversarial debate. |
+| `--no-verification` | `boolean` | - | Disable finding verification and false-positive filtering. |
 | `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
@@ -4402,7 +4906,7 @@ devops review pr [OPTIONS] <number>
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-verification` | `boolean` | - | Disable finding verification and adversarial debate. |
+| `--no-verification` | `boolean` | - | Disable finding verification and false-positive filtering. |
 | `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
@@ -4438,6 +4942,7 @@ devops review findings [OPTIONS] <session>
 | `--unverified` | `boolean` | - | Show unverified findings only. |
 | `--invalidated` | `boolean` | - | Show invalidated findings only. |
 | `--verified` | `boolean` | - | Show verified findings only. |
+| `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
 | `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
 ### `devops review verify`
@@ -4463,6 +4968,8 @@ devops review verify [OPTIONS] <session>
 | `--title`, `-t` | `string` | - | Match finding by substring in title. |
 | `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
+| `--perimeter`, `-p` | `string` | - | Perimeter file path(s) protecting against finding recurrence (repeatable). |
+| `--regression-test` | `string` | - | Path to regression test guarding against finding recurrence. |
 
 ### `devops review stats`
 
@@ -4477,6 +4984,31 @@ devops review stats [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
+
+### `devops review benchmark`
+
+**Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage.**
+
+```bash
+devops review benchmark [OPTIONS] <targets>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<targets>` | `path` | Yes | File(s) or directory(ies) to review on every run; keep them fixed to compare benchmarks. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
 
 ### `devops review export-feedback`
 
@@ -4494,49 +5026,215 @@ devops review export-feedback [OPTIONS]
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
 | `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 
-### `devops review apply-patch`
-
-**Apply suggested LLM code fix for a verified finding.**
+### `devops review corpus`
 
 ```bash
-devops review apply-patch [OPTIONS] <session>
+devops review corpus COMMAND [ARGS]...
+```
+
+#### `devops review corpus generate`
+
+**Copy source files with one known defect injected into each, and record where.**
+
+```bash
+devops review corpus generate [OPTIONS] <sources>
 ```
 
 **Arguments:**
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<session>` | `string` | Yes | Session ID or substring (default: latest). |
+| `<sources>` | `path` | Yes | Clean file(s) or directory(ies) to inject defects into; each becomes a folder of the corpus. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--index`, `-idx` | `integer` | `1` | 1-based finding index in session to verify. |
-| `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively. |
+| `--out`, `-o` | `path` | - | Corpus directory to create (default: corpora/\<source\>-\<seed\> under the reviews directory). |
+| `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--template`, `-t` | `string` | - | Defect template to inject (repeatable; default: all). |
 
-### `devops review auto-fix`
+#### `devops review corpus score`
 
-**Create a corrective topic branch with verified unit test patch for an approved finding.**
+**Score a review of a corpus: which injected defects it found, and what verification kept.**
 
 ```bash
-devops review auto-fix [OPTIONS] <finding_id>
+devops review corpus score [OPTIONS] <corpus_dir>
 ```
 
 **Arguments:**
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<finding_id>` | `string` | Yes | Finding ID or title to create remediation branch for. |
+| `<corpus_dir>` | `path` | Yes | Corpus directory created by `devops review corpus generate`. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--file`, `-f` | `string` | `src/devops_cli/main.py` | Target source file to apply fix to. |
-| `--branch`, `-b` | `string` | - | Custom topic branch name. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--session`, `-s` | `string` | - | Review session to score (default: the latest review of the corpus). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+### `devops review samples`
+
+```bash
+devops review samples COMMAND [ARGS]...
+```
+
+#### `devops review samples list`
+
+**List the sample catalog, and whether each sample is fetched at its commit.**
+
+```bash
+devops review samples list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+
+#### `devops review samples fetch`
+
+**Fetch samples at their pinned commits, verifying commit, licence files and paths.**
+
+```bash
+devops review samples fetch [OPTIONS] <names>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<names>` | `string` | No | Sample(s) to fetch (default: every sample, or every one in --category). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+
+#### `devops review samples validate`
+
+**Run devops ai tooling over fetched samples and save a JSON report per category.**
+
+```bash
+devops review samples validate [OPTIONS] <names>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<names>` | `string` | No | Sample(s) to validate (default: every sample, or every one in --category). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
+
+### `devops review templates`
+
+```bash
+devops review templates COMMAND [ARGS]...
+```
+
+#### `devops review templates list`
+
+**List registered synthetic defect templates and their supported languages.**
+
+```bash
+devops review templates list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops review templates sweep`
+
+**Sweep synthetic defect templates over sample repositories, validating syntax and comment isolation.**
+
+```bash
+devops review templates sweep [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
+| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+#### `devops review templates check`
+
+**Sweep synthetic defect templates over sample repositories, validating syntax and comment isolation.**
+
+```bash
+devops review templates check [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
+| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops review hallucinations`
+
+```bash
+devops review hallucinations COMMAND [ARGS]...
+```
+
+#### `devops review hallucinations list`
+
+**List catalog entries: builtin ones shipped with the tool, and learned ones from this workspace.**
+
+```bash
+devops review hallucinations list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--learned` | `boolean` | - | Show learned entries only. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+#### `devops review hallucinations remove`
+
+**Remove learned catalog entries; builtin entries cannot be removed.**
+
+```bash
+devops review hallucinations remove [OPTIONS] <ids>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<ids>` | `string` | No | Ids of learned entries to remove. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--all-learned` | `boolean` | - | Remove every learned entry. |
 
 ---
 
@@ -5079,7 +5777,8 @@ devops pr check-readiness [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
+| `--allow-draft` | `boolean` | - | Report a draft pull request as ready; GitHub still refuses to merge one. |
+| `--allow-pending-checks` | `boolean` | - | Treat checks that are still running as acceptable rather than blocking. |
 | `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
 | `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
 | `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
@@ -6176,7 +6875,8 @@ devops gh pr check-readiness [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--require-ready` | `boolean` | - | Fail if the pull request is in draft status |
+| `--allow-draft` | `boolean` | - | Report a draft pull request as ready; GitHub still refuses to merge one. |
+| `--allow-pending-checks` | `boolean` | - | Treat checks that are still running as acceptable rather than blocking. |
 | `--allow-blocked-state` | `boolean` | - | Allow mergeable_state 'blocked' (e.g. when executing within CI while checks/approvals are pending) |
 | `--auto-resolve` | `boolean` | - | Automatically resolve review discussion threads that have received replies. |
 | `--allow-replied-threads` | `boolean` | - | Treat review discussion threads that have received replies as addressed rather than blocking. |
@@ -6744,6 +7444,23 @@ OpenTelemetry tracing, metrics, and Jaeger observability.
 devops telemetry status
 ```
 
+### `devops telemetry connect`
+
+**Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there.**
+
+```bash
+devops telemetry connect [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context` | `string` | - | Kubernetes context of the cluster running the collector (default: current). |
+| `--namespace`, `-n` | `string` | `otel` | Namespace of the collector service. |
+| `--service` | `string` | `otel-collector-opentelemetry-collector` | Name of the collector service. |
+| `--save`, `--no-save` | `boolean` | `True` | Save the endpoint as telemetry.endpoint (default) or only check it. |
+
 ### `devops telemetry logfire`
 
 **Display Logfire structured observability bridge status and token metrics.**
@@ -6803,6 +7520,195 @@ devops telemetry profile [OPTIONS] <command>
 ```bash
 devops telemetry open-ui
 ```
+
+---
+
+## devops cloudflare
+
+Cloudflare Zero Trust tunnels and DNS management.
+
+### `devops cloudflare status`
+
+**Verify Cloudflare API token authentication and inspect zone status.**
+
+```bash
+devops cloudflare status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json`, `-j` | `boolean` | - | Output status details in JSON format |
+
+### `devops cloudflare dns`
+
+```bash
+devops cloudflare dns COMMAND [ARGS]...
+```
+
+#### `devops cloudflare dns list`
+
+**List DNS records in the designated Cloudflare zone.**
+
+```bash
+devops cloudflare dns list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--type`, `-t` | `string` | - | Filter by DNS record type (e.g. CNAME, A, TXT) |
+| `--name`, `-n` | `string` | - | Filter by record hostname |
+| `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
+| `--json`, `-j` | `boolean` | - | Output DNS records in JSON format |
+
+#### `devops cloudflare dns sync`
+
+**Synchronize CNAME records for root and subdomains to the Cloudflare tunnel.**
+
+```bash
+devops cloudflare dns sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--domain`, `-d` | `string` | - | Root domain name (e.g. retric.click) |
+| `--tunnel-cname`, `-c` | `string` | - | Target tunnel CNAME or Tunnel UUID |
+| `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to tunnel |
+| `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
+| `--dry-run` | `boolean` | - | Preview DNS record reconciliation without applying changes |
+| `--json`, `-j` | `boolean` | - | Output reconciliation summary in JSON format |
+
+#### `devops cloudflare dns delete`
+
+**Delete one or more DNS records by name or record ID.**
+
+```bash
+devops cloudflare dns delete [OPTIONS] <targets>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<targets>` | `string` | Yes | One or more DNS record names (e.g. chat.retric.click) or record IDs to delete |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--type`, `-t` | `string` | - | Filter by DNS record type (e.g. CNAME, A, TXT) |
+| `--force`, `-f` | `boolean` | - | Force deletion of records not marked as 'Managed by devops-cli' |
+| `--zone-id`, `-z` | `string` | - | Override Cloudflare Zone ID |
+| `--dry-run` | `boolean` | - | Preview DNS record deletions without applying changes |
+| `--json`, `-j` | `boolean` | - | Output deletion results in JSON format |
+
+### `devops cloudflare tunnel`
+
+```bash
+devops cloudflare tunnel COMMAND [ARGS]...
+```
+
+#### `devops cloudflare tunnel routes`
+
+**Inspect Cloudflare tunnel ingress routes configuration.**
+
+```bash
+devops cloudflare tunnel routes [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--tunnel-id`, `-t` | `string` | - | Cloudflare Tunnel ID or name |
+| `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--json`, `-j` | `boolean` | - | Output tunnel ingress routes in JSON format |
+
+#### `devops cloudflare tunnel sync`
+
+**Synchronize tunnel ingress rules to route subdomains to the cluster ingress controller.**
+
+```bash
+devops cloudflare tunnel sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--tunnel-id`, `-t` | `string` | - | Cloudflare Tunnel ID |
+| `--domain`, `-d` | `string` | - | Domain to route through tunnel (e.g. retric.click) |
+| `--service` | `string` | `http://traefik.kube-system.svc.cluster.local:80` | Cluster ingress destination service URL |
+| `--subdomains`, `-s` | `string` | - | Comma-separated subdomains to route to service |
+| `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--dry-run` | `boolean` | - | Preview tunnel configuration without updating |
+| `--json`, `-j` | `boolean` | - | Output updated tunnel configuration in JSON format |
+
+### `devops cloudflare access`
+
+```bash
+devops cloudflare access COMMAND [ARGS]...
+```
+
+#### `devops cloudflare access status`
+
+**Inspect Cloudflare Zero Trust Access applications and protected domains.**
+
+```bash
+devops cloudflare access status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--json`, `-j` | `boolean` | - | Output access applications in JSON format |
+
+#### `devops cloudflare access sync`
+
+**Synchronize Cloudflare Zero Trust Access application and email allow-list policy.**
+
+```bash
+devops cloudflare access sync [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--domain`, `-d` | `string` | - | Domain to protect with Cloudflare Access |
+| `--allowed-emails`, `-e` | `string` | - | Comma-separated emails permitted to access |
+| `--bypass-ips`, `-b` | `string` | - | Comma-separated public IP addresses or CIDRs to bypass Access authentication (e.g. homelab public IP) |
+| `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--dry-run` | `boolean` | - | Preview Access application changes without applying |
+| `--json`, `-j` | `boolean` | - | Output Access sync summary in JSON format |
+
+#### `devops cloudflare access policies`
+
+**List Cloudflare Zero Trust Access policies for an application.**
+
+```bash
+devops cloudflare access policies [OPTIONS] <app_id>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<app_id>` | `string` | Yes | Access application ID |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--account-id`, `-a` | `string` | - | Override Cloudflare Account ID |
+| `--json`, `-j` | `boolean` | - | Output policies in JSON format |
 
 ---
 

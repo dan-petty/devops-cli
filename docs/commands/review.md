@@ -34,7 +34,7 @@ devops review path [OPTIONS] <targets>
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-verification` | `boolean` | - | Disable finding verification and adversarial debate. |
+| `--no-verification` | `boolean` | - | Disable finding verification and false-positive filtering. |
 | `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
@@ -82,7 +82,7 @@ devops review branch [OPTIONS] <branch_name>
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-verification` | `boolean` | - | Disable finding verification and adversarial debate. |
+| `--no-verification` | `boolean` | - | Disable finding verification and false-positive filtering. |
 | `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
@@ -128,7 +128,7 @@ devops review pr [OPTIONS] <number>
 | `--static-scan-only` | `boolean` | - | Run static scanning only and skip subsequent stages. |
 | `--no-persona-review` | `boolean` | - | Disable multi-persona LLM inspection. |
 | `--persona-review-only` | `boolean` | - | Run persona review only and skip subsequent stages. |
-| `--no-verification` | `boolean` | - | Disable finding verification and adversarial debate. |
+| `--no-verification` | `boolean` | - | Disable finding verification and false-positive filtering. |
 | `--verification-only` | `boolean` | - | Run verification only and skip subsequent stages. |
 | `--no-reranking` | `boolean` | - | Disable finding re-ranking and deduplication. |
 | `--reranking-only` | `boolean` | - | Run re-ranking only and skip subsequent stages. |
@@ -166,6 +166,7 @@ devops review findings [OPTIONS] <session>
 | `--unverified` | `boolean` | - | Show unverified findings only. |
 | `--invalidated` | `boolean` | - | Show invalidated findings only. |
 | `--verified` | `boolean` | - | Show verified findings only. |
+| `--mitigated` | `boolean` | - | Filter findings by MITIGATED status |
 | `--details`, `-d` | `boolean` | - | Display full finding descriptions and fix recommendations. |
 
 ---
@@ -193,6 +194,8 @@ devops review verify [OPTIONS] <session>
 | `--title`, `-t` | `string` | - | Match finding by substring in title. |
 | `--status` | `string` | `INVALIDATED` | Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED. |
 | `--reason`, `-r` | `string` | `` | Explanation or justification for the status change. |
+| `--perimeter`, `-p` | `string` | - | Perimeter file path(s) protecting against finding recurrence (repeatable). |
+| `--regression-test` | `string` | - | Path to regression test guarding against finding recurrence. |
 
 ---
 
@@ -209,6 +212,33 @@ devops review stats [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
+
+---
+
+## `devops review benchmark`
+
+**Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage.**
+
+```bash
+devops review benchmark [OPTIONS] <targets>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<targets>` | `path` | Yes | File(s) or directory(ies) to review on every run; keep them fixed to compare benchmarks. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--runs`, `-n` | `integer` | `3` | Number of reviews to run; the report takes medians across them. |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--persona`, `-p` | `choice (devsecops|architect|pm|auditor|qa|challenger)` | - | Reviewer persona to activate (devsecops, architect, pm, auditor, qa). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--no-pre-analysis` | `boolean` | - | Disable pre-analysis and metadata refresh. |
+| `--concurrency`, `-c` | `integer` | - | Max concurrent workers for parallel review and verification. |
 
 ---
 
@@ -230,50 +260,220 @@ devops review export-feedback [OPTIONS]
 
 ---
 
-## `devops review apply-patch`
-
-**Apply suggested LLM code fix for a verified finding.**
+## `devops review corpus`
 
 ```bash
-devops review apply-patch [OPTIONS] <session>
+devops review corpus COMMAND [ARGS]...
+```
+
+### `devops review corpus generate`
+
+**Copy source files with one known defect injected into each, and record where.**
+
+```bash
+devops review corpus generate [OPTIONS] <sources>
 ```
 
 **Arguments:**
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<session>` | `string` | Yes | Session ID or substring (default: latest). |
+| `<sources>` | `path` | Yes | Clean file(s) or directory(ies) to inject defects into; each becomes a folder of the corpus. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--index`, `-idx` | `integer` | `1` | 1-based finding index in session to verify. |
-| `--interactive`, `-i` | `boolean` | - | Preview patch diff interactively. |
+| `--out`, `-o` | `path` | - | Corpus directory to create (default: corpora/\<source\>-\<seed\> under the reviews directory). |
+| `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
+| `--pattern`, `-g` | `string` | `*` | Glob pattern for matching files. |
+| `--template`, `-t` | `string` | - | Defect template to inject (repeatable; default: all). |
+
+### `devops review corpus score`
+
+**Score a review of a corpus: which injected defects it found, and what verification kept.**
+
+```bash
+devops review corpus score [OPTIONS] <corpus_dir>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<corpus_dir>` | `path` | Yes | Corpus directory created by `devops review corpus generate`. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--session`, `-s` | `string` | - | Review session to score (default: the latest review of the corpus). |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
 
 ---
 
-## `devops review auto-fix`
-
-**Create a corrective topic branch with verified unit test patch for an approved finding.**
+## `devops review samples`
 
 ```bash
-devops review auto-fix [OPTIONS] <finding_id>
+devops review samples COMMAND [ARGS]...
+```
+
+### `devops review samples list`
+
+**List the sample catalog, and whether each sample is fetched at its commit.**
+
+```bash
+devops review samples list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+
+### `devops review samples fetch`
+
+**Fetch samples at their pinned commits, verifying commit, licence files and paths.**
+
+```bash
+devops review samples fetch [OPTIONS] <names>
 ```
 
 **Arguments:**
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<finding_id>` | `string` | Yes | Finding ID or title to create remediation branch for. |
+| `<names>` | `string` | No | Sample(s) to fetch (default: every sample, or every one in --category). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--file`, `-f` | `string` | `src/devops_cli/main.py` | Target source file to apply fix to. |
-| `--branch`, `-b` | `string` | - | Custom topic branch name. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+
+### `devops review samples validate`
+
+**Run devops ai tooling over fetched samples and save a JSON report per category.**
+
+```bash
+devops review samples validate [OPTIONS] <names>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<names>` | `string` | No | Sample(s) to validate (default: every sample, or every one in --category). |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--review` | `boolean` | - | Also review each category's synthetic defect corpus and score it (calls the configured LLM). |
+| `--all` | `boolean` | - | Run all reviewer personas in sequence. |
+| `--seed` | `integer` | `1` | Seed choosing each file's defect; the same seed and files give the same corpus. |
+
+---
+
+## `devops review templates`
+
+```bash
+devops review templates COMMAND [ARGS]...
+```
+
+### `devops review templates list`
+
+**List registered synthetic defect templates and their supported languages.**
+
+```bash
+devops review templates list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops review templates sweep`
+
+**Sweep synthetic defect templates over sample repositories, validating syntax and comment isolation.**
+
+```bash
+devops review templates sweep [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
+| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+### `devops review templates check`
+
+**Sweep synthetic defect templates over sample repositories, validating syntax and comment isolation.**
+
+```bash
+devops review templates check [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--template`, `-t` | `string` | - | Specific defect template(s) to check (default: all registered templates). |
+| `--category`, `-c` | `choice (python|typescript-javascript|go|rust|java|csharp-dotnet|c-cpp|terraform|kubernetes-helm|dockerfile|shell|documentation)` | - | Only samples of this category (repeatable). |
+| `--sample`, `-s` | `string` | - | Specific sample name(s) to check. |
+| `--save`, `--no-save` | `boolean` | `True` | Save sweep results into the evaluation run store (default: true). |
+| `--format`, `-f` | `string` | `table` | Output format: table or json. |
+
+---
+
+## `devops review hallucinations`
+
+```bash
+devops review hallucinations COMMAND [ARGS]...
+```
+
+### `devops review hallucinations list`
+
+**List catalog entries: builtin ones shipped with the tool, and learned ones from this workspace.**
+
+```bash
+devops review hallucinations list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--learned` | `boolean` | - | Show learned entries only. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
+
+### `devops review hallucinations remove`
+
+**Remove learned catalog entries; builtin entries cannot be removed.**
+
+```bash
+devops review hallucinations remove [OPTIONS] <ids>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<ids>` | `string` | No | Ids of learned entries to remove. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--all-learned` | `boolean` | - | Remove every learned entry. |
 
 ---

@@ -1,7 +1,6 @@
 # Task 118: High-Performance AST Context Packer with Binary Search Truncation
 
 **Issue**: [#118](https://github.com/dan-petty/devops-cli/issues/118)
-**PR**: [#224](https://github.com/dan-petty/devops-cli/pull/224)
 **Status**: Done
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p1-high`

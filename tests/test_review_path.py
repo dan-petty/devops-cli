@@ -57,6 +57,18 @@ def test_load_agents_md_reads_repo_root_file(tmp_path: Path) -> None:
     assert "Use latest Python." in agents_md
 
 
+def test_load_agents_md_prefers_the_nearest_conventions_file(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "AGENTS.md").write_text("## Root\nRoot rules.\n", encoding="utf-8")
+    subproject = tmp_path / "services" / "api"
+    (subproject / "src").mkdir(parents=True)
+    (subproject / "AGENTS.md").write_text("## API\nAPI rules.\n", encoding="utf-8")
+
+    conventions = _load_agents_md(subproject / "src")
+
+    assert ("API rules." in conventions, "Root rules." in conventions) == (True, False)
+
+
 def test_load_agents_md_reads_claude_md_fallback(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "CLAUDE.md").write_text("## Guidelines\nUse Go 1.23.\n", encoding="utf-8")
@@ -245,10 +257,7 @@ def test_run_review_three_steps_combines_segments() -> None:
                 return "final recomposed review"
             if "Be specific. Do not make recommendations." in user:
                 return "summary"
-            return (
-                '{"findings":[],"positive_observations":[],"recommendation":"APPROVE",'
-                '"summary":"segment review"}'
-            )
+            return '{"findings":[],"recommendation":"APPROVE","summary":"segment review"}'
 
     result = _run_review(
         ["page-one", "page-two"],
@@ -280,10 +289,7 @@ def test_run_review_never_sends_empty_user_prompt() -> None:
             **kwargs: object,
         ) -> str:
             calls.append(user)
-            return (
-                '{"findings":[],"positive_observations":[],"recommendation":"APPROVE",'
-                '"summary":"ok"}'
-            )
+            return '{"findings":[],"recommendation":"APPROVE","summary":"ok"}'
 
     _run_review(
         ["content-1", "content-2"],
@@ -318,10 +324,7 @@ def test_run_review_metadata_includes_filenames() -> None:
                 return "done"
             if "Be specific. Do not make recommendations." in user:
                 return "summary"
-            return (
-                '{"findings":[],"positive_observations":[],"recommendation":"APPROVE",'
-                '"summary":"review"}'
-            )
+            return '{"findings":[],"recommendation":"APPROVE","summary":"review"}'
 
     pages = [
         "diff --git a/src/a.py b/src/a.py\n@@ -1,1 +1,2 @@\n+x\n",
@@ -395,10 +398,7 @@ def test_run_review_single_segment_skips_recompose() -> None:
             calls.append(user)
             if "Be specific. Do not make recommendations." in user:
                 return "summary"
-            return (
-                '{"findings":[],"positive_observations":[],"recommendation":"APPROVE",'
-                '"summary":"single segment review"}'
-            )
+            return '{"findings":[],"recommendation":"APPROVE","summary":"single segment review"}'
 
     result = _run_review(
         ["only-page"],

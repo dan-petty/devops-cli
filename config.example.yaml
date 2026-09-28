@@ -122,6 +122,31 @@ k8s:
   # Target Kubernetes cluster context (e.g. minikube, kind-cluster, remote cluster).
   # When set to minikube, minikube autostarts on container startup or context switch if stopped.
   context: minikube
+  # Base or root domain name for homelab ingress routes and tunnel services (e.g. example.com).
+  domain: null
+
+# ── Cloudflare Zero Trust & Tunnel ───────────────────────────────────────────
+cloudflare:
+  # Zone or root domain managed in Cloudflare (e.g. example.com).
+  domain: null
+  # Tunnel name or identifier (e.g. homelab).
+  tunnel: null
+  # Cloudflare Account ID.
+  account_id: null
+  # Cloudflare Zone ID.
+  zone_id: null
+  # Homelab public IP address or CIDR permitted to bypass Cloudflare Access (e.g. 198.51.100.1/32).
+  public_ip_bypass: null
+  # Cloudflare Zero Trust Access configuration.
+  access:
+    enabled: false
+    idp: google
+    allowed_emails: []
+    # Public IP addresses or CIDR blocks permitted to bypass Cloudflare Access.
+    bypass_ips: []
+    # Homelab public IP address or CIDR permitted to bypass Cloudflare Access.
+    public_ip_bypass: null
+
 
 # ── Sandbox ───────────────────────────────────────────────────────────────────
 sandbox:

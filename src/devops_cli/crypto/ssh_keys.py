@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 from devops_cli.config.constants import CONST_PERM_PRIVATE_KEY, CONST_PERM_PUBLIC_KEY
+from devops_cli.core.serialization import strip_json_comments
 from devops_cli.core.validation import validate_safe_key_path
 from devops_cli.exceptions import ValidationError
 from devops_cli.models.ssh import ManagedSSHKey
@@ -97,9 +98,7 @@ def _resolve_prefix_from_devcontainer(target_dir: Path) -> str | None:
         if not dev_path.is_file():
             continue
         try:
-            text = dev_path.read_text(encoding="utf-8")
-            cleaned = re.sub(r"//.*$", "", text, flags=re.MULTILINE)
-            data = json.loads(cleaned)
+            data = json.loads(strip_json_comments(dev_path.read_text(encoding="utf-8")))
             if isinstance(data, dict) and data.get("name"):
                 sanitized = _sanitize_prefix(str(data["name"]))
                 if sanitized:

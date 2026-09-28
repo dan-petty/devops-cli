@@ -1,0 +1,1158 @@
+# vLLM Inference Workload Profiles Consolidated by Total VRAM Capacity (<llm_provider>-<vram_gib>).
+# Tiers: 16gib, 24gib, 32gib, 48gib, 64gib, 72gib, 96gib, 128gib.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-16gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-16gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: qwen2.5-coder-14b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: '1'
+    llm.devops.io/vram-per-gpu: 16GiB
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: 16gib
+    llm.devops.io/total-vram-gib: '16'
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-16gib
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-16gib
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: qwen2.5-coder-14b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: '1'
+        llm.devops.io/vram-per-gpu: 16GiB
+        llm.devops.io/provider: vllm
+        llm.devops.io/vram-gib: 16gib
+        llm.devops.io/total-vram-gib: '16'
+    spec:
+      runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.count
+                    operator: In
+                    values: ["1"]
+                  - key: nvidia.com/gpu.vram-gib
+                    operator: In
+                    values: ["16Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.count
+                    operator: In
+                    values: ["1"]
+                  - key: nvidia.com/gpu.vram-gib
+                    operator: In
+                    values: ["16Gi"]
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:v0.30.0
+        command:
+        - vllm
+        - serve
+        args:
+        - Qwen/Qwen2.5-Coder-14B-Instruct-AWQ
+        - --served-model-name
+        - qwen2.5-coder-14b-instruct
+        - --max-model-len
+        - '16384'
+        - --kv-cache-dtype
+        - fp8
+        - --gpu-memory-utilization
+        - '0.95'
+        - --max-num-seqs
+        - '16'
+        - --host
+        - 0.0.0.0
+        - --port
+        - '8000'
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          requests:
+            cpu: '2'
+            memory: 12Gi
+            nvidia.com/gpu: '1'
+          limits:
+            cpu: '8'
+            memory: 12Gi
+            nvidia.com/gpu: '1'
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 180
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        env:
+        - name: HF_HOME
+          value: /root/.cache/huggingface
+        - name: HF_HUB_DISABLE_XET
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        - name: SSL_CERT_FILE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        - name: REQUESTS_CA_BUNDLE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: model-cache
+          mountPath: /root/.cache/huggingface
+        - name: shm
+          mountPath: /dev/shm
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+          readOnly: true
+      enableServiceLinks: false
+      initContainers:
+      - name: ca-bundle
+        image: vllm/vllm-openai:v0.30.0
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - cat /etc/ssl/certs/ca-certificates.crt /etc/ssl/squid-ca/squid-ca.pem > /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+      volumes:
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: vllm-single-model-cache
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 8Gi
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
+      - name: ca-bundle
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-24gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-24gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: qwen2.5-coder-14b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: '1'
+    llm.devops.io/vram-per-gpu: 24GiB
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: 24gib
+    llm.devops.io/total-vram-gib: '24'
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-24gib
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-24gib
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: qwen2.5-coder-14b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: '1'
+        llm.devops.io/vram-per-gpu: 24GiB
+        llm.devops.io/provider: vllm
+        llm.devops.io/vram-gib: 24gib
+        llm.devops.io/total-vram-gib: '24'
+    spec:
+      runtimeClassName: nvidia
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:v0.30.0
+        command:
+        - vllm
+        - serve
+        args:
+        - Qwen/Qwen2.5-Coder-14B-Instruct-AWQ
+        - --served-model-name
+        - qwen2.5-coder-14b-instruct
+        - --max-model-len
+        - '32768'
+        - --gpu-memory-utilization
+        - '0.95'
+        - --max-num-seqs
+        - '32'
+        - --host
+        - 0.0.0.0
+        - --port
+        - '8000'
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          requests:
+            cpu: '4'
+            memory: 24Gi
+            nvidia.com/gpu: '1'
+          limits:
+            cpu: '12'
+            memory: 32Gi
+            nvidia.com/gpu: '1'
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 180
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        env:
+        - name: HF_HOME
+          value: /root/.cache/huggingface
+        - name: HF_HUB_DISABLE_XET
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        - name: SSL_CERT_FILE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        - name: REQUESTS_CA_BUNDLE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: model-cache
+          mountPath: /root/.cache/huggingface
+        - name: shm
+          mountPath: /dev/shm
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+          readOnly: true
+      enableServiceLinks: false
+      initContainers:
+      - name: ca-bundle
+        image: vllm/vllm-openai:v0.30.0
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - cat /etc/ssl/certs/ca-certificates.crt /etc/ssl/squid-ca/squid-ca.pem > /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+      volumes:
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: vllm-model-cache
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 12Gi
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
+      - name: ca-bundle
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-32gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-32gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: qwen3-coder-30b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: '1'
+    llm.devops.io/vram-per-gpu: 32GiB
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: 32gib
+    llm.devops.io/total-vram-gib: '32'
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-32gib
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-32gib
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: qwen3-coder-30b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: '1'
+        llm.devops.io/vram-per-gpu: 32GiB
+        llm.devops.io/provider: vllm
+        llm.devops.io/vram-gib: 32gib
+        llm.devops.io/total-vram-gib: '32'
+    spec:
+      runtimeClassName: nvidia
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:v0.30.0
+        command:
+        - vllm
+        - serve
+        args:
+        - Qwen/Qwen3-Coder-30B-Instruct-AWQ
+        - --served-model-name
+        - qwen3-coder-30b-instruct
+        - --max-model-len
+        - '32768'
+        - --gpu-memory-utilization
+        - '0.95'
+        - --max-num-seqs
+        - '32'
+        - --host
+        - 0.0.0.0
+        - --port
+        - '8000'
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            nvidia.com/gpu: '1'
+          limits:
+            cpu: '16'
+            memory: 40Gi
+            nvidia.com/gpu: '1'
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 180
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        env:
+        - name: HF_HOME
+          value: /root/.cache/huggingface
+        - name: HF_HUB_DISABLE_XET
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        - name: SSL_CERT_FILE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        - name: REQUESTS_CA_BUNDLE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: model-cache
+          mountPath: /root/.cache/huggingface
+        - name: shm
+          mountPath: /dev/shm
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+          readOnly: true
+      enableServiceLinks: false
+      initContainers:
+      - name: ca-bundle
+        image: vllm/vllm-openai:v0.30.0
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - cat /etc/ssl/certs/ca-certificates.crt /etc/ssl/squid-ca/squid-ca.pem > /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+      volumes:
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: vllm-model-cache
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 16Gi
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
+      - name: ca-bundle
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-48gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-48gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: qwen3-coder-30b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: '2'
+    llm.devops.io/vram-per-gpu: 24GiB
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: 48gib
+    llm.devops.io/total-vram-gib: '48'
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-48gib
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-48gib
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: qwen3-coder-30b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: '2'
+        llm.devops.io/vram-per-gpu: 24GiB
+        llm.devops.io/provider: vllm
+        llm.devops.io/vram-gib: 48gib
+        llm.devops.io/total-vram-gib: '48'
+    spec:
+      runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.count
+                    operator: Gt
+                    values: ["1"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["48Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.count
+                    operator: Gt
+                    values: ["1"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["48Gi"]
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:v0.30.0
+        command:
+        - vllm
+        - serve
+        args:
+        - QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ
+        - --served-model-name
+        - qwen3-coder:30b
+        - --tensor-parallel-size
+        - '2'
+        - --max-model-len
+        - '65536'
+        - --gpu-memory-utilization
+        - '0.95'
+        - --max-num-seqs
+        - '64'
+        - --host
+        - 0.0.0.0
+        - --port
+        - '8000'
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          requests:
+            cpu: '4'
+            memory: 32Gi
+            nvidia.com/gpu: '2'
+          limits:
+            cpu: '16'
+            memory: 48Gi
+            nvidia.com/gpu: '2'
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 180
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        env:
+        - name: HF_HOME
+          value: /root/.cache/huggingface
+        - name: HF_HUB_DISABLE_XET
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        - name: SSL_CERT_FILE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        - name: REQUESTS_CA_BUNDLE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: model-cache
+          mountPath: /root/.cache/huggingface
+        - name: shm
+          mountPath: /dev/shm
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+          readOnly: true
+      enableServiceLinks: false
+      initContainers:
+      - name: ca-bundle
+        image: vllm/vllm-openai:v0.30.0
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - cat /etc/ssl/certs/ca-certificates.crt /etc/ssl/squid-ca/squid-ca.pem > /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+      volumes:
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: vllm-model-cache
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 16Gi
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
+      - name: ca-bundle
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-64gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-64gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: cogito-v2-70b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: '2'
+    llm.devops.io/vram-per-gpu: 32GiB
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: 64gib
+    llm.devops.io/total-vram-gib: '64'
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-64gib
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-64gib
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: cogito-v2-70b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: '2'
+        llm.devops.io/vram-per-gpu: 32GiB
+        llm.devops.io/provider: vllm
+        llm.devops.io/vram-gib: 64gib
+        llm.devops.io/total-vram-gib: '64'
+    spec:
+      runtimeClassName: nvidia
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:v0.30.0
+        command:
+        - vllm
+        - serve
+        args:
+        - deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
+        - --served-model-name
+        - cogito-v2-70b
+        - --tensor-parallel-size
+        - '2'
+        - --max-model-len
+        - '65536'
+        - --gpu-memory-utilization
+        - '0.95'
+        - --max-num-seqs
+        - '64'
+        - --host
+        - 0.0.0.0
+        - --port
+        - '8000'
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          requests:
+            cpu: '8'
+            memory: 48Gi
+            nvidia.com/gpu: '2'
+          limits:
+            cpu: '16'
+            memory: 64Gi
+            nvidia.com/gpu: '2'
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 180
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        env:
+        - name: HF_HOME
+          value: /root/.cache/huggingface
+        - name: HF_HUB_DISABLE_XET
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        - name: SSL_CERT_FILE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        - name: REQUESTS_CA_BUNDLE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: model-cache
+          mountPath: /root/.cache/huggingface
+        - name: shm
+          mountPath: /dev/shm
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+          readOnly: true
+      enableServiceLinks: false
+      initContainers:
+      - name: ca-bundle
+        image: vllm/vllm-openai:v0.30.0
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - cat /etc/ssl/certs/ca-certificates.crt /etc/ssl/squid-ca/squid-ca.pem > /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+      volumes:
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: vllm-model-cache
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 24Gi
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
+      - name: ca-bundle
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-72gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-72gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: cogito-v2-70b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: '3'
+    llm.devops.io/vram-per-gpu: 24GiB
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: 72gib
+    llm.devops.io/total-vram-gib: '72'
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-72gib
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-72gib
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: cogito-v2-70b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: '3'
+        llm.devops.io/vram-per-gpu: 24GiB
+        llm.devops.io/provider: vllm
+        llm.devops.io/vram-gib: 72gib
+        llm.devops.io/total-vram-gib: '72'
+    spec:
+      runtimeClassName: nvidia
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:v0.30.0
+        command:
+        - vllm
+        - serve
+        args:
+        - deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
+        - --served-model-name
+        - cogito-v2-70b
+        - --tensor-parallel-size
+        - '3'
+        - --max-model-len
+        - '65536'
+        - --gpu-memory-utilization
+        - '0.95'
+        - --max-num-seqs
+        - '64'
+        - --host
+        - 0.0.0.0
+        - --port
+        - '8000'
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          requests:
+            cpu: '8'
+            memory: 48Gi
+            nvidia.com/gpu: '3'
+          limits:
+            cpu: '16'
+            memory: 72Gi
+            nvidia.com/gpu: '3'
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 180
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        env:
+        - name: HF_HOME
+          value: /root/.cache/huggingface
+        - name: HF_HUB_DISABLE_XET
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        - name: SSL_CERT_FILE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        - name: REQUESTS_CA_BUNDLE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: model-cache
+          mountPath: /root/.cache/huggingface
+        - name: shm
+          mountPath: /dev/shm
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+          readOnly: true
+      enableServiceLinks: false
+      initContainers:
+      - name: ca-bundle
+        image: vllm/vllm-openai:v0.30.0
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - cat /etc/ssl/certs/ca-certificates.crt /etc/ssl/squid-ca/squid-ca.pem > /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+      volumes:
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: vllm-model-cache
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 24Gi
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
+      - name: ca-bundle
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-96gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-96gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: cogito-v2-70b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: '4'
+    llm.devops.io/vram-per-gpu: 24GiB
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: 96gib
+    llm.devops.io/total-vram-gib: '96'
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-96gib
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-96gib
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: cogito-v2-70b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: '4'
+        llm.devops.io/vram-per-gpu: 24GiB
+        llm.devops.io/provider: vllm
+        llm.devops.io/vram-gib: 96gib
+        llm.devops.io/total-vram-gib: '96'
+    spec:
+      runtimeClassName: nvidia
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:v0.30.0
+        command:
+        - vllm
+        - serve
+        args:
+        - deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
+        - --served-model-name
+        - cogito-v2-70b
+        - --tensor-parallel-size
+        - '4'
+        - --max-model-len
+        - '65536'
+        - --gpu-memory-utilization
+        - '0.95'
+        - --max-num-seqs
+        - '64'
+        - --host
+        - 0.0.0.0
+        - --port
+        - '8000'
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          requests:
+            cpu: '8'
+            memory: 64Gi
+            nvidia.com/gpu: '4'
+          limits:
+            cpu: '16'
+            memory: 96Gi
+            nvidia.com/gpu: '4'
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 180
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        env:
+        - name: HF_HOME
+          value: /root/.cache/huggingface
+        - name: HF_HUB_DISABLE_XET
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        - name: SSL_CERT_FILE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        - name: REQUESTS_CA_BUNDLE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: model-cache
+          mountPath: /root/.cache/huggingface
+        - name: shm
+          mountPath: /dev/shm
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+          readOnly: true
+      enableServiceLinks: false
+      initContainers:
+      - name: ca-bundle
+        image: vllm/vllm-openai:v0.30.0
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - cat /etc/ssl/certs/ca-certificates.crt /etc/ssl/squid-ca/squid-ca.pem > /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+      volumes:
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: vllm-model-cache
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 32Gi
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
+      - name: ca-bundle
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-128gib
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-128gib
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/model: deepseek-r1-70b
+    llm.devops.io/backend: vllm
+    llm.devops.io/gpu-count: '4'
+    llm.devops.io/vram-per-gpu: 32GiB
+    llm.devops.io/provider: vllm
+    llm.devops.io/vram-gib: 128gib
+    llm.devops.io/total-vram-gib: '128'
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-128gib
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-128gib
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/model: deepseek-r1-70b
+        llm.devops.io/backend: vllm
+        llm.devops.io/gpu-count: '4'
+        llm.devops.io/vram-per-gpu: 32GiB
+        llm.devops.io/provider: vllm
+        llm.devops.io/vram-gib: 128gib
+        llm.devops.io/total-vram-gib: '128'
+    spec:
+      runtimeClassName: nvidia
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:v0.30.0
+        command:
+        - vllm
+        - serve
+        args:
+        - deepseek-ai/DeepSeek-R1-Distill-Llama-70B
+        - --served-model-name
+        - deepseek-r1-70b
+        - --tensor-parallel-size
+        - '4'
+        - --max-model-len
+        - '65536'
+        - --gpu-memory-utilization
+        - '0.95'
+        - --max-num-seqs
+        - '64'
+        - --host
+        - 0.0.0.0
+        - --port
+        - '8000'
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          requests:
+            cpu: '8'
+            memory: 64Gi
+            nvidia.com/gpu: '4'
+          limits:
+            cpu: '16'
+            memory: 128Gi
+            nvidia.com/gpu: '4'
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 180
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        env:
+        - name: HF_HOME
+          value: /root/.cache/huggingface
+        - name: HF_HUB_DISABLE_XET
+          value: '1'
+        - name: HTTP_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: HTTPS_PROXY
+          value: http://squid.squid.svc.cluster.local:3128
+        - name: NO_PROXY
+          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,lightllm,portkey,qdrant
+        - name: SSL_CERT_FILE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        - name: REQUESTS_CA_BUNDLE
+          value: /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: model-cache
+          mountPath: /root/.cache/huggingface
+        - name: shm
+          mountPath: /dev/shm
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+          readOnly: true
+      enableServiceLinks: false
+      initContainers:
+      - name: ca-bundle
+        image: vllm/vllm-openai:v0.30.0
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - cat /etc/ssl/certs/ca-certificates.crt /etc/ssl/squid-ca/squid-ca.pem > /etc/ssl/bundle/ca-certificates.crt
+        volumeMounts:
+        - name: squid-ca-cert
+          mountPath: /etc/ssl/squid-ca
+          readOnly: true
+        - name: ca-bundle
+          mountPath: /etc/ssl/bundle
+      volumes:
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: vllm-model-cache
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 32Gi
+      - name: squid-ca-cert
+        configMap:
+          name: squid-ca-cert
+          optional: false
+      - name: ca-bundle
+        emptyDir: {}

@@ -7,19 +7,17 @@ from pathlib import Path
 
 from devops_cli.ai.ast.engine import EXT_TO_LANG, TreeSitterEngine
 from devops_cli.ai.ast.models import CodeGraph, CodeGraphEdge, PolyglotFileMap, PolyglotSymbol
-from devops_cli.core.repo import find_top_level_repo_root, is_ignored_by_git
+from devops_cli.core.repo import find_worktree_root, is_ignored_by_git
 
 
-def _is_excluded(path: Path, repo_root: Path | None = None) -> bool:
-    if path.is_symlink():
-        return True
-    root = repo_root or find_top_level_repo_root(path)
-    return is_ignored_by_git(root, path)
+def _is_excluded(path: Path, repo_root: Path) -> bool:
+    """Whether `path` is left out of the graph: a symlink, or ignored by `repo_root`'s rules."""
+    return path.is_symlink() or is_ignored_by_git(repo_root, path)
 
 
 def _collect_target_files(root_dir: Path, max_files: int) -> list[Path]:
     files: list[Path] = []
-    repo_root = find_top_level_repo_root(root_dir)
+    repo_root = find_worktree_root(root_dir)
     for ext in sorted(EXT_TO_LANG.keys()):
         for candidate in root_dir.rglob(f"*{ext}"):
             if not _is_excluded(candidate, repo_root):
@@ -88,7 +86,7 @@ class CodeGraphBuilder:
         max_files: int = 100,
         engine: TreeSitterEngine | None = None,
     ) -> None:
-        self.root_dir = root_dir or find_top_level_repo_root(Path.cwd())
+        self.root_dir = root_dir or find_worktree_root(Path.cwd())
         self.max_files = max_files
         self.engine = engine or TreeSitterEngine()
 

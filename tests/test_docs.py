@@ -18,6 +18,7 @@ from devops_cli.docs.generator import (
     MCPToolDoc,
     ParamDoc,
 )
+from devops_cli.telemetry.instruments import INSTRUMENTS
 
 
 @pytest.fixture
@@ -435,7 +436,10 @@ def test_doc_generator_telemetry_docs(generator: DocGenerator) -> None:
     assert "# DevOps CLI Telemetry & Distributed Tracing Reference" in content
     assert "OpenTelemetry" in content
     assert "devops_cli_" in content
-    assert "| Metric Name | Type | Description |" in content
+    assert "| Metric Name | Type | Unit | Description |" in content
+    # The table lists the metrics devops-cli sends, and only those (#564).
+    listed = {line.split("`")[1] for line in content.splitlines() if line.startswith("| `")}
+    assert listed == {i.name for i in INSTRUMENTS}
 
 
 def test_doc_generator_knowledge_base_index(generator: DocGenerator) -> None:

@@ -35,6 +35,7 @@ The published Dev Container image is built on `debian:sid` (Debian Unstable) pro
 - **Kubernetes & Cloud Native**: `kubectl`, `helm`, `minikube` (with optional GPU passthrough support), `kustomize`.
 - **Infrastructure as Code**: OpenTofu (`tofu`) and Terraform (`terraform`) dual compatibility.
 - **Security & Compliance Integrations**: Embedded Python SAST and audit tools (`bandit`, `pip-audit`, `checkov`), with native runner integrations for external scanners (`trivy`, `semgrep`, `gitleaks`, `kube-linter`, `pluto`, `actionlint`), installable on-demand via `devops install-tools` or system package managers.
+- **Sandbox Confinement & Host Isolation**: Linux bubblewrap (`bwrap`) pre-installed for unprivileged namespace confinement of executable verification criteria and untrusted code execution.
 - **AI Code Review & MCP Integration**: `devops-cli` suite pre-installed with Model Context Protocol (FastMCP) server endpoints (`devops mcp serve`), OpenTelemetry instrumentation, and Logfire.
 
 ---
@@ -340,6 +341,29 @@ On Windows (WSL2 9P filesystem) and macOS (VirtioFS), bind-mounting directories 
 ```
 > [!WARNING]
 > Bind-mounting the entire host `.ssh` directory exposes your private keys to processes running inside the container. In shared or zero-trust environments, prefer SSH Agent forwarding or dedicate a container-specific key pair (`~/.ssh/id_ed25519_devcontainer`).
+
+### Keyring for `gh`, git and `devops` Secrets
+Containers scaffolded by `devops devcontainer init` run Debian's `gnome-keyring` as their Secret Service. Without it, `gh auth login` saves its token to `~/.config/gh/hosts.yml` in plain text, and `devops` has nowhere to store secrets.
+- **Where it runs**: `containerEnv` sets `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus`, and `devops devcontainer post-start` starts that session bus. gnome-keyring then starts on the first secret request. The bus lives under `/run`, which is private to each container, not on the shared `/tmp` volume.
+- **Other images**: the published image ships gnome-keyring. On any other image, `devops devcontainer post-create` installs `gnome-keyring` and `dbus-x11` with apt.
+- **Unlocking**: the keyring starts locked every time a container starts, and the container asks for the password on its own:
+  1. `devops devcontainer post-start` prompts in the terminal VS Code shows while the container starts.
+  2. If nobody answers within 60 seconds, the first interactive terminal you open asks instead. Only one terminal asks at a time, and none do once the keyring is unlocked.
+
+  The first time, you choose the password, so it is asked for twice. Empty passwords are refused, because they would store every secret in plain text. Once the keyring is unlocked, any plaintext `gh` token is moved into it automatically. You can also unlock by hand at any time:
+  ```bash
+  devops devcontainer unlock-keyring
+  ```
+- **Moving an existing token in by hand**: if the automatic move is skipped (for example because `GH_TOKEN` is set), move a plaintext `gh` token into the keyring without minting a new one:
+  ```bash
+  gh auth token -h github.com | gh auth login -h github.com --with-token
+  ```
+  `devops devcontainer post-start` and `unlock-keyring` both warn about any host that still has a plaintext token, and print this command for it.
+- **Git over HTTPS**: `containerEnv` routes `github.com` and `gist.github.com` credentials through `gh auth git-credential`, so git uses the same keyring-backed token as `gh`. These `GIT_CONFIG_*` entries are read after every config file, so they override the helper VS Code adds to forward credentials from the host. While the keyring is locked, `git fetch` over HTTPS fails instead of quietly using the host's credentials. Other hosts are unchanged.
+- **`devops` secrets**: `devops config` refuses to store a secret while the keyring is locked, and names `unlock-keyring` in the error. It also refuses keyring setups that could fall back to a plaintext backend.
+
+> [!WARNING]
+> `gh` still falls back to a plaintext `hosts.yml` token if you log in while the keyring is locked (cli/cli#10108). Unlock first. post-start flags the fallback on the next container start.
 
 ### Zero-Root Principle
 The published Dev Container executes by default as non-root user `vscode` (UID 1000, GID 1000) with passwordless `sudo` privileges if required. Always ensure custom scripts and daily development commands execute under `vscode` to prevent permission collisions on host-mounted files.

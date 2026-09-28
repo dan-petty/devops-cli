@@ -4,17 +4,26 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
-from datetime import UTC, datetime
+from collections.abc import Callable, Iterator
+from contextvars import ContextVar
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from devops_cli.ai.spend.models import (
+    BackendSpendSummary,
     LifetimeSpendReport,
+    ModelPricing,
     ModelSpendSummary,
     ProviderSpendSummary,
     ServerSpendSummary,
     SpendRecord,
+    StageSpendSummary,
 )
-from devops_cli.config.defaults import DEFAULT_AI_SPEND_DB_FILENAME
+from devops_cli.config.defaults import (
+    DEFAULT_AI_REFERENCE_MODEL,
+    DEFAULT_AI_SPEND_DB_FILENAME,
+)
 from devops_cli.config.settings import load_settings
 
 _QUERY_CREATE_TABLE = """
@@ -24,6 +33,7 @@ CREATE TABLE IF NOT EXISTS ai_spend_records (
     provider TEXT NOT NULL,
     server TEXT NOT NULL,
     backend_info TEXT,
+    served_by TEXT,
     model TEXT NOT NULL,
     prompt_tokens INTEGER NOT NULL DEFAULT 0,
     completion_tokens INTEGER NOT NULL DEFAULT 0,
@@ -31,7 +41,8 @@ CREATE TABLE IF NOT EXISTS ai_spend_records (
     cost_usd REAL NOT NULL DEFAULT 0.0,
     cached INTEGER NOT NULL DEFAULT 0,
     request_type TEXT NOT NULL DEFAULT 'chat',
-    duration_seconds REAL NOT NULL DEFAULT 0.0
+    duration_seconds REAL NOT NULL DEFAULT 0.0,
+    stage TEXT
 );
 """
 _QUERY_IDX_TIMESTAMP = (
@@ -40,13 +51,35 @@ _QUERY_IDX_TIMESTAMP = (
 _QUERY_IDX_SERVER = "CREATE INDEX IF NOT EXISTS idx_spend_server ON ai_spend_records(server);"
 _QUERY_IDX_MODEL = "CREATE INDEX IF NOT EXISTS idx_spend_model ON ai_spend_records(model);"
 _QUERY_IDX_PROVIDER = "CREATE INDEX IF NOT EXISTS idx_spend_provider ON ai_spend_records(provider);"
+_QUERY_IDX_SERVED_BY = (
+    "CREATE INDEX IF NOT EXISTS idx_spend_served_by ON ai_spend_records(served_by);"
+)
+_QUERY_IDX_STAGE = "CREATE INDEX IF NOT EXISTS idx_spend_stage ON ai_spend_records(stage);"
+# Ledgers created before served_by existed gain the column in place, keeping their rows.
+_QUERY_TABLE_COLUMNS = "PRAGMA table_info(ai_spend_records);"
+_QUERY_ADD_SERVED_BY = "ALTER TABLE ai_spend_records ADD COLUMN served_by TEXT;"
+_QUERY_ADD_STAGE = "ALTER TABLE ai_spend_records ADD COLUMN stage TEXT;"
 
 _QUERY_INSERT_RECORD = """
 INSERT INTO ai_spend_records (
-    timestamp, provider, server, backend_info, model,
+    timestamp, provider, server, backend_info, served_by, model,
     prompt_tokens, completion_tokens, total_tokens,
-    cost_usd, cached, request_type, duration_seconds
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    cost_usd, cached, request_type, duration_seconds, stage
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+"""
+
+_QUERY_STAGE_BREAKDOWN = """
+SELECT
+    COALESCE(stage, 'unattributed') as stage_name,
+    COUNT(*) as req_count,
+    COALESCE(SUM(prompt_tokens), 0) as p_tokens,
+    COALESCE(SUM(completion_tokens), 0) as c_tokens,
+    COALESCE(SUM(total_tokens), 0) as t_tokens,
+    COALESCE(SUM(cost_usd), 0.0) as s_cost
+FROM ai_spend_records
+WHERE (? IS NULL OR timestamp >= ?)
+GROUP BY stage_name
+ORDER BY s_cost DESC, t_tokens DESC;
 """
 
 _QUERY_OVERALL_SUMMARY = """
@@ -62,7 +95,7 @@ SELECT
     MIN(timestamp) as first_ts,
     MAX(timestamp) as last_ts
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= datetime('now', ?));
+WHERE (? IS NULL OR timestamp >= ?);
 """
 
 _QUERY_SERVER_BREAKDOWN = """
@@ -78,7 +111,7 @@ SELECT
     MIN(timestamp) as f_seen,
     MAX(timestamp) as l_seen
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= datetime('now', ?))
+WHERE (? IS NULL OR timestamp >= ?)
 GROUP BY server, provider
 ORDER BY s_cost DESC, t_tokens DESC;
 """
@@ -93,7 +126,7 @@ SELECT
     COALESCE(SUM(total_tokens), 0) as t_tokens,
     COALESCE(SUM(cost_usd), 0.0) as m_cost
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= datetime('now', ?))
+WHERE (? IS NULL OR timestamp >= ?)
 GROUP BY model, provider
 ORDER BY m_cost DESC, t_tokens DESC;
 """
@@ -106,13 +139,62 @@ SELECT
     COALESCE(SUM(cost_usd), 0.0) as p_cost,
     COUNT(DISTINCT server) as s_count
 FROM ai_spend_records
-WHERE (? IS NULL OR timestamp >= datetime('now', ?))
+WHERE (? IS NULL OR timestamp >= ?)
 GROUP BY provider
 ORDER BY p_cost DESC;
 """
 
+_QUERY_BACKEND_BREAKDOWN = """
+SELECT
+    served_by,
+    GROUP_CONCAT(DISTINCT model) as model_list,
+    COUNT(*) as req_count,
+    COALESCE(SUM(prompt_tokens), 0) as p_tokens,
+    COALESCE(SUM(completion_tokens), 0) as c_tokens,
+    COALESCE(SUM(total_tokens), 0) as t_tokens,
+    COALESCE(AVG(duration_seconds), 0.0) as mean_duration
+FROM ai_spend_records
+WHERE served_by IS NOT NULL AND (? IS NULL OR timestamp >= ?)
+GROUP BY served_by
+ORDER BY req_count DESC, t_tokens DESC;
+"""
+
 _QUERY_COUNT_RECORDS = "SELECT COUNT(*) FROM ai_spend_records;"
 _QUERY_DELETE_RECORDS = "DELETE FROM ai_spend_records;"
+
+
+def _tally_and_annotate_servers(
+    servers: list[ServerSpendSummary], ref_pricing: ModelPricing
+) -> tuple[int, int, int, int]:
+    """Annotate servers with local status and cost equivalent, tallying local usage."""
+    from devops_cli.ai.spend.pricing import is_local
+
+    local_requests = 0
+    local_prompt_tokens = 0
+    local_completion_tokens = 0
+    for s in servers:
+        s.is_local = is_local(server=s.server, provider=s.provider)
+        s.cost_equivalent_usd = ref_pricing.calculate_cost(s.prompt_tokens, s.completion_tokens)
+        if s.is_local:
+            local_requests += s.request_count
+            local_prompt_tokens += s.prompt_tokens
+            local_completion_tokens += s.completion_tokens
+    local_tokens = local_prompt_tokens + local_completion_tokens
+    return local_requests, local_prompt_tokens, local_completion_tokens, local_tokens
+
+
+def _annotate_models(models: list[ModelSpendSummary], ref_pricing: ModelPricing) -> None:
+    """Annotate model summaries with hosted cost equivalent."""
+    for m in models:
+        m.cost_equivalent_usd = ref_pricing.calculate_cost(m.prompt_tokens, m.completion_tokens)
+
+
+def _annotate_stages(stages: list[StageSpendSummary], ref_pricing: ModelPricing) -> None:
+    """Annotate stage summaries with hosted cost equivalent."""
+    for stg in stages:
+        stg.cost_equivalent_usd = ref_pricing.calculate_cost(
+            stg.prompt_tokens, stg.completion_tokens
+        )
 
 
 class SpendLedger:
@@ -123,7 +205,11 @@ class SpendLedger:
             self.db_path = Path(db_path)
         else:
             settings = load_settings()
-            self.db_path = settings.data.dir / "ai" / DEFAULT_AI_SPEND_DB_FILENAME
+            from devops_cli.core.repo import resolve_data_path
+
+            self.db_path = (
+                resolve_data_path(settings.data.dir) / "ai" / DEFAULT_AI_SPEND_DB_FILENAME
+            )
 
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
@@ -140,6 +226,21 @@ class SpendLedger:
         """Initialize spend table schema and indexes if not already present."""
         with contextlib.closing(self._get_connection()) as conn, conn:
             conn.execute(_QUERY_CREATE_TABLE)
+            columns = {row["name"] for row in conn.execute(_QUERY_TABLE_COLUMNS).fetchall()}
+            if "served_by" not in columns:
+                try:
+                    conn.execute(_QUERY_ADD_SERVED_BY)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
+            if "stage" not in columns:
+                try:
+                    conn.execute(_QUERY_ADD_STAGE)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
+            conn.execute(_QUERY_IDX_SERVED_BY)
+            conn.execute(_QUERY_IDX_STAGE)
             conn.execute(_QUERY_IDX_TIMESTAMP)
             conn.execute(_QUERY_IDX_SERVER)
             conn.execute(_QUERY_IDX_MODEL)
@@ -157,8 +258,10 @@ class SpendLedger:
         cached: bool = False,
         request_type: str = "chat",
         backend_info: str | None = None,
+        served_by: str | None = None,
         duration_seconds: float = 0.0,
         timestamp: str | None = None,
+        stage: str | None = None,
     ) -> SpendRecord | None:
         """Record an inference request in the persistent SQLite ledger."""
         ts = timestamp or datetime.now(UTC).isoformat()
@@ -174,6 +277,7 @@ class SpendLedger:
                         provider,
                         server,
                         backend_info,
+                        served_by,
                         model,
                         prompt_tokens,
                         completion_tokens,
@@ -182,6 +286,7 @@ class SpendLedger:
                         1 if cached else 0,
                         request_type,
                         round(duration_seconds, 4),
+                        stage,
                     ),
                 )
                 rec_id = cursor.lastrowid
@@ -191,6 +296,7 @@ class SpendLedger:
                     provider=provider,
                     server=server,
                     backend_info=backend_info,
+                    served_by=served_by,
                     model=model,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
@@ -199,6 +305,7 @@ class SpendLedger:
                     cached=cached,
                     request_type=request_type,
                     duration_seconds=duration_seconds,
+                    stage=stage,
                 )
         except Exception:
             # Defensive logging: database failure must never crash user workflows
@@ -208,23 +315,94 @@ class SpendLedger:
         """Construct parameterized filter values for date range."""
         if days is None or days <= 0:
             return (None, None)
-        offset = f"-{days} days"
-        return (offset, offset)
+        cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        return (cutoff, cutoff)
+
+    @staticmethod
+    def _resolve_reference_model(reference_model: str | None = None) -> str:
+        """Resolve the effective reference model for counterfactual calculations."""
+        if reference_model and reference_model.strip():
+            return reference_model.strip()
+        try:
+            settings = load_settings()
+            if settings.ai.reference_model and settings.ai.reference_model.strip():
+                return settings.ai.reference_model.strip()
+        except Exception:
+            pass
+        return DEFAULT_AI_REFERENCE_MODEL
+
+    @staticmethod
+    def _resolve_hardware_cost(hardware_cost_usd: float | None = None) -> float:
+        """Resolve hardware cost for payoff calculation from parameter or settings."""
+        if hardware_cost_usd is not None and hardware_cost_usd >= 0:
+            return float(hardware_cost_usd)
+        try:
+            settings = load_settings()
+            if settings.ai.hardware_cost_usd and settings.ai.hardware_cost_usd >= 0:
+                return float(settings.ai.hardware_cost_usd)
+        except Exception:
+            pass
+        return 0.0
 
     def get_lifetime_report(
-        self, days: int | None = None, group_by: str = "server"
+        self,
+        days: int | None = None,
+        group_by: str = "server",
+        reference_model: str | None = None,
+        hardware_cost_usd: float | None = None,
     ) -> LifetimeSpendReport:
-        """Aggregate lifetime spend metrics grouped by server, model, and provider."""
+        """Aggregate lifetime spend metrics grouped by server, model, provider, and stage."""
+        from devops_cli.ai.spend.pricing import get_pricing_registry
+
         params = self._build_where_params(days)
         with contextlib.closing(self._get_connection()) as conn:
             summary = self._query_overall_summary(conn, params)
             servers = self._query_server_breakdown(conn, params)
             models = self._query_model_breakdown(conn, params)
             providers = self._query_provider_breakdown(conn, params)
+            backends = self._query_backend_breakdown(conn, params)
+            stages = self._query_stage_breakdown(conn, params)
+
+        ref_model = self._resolve_reference_model(reference_model)
+        pricing_reg = get_pricing_registry()
+        ref_pricing = pricing_reg.get_pricing(ref_model)
+
+        loc_reqs, loc_p_tok, loc_c_tok, loc_tok = _tally_and_annotate_servers(servers, ref_pricing)
+        _annotate_models(models, ref_pricing)
+        _annotate_stages(stages, ref_pricing)
+
+        eff_hardware_cost = self._resolve_hardware_cost(hardware_cost_usd)
+        summary.hardware_cost_usd = eff_hardware_cost
+        summary.reference_model = ref_model
+        summary.local_requests = loc_reqs
+        summary.local_prompt_tokens = loc_p_tok
+        summary.local_completion_tokens = loc_c_tok
+        summary.local_tokens = loc_tok
+        summary.local_cost_equivalent_usd = ref_pricing.calculate_cost(loc_p_tok, loc_c_tok)
+        summary.counterfactual_spend_usd = ref_pricing.calculate_cost(
+            summary.total_prompt_tokens, summary.total_completion_tokens
+        )
+        summary.counterfactual_savings_usd = round(
+            max(0.0, summary.counterfactual_spend_usd - summary.total_spend_usd), 6
+        )
+
+        if eff_hardware_cost > 0 or summary.local_cost_equivalent_usd > 0:
+            from devops_cli.ai.spend.payoff import compute_hardware_payoff
+
+            summary.hardware_payoff = compute_hardware_payoff(
+                hardware_cost_usd=eff_hardware_cost,
+                local_cost_equivalent_usd=summary.local_cost_equivalent_usd,
+                reference_model=ref_model,
+                first_recorded_at=summary.first_recorded_at,
+                last_recorded_at=summary.last_recorded_at,
+                days=days,
+            )
 
         summary.servers = servers
         summary.models = models
         summary.providers = providers
+        summary.backends = backends
+        summary.stages = stages
         return summary
 
     def _query_overall_summary(
@@ -307,6 +485,48 @@ class SpendLedger:
             )
         return results
 
+    def _query_backend_breakdown(
+        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
+    ) -> list[BackendSpendSummary]:
+        """Aggregate gateway calls by the backend that served them."""
+        results: list[BackendSpendSummary] = []
+        for r in conn.execute(_QUERY_BACKEND_BREAKDOWN, params).fetchall():
+            requests = int(r["req_count"] or 0)
+            completion = int(r["c_tokens"] or 0)
+            results.append(
+                BackendSpendSummary(
+                    served_by=r["served_by"],
+                    models=[m.strip() for m in (r["model_list"] or "").split(",") if m.strip()],
+                    request_count=requests,
+                    prompt_tokens=int(r["p_tokens"] or 0),
+                    completion_tokens=completion,
+                    total_tokens=int(r["t_tokens"] or 0),
+                    completion_tokens_per_request=round(completion / requests, 2)
+                    if requests
+                    else 0.0,
+                    mean_duration_seconds=round(float(r["mean_duration"] or 0.0), 3),
+                )
+            )
+        return results
+
+    def _query_stage_breakdown(
+        self, conn: sqlite3.Connection, params: tuple[str | None, str | None]
+    ) -> list[StageSpendSummary]:
+        """Aggregate spend records grouped by execution stage."""
+        results: list[StageSpendSummary] = []
+        for r in conn.execute(_QUERY_STAGE_BREAKDOWN, params).fetchall():
+            results.append(
+                StageSpendSummary(
+                    stage=r["stage_name"],
+                    request_count=int(r["req_count"] or 0),
+                    prompt_tokens=int(r["p_tokens"] or 0),
+                    completion_tokens=int(r["c_tokens"] or 0),
+                    total_tokens=int(r["t_tokens"] or 0),
+                    approx_spend_usd=round(float(r["s_cost"] or 0.0), 6),
+                )
+            )
+        return results
+
     def reset_ledger(self) -> int:
         """Truncate all spend records in the ledger and return count of removed items."""
         with contextlib.closing(self._get_connection()) as conn:
@@ -334,26 +554,71 @@ def get_spend_ledger(db_path: Path | str | None = None) -> SpendLedger:
     return _GLOBAL_LEDGER
 
 
+LLMCallObserver = Callable[[dict[str, Any]], None]
+
+# Callbacks shown every LLM call recorded in this context, e.g. a review profiler. The spend
+# ledger is the one place every call passes through, with its tokens and serving backend.
+_CALL_OBSERVERS: ContextVar[tuple[LLMCallObserver, ...]] = ContextVar(
+    "llm_call_observers", default=()
+)
+
+
+@contextlib.contextmanager
+def observe_llm_calls(observer: LLMCallObserver) -> Iterator[None]:
+    """Show ``observer`` every LLM call recorded inside the block, worker threads included."""
+    token = _CALL_OBSERVERS.set((*_CALL_OBSERVERS.get(), observer))
+    try:
+        yield
+    finally:
+        _CALL_OBSERVERS.reset(token)
+
+
+def _notify_call_observers(call: dict[str, Any]) -> None:
+    for observer in _CALL_OBSERVERS.get():
+        observer(call)
+
+
 def track_request_spend(
     *,
     provider: str,
     model: str,
     server: str,
     backend_info: str | None = None,
+    served_by: str | None = None,
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     cached: bool = False,
     request_type: str = "chat",
     duration_seconds: float = 0.0,
+    stage: str | None = None,
     ledger: SpendLedger | None = None,
 ) -> SpendRecord | None:
     """Calculate pricing, persist to lifetime ledger, and emit OpenTelemetry metrics."""
     from devops_cli.ai.spend.pricing import get_pricing_registry
-    from devops_cli.telemetry.tracer import record_metric
+    from devops_cli.ai.spend.stage import resolve_spend_stage
+    from devops_cli.telemetry.instruments import (
+        AI_REQUESTS_TOTAL,
+        AI_SPEND_USD_TOTAL,
+        AI_TOKENS_TOTAL,
+        backend_name,
+        emit,
+    )
 
     active_ledger = ledger or get_spend_ledger()
-    pricing = get_pricing_registry().get_pricing(model, server)
-    cost = pricing.calculate_cost(prompt_tokens, completion_tokens) if not cached else 0.0
+    now_utc = datetime.now(UTC)
+    cost = (
+        get_pricing_registry().calculate_request_cost(
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            server=server,
+            provider=provider,
+            request_timestamp=now_utc,
+        )
+        if not cached
+        else 0.0
+    )
+    effective_stage = resolve_spend_stage(stage)
     try:
         rec = active_ledger.record_request(
             provider=provider,
@@ -363,20 +628,38 @@ def track_request_spend(
             completion_tokens=completion_tokens,
             cost_usd=cost,
             backend_info=backend_info,
+            served_by=served_by,
             cached=cached,
             request_type=request_type,
             duration_seconds=duration_seconds,
+            timestamp=now_utc.isoformat(),
+            stage=effective_stage,
         )
     except Exception:
         rec = None
-    record_metric(
-        "devops_cli_ai_estimated_cost_usd",
-        cost,
-        attributes={"provider": provider, "model": model, "server": server},
+    _notify_call_observers(
+        {
+            "provider": provider,
+            "model": model,
+            "served_by": served_by,
+            "stage": effective_stage,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cost_usd": cost,
+            "cached": cached,
+            "request_type": request_type,
+            "duration_seconds": duration_seconds,
+        }
     )
-    record_metric(
-        "devops_cli_ai_tokens_total",
-        prompt_tokens + completion_tokens,
-        attributes={"provider": provider, "model": model, "server": server},
-    )
+    source = {
+        "provider": provider,
+        "model": model,
+        "server": server,
+        "backend": backend_name(served_by),
+    }
+    emit(AI_REQUESTS_TOTAL, 1, source | {"cached": str(cached).lower()})
+    emit(AI_TOKENS_TOTAL, prompt_tokens, source | {"type": "prompt"})
+    emit(AI_TOKENS_TOTAL, completion_tokens, source | {"type": "completion"})
+    if cost:
+        emit(AI_SPEND_USD_TOTAL, cost, source)
     return rec

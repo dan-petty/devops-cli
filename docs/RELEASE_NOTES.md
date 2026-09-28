@@ -7,7 +7,7 @@ Workstation-native DevOps CLI for managing repositories, SSH keys, Kubernetes cl
 ## 🚀 Highlights of v0.2 Series (v0.2.4 – v0.2.18 - Completed)
 
 - **Distributed Observability & Telemetry Triad**: Prometheus client metrics, Jaeger distributed tracing waterfalls, Loki LogQL terminal log streaming, and OpenTelemetry traceparent propagation.
-- **PydanticAI Standardized Agent Framework**: 18 modernized agent subsystems, multi-turn reasoning buffers, prompt mutation testing, and human-in-the-loop feedback dataset export.
+- **PydanticAI Standardized Agent Framework**: 18 modernized agent subsystems, multi-turn reasoning buffers, and human-in-the-loop feedback dataset export.
 - **Valkey Workstation Management & High-Performance Distributed Caching**: Pure-Python RESP3 wire protocol client, token-bucket rate limiter, and vector cache slashing LLM latency.
 - **Tree-Sitter Multilingual AST Graph & Polyglot Code Intelligence**: CST parsing across Python, TypeScript, Go, Rust, Java, and HCL with S-expression query resolution.
 - **Ephemeral Workload Sandboxing & Dynamic Probing**: Rootless container test harness, cgroup v2 metrics, protocol-agnostic health probing, and OpenAPI dynamic API fuzzing.

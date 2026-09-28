@@ -30,11 +30,16 @@ if TYPE_CHECKING:
     from devops_cli.ai.agents.embeddings import Embedder
 
 from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_PROVIDER,
+    CONST_AIMD_ADDITIVE_INCREASE_STEP,
+    CONST_AIMD_MULTIPLICATIVE_DECREASE_FACTOR,
+    CONST_AIMD_SUCCESS_THRESHOLD,
     CONST_ERROR_CODE_EMBEDDINGS,
     CONST_EXIT_FAILURE,
     CONST_VALKEY_EMBEDDING_PREFIX,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_AI_GATEWAY_URL,
     DEFAULT_DRY_RUN_EMBEDDING_DIMENSION,
     DEFAULT_RAG_EMBEDDING_BACKOFF_BASE_SECONDS,
     DEFAULT_RAG_EMBEDDING_BATCH_SIZE,
@@ -53,6 +58,7 @@ from devops_cli.telemetry import (
     ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor,
 )
 from devops_cli.telemetry import (
+    record_metric,
     trace_span,
 )
 
@@ -237,7 +243,9 @@ class EmbeddingsEngine:
         self._dimension: int | None = None
         self._cache = _EmbeddingLRUCache(maxsize=cache_size)
         self._valkey = self._init_valkey(valkey_client)
-        self._current_batch_size = max(DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE, batch_size)
+        self._configured_batch_size = max(DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE, batch_size)
+        self._current_batch_size = self._configured_batch_size
+        self._consecutive_successes: int = 0
         self._batch_lock = threading.Lock()
 
     def _init_valkey(self, valkey_client: Any) -> Any:
@@ -269,19 +277,63 @@ class EmbeddingsEngine:
         except Exception:
             return None
 
-    def _halve_batch_size(self) -> int:
-        """Dynamically halve the batch size down to minimum threshold on failure or latency degradation."""
+    def _apply_aimd_decrease(self) -> int:
+        """Dynamically halve the batch size down to minimum threshold on failure or latency degradation (AIMD)."""
         with self._batch_lock:
+            self._consecutive_successes = 0
             self._current_batch_size = max(
                 DEFAULT_RAG_EMBEDDING_MIN_BATCH_SIZE,
-                self._current_batch_size // 2,
+                int(self._current_batch_size * CONST_AIMD_MULTIPLICATIVE_DECREASE_FACTOR),
+            )
+            record_metric("rag.embedding.batch_size", self._current_batch_size)
+            record_metric(
+                "rag.embedding.aimd_action",
+                1,
+                attributes={"action": "multiplicative_decrease"},
+            )
+            logger.debug(
+                "AIMD multiplicative decrease applied: batch_size=%d (configured=%d)",
+                self._current_batch_size,
+                self._configured_batch_size,
             )
             return self._current_batch_size
 
+    def _apply_aimd_increase(self) -> int:
+        """Dynamically increment batch size up to configured maximum after consecutive low-latency batches (AIMD)."""
+        with self._batch_lock:
+            self._consecutive_successes += 1
+            if (
+                self._consecutive_successes >= CONST_AIMD_SUCCESS_THRESHOLD
+                and self._current_batch_size < self._configured_batch_size
+            ):
+                self._current_batch_size = min(
+                    self._configured_batch_size,
+                    self._current_batch_size + CONST_AIMD_ADDITIVE_INCREASE_STEP,
+                )
+                self._consecutive_successes = 0
+                record_metric("rag.embedding.batch_size", self._current_batch_size)
+                record_metric(
+                    "rag.embedding.aimd_action",
+                    1,
+                    attributes={"action": "additive_increase"},
+                )
+                logger.debug(
+                    "AIMD additive increase applied: batch_size=%d (configured=%d)",
+                    self._current_batch_size,
+                    self._configured_batch_size,
+                )
+            return self._current_batch_size
+
+    def _halve_batch_size(self) -> int:
+        """Backwards-compatible alias for AIMD multiplicative decrease."""
+        return self._apply_aimd_decrease()
+
     def _record_batch_latency(self, elapsed: float) -> None:
-        """Inspect batch latency and adapt batch size if exceeding performance threshold."""
+        """Inspect batch latency and adapt batch size via AIMD."""
         if elapsed > DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS:
-            self._halve_batch_size()
+            self._apply_aimd_decrease()
+        else:
+            self._apply_aimd_increase()
 
     def _valkey_key(self, text: str, model: str, *, is_query: bool = False) -> str:
         """Generate namespaced deterministic Valkey cache key with query/doc isolation."""
@@ -466,7 +518,7 @@ class EmbeddingsEngine:
     def _dispatch_embed(self, prefixed_miss: list[str]) -> list[list[float]] | EmbeddingList:
         provider = self.ai_config.provider.lower()
         api_base = self.ai_config.api_base_url or ""
-        if provider in ("openai", "copilot"):
+        if provider in ("openai", "copilot", CONST_AI_GATEWAY_PROVIDER):
             return self._embed_openai(prefixed_miss)
         if provider == "ollama" or (not provider and ":11434" in api_base):
             return self._embed_ollama(prefixed_miss)
@@ -598,7 +650,7 @@ class EmbeddingsEngine:
                 self._record_dimension(len(embs[0]))
                 return embs
         except (httpx2.TimeoutException, TimeoutError) as exc:
-            self._halve_batch_size()
+            self._apply_aimd_decrease()
             delay = _calculate_backoff_delay(attempt)
             logger.debug("Ollama timeout on %s, backoff %.2fs: %s", base_url, delay, exc)
             time.sleep(delay)
@@ -686,17 +738,30 @@ class EmbeddingsEngine:
             all_embs.extend(batch_res)
         return EmbeddingList(all_embs, is_fallback=any_fallback)
 
+    def _openai_compatible_base_url(self) -> str:
+        """Resolve the embeddings base URL: gateway_url for provider gateway (a gateway task's own
+        api_base_url is folded into it by ``for_task``), otherwise api_base_url or OpenAI."""
+        if self.ai_config.provider.lower() == CONST_AI_GATEWAY_PROVIDER:
+            return self.ai_config.gateway_url or DEFAULT_AI_GATEWAY_URL
+        return self.ai_config.api_base_url or "https://api.openai.com/v1"
+
     def _embed_openai(self, texts: list[str]) -> list[list[float]] | EmbeddingList:
-        """Query OpenAI-compatible /v1/embeddings API."""
-        base_url = (self.ai_config.api_base_url or "https://api.openai.com/v1").rstrip("/")
-        validate_service_url(base_url, "OpenAI", allow=self.ai_config.allow_private_network)
+        """Query OpenAI-compatible /v1/embeddings API (OpenAI or the LLM gateway)."""
+        base_url = self._openai_compatible_base_url().rstrip("/")
+        is_gateway = self.ai_config.provider.lower() == CONST_AI_GATEWAY_PROVIDER
+        validate_service_url(
+            base_url,
+            "LLM gateway" if is_gateway else "OpenAI",
+            allow=self.ai_config.allow_private_network,
+        )
 
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         model = self.model
-        if model in ("all-minilm", "qwen3-embedding:0.6b"):
+        # Local Ollama defaults have no OpenAI equivalent; the gateway routes the name as given.
+        if not is_gateway and model in ("all-minilm", "qwen3-embedding:0.6b"):
             model = "text-embedding-3-small"
 
         payload: dict[str, Any] = {

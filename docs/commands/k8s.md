@@ -60,6 +60,30 @@ devops k8s apply [OPTIONS] <path>
 |---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--namespace`, `-n` | `string` | - | Kubernetes namespace. |
+| `--template`, `-t` | `boolean` | - | Render manifest as a template substituting domain from config or --domain before applying. |
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
+
+---
+
+## `devops k8s render`
+
+**Render Kubernetes manifest templates with domain and variables substituted.**
+
+```bash
+devops k8s render [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `string` | Yes | Manifest file or directory path. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--domain`, `-d` | `string` | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
 
 ---
 
@@ -150,6 +174,8 @@ devops k8s deploy-stack [OPTIONS]
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--wait`, `--no-wait` | `boolean` | `True` | Wait for Helm releases and workloads to become ready before returning. |
 | `--timeout`, `-t` | `string` | `10m` | Timeout for Helm operations when waiting. |
+| `--port-forward`, `--no-port-forward` | `boolean` | - | Start background port-forwarding daemons for deployed services. |
+| `--configure-urls`, `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
 
 ---
 
@@ -185,7 +211,7 @@ devops k8s configure-urls [OPTIONS]
 |---|---|---|---|
 | `--stack`, `-s` | `string` | `infra` | Stack to operate on: infra | llm | all. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
-| `--addressing`, `-a` | `string` | `nodeport` | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward. |
+| `--addressing`, `-a` | `string` | - | How to record endpoints: 'nodeport' writes a cluster-specific host and port, 'proxy' writes portable k8s:// service addresses needing no port-forward, 'fqdn' discovers Ingress hostnames and writes domain-based URLs. |
 
 ---
 
@@ -219,7 +245,7 @@ devops k8s service-url [OPTIONS] <service>
 
 ## `devops k8s port-forward`
 
-**Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config.**
+**Port-forward k8s monitoring / LLM stack services to localhost ports.**
 
 ```bash
 devops k8s port-forward [OPTIONS]
@@ -241,6 +267,7 @@ devops k8s port-forward [OPTIONS]
 | `--qdrant-port` | `integer` | `6333` | Local port for Qdrant HTTP. |
 | `--valkey-port` | `integer` | `<masked>` | Local port for Valkey. |
 | `--address` | `string` | `127.0.0.1` | Local address to bind for port-forwarding. |
+| `--update-config`, `--no-update-config` | `boolean` | - | Update devops-cli configuration with port-forwarded service URLs. |
 
 ---
 
@@ -579,5 +606,25 @@ devops k8s security-stream [OPTIONS]
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--output`, `-o` | `path` | - | Export discovered alerts to JSON file |
+
+---
+
+## `devops k8s gpu-matrix`
+
+**Query traditional homelab GPU matrix and model service alias mappings.**
+
+```bash
+devops k8s gpu-matrix [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--gpus`, `-g` | `integer` | - | Filter by GPU count (1, 2, 3, 4). |
+| `--vram`, `-v` | `integer` | - | Filter by VRAM per GPU in GiB (16, 24, 32). |
+| `--backend`, `-b` | `string` | - | Filter by inference backend: ollama or vllm. |
+| `--format`, `-f` | `string` | `table` | Output format: table, json, yaml. |
+| `--aliases`, `-a` | `boolean` | - | Include Kubernetes model service aliases mapping. |
 
 ---

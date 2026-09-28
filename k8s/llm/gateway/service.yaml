@@ -9,7 +9,9 @@ metadata:
     app.kubernetes.io/name: llm-gateway
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
-  type: ClusterIP
+  # Local minikube/homelab: NodePort is the authenticated LAN entry point to every model; Kubernetes
+  # assigns the port (`kubectl -n llm get svc llm-gateway`). Production: use an Ingress instead.
+  type: NodePort
   ports:
     - name: http
       port: 4000

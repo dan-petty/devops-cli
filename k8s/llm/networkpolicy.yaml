@@ -13,8 +13,10 @@ spec:
         values:
           - llm-gateway
           - vllm
+          - vllm-single
           - portkey
           - lightllm
+          - valkey-runs
   policyTypes:
     - Ingress
     - Egress
@@ -27,6 +29,14 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
+    # Allow ingress from Traefik in kube-system for Ingress routing
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
   egress:
     # Allow intra-namespace pod communications
     - to:

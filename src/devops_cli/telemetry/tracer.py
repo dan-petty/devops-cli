@@ -3,25 +3,31 @@
 from __future__ import annotations
 
 import atexit
+import bisect
 import contextlib
 import contextvars
 import functools
+import hashlib
 import logging
 import os
 import platform
 import secrets
+import sys
 import threading
 import time
 from collections import deque
 from collections.abc import Callable, Generator
 from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import wait as wait_futures
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Any, TypeVar
 
 import httpx2
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import (
+    CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA,
     CONST_OTEL_METRIC_UNIT_ONE,
     CONST_OTEL_SCOPE_NAME,
     CONST_OTEL_SERVICE_NAME,
@@ -29,10 +35,12 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_OTEL_COUNTER_AMOUNT,
+    DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_OTEL_ENDPOINT,
     DEFAULT_OTEL_HTTP_TIMEOUT_SECONDS,
     DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS,
     DEFAULT_OTEL_TEST_TIMEOUT,
+    DEFAULT_OTEL_WARNING_INTERVAL_SECONDS,
     DEFAULT_SPAN_BUFFER_MAX_SPANS,
 )
 from devops_cli.telemetry.propagation import (
@@ -93,6 +101,11 @@ def _generate_trace_id() -> str:
 
 def _generate_span_id() -> str:
     return secrets.token_hex(8)
+
+
+def _otlp_attributes(attributes: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """OTLP key-value attributes."""
+    return [{"key": k, "value": _to_otlp_any_value(v)} for k, v in (attributes or {}).items()]
 
 
 def _to_otlp_any_value(val: Any) -> dict[str, Any]:
@@ -431,10 +444,16 @@ class SpanHandle(str):
         ttft_ms: float | None = None,
         duration_s: float | None = None,
         token_rate: float | None = None,
+        response_model: str | None = None,
+        served_by: str | None = None,
     ) -> None:
         """Record standard OpenTelemetry GenAI attributes on the active span."""
         self._attributes["gen_ai.system"] = provider
         self._attributes["gen_ai.request.model"] = model
+        if response_model is not None:
+            self._attributes["gen_ai.response.model"] = response_model
+        if served_by is not None:
+            self._attributes["gen_ai.server.served_by"] = served_by
         if prompt_tokens is not None:
             self._attributes["gen_ai.usage.prompt_tokens"] = prompt_tokens
             self._attributes["gen_ai.usage.input_tokens"] = prompt_tokens
@@ -449,6 +468,198 @@ class SpanHandle(str):
             self._attributes["gen_ai.duration_seconds"] = round(duration_s, 4)
         if token_rate is not None:
             self._attributes["gen_ai.token_rate_tok_per_sec"] = round(token_rate, 2)
+            self._attributes["gen_ai.tokens_per_second"] = round(token_rate, 2)
+
+
+def _read_packed_refs(git_dir: Path, ref: str) -> str | None:
+    """Read commit SHA for a ref from packed-refs file if present."""
+    packed_file = git_dir / "packed-refs"
+    if not packed_file.is_file():
+        return None
+    try:
+        content = packed_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in content.splitlines():
+        line = line.strip()
+        if line.endswith(ref) and len(line) >= 40:
+            candidate = line.split()[0]
+            if len(candidate) == 40:
+                return candidate
+    return None
+
+
+def _read_ref_file(git_dir: Path, ref: str) -> str | None:
+    """Read commit SHA from individual loose ref file if present."""
+    ref_file = git_dir / ref
+    if not ref_file.is_file():
+        return None
+    try:
+        val = ref_file.read_text(encoding="utf-8", errors="replace").strip()
+        return val if len(val) == 40 else None
+    except OSError:
+        return None
+
+
+def _read_git_head_ref(git_dir: Path) -> tuple[str | None, str | None]:
+    """Read branch name and commit SHA from git directory HEAD."""
+    head_file = git_dir / "HEAD"
+    if not head_file.is_file():
+        return None, None
+    try:
+        content = head_file.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None, None
+    if not content:
+        return None, None
+    if not content.startswith("ref:"):
+        sha = content if len(content) == 40 else None
+        return None, sha
+
+    ref = content.removeprefix("ref:").strip()
+    branch = ref.removeprefix("refs/heads/").strip() if ref.startswith("refs/heads/") else ref
+    sha = _read_ref_file(git_dir, ref) or _read_packed_refs(git_dir, ref)
+    return branch, sha
+
+
+def _resolve_git_dir_from_file(marker: Path) -> Path | None:
+    """Resolve target git directory from a .git file (e.g. worktree or submodule pointer)."""
+    try:
+        text = marker.read_text(encoding="utf-8", errors="replace").strip()
+        if text.startswith("gitdir:"):
+            target = (marker.parent / text.removeprefix("gitdir:").strip()).resolve()
+            return target if target.is_dir() else None
+    except OSError:
+        pass
+    return None
+
+
+def _resolve_git_dir(start_dir: Path | None = None) -> Path | None:
+    """Traverse upwards from start_dir to locate active .git directory or worktree."""
+    current = (start_dir or Path.cwd()).resolve()
+    for candidate in [current, *current.parents]:
+        marker = candidate / ".git"
+        if marker.is_dir():
+            return marker
+        if marker.is_file():
+            resolved = _resolve_git_dir_from_file(marker)
+            if resolved:
+                return resolved
+    return None
+
+
+@functools.lru_cache(maxsize=1)
+def _detect_vcs_metadata() -> dict[str, str]:
+    """Detect current Git branch and revision ID via zero-subprocess inspection."""
+    meta: dict[str, str] = {}
+    git_dir = _resolve_git_dir()
+    if git_dir is not None:
+        branch, sha = _read_git_head_ref(git_dir)
+        if branch:
+            meta["vcs.ref.name"] = branch
+            meta["vcs.branch"] = branch
+        if sha:
+            meta["vcs.revision_id"] = sha
+            meta["vcs.commit"] = sha
+    return meta
+
+
+@functools.lru_cache(maxsize=1)
+def _detect_k8s_context() -> tuple[str | None, str | None]:
+    """Detect active Kubernetes context and namespace from environment or settings."""
+    ctx = os.getenv("K8S_CONTEXT") or os.getenv("KUBECONFIG_CONTEXT")
+    ns = os.getenv("K8S_NAMESPACE") or os.getenv("POD_NAMESPACE")
+    if ctx and ns:
+        return ctx, ns
+    try:
+        from devops_cli.config.settings import load_settings
+
+        k8s_cfg = getattr(load_settings(), "k8s", None)
+        if k8s_cfg and not ctx:
+            ctx = getattr(k8s_cfg, "context", None)
+    except Exception:
+        pass
+    return ctx, ns
+
+
+def _is_telemetry_internal_frame(frame: Any) -> bool:
+    """Check if stack frame belongs to telemetry internals, logging, or contextlib."""
+    code = getattr(frame, "f_code", None)
+    if not code:
+        return True
+    filename = getattr(code, "co_filename", "")
+    return (
+        "telemetry/tracer.py" in filename
+        or "contextlib.py" in filename
+        or "logging/__init__.py" in filename
+    )
+
+
+def _normalize_code_filepath(filepath: str) -> str:
+    """Convert absolute workspace paths to relative paths for clean telemetry tags."""
+    try:
+        p = Path(filepath).resolve()
+        cwd = Path.cwd().resolve()
+        if p.is_relative_to(cwd):
+            return str(p.relative_to(cwd))
+        return str(p)
+    except Exception:
+        return filepath
+
+
+def _detect_caller_code_attributes(depth_offset: int = 1) -> dict[str, Any]:
+    """Inspect stack frame to extract caller source file, function name, and line number."""
+    attrs: dict[str, Any] = {}
+    try:
+        frame: Any = sys._getframe(depth_offset)
+        while frame is not None and _is_telemetry_internal_frame(frame):
+            frame = frame.f_back
+        if frame is not None:
+            code = getattr(frame, "f_code", None)
+            if code is not None:
+                filepath = getattr(code, "co_filename", "")
+                func_name = getattr(code, "co_name", "")
+                lineno = getattr(frame, "f_lineno", 0)
+                if filepath:
+                    attrs["code.filepath"] = _normalize_code_filepath(filepath)
+                if func_name:
+                    attrs["code.function"] = func_name
+                if lineno:
+                    attrs["code.lineno"] = lineno
+    except Exception:
+        pass
+    return attrs
+
+
+def _enrich_span_attributes(
+    attrs: dict[str, Any], *, name: str | None = None, depth_offset: int = 2
+) -> None:
+    """Enrich span attributes with caller location, thread, process, vcs, and k8s context."""
+    caller_attrs = _detect_caller_code_attributes(depth_offset=depth_offset)
+    for k, v in caller_attrs.items():
+        attrs.setdefault(k, v)
+
+    cur_thread = threading.current_thread()
+    attrs.setdefault("thread.name", cur_thread.name)
+    if cur_thread.ident:
+        attrs.setdefault("thread.id", cur_thread.ident)
+    attrs.setdefault("process.pid", os.getpid())
+
+    vcs = _detect_vcs_metadata()
+    if "vcs.ref.name" in vcs:
+        attrs.setdefault("vcs.ref.name", vcs["vcs.ref.name"])
+        attrs.setdefault("vcs.branch", vcs["vcs.ref.name"])
+    if "vcs.revision_id" in vcs:
+        attrs.setdefault("vcs.revision_id", vcs["vcs.revision_id"])
+        attrs.setdefault("vcs.commit", vcs["vcs.revision_id"])
+
+    k8s_ctx, k8s_ns = _detect_k8s_context()
+    if k8s_ctx:
+        attrs.setdefault("k8s.context", k8s_ctx)
+        attrs.setdefault("k8s.cluster.name", k8s_ctx)
+    if k8s_ns:
+        attrs.setdefault("k8s.namespace", k8s_ns)
+        attrs.setdefault("k8s.namespace.name", k8s_ns)
 
 
 _ATTRIBUTE_NORMALIZATION: dict[str, str] = {
@@ -475,19 +686,35 @@ _ATTRIBUTE_NORMALIZATION: dict[str, str] = {
 }
 
 
+_ALIAS_FALLBACKS: tuple[tuple[str, str], ...] = (
+    ("vcs.branch", "vcs.ref.name"),
+    ("vcs.commit", "vcs.revision_id"),
+    ("k8s.namespace", "k8s.namespace.name"),
+    ("k8s.context", "k8s.cluster.name"),
+)
+
+
+def _sync_attribute_aliases(attrs: dict[str, Any]) -> None:
+    """Populate canonical alias targets if source key is present and target is missing."""
+    for src, dst in _ALIAS_FALLBACKS:
+        if src in attrs and dst not in attrs:
+            attrs[dst] = attrs[src]
+
+
 def _normalize_and_deduplicate_attributes(attrs: dict[str, Any]) -> None:
     """Normalize legacy attribute names to OTel semantic conventions and eliminate duplicate tags."""
     for legacy_k, otel_k in _ATTRIBUTE_NORMALIZATION.items():
         if legacy_k in attrs:
-            if otel_k not in attrs:
-                attrs[otel_k] = attrs[legacy_k]
+            attrs.setdefault(otel_k, attrs[legacy_k])
             if legacy_k in ("cli.function", "cli.error"):
-                del attrs[legacy_k]
+                attrs.pop(legacy_k, None)
 
-    if "code.function" in attrs and "cli.function" in attrs:
-        del attrs["cli.function"]
-    if "error.message" in attrs and "cli.error" in attrs:
-        del attrs["cli.error"]
+    if "code.function" in attrs:
+        attrs.pop("cli.function", None)
+    if "error.message" in attrs:
+        attrs.pop("cli.error", None)
+
+    _sync_attribute_aliases(attrs)
 
 
 _current_trace_id_ctx: ContextVar[str | None] = ContextVar("otel_current_trace_id", default=None)
@@ -526,16 +753,55 @@ class OTelTelemetryClient:
         self._grpc_exporter: Any = None
         self._executor: ContextPropagatingThreadPoolExecutor | None = None
         self._client_lock = threading.Lock()
+        # Exports still in flight, drained at shutdown; and how exports have fared, so a
+        # collector that never answers is reported rather than silently dropping everything.
+        self._pending: set[Future[None]] = set()
+        self.export_failures = 0
+        self.export_successes = 0
+        self.last_export_error = ""
 
         # Cache pre-computed resource attributes for zero-allocation reuse across all spans and metrics
+        vcs_meta = _detect_vcs_metadata()
+        vcs_res_attrs = [
+            {"key": k, "value": {"stringValue": v}}
+            for k, v in vcs_meta.items()
+            if k in ("vcs.revision_id", "vcs.ref.name")
+        ]
         self._cached_resource_attributes: list[dict[str, Any]] = [
             {"key": "service.name", "value": {"stringValue": self.service_name}},
             {"key": "service.version", "value": {"stringValue": self.service_version}},
             {"key": "host.name", "value": {"stringValue": self.host_name}},
+            {"key": "host.arch", "value": {"stringValue": platform.machine()}},
             {"key": "os.type", "value": {"stringValue": self.os_type}},
+            {"key": "os.description", "value": {"stringValue": platform.platform()}},
             {"key": "process.pid", "value": {"stringValue": str(os.getpid())}},
+            {"key": "process.executable.name", "value": {"stringValue": Path(sys.executable).name}},
             {"key": "process.runtime.name", "value": {"stringValue": "cpython"}},
             {"key": "process.runtime.version", "value": {"stringValue": platform.python_version()}},
+            {"key": "telemetry.sdk.name", "value": {"stringValue": "devops-cli-otel"}},
+            {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
+            *vcs_res_attrs,
+        ]
+        k8s_ctx, _ = _detect_k8s_context()
+        if k8s_ctx:
+            self._cached_resource_attributes.append(
+                {"key": "k8s.cluster.name", "value": {"stringValue": k8s_ctx}}
+            )
+        if sys.argv:
+            from devops_cli.security.sanitizer import mask_secrets
+
+            clean_cmd = mask_secrets(" ".join(sys.argv))
+            self._cached_resource_attributes.append(
+                {"key": "process.command_line", "value": {"stringValue": clean_cmd}}
+            )
+        # Metrics identify their source by host, not process: every command is a short-lived
+        # process, and the collector adds up each series' deltas across them. A process id or
+        # version would split one host's counter into many; the instance id names the host.
+        self._metric_resource_attributes: list[dict[str, Any]] = [
+            {"key": "service.name", "value": {"stringValue": self.service_name}},
+            {"key": "service.instance.id", "value": {"stringValue": self.host_name}},
+            {"key": "host.name", "value": {"stringValue": self.host_name}},
+            {"key": "os.type", "value": {"stringValue": self.os_type}},
             {"key": "telemetry.sdk.name", "value": {"stringValue": "devops-cli-otel"}},
             {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
         ]
@@ -598,25 +864,8 @@ class OTelTelemetryClient:
             return None, None
         return context.trace_id, context.span_id
 
-    def _build_metrics_payload(
-        self,
-        name: str,
-        value: float,
-        unit: str,
-        timestamp_ns: int,
-        attributes: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        """Build structured OTLP resourceMetrics payload."""
-        data_point = {
-            "timeUnixNano": str(timestamp_ns),
-            "asDouble": float(value),
-            "attributes": attributes,
-        }
-        metric_entry = {
-            "name": name,
-            "unit": unit,
-            "gauge": {"dataPoints": [data_point]},
-        }
+    def _build_metrics_payload(self, metric_entry: dict[str, Any]) -> dict[str, Any]:
+        """Build structured OTLP resourceMetrics payload for one metric."""
         scope_entry = {
             "scope": {"name": "devops-cli.telemetry"},
             "metrics": [metric_entry],
@@ -624,11 +873,18 @@ class OTelTelemetryClient:
         return {
             "resourceMetrics": [
                 {
-                    "resource": {"attributes": self._get_resource_attributes()},
+                    "resource": {"attributes": self._metric_resource_attributes},
                     "scopeMetrics": [scope_entry],
                 }
             ]
         }
+
+    def _send_metric(
+        self, name: str, unit: str, kind: str, point: dict[str, Any], **data: Any
+    ) -> None:
+        """Send one data point of a gauge, sum or histogram."""
+        entry = {"name": name, "unit": unit, kind: {"dataPoints": [point], **data}}
+        self._send_payload("/v1/metrics", self._build_metrics_payload(entry))
 
     def _build_traces_payload(
         self,
@@ -655,16 +911,21 @@ class OTelTelemetryClient:
         unit: str = CONST_OTEL_METRIC_UNIT_ONE,
         attributes: dict[str, Any] | None = None,
     ) -> None:
-        """Emit a metric data point to OTLP collector asynchronously."""
+        """Emit a gauge data point to OTLP collector asynchronously."""
         if not self.enabled:
             return
+        point = {
+            "timeUnixNano": str(time.time_ns()),
+            "asDouble": float(value),
+            "attributes": _otlp_attributes(attributes),
+        }
+        self._send_metric(name, unit, "gauge", point)
 
-        now_nano = int(time.time() * 1e9)
-        attr_list = [
-            {"key": k, "value": _to_otlp_any_value(v)} for k, v in (attributes or {}).items()
-        ]
-        payload = self._build_metrics_payload(name, value, unit, now_nano, attr_list)
-        self._send_payload("/v1/metrics", payload)
+    @staticmethod
+    def _delta_interval() -> dict[str, str]:
+        """A delta's interval, ending now. Each is a nanosecond long, so points never overlap."""
+        now = time.time_ns()
+        return {"startTimeUnixNano": str(now - 1), "timeUnixNano": str(now)}
 
     def increment_counter(
         self,
@@ -674,8 +935,53 @@ class OTelTelemetryClient:
         unit: str = CONST_OTEL_METRIC_UNIT_ONE,
         attributes: dict[str, Any] | None = None,
     ) -> None:
-        """Convenience method to record an incremented counter metric."""
-        self.record_metric(name, amount, unit=unit, attributes=attributes)
+        """Add to a monotonic counter, sent as a delta the collector adds up across processes."""
+        if not self.enabled:
+            return
+        point = {
+            **self._delta_interval(),
+            "asDouble": float(amount),
+            "attributes": _otlp_attributes(attributes),
+        }
+        self._send_metric(
+            name,
+            unit,
+            "sum",
+            point,
+            aggregationTemporality=CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA,
+            isMonotonic=True,
+        )
+
+    def record_histogram(
+        self,
+        name: str,
+        value: float,
+        *,
+        bounds: tuple[float, ...],
+        unit: str = CONST_OTEL_METRIC_UNIT_ONE,
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
+        """Observe one value of a histogram, sent as a delta the collector adds up."""
+        if not self.enabled:
+            return
+        buckets = [0] * (len(bounds) + 1)
+        buckets[bisect.bisect_left(bounds, value)] = 1
+        point = {
+            **self._delta_interval(),
+            "count": "1",
+            "sum": float(value),
+            # OTLP JSON encodes 64-bit integers as strings.
+            "bucketCounts": [str(b) for b in buckets],
+            "explicitBounds": list(bounds),
+            "attributes": _otlp_attributes(attributes),
+        }
+        self._send_metric(
+            name,
+            unit,
+            "histogram",
+            point,
+            aggregationTemporality=CONST_OTEL_AGGREGATION_TEMPORALITY_DELTA,
+        )
 
     def _populate_exception_span_attributes(
         self,
@@ -759,6 +1065,7 @@ class OTelTelemetryClient:
         token_span = _current_span_id_ctx.set(span_id)
 
         attrs = dict(attributes or {})
+        _enrich_span_attributes(attrs, name=name, depth_offset=2)
         _normalize_and_deduplicate_attributes(attrs)
 
         handle = SpanHandle(span_id, attrs)
@@ -936,8 +1243,13 @@ class OTelTelemetryClient:
         try:
             url = f"{self.endpoint}{path}"
             client = self._get_http_client()
-            client.post(url, json=payload)
+            response = client.post(url, json=payload)
+            if response.status_code >= 400:
+                raise RuntimeError(f"HTTP {response.status_code}")
+            self.export_successes += 1
         except Exception as exc:
+            self.export_failures += 1
+            self.last_export_error = str(exc) or type(exc).__name__
             logger.debug("OTel payload send failed to %s%s: %s", self.endpoint, path, exc)
 
     def _send_payload(self, path: str, payload: dict[str, Any]) -> None:
@@ -946,12 +1258,22 @@ class OTelTelemetryClient:
             return
         try:
             executor = self._get_executor()
-            executor.submit(self._send_payload_sync, path, payload)
+            future = executor.submit(self._send_payload_sync, path, payload)
+            self._pending.add(future)
+            future.add_done_callback(self._pending.discard)
         except Exception as exc:
             logger.debug("Failed submitting OTel payload to executor: %s", exc)
 
     def shutdown(self, timeout_millis: int = DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS) -> None:
-        """Cleanly close background executor, gRPC exporter, and pooled HTTP transport with bounded drain timeout."""
+        """Cleanly close background executor, gRPC exporter, and pooled HTTP transport with bounded drain timeout.
+
+        Exports still in flight get up to DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS to finish: a short
+        command queues its spans at the very end, and cancelling them lost its root span. The
+        wait happens before taking the client lock, which the exports need.
+        """
+        pending = [f for f in list(self._pending) if not f.done()]
+        if pending:
+            wait_futures(pending, timeout=DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS)
         with self._client_lock:
             if self._executor is not None:
                 try:
@@ -1034,6 +1356,10 @@ def reset_tracer() -> None:
     """Reset the global tracer instance (used for testing)."""
     global _GLOBAL_TRACER
     _GLOBAL_TRACER = None
+    if hasattr(_detect_vcs_metadata, "cache_clear"):
+        _detect_vcs_metadata.cache_clear()
+    if hasattr(_detect_k8s_context, "cache_clear"):
+        _detect_k8s_context.cache_clear()
 
 
 @contextlib.contextmanager
@@ -1129,6 +1455,43 @@ def shutdown_tracer(timeout_millis: int = DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS) -> N
     global _GLOBAL_TRACER
     if _GLOBAL_TRACER is not None:
         _GLOBAL_TRACER.shutdown(timeout_millis=timeout_millis)
+        _warn_if_exports_failed(_GLOBAL_TRACER)
+
+
+def _warn_if_exports_failed(client: OTelTelemetryClient) -> None:
+    """Tell an interactive user, at most once a day per endpoint, that telemetry went nowhere.
+
+    Export failures are otherwise silent, which is how a workstation's traces and metrics were
+    dropped for good with nothing to show for it. Non-interactive runs (CI, tests) stay quiet.
+    """
+    if not client.enabled or not client.export_failures or client.export_successes:
+        return
+    if not sys.stderr.isatty():
+        return
+    marker = _export_warning_marker(client.endpoint)
+    try:
+        if (
+            marker.exists()
+            and time.time() - marker.stat().st_mtime < DEFAULT_OTEL_WARNING_INTERVAL_SECONDS
+        ):
+            return
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+    except OSError:
+        return
+    sys.stderr.write(
+        f"Telemetry could not reach {client.endpoint}: {client.export_failures} export(s) failed "
+        f"({client.last_export_error}). Run `devops telemetry connect` to find the cluster's "
+        "collector, or set telemetry.enabled to false.\n"
+    )
+
+
+def _export_warning_marker(endpoint: str) -> Path:
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+
+    digest = hashlib.sha256(endpoint.encode()).hexdigest()[:12]
+    return resolve_data_path(load_settings().data.dir) / "telemetry" / f"export-warning-{digest}"
 
 
 atexit.register(shutdown_tracer)

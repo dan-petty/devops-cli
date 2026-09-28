@@ -229,8 +229,8 @@ flowchart LR
 - **Finding Verification Engine & Feedback Loop**: `devops review verify` inspects findings using AST analysis, prompt sanitization marker protection (`<masked-*>`), and git diff validation before presenting recommendations to developers. Invalidated items are automatically ingested into `.data/common_hallucinations.json` and feedback datasets (`feedback_dataset.jsonl`) to continuously improve future reviews.
 - **Executive Summary & Pattern Synthesis**: Review reports (`review.md`) lead with an Executive Summary statement detailing:
   - High-level synthesis of code health and risk distribution across evaluated files.
-  - **Key Good Patterns Observed**: Explicit recognition of architectural invariants, strong typing, bounded subprocesses, and test isolation.
-  - **Key Anti-Patterns / Bad Patterns Observed**: Categorized breakdown of recurring defect classes (path traversal, insecure transport protocols, unvalidated parameters, resource limits) or confirmation of a clean assessment.
+  - **Key Good Patterns Observed**: Verified tool observations (dependencies queried with 0 CVEs, network endpoints, static analyzers); omitted when unqueried.
+  - **Key Anti-Patterns / Bad Patterns Observed**: Categorized breakdown of recurring defect classes and themes derived directly from identified findings, or confirmation of a clean assessment.
 
 ---
 

@@ -1,8 +1,7 @@
 # Task 120: Parallel Async Branch & PR Review Worker Pool with Semaphore Concurrency
 
 **Issue**: [#120](https://github.com/dan-petty/devops-cli/issues/120)
-**PR**: [#226](https://github.com/dan-petty/devops-cli/pull/226)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/ai`

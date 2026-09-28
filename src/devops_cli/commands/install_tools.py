@@ -9,6 +9,7 @@ import logging
 import os
 import platform
 import re
+import shutil
 import subprocess
 import tarfile
 from collections.abc import Callable
@@ -217,13 +218,25 @@ def _install_helm(version: str, target_dir: Path) -> None:
     _extract_tar_member(data, f"{_OS}-{_ARCH}/helm", target_dir / f"helm{_EXE}")
 
 
+def _resolve_argo_expected_checksum(checksums_url: str, legacy_sha_url: str, gz_name: str) -> str:
+    try:
+        checksums_text = _download(checksums_url).decode()
+        return _parse_checksum_file(checksums_text, gz_name)
+    except Exception:
+        sha256_text = _download(legacy_sha_url).decode()
+        return sha256_text.split()[0]
+
+
 def _install_argo(version: str, target_dir: Path) -> None:
     v = validate_version_str(version, "argo")
     gz_name = f"argo-{_OS}-{_ARCH}.gz"
     url = f"{CONST_URL_GITHUB_ARGO_WORKFLOWS_RELEASES_BASE}/v{v}/{gz_name}"
     data = _download(url)
-    sha256_text = _download(f"{url}.sha256").decode()
-    _verify_sha256(data, sha256_text.split()[0])
+    checksums_url = (
+        f"{CONST_URL_GITHUB_ARGO_WORKFLOWS_RELEASES_BASE}/v{v}/argo-workflows-cli-checksums.txt"
+    )
+    expected = _resolve_argo_expected_checksum(checksums_url, f"{url}.sha256", gz_name)
+    _verify_sha256(data, expected)
     _write_binary(gzip.decompress(data), target_dir / f"argo{_EXE}")
 
 
@@ -240,15 +253,25 @@ def _install_argocd(version: str, target_dir: Path) -> None:
     _write_binary(data, target_dir / f"argocd{_EXE}")
 
 
+def _resolve_rollouts_expected_checksum(primary_url: str, fallback_url: str, bin_name: str) -> str:
+    try:
+        checksums_text = _download(primary_url).decode()
+        return _parse_checksum_file(checksums_text, bin_name)
+    except Exception:
+        checksums_text = _download(fallback_url).decode()
+        return _parse_checksum_file(checksums_text, bin_name)
+
+
 def _install_rollouts(version: str, target_dir: Path) -> None:
     v = validate_version_str(version, "rollouts")
     bin_name = f"kubectl-argo-rollouts-{_OS}-{_ARCH}{_EXE}"
     url = f"{CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE}/v{v}/{bin_name}"
     data = _download(url)
-    checksums_text = _download(
-        f"{CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE}/v{v}/sha256checksums.txt"
-    ).decode()
-    expected = _parse_checksum_file(checksums_text, bin_name)
+    checksums_url = (
+        f"{CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE}/v{v}/argo-rollouts-checksums.txt"
+    )
+    legacy_url = f"{CONST_URL_GITHUB_ARGO_ROLLOUTS_RELEASES_BASE}/v{v}/sha256checksums.txt"
+    expected = _resolve_rollouts_expected_checksum(checksums_url, legacy_url, bin_name)
     _verify_sha256(data, expected)
     _write_binary(data, target_dir / f"kubectl-argo-rollouts{_EXE}")
 
@@ -296,12 +319,21 @@ def _install_trivy(version: str, target_dir: Path) -> None:
 
 def _install_kubelinter(version: str, target_dir: Path) -> None:
     v = version.lstrip("v")
-    tar_name = f"kube-linter-linux-{_ARCH}.tar.gz"
-    _download_and_extract_tar_binary(
-        f"https://github.com/stackrox/kube-linter/releases/download/v{v}/{tar_name}",
-        "kube-linter",
-        target_dir,
+    candidate_names = (
+        ("kube-linter-linux.tar.gz", f"kube-linter-linux-{_ARCH}.tar.gz")
+        if _ARCH == "amd64"
+        else (f"kube-linter-linux_{_ARCH}.tar.gz", f"kube-linter-linux-{_ARCH}.tar.gz")
     )
+    last_exc: Exception | None = None
+    for tar_name in candidate_names:
+        url = f"https://github.com/stackrox/kube-linter/releases/download/v{v}/{tar_name}"
+        try:
+            _download_and_extract_tar_binary(url, "kube-linter", target_dir)
+            return
+        except Exception as exc:
+            last_exc = exc
+    if last_exc:
+        raise last_exc
 
 
 def _install_popeye(version: str, target_dir: Path) -> None:
@@ -360,7 +392,7 @@ TOOLS: Final[dict[str, Tool]] = {
         name="kubectl",
         description="Kubernetes CLI",
         bin_name="kubectl",
-        version_cmd=["kubectl", "version", "--client", "--short"],
+        version_cmd=["kubectl", "version", "--client"],
         get_latest=_latest_kubectl,
         install=_install_kubectl,
     ),
@@ -452,19 +484,13 @@ TOOLS: Final[dict[str, Tool]] = {
 # =============================================================================
 
 
-@app.callback(invoke_without_command=True)
-def install_all(
-    ctx: typer.Context,
-    tool: Annotated[str | None, typer.Option("--tool", "-t", help=HELP.install.tool)] = None,
-    version: Annotated[str | None, typer.Option("--version", help=HELP.install.version)] = None,
-    target_dir: Annotated[
-        Path, typer.Option("--target-dir", "-d", help=HELP.options.target_dir)
-    ] = DEFAULT_LOCAL_BIN_DIR,
-) -> None:
-    """Install DevOps tool binaries. Without --tool, installs all tools."""
-    if ctx.invoked_subcommand is not None:
-        return
+def is_tool_installed(spec: Tool, target_dir: Path = DEFAULT_LOCAL_BIN_DIR) -> bool:
+    """Return True if tool binary is found in target_dir or on system PATH."""
+    target_bin = target_dir / f"{spec.bin_name}{_EXE}"
+    return target_bin.is_file() or shutil.which(spec.bin_name) is not None
 
+
+def _validate_install_args(version: str | None, tool: str | None) -> None:
     if version and not re.match(r"^v?\d+\.\d+(\.\d+)*(-\w+)?$", version):
         print_error(
             f"Invalid version format '{version}'. Expected semver e.g. v1.30.0",
@@ -479,28 +505,97 @@ def install_all(
         )
         raise typer.Exit(1)
 
-    targets = {tool: TOOLS[tool]} if tool else TOOLS
+
+def _resolve_install_targets(
+    tool: str | None,
+    target_dir: Path,
+    *,
+    only_missing: bool = False,
+) -> dict[str, Tool]:
+    raw_targets = {tool: TOOLS[tool]} if tool else TOOLS
+    if not only_missing:
+        return raw_targets
+    return {
+        name: spec for name, spec in raw_targets.items() if not is_tool_installed(spec, target_dir)
+    }
+
+
+def _install_single_target(
+    name: str,
+    spec: Tool,
+    version: str | None,
+    target_dir: Path,
+) -> bool:
+    ver = version
+    if not ver:
+        print_info(MESSAGES.install.fetching_latest.format(name=name), prefix=False)
+        try:
+            ver = spec.get_latest()
+        except Exception as exc:
+            print_error(f"{name}: could not determine latest — {exc}")
+            return False
+
+    print_info(
+        MESSAGES.install.installing_tool.format(name=name, version=ver),
+        prefix=False,
+    )
+    try:
+        spec.install(ver, target_dir)
+        print_success(str(target_dir / (spec.bin_name + _EXE)))
+        return True
+    except Exception as exc:
+        print_error(f"{name}: {exc}")
+        return False
+
+
+def install_managed_tools(
+    target_dir: Path = DEFAULT_LOCAL_BIN_DIR,
+    *,
+    only_missing: bool = True,
+) -> list[str]:
+    """Programmatically install managed DevOps tools into target_dir.
+
+    Returns a list of human-readable action messages describing what was installed or failed.
+    """
+    target_path = Path(target_dir)
+    target_path.mkdir(parents=True, exist_ok=True)
+    targets = _resolve_install_targets(None, target_path, only_missing=only_missing)
+    if not targets:
+        return []
+
+    actions: list[str] = []
+    for name, spec in targets.items():
+        try:
+            ver = spec.get_latest()
+            spec.install(ver, target_path)
+            actions.append(f"Installed {name} {ver} into {target_path}")
+        except Exception as exc:
+            actions.append(f"Warning: Failed to install {name} ({exc})")
+    return actions
+
+
+@app.callback(invoke_without_command=True)
+def install_all(
+    ctx: typer.Context,
+    tool: Annotated[str | None, typer.Option("--tool", "-t", help=HELP.install.tool)] = None,
+    version: Annotated[str | None, typer.Option("--version", help=HELP.install.version)] = None,
+    target_dir: Annotated[
+        Path, typer.Option("--target-dir", "-d", help=HELP.options.target_dir)
+    ] = DEFAULT_LOCAL_BIN_DIR,
+    only_missing: Annotated[
+        bool, typer.Option("--only-missing", help=HELP.install.only_missing)
+    ] = False,
+) -> None:
+    """Install DevOps tool binaries. Without --tool, installs all tools."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    _validate_install_args(version, tool)
+    targets = _resolve_install_targets(tool, target_dir, only_missing=only_missing)
     target_dir.mkdir(parents=True, exist_ok=True)
 
     for name, spec in targets.items():
-        ver = version
-        if not ver:
-            print_info(MESSAGES.install.fetching_latest.format(name=name), prefix=False)
-            try:
-                ver = spec.get_latest()
-            except Exception as exc:
-                print_error(f"{name}: could not determine latest — {exc}")
-                continue
-
-        print_info(
-            MESSAGES.install.installing_tool.format(name=name, version=ver),
-            prefix=False,
-        )
-        try:
-            spec.install(ver, target_dir)
-            print_success(str(target_dir / (spec.bin_name + _EXE)))
-        except Exception as exc:
-            print_error(f"{name}: {exc}")
+        _install_single_target(name, spec, version, target_dir)
 
     _path_hint(target_dir)
 

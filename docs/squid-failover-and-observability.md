@@ -40,7 +40,7 @@ graph TD
     end
 
     subgraph "Client Workloads"
-        ollama["Ollama GPU DaemonSet<br/>(llm namespace)"]
+        ollama["Ollama GPU StatefulSet<br/>(llm namespace)"]
     end
 
     ollama -->|"HTTP_PROXY (port 3128)"| squid

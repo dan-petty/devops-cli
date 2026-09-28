@@ -1,8 +1,7 @@
 # Task 309: ArgoCD Server API, CRD Reconciliation & Automated Canary Metric Verification Research
 
 **Issue**: [#309](https://github.com/dan-petty/devops-cli/issues/309)
-**PR**: [#351](https://github.com/dan-petty/devops-cli/pull/351)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.22`
 **Priority**: `priority/p1-high`
 **Scope**: `type/feature`, `scope/k8s`, `priority/p1-high`

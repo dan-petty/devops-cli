@@ -1,8 +1,7 @@
 # Task 235: Project Reconcile Rate Quota Exhaustion and Unbounded Candidate Mutations
 
 **Issue**: [#235](https://github.com/dan-petty/devops-cli/issues/235)
-**PR**: [#236](https://github.com/dan-petty/devops-cli/pull/236)
-**Status**: Completed
+**Status**: Done
 **Milestone**: `v0.2.19`
 **Priority**: `priority/p1-high`
 **Scope**: `scope/github`, `scope/cli`

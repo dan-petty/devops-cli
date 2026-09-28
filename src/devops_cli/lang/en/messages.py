@@ -68,7 +68,6 @@ class ReviewMessages:
     table_title_network_references: str = (
         "[bold yellow]Network & Egress References Audit[/bold yellow]"
     )
-    positive_observations: str = "[bold green]Positive Observations[/bold green]"
     summary: str = "[bold]Summary[/bold]"
 
 
@@ -186,7 +185,7 @@ class WorkspaceMessages:
     added_folder: str = "Added: {path}"
     removed_folder: str = "Removed: {path}"
     generated_with_count: str = "Generated {ws_file} with {count} folders."
-    pruning_stale: str = "Pruning artifacts older than {days} days under .data/..."
+    pruning_stale: str = "Pruning artifacts older than {days} days in {data_dir}..."
     cleaned_artifacts: str = (
         "✓ Cleaned {files} files and {dirs} directories ({freed_mb:.2f} MB freed)."
     )
@@ -420,6 +419,17 @@ class TfMessages:
         "Deploying {provider} cloud infrastructure from [cyan]{path}[/cyan]..."
     )
     deploy_cloud_success: str = "✓ {provider} cloud infrastructure deployed successfully."
+    deploy_cloud_state_in_checkout: str = (
+        "{path} has no local state, but the main checkout's {checkout} does. A worktree "
+        "does not share the main checkout's untracked state, so init and apply here start "
+        "from empty state and plan to create every resource again. Deploy from the main "
+        "checkout, or move the state or configure a remote backend first."
+    )
+    deploy_cloud_state_auto_approve_refused: str = (
+        "Refusing to auto-approve a deploy from empty state; run without --auto-approve "
+        "to confirm it."
+    )
+    deploy_cloud_confirm_empty_state: str = "Deploy from empty state anyway?"
     tflint_executing: str = "Executing TFLint static analysis on '{target}'..."
     tflint_passed: str = "✓ No Terraform / OpenTofu lint issues detected."
     table_title_status: str = "OpenTofu Status — {name}"
@@ -673,6 +683,14 @@ class CIMessages:
     cache_hit: str = (
         "Codebase unchanged since last verification. Utilizing CI cache (all checks passed)."
     )
+    gate_root: str = "Quality gate root: {root}"
+    gate_root_stale: str = (
+        "{root} is a linked git worktree whose git directory is missing, so git-based checks "
+        "fail there. If its main checkout moved, run `git worktree repair {root_arg}` from the "
+        "main checkout. If the worktree was pruned, repair cannot restore it: move {root} "
+        "aside, keeping any uncommitted work, and re-create it with `git worktree add` from "
+        "the main checkout."
+    )
 
 
 @dataclass(frozen=True)
@@ -697,6 +715,16 @@ class DevcontainerMessages:
     temp_dir_permissions_configured: str = (
         "Configured temporary directory permissions (1777) at {path}"
     )
+    keyring_new_password: str = "New keyring password: "
+    keyring_repeat_password: str = "Repeat keyring password: "
+    keyring_password: str = "Keyring password: "
+    keyring_unlocked: str = "✓ Keyring unlocked; gh, git and devops can store secrets."
+    keyring_already_unlocked: str = "Keyring is already unlocked."
+    keyring_unlock_skipped: str = (
+        "Keyring left locked; the next terminal you open will ask again, or run "
+        "`devops devcontainer unlock-keyring`."
+    )
+    gh_token_moved: str = "✓ Moved the gh token for {host} from hosts.yml into the keyring."
 
 
 @dataclass(frozen=True)

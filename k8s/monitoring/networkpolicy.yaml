@@ -72,6 +72,11 @@ spec:
           port: 6333
         - protocol: TCP
           port: 11434
+        # vLLM servers and the LLM gateway (#546)
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 4000
     - to:
         - namespaceSelector:
             matchLabels:

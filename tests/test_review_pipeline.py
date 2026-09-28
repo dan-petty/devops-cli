@@ -90,6 +90,43 @@ def test_review_pipeline_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert (orchestrator.session_dir / "review.md").exists()
 
 
+def test_consolidated_report_keeps_every_candidate_with_its_verification_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify candidates.json keeps invalidated findings that findings.json leaves out."""
+    import json
+
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+    orchestrator = ReviewPipelineOrchestrator(session_id="candidates", llm_client=MagicMock())
+    kept = SavedFinding(
+        location="src/a.py:3",
+        title="Kept",
+        description="d",
+        status="VERIFIED",
+        verified=True,
+        verified_by="criteria",
+    )
+    dropped = SavedFinding(
+        location="src/a.py:9",
+        title="Dropped",
+        description="d",
+        status="INVALIDATED",
+        reportable=False,
+    )
+    payload = FileReviewPayload(file_path="src/a.py", findings=[kept, dropped])
+
+    orchestrator.generate_consolidated_report([payload])
+
+    def titles(name: str) -> list[tuple[str, str]]:
+        data = json.loads((orchestrator.session_dir / name).read_text(encoding="utf-8"))
+        return [(f["title"], f["status"]) for f in data["findings"]]
+
+    assert (titles("findings.json"), titles("candidates.json")) == (
+        [("Kept", "VERIFIED")],
+        [("Kept", "VERIFIED"), ("Dropped", "INVALIDATED")],
+    )
+
+
 def test_get_server_info_formatting() -> None:
     """Test server info formatting under different LLM client configurations."""
     orchestrator = ReviewPipelineOrchestrator(session_id="test-info")
@@ -158,7 +195,10 @@ def test_deterministic_pre_verification_syntax_hallucination(tmp_path: Path) -> 
 
 
 def test_deterministic_pre_verification_line_boundary_out_of_bounds(tmp_path: Path) -> None:
-    """_deterministic_pre_verification invalidates findings referencing lines beyond file length."""
+    """A line past the end of the file is dropped from the location; the finding is kept.
+
+    Pages carry no line numbers (#499), so the line is the model's own count (#513).
+    """
     from devops_cli.ai.review.verification import _deterministic_pre_verification
     from devops_cli.ai.review_schema import Finding
 
@@ -173,9 +213,7 @@ def test_deterministic_pre_verification_line_boundary_out_of_bounds(tmp_path: Pa
         fix="Fix line 250",
     )
     result = _deterministic_pre_verification(finding, repo_root=tmp_path)
-    assert result.verified is False
-    assert result.status == "INVALIDATED"
-    assert "exceeds total file lines" in str(result.invalidation_reason)
+    assert (result.location, result.status, result.reportable) == ("main.py", "UNVERIFIED", True)
 
 
 def test_consolidated_report_findings_sorted_by_severity_and_confidence(
@@ -192,42 +230,54 @@ def test_consolidated_report_findings_sorted_by_severity_and_confidence(
         title="Low Finding High Confidence",
         location="src/low.py:1",
         confidence_score=0.99,
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
     f_med_high_conf = SavedFinding(
         severity="MEDIUM",
         title="Medium Finding High Confidence",
         location="src/med1.py:1",
         confidence_score=0.95,
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
     f_med_low_conf = SavedFinding(
         severity="MEDIUM",
         title="Medium Finding Low Confidence",
         location="src/med2.py:1",
         confidence_score=0.70,
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
     f_crit_low_conf = SavedFinding(
         severity="CRITICAL",
         title="Critical Finding Lower Confidence",
         location="src/crit2.py:1",
         confidence_score=0.85,
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
     f_crit_high_conf = SavedFinding(
         severity="CRITICAL",
         title="Critical Finding Higher Confidence",
         location="src/crit1.py:1",
         confidence_score=0.98,
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
     f_high = SavedFinding(
         severity="HIGH",
         title="High Finding",
         location="src/high.py:1",
         confidence_score=0.90,
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
 
     payload = FileReviewPayload(
@@ -283,7 +333,9 @@ def test_consolidate_duplicate_findings_across_personas(tmp_path: Path, monkeypa
         fix="Use run_subprocess with check=True",
         persona="devsecops",
         persona_title="Security Engineer",
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
 
     # auditor reports Medium severity finding for overlapping lines with similar title
@@ -309,7 +361,9 @@ def test_consolidate_duplicate_findings_across_personas(tmp_path: Path, monkeypa
         fix="Add test_timeout unit test",
         persona="qa",
         persona_title="QA Engineer",
+        status="VERIFIED",
         verified=True,
+        verified_by="criteria",
     )
 
     payload = FileReviewPayload(
@@ -382,6 +436,7 @@ def test_criteria_based_verification_and_reportability(
         invalidated_criteria_matched=[],
         status="VERIFIED",
         verified=True,
+        verified_by="criteria",
         reportable=True,
         confidence_score=1.0,
         persona="qa",
@@ -677,6 +732,8 @@ def test_generate_consolidated_report_prints_findings_and_review_summary(
         title="Hardcoded Credential",
         description="Found hardcoded secret key in auth module",
         status="VERIFIED",
+        verified=True,
+        verified_by="criteria",
         persona="devsecops",
         persona_title="Principal DevSecOps Engineer",
         reportable=True,
@@ -761,6 +818,8 @@ def test_review_pipeline_skips_and_lists_errored_files(
                 title="Input validation",
                 description="Missing input validation",
                 status="VERIFIED",
+                verified=True,
+                verified_by="criteria",
                 persona="devsecops",
                 persona_title="Principal DevSecOps Engineer",
                 reportable=True,
@@ -818,13 +877,25 @@ def test_review_pipeline_dependency_and_network_auditing() -> None:
         severity="CRITICAL",
         fixed_version="2.31.0",
     )
-    dep_cache = {("requests", "2.20.0", "PyPI"): [vuln_rec]}
+    dep_cache = {
+        ("requests", "2.20.0", "PyPI"): [vuln_rec],
+        ("pydantic", "2.11.0", "PyPI"): [],
+    }
+    dep_unqueried = DependencySpec(name="flask", version_range="*", ecosystem="PyPI")
 
-    findings = orchestrator._audit_file_dependencies("src/app.py", [dep_clean, dep_vuln], dep_cache)
-    assert dep_clean.severity == "CLEAN"
-    assert dep_vuln.severity == "CRITICAL"
-    assert len(findings) == 1
-    assert "CVE-2023-1234" in findings[0].title
+    findings = orchestrator._audit_file_dependencies(
+        "src/app.py", [dep_clean, dep_vuln, dep_unqueried], dep_cache
+    )
+    assert (
+        dep_clean.severity,
+        dep_clean.queried,
+        dep_vuln.severity,
+        dep_vuln.queried,
+        dep_unqueried.severity,
+        dep_unqueried.queried,
+        len(findings),
+        "CVE-2023-1234" in findings[0].title,
+    ) == ("CLEAN", True, "CRITICAL", True, "NOT_QUERIED", False, 1, True)
 
     # 3. Audit network references
     net_clean = NetworkReference(target="127.0.0.1", reference_type="ipv4", is_local=True)
@@ -1183,3 +1254,151 @@ def test_orchestrator_worker_exception_isolation(tmp_path: Path) -> None:
             payloads[0].ai_scratchpad["stage"],
             "src/one.py" in orchestrator.errored_files,
         ) == ("failed", True)
+
+
+def test_review_page_chars_fit_the_context_window() -> None:
+    """Verify review pages leave room for prompts inside the window, within the page floor and cap."""
+    from devops_cli.ai.review.chunker import review_page_chars
+    from devops_cli.config.constants import (
+        CONST_REVIEW_CHARS_PER_TOKEN,
+        CONST_REVIEW_PAGE_WINDOW_SHARE,
+    )
+    from devops_cli.config.defaults import (
+        DEFAULT_REVIEW_MAX_DIFF_CHARS,
+        DEFAULT_REVIEW_MIN_DIFF_CHARS,
+    )
+
+    chars_per_window_token = CONST_REVIEW_CHARS_PER_TOKEN * CONST_REVIEW_PAGE_WINDOW_SHARE
+
+    assert (
+        review_page_chars(16384),
+        review_page_chars(32768),
+        review_page_chars(1_048_576),
+        review_page_chars(512),
+        review_page_chars(32768) < 32768 * CONST_REVIEW_CHARS_PER_TOKEN,
+    ) == (
+        int(16384 * chars_per_window_token),
+        int(32768 * chars_per_window_token),
+        DEFAULT_REVIEW_MAX_DIFF_CHARS,
+        DEFAULT_REVIEW_MIN_DIFF_CHARS,
+        True,
+    )
+
+
+def test_execute_page_review_steps_isolates_persona_history() -> None:
+    """Verify each page is reviewed without other files' conversation history."""
+    from devops_cli.ai.review.pipeline import _execute_page_review_steps
+
+    pipeline = MagicMock()
+    pipeline.run.return_value = MagicMock(steps=[])
+
+    count, outcomes = _execute_page_review_steps(pipeline, "prompt", "a.py", 0, 1, {}, [], [], [])
+
+    assert (count, outcomes, pipeline.run.call_args.kwargs["message_history"]) == (0, [], [])
+
+
+def test_multi_persona_review_tracks_unparsed_replies_and_degrades_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify unparsed LLM replies are recorded in scratchpad and profile, degrading stage."""
+    from devops_cli.ai.review.profile import profiling
+
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+    mock_llm = MagicMock()
+    mock_llm.chat_messages.return_value = "Everything looks clean and well implemented."
+    mock_llm.chat_complete.return_value = "Everything looks clean and well implemented."
+    mock_llm.chat.return_value = "Everything looks clean and well implemented."
+    mock_llm.complete.return_value = "Everything looks clean and well implemented."
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="unparsed-test", llm_client=mock_llm)
+    payloads = orchestrator.init_per_file_payloads(["src/clean.py"], {})
+
+    with profiling() as profiler:
+        orchestrator.execute_multi_persona_review(
+            payloads,
+            diff_text_by_file={"src/clean.py": "def foo(): pass\n"},
+            personas=["devsecops"],
+        )
+
+    p = payloads[0]
+    expected_replies = [
+        {
+            "persona": "devsecops",
+            "persona_title": "Principal DevSecOps Engineer",
+            "outcome": "unparsed",
+            "page": 1,
+        }
+    ]
+    profile = profiler.build(session_id="unparsed-test", target="src/clean.py")
+    assert (
+        p.ai_scratchpad["stage"],
+        p.ai_scratchpad["unparsed_personas"],
+        p.ai_scratchpad["persona_outcomes"],
+        p.ai_scratchpad["persona_replies"],
+        profile.unparsed_personas,
+        profile.persona_outcomes,
+    ) == (
+        "unparsed",
+        ["Principal DevSecOps Engineer"],
+        {"devsecops": "unparsed"},
+        expected_replies,
+        ["Principal DevSecOps Engineer"],
+        {"unparsed": 1},
+    )
+
+
+def test_multi_persona_review_tracks_bare_empty_list_and_degrades_partially_on_mixed_replies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify bare [] records empty outcome, and mixed persona outcomes degrade file to degraded."""
+    from devops_cli.ai.review.profile import profiling
+
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+    mock_llm = MagicMock()
+
+    finding_json = (
+        '{"findings": [{"severity": "HIGH", "location": "src/app.py:1", '
+        '"title": "Secret Leak", "description": "Token in code", "fix": "Remove token", '
+        '"confidence_score": 0.95}]}'
+    )
+
+    def _fake_chat(*args: object, **kwargs: object) -> str:
+        text = f"{args} {kwargs}"
+        if "Enterprise Infrastructure Architect" in text:
+            return "[]"
+        if "Senior Test Engineer" in text:
+            return "I have reviewed this code and found no obvious functional defects."
+        return finding_json
+
+    mock_llm.chat_messages.side_effect = _fake_chat
+    mock_llm.chat_complete.side_effect = _fake_chat
+    mock_llm.chat.side_effect = _fake_chat
+    mock_llm.complete.side_effect = _fake_chat
+
+    orchestrator = ReviewPipelineOrchestrator(session_id="mixed-test", llm_client=mock_llm)
+    payloads = orchestrator.init_per_file_payloads(["src/app.py"], {})
+
+    with profiling() as profiler:
+        orchestrator.execute_multi_persona_review(
+            payloads,
+            diff_text_by_file={"src/app.py": "API_KEY = 'secret'\n"},
+            personas=["devsecops", "architect", "qa"],
+        )
+
+    profile = profiler.build(session_id="mixed-test", target="src/app.py")
+    p = payloads[0]
+    assert (
+        p.ai_scratchpad["stage"],
+        p.ai_scratchpad["unparsed_personas"],
+        p.ai_scratchpad["persona_outcomes"],
+        len(p.findings),
+        profile.unparsed_personas,
+        profile.persona_outcomes,
+    ) == (
+        "degraded",
+        ["Senior Test Engineer"],
+        {"devsecops": "findings", "architect": "empty", "qa": "unparsed"},
+        1,
+        ["Senior Test Engineer"],
+        {"findings": 1, "empty": 1, "unparsed": 1},
+    )

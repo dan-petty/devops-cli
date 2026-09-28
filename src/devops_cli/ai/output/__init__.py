@@ -29,30 +29,28 @@ from pydantic_ai.output import (
 from devops_cli.ai.review_schema import ReviewResult
 
 __all__ = (
-    # Native Pydantic AI classes & types
-    "ToolOutput",
+    "REVIEW_RESULT_NATIVE",
+    "REVIEW_RESULT_PROMPTED",
+    "REVIEW_RESULT_TOOL",
+    "CallableDict",
     "NativeOutput",
-    "PromptedOutput",
-    "TextOutput",
-    "StructuredDict",
-    "OutputObjectDefinition",
     "OutputContext",
     "OutputDataT",
     "OutputMode",
-    "StructuredOutputMode",
+    "OutputObjectDefinition",
     "OutputSpec",
     "OutputTypeOrFunction",
+    "PromptedOutput",
+    "StructuredDict",
+    "StructuredOutputMode",
+    "TextOutput",
     "TextOutputFunc",
-    # Domain utilities & helpers
-    "CallableDict",
-    "unwrap_output_spec",
-    "extract_output_json_schema",
-    "resolve_output_mode",
+    "ToolOutput",
     "build_output_spec",
-    "REVIEW_RESULT_NATIVE",
-    "REVIEW_RESULT_TOOL",
-    "REVIEW_RESULT_PROMPTED",
+    "extract_output_json_schema",
     "get_review_output_spec",
+    "resolve_output_mode",
+    "unwrap_output_spec",
 )
 
 

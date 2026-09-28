@@ -29,7 +29,6 @@ from devops_cli.ai.review.runner import (
     _prepare_branch_content,
     _prepare_path_content,
     _prepare_pr_content,
-    _resolve_review_clients,
     _review_session_dir,
     _run_persona_loop,
     _run_review,
@@ -90,7 +89,6 @@ def test_rendering_helpers() -> None:
         findings=[finding],
         external_dependencies=[dep],
         network_references=[net],
-        positive_observations=["Clean code style"],
         summary="Summary of issues",
         raw_markdown="# Security Review",
     )
@@ -190,16 +188,6 @@ def test_runner_session_persistence(tmp_path: Path) -> None:
 
     _write_summary("Test Title", session_dir, ["page 1"], [(pd, res)])
     assert (session_dir / "summary.md").exists()
-
-
-def test_make_and_resolve_review_clients() -> None:
-    """Verify review client factory functions."""
-    st = Settings()
-    clients = _make_review_clients(st)
-    assert isinstance(clients, ReviewClients)
-
-    res_clients = _resolve_review_clients(st)
-    assert res_clients is not None
 
 
 def test_prepare_content_helpers(tmp_path: Path) -> None:
@@ -321,13 +309,11 @@ def test_review_runner_extended_branches(tmp_path: Path) -> None:
     res_mit = ReviewResult(
         persona=Persona.DEVSECOPS,
         findings=[finding_mit, finding_unver],
-        positive_observations=["Good architecture"],
         summary="Review complete",
     )
     md = _review_to_markdown(res_mit)
     assert "*(mitigated)*" in md
     assert "*(unverified)*" in md
-    assert "Good architecture" in md
 
     # 3. Print review helpers
     pd = PERSONAS[Persona.DEVSECOPS]
@@ -421,6 +407,8 @@ def test_review_cli_commands(tmp_path: Path) -> None:
             severity="LOW",
             location="src/app.py:20",
             status="VERIFIED",
+            verified=True,
+            verified_by="criteria",
             persona="qa",
             persona_title="Senior QA Engineer",
             recommendation="COMMENT",
@@ -533,18 +521,16 @@ def test_review_to_markdown() -> None:
         persona=Persona.ARCHITECT,
         recommendation="COMMENT",
         findings=[f],
-        positive_observations=["Clean typing"],
         summary="Architecture is mostly sound.",
     )
     md = _review_to_markdown(res)
     assert "Tight Coupling" in md
-    assert "Clean typing" in md
+    assert "## Model Notes (Not Verified)" in md
     assert "Architecture is mostly sound" in md
 
 
 def test_make_review_clients() -> None:
     """Verify creation of analysis and compose review clients."""
-    from devops_cli.ai.review.runner import _make_review_clients
     from devops_cli.config.settings import Settings
 
     st = Settings()
@@ -743,8 +729,8 @@ def test_calculate_parallel_review_workers() -> None:
     assert workers_default == DEFAULT_REVIEW_CONCURRENCY
 
     # 3. High capacity capped by DEFAULT_REVIEW_MAX_CONCURRENCY
-    clients.analysis._config.ollama_urls = [f"http://example.com:{11434 + i}" for i in range(10)]
-    workers_max = _calculate_parallel_review_workers(clients, num_tasks=20)
+    clients.analysis._config.ollama_urls = [f"http://example.com:{11434 + i}" for i in range(20)]
+    workers_max = _calculate_parallel_review_workers(clients, num_tasks=50)
     assert workers_max == DEFAULT_REVIEW_MAX_CONCURRENCY
 
 

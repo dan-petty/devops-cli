@@ -104,6 +104,7 @@ def test_k8s_configure_urls_dry_run() -> None:
         set_dry_run(False)
 
 
+@patch("devops_cli.commands.k8s.networking.save_settings")
 @patch("devops_cli.commands.k8s._detect_service_url")
 @patch("devops_cli.commands.k8s._cluster_reachable", return_value=True)
 @patch("devops_cli.commands.k8s._minikube_running", return_value=True)
@@ -111,6 +112,7 @@ def test_k8s_configure_urls_success(
     mock_running: MagicMock,
     mock_cluster: MagicMock,
     mock_detect: MagicMock,
+    mock_save: MagicMock,
 ) -> None:
     """k8s configure-urls must query service URLs and update configuration."""
 
@@ -120,8 +122,11 @@ def test_k8s_configure_urls_success(
     set_dry_run(False)
     mock_detect.side_effect = fake_detect
     result = runner.invoke(app, ["configure-urls"])
-    assert result.exit_code == 0
-    assert "Configured Service Targets" in result.output
+    assert (result.exit_code, "Configured Service Targets" in result.output, mock_save.called) == (
+        0,
+        True,
+        True,
+    )
 
 
 @patch("devops_cli.commands.k8s._cluster_reachable", return_value=False)
@@ -444,6 +449,7 @@ def test_k8s_apply_logs_and_urls(tmp_path: Path) -> None:
         patch(
             "devops_cli.commands.k8s._resolve_accessible_url", return_value="http://localhost:8080"
         ),
+        patch("devops_cli.commands.k8s.networking.save_settings"),
         patch("devops_cli.config.settings.save_settings"),
     ):
         res_urls = runner.invoke(app, ["configure-urls", "--stack", "infra"])
@@ -651,10 +657,20 @@ def test_k8s_service_url_helpers() -> None:
     assert _resolve_accessible_url(None) is None
     with patch("devops_cli.commands.k8s._verify_url_reachability", return_value=True):
         assert (
+            _resolve_accessible_url("http://192.0.2.49:3000", preferred_localhost_ports=[3000]),
+            _resolve_accessible_url("http://192.0.2.49:3000"),
+        ) == (
+            "http://192.0.2.49:3000",
+            "http://192.0.2.49:3000",
+        )
+    with patch(
+        "devops_cli.commands.k8s._verify_url_reachability",
+        side_effect=lambda url: "localhost" in url or "127.0.0.1" in url,
+    ):
+        assert (
             _resolve_accessible_url("http://192.0.2.49:3000", preferred_localhost_ports=[3000])
             == "http://localhost:3000"
         )
-        assert _resolve_accessible_url("http://192.0.2.49:3000") == "http://192.0.2.49:3000"
 
 
 def test_k8s_bootstrap_openwebui() -> None:
@@ -809,41 +825,57 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
     repo_root = Path(__file__).resolve().parent.parent
 
-    # 1. Ollama DaemonSet: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup and liveness probes
-    ollama_path = repo_root / "k8s" / "llm" / "ollama-daemonset.yaml"
-    assert ollama_path.is_file()
+    # 1. Ollama Deployment: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup, readiness and liveness probes
+    ollama_path = repo_root / "k8s" / "llm" / "profiles" / "ollama-profiles.yaml"
     ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
-    daemonset = next(d for d in ollama_docs if d and d.get("kind") == "DaemonSet")
-    container = daemonset["spec"]["template"]["spec"]["containers"][0]
+    dep = next(d for d in ollama_docs if d and d.get("kind") == "Deployment")
+    container = dep["spec"]["template"]["spec"]["containers"][0]
     resources = container.get("resources", {})
-    assert "limits" not in resources or "memory" not in resources.get("limits", {})
-    assert resources["requests"]["memory"] == "8Gi"
-    assert resources["requests"]["cpu"] == "3000m"
-
-    # Probes: verify exact probe contracts
-    assert "startupProbe" in container
-    assert container["startupProbe"]["initialDelaySeconds"] == 10
-    assert container["startupProbe"]["periodSeconds"] == 5
-    assert container["startupProbe"]["timeoutSeconds"] == 5
-    assert container["startupProbe"]["failureThreshold"] == 60
-
-    # Storage: verify hostPath contract for node-local model persistence
-    volumes = daemonset["spec"]["template"]["spec"]["volumes"]
+    startup = container["startupProbe"]
+    readiness = container["readinessProbe"]
+    liveness = container["livenessProbe"]
+    volumes = dep["spec"]["template"]["spec"]["volumes"]
     ollama_vol = next(v for v in volumes if v["name"] == "ollama-data")
-    assert ollama_vol["hostPath"]["path"] == "/var/lib/ollama"
-    assert ollama_vol["hostPath"]["type"] == "DirectoryOrCreate"
 
-    assert "readinessProbe" in container
-    assert container["readinessProbe"]["initialDelaySeconds"] == 5
-    assert container["readinessProbe"]["periodSeconds"] == 10
-    assert container["readinessProbe"]["timeoutSeconds"] == 5
-    assert container["readinessProbe"]["failureThreshold"] == 3
-
-    assert "livenessProbe" in container
-    assert container["livenessProbe"]["initialDelaySeconds"] == 15
-    assert container["livenessProbe"]["periodSeconds"] == 15
-    assert container["livenessProbe"]["timeoutSeconds"] == 10
-    assert container["livenessProbe"]["failureThreshold"] == 6
+    assert (
+        ollama_path.is_file(),
+        "memory" in resources.get("limits", {}),
+        resources["requests"]["memory"],
+        resources["requests"]["cpu"],
+        startup["initialDelaySeconds"],
+        startup["periodSeconds"],
+        startup["timeoutSeconds"],
+        startup["failureThreshold"],
+        ollama_vol["hostPath"]["path"],
+        ollama_vol["hostPath"]["type"],
+        readiness["initialDelaySeconds"],
+        readiness["periodSeconds"],
+        readiness["timeoutSeconds"],
+        readiness["failureThreshold"],
+        liveness["initialDelaySeconds"],
+        liveness["periodSeconds"],
+        liveness["timeoutSeconds"],
+        liveness["failureThreshold"],
+    ) == (
+        True,
+        False,
+        "8Gi",
+        "3000m",
+        10,
+        5,
+        5,
+        60,
+        "/var/lib/ollama",
+        "DirectoryOrCreate",
+        5,
+        10,
+        5,
+        3,
+        15,
+        15,
+        10,
+        6,
+    )
 
     # 2. Ollama Helm values: unconstrained memory limits, baseline 4Gi requests
     values_ollama = yaml.safe_load(

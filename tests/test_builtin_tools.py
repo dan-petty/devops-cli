@@ -199,7 +199,15 @@ def test_devops_subcommand_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:
     assert called_cmds[-1][:2] == ["kube-linter", "lint"]
 
     scan_pluto("k8s")
-    assert called_cmds[-1][:2] == ["pluto", "detect-files"]
+    pluto_dir_cmd = called_cmds[-1][:2]
+
+    scan_pluto("k8s/deployment.yaml")
+    pluto_file_cmd = called_cmds[-1][:2]
+
+    assert (pluto_dir_cmd, pluto_file_cmd) == (
+        ["pluto", "detect-files"],
+        ["pluto", "detect"],
+    )
 
     scan_bandit("src")
     assert called_cmds[-1][:2] == ["bandit", "-r"]

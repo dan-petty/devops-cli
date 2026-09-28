@@ -374,6 +374,7 @@ def iter_provider_names(providers: Iterable[SecretProvider]) -> list[str]:
 
 
 __all__ = [
+    "CONST_SECRET_PROVIDER_TOOL",
     "CallableProvider",
     "EnvironmentProvider",
     "KeyringProvider",
@@ -386,12 +387,11 @@ __all__ = [
     "VaultProvider",
     "audit_entries",
     "build_default_resolver",
+    "build_secret_registry",
     "get_resolver",
     "iter_provider_names",
     "reset_resolver",
-    "build_secret_registry",
     "resolve_secret",
-    "CONST_SECRET_PROVIDER_TOOL",
 ]
 
 
@@ -428,11 +428,18 @@ def build_secret_registry(keyring_keys: dict[str, str]) -> dict[str, SecretRef]:
             ("DEVOPS_CLI_VALKEY_PASSWORD",),
             "valkey.password",
         ),
+        (opt.RUNS_INDEX_PASSWORD, "runs_index_password", ("DEVOPS_CLI_RUNS_INDEX_PASSWORD",), None),
         (
             opt.TELEMETRY_LOGFIRE_TOKEN,
             "logfire_token",
             ("DEVOPS_CLI_TELEMETRY_LOGFIRE_TOKEN", "LOGFIRE_TOKEN"),
             "telemetry.logfire_token",
+        ),
+        (
+            opt.CLOUDFLARE_API_TOKEN,
+            "cloudflare_api_token",
+            ("DEVOPS_CLI_CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_TOKEN"),
+            None,
         ),
     )
 

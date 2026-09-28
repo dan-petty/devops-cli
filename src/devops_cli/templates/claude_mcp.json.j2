@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    {{ project_name | tojson }}: {
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "fastmcp",
+        "devops",
+        "mcp",
+        "serve",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "PATH": "${HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+      }
+    }
+  }
+}

@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from devops_cli.commands.release import (
@@ -16,6 +17,7 @@ from devops_cli.commands.release import (
     _extract_git_commit_notes,
     _get_init_version,
     _get_latest_changelog_version,
+    _get_project_root,
     _get_pyproject_version,
     _resolve_safe_project_path,
     _update_changelog_header,
@@ -773,7 +775,7 @@ def test_release_check_fails_on_empty_changelog(sample_project_dir: Path) -> Non
         "# Changelog\n\n## [0.1.7] - 2026-08-13\n\n## [0.1.6] - 2026-08-12\n\n### Added\n- Initial.\n",
         encoding="utf-8",
     )
-    with pytest.raises(Exception):
+    with pytest.raises(typer.Exit):
         _verify_release_versions(sample_project_dir)
 
     result = runner.invoke(app, ["check", "--root", str(sample_project_dir), "--skip-ci"])
@@ -1139,3 +1141,15 @@ def test_an_empty_section_is_still_populated(tmp_path: Path) -> None:
     ):
         section = _build_changelog_section(tmp_path, "1.0.0", "2026-09-22", existing_notes=None)
     assert "feat(a): one (#1)" in section
+
+
+def test_release_targets_the_nested_worktree_it_is_given(
+    nested_worktree: tuple[Path, Path],
+) -> None:
+    """Verify `--root <nested worktree>` releases that worktree rather than the checkout around
+    it, and the checkout still resolves to itself (#582)."""
+    main, nested = nested_worktree
+
+    roots = (_get_project_root(nested), _get_project_root(main))
+
+    assert roots == (nested.resolve(), main.resolve())

@@ -10,6 +10,7 @@ from typing import Annotated, Any
 import typer
 
 from devops_cli.ai.personas import Persona
+from devops_cli.ai.run_store import Mechanism, record_run
 from devops_cli.commands.ai_ast import app as ast_app
 from devops_cli.commands.ai_cache import app as cache_app
 from devops_cli.commands.ai_chaos import run_chaos_model_cmd
@@ -23,6 +24,8 @@ from devops_cli.commands.ai_cost import app as cost_app
 from devops_cli.commands.ai_gateway import app as gateway_app
 from devops_cli.commands.ai_harness import app as harness_app
 from devops_cli.commands.ai_ingest import app as ingest_app
+from devops_cli.commands.ai_runs import announce_run
+from devops_cli.commands.ai_runs import app as runs_app
 from devops_cli.commands.analyze import app as analyze_app
 from devops_cli.commands.benchmark import app as benchmark_app
 from devops_cli.commands.rag import app as rag_app
@@ -40,7 +43,6 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_PREWARM_KEEP_ALIVE,
     DEFAULT_AI_TEST_PROMPT,
     DEFAULT_DIFF_CHUNK_BUDGET,
-    DEFAULT_ESTIMATED_PROMPT_TOKENS,
     DEFAULT_RAG_TOP_K,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TIKTOKEN_MODEL,
@@ -123,6 +125,11 @@ app.add_typer(
     help="LLM Gateway and distributed inference mesh management.",
 )
 app.add_typer(
+    runs_app,
+    name="runs",
+    help="Benchmark and evaluation runs, kept in the data directory and shared through Valkey.",
+)
+app.add_typer(
     cost_app,
     name="cost",
     help="Track approximate lifetime spend and manage model pricing.",
@@ -158,7 +165,9 @@ def ai_main(
 # Constants & File Targets
 # =============================================================================
 
-_PROVIDERS = ("ollama", "claude", "copilot", "openai")
+_PROVIDERS = ("ollama", "claude", "copilot", "openai", "gateway")
+# The tasks a provider and model can be set for on their own (`ai.tasks.<task>`).
+_AI_TASKS = ("chat", "metadata", "analysis", "verification", "compose", "embedding")
 
 _AGENT_FILES: dict[str, str] = {
     CONST_AGENTS_MD_FILENAME: "Canonical agent instructions (single source of truth)",
@@ -344,6 +353,19 @@ def _parse_pyproject(repo: Path) -> Any:
 # =============================================================================
 
 
+def _print_task_override(task: str, override: Any) -> None:
+    """Show the settings one task overrides; unset ones fall back to the AI settings."""
+    rows = [
+        [name, "(from ai)" if value is None else str(value)]
+        for name, value in override.model_dump().items()
+    ]
+    print_table(
+        title=f"AI Configuration: {task} task",
+        columns=[("Setting", "cyan"), "Value"],
+        rows=rows,
+    )
+
+
 @app.command()
 def config(
     provider: Annotated[
@@ -377,9 +399,16 @@ def config(
         int | None,
         typer.Option("--max-retries", help=HELP.ai.max_retries),
     ] = None,
+    task: Annotated[
+        str | None,
+        typer.Option("--task", "-t", help=HELP.ai.config_task),
+    ] = None,
 ) -> None:
     """Show or update AI provider configuration."""
     settings = load_settings()
+    if task is not None and task not in _AI_TASKS:
+        print_error(f"Unknown task {task!r}. Choose: {', '.join(_AI_TASKS)}", prefix=False)
+        raise typer.Exit(1)
 
     if not any(
         [
@@ -392,6 +421,9 @@ def config(
             max_retries is not None,
         ]
     ):
+        if task:
+            _print_task_override(task, getattr(settings.ai.tasks, task))
+            return
         import os
 
         from devops_cli.config.options import KEYRING_KEYS
@@ -420,23 +452,19 @@ def config(
         )
         return
 
-    if provider:
-        if provider not in _PROVIDERS:
-            print_error(
-                f"Unknown provider {provider!r}. Choose: {', '.join(_PROVIDERS)}", prefix=False
-            )
-            raise typer.Exit(1)
-        settings.ai.provider = provider
-    if model:
-        settings.ai.model = model
-    if ollama_urls:
-        settings.ai.ollama_urls = [u.strip() for u in ollama_urls.split(",") if u.strip()]
-    if ollama_max_parallel is not None:
-        settings.ai.ollama_max_parallel = max(1, ollama_max_parallel)
-    if api_base_url:
-        settings.ai.api_base_url = api_base_url
-    if max_retries is not None:
-        settings.ai.max_retries = max_retries
+    if provider and provider not in _PROVIDERS:
+        print_error(f"Unknown provider {provider!r}. Choose: {', '.join(_PROVIDERS)}", prefix=False)
+        raise typer.Exit(1)
+    target = getattr(settings.ai.tasks, task) if task else settings.ai
+    _apply_ai_settings(
+        target,
+        provider=provider,
+        model=model,
+        ollama_urls=ollama_urls,
+        ollama_max_parallel=ollama_max_parallel,
+        api_base_url=api_base_url,
+        max_retries=max_retries,
+    )
     if api_key:
         try:
             dotted_set(settings, AI_API_KEY, api_key)
@@ -452,7 +480,32 @@ def config(
             raise typer.Exit(1)
 
     save_settings(settings)
-    print_success("AI configuration saved")
+    print_success(f"AI configuration saved{f' for the {task} task' if task else ''}")
+
+
+def _apply_ai_settings(
+    target: Any,
+    *,
+    provider: str | None,
+    model: str | None,
+    ollama_urls: str | None,
+    ollama_max_parallel: int | None,
+    api_base_url: str | None,
+    max_retries: int | None,
+) -> None:
+    """Set the given fields on the AI settings or on one task's override of them."""
+    if provider:
+        target.provider = provider
+    if model:
+        target.model = model
+    if ollama_urls:
+        target.ollama_urls = [u.strip() for u in ollama_urls.split(",") if u.strip()]
+    if ollama_max_parallel is not None:
+        target.ollama_max_parallel = max(1, ollama_max_parallel)
+    if api_base_url:
+        target.api_base_url = api_base_url
+    if max_retries is not None:
+        target.max_retries = max_retries
 
 
 # =============================================================================
@@ -1074,7 +1127,7 @@ def chat(
 def bundle_models(
     output_dir: Annotated[
         Path | None,
-        typer.Option("--output", "-o", help=HELP.options.output_dir),
+        typer.Option("--output", "-o", help=HELP.ai.bundle_output_dir),
     ] = None,
 ) -> None:
     """Bundle Ollama model metadata into tarball for air-gapped DevContainers."""
@@ -1275,53 +1328,6 @@ def token_count(
 
 
 # =============================================================================
-# Command: devops ai route
-# =============================================================================
-
-
-@app.command("route")
-def route_task(
-    task: Annotated[str, typer.Argument(help=HELP.ai.cost_task)],
-    tokens: Annotated[
-        int, typer.Option("--tokens", "-t", help=HELP.ai.est_tokens)
-    ] = DEFAULT_ESTIMATED_PROMPT_TOKENS,
-    frontier: Annotated[bool, typer.Option("--frontier", "-f", help=HELP.options.frontier)] = False,
-    json_output: Annotated[bool, typer.Option("--json", help=HELP.options.json_output)] = False,
-) -> None:
-    """Evaluate task complexity and determine the optimal LLM provider and model route."""
-    from devops_cli.ai.router import LLMRouter
-    from devops_cli.config.settings import load_settings
-
-    settings = load_settings()
-    router = LLMRouter(config=settings.ai)
-    decision = router.route_task(
-        task_name=task,
-        token_count=tokens,
-        requires_frontier=frontier,
-    )
-
-    if json_output:
-        write_stdout(format_json(decision.model_dump()) + "\n")
-        return
-
-    rows = [
-        ["Task Name", decision.task_name],
-        ["Complexity Tier", str(decision.complexity).upper()],
-        ["Selected Provider", decision.provider_name],
-        ["Target Model", decision.model_name],
-        ["Est. Turn Cost (USD)", f"${decision.estimated_cost_usd:.4f}"],
-        ["Routing Rationale", decision.rationale],
-    ]
-
-    print_table(
-        title="AI Task Dynamic Routing Decision",
-        columns=[("Property", "bold"), "Value"],
-        rows=rows,
-        border_style="magenta",
-    )
-
-
-# =============================================================================
 # Command: devops ai spec
 # =============================================================================
 
@@ -1518,11 +1524,11 @@ def audit_library_usage_cmd(
         )
         return
 
-    from devops_cli.config.settings import load_settings
+    from devops_cli.ai.analyze.cache import analysis_directory
 
     auditor = LibraryDriftAuditor(contracts_dir=contracts_dir)
     ws_dir = target_dir or Path.cwd()
-    default_report_path = load_settings().data.analysis_dir / "api_drift_report.json"
+    default_report_path = analysis_directory(Path.cwd()) / "api_drift_report.json"
     report = auditor.audit_workspace(
         ws_dir, package_filter=package, save_report_path=default_report_path
     )
@@ -1839,8 +1845,15 @@ def prompt_eval_cmd(
         return
 
     res = evaluate_persona_prompts(persona=persona, dataset_path=dataset)
+    saved = record_run(
+        Mechanism.PROMPT_EVAL,
+        setup={"persona": res.persona},
+        subject={"dataset_digest": res.dataset_digest, "records": res.total_cases},
+        results=res.to_dict(),
+    )
     if json_output:
         write_stdout(json.dumps(res.to_dict(), indent=2) + "\n")
+        announce_run(saved, to_stderr=True)
         return
 
     print_info(
@@ -1866,6 +1879,7 @@ def prompt_eval_cmd(
             "Either the layer over-suppresses or that verdict was a false positive; both "
             "need reading, so they are not netted against the catch rate."
         )
+    announce_run(saved)
 
 
 # =============================================================================

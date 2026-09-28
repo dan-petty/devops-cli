@@ -3,16 +3,10 @@
 from __future__ import annotations
 
 import collections
-import json
 import re
-from pathlib import Path
 
-from devops_cli.ai.review.review_environment import _get_reviews_base_dir
 from devops_cli.ai.review_schema import SavedFinding
-from devops_cli.exceptions import SecurityError
 from devops_cli.models.vulnerability import DependencySpec, NetworkReference
-from devops_cli.output import print_info, print_success
-from devops_cli.telemetry.tracer import trace_span
 
 _SEVERITY_WEIGHTS: dict[str, int] = {
     "CRITICAL": 0,
@@ -56,23 +50,45 @@ def extract_good_patterns(
     reportable_findings: list[SavedFinding],
     all_deps: list[DependencySpec] | None = None,
     all_nets: list[NetworkReference] | None = None,
+    static_analyzers: dict[str, str] | None = None,
 ) -> list[str]:
-    """Extract key positive architectural and engineering patterns observed in the codebase."""
-    patterns: list[str] = [
-        "**Architectural Separation & Invariant Discipline**: Consistent adherence to domain-driven subsystem boundaries, strict type annotations, and low complexity limits (cyclomatic complexity <= 10, nesting depth <= 5).",
-        "**Subprocess & Process Execution Safety**: Safe execution of CLI tooling using explicit argument lists, bounded timeouts, and captured outputs without shell string interpolation.",
-        "**Defensive Typing & Schema Modeling**: Widespread adoption of Pydantic v2 schemas and explicit data contracts across domain models and tool interfaces.",
-    ]
-    if all_deps is not None and not any(
-        (d.severity or "").upper() in ("CRITICAL", "HIGH") for d in all_deps
-    ):
+    """Extract key positive patterns supported by concrete tool outputs."""
+    patterns: list[str] = []
+
+    if all_deps:
+        queried_deps = [
+            d
+            for d in all_deps
+            if getattr(d, "queried", False) or (d.severity or "").upper() == "CLEAN"
+        ]
+        if queried_deps and not any(
+            (d.severity or "").upper() in ("CRITICAL", "HIGH") for d in queried_deps
+        ):
+            patterns.append(
+                f"**Supply Chain & Lockfile Integrity**: {len(queried_deps)} external "
+                "dependencies queried against vulnerability databases with zero critical/high CVEs."
+            )
+
+    if all_nets:
+        local_count = sum(1 for n in all_nets if n.is_local)
+        ext_count = len(all_nets) - local_count
         patterns.append(
-            "**Supply Chain & Lockfile Integrity**: External dependencies validated against authoritative lockfiles with zero unpinned critical/high CVEs."
+            f"**Network Reference Review**: {len(all_nets)} network reference(s) identified "
+            f"({local_count} local, {ext_count} external)."
         )
-    if all_nets is not None and all(n.is_local for n in all_nets):
-        patterns.append(
-            "**Zero-Trust Network Isolation**: Target service references strictly bound to local or container-isolated internal endpoints."
-        )
+
+    if static_analyzers:
+        ran = [
+            name
+            for name, state in static_analyzers.items()
+            if state in ("ran", "built-in patterns")
+        ]
+        if ran:
+            patterns.append(
+                f"**Static Security Analysis**: {len(ran)} static analyzer(s) executed "
+                f"({', '.join(sorted(ran))}) with 0 critical findings."
+            )
+
     return patterns
 
 
@@ -122,18 +138,50 @@ def extract_bad_patterns(reportable_findings: list[SavedFinding]) -> list[str]:
     return bad_patterns
 
 
+def _format_severity_breakdown(reportable_findings: list[SavedFinding]) -> str:
+    """Format count breakdown of finding severities."""
+    counts = collections.Counter((f.severity or "").upper() for f in reportable_findings)
+    labels = (
+        ("CRITICAL", "Critical"),
+        ("HIGH", "High"),
+        ("MEDIUM", "Medium"),
+        ("LOW", "Low"),
+    )
+    parts = [f"{counts[key]} {label}" for key, label in labels if counts[key]]
+    info_count = counts["INFORMATIONAL"] + counts["INFO"]
+    if info_count:
+        parts.append(f"{info_count} Informational")
+    return ", ".join(parts) or f"{len(reportable_findings)} Unspecified"
+
+
+def _format_findings_remediation_summary(reportable_findings: list[SavedFinding]) -> str:
+    """Derive recommendation statement from actual finding themes and severities."""
+    themes: list[str] = list(dict.fromkeys(_derive_finding_theme(f) for f in reportable_findings))
+    if not themes:
+        return "Remediation is recommended to address identified findings."
+
+    if len(themes) == 1:
+        theme_desc = themes[0]
+    elif len(themes) <= 3:
+        theme_desc = f"{', '.join(themes[:-1])} and {themes[-1]}"
+    else:
+        theme_desc = f"{', '.join(themes[:3])}, and other identified issues"
+
+    has_high_crit = any(
+        (f.severity or "").upper() in ("CRITICAL", "HIGH") for f in reportable_findings
+    )
+    priority_prefix = "High-priority remediation" if has_high_crit else "Remediation"
+    return f"{priority_prefix} is recommended to address {theme_desc}."
+
+
 def synthesize_report_executive_summary(
     reportable_findings: list[SavedFinding],
     all_deps: list[DependencySpec] | None = None,
     all_nets: list[NetworkReference] | None = None,
     errored_files: dict[str, str] | None = None,
+    static_analyzers: dict[str, str] | None = None,
 ) -> list[str]:
     """Construct Markdown lines for the Executive Summary section at the top of the review report."""
-    crit = sum(1 for f in reportable_findings if (f.severity or "").upper() == "CRITICAL")
-    high = sum(1 for f in reportable_findings if (f.severity or "").upper() == "HIGH")
-    med = sum(1 for f in reportable_findings if (f.severity or "").upper() == "MEDIUM")
-    low = sum(1 for f in reportable_findings if (f.severity or "").upper() == "LOW")
-
     if errored_files:
         summary_stmt = (
             f"The automated review encountered errors on **{len(errored_files)} file(s)** "
@@ -143,26 +191,33 @@ def synthesize_report_executive_summary(
         )
     elif not reportable_findings:
         summary_stmt = (
-            "The automated multi-persona review evaluated the target scope with **0 reportable defects**. "
-            "The codebase demonstrates exceptional engineering quality, strict invariant adherence, "
-            "and robust defensive security controls."
+            "The automated multi-persona review evaluated the target scope with "
+            "**0 reportable defects** across successfully analyzed files."
         )
     else:
+        sev_str = _format_severity_breakdown(reportable_findings)
+        remediation_stmt = _format_findings_remediation_summary(reportable_findings)
         summary_stmt = (
             f"The automated multi-persona review evaluated the target scope and identified "
-            f"**{len(reportable_findings)} reportable finding(s)** ({crit} Critical, {high} High, "
-            f"{med} Medium, {low} Low). High-priority remediation is recommended to resolve identified "
-            f"security risks, path traversal defenses, and transport protocol safeguards."
+            f"**{len(reportable_findings)} reportable finding(s)** ({sev_str}). {remediation_stmt}"
         )
 
     lines = [
         "## Executive Summary",
         summary_stmt,
-        "",
-        "### Key Good Patterns Observed",
     ]
-    for pattern in extract_good_patterns(reportable_findings, all_deps, all_nets):
-        lines.append(f"- {pattern}")
+
+    good_patterns = extract_good_patterns(
+        reportable_findings,
+        all_deps=all_deps,
+        all_nets=all_nets,
+        static_analyzers=static_analyzers,
+    )
+    if good_patterns:
+        lines.append("")
+        lines.append("### Key Good Patterns Observed")
+        for pattern in good_patterns:
+            lines.append(f"- {pattern}")
 
     lines.append("")
     lines.append("### Key Bad Patterns Observed")
@@ -171,90 +226,3 @@ def synthesize_report_executive_summary(
 
     lines.append("")
     return lines
-
-
-def run_reporting_stage(
-    session_id: str,
-    session_dir: Path,
-    reportable_findings: list[SavedFinding],
-    all_deps: list[DependencySpec],
-    all_nets: list[NetworkReference],
-    n_files: int,
-) -> Path:
-    """Execute consolidated report generation and persistence."""
-    with trace_span("review.reporting", attributes={"session_id": session_id}):
-        if any(p == ".." for p in session_dir.parts):
-            raise SecurityError(f"Path traversal detected in session_dir: {session_dir}")
-
-        import tempfile
-
-        allowed_roots = [
-            _get_reviews_base_dir().resolve(),
-            Path.cwd().resolve(),
-            Path(tempfile.gettempdir()).resolve(),
-        ]
-        resolved_session_dir = session_dir.resolve()
-        if not any(
-            resolved_session_dir == root or resolved_session_dir.is_relative_to(root)
-            for root in allowed_roots
-        ):
-            raise SecurityError(
-                f"Attempted to write report outside allowed root: {resolved_session_dir}"
-            )
-
-        print_info(
-            f"Generating report for session '{session_id}'...",
-            prefix=False,
-        )
-
-        session_dir.mkdir(parents=True, exist_ok=True)
-        report_path = session_dir / "review_report.md"
-        findings_json_path = session_dir / "findings.json"
-
-        # 1. Save findings JSON
-        findings_data = [f.model_dump() for f in reportable_findings]
-        findings_json_path.write_text(json.dumps(findings_data, indent=2), encoding="utf-8")
-
-        # 2. Save Markdown Report with Executive Summary at the top
-        md_lines = [
-            f"# Consolidated Code Review Report — Session {session_id}",
-            "",
-            f"- **Files Reviewed:** {n_files}",
-            f"- **Total Findings:** {len(reportable_findings)}",
-            "",
-        ]
-        md_lines.extend(
-            synthesize_report_executive_summary(
-                reportable_findings=reportable_findings,
-                all_deps=all_deps,
-                all_nets=all_nets,
-            )
-        )
-        md_lines.extend(
-            [
-                "## Findings Summary",
-                "",
-                "| # | Severity | Location | Title | Status |",
-                "| :--- | :--- | :--- | :--- | :--- |",
-            ]
-        )
-        for idx, f in enumerate(reportable_findings, 1):
-            clean_sev = (
-                (f.severity or "INFORMATIONAL").replace("|", "\\|").replace("\n", " ").strip()
-            )
-            clean_loc = f.location.strip("`").replace("|", "\\|").replace("\n", " ").strip()
-            clean_title = f.title.replace("|", "\\|").replace("\n", " ").strip()
-            if clean_title.count("`") % 2 != 0:
-                clean_title += "`"
-            clean_status = f.status.replace("|", "\\|").replace("\n", " ").strip()
-            md_lines.append(
-                f"| {idx} | {clean_sev} | `{clean_loc}` | {clean_title} | {clean_status} |"
-            )
-
-        report_path.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
-
-        print_success(
-            f"Consolidated review completed for session {session_id} "
-            f"({len(reportable_findings)} finding(s) saved to {session_dir})"
-        )
-        return report_path

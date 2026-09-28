@@ -308,6 +308,7 @@ def test_sync_all_release_epics(tmp_path: Path) -> None:
 
     with (
         patch("devops_cli.github.release_epics.get_repository_issues", return_value=[]),
+        patch("devops_cli.github.release_epics._closed_milestone_titles", return_value=set()),
         patch("devops_cli.github.release_epics.create_repository_issue") as mock_create,
     ):
         mock_create.return_value = GitHubIssue(
@@ -395,3 +396,41 @@ def test_fastmcp_release_epic_sync() -> None:
             "--dry-run" in args,
             "--repo" in args,
         ) == (True, True, True, True, True)
+
+
+def test_a_shipped_release_closes_its_epic_while_the_roadmap_header_lags(tmp_path: Path) -> None:
+    """A closed milestone marks its release completed, whatever the roadmap header says (#521).
+
+    v0.2.22 shipped with its milestone closed while its header still read "Active Release",
+    so its epic stayed open and rendered as active.
+    """
+    roadmap_file = tmp_path / "ROADMAP.md"
+    roadmap_file.write_text(
+        "# Roadmap\n\n## Release Milestones (Chronological Order)\n\n"
+        "### Deep Integration (v0.2.22 - Active Release)\n"
+        "- [x] Shipped work (`priority/p1-high`, `scope/cli`)\n\n"
+        "## Value vs. Effort Prioritization Matrix\n",
+        encoding="utf-8",
+    )
+    epic = GitHubIssue(
+        number=297,
+        title="Release Epic: v0.2.22 — Deep Integration",
+        body="stale",
+        state="open",
+        labels=["type/epic"],
+    )
+
+    with (
+        patch("devops_cli.github.release_epics.get_repository_issues", return_value=[epic]),
+        patch("devops_cli.github.release_epics._closed_milestone_titles", return_value={"v0.2.22"}),
+        patch("devops_cli.github.release_epics.edit_repository_issue") as mock_edit,
+        patch("devops_cli.github.issues.close_repository_issue") as mock_close,
+    ):
+        result = sync_all_release_epics(repo="example/repo", roadmap_path=roadmap_file)
+
+    body = mock_edit.call_args.kwargs["body"]
+    assert (
+        mock_close.call_args.args,
+        "**Status**: `Completed`" in body,
+        result.epics[0]["action"],
+    ) == (("example/repo", 297), True, "updated")

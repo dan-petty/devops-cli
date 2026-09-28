@@ -1,8 +1,7 @@
 # Task 324: Asynchronous HTTP/2 Connection Multiplexing, Lifespan Handlers & OpenAPI 3.1 Synchronization Research
 
 **Issue**: [#324](https://github.com/dan-petty/devops-cli/issues/324)
-**PR**: [#374](https://github.com/dan-petty/devops-cli/pull/374)
-**Status**: In Review
+**Status**: Done
 **Milestone**: `v0.2.22`
 **Priority**: `priority/p2-medium`
 **Scope**: `type/feature`, `scope/cli`, `priority/p2-medium`

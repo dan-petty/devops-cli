@@ -3,7 +3,7 @@
 Partitions multi-agent execution into swappable slots (ModelSlot, SkillSlot, ToolSlot,
 SubAgentSlot) and offloads token-intensive code exploration and AST symbol searching
 to local open-weight models (Granite, Qwen2.5-Coder) under the "Big decides, small
-types, big checks" synthesis protocol to achieve 85%+ token savings.
+types, big checks" synthesis protocol toward an unmeasured token savings target.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from devops_cli.ai.capability import TaskComplexity
 from devops_cli.ai.harness.skills import ParsedSkill, normalize_skill_name
 from devops_cli.ai.repomap import SymbolNode, parse_file_symbols
-from devops_cli.ai.router import TaskComplexity
 from devops_cli.core.repo import is_ignored_by_git
 from devops_cli.exceptions.ai import HarnessValidationError
 
@@ -492,13 +492,16 @@ class SubAgentSlot(BaseSlot):
                     error=f"NotADirectoryError: {repo_path}",
                     duration_seconds=round(elapsed, 4),
                 )
+            files_scanned = 0
             for item in root.rglob("*"):
                 if is_ignored_by_git(root, item):
                     continue
-                if item.is_file() and fnmatch.fnmatch(item.name, pattern):
-                    matched_files.append(str(item.relative_to(root)))
-                    if len(matched_files) >= max_results:
-                        break
+                if item.is_file():
+                    files_scanned += 1
+                    if fnmatch.fnmatch(item.name, pattern):
+                        matched_files.append(str(item.relative_to(root)))
+                        if len(matched_files) >= max_results:
+                            break
 
             output_text = f"Scouted {len(matched_files)} files matching '{pattern}':\n" + "\n".join(
                 f"- {f}" for f in matched_files
@@ -511,7 +514,7 @@ class SubAgentSlot(BaseSlot):
                 role=self.role,
                 status="success",
                 output=output_text,
-                data={"pattern": pattern, "files": matched_files},
+                data={"pattern": pattern, "files": matched_files, "files_scanned": files_scanned},
                 tokens_used=tokens,
                 duration_seconds=round(elapsed, 4),
             )
@@ -588,37 +591,19 @@ class SubAgentSlot(BaseSlot):
             )
 
 
-class TokenSavingsSummary(BaseModel):
-    """Metrics report detailing token offloading savings."""
-
-    frontier_tokens: int = 0
-    offloaded_tokens: int = 0
-    baseline_frontier_without_offload: int = 0
-    savings_percentage: float = 0.0
-    is_target_met: bool = False
-
-    @classmethod
-    def calculate(cls, frontier_tokens: int, offloaded_tokens: int) -> TokenSavingsSummary:
-        """Calculate token savings percentage against non-offloaded baseline."""
-        baseline = frontier_tokens + offloaded_tokens
-        pct = round((offloaded_tokens / baseline) * 100.0, 2) if baseline > 0 else 0.0
-        return cls(
-            frontier_tokens=frontier_tokens,
-            offloaded_tokens=offloaded_tokens,
-            baseline_frontier_without_offload=baseline,
-            savings_percentage=pct,
-            is_target_met=(pct >= 85.0),
+def _extract_subagent_metrics(sub_results: list[SubAgentResult]) -> tuple[int, int]:
+    """Calculate aggregated files scanned and match counts across sub-agent results."""
+    files_scanned = 0
+    matches = 0
+    for r in sub_results:
+        files_scanned += int(
+            r.data.get("files_scanned", r.data.get("file_count", len(r.data.get("files", []))))
         )
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize TokenSavingsSummary to dictionary."""
-        return {
-            "frontier_tokens": self.frontier_tokens,
-            "offloaded_tokens": self.offloaded_tokens,
-            "baseline_frontier_without_offload": self.baseline_frontier_without_offload,
-            "savings_percentage": self.savings_percentage,
-            "is_target_met": self.is_target_met,
-        }
+        for key in ("matches", "symbols", "files"):
+            if key in r.data:
+                matches += len(r.data[key])
+                break
+    return files_scanned, matches
 
 
 class TieredExecutionResult(BaseModel):
@@ -628,8 +613,9 @@ class TieredExecutionResult(BaseModel):
     decision_plan: str
     subagent_results: list[SubAgentResult] = Field(default_factory=list)
     verification_report: str = ""
-    savings: TokenSavingsSummary = Field(default_factory=TokenSavingsSummary)
     status: str = "completed"
+    files_scanned: int = 0
+    matches: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize TieredExecutionResult to dictionary."""
@@ -639,7 +625,8 @@ class TieredExecutionResult(BaseModel):
             "decision_plan": self.decision_plan,
             "subagent_results": [r.to_dict() for r in self.subagent_results],
             "verification_report": self.verification_report,
-            "savings": self.savings.to_dict(),
+            "files_scanned": self.files_scanned,
+            "matches": self.matches,
         }
 
 
@@ -816,16 +803,14 @@ class AgentHarness(BaseModel):
         )
         frontier_tokens += self.model_slot.estimate_tokens(verification_report)
 
-        savings = TokenSavingsSummary.calculate(
-            frontier_tokens=frontier_tokens,
-            offloaded_tokens=offloaded_tokens,
-        )
+        files_scanned, matches = _extract_subagent_metrics(sub_results)
 
         return TieredExecutionResult(
             task=task,
             decision_plan=decision_plan,
             subagent_results=sub_results,
             verification_report=verification_report,
-            savings=savings,
             status=status,
+            files_scanned=files_scanned,
+            matches=matches,
         )

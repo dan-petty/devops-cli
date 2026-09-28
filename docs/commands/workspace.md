@@ -83,7 +83,11 @@ devops workspace open [OPTIONS]
 
 ## `devops workspace clean`
 
-**Clean stale review sessions, old analysis caches, and temporary traces under .data/.**
+**Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory.**
+
+Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory.
+
+Child directories configured on their own, such as `data.reviews_dir`, are left alone.
 
 ```bash
 devops workspace clean [OPTIONS]

@@ -7,6 +7,7 @@ import pytest
 from devops_cli.ai.review.common_hallucinations import (
     CommonHallucinationEntry,
     HallucinationCategory,
+    _build_builtin_hallucinations,
     auto_record_invalidated_finding,
     calculate_hallucination_similarity,
     find_similar_hallucinations,
@@ -146,8 +147,12 @@ def test_register_common_hallucination_updates_existing(tmp_path: Path) -> None:
     assert "extra" in loaded[0].pattern_keywords
 
 
-def test_auto_record_invalidated_finding_updates_existing(tmp_path: Path) -> None:
-    """Auto-recording an invalidated finding that matches an existing pattern increments count."""
+def test_a_finding_matching_a_builtin_entry_leaves_it_unchanged(tmp_path: Path) -> None:
+    """A builtin entry is never widened or persisted by learning (#514).
+
+    Learning used to add the finding's words to the builtin entry and persist the copy, which
+    then shadowed the shipped entry and matched ever more real findings.
+    """
     data_file = tmp_path / "hallucinations.json"
 
     finding = Finding(
@@ -158,17 +163,15 @@ def test_auto_record_invalidated_finding_updates_existing(tmp_path: Path) -> Non
         status="INVALIDATED",
         invalidation_reason="Valid Python 3.14 PEP 758 syntax",
     )
+    builtin = next(
+        e for e in _build_builtin_hallucinations() if e.id == "HALLUCINATION-PEP758-EXCEPT"
+    )
 
     recorded = auto_record_invalidated_finding(
         finding, target_file=data_file, reason="Valid Python 3.14 PEP 758 syntax"
     )
-    assert recorded is not None
-    assert recorded.id == "HALLUCINATION-PEP758-EXCEPT"
-    assert recorded.occurrence_count >= 2
 
-    # Verify persisted in file
-    loaded = load_common_hallucinations(target_file=data_file, include_builtin=False)
-    assert any(e.id == "HALLUCINATION-PEP758-EXCEPT" for e in loaded)
+    assert (recorded, data_file.exists()) == (builtin, False)
 
 
 def test_auto_record_invalidated_finding_creates_new_entry(tmp_path: Path) -> None:
@@ -417,3 +420,94 @@ def test_cataloged_hallucinations_matching() -> None:
     ci_match = is_common_hallucination(ci_finding, threshold=0.4)
     assert ci_match is not None
     assert ci_match.hallucination.id == "HALLUCINATION-CI-ALLOW-BLOCKED-STATE"
+
+
+# =============================================================================
+# Negative exemplars in the generation prompt
+# =============================================================================
+
+
+def _entry(name: str, description: str, count: int):
+    """Build one ledger entry."""
+    from devops_cli.ai.review.common_hallucinations import (
+        CommonHallucinationEntry,
+        HallucinationCategory,
+    )
+
+    return CommonHallucinationEntry(
+        id=name,
+        name=name,
+        category=HallucinationCategory.GENERAL,
+        description=description,
+        resolution="Disproved against the source.",
+        occurrence_count=count,
+    )
+
+
+def test_the_most_frequent_false_positives_are_shown_first() -> None:
+    """Recurrence is concentrated in a few entries; the tail spends tokens for nothing.
+
+    The ledger was written on every deterministic invalidation and read back only during
+    verification, which suppresses a finding after a model has been paid to produce it.
+    The top entry in this repository's ledger has been recorded 225 times.
+    """
+    from unittest.mock import patch
+
+    from devops_cli.ai.review import common_hallucinations as module
+
+    entries = [_entry("rare", "Rarely seen claim", 1), _entry("common", "Frequent claim", 99)]
+    with patch.object(module, "load_common_hallucinations", return_value=entries):
+        rendered = module.render_negative_exemplars(limit=1)
+    assert ("Frequent claim" in rendered, "Rarely seen claim" in rendered) == (True, False)
+
+
+def test_the_exemplar_block_is_bounded() -> None:
+    """This is prepended to every segment for every persona, so its size is a budget."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.review import common_hallucinations as module
+
+    entries = [_entry(f"e{i}", "x" * 4000, i) for i in range(40)]
+    with patch.object(module, "load_common_hallucinations", return_value=entries):
+        rendered = module.render_negative_exemplars(limit=5, max_chars=100)
+    assert len(rendered) < 1000
+
+
+def test_an_empty_ledger_contributes_nothing() -> None:
+    """A first review of an unfamiliar repository must not carry an empty heading."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.review import common_hallucinations as module
+
+    with patch.object(module, "load_common_hallucinations", return_value=[]):
+        assert module.render_negative_exemplars() == ""
+
+
+def test_the_persona_prompt_carries_the_exemplars() -> None:
+    """Injection is the point; rendering the block and not using it would change nothing."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.review import common_hallucinations as module
+    from devops_cli.ai.review import runner as runner_module
+
+    persona = type("P", (), {"system_prompt": "You review code."})()
+    with patch.object(
+        module,
+        "render_negative_exemplars",
+        return_value="\n\n## Previously Recorded False Positives\n- A disproved claim",
+    ):
+        prompt = runner_module._persona_system_prompt(persona, "")
+    assert "A disproved claim" in prompt
+
+
+def test_the_exemplars_survive_alongside_project_conventions() -> None:
+    """A target that ships an AGENTS.md takes a different branch; both must carry them."""
+    from unittest.mock import patch
+
+    from devops_cli.ai.review import common_hallucinations as module
+    from devops_cli.ai.review import runner as runner_module
+
+    persona = type("P", (), {"system_prompt": "You review code."})()
+    with patch.object(module, "render_negative_exemplars", return_value="\n- A disproved claim"):
+        prompt = runner_module._persona_system_prompt(persona, "# Conventions")
+    assert ("A disproved claim" in prompt, "# Conventions" in prompt) == (True, True)

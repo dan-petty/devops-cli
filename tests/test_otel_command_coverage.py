@@ -241,6 +241,7 @@ def test_all_command_specs_registered() -> None:
         "tf",
         "tls",
         "telemetry",
+        "cloudflare",
         "serve",
         "test",
         "pipeline",

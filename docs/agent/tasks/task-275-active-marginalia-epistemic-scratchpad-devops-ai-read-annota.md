@@ -1,7 +1,6 @@
 # Task 275: Active Marginalia & Epistemic Scratchpad (`devops ai read annotate`)
 
 **Issue**: [#275](https://github.com/dan-petty/devops-cli/issues/275)
-**PR**: None (Draft)
 **Status**: Backlog
 **Milestone**: `v0.2.21`
 **Priority**: `priority/p1-high`

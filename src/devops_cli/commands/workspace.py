@@ -18,12 +18,14 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.cli import new_typer
 from devops_cli.core.paths import is_forbidden_system_path
+from devops_cli.exceptions import SecurityError
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 
 _LAZY_OBJECT_MAPPING: dict[str, tuple[str, str]] = {
     "load_settings": ("devops_cli.config.settings", "load_settings"),
     "iter_workspace_repos": ("devops_cli.git.operations", "iter_workspace_repos"),
     "run_subprocess": ("devops_cli.core.process", "run_subprocess"),
+    "cleanup_data_directory": ("devops_cli.core.cleanup", "cleanup_data_directory"),
     "cleanup_data_tier": ("devops_cli.core.cleanup", "cleanup_data_tier"),
     "render_dry_run_result": ("devops_cli.dry_run", "render_dry_run_result"),
     "print_error": ("devops_cli.output", "print_error"),
@@ -284,26 +286,45 @@ def clean_workspace(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Clean stale review sessions, old analysis caches, and temporary traces under .data/."""
+    """Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory.
+
+    Child directories configured on their own, such as `data.reviews_dir`, are left alone.
+    """
+    try:
+        data_dir = _get("cleanup_data_directory")()
+    except SecurityError as exc:
+        _get("print_error")(str(exc))
+        raise typer.Exit(1) from exc
+    if not dry_run:
+        _get("print_muted")(
+            MESSAGES.workspace.pruning_stale.format(days=older_than_days, data_dir=data_dir)
+        )
+    summary = _get("cleanup_data_tier")(
+        older_than_seconds=float(older_than_days * 86400),
+        dry_run=dry_run,
+    )
     if dry_run:
         _get("render_dry_run_result")(
             command=f"devops workspace clean --older-than {older_than_days}",
             action="cleanup_data_tier",
-            details={"older_than_days": older_than_days},
+            details={
+                "older_than_days": older_than_days,
+                "data_dir": str(data_dir),
+                "pruned_files": summary.pruned_files,
+                "pruned_dirs": summary.pruned_dirs,
+                "freed_bytes": summary.freed_bytes,
+            },
         )
         return
 
-    _get("print_muted")(f"Pruning artifacts older than {older_than_days} days under .data/...")
-    summary = _get("cleanup_data_tier")(
-        older_than_seconds=float(older_than_days * 86400),
-        dry_run=False,
-    )
-
-    freed_mb = summary.freed_bytes / (1024 * 1024)
     if not summary.pruned_files and not summary.pruned_dirs:
-        _get("print_info")("✓ Data tier is clean; no stale artifacts found.")
+        _get("print_info")(MESSAGES.workspace.data_tier_clean)
         return
 
-    nf = len(summary.pruned_files)
-    nd = len(summary.pruned_dirs)
-    _get("print_success")(f"✓ Cleaned {nf} files and {nd} directories ({freed_mb:.2f} MB freed).")
+    _get("print_success")(
+        MESSAGES.workspace.cleaned_artifacts.format(
+            files=len(summary.pruned_files),
+            dirs=len(summary.pruned_dirs),
+            freed_mb=summary.freed_bytes / (1024 * 1024),
+        )
+    )

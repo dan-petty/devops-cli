@@ -10,7 +10,11 @@ from typing import Annotated, Any
 
 import typer
 
-from devops_cli.ai.analyze.cache import _render_analysis_summary, save_analysis_metadata
+from devops_cli.ai.analyze.cache import (
+    _render_analysis_summary,
+    analysis_directory,
+    save_analysis_metadata,
+)
 from devops_cli.ai.analyze.scanner import detect_language, sanitize_reference
 from devops_cli.ai.client import LLMClient
 from devops_cli.config.constants import (
@@ -25,7 +29,6 @@ from devops_cli.config.settings import get_ai_api_key, get_github_token, load_se
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import (
     find_repo_root,
-    find_top_level_repo_root,
     get_repo_origin_name,
     list_repo_files,
 )
@@ -130,6 +133,119 @@ def _process_single_repo_file_meta(
         return None
 
 
+def _fetch_git_file_content(repo: Path, revision: str, rel_path: str) -> str | None:
+    """Fetch content of a file at a specific git revision using git show."""
+    if not revision or revision.startswith("-") or not rel_path or rel_path.startswith("-"):
+        return None
+    if ".." in Path(rel_path).parts:
+        return None
+    try:
+        from devops_cli.core.process import run_subprocess
+
+        proc = run_subprocess(["git", "--no-pager", "show", f"{revision}:{rel_path}"], cwd=repo)
+        if proc.returncode == 0:
+            return proc.stdout
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_merge_base(repo: Path, base: str | None, head: str | None = None) -> str | None:
+    """Resolve git merge-base between base and target branch/HEAD."""
+    if not base:
+        return None
+    try:
+        from devops_cli.core.process import run_subprocess
+
+        ref = head or "HEAD"
+        proc = run_subprocess(["git", "merge-base", base, ref], cwd=repo)
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+    except Exception:
+        pass
+    return base
+
+
+def _apply_symbol_delta_to_meta(
+    meta: FileAnalysisMeta,
+    repo: Path,
+    base: str | None,
+    rel_path: str,
+    head_content: str | None,
+    change_type: str,
+    merge_base: str | None = None,
+) -> FileAnalysisMeta:
+    """Compute and attach base-vs-head symbol delta to file analysis metadata."""
+    if not (rel_path.endswith(".py") or rel_path.endswith(".pyi")):
+        return meta
+    from devops_cli.ai.analyze.symbols import compute_symbol_delta
+
+    eff_base = merge_base or (base and _resolve_merge_base(repo, base))
+    base_content = (
+        _fetch_git_file_content(repo, eff_base, rel_path)
+        if eff_base and change_type != "added"
+        else None
+    )
+    added, removed, retained = compute_symbol_delta(base_content, head_content)
+    return meta.model_copy(
+        update={
+            "symbols_added": added,
+            "symbols_removed": removed,
+            "symbols_retained": retained,
+        }
+    )
+
+
+def _handle_deleted_branch_file(
+    rel_path: str, repo: Path, base: str | None, merge_base: str | None = None
+) -> FileAnalysisMeta:
+    """Create analysis metadata for a deleted file and compute removed symbols."""
+    meta = _create_deleted_file_meta(rel_path)
+    return _apply_symbol_delta_to_meta(
+        meta, repo, base, rel_path, None, "deleted", merge_base=merge_base
+    )
+
+
+def _is_branch_file_inspectable(file_path: Path, repo: Path) -> bool:
+    """Check if branch file is within repo boundary and under size limit."""
+    try:
+        resolved = file_path.resolve()
+        if not resolved.is_relative_to(repo.resolve()):
+            return False
+        return file_path.stat().st_size <= CONST_MAX_FILE_SIZE_BYTES
+    except Exception:
+        return False
+
+
+def _try_reuse_branch_file_meta(
+    file_path: Path,
+    rel_path: str,
+    enhanced: bool,
+    existing_file_metas: dict[str, FileAnalysisMeta],
+    repo: Path,
+    base: str | None,
+    change_type: str,
+    merge_base: str | None = None,
+) -> FileAnalysisMeta | None:
+    """Try reusing cached branch file analysis meta, backfilling delta if missing."""
+    if not (enhanced and rel_path in existing_file_metas):
+        return None
+    try:
+        mtime = datetime.fromtimestamp(file_path.stat().st_mtime, UTC)
+        reused = _try_reuse_cached_file_meta(existing_file_metas[rel_path], mtime)
+        if reused is None:
+            return None
+        has_delta = bool(reused.symbols_added or reused.symbols_removed or reused.symbols_retained)
+        if base and not has_delta:
+            content = file_path.read_text(encoding="utf-8", errors="replace")
+            return _apply_symbol_delta_to_meta(
+                reused, repo, base, rel_path, content, change_type, merge_base=merge_base
+            )
+        return reused
+    except Exception:
+        return None
+
+
 def _process_single_branch_file_meta(
     file_path: Path,
     rel_path: str,
@@ -138,26 +254,33 @@ def _process_single_branch_file_meta(
     existing_file_metas: dict[str, FileAnalysisMeta],
     repo: Path,
     ai_client: LLMClient | None,
+    base: str | None = None,
+    merge_base: str | None = None,
 ) -> FileAnalysisMeta | None:
     """Analyze a single file for branch diff analysis."""
     if change_type == "deleted" or not file_path.exists():
-        return _create_deleted_file_meta(rel_path)
+        return _handle_deleted_branch_file(rel_path, repo, base, merge_base=merge_base)
+    if not _is_branch_file_inspectable(file_path, repo):
+        return None
+
+    reused = _try_reuse_branch_file_meta(
+        file_path,
+        rel_path,
+        enhanced,
+        existing_file_metas,
+        repo,
+        base,
+        change_type,
+        merge_base=merge_base,
+    )
+    if reused is not None:
+        return reused
 
     try:
-        if not file_path.resolve().is_relative_to(repo.resolve()):
-            return None
-        if file_path.stat().st_size > CONST_MAX_FILE_SIZE_BYTES:
-            return None
-        file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime, UTC)
-        if enhanced and rel_path in existing_file_metas:
-            reused = _try_reuse_cached_file_meta(existing_file_metas[rel_path], file_mtime)
-            if reused is not None:
-                return reused
-
         content = file_path.read_text(encoding="utf-8", errors="replace")
         from devops_cli.ai.analyze.outlines import analyze_single_file
 
-        return analyze_single_file(
+        meta = analyze_single_file(
             rel_path,
             content,
             file_path.stat().st_size,
@@ -166,6 +289,11 @@ def _process_single_branch_file_meta(
             repo_root=repo,
             ai_client=ai_client,
         )
+        if meta is not None and base:
+            return _apply_symbol_delta_to_meta(
+                meta, repo, base, rel_path, content, change_type, merge_base=merge_base
+            )
+        return meta
     except Exception:
         return None
 
@@ -260,15 +388,7 @@ def analyze_path(
     ref_str = str(target.relative_to(repo)) if target_abs != repo else repo.name
     sanitized_ref = sanitize_reference(ref_str, repo)
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
-    top_root = find_top_level_repo_root(repo)
-    from devops_cli.config.settings import load_settings
-
-    settings = load_settings()
-    analysis_dir = settings.data.analysis_dir
-    if not analysis_dir.is_absolute():
-        analysis_dir = (top_root / analysis_dir).resolve()
-    else:
-        analysis_dir = analysis_dir.resolve()
+    analysis_dir = analysis_directory(repo)
     out_file_path = analysis_dir / f"path-{sanitized_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
@@ -356,17 +476,11 @@ def analyze_branch(
             ai_client = None
 
     sanitized_ref = sanitize_reference(target_branch, repo)
+    sanitized_base = sanitize_reference(base, repo) if base else "default"
+    cache_ref = f"{sanitized_ref}-base-{sanitized_base}"
     existing_file_metas: dict[str, FileAnalysisMeta] = {}
-    top_root = find_top_level_repo_root(repo)
-    from devops_cli.config.settings import load_settings
-
-    settings = load_settings()
-    analysis_dir = settings.data.analysis_dir
-    if not analysis_dir.is_absolute():
-        analysis_dir = (top_root / analysis_dir).resolve()
-    else:
-        analysis_dir = analysis_dir.resolve()
-    out_file_path = analysis_dir / f"branch-{sanitized_ref}-metadata.json"
+    analysis_dir = analysis_directory(repo)
+    out_file_path = analysis_dir / f"branch-{cache_ref}-metadata.json"
 
     if enhanced and not update_all and out_file_path.exists():
         try:
@@ -376,6 +490,7 @@ def analyze_branch(
         except Exception:
             existing_file_metas = {}
 
+    merge_base = _resolve_merge_base(repo, base, target_branch)
     proc = run_subprocess(["git", "diff", "--name-status", f"{base}...{target_branch}"], cwd=repo)
     file_metas: list[FileAnalysisMeta] = []
 
@@ -399,13 +514,15 @@ def analyze_branch(
                 existing_file_metas,
                 repo,
                 ai_client,
+                base=base,
+                merge_base=merge_base,
             )
             if meta is not None:
                 file_metas.append(meta)
 
     title = f"{repo.name} branch analysis: {target_branch} vs {base}"
     out_file = save_analysis_metadata(
-        "branch", target_branch, title, file_metas, repo, enhanced=enhanced
+        "branch", cache_ref, title, file_metas, repo, enhanced=enhanced
     )
 
     if not is_dry_run():

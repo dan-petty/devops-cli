@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
+import re
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -15,6 +17,7 @@ import typer
 from pydantic import BaseModel, ConfigDict
 from typer.core import TyperGroup
 
+from devops_cli.config.constants import CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
     DEFAULT_PYTEST_NUMPROCESSES,
@@ -25,6 +28,15 @@ from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success
+
+
+def _asks_for_help(ctx: Any, args: list[str]) -> bool:
+    """Whether a subcommand's arguments ask for its help, which Click prints without running it.
+
+    Arguments after `--` are positional, so a path spelled like a help option does not count.
+    """
+    options = args[: args.index("--")] if "--" in args else args
+    return not set(options).isdisjoint(ctx.help_option_names)
 
 
 class FileOrSubcommandGroup(TyperGroup):
@@ -50,6 +62,7 @@ class FileOrSubcommandGroup(TyperGroup):
                 if self.callback is not None:
                     return ctx.invoke(self.callback, **ctx.params)
                 return None
+        ctx.meta[CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY] = _asks_for_help(ctx, ctx.args)
         return super().invoke(ctx)
 
 
@@ -93,13 +106,24 @@ app = new_typer(cls=FileOrSubcommandGroup, help=HELP.ci.app)
 
 
 def _get_project_root() -> Path:
-    """Find repository root containing pyproject.toml or .git."""
-    from devops_cli.core.repo import find_top_level_repo_root
+    """The worktree the CI checks verify: the nearest linked worktree, else the workspace root.
 
-    return find_top_level_repo_root()
+    It is resolved on every call, from the current directory, so a long-lived process that
+    imported this module elsewhere (the in-process MCP server) still checks the right tree.
+    """
+    from devops_cli.core.repo import find_worktree_root
+
+    return find_worktree_root()
 
 
-_ROOT = _get_project_root()
+def _announce_gate_root(root: Path) -> None:
+    """Name the tree the gate checks, warning when it is a worktree git no longer knows."""
+    from devops_cli.core.repo import is_stale_linked_worktree
+
+    _get("print_info")(MESSAGES.ci.gate_root.format(root=root), safe=True)
+    if is_stale_linked_worktree(root):
+        stale = MESSAGES.ci.gate_root_stale.format(root=root, root_arg=shlex.quote(str(root)))
+        _get("print_warning")(stale, safe=True)
 
 
 class CheckResult(BaseModel):
@@ -156,20 +180,51 @@ def _section(title: str) -> None:
     _get("print_section")(f" {title} ", style="cyan")
 
 
+def _is_active_coverage_worker(path: Path) -> bool:
+    """Check if a .coverage worker file belongs to an active running process."""
+    match = re.search(r"[._]pid(\d+)[._]", path.name)
+    if not match:
+        return False
+    try:
+        os.kill(int(match.group(1)), 0)
+        return True
+    except OSError:
+        return False
+
+
+def _is_recent_coverage_file(path: Path, threshold_seconds: float = 60.0) -> bool:
+    """Check if a coverage file was written recently and may be in active use."""
+    try:
+        return (time.time() - path.stat().st_mtime) < threshold_seconds
+    except OSError:
+        return False
+
+
+def _unlink_coverage_path(path: Path, *, force: bool) -> None:
+    """Unlink a coverage file if not protected by active process ownership."""
+    if not force and (_is_active_coverage_worker(path) or _is_recent_coverage_file(path)):
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def _clean_coverage_artifacts(*, force: bool = False) -> None:
-    """Clean up residual temporary .coverage.* worker files from root workspace and .data/."""
+    """Clean up residual temporary .coverage.* worker files from the checked tree and .data/."""
     if not force and os.getenv("PYTEST_CURRENT_TEST"):
         return
 
-    current_root = getattr(sys.modules[__name__], "_ROOT", _get_project_root())
+    current_root = _get_project_root()
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        workspace_root = Path(__file__).resolve().parent.parent.parent.parent
+        if current_root.resolve() == workspace_root.resolve():
+            return
 
     for target_dir in (current_root, current_root / ".data"):
         if target_dir.exists():
             for path in target_dir.glob(".coverage*"):
-                try:
-                    path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                _unlink_coverage_path(path, force=force)
     root_coverage_xml = current_root / "coverage.xml"
     if root_coverage_xml.exists():
         try:
@@ -538,6 +593,7 @@ def _try_save_ci_cache(
         file_hashes=file_hashes,
         options=ci_options,
         passed=True,
+        root=root,
     )
 
 
@@ -580,7 +636,7 @@ def _handle_ci_results(
 
     from devops_cli.ci.cache import clear_ci_cache
 
-    clear_ci_cache()
+    clear_ci_cache(root)
     raise typer.Exit(1)
 
 
@@ -613,6 +669,9 @@ def all_checks(
     ] = False,
 ) -> None:
     """Run all CI checks concurrently in parallel with non-blocking async execution."""
+    root = _get_project_root()
+    if not ctx.meta.get(CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY):
+        _announce_gate_root(root)
     if ctx.invoked_subcommand is not None:
         return
     if dry_run:
@@ -620,7 +679,6 @@ def all_checks(
 
     effective_fix = fix and not check
     ci_options = {"fix": effective_fix, "check": check}
-    root = _get_project_root()
     all_files = _collect_ci_target_files(files, getattr(ctx, "args", []))
 
     if _try_fast_cached_ci(root, all_files, ci_options, cache=cache, force=force):
@@ -683,6 +741,26 @@ def _resolve_test_targets(paths: list[Path], fallback: bool) -> list[str] | None
     raise typer.Exit(1)
 
 
+def _build_test_cmd(
+    numprocesses: str,
+    verbose: bool,
+    k: str | None,
+    x: bool,
+    targets: list[str] | None,
+) -> list[str]:
+    """Build the pytest command line arguments."""
+    cmd = ["uv", "run", "pytest", "-n", numprocesses]
+    if verbose:
+        cmd.append("-v")
+    if k:
+        cmd.extend(["-k", k])
+    if x:
+        cmd.append("-x")
+    if targets:
+        cmd.extend(targets)
+    return cmd
+
+
 @app.command()
 def test(
     paths: Annotated[list[Path] | None, typer.Argument(help=HELP.ci.test_paths)] = None,
@@ -716,18 +794,11 @@ def test(
         if targets == []:
             return
 
-    cmd = ["uv", "run", "pytest", "-n", numprocesses]
-    if verbose:
-        cmd.append("-v")
-    if k:
-        if k.startswith("-"):
-            _get("print_error")("Invalid keyword filter expression.", prefix=False)
-            raise typer.Exit(1)
-        cmd.extend(["-k", k])
-    if x:
-        cmd.append("-x")
-    if targets:
-        cmd.extend(targets)
+    if k and k.startswith("-"):
+        _get("print_error")("Invalid keyword filter expression.", prefix=False)
+        raise typer.Exit(1)
+
+    cmd = _build_test_cmd(numprocesses, verbose, k, x, targets)
     if not _run(cmd):
         raise typer.Exit(1)
 

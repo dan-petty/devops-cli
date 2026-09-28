@@ -122,6 +122,54 @@ The last row is a different failure and deserves naming separately: the finding 
 
 The lesson this record adds to the previous one: **the failures are not distributed like the difficulty.** Every false positive above was refutable in under a minute by reading one file, running one comparison, or noticing a placeholder — while the five real defects each took real tracing. Confidence tracked neither. A loop that spends its verification budget uniformly spends nearly all of it on the claims that needed none.
 
+#### Calibration Record: Session `20260927-150737`
+
+This session produced 301 findings across the repository, marking 182 as `VERIFIED` (5 CRITICAL, 48 HIGH, 101 MEDIUM, 28 LOW). Analysis revealed three recurrent architectural false-positive classes alongside genuine security and reliability defects:
+
+| Claim | Why it was false / Remediated |
+| --- | --- |
+| SQL injection and auth bypass in `tests/golden/review_findings.json` (CRITICAL) | Synthetic golden test dataset containing known vulnerability exemplars used specifically to test review parser and scanner behavior. |
+| Insecure HTTP communication in `k8s/llm/gateway/configmap.yaml` (`http://*.svc.cluster.local:8000/v1`) | Internal Kubernetes cluster overlay networking standardly communicates over plaintext HTTP across pod/namespace boundaries without service mesh. |
+| NodePort service exposes gateway to LAN without authentication in `k8s/llm/gateway/service.yaml` | Local development and devcontainer Minikube clusters require NodePort service specifications for host workstation tooling access. |
+| Missing SSRF check in `src/devops_cli/ai/gateway.py:275` | Overlooked preceding guard: line 273 immediately prior explicitly executed `validate_url_egress(gateway_url, ...)`. |
+| Missing HTTP client timeout in `src/devops_cli/ai/pool_load.py` (CRITICAL) | **Remediated**: instantiated `httpx2.Client(timeout=timeout)`, added `validate_url_egress(base_url, ...)` check, and capped duration to 30 days (`CONST_MAX_PROMETHEUS_WINDOW_SECONDS`). |
+| Potential command injection in `hydrate_tool_domain` (`src/devops_cli/ai/mcp/server.py`) | **Remediated**: added strict regex validation (`^[a-z0-9_-]{1,64}$`) on incoming `domain` argument. |
+| Potential argument injection in `_fetch_git_file_content` (`src/devops_cli/commands/analyze.py`) | **Remediated**: sanitized `revision` and `rel_path` rejecting dashes and `..` path traversals before executing `git --no-pager show`. |
+| Subprocess hang on timeout in `src/devops_cli/sandbox/host.py` | **Remediated**: implemented two-phase process group termination (`SIGTERM` with 2.0s bounded wait, escalating to `SIGKILL`). |
+
+Four systemic updates harden the loop against recurrence:
+1. **Catalog Entries Added**: `HALLUCINATION-GOLDEN-TEST-FIXTURE-EXEMPLAR`, `HALLUCINATION-K8S-CLUSTER-OVERLAY-HTTP`, and `HALLUCINATION-LOCAL-DEV-NODEPORT-EXPOSURE` in `common_hallucinations.json`.
+2. **Verifier Falsification Rules**: Added explicit invalidation for synthetic test fixtures, cluster overlay networking, local NodePorts, preceding scope guards, and white-box test inspections to `src/devops_cli/ai/tasks/verify_finding_system.md`.
+3. **Repository Conventions**: Documented settled claims in `.devops/review.md` and phase grounding in `src/devops_cli/ai/tasks/review.md`.
+4. **Targeted Security Hardening**: Validated Prometheus queries, host sandbox process termination, and MCP domain gating with regression tests.
+
+#### Calibration Record: Session `20260928-040906`
+
+This session evaluated `release/v0.2.23` across 669 files, producing 174 findings (2 CRITICAL, 48 HIGH, 93 MEDIUM, 31 LOW). Systematic analysis identified 5 recurring false-positive classes alongside genuine defensive hardening opportunities:
+
+| Claim | Why it was false / Remediated |
+| --- | --- |
+| Use of untrusted dependency `httpx2` in `tests/test_ai_served_by.py:10` (CRITICAL) | `httpx2` is an approved modern HTTP/2 client library declared in `pyproject.toml` and verified by lockfile integrity. Prohibited by `AGENTS.md`. `verify_ground_truth_hallucination` had a gap that skipped `DEPENDENCY_ECOSYSTEM` verification. |
+| Hardcoded password `<masked-password>` in `src/devops_cli/ai/run_store.py:227` (CRITICAL) | The review prompt sanitizer masked `password=password` with `<masked-password>`, which the reviewer flagged as a hardcoded credential. Line 227 contains parameter `password: str \| None`, with zero string literals. |
+| Hardcoded API key `sk-gateway` in `tests/test_ai_gateway.py:477` (HIGH) | Synthetic test mock fixture token in unit tests. `CONST_FIXTURE_CREDENTIAL_KEYWORDS` lacked API key variants. |
+| Incorrect assertion logic in `tests/test_agent_task_files.py:29` (HIGH) | Consolidated structural tuple equality (`assert (a, b, c) == (...)`) is an intentional architectural invariant mandated by `AGENTS.md` to cap cyclomatic complexity $M \le 10$. |
+| Insecure default URL for LightLLM (`DEFAULT_LIGHTLLM_URL`) (HIGH) | `AGENTS.md` explicitly mandates committed templates and defaults use localhost/loopback (`http://localhost:8000/v1`) to prevent private LAN or homelab leaks. |
+| Process signal check race condition in `src/devops_cli/commands/ci.py:189` (HIGH) | Standard POSIX `os.kill(pid, 0)` is the canonical Python idiom to check process liveness without delivering a signal. |
+| Inconsistent CLI flag naming in `src/devops_cli/ai/mcp/server.py:2845` (MEDIUM) | `devops-cli` is active alpha software prior to release 1.0.0 with an explicit zero backwards compatibility guarantee. |
+| Malformed command syntax in `k8s/README.md:65` (MEDIUM) | The secret sanitizer masked `password="$(openssl rand -hex 32)"` into `<masked-password> rand -hex 32)`, causing the reviewer to flag the masked output as malformed syntax. |
+| Narrative summaries of calibration tables in `docs/SELF_IMPROVEMENT.md` (32 findings, MEDIUM) | Tautological criteria verification: findings summarized prior calibration entries and used `git grep` as verification criteria. Since `git grep` exited 0, they were falsely marked `VERIFIED`. |
+| Potential path traversal in `get_run(run_id, ...)` (`src/devops_cli/ai/run_store.py:360`) | **Remediated**: sanitized `run_id` rejecting `/`, `\\`, `..` and ensured all matched paths strictly reside within `runs_dir()`. |
+| Bare exception handling in `src/devops_cli/cloudflare/client.py:194` | **Remediated**: narrowed `except Exception:` to `except (ValueError, json.JSONDecodeError):`. |
+| Bare exception handling in `src/devops_cli/ai/analyze/symbols.py:14` | **Remediated**: narrowed `except Exception:` to `except (SyntaxError, ValueError, RecursionError):`. |
+| Bare exception handling in `src/devops_cli/ai/spend/payoff.py:23` | **Remediated**: narrowed `except Exception:` to `except (ValueError, TypeError):`. |
+| Outdated manifest reference in `src/devops_cli/ai/knowledge_base/it_domains/tools/ollama.md:82` | **Remediated**: updated `k8s/llm/ollama.yaml` to `k8s/llm/profiles/ollama-profiles.yaml`. |
+
+Four systemic updates harden the loop against recurrence:
+1. **Catalog Additions**: Added `HALLUCINATION-STRUCTURAL-TUPLE-EQUALITY`, `HALLUCINATION-LOCALHOST-DEFAULT-CONFIG`, `HALLUCINATION-POSIX-SIGNAL-ZERO-LIVENESS`, and `HALLUCINATION-PRE-1-0-BREAKING-CHANGE` to `common_hallucinations.json`, and broadened signature patterns for `HALLUCINATION-LOCAL-DEV-NODEPORT-EXPOSURE` and `HALLUCINATION-K8S-CLUSTER-OVERLAY-HTTP`.
+2. **Ground Truth Dispatch**: Refactored `verify_ground_truth_hallucination` into dedicated per-category helpers (`DEPENDENCY_ECOSYSTEM`, `TEST_MOCKS`, `DOCUMENTATION_CONTEXT`, `SECRET_SCANNING`, etc.) with dictionary dispatch, closing the verification gap for dependency and test fixture claims.
+3. **Deterministic Pre-Verification Invalidation**: Added deterministic short-circuit checkers for structural tuple equality, localhost default configs, POSIX signal 0 liveness, and pre-1.0 breaking change claims.
+4. **Prompt & Protocol Hardening**: Updated `src/devops_cli/ai/tasks/review.md` and `src/devops_cli/ai/tasks/verify_finding_system.md` with explicit falsification rules against tautological criteria, documentation narratives, and prompt sanitizer placeholder claims.
+
 ### Phase 4: Root Cause & Severity Classification
 - Isolate exact failure mechanisms and categorize severity:
   - **CRITICAL**: Exploitable vulnerability, auth bypass, credential leak, SSRF, arbitrary file write outside root, or fatal crash.
@@ -205,6 +253,122 @@ The self-improvement loop is monitored via OpenTelemetry distributed tracing and
 | `devops_cli_review_feedback_exports_total` | Counter | Feedback records exported to `feedback_dataset.jsonl`. |
 
 Tracing spans decorated with `@trace_span("review.<phase>")` capture execution latency, prompt token counts, and completion budgets across the entire pipeline.
+
+### Review Profiles & Benchmarks
+
+Every review writes `profile.json` next to its `findings.json`: wall time per stage (pre-analysis,
+payloads, persona review, verification, re-ranking, report), the LLM calls, prompt and completion
+tokens made during each stage, the backends the gateway routed them to, and the candidate,
+verified and reported finding counts. The profile's session ID is an attribute of the session's
+`review.session` span, so a slow stage can be followed into its trace.
+
+A single review is not a measurement: identical runs produce different numbers of candidate
+findings, and verification time follows them. `devops review benchmark <targets> -n 3` reviews the
+same files several times with the response cache bypassed and saves the medians under
+`.data/reviews/benchmarks/`, with seconds per candidate finding and a digest of the reviewed files.
+Compare benchmarks only when their corpus digests match.
+
+### Project Review Conventions
+
+The shared review and verification prompts hold rules that are true of any project. What is
+intended in one project goes in that project's `.devops/review.md`. Examples include an internal
+connector allowed to reach private networks, output a CLI is meant to print, a type checker the
+project enforces, or house rules for its documentation.
+
+`devops ai review` reads the nearest `.devops/review.md` from the target up to its repository
+root, in full up to 8,000 characters. It gives the file to the persona reviewers and the verifier,
+beside the general conventions file (`AGENTS.md` or its peers), of which only the opening is used.
+This repository keeps its own rules in `.devops/review.md`.
+
+### Synthetic Defect Corpora
+
+A review of a real repository cannot say what it missed, and the verifier labels what it found.
+`devops review corpus generate <sources>` copies the files a review would read and injects one known
+defect into each, recording where. It never writes into the sources. The templates:
+
+| Template | Injection | Languages |
+| :--- | :--- | :--- |
+| `drop-bounds-check` | Removes a guard on an ordering test that raises, throws or returns early. | Python, TS/JS, Go, Rust, Java, C#, C/C++ |
+| `drop-error-check` | Removes a guard that stops on an error or a missing value (`err != nil`, `== null`, `!ptr`, `is_none()`). | TS/JS, Go, Rust, Java, C#, C/C++ |
+| `drop-path-containment` | Removes an `if not ...is_relative_to(...): raise` style guard. | Python |
+| `drop-await` | Removes an `await`, leaving a coroutine, promise or task that is never awaited. | Python, TS/JS, C# |
+| `unpin-image-tag` | Replaces a pinned image tag or digest with `latest`. | YAML, Dockerfile |
+| `unpin-action-ref` | Replaces a pinned GitHub Action ref with `main`. | YAML |
+| `disable-tls-verify` | Turns off certificate verification: `validate_certs`, `verify=`, `rejectUnauthorized`, `InsecureSkipVerify`, `danger_accept_invalid_certs`, an accept-any certificate callback, `curl --insecure`, `wget --no-check-certificate`. | Python, YAML, TS/JS, Go, Rust, C#, Dockerfile, shell, docs |
+| `log-secrets` | Turns Ansible `no_log` off. | YAML |
+| `widen-file-mode` | Widens a private file mode such as `0600` to `0666`, or `rw-------` to `rw-rw-rw-`, including `chmod`. | Python, YAML, TS/JS, Go, Rust, Java, C/C++, Dockerfile, shell, docs |
+| `weaken-pod-security` | Flips `runAsNonRoot`, `readOnlyRootFilesystem`, `allowPrivilegeEscalation` or `privileged`. | YAML |
+| `unbounded-string-copy` | Replaces `strncpy`, `strncat`, `snprintf` or `vsnprintf` with the unbounded form. | C/C++ |
+| `expose-public-access` | Sets `publicly_accessible` or `map_public_ip_on_launch` true, turns S3 public access blocks off, makes an ACL `public-read`, or flips such a variable's default. | Terraform |
+| `disable-encryption` | Sets `encrypted`, `storage_encrypted` and similar to false, or flips an encryption variable's default. | Terraform |
+| `open-ingress` | Opens an ingress rule's source range to `0.0.0.0/0`. | Terraform |
+| `run-as-root` | Changes `USER` to root. | Dockerfile |
+| `unverified-download` | Drops `ADD --checksum`, or a `sha256sum -c` or `gpg --verify` check of a download. | Dockerfile, shell |
+| `pipe-to-shell` | Pipes a downloaded install script into `sh` instead of saving it. | Dockerfile, shell, docs |
+| `drop-strict-mode` | Removes `set -e`, `set -eu` or `set -euo pipefail`. | shell |
+| `unquote-expansion` | Unquotes `"$var"` in a command, so the value splits. | shell |
+| `enable-host-network` | Adds `hostNetwork: true` to a pod spec. | YAML |
+| `mount-host-path` | Replaces an `emptyDir: {}` volume with the node's root (`hostPath`). | YAML |
+| `drop-resource-limits` | Removes a container's `resources.limits`. | YAML |
+| `contradict-documented-default` | Changes a documented default (`true`/`false`, a number), so the page contradicts the code. | docs |
+
+Docs templates change example commands only inside fenced code blocks (and Hugo `highlight` or
+`codeFromInline` shortcodes); prose is left alone. A removed checksum in a Dockerfile must be a
+middle segment of a continued `RUN`, and in a shell script a statement of its own, so the chain
+still joins. Code finders never touch comments: block comments spanning lines, and the code
+examples in them, are blanked before a site is chosen. A guard is removed only as a whole
+statement that fills its lines. Its body must only exit, no
+`else` may follow, and it may not be the body of a braceless `if` or loop, so the mutated file
+stays balanced and well formed. A Go error check is removed only when `err` is read again later,
+or the file would not compile.
+
+The mutated files sit under `files/`, and the manifest sits beside that directory rather than in it,
+so the reviewer cannot read the answers. After `devops review path <corpus>/files --all`, run
+`devops review corpus score <corpus>`. It reports:
+
+- how many injections some finding matched, before verification;
+- how many were still reported after verification;
+- how many were found and then dropped;
+- the reported findings that match no injection.
+
+A finding matches an injection when it names the file and either:
+
+- points into the injection's region, within the line tolerance. A dropped guard leaves no line
+  behind, so its region runs from the enclosing function's start to ten lines past the guard.
+- names the injection's evidence: the changed value, the key it was set on, or the guard's
+  identifiers.
+
+Review pages number their lines (#499), so a reported range can be matched to the region; the
+evidence covers reports whose lines are still off. Both kinds of match can be wrong, so the score lists each
+injection with the titles of the findings it matched. Every review also writes `candidates.json`:
+all findings with their verification status, including the invalidated ones that `findings.json`
+leaves out.
+
+The score measures regression, not capability. A prompt can be tuned to find exactly the defects
+this generator knows how to inject, so every score carries that caveat.
+
+### Sample Repositories
+
+devops ai is meant for any technical project. `devops review samples list` shows a checked-in
+catalog of open-source repositories:
+- one or more per category: Python, TypeScript/JavaScript, Go, Rust, Java, C#/.NET, C/C++,
+  Terraform, Kubernetes/Helm, Dockerfiles, shell and technical documentation;
+- each pinned to a commit, with a permissive licence and the paths the tooling is run over.
+
+`devops review samples fetch` takes each pinned commit into `.data/samples/`.
+
+`devops review samples validate` runs the tooling over the fetched samples. It saves one JSON
+report per category under `.data/reviews/sample-validations/<run>/`, recording:
+
+- which parser read each file (tree-sitter, the regex fallback, or none) and the symbols it found;
+- what file analysis made of each file: its language, symbols and dependencies;
+- how many files and symbols the multilingual repository map shows of each sample;
+- with `--review`, a review of the category's synthetic defect corpus, scored as above. It uses
+  the default persona, or every persona with `--all`.
+
+Each report ends with its problems: a language read by the regex fallback, files that yield no
+symbols, code types with no AST support, code the analysis mislabels, an empty repository map,
+and a review that found nothing or failed.
 
 ---
 

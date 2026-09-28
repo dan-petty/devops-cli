@@ -1,7 +1,6 @@
 # Task 183: Gate PR Merge Readiness on Required Approvals, Mergeable State, and Reviewer Feedback
 
 **Issue**: [#183](https://github.com/dan-petty/devops-cli/issues/183)
-**PR**: [#184](https://github.com/dan-petty/devops-cli/pull/184)
 **Status**: Done
 **Milestone**: `v0.2.17`
 **Taxonomy**: `type/bug`, `scope/github`, `priority/p1-high`, `status/done`

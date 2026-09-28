@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from devops_cli.ai.review.verdicts import apply_verdict
 from devops_cli.ai.review_schema import FileReviewPayload
 from devops_cli.output import print_info
 from devops_cli.telemetry.tracer import trace_span
@@ -46,7 +47,7 @@ def run_adversarial_debate_stage(
         attributes={"total_findings": total_findings},
     ):
         print_info(
-            f"Running Multi-Agent Adversarial Debate (MAD) across {total_findings} candidate finding(s)...",
+            f"Running false-positive rule filtering across {total_findings} candidate finding(s)...",
             prefix=False,
         )
 
@@ -54,8 +55,7 @@ def run_adversarial_debate_stage(
         for f in all_findings:
             reason = _evaluate_finding_invalidation(f.description.lower(), f.title.lower())
             if reason:
-                f.status = "INVALIDATED"
-                f.invalidation_reason = reason
+                apply_verdict(f, "INVALIDATED", by="debate", reason=reason)
                 invalidated_count += 1
 
         print_info(

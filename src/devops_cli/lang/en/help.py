@@ -92,11 +92,35 @@ class AICommandHelp:
     cache: str = "Manage LLM response cache, performance metrics, and warm starting points."
     pipeline: str = "Run multi-agent AI pipeline execution across personas."
     bundle: str = "Bundle local AI model artifacts and instruction context."
+    bundle_output_dir: str = (
+        "Bundle directory; a relative path is a data path under the main worktree, like "
+        "data.models_dir (default: the configured models directory)."
+    )
     tokens: str = "Calculate token counts and context budget consumption."
     cost: str = "Estimate LLM inference cost for token quantities."
+    runs: str = (
+        "Benchmark and evaluation runs, kept in the data directory and shared through Valkey."
+    )
+    runs_reindex: str = (
+        "Rebuild the shared run index in Valkey from the run records in the data directory."
+    )
+    runs_connect: str = (
+        "Find the cluster's run index, check it answers, share runs through it, and index them."
+    )
+    runs_list: str = "List recorded benchmark and evaluation runs."
+    runs_show: str = "Show details of a recorded run."
+    runs_compare: str = "Compare two runs or a run against its subject's baseline."
+    runs_check: str = "Check a run against baseline for regressions past tolerances."
+    runs_baseline: str = "Manage benchmark and evaluation baseline runs."
+    runs_baseline_set: str = "Set a run as the baseline for its subject."
+    runs_baseline_list: str = "List all configured baselines."
+    runs_baseline_show: str = "Show the baseline for a subject or run."
+    config_task: str = "Set these for one task (chat, metadata, analysis, verification, compose, embedding) instead of every AI call."
     ollama_urls: str = "Ollama server base URLs (comma-separated)."
     max_parallel: str = "Maximum number of simultaneous requests allowed per Ollama server node."
-    api_base_url: str = "Override API base URL for any provider."
+    api_base_url: str = (
+        "Override the provider's API base URL (provider gateway uses ai.gateway_url)."
+    )
     api_key: str = "API key — stored in OS keyring, not config file."
     max_retries: str = "Maximum retry count for AI requests upon failure."
     prompt: str = "Test prompt to send to the provider."
@@ -137,7 +161,10 @@ class AICommandHelp:
     diagram: str = "Generate Mermaid architecture topology or STRIDE threat model diagram."
     diagram_type: str = "Diagram type: 'arch' for architecture topology, 'threat' for STRIDE model."
     eval_review: str = "Persona whose recorded findings to measure the layer against."
-    dataset_path: str = "Path to feedback dataset jsonl."
+    dataset_path: str = (
+        "Feedback dataset JSONL; a relative path is a data path under the main worktree, like "
+        "data.feedback_dataset_path (default: the configured feedback dataset)."
+    )
     test_gen: str = "Synthesize unit test suites for functions and modules via LLM."
     test_function: str = "Specific function to synthesize tests for."
     target_file: str = "Target source file to synthesize unit tests for."
@@ -168,9 +195,7 @@ class AICommandHelp:
     contracts_dir: str = "Path to directory containing exported library contract JSON files."
     exact_lookup: str = "Perform exact qualified symbol lookup instead of semantic vector search."
     package_name: str = "Filter by package distribution name."
-    multilingual: str = (
-        "Enable multilingual polyglot scanning across Python, TypeScript, Go, Rust, Java, and HCL."
-    )
+    multilingual: str = "Enable multilingual polyglot scanning across Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell and Markdown."
     ast: str = "Tree-Sitter multilingual AST concrete syntax tree parsing and code graph synthesis."
     ast_parse: str = "Parse source file concrete syntax tree and extract structural symbols."
     ast_graph: str = "Synthesize whole-repository symbol dependency and reference graph."
@@ -236,6 +261,11 @@ class K8sCommandHelp:
     interval: str = "Auto-refresh polling interval in seconds."
     status: str = "Cluster health and resource utilization summary."
     port_forward: str = "Forward local port to a remote Kubernetes service."
+    port_forward_flag: str = "Start background port-forwarding daemons for deployed services."
+    configure_urls_flag: str = (
+        "Auto-configure devops-cli settings with detected Kubernetes service URLs."
+    )
+    update_config_flag: str = "Update devops-cli configuration with port-forwarded service URLs."
     switch_context: str = "Switch active kubectl context."
     apply_manifest: str = "Apply Kubernetes manifest file or directory."
     logs: str = "Fetch container logs for a pod."
@@ -253,7 +283,8 @@ class K8sCommandHelp:
     )
     addressing: str = (
         "How to record endpoints: 'nodeport' writes a cluster-specific host and port, "
-        "'proxy' writes portable k8s:// service addresses needing no port-forward."
+        "'proxy' writes portable k8s:// service addresses needing no port-forward, "
+        "'fqdn' discovers Ingress hostnames and writes domain-based URLs."
     )
     proxy_service: str = "Service name to address through the Kubernetes API server."
     proxy_port: str = "Service port name or number (a Service may expose several)."
@@ -262,6 +293,13 @@ class K8sCommandHelp:
     proxy_fetch: str = "Fetch the address and print the JSON response instead of the address."
     context_target: str = "Target context name to switch to."
     manifest_path: str = "Manifest file or directory path."
+    template_flag: str = (
+        "Render manifest as a template substituting domain from config or --domain before applying."
+    )
+    template_domain: str = (
+        "Domain to substitute for template (defaults to k8s.domain in config.yaml)."
+    )
+    render: str = "Render Kubernetes manifest templates with domain and variables substituted."
     pod_name: str = "Pod name."
     manifests_dir: str = "Directory containing Kubernetes manifests."
     auto_start: str = "Auto-start minikube if stopped."
@@ -337,9 +375,7 @@ class WorkspaceCommandHelp:
     remove: str = "Remove a repository folder from the VS Code workspace file."
     generate: str = "Regenerate workspace file from all repositories in base directory."
     open_ws: str = "Open the workspace file in VS Code."
-    clean: str = (
-        "Clean stale review sessions, old analysis caches, and temporary traces under .data/."
-    )
+    clean: str = "Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory."
     older_than: str = "Prune artifacts older than N days."
 
 
@@ -510,6 +546,9 @@ class DevcontainerCommandHelp:
         "Execute DevContainer post-create setup tasks (history, shell completions, config prep)."
     )
     post_start: str = "Execute DevContainer post-start lifecycle tasks."
+    unlock_keyring: str = (
+        "Create or unlock the gnome-keyring login keyring that gh, git and devops store secrets in."
+    )
     setup: str = "Execute DevContainer lifecycle tasks (post-create, post-start, or all)."
     repo_path: str = "Path to the repository."
     project_name: str = "Project name."
@@ -656,6 +695,12 @@ class PRCommandHelp:
     )
     threads_only_replied: str = (
         "Only resolve threads that have received one or more in-thread replies."
+    )
+    readiness_allow_draft: str = (
+        "Report a draft pull request as ready; GitHub still refuses to merge one."
+    )
+    readiness_allow_pending_checks: str = (
+        "Treat checks that are still running as acceptable rather than blocking."
     )
     check_readiness_auto_resolve: str = (
         "Automatically resolve review discussion threads that have received replies."
@@ -821,6 +866,59 @@ class ReviewCommandHelp:
     pr_cmd: str = "Review a GitHub Pull Request."
     findings: str = "Manage and update review findings."
     stats: str = "Show review sessions and findings statistics."
+    benchmark: str = "Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage."
+    benchmark_targets: str = (
+        "File(s) or directory(ies) to review on every run; keep them fixed to compare benchmarks."
+    )
+    benchmark_runs: str = "Number of reviews to run; the report takes medians across them."
+    corpus: str = "Synthetic defect corpora: inject known defects into clean files and score reviews against them."
+    corpus_generate: str = (
+        "Copy source files with one known defect injected into each, and record where."
+    )
+    corpus_score: str = (
+        "Score a review of a corpus: which injected defects it found, and what verification kept."
+    )
+    corpus_source: str = "Clean file(s) or directory(ies) to inject defects into; each becomes a folder of the corpus."
+    corpus_out: str = (
+        "Corpus directory to create (default: corpora/<source>-<seed> under the reviews directory)."
+    )
+    corpus_seed: str = (
+        "Seed choosing each file's defect; the same seed and files give the same corpus."
+    )
+    corpus_template: str = "Defect template to inject (repeatable; default: all)."
+    corpus_dir: str = "Corpus directory created by `devops review corpus generate`."
+    corpus_session: str = "Review session to score (default: the latest review of the corpus)."
+    samples: str = "Open-source sample repositories pinned by commit, across languages and infrastructure formats."
+    samples_list: str = "List the sample catalog: category, languages, licence, pinned commit and paths, and whether each is fetched."
+    samples_fetch: str = "Fetch samples at their pinned commits into the samples data directory, verifying commit, licence and paths."
+    samples_names: str = "Sample(s) to fetch (default: every sample, or every one in --category)."
+    samples_category: str = "Only samples of this category (repeatable)."
+    samples_validate: str = (
+        "Run devops ai tooling over fetched samples and save a JSON report per category."
+    )
+    samples_validate_names: str = (
+        "Sample(s) to validate (default: every sample, or every one in --category)."
+    )
+    samples_review: str = "Also review each category's synthetic defect corpus and score it (calls the configured LLM)."
+    templates: str = "Inspect synthetic defect templates and sweep them over sample repositories for well-formedness."
+    templates_list: str = (
+        "List registered synthetic defect templates and their supported languages."
+    )
+    templates_check: str = "Sweep synthetic defect templates over fetched samples, validating syntax and comment isolation."
+    templates_names: str = (
+        "Specific defect template(s) to check (default: all registered templates)."
+    )
+    templates_save: str = "Save sweep results into the evaluation run store (default: true)."
+    hallucinations: str = (
+        "Inspect and prune the hallucinations catalog that deterministic verification learns from."
+    )
+    hallucinations_list: str = "List catalog entries: builtin ones shipped with the tool, and learned ones from this workspace."
+    hallucinations_remove: str = (
+        "Remove learned catalog entries; builtin entries cannot be removed."
+    )
+    hallucination_ids: str = "Ids of learned entries to remove."
+    hallucinations_learned_only: str = "Show learned entries only."
+    hallucinations_all_learned: str = "Remove every learned entry."
     export_feedback: str = "Export review findings to structured feedback files."
     patch_cmd: str = "Inspect or apply suggested remediation patches from review findings."
     target_path: str = "File(s) or directory(ies) to review."
@@ -837,10 +935,11 @@ class ReviewCommandHelp:
     title_match: str = "Match finding by substring in title."
     status_target: str = "Target status: VERIFIED | INVALIDATED | MITIGATED | UNVERIFIED."
     reason: str = "Explanation or justification for the status change."
+    perimeter: str = "Perimeter file path(s) protecting against finding recurrence (repeatable)."
+    regression_test: str = "Path to regression test guarding against finding recurrence."
     reviews_dir: str = "Directory containing review sessions."
     output_feedback: str = "Output JSONL path for benchmark feedback dataset."
     status_export: str = "Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL."
-    interactive_patch: str = "Preview patch diff interactively."
     explain_review: str = "Explain code review personas, severity levels, and terminology."
     no_pre_analysis: str = "Disable pre-analysis and metadata refresh."
     pre_analysis_only: str = "Run pre-analysis only and skip subsequent stages."
@@ -848,7 +947,7 @@ class ReviewCommandHelp:
     static_scan_only: str = "Run static scanning only and skip subsequent stages."
     no_persona_review: str = "Disable multi-persona LLM inspection."
     persona_review_only: str = "Run persona review only and skip subsequent stages."
-    no_verification: str = "Disable finding verification and adversarial debate."
+    no_verification: str = "Disable finding verification and false-positive filtering."
     verification_only: str = "Run verification only and skip subsequent stages."
     no_reranking: str = "Disable finding re-ranking and deduplication."
     reranking_only: str = "Run re-ranking only and skip subsequent stages."
@@ -858,10 +957,6 @@ class ReviewCommandHelp:
     no_cache: str = "Bypass LLM response cache and force fresh inference."
     force_review: str = "Force fresh review execution without cache."
     details: str = "Display full finding descriptions and fix recommendations."
-    remediate: str = "Create a git remediation branch for an identified review finding."
-    remediate_finding_id: str = "Finding ID or title to create remediation branch for."
-    remediate_file: str = "Target source file to apply fix to."
-    remediate_branch: str = "Custom topic branch name."
     concurrency: str = "Max concurrent workers for parallel review and verification."
     parallel: str = "Execute multi-file review stages concurrently using async worker pool."
     logfire: str = "Enable or disable Logfire structured observability and agent turn tracing."
@@ -920,6 +1015,15 @@ class ScanCommandHelp:
 class TelemetryCommandHelp:
     app: str = "OpenTelemetry tracing, metrics, and Jaeger observability."
     status: str = "Show telemetry collector connectivity and service configuration."
+    connect: str = (
+        "Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there."
+    )
+    connect_context: str = (
+        "Kubernetes context of the cluster running the collector (default: current)."
+    )
+    connect_namespace: str = "Namespace of the collector service."
+    connect_service: str = "Name of the collector service."
+    connect_save: str = "Save the endpoint as telemetry.endpoint (default) or only check it."
     test_span: str = "Emit a synthetic test span to verify Jaeger tracing collector."
     span_name: str = "Name for test span."
     profile: str = (
@@ -988,6 +1092,7 @@ class InstallCommandHelp:
     status: str = "Check installed DevOps toolchain versions."
     tool: str = "Install a specific tool."
     version: str = "Specific version, e.g. v1.30.0."
+    only_missing: str = "Only install tools that are not already found in PATH."
 
 
 @dataclass(frozen=True)
@@ -1007,7 +1112,10 @@ class BenchmarkCommandHelp:
     mode: str = "Benchmark mode: 'auto', 'chat', 'embedding', 'suite'."
     explain: str = "Explain benchmark metrics, terminology, and mathematical formulas."
     suite: str = "Run multi-model evaluation suite grounded in feedback datasets."
-    dataset: str = "Path to feedback dataset JSONL file (defaults to .data/feedback_dataset.jsonl)."
+    dataset: str = (
+        "Feedback dataset JSONL for --suite; a relative path is a data path under the main "
+        "worktree, like data.feedback_dataset_path (default: the configured feedback dataset)."
+    )
 
 
 @dataclass(frozen=True)
@@ -1162,11 +1270,24 @@ class SandboxCommandHelp:
     incident_dir: str = "Directory path to persist structured panic incident records."
 
 
+class CloudflareCommandHelp:
+    app: str = "Cloudflare Zero Trust tunnels and DNS management."
+    status: str = "Verify API token authentication and inspect zone status."
+    dns: str = "List or synchronize Cloudflare DNS records."
+    dns_list: str = "List DNS records for the managed zone."
+    dns_sync: str = "Synchronize CNAME records for root and subdomains to Cloudflare tunnel."
+    tunnel: str = "Manage Cloudflare Zero Trust tunnel routes."
+    tunnel_routes: str = "Inspect Cloudflare tunnel ingress routes configuration."
+    tunnel_sync: str = "Synchronize tunnel ingress rules to route subdomains to cluster ingress."
+
+
 @dataclass(frozen=True)
 class HelpCatalog:
     main: MainHelp = field(default_factory=MainHelp)
     options: OptionHelp = field(default_factory=OptionHelp)
     ai: AICommandHelp = field(default_factory=AICommandHelp)
+    cloudflare: CloudflareCommandHelp = field(default_factory=CloudflareCommandHelp)
+
     ai_cache: AICacheCommandHelp = field(default_factory=AICacheCommandHelp)
     ai_harness: AIHarnessCommandHelp = field(default_factory=AIHarnessCommandHelp)
     k8s: K8sCommandHelp = field(default_factory=K8sCommandHelp)

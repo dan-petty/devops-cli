@@ -160,7 +160,7 @@ def test_the_json_output_carries_both_rates(tmp_path: Path) -> None:
     """A consumer needs the two directions separately, as the table reports them."""
     dataset = _dataset(tmp_path, [_record("A finding", "VERIFIED")])
     result = runner.invoke(ai_app, ["prompt-eval", "--json", "--dataset", str(dataset)])
-    payload = json.loads(result.output)
+    payload = json.loads(result.stdout)
     assert (result.exit_code, "catch_rate" in payload, "contested_rate" in payload) == (
         0,
         True,

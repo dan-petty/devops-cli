@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import logging
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,7 @@ EXT_TO_LANG: dict[str, str] = {
     ".py": "python",
     ".pyi": "python",
     ".ts": "typescript",
-    ".tsx": "typescript",
+    ".tsx": "tsx",
     ".js": "javascript",
     ".jsx": "javascript",
     ".mjs": "javascript",
@@ -29,17 +30,64 @@ EXT_TO_LANG: dict[str, str] = {
     ".java": "java",
     ".tf": "hcl",
     ".hcl": "hcl",
+    ".cs": "csharp",
+    # A .h header is C unless its content is C++ (see _header_language).
+    ".c": "c",
+    ".h": "c",
+    ".cc": "cpp",
+    ".cpp": "cpp",
+    ".cxx": "cpp",
+    ".c++": "cpp",
+    ".hh": "cpp",
+    ".hpp": "cpp",
+    ".hxx": "cpp",
+    ".sh": "bash",
+    ".bash": "bash",
+    # Scripts the official nginx image's entrypoint sources.
+    ".envsh": "bash",
+    ".md": "markdown",
+    ".markdown": "markdown",
 }
 
-LANG_TO_GRAMMAR_PKG: dict[str, str] = {
-    "python": "tree_sitter_python",
-    "typescript": "tree_sitter_typescript",
-    "javascript": "tree_sitter_javascript",
-    "go": "tree_sitter_go",
-    "rust": "tree_sitter_rust",
-    "java": "tree_sitter_java",
-    "hcl": "tree_sitter_hcl",
+# Each language's grammar package and the function returning its language. The TypeScript
+# package holds two grammars, one without JSX and one with it.
+LANG_TO_GRAMMAR: dict[str, tuple[str, str]] = {
+    "python": ("tree_sitter_python", "language"),
+    "typescript": ("tree_sitter_typescript", "language_typescript"),
+    "tsx": ("tree_sitter_typescript", "language_tsx"),
+    "javascript": ("tree_sitter_javascript", "language"),
+    "go": ("tree_sitter_go", "language"),
+    "rust": ("tree_sitter_rust", "language"),
+    "java": ("tree_sitter_java", "language"),
+    "hcl": ("tree_sitter_hcl", "language"),
+    "csharp": ("tree_sitter_c_sharp", "language"),
+    "c": ("tree_sitter_c", "language"),
+    "cpp": ("tree_sitter_cpp", "language"),
+    "bash": ("tree_sitter_bash", "language"),
+    # The block grammar: headings and sections, without inline markup.
+    "markdown": ("tree_sitter_markdown", "language"),
 }
+
+# Other names for a language, as the analysis scanner and users write them.
+LANG_ALIASES: dict[str, str] = {
+    "shell": "bash",
+    "sh": "bash",
+    "c#": "csharp",
+    "cs": "csharp",
+    "c++": "cpp",
+    "md": "markdown",
+}
+
+# C++ in a .h header: a namespace, a template, a class with a body, or a scope operator, none of
+# which C has.
+_CPP_HEADER = re.compile(
+    r"^\s*(?:namespace\s+\w|template\s*<|class\s+\w+[^;(]*\{)|\w::\w", re.MULTILINE
+)
+
+
+def _header_language(code: str) -> str:
+    """The language of a .h header: C++ when its content uses C++, otherwise C."""
+    return "cpp" if _CPP_HEADER.search(code) else "c"
 
 
 def detect_language(path: Path | str) -> str | None:
@@ -49,7 +97,6 @@ def detect_language(path: Path | str) -> str | None:
 
 
 NATIVE_KIND_MAP: dict[str, SymbolKind] = {
-    "function_definition": SymbolKind.FUNCTION,
     "function_declaration": SymbolKind.FUNCTION,
     "function_item": SymbolKind.FUNCTION,
     "class_definition": SymbolKind.CLASS,
@@ -59,7 +106,213 @@ NATIVE_KIND_MAP: dict[str, SymbolKind] = {
     "interface_declaration": SymbolKind.INTERFACE,
     "method_definition": SymbolKind.METHOD,
     "method_declaration": SymbolKind.METHOD,
+    "abstract_class_declaration": SymbolKind.CLASS,
+    "generator_function_declaration": SymbolKind.FUNCTION,
+    "type_alias_declaration": SymbolKind.TYPE,
+    "enum_declaration": SymbolKind.TYPE,
+    "record_declaration": SymbolKind.CLASS,
+    "constructor_declaration": SymbolKind.METHOD,
+    "enum_item": SymbolKind.TYPE,
+    "type_item": SymbolKind.TYPE,
+    "union_item": SymbolKind.STRUCT,
+    "mod_item": SymbolKind.MODULE,
+    "const_item": SymbolKind.CONSTANT,
+    "static_item": SymbolKind.CONSTANT,
+    "macro_definition": SymbolKind.FUNCTION,
+    "annotation_type_declaration": SymbolKind.INTERFACE,
+    "annotation_type_element_declaration": SymbolKind.METHOD,
+    # C#
+    "struct_declaration": SymbolKind.STRUCT,
+    "namespace_declaration": SymbolKind.MODULE,
+    "file_scoped_namespace_declaration": SymbolKind.MODULE,
+    "delegate_declaration": SymbolKind.TYPE,
+    # C and C++
+    "namespace_definition": SymbolKind.MODULE,
+    "alias_declaration": SymbolKind.TYPE,
+    "preproc_function_def": SymbolKind.FUNCTION,
 }
+# A declarator holding a function, as `const handle = () => {}` declares one.
+_FUNCTION_VALUES = frozenset({"arrow_function", "function_expression", "function"})
+# Top-level HCL blocks, named as the fallback names them: resource "aws_vpc" "this".
+_HCL_BLOCK_KINDS: dict[str, SymbolKind] = {
+    "resource": SymbolKind.STRUCT,
+    "data": SymbolKind.STRUCT,
+    "variable": SymbolKind.CONSTANT,
+    "output": SymbolKind.CONSTANT,
+    "locals": SymbolKind.CONSTANT,
+    "module": SymbolKind.MODULE,
+}
+
+
+def _text(node: Any) -> str:
+    return str(node.text.decode("utf-8")) if node is not None and hasattr(node, "text") else ""
+
+
+def _declared_function(node: Any) -> tuple[SymbolKind, str] | None:
+    value = node.child_by_field_name("value")
+    if value is None or value.type not in _FUNCTION_VALUES:
+        return None
+    name = _text(node.child_by_field_name("name"))
+    return (SymbolKind.FUNCTION, name) if name else None
+
+
+def _go_type_spec(node: Any) -> tuple[SymbolKind, str] | None:
+    body = node.child_by_field_name("type")
+    kind = {"struct_type": SymbolKind.STRUCT, "interface_type": SymbolKind.INTERFACE}.get(
+        getattr(body, "type", ""), SymbolKind.TYPE
+    )
+    name = _text(node.child_by_field_name("name"))
+    return (kind, name) if name else None
+
+
+def _hcl_block(node: Any) -> tuple[SymbolKind, str] | None:
+    parent = node.parent
+    if (
+        parent is None
+        or parent.type != "body"
+        or getattr(parent.parent, "type", "") != "config_file"
+    ):
+        return None
+    parts = [c for c in node.children if c.type in ("identifier", "string_lit")]
+    if not parts or parts[0].type != "identifier":
+        return None
+    block_type = _text(parts[0])
+    labels = " ".join(f'"{_text(c).strip(chr(34))}"' for c in parts[1:])
+    return _HCL_BLOCK_KINDS.get(block_type, SymbolKind.MODULE), f"{block_type} {labels}".strip()
+
+
+# Where a C or C++ declarator chain ends in the declared name.
+_C_NAMES = frozenset(
+    {
+        "identifier",
+        "field_identifier",
+        "type_identifier",
+        "qualified_identifier",
+        "operator_name",
+        "destructor_name",
+    }
+)
+
+
+def _c_declarator_name(declarator: Any) -> str:
+    """The name at the end of a C declarator chain: `*name`, `name(args)`, `Class::name`."""
+    node = declarator
+    while node is not None and node.type not in _C_NAMES:
+        node = node.child_by_field_name("declarator")
+    return _text(node)
+
+
+def _declares_function(declarator: Any) -> bool:
+    node = declarator
+    while node is not None:
+        if node.type == "function_declarator":
+            return True
+        node = node.child_by_field_name("declarator")
+    return False
+
+
+def _function_definition(node: Any) -> tuple[SymbolKind, str] | None:
+    """A function: named by its `name` (Python, shell) or its declarator (C, C++)."""
+    declarator = node.child_by_field_name("declarator")
+    if declarator is None:
+        name = _extract_node_name(node)
+        return (SymbolKind.FUNCTION, name) if name else None
+    name = _c_declarator_name(declarator)
+    if not name:
+        return None
+    in_class = getattr(node.parent, "type", "") == "field_declaration_list"
+    return (SymbolKind.METHOD if in_class or "::" in name else SymbolKind.FUNCTION), name
+
+
+# What may enclose a file-scope declaration: include guards and other conditionals, `extern "C"`
+# blocks, namespaces and templates.
+_FILE_SCOPE_WRAPPERS = frozenset(
+    {
+        "preproc_ifdef",
+        "preproc_if",
+        "preproc_else",
+        "preproc_elif",
+        "preproc_elifdef",
+        "linkage_specification",
+        "declaration_list",
+        "namespace_definition",
+        "template_declaration",
+    }
+)
+
+
+def _at_file_scope(node: Any) -> bool:
+    parent = node.parent
+    while parent is not None and parent.type in _FILE_SCOPE_WRAPPERS:
+        parent = parent.parent
+    return getattr(parent, "type", "") == "translation_unit"
+
+
+def _c_prototype(node: Any) -> tuple[SymbolKind, str] | None:
+    """A function declared at file scope, as a header declares its API."""
+    if not _at_file_scope(node):
+        return None
+    declarator = node.child_by_field_name("declarator")
+    if declarator is None or not _declares_function(declarator):
+        return None
+    name = _c_declarator_name(declarator)
+    return (SymbolKind.FUNCTION, name) if name else None
+
+
+def _c_typedef(node: Any) -> tuple[SymbolKind, str] | None:
+    name = _c_declarator_name(node.child_by_field_name("declarator"))
+    return (SymbolKind.TYPE, name) if name else None
+
+
+def _c_type_with_body(kind: SymbolKind) -> Any:
+    """A struct, class, union or enum that is defined here, not merely named."""
+
+    def extract(node: Any) -> tuple[SymbolKind, str] | None:
+        if node.child_by_field_name("body") is None:
+            return None
+        name = _text(node.child_by_field_name("name"))
+        return (kind, name) if name else None
+
+    return extract
+
+
+# An ATX heading's optional closing sequence: `## Install ##`.
+_CLOSING_HASHES = re.compile(r"\s+#+$")
+
+
+def _markdown_heading(node: Any) -> tuple[SymbolKind, str] | None:
+    text = " ".join(_text(node.child_by_field_name("heading_content")).split())
+    name = _CLOSING_HASHES.sub("", text)
+    return (SymbolKind.HEADING, name) if name else None
+
+
+_SPECIAL_NODES: dict[str, Any] = {
+    "variable_declarator": _declared_function,
+    "type_spec": _go_type_spec,
+    "block": _hcl_block,
+    "function_definition": _function_definition,
+    "declaration": _c_prototype,
+    "type_definition": _c_typedef,
+    "struct_specifier": _c_type_with_body(SymbolKind.STRUCT),
+    "union_specifier": _c_type_with_body(SymbolKind.STRUCT),
+    "class_specifier": _c_type_with_body(SymbolKind.CLASS),
+    "enum_specifier": _c_type_with_body(SymbolKind.TYPE),
+    "atx_heading": _markdown_heading,
+    "setext_heading": _markdown_heading,
+}
+
+
+def _native_symbol(node: Any) -> tuple[SymbolKind, str] | None:
+    """The kind and name a syntax node declares, or None when it declares no symbol."""
+    node_type = getattr(node, "type", "")
+    special = _SPECIAL_NODES.get(node_type)
+    if special:
+        result: tuple[SymbolKind, str] | None = special(node)
+        return result
+    if node_type in NATIVE_KIND_MAP:
+        name = _extract_node_name(node)
+        return (NATIVE_KIND_MAP[node_type], name) if name else None
+    return None
 
 
 def _matches_sexpr_filter(sym: PolyglotSymbol, query_sexpr: str) -> bool:
@@ -80,6 +333,8 @@ def _matches_sexpr_filter(sym: PolyglotSymbol, query_sexpr: str) -> bool:
         targets.add("type")
     if "constant" in q or "const" in q:
         targets.add("constant")
+    if "heading" in q or "section" in q:
+        targets.add("heading")
 
     return sym.kind.value in targets if targets else True
 
@@ -115,15 +370,13 @@ class TreeSitterEngine:
         """Check if a language identifier or file extension is supported."""
         if lang_or_ext.startswith("."):
             return lang_or_ext.lower() in EXT_TO_LANG
-        return (
-            lang_or_ext.lower() in LANG_TO_GRAMMAR_PKG
-            or lang_or_ext.lower() in EXT_TO_LANG.values()
-        )
+        lang = LANG_ALIASES.get(lang_or_ext.lower(), lang_or_ext.lower())
+        return lang in LANG_TO_GRAMMAR or lang in EXT_TO_LANG.values()
 
     def _resolve_lang(self, lang_or_ext: str) -> str:
         if lang_or_ext.startswith("."):
             return EXT_TO_LANG.get(lang_or_ext.lower(), "python")
-        return lang_or_ext.lower()
+        return LANG_ALIASES.get(lang_or_ext.lower(), lang_or_ext.lower())
 
     def _load_native_parser(self, lang: str) -> tuple[Any, Any] | None:
         if not self._check_native_tree_sitter():
@@ -131,13 +384,13 @@ class TreeSitterEngine:
         with self._lock:
             if lang in self._parsers:
                 return self._parsers[lang], self._languages[lang]
-            pkg_name = LANG_TO_GRAMMAR_PKG.get(lang)
+            pkg_name, entry = LANG_TO_GRAMMAR.get(lang, ("", ""))
             if not pkg_name or not importlib.util.find_spec(pkg_name):
                 return None
             try:
                 ts_mod = importlib.import_module("tree_sitter")
                 grammar_mod = importlib.import_module(pkg_name)
-                ts_lang = ts_mod.Language(grammar_mod.language())
+                ts_lang = ts_mod.Language(getattr(grammar_mod, entry)())
                 parser = ts_mod.Parser(ts_lang)
                 self._parsers[lang] = parser
                 self._languages[lang] = ts_lang
@@ -154,15 +407,14 @@ class TreeSitterEngine:
         stack: list[tuple[Any, str | None]] = [(tree.root_node, None)]
         while stack:
             curr, scope = stack.pop()
-            node_type = getattr(curr, "type", "")
             next_scope = scope
-            if node_type in NATIVE_KIND_MAP:
-                name = _extract_node_name(curr)
+            declared = _native_symbol(curr)
+            if declared:
+                kind, name = declared
                 if name:
                     start_pt = getattr(curr, "start_point", (0, 0))
                     end_pt = getattr(curr, "end_point", (0, 0))
                     sig = lines[start_pt[0]].strip() if start_pt[0] < len(lines) else ""
-                    kind = NATIVE_KIND_MAP[node_type]
                     symbols.append(
                         PolyglotSymbol(
                             name=name,
@@ -187,31 +439,43 @@ class TreeSitterEngine:
         language_or_ext: str,
         path: str = "snippet",
     ) -> PolyglotFileMap:
-        """Parse source code string into PolyglotFileMap."""
+        """Parse source code string into PolyglotFileMap.
+
+        tree-sitter's result is kept when it finds symbols, or when the regex fallback finds
+        none either: a file that declares nothing (a `package-info.java`) was still parsed.
+        """
         lang = self._resolve_lang(language_or_ext)
+        native = self._parse_native(code, lang, path)
+        if native is not None and native.symbols:
+            return native
+        fallback = self._fallback.parse(path, code, lang)
+        return native if native is not None and not fallback.symbols else fallback
+
+    def _parse_native(self, code: str, lang: str, path: str) -> PolyglotFileMap | None:
+        """The file as tree-sitter parses it, or None without a grammar for the language."""
         pair = self._load_native_parser(lang)
-        if pair is not None:
-            parser, _ = pair
-            try:
-                tree = parser.parse(bytes(code, "utf-8"))
-                symbols = self._extract_native_symbols(tree, code, lang)
-                if symbols:
-                    return PolyglotFileMap(
-                        path=path,
-                        language=lang,
-                        symbols=symbols,
-                        line_count=len(code.splitlines()) if code else 0,
-                        parse_engine="tree-sitter",
-                    )
-            except Exception as exc:
-                logger.debug("Native parse failed for %s, falling back: %s", lang, exc)
-        return self._fallback.parse(path, code, lang)
+        if pair is None:
+            return None
+        parser, _ = pair
+        try:
+            tree = parser.parse(bytes(code, "utf-8"))
+        except Exception as exc:
+            logger.debug("Native parse failed for %s, falling back: %s", lang, exc)
+            return None
+        return PolyglotFileMap(
+            path=path,
+            language=lang,
+            symbols=self._extract_native_symbols(tree, code, lang),
+            line_count=len(code.splitlines()) if code else 0,
+            parse_engine="tree-sitter",
+        )
 
     def parse_file(self, file_path: Path) -> PolyglotFileMap | None:
         """Parse source file with mtime-indexed in-memory caching."""
         lang = detect_language(file_path)
         if not lang:
             return None
+        is_header = file_path.suffix.lower() == ".h"
 
         try:
             stat = file_path.stat()
@@ -231,6 +495,8 @@ class TreeSitterEngine:
         except OSError:
             return None
 
+        if is_header:
+            lang = _header_language(content)
         file_map = self.parse_code(content, lang, path=str(file_path))
 
         with self._lock:

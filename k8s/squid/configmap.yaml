@@ -88,6 +88,12 @@ data:
     http_access deny !Safe_ports
     http_access deny CONNECT !SSL_ports
 
+    # Protect internal cluster services from egress bypass via forward proxy
+    acl to_internal_ips dst 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 169.254.0.0/16
+    acl to_internal_domains dstdomain .cluster.local .svc .local .lan
+    http_access deny to_internal_ips
+    http_access deny to_internal_domains
+
     # Allow local network & cluster pod access
     http_access allow localnet
     http_access allow localhost
@@ -119,7 +125,12 @@ data:
     # -------------------------------------------------------------------------
     # Streaming, Range Requests & Resumed Pulls
     # -------------------------------------------------------------------------
-    # Force full object download on range requests (critical for chunked model downloads)
+    # Ollama downloads each blob from its R2 bucket as many parallel byte ranges. Fetching the
+    # whole object for those makes every range wait for squid to read the blob from byte 0, so the
+    # ranges stall and Ollama aborts them. Forward them unchanged; they are not cached.
+    acl ollama_blob_storage dstdomain .r2.cloudflarestorage.com
+    range_offset_limit 0 ollama_blob_storage
+    # Fetch the whole object for other range requests so resumed downloads fill the cache.
     range_offset_limit -1
     quick_abort_min -1
     quick_abort_max -1

@@ -43,10 +43,10 @@ app = new_typer(help=HELP.uv.app, no_args_is_help=True)
 
 
 def _get_project_root() -> Path:
-    """Find repository root containing pyproject.toml or .git."""
-    from devops_cli.core.repo import find_top_level_repo_root
+    """Find repository or worktree root containing pyproject.toml or .git."""
+    from devops_cli.core.repo import find_worktree_root
 
-    return find_top_level_repo_root()
+    return find_worktree_root()
 
 
 def _run(cmd: Sequence[str]) -> None:

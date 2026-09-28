@@ -1,8 +1,7 @@
 # Task 283: Dynamic Slot Leasing, Context-Aware Review Analysis & Telemetry Deduplication
 
 **Issue**: [#283](https://github.com/dan-petty/devops-cli/issues/283)
-**PR**: [#284](https://github.com/dan-petty/devops-cli/pull/284)
-**Status**: Merged
+**Status**: Done
 **Milestone**: `v0.2.21`
 **Priority**: `priority/p0-critical`
 **Scope**: `scope/ai`, `scope/cli`, `scope/telemetry`

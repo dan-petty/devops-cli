@@ -8,7 +8,7 @@ from pathlib import Path
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.defaults import DEFAULT_MAX_COMPLEXITY, DEFAULT_MAX_NESTING_DEPTH
-from devops_cli.core.repo import find_top_level_repo_root, list_repo_files
+from devops_cli.core.repo import find_worktree_root, list_repo_files
 
 
 @dataclass
@@ -214,13 +214,12 @@ def run_complexity_scan(
 
     if target.is_file() and target.suffix == ".py":
         files = [target]
+        root = find_worktree_root(target)
     elif target.is_dir():
-        root = find_top_level_repo_root(target)
+        root = find_worktree_root(target)
         files = [p for p in list_repo_files(target) if p.suffix == ".py" and not p.is_symlink()]
     else:
         return findings
-
-    root = find_top_level_repo_root(Path.cwd())
     for py_file in files:
         rep = analyze_file_complexity(py_file)
         try:

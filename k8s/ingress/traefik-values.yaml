@@ -1,0 +1,22 @@
+# Traefik Helm Chart Values for Cloudflare Tunnel Integration
+# Configures Traefik as an internal ClusterIP ingress controller so external traffic
+# enters solely through the authenticated Cloudflare Tunnel.
+
+service:
+  spec:
+    type: ClusterIP
+
+ports:
+  web:
+    forwardedHeaders:
+      insecure: true
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL

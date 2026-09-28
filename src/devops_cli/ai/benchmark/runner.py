@@ -44,12 +44,9 @@ _BENCHMARK_PEER_GRADER_SYSTEM_PROMPT = load_task_prompt("benchmark_peer_grader_s
 
 def _get_benchmarks_base_dir() -> Path:
     """Resolve benchmarks base directory dynamically from settings."""
-    from devops_cli.core.repo import find_top_level_repo_root
+    from devops_cli.core.repo import resolve_data_path
 
-    settings = load_settings()
-    d = settings.data.benchmarks_dir
-    if not d.is_absolute():
-        d = (find_top_level_repo_root() / d).resolve()
+    d = resolve_data_path(load_settings().data.benchmarks_dir)
     d.mkdir(parents=True, exist_ok=True)
     return d
 

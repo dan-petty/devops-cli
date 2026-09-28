@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from devops_cli.config.defaults import DEFAULT_SANDBOX_INSTANCES_FILE
+from devops_cli.core.repo import resolve_data_path
 from devops_cli.exceptions.sandbox import SandboxError, SandboxNotFoundError
 from devops_cli.sandbox.models import PortBinding, SandboxInstance, SandboxStatus
 
@@ -20,11 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 def get_default_sandbox_registry_path() -> Path:
-    """Resolve default sandbox registry file path honoring DEVOPS_CLI_DATA_DIR."""
+    """Resolve default sandbox registry file path honoring DEVOPS_CLI_DATA_DIR; a relative one is
+    under the main worktree, shared by every worktree."""
     env_dir = os.environ.get("DEVOPS_CLI_DATA_DIR")
     if env_dir:
-        return Path(env_dir) / "sandbox" / "instances.json"
-    return DEFAULT_SANDBOX_INSTANCES_FILE
+        return resolve_data_path(Path(env_dir)) / "sandbox" / "instances.json"
+    return resolve_data_path(DEFAULT_SANDBOX_INSTANCES_FILE)
 
 
 class SandboxRegistry:

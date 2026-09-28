@@ -57,7 +57,7 @@ def test_resolve_audit_log_dest_and_stream_default_settings(
 
     with (
         patch("devops_cli.config.settings.load_settings", return_value=mock_settings),
-        patch("devops_cli.core.repo.find_top_level_repo_root", return_value=tmp_path),
+        patch("devops_cli.core.repo.main_worktree_root", return_value=tmp_path),
     ):
         resolved = _resolve_audit_log_dest(None)
         assert resolved == (tmp_path / ".data" / "audit.jsonl").resolve()

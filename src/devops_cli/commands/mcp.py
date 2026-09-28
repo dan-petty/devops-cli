@@ -132,7 +132,10 @@ def export_schemas_cmd(
     from devops_cli.ai.mcp.server import mcp
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    tools = asyncio.run(mcp.list_tools())
+    # The registry, not the client-facing listing: exported schemas document the whole
+    # catalogue, and `mcp.list_tools()` runs the domain gate, which would cut the export
+    # to the eager domains alone.
+    tools = asyncio.run(mcp._list_tools())
 
     count = 0
     for t in tools:

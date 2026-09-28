@@ -1,0 +1,31 @@
+# Persistent Hugging Face model cache for vLLM profiles.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vllm-model-cache
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-model-cache
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 64Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vllm-single-model-cache
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: vllm-single-model-cache
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 32Gi

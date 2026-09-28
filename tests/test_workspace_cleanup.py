@@ -6,7 +6,16 @@ import os
 import time
 from pathlib import Path
 
+import pytest
+
 from devops_cli.core.cleanup import cleanup_data_tier
+
+
+@pytest.fixture(autouse=True)
+def default_data_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clean the default `.data` under each test's `repo_root`: the suite-wide absolute
+    `DEVOPS_CLI_DATA_DIR` would otherwise decide the directory whatever `repo_root` is."""
+    monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
 
 
 def test_cleanup_data_tier_pruning(tmp_path: Path) -> None:
@@ -48,13 +57,8 @@ def test_cleanup_data_tier_dry_run(tmp_path: Path) -> None:
 
 
 def test_cleanup_data_tier_directory_pruning_and_missing_dir(tmp_path: Path) -> None:
-    """Verify cleanup_data_tier handles directory pruning and non-existent data_dir."""
-    # 1. Non-existent .data dir
-    empty_summary = cleanup_data_tier(repo_root=tmp_path / "nonexistent")
-    assert len(empty_summary.pruned_files) == 0
-    assert len(empty_summary.pruned_dirs) == 0
-
-    # 2. Directory pruning
+    """Verify cleanup_data_tier prunes a stale session directory under `repo_root`'s data
+    directory, and prunes nothing for a `repo_root` whose data directory does not exist."""
     data_dir = tmp_path / ".data" / "reviews"
     data_dir.mkdir(parents=True, exist_ok=True)
     old_dir = data_dir / "20260101-session"
@@ -65,6 +69,17 @@ def test_cleanup_data_tier_directory_pruning_and_missing_dir(tmp_path: Path) -> 
     ten_days_ago = time.time() - (10 * 86400)
     os.utime(old_dir, (ten_days_ago, ten_days_ago))
 
+    # 1. A missing data directory: the stale session elsewhere is not its to prune.
+    missing_root = tmp_path / "nonexistent"
+    empty_summary = cleanup_data_tier(repo_root=missing_root)
+    assert (
+        (missing_root / ".data").exists(),
+        empty_summary.pruned_files,
+        empty_summary.pruned_dirs,
+        old_dir.exists(),
+    ) == (False, [], [], True)
+
+    # 2. Directory pruning
     summary = cleanup_data_tier(repo_root=tmp_path, older_than_seconds=7 * 86400, dry_run=False)
     assert len(summary.pruned_dirs) == 1
     assert "20260101-session" in summary.pruned_dirs[0]

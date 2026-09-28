@@ -177,6 +177,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops devcontainer update [OPTIONS] <repo_path>` | Update the Python image version in an existing devcontainer.json. |
 |  | `devops devcontainer validate [OPTIONS]` | Validate .devcontainer/devcontainer.json manifest syntax and configuration schema. |
 |  | `devops devcontainer list [OPTIONS]` | List repos with their devcontainer status. |
+|  | `devops devcontainer unlock-keyring` | Create or unlock the gnome-keyring login keyring that gh, git and devops store secrets in. |
 |  | `devops devcontainer post-create [OPTIONS]` | Execute DevContainer post-create setup tasks (history, shell completions, config prep). |
 |  | `devops devcontainer post-start [OPTIONS]` | Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync). |
 |  | `devops devcontainer run-lifecycle [OPTIONS]` | Run specified DevContainer lifecycle hook tasks natively in Python. |
@@ -185,12 +186,13 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops workspace remove [OPTIONS] <repo_path>` | Remove a folder from the VS Code workspace file. |
 |  | `devops workspace generate [OPTIONS]` | Regenerate the workspace file from all repos in the repos directory. |
 |  | `devops workspace open [OPTIONS]` | Open the workspace in VS Code. |
-|  | `devops workspace clean [OPTIONS]` | Clean stale review sessions, old analysis caches, and temporary traces under .data/. |
+|  | `devops workspace clean [OPTIONS]` | Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory. |
 | **install-tools** | `devops install-tools status [OPTIONS]` | Show installation status and versions for all managed tools. |
 | **k8s** | `devops k8s contexts` | List kubeconfig contexts and mark the active one. |
 |  | `devops k8s switch-context <name>` | Switch active kubeconfig context and ensure cluster is running. |
 |  | `devops k8s status` | Show node and pod summary for the current context. |
 |  | `devops k8s apply [OPTIONS] <path>` | Apply a Kubernetes manifest (delegates to kubectl). |
+|  | `devops k8s render [OPTIONS] <path>` | Render Kubernetes manifest templates with domain and variables substituted. |
 |  | `devops k8s logs [OPTIONS] <pod> <query_arg>` | Stream pod logs or execute LogQL queries across cluster log streams. |
 |  | `devops k8s bootstrap [OPTIONS]` | Bootstrap minikube Kubernetes cluster and deploy infrastructure/LLM stack. |
 |  | `devops k8s bootstrap-openwebui [OPTIONS]` | Bootstrap or activate a local administrator account for Open-WebUI. |
@@ -198,7 +200,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops k8s sync-secrets [OPTIONS]` | Fetch stack admin credentials (ArgoCD, Grafana) from Kubernetes and store in OS Keyring. |
 |  | `devops k8s configure-urls [OPTIONS]` | Auto-detect Kubernetes stack URLs and update CLI config. |
 |  | `devops k8s service-url [OPTIONS] <service>` | Show, or fetch from, a cluster service address that needs no port-forward. |
-|  | `devops k8s port-forward [OPTIONS]` | Port-forward k8s monitoring / LLM stack services to localhost ports and update CLI config. |
+|  | `devops k8s port-forward [OPTIONS]` | Port-forward k8s monitoring / LLM stack services to localhost ports. |
 |  | `devops k8s port-forward-status` | List active background Kubernetes port-forward daemons. |
 |  | `devops k8s port-forward-stop [OPTIONS]` | Terminate active background Kubernetes port-forward daemons. |
 |  | `devops k8s teardown-stack [OPTIONS]` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
@@ -215,6 +217,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops k8s chaos [OPTIONS] <experiment>` | Run resilience and chaos experiments against Kubernetes workloads. |
 |  | `devops k8s pods [OPTIONS]` | List running pods with health status, restart counts, and age. |
 |  | `devops k8s security-stream [OPTIONS]` | Stream runtime security anomaly events from Kubernetes Falco eBPF probes. |
+|  | `devops k8s gpu-matrix [OPTIONS]` | Query traditional homelab GPU matrix and model service alias mappings. |
 | **kustomize** | `devops kustomize build [OPTIONS] <path>` | Build kustomize overlays (delegates to kustomize build). |
 |  | `devops kustomize diff <path>` | Show a diff of pending changes (delegates to kubectl diff -k). |
 |  | `devops kustomize apply [OPTIONS] <path>` | Apply a kustomization (delegates to kubectl apply -k). |
@@ -291,7 +294,6 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai bundle-models [OPTIONS]` | Bundle Ollama model metadata into tarball for air-gapped DevContainers. |
 |  | `devops ai pipeline [OPTIONS] <prompt>` | Run a multi-agent Pydantic pipeline with shared DevOps tools and RAG context. |
 |  | `devops ai token-count [OPTIONS] <target>` | Calculate exact BPE tokens for text or files using tiktoken context budgeting. |
-|  | `devops ai route [OPTIONS] <task>` | Evaluate task complexity and determine the optimal LLM provider and model route. |
 |  | `devops ai spec [OPTIONS] <spec_path>` | Verify codebase against executable markdown architecture specification contracts. |
 |  | `devops ai repomap [OPTIONS]` | Generate compact whole-repository AST symbol and relationship map. |
 |  | `devops ai audit-library-usage [OPTIONS]` | Audit workspace code for library API drift and deprecated calls. |
@@ -314,6 +316,7 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops ai ingest COMMAND [ARGS]...` | Ingest library API contracts, type stubs, and documentation. |
 |  | `devops ai ast COMMAND [ARGS]...` | Tree-Sitter multilingual AST concrete syntax tree parsing and code graph synthesis. |
 |  | `devops ai gateway COMMAND [ARGS]...` | LLM Gateway and distributed inference mesh management. |
+|  | `devops ai runs COMMAND [ARGS]...` | Benchmark and evaluation runs, kept in the data directory and shared through Valkey. |
 |  | `devops ai cost [OPTIONS] COMMAND [ARGS]...` | Track approximate lifetime spend and manage model pricing. |
 |  | `devops ai spend [OPTIONS] COMMAND [ARGS]...` | Alias for 'cost' command. |
 | **review** | `devops review path [OPTIONS] <targets>` | Review source files directly (no git required). |
@@ -322,9 +325,12 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops review findings [OPTIONS] <session>` | Inspect structured findings for a review session. |
 |  | `devops review verify [OPTIONS] <session>` | Validate or invalidate a review finding, persisting feedback reasons. |
 |  | `devops review stats [OPTIONS]` | Compute and display review accuracy statistics across saved sessions. |
+|  | `devops review benchmark [OPTIONS] <targets>` | Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage. |
 |  | `devops review export-feedback [OPTIONS]` | Export review findings into a JSONL benchmark dataset for prompt tuning and fine-tuning. |
-|  | `devops review apply-patch [OPTIONS] <session>` | Apply suggested LLM code fix for a verified finding. |
-|  | `devops review auto-fix [OPTIONS] <finding_id>` | Create a corrective topic branch with verified unit test patch for an approved finding. |
+|  | `devops review corpus COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
+|  | `devops review samples COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
+|  | `devops review templates COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
+|  | `devops review hallucinations COMMAND [ARGS]...` | AI-powered multi-persona code review and security audits. |
 | **mcp** | `devops mcp serve [OPTIONS]` | Launch FastMCP server to expose devops-cli tools to MCP clients. |
 |  | `devops mcp tools` | List all registered FastMCP tools and descriptions. |
 |  | `devops mcp export-schemas [OPTIONS]` | Export FastMCP tool JSON schemas and instructions for MCP clients. |
@@ -387,10 +393,15 @@ The comprehensive Value vs. Effort Prioritization Matrix, phased milestone deliv
 |  | `devops tls verify [OPTIONS] <cert_path>` | Verify an X.509 certificate cryptographic chain against a CA certificate. |
 |  | `devops tls enable-k8s [OPTIONS]` | Generate and apply TLS secrets (kubernetes.io/tls) across Kubernetes namespaces. |
 | **telemetry** | `devops telemetry status` | Check OpenTelemetry collector health, Jaeger endpoint, and trace propagation status. |
+|  | `devops telemetry connect [OPTIONS]` | Find the cluster's OpenTelemetry collector, check it answers, and send telemetry there. |
 |  | `devops telemetry logfire [OPTIONS]` | Display Logfire structured observability bridge status and token metrics. |
 |  | `devops telemetry test [OPTIONS]` | Emit a test OpenTelemetry trace span and metric to the configured collector. |
 |  | `devops telemetry profile [OPTIONS] <command>` | Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans. |
 |  | `devops telemetry open-ui` | Print and show the Jaeger Query UI endpoint for inspecting traces. |
+| **cloudflare** | `devops cloudflare status [OPTIONS]` | Verify Cloudflare API token authentication and inspect zone status. |
+|  | `devops cloudflare dns COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |
+|  | `devops cloudflare tunnel COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |
+|  | `devops cloudflare access COMMAND [ARGS]...` | Cloudflare Zero Trust tunnels and DNS management. |
 | **serve** | `devops serve [OPTIONS]` | FastAPI REST & OpenAPI Service Engine for remote automation, health probes, and metrics. |
 | **test** | `devops test run [OPTIONS] <target>` | Execute pytest test suite with optional git-diff aware test selection. |
 |  | `devops test load [OPTIONS] <script_path>` | Execute developer-centric load, spike, and latency tests against services using k6. |

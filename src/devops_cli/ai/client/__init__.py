@@ -7,6 +7,7 @@ import httpx2
 from devops_cli.ai.client.models import (
     MAX_STREAM_BYTES,
     AIClientError,
+    AICredentialsError,
     LLMResponse,
     RequestPriority,
     _is_json_error_payload,
@@ -41,10 +42,11 @@ from devops_cli.ai.client.unified import (
 
 __all__ = [
     "ALLOW_PRIVATE_NETWORK_ENV",
+    "MAX_STREAM_BYTES",
     "AIClientError",
+    "AICredentialsError",
     "LLMClient",
     "LLMResponse",
-    "MAX_STREAM_BYTES",
     "RequestPriority",
     "StreamingReasoningSanitizer",
     "StreamingTokenProcessor",
