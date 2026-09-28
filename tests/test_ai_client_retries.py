@@ -132,3 +132,26 @@ def test_provider_uses_shared_client_and_retry_transport() -> None:
 
     shared = client._shared_client()
     assert (shared is not None, hasattr(shared, "post")) == (True, True)
+
+
+def test_provider_http_error_sanitizes_html_error_response() -> None:
+    """Verify _provider_http_error cleans HTML error responses to prevent HTML leakage."""
+    client = LLMClient(AIConfig(provider="openai", api_key="sk-test"))
+    req = httpx2.Request("POST", "https://example.com/v1/chat/completions")
+    html_body = (
+        "<!DOCTYPE html><!--[if IE 7]><html class='ie7'><![endif]-->"
+        "<head><title>524: A timeout occurred</title></head>"
+        "<body><h1>Error</h1><p>Cloudflare timeout</p></body></html>"
+    )
+    resp_524 = httpx2.Response(524, request=req, text=html_body)
+    err = client._provider_http_error(
+        httpx2.HTTPStatusError("524", request=req, response=resp_524), "Request failed"
+    )
+    err_str = str(err)
+    assert (
+        "524: A timeout occurred" in err_str,
+        "<!DOCTYPE html>" not in err_str,
+        "<html>" not in err_str,
+        "<head>" not in err_str,
+        "<body" not in err_str,
+    ) == (True, True, True, True, True)

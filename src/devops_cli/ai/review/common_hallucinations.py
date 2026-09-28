@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import warnings
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -406,7 +407,9 @@ def _file_defines_symbol(path: Path, sym: str) -> bool:
         return False
     try:
         content = path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(content)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(content)
         if sym in _extract_defined_ast_names(tree):
             return True
         return any(pattern in content for pattern in (f"def {sym}", f"class {sym}", f"{sym} ="))
@@ -474,7 +477,9 @@ def _verify_syntax_grammar_ground_truth(
     if file_path.suffix.lower() != ".py":
         return False
     try:
-        tree = ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
     except SyntaxError:
         return False
     del tree
@@ -723,7 +728,9 @@ def calculate_hallucination_similarity(
 
         if file_path and file_path.exists() and file_path.suffix.lower() == ".py":
             try:
-                ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", SyntaxWarning)
+                    ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
             except SyntaxError:
                 # Real syntax error in source! Never match as hallucination.
                 return HallucinationMatch(

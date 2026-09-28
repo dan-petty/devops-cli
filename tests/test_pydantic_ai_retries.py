@@ -37,16 +37,26 @@ class TestPydanticAIRetriesSubsystem:
         assert callable(create_async_retry_transport)
 
     def test_is_retryable_status_code(self) -> None:
-        """Test predicate identifying transient HTTP error codes."""
-        assert is_retryable_status_code(429) is True
-        assert is_retryable_status_code(500) is True
-        assert is_retryable_status_code(502) is True
-        assert is_retryable_status_code(503) is True
-        assert is_retryable_status_code(504) is True
-        assert is_retryable_status_code(200) is False
-        assert is_retryable_status_code(400) is False
-        assert is_retryable_status_code(401) is False
-        assert is_retryable_status_code(404) is False
+        """Test predicate identifying transient HTTP error codes including 524 Cloudflare timeouts."""
+        statuses = (408, 429, 500, 502, 503, 504, 520, 524, 529, 200, 400, 401, 403, 404)
+        results = tuple(is_retryable_status_code(code) for code in statuses)
+        expected = (
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            False,
+            False,
+            False,
+            False,
+            False,
+        )
+        assert results == expected
 
     def test_create_retry_config_defaults(self) -> None:
         """Verify default RetryConfig creation with exponential backoff and wait_retry_after."""
@@ -184,18 +194,71 @@ class TestPydanticAIRetriesSubsystem:
         import devops_cli.ai.agents
         import devops_cli.ai.agents.pydantic_agent
 
+        expected_symbols = (
+            "HTTPX2TenacityTransport",
+            "AsyncHTTPX2TenacityTransport",
+            "TenacityTransport",
+            "AsyncTenacityTransport",
+            "RetryConfig",
+            "wait_retry_after",
+            "create_retry_config",
+            "create_retry_transport",
+            "create_async_retry_transport",
+            "normalize_agent_retries",
+        )
         for pkg in (
             devops_cli.ai,
             devops_cli.ai.agents,
             devops_cli.ai.agents.pydantic_agent,
         ):
-            assert hasattr(pkg, "HTTPX2TenacityTransport")
-            assert hasattr(pkg, "AsyncHTTPX2TenacityTransport")
-            assert hasattr(pkg, "TenacityTransport")
-            assert hasattr(pkg, "AsyncTenacityTransport")
-            assert hasattr(pkg, "RetryConfig")
-            assert hasattr(pkg, "wait_retry_after")
-            assert hasattr(pkg, "create_retry_config")
-            assert hasattr(pkg, "create_retry_transport")
-            assert hasattr(pkg, "create_async_retry_transport")
-            assert hasattr(pkg, "normalize_agent_retries")
+            assert all(hasattr(pkg, s) for s in expected_symbols)
+
+    def test_httpx2_tenacity_transport_retries_on_http_524(self) -> None:
+        """Verify sync HTTPX2TenacityTransport retries and recovers on Cloudflare HTTP 524 gateway timeout."""
+        attempts = 0
+
+        class CloudflareTimeoutTransport(httpx2.BaseTransport):
+            def handle_request(self, request: httpx2.Request) -> httpx2.Response:
+                nonlocal attempts
+                attempts += 1
+                if attempts < 3:
+                    html_error = "<!DOCTYPE html><html><head><title>524: A timeout occurred</title></head><body>error</body></html>"
+                    return httpx2.Response(524, text=html_error, request=request)
+                return httpx2.Response(200, json={"status": "recovered"}, request=request)
+
+        transport = create_retry_transport(
+            max_attempts=4,
+            min_wait=0.001,
+            max_wait=0.01,
+            wrapped=CloudflareTimeoutTransport(),
+        )
+        with httpx2.Client(transport=transport) as client:
+            resp = client.post("https://example.com/v1/chat/completions", json={"prompt": "hi"})
+            assert (resp.status_code, resp.json(), attempts) == (200, {"status": "recovered"}, 3)
+
+    def test_read_limited_json_rejects_4xx_and_5xx_responses(self) -> None:
+        """Verify read_limited_json always treats 4xx and 5xx responses as HTTP errors and never parses them."""
+        from devops_cli.ai.client.network import read_limited_json
+
+        req = httpx2.Request("POST", "https://example.com/ai")
+        resp_524 = httpx2.Response(
+            524,
+            text="<!DOCTYPE html><html><title>524: A timeout occurred</title></html>",
+            request=req,
+        )
+        with pytest.raises(httpx2.HTTPStatusError) as exc_info_524:
+            read_limited_json(resp_524)
+
+        resp_500 = httpx2.Response(500, text='{"error": "internal"}', request=req)
+        with pytest.raises(httpx2.HTTPStatusError) as exc_info_500:
+            read_limited_json(resp_500)
+
+        resp_404 = httpx2.Response(404, text='{"error": "not found"}', request=req)
+        with pytest.raises(httpx2.HTTPStatusError) as exc_info_404:
+            read_limited_json(resp_404)
+
+        assert (
+            exc_info_524.value.response.status_code,
+            exc_info_500.value.response.status_code,
+            exc_info_404.value.response.status_code,
+        ) == (524, 500, 404)

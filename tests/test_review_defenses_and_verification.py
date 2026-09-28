@@ -279,3 +279,41 @@ def test_offline_pricing_and_mitigation_ledger_hallucinations() -> None:
     ledger_verified = verify_ground_truth_hallucination(ledger_finding, ledger_entry, ledger_file)
 
     assert (pricing_verified, ledger_verified) == (True, True)
+
+
+def test_check_python_script_suppresses_invalid_escape_syntax_warning() -> None:
+    """Verify _check_python_script and execute_criterion_command suppress SyntaxWarning from invalid escapes."""
+    import warnings
+    from unittest.mock import MagicMock
+
+    from devops_cli.ai.review.review_environment import (
+        _check_python_script,
+        execute_criterion_command,
+        validate_criteria_command,
+    )
+
+    script_with_invalid_escape = "val = 'C:\\windows\\path'; re_val = '\\w+'"
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        err = _check_python_script(script_with_invalid_escape)
+
+    syntax_warnings = [w for w in recorded if issubclass(w.category, SyntaxWarning)]
+    assert (err, len(syntax_warnings)) == (None, 0)
+
+    cmd = "python -c \"val = 'C:\\\\windows\\\\path'\""
+    with warnings.catch_warnings(record=True) as recorded_cmd:
+        warnings.simplefilter("always")
+        is_valid, reason, args = validate_criteria_command(cmd)
+
+    cmd_warnings = [w for w in recorded_cmd if issubclass(w.category, SyntaxWarning)]
+    assert (is_valid, reason, len(cmd_warnings)) == (True, None, 0)
+
+    mock_sb = MagicMock()
+    mock_sb.is_available.return_value = True
+    mock_sb.execute.return_value = MagicMock(
+        exit_code=0, stdout="ok", stderr="", duration_seconds=0.1, passed=True, error=None
+    )
+
+    execute_criterion_command(cmd, cwd=Path("/tmp"), sandbox=mock_sb)
+    call_args = mock_sb.execute.call_args[1]["args"]
+    assert (call_args[0], call_args[1:3]) == ("python", ["-W", "ignore::SyntaxWarning"])

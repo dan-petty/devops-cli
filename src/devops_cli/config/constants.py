@@ -2210,3 +2210,24 @@ CONST_CODE_EXEMPTION_RECEIVERS: Final[frozenset[str]] = frozenset(
         "session",
     }
 )
+
+# ── HTTP Retryable Status Codes ──────────────────────────────────────────────
+# Transient HTTP status codes indicating retryable server, gateway, or rate limit conditions.
+CONST_RETRYABLE_HTTP_STATUS_CODES: Final[tuple[int, ...]] = (
+    408,  # Request Timeout
+    429,  # Too Many Requests
+    500,  # Internal Server Error
+    502,  # Bad Gateway
+    503,  # Service Unavailable
+    504,  # Gateway Timeout
+    520,  # Web Server Returned an Unknown Error (Cloudflare)
+    521,  # Web Server Is Down (Cloudflare)
+    522,  # Connection Timed Out (Cloudflare)
+    523,  # Origin Is Unreachable (Cloudflare)
+    524,  # A Timeout Occurred (Cloudflare)
+    525,  # SSL Handshake Failed (Cloudflare)
+    526,  # Invalid SSL Certificate (Cloudflare)
+    527,  # Railgun Error (Cloudflare)
+    529,  # Site Is Overloaded (Anthropic / OpenAI)
+    530,  # Site Is Frozen / Origin DNS Error (Cloudflare)
+)

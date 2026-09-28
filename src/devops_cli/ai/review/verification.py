@@ -7,6 +7,7 @@ import functools
 import json
 import logging
 import re
+import warnings
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -375,7 +376,9 @@ def _check_syntax_error_hallucination(finding: Finding, file_path: Path) -> Find
 
     try:
         if suffix == ".py":
-            ast.parse(content)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                ast.parse(content)
         elif suffix == ".json":
             json.loads(content)
         elif suffix in {".yaml", ".yml"}:
@@ -441,7 +444,9 @@ def _check_missing_symbol_hallucination(finding: Finding, file_path: Path) -> Fi
 
     try:
         content = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(content)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(content)
         from devops_cli.ai.review.common_hallucinations import (
             _verify_symbol_defined_in_ast_or_module,
             auto_record_invalidated_finding,
@@ -879,7 +884,9 @@ def _is_uninitialized_claim(title_lower: str, desc_lower: str) -> bool:
 def _try_find_var_assignment(file_path: Path, var_name: str, target_line: int) -> int | None:
     try:
         content = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(content, filename=str(file_path))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(content, filename=str(file_path))
         return _find_enclosing_fn_assignment(tree, var_name, target_line)
     except (SyntaxError, OSError) as exc:
         logger.debug("Failed checking variable assignment in %s: %s", file_path, exc)

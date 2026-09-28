@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -360,7 +361,9 @@ def _read_file_safely(file_path: Path) -> str | None:
 def _parse_ast_safely(source: str, file_path: Path) -> ast.AST | None:
     """Read and parse Python source file AST, returning None on syntax error."""
     try:
-        return ast.parse(source, filename=str(file_path))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            return ast.parse(source, filename=str(file_path))
     except Exception:
         return None
 
