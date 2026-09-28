@@ -11,7 +11,7 @@ def extract_python_source_symbols(content: str | None) -> set[str]:
         return set()
     try:
         tree = ast.parse(content)
-    except Exception:
+    except SyntaxError, ValueError, RecursionError:
         return set()
 
     from devops_cli.ai.ast_cache import _extract_symbols_from_tree

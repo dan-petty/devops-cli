@@ -1,5 +1,6 @@
 """Unit tests for OpenTelemetry tracer and metrics emitter."""
 
+import os
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -9,6 +10,7 @@ from devops_cli.telemetry.tracer import (
     OTelTelemetryClient,
     get_tracer,
     record_metric,
+    reset_tracer,
     trace_span,
 )
 
@@ -509,3 +511,88 @@ def test_resolve_telemetry_settings_fallback(monkeypatch: pytest.MonkeyPatch) ->
     endpoint, enabled = _resolve_telemetry_settings()
     assert endpoint is None
     assert enabled is True
+
+
+def test_span_caller_location_and_runtime_attributes() -> None:
+    """Verify trace_span automatically enriches caller location, thread, and process metadata."""
+    client = OTelTelemetryClient(enabled=True)
+    with client.span("test_caller_span") as handle:
+        assert (
+            handle._attributes.get("code.function"),
+            handle._attributes.get("code.filepath", "").endswith("test_telemetry.py"),
+            isinstance(handle._attributes.get("code.lineno"), int),
+            isinstance(handle._attributes.get("thread.name"), str),
+            handle._attributes.get("process.pid"),
+        ) == (
+            "test_span_caller_location_and_runtime_attributes",
+            True,
+            True,
+            True,
+            os.getpid(),
+        )
+
+
+def test_span_vcs_and_k8s_attributes_detection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify trace_span populates VCS branch/commit and K8s context/namespace."""
+    reset_tracer()
+    monkeypatch.setattr(
+        "devops_cli.telemetry.tracer._read_git_head_ref",
+        lambda _: ("feat/telemetry-rich-attributes", "1234567890abcdef"),
+    )
+    monkeypatch.setattr(
+        "devops_cli.telemetry.tracer._detect_k8s_context",
+        lambda: ("mock-cluster", "mock-system"),
+    )
+
+    client = OTelTelemetryClient(enabled=True)
+    with client.span("test_vcs_span") as handle:
+        assert (
+            handle._attributes.get("vcs.ref.name"),
+            handle._attributes.get("vcs.revision_id"),
+            handle._attributes.get("k8s.context"),
+            handle._attributes.get("k8s.namespace"),
+        ) == (
+            "feat/telemetry-rich-attributes",
+            "1234567890abcdef",
+            "mock-cluster",
+            "mock-system",
+        )
+    reset_tracer()
+
+
+def test_cached_resource_attributes_enrichment() -> None:
+    """Verify OTelTelemetryClient pre-computes enriched system and environment resource attributes."""
+    client = OTelTelemetryClient(enabled=True)
+    res_keys = {attr["key"] for attr in client._cached_resource_attributes}
+    assert {
+        "service.name",
+        "service.version",
+        "host.name",
+        "host.arch",
+        "os.type",
+        "os.description",
+        "process.pid",
+        "process.executable.name",
+    }.issubset(res_keys)
+
+
+def test_record_llm_metrics_enriched() -> None:
+    """Verify record_llm_metrics attaches model, served_by, and tokens_per_second attributes."""
+    client = OTelTelemetryClient(enabled=True)
+    with client.span("test_genai_span") as handle:
+        handle.record_llm_metrics(
+            provider="openai",
+            model="gpt-4o",
+            response_model="gpt-4o-2024-08-06",
+            served_by="vllm-48gib",
+            token_rate=30.0,
+            prompt_tokens=120,
+            completion_tokens=60,
+            total_tokens=180,
+        )
+        assert (
+            handle._attributes.get("gen_ai.response.model"),
+            handle._attributes.get("gen_ai.server.served_by"),
+            handle._attributes.get("gen_ai.tokens_per_second"),
+            handle._attributes.get("gen_ai.token_rate_tok_per_sec"),
+        ) == ("gpt-4o-2024-08-06", "vllm-48gib", 30.0, 30.0)

@@ -367,9 +367,15 @@ def get_run(
     run_id: str, mechanism: Mechanism | None = None, root: Path | None = None
 ) -> RunRecord | None:
     """Find a run by exact ID or prefix, searching local files then the shared index."""
+    if not run_id or any(c in run_id for c in ("/", "\\", "..")):
+        return None
     base = root or runs_dir()
     pattern = f"{mechanism.value}/{run_id}*.json" if mechanism else f"*/{run_id}*.json"
-    matches = sorted(base.glob(pattern), key=lambda p: len(p.stem))
+    matches = [
+        p
+        for p in sorted(base.glob(pattern), key=lambda p: len(p.stem))
+        if p.is_file() and p.resolve().is_relative_to(base.resolve())
+    ]
     if matches:
         exact = [p for p in matches if p.stem == run_id]
         if exact:

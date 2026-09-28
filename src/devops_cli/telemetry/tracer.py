@@ -444,10 +444,16 @@ class SpanHandle(str):
         ttft_ms: float | None = None,
         duration_s: float | None = None,
         token_rate: float | None = None,
+        response_model: str | None = None,
+        served_by: str | None = None,
     ) -> None:
         """Record standard OpenTelemetry GenAI attributes on the active span."""
         self._attributes["gen_ai.system"] = provider
         self._attributes["gen_ai.request.model"] = model
+        if response_model is not None:
+            self._attributes["gen_ai.response.model"] = response_model
+        if served_by is not None:
+            self._attributes["gen_ai.server.served_by"] = served_by
         if prompt_tokens is not None:
             self._attributes["gen_ai.usage.prompt_tokens"] = prompt_tokens
             self._attributes["gen_ai.usage.input_tokens"] = prompt_tokens
@@ -462,6 +468,198 @@ class SpanHandle(str):
             self._attributes["gen_ai.duration_seconds"] = round(duration_s, 4)
         if token_rate is not None:
             self._attributes["gen_ai.token_rate_tok_per_sec"] = round(token_rate, 2)
+            self._attributes["gen_ai.tokens_per_second"] = round(token_rate, 2)
+
+
+def _read_packed_refs(git_dir: Path, ref: str) -> str | None:
+    """Read commit SHA for a ref from packed-refs file if present."""
+    packed_file = git_dir / "packed-refs"
+    if not packed_file.is_file():
+        return None
+    try:
+        content = packed_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in content.splitlines():
+        line = line.strip()
+        if line.endswith(ref) and len(line) >= 40:
+            candidate = line.split()[0]
+            if len(candidate) == 40:
+                return candidate
+    return None
+
+
+def _read_ref_file(git_dir: Path, ref: str) -> str | None:
+    """Read commit SHA from individual loose ref file if present."""
+    ref_file = git_dir / ref
+    if not ref_file.is_file():
+        return None
+    try:
+        val = ref_file.read_text(encoding="utf-8", errors="replace").strip()
+        return val if len(val) == 40 else None
+    except OSError:
+        return None
+
+
+def _read_git_head_ref(git_dir: Path) -> tuple[str | None, str | None]:
+    """Read branch name and commit SHA from git directory HEAD."""
+    head_file = git_dir / "HEAD"
+    if not head_file.is_file():
+        return None, None
+    try:
+        content = head_file.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None, None
+    if not content:
+        return None, None
+    if not content.startswith("ref:"):
+        sha = content if len(content) == 40 else None
+        return None, sha
+
+    ref = content.removeprefix("ref:").strip()
+    branch = ref.removeprefix("refs/heads/").strip() if ref.startswith("refs/heads/") else ref
+    sha = _read_ref_file(git_dir, ref) or _read_packed_refs(git_dir, ref)
+    return branch, sha
+
+
+def _resolve_git_dir_from_file(marker: Path) -> Path | None:
+    """Resolve target git directory from a .git file (e.g. worktree or submodule pointer)."""
+    try:
+        text = marker.read_text(encoding="utf-8", errors="replace").strip()
+        if text.startswith("gitdir:"):
+            target = (marker.parent / text.removeprefix("gitdir:").strip()).resolve()
+            return target if target.is_dir() else None
+    except OSError:
+        pass
+    return None
+
+
+def _resolve_git_dir(start_dir: Path | None = None) -> Path | None:
+    """Traverse upwards from start_dir to locate active .git directory or worktree."""
+    current = (start_dir or Path.cwd()).resolve()
+    for candidate in [current, *current.parents]:
+        marker = candidate / ".git"
+        if marker.is_dir():
+            return marker
+        if marker.is_file():
+            resolved = _resolve_git_dir_from_file(marker)
+            if resolved:
+                return resolved
+    return None
+
+
+@functools.lru_cache(maxsize=1)
+def _detect_vcs_metadata() -> dict[str, str]:
+    """Detect current Git branch and revision ID via zero-subprocess inspection."""
+    meta: dict[str, str] = {}
+    git_dir = _resolve_git_dir()
+    if git_dir is not None:
+        branch, sha = _read_git_head_ref(git_dir)
+        if branch:
+            meta["vcs.ref.name"] = branch
+            meta["vcs.branch"] = branch
+        if sha:
+            meta["vcs.revision_id"] = sha
+            meta["vcs.commit"] = sha
+    return meta
+
+
+@functools.lru_cache(maxsize=1)
+def _detect_k8s_context() -> tuple[str | None, str | None]:
+    """Detect active Kubernetes context and namespace from environment or settings."""
+    ctx = os.getenv("K8S_CONTEXT") or os.getenv("KUBECONFIG_CONTEXT")
+    ns = os.getenv("K8S_NAMESPACE") or os.getenv("POD_NAMESPACE")
+    if ctx and ns:
+        return ctx, ns
+    try:
+        from devops_cli.config.settings import load_settings
+
+        k8s_cfg = getattr(load_settings(), "k8s", None)
+        if k8s_cfg and not ctx:
+            ctx = getattr(k8s_cfg, "context", None)
+    except Exception:
+        pass
+    return ctx, ns
+
+
+def _is_telemetry_internal_frame(frame: Any) -> bool:
+    """Check if stack frame belongs to telemetry internals, logging, or contextlib."""
+    code = getattr(frame, "f_code", None)
+    if not code:
+        return True
+    filename = getattr(code, "co_filename", "")
+    return (
+        "telemetry/tracer.py" in filename
+        or "contextlib.py" in filename
+        or "logging/__init__.py" in filename
+    )
+
+
+def _normalize_code_filepath(filepath: str) -> str:
+    """Convert absolute workspace paths to relative paths for clean telemetry tags."""
+    try:
+        p = Path(filepath).resolve()
+        cwd = Path.cwd().resolve()
+        if p.is_relative_to(cwd):
+            return str(p.relative_to(cwd))
+        return str(p)
+    except Exception:
+        return filepath
+
+
+def _detect_caller_code_attributes(depth_offset: int = 1) -> dict[str, Any]:
+    """Inspect stack frame to extract caller source file, function name, and line number."""
+    attrs: dict[str, Any] = {}
+    try:
+        frame: Any = sys._getframe(depth_offset)
+        while frame is not None and _is_telemetry_internal_frame(frame):
+            frame = frame.f_back
+        if frame is not None:
+            code = getattr(frame, "f_code", None)
+            if code is not None:
+                filepath = getattr(code, "co_filename", "")
+                func_name = getattr(code, "co_name", "")
+                lineno = getattr(frame, "f_lineno", 0)
+                if filepath:
+                    attrs["code.filepath"] = _normalize_code_filepath(filepath)
+                if func_name:
+                    attrs["code.function"] = func_name
+                if lineno:
+                    attrs["code.lineno"] = lineno
+    except Exception:
+        pass
+    return attrs
+
+
+def _enrich_span_attributes(
+    attrs: dict[str, Any], *, name: str | None = None, depth_offset: int = 2
+) -> None:
+    """Enrich span attributes with caller location, thread, process, vcs, and k8s context."""
+    caller_attrs = _detect_caller_code_attributes(depth_offset=depth_offset)
+    for k, v in caller_attrs.items():
+        attrs.setdefault(k, v)
+
+    cur_thread = threading.current_thread()
+    attrs.setdefault("thread.name", cur_thread.name)
+    if cur_thread.ident:
+        attrs.setdefault("thread.id", cur_thread.ident)
+    attrs.setdefault("process.pid", os.getpid())
+
+    vcs = _detect_vcs_metadata()
+    if "vcs.ref.name" in vcs:
+        attrs.setdefault("vcs.ref.name", vcs["vcs.ref.name"])
+        attrs.setdefault("vcs.branch", vcs["vcs.ref.name"])
+    if "vcs.revision_id" in vcs:
+        attrs.setdefault("vcs.revision_id", vcs["vcs.revision_id"])
+        attrs.setdefault("vcs.commit", vcs["vcs.revision_id"])
+
+    k8s_ctx, k8s_ns = _detect_k8s_context()
+    if k8s_ctx:
+        attrs.setdefault("k8s.context", k8s_ctx)
+        attrs.setdefault("k8s.cluster.name", k8s_ctx)
+    if k8s_ns:
+        attrs.setdefault("k8s.namespace", k8s_ns)
+        attrs.setdefault("k8s.namespace.name", k8s_ns)
 
 
 _ATTRIBUTE_NORMALIZATION: dict[str, str] = {
@@ -488,19 +686,35 @@ _ATTRIBUTE_NORMALIZATION: dict[str, str] = {
 }
 
 
+_ALIAS_FALLBACKS: tuple[tuple[str, str], ...] = (
+    ("vcs.branch", "vcs.ref.name"),
+    ("vcs.commit", "vcs.revision_id"),
+    ("k8s.namespace", "k8s.namespace.name"),
+    ("k8s.context", "k8s.cluster.name"),
+)
+
+
+def _sync_attribute_aliases(attrs: dict[str, Any]) -> None:
+    """Populate canonical alias targets if source key is present and target is missing."""
+    for src, dst in _ALIAS_FALLBACKS:
+        if src in attrs and dst not in attrs:
+            attrs[dst] = attrs[src]
+
+
 def _normalize_and_deduplicate_attributes(attrs: dict[str, Any]) -> None:
     """Normalize legacy attribute names to OTel semantic conventions and eliminate duplicate tags."""
     for legacy_k, otel_k in _ATTRIBUTE_NORMALIZATION.items():
         if legacy_k in attrs:
-            if otel_k not in attrs:
-                attrs[otel_k] = attrs[legacy_k]
+            attrs.setdefault(otel_k, attrs[legacy_k])
             if legacy_k in ("cli.function", "cli.error"):
-                del attrs[legacy_k]
+                attrs.pop(legacy_k, None)
 
-    if "code.function" in attrs and "cli.function" in attrs:
-        del attrs["cli.function"]
-    if "error.message" in attrs and "cli.error" in attrs:
-        del attrs["cli.error"]
+    if "code.function" in attrs:
+        attrs.pop("cli.function", None)
+    if "error.message" in attrs:
+        attrs.pop("cli.error", None)
+
+    _sync_attribute_aliases(attrs)
 
 
 _current_trace_id_ctx: ContextVar[str | None] = ContextVar("otel_current_trace_id", default=None)
@@ -547,17 +761,39 @@ class OTelTelemetryClient:
         self.last_export_error = ""
 
         # Cache pre-computed resource attributes for zero-allocation reuse across all spans and metrics
+        vcs_meta = _detect_vcs_metadata()
+        vcs_res_attrs = [
+            {"key": k, "value": {"stringValue": v}}
+            for k, v in vcs_meta.items()
+            if k in ("vcs.revision_id", "vcs.ref.name")
+        ]
         self._cached_resource_attributes: list[dict[str, Any]] = [
             {"key": "service.name", "value": {"stringValue": self.service_name}},
             {"key": "service.version", "value": {"stringValue": self.service_version}},
             {"key": "host.name", "value": {"stringValue": self.host_name}},
+            {"key": "host.arch", "value": {"stringValue": platform.machine()}},
             {"key": "os.type", "value": {"stringValue": self.os_type}},
+            {"key": "os.description", "value": {"stringValue": platform.platform()}},
             {"key": "process.pid", "value": {"stringValue": str(os.getpid())}},
+            {"key": "process.executable.name", "value": {"stringValue": Path(sys.executable).name}},
             {"key": "process.runtime.name", "value": {"stringValue": "cpython"}},
             {"key": "process.runtime.version", "value": {"stringValue": platform.python_version()}},
             {"key": "telemetry.sdk.name", "value": {"stringValue": "devops-cli-otel"}},
             {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
+            *vcs_res_attrs,
         ]
+        k8s_ctx, _ = _detect_k8s_context()
+        if k8s_ctx:
+            self._cached_resource_attributes.append(
+                {"key": "k8s.cluster.name", "value": {"stringValue": k8s_ctx}}
+            )
+        if sys.argv:
+            from devops_cli.security.sanitizer import mask_secrets
+
+            clean_cmd = mask_secrets(" ".join(sys.argv))
+            self._cached_resource_attributes.append(
+                {"key": "process.command_line", "value": {"stringValue": clean_cmd}}
+            )
         # Metrics identify their source by host, not process: every command is a short-lived
         # process, and the collector adds up each series' deltas across them. A process id or
         # version would split one host's counter into many; the instance id names the host.
@@ -829,6 +1065,7 @@ class OTelTelemetryClient:
         token_span = _current_span_id_ctx.set(span_id)
 
         attrs = dict(attributes or {})
+        _enrich_span_attributes(attrs, name=name, depth_offset=2)
         _normalize_and_deduplicate_attributes(attrs)
 
         handle = SpanHandle(span_id, attrs)
@@ -1119,6 +1356,10 @@ def reset_tracer() -> None:
     """Reset the global tracer instance (used for testing)."""
     global _GLOBAL_TRACER
     _GLOBAL_TRACER = None
+    if hasattr(_detect_vcs_metadata, "cache_clear"):
+        _detect_vcs_metadata.cache_clear()
+    if hasattr(_detect_k8s_context, "cache_clear"):
+        _detect_k8s_context.cache_clear()
 
 
 @contextlib.contextmanager

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 
 from devops_cli.ai.client import AIClientError, LLMClient, LLMResponse
@@ -83,3 +84,51 @@ def test_llm_client_chat_exhausts_retries_and_raises(
         client.chat(system="sys", user="user")
 
     assert mock_dispatch.call_count == 2  # initial + 1 retry
+
+
+def test_provider_http_error_informative_formatting() -> None:
+    """Verify _provider_http_error distinguishes credentials, HTTP status codes, and network errors."""
+    client = LLMClient(AIConfig(provider="openai", api_key="sk-test"))
+
+    # 1. HTTP 504 Gateway Timeout with body
+    req = httpx2.Request("POST", "https://example.com/v1/chat/completions")
+    resp_504 = httpx2.Response(504, request=req, text="Gateway Timeout from upstream")
+    err_504 = client._provider_http_error(
+        httpx2.HTTPStatusError("504", request=req, response=resp_504), "Request failed"
+    )
+    assert (
+        "HTTP 504" in str(err_504),
+        "Gateway Timeout from upstream" in str(err_504),
+    ) == (True, True)
+
+    # 2. HTTP 429 Rate Limit with body
+    resp_429 = httpx2.Response(429, request=req, text="Too Many Requests")
+    err_429 = client._provider_http_error(
+        httpx2.HTTPStatusError("429", request=req, response=resp_429), "Request failed"
+    )
+    assert ("HTTP 429" in str(err_429), "Too Many Requests" in str(err_429)) == (True, True)
+
+    # 3. HTTP 401/403 credentials error
+    resp_401 = httpx2.Response(401, request=req)
+    err_401 = client._provider_http_error(
+        httpx2.HTTPStatusError("401", request=req, response=resp_401), "Request failed"
+    )
+    assert "OpenAI" in str(err_401) or "openai" in str(err_401)
+
+    # 4. Network error without response
+    net_err = httpx2.ConnectError("Connection refused by peer")
+    err_net = client._provider_http_error(net_err, "Fallback failure message")
+    assert (
+        "Fallback failure message" in str(err_net),
+        "ConnectError" in str(err_net),
+    ) == (True, True)
+
+
+def test_provider_uses_shared_client_and_retry_transport() -> None:
+    """Verify provider creates shared client with native retry transport."""
+    client = LLMClient(AIConfig(provider="openai", api_key="sk-test", max_retries=3))
+    transport = client._create_retry_transport()
+    assert transport is not None
+
+    shared = client._shared_client()
+    assert (shared is not None, hasattr(shared, "post")) == (True, True)
