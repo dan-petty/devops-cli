@@ -74,19 +74,32 @@ class TestPrCommands:
             assert "owner/repo" in args
 
     def test_pr_checks(self, runner: CliRunner) -> None:
+        mock_checks = json.dumps(
+            [
+                {
+                    "name": "CI Quality Gate",
+                    "state": "SUCCESS",
+                    "bucket": "pass",
+                    "workflow": "CI",
+                    "link": "https://example.com/runs/1",
+                }
+            ]
+        )
         with (
             patch("shutil.which", return_value="/usr/bin/gh"),
             patch(
                 "devops_cli.commands.pr.run_gh",
-                return_value=MagicMock(returncode=0, stdout="Checks passed", stderr=""),
+                return_value=MagicMock(returncode=0, stdout=mock_checks, stderr=""),
             ) as mock_run,
         ):
             result = runner.invoke(app, ["checks", "13"])
-            assert result.exit_code == 0
-            mock_run.assert_called_once()
             args = mock_run.call_args[0][0]
-            assert "checks" in args
-            assert "13" in args
+            assert (
+                result.exit_code,
+                mock_run.call_count,
+                "checks" in args,
+                "13" in args,
+            ) == (0, 1, True, True)
 
     def test_edit_pr(self, runner: CliRunner) -> None:
         with (
@@ -750,9 +763,11 @@ class TestPrCommands:
             ),
         ):
             res = runner.invoke(app, ["checks", "184"])
-            assert res.exit_code == 0
-            assert "Validation" in res.output
-            assert "Analyze" in res.output
+            assert (
+                res.exit_code,
+                "Validation" in res.output,
+                "Analyze" in res.output,
+            ) == (1, True, True)
 
     def test_pr_edit_fallback(self, runner: CliRunner) -> None:
         """devops pr edit falls back to REST PATCH when gh pr edit fails."""
@@ -1164,6 +1179,38 @@ class TestPrCommands:
             res = runner.invoke(app, ["check-readiness", "187", "--allow-blocked-state"])
             assert res.exit_code == 0
             assert "satisfies merge readiness" in res.output
+
+    def test_check_readiness_fails_closed_under_unstable_when_check_runs_fails(
+        self, runner: CliRunner
+    ) -> None:
+        """devops pr check-readiness fails closed under unstable mergeable_state when check-runs fails."""
+        mock_pr = json.dumps(
+            {
+                "draft": False,
+                "mergeable": True,
+                "mergeable_state": "unstable",
+                "base": {"ref": "release/v0.2.17"},
+                "head": {"sha": "abcdef1234567890abcdef1234567890abcdef12"},
+            }
+        )
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_gh",
+                side_effect=[
+                    MagicMock(returncode=0, stdout=mock_pr, stderr=""),
+                    MagicMock(returncode=1, stdout="", stderr="HTTP 500: Server Error"),
+                ],
+            ),
+            patch("devops_cli.github.pr_threads.list_pr_review_threads", return_value=[]),
+        ):
+            res = runner.invoke(app, ["check-readiness", "187"])
+            assert (
+                res.exit_code,
+                "check verification failed closed" in res.output,
+                "satisfies merge readiness" not in res.output,
+            ) == (1, True, True)
 
     def test_pr_diff_mask_secrets(self, runner: CliRunner) -> None:
         """devops pr diff masks secret tokens in output."""
