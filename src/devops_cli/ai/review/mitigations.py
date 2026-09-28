@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,15 +17,16 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.review_schema import Finding
+from devops_cli.core.repo import resolve_data_path
 
 logger = logging.getLogger(__name__)
 
-_CANONICAL_LEDGER_PATH = Path(__file__).resolve().parent / "mitigated_findings.json"
+_CANONICAL_LEDGER_PATH = Path("mitigated_findings.json")
 DEFAULT_MITIGATIONS_LEDGER_PATH = _CANONICAL_LEDGER_PATH
 
 
-def resolve_ledger_path(path: Path | None = None) -> Path:
-    """Resolve the effective ledger path, isolating writes during test execution."""
+def resolve_ledger_path(path: Path | None = None, start_path: Path | str | None = None) -> Path:
+    """Resolve the effective ledger path, resolving under the data directory."""
     if path is not None:
         return path
     if DEFAULT_MITIGATIONS_LEDGER_PATH != _CANONICAL_LEDGER_PATH:
@@ -34,9 +34,13 @@ def resolve_ledger_path(path: Path | None = None) -> Path:
     custom = os.environ.get("DEVOPS_CLI_MITIGATIONS_LEDGER")
     if custom:
         return Path(custom)
-    if "PYTEST_CURRENT_TEST" in os.environ:
-        return Path(tempfile.gettempdir()) / "test_mitigated_findings.json"
-    return DEFAULT_MITIGATIONS_LEDGER_PATH
+    from devops_cli.config.settings import load_settings
+
+    try:
+        data_dir = load_settings().data.dir
+    except Exception:
+        data_dir = Path(".data")
+    return resolve_data_path(data_dir / DEFAULT_MITIGATIONS_LEDGER_PATH, start_path)
 
 
 class MitigatedFindingEntry(BaseModel):

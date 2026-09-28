@@ -868,6 +868,22 @@ CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES: Final[frozenset[str]] = frozenset(
 )
 
 # ── Review Schemas & Deterministic Verification Constants ─────────────────────
+CONST_ABSENCE_FINDING_MARKERS: Final[tuple[str, ...]] = (
+    "missing",
+    "lacks",
+    "without",
+    "no ",
+    "not set",
+    "not defined",
+    "not provided",
+    "omits",
+    "absent",
+)
+
+CONST_PLACEHOLDER_VALUES: Final[frozenset[str]] = frozenset(
+    {"none", "n/a", "na", "null", "undefined", "unknown", "[]", "{}"}
+)
+
 CONST_REVIEW_PROMPT_PLACEHOLDER_BASENAMES: Final[frozenset[str]] = frozenset(
     {"file.ext", "filename.ext", "path/to/file.ext", "src/file.py", "path/to/file.py", "example.py"}
 )
@@ -1527,17 +1543,22 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
     "devops-reasoning",
     "devops-embedding",
 )
+CONST_REASONING_MODEL_SUBSTRINGS: Final[tuple[str, ...]] = (
+    "deepseek-r1",
+    "qwq",
+)
 CONST_REASONING_MODEL_PREFIXES: Final[tuple[str, ...]] = (
-    "o1-",
-    "o3-",
-    "o4-",
+    "gpt-5",
+    "o1",
+    "o3",
+    "o4",
     "deepseek-r1",
     "deepseek-reasoner",
     "devops-reasoning",
     "qwq",
 )
 CONST_REASONING_MODEL_EXACT: Final[frozenset[str]] = frozenset(
-    {"o1", "o3", "deepseek-r1", "deepseek-reasoner", "devops-reasoning"}
+    {"gpt-5", "o1", "o3", "deepseek-r1", "deepseek-reasoner", "devops-reasoning"}
 )
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
 # Response header in which the LiteLLM gateway names the backend (api_base) that served a call.

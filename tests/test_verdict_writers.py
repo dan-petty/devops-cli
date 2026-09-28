@@ -276,7 +276,7 @@ def test_mitigating_mechanism_annotation() -> None:
         res_no_mech.reportable,
         res_no_mech.mitigated,
         "without specified mitigating mechanism" in (res_no_mech.verification_note or ""),
-    ) == ("UNVERIFIED", False, False, True)
+    ) == ("UNVERIFIED", True, False, True)
 
     item_with_mech = {
         "status": "MITIGATED",

@@ -45,29 +45,42 @@ _TOOL_EXTRACT_OVERLAP = DEFAULT_TOOL_EXTRACT_OVERLAP
 
 
 # A ```json or bare ``` fence; a fence naming another language holds code, not the answer.
-_JSON_FENCE = re.compile(r"```(?:json)?[ \t]*\n([\s\S]*?)```", re.IGNORECASE)
+_JSON_FENCE = re.compile(r"```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```", re.IGNORECASE)
 
 
-def repair_json_string(text: str, *, max_length: int | None = None) -> Any:
-    """Extract and repair valid or partially-malformed JSON from text using json-repair."""
+def _clean_repair_text(text: str, max_length: int | None = None) -> str | None:
     effective_max = DEFAULT_JSON_REPAIR_MAX_LENGTH if max_length is None else max_length
     if not text or not text.strip() or len(text) > effective_max:
         return None
-
     cleaned = _strip_reasoning(normalize_unicode_text(text))
-    if not cleaned:
-        return None
+    return cleaned if cleaned else None
 
-    # 1. A fenced JSON block is the model's explicit answer; prose before it can hold stray
-    #    braces that a whole-text repair would take instead.
+
+def _find_fenced_json(cleaned: str) -> Any:
     for block in _JSON_FENCE.findall(cleaned):
         data = _repair_loads(block.strip())
         if isinstance(data, dict | list) and data:
             return data
+    return None
 
-    # 2. Otherwise repair the whole text: bare JSON, or JSON inside prose.
+
+def repair_json_string(text: str, *, max_length: int | None = None) -> Any:
+    """Extract and repair valid or partially-malformed JSON from text using json-repair."""
+    cleaned = _clean_repair_text(text, max_length)
+    if cleaned is None:
+        return None
+
+    # 1. Parse the whole cleaned text first.
     data = _repair_loads(cleaned)
-    return data if data != "" and data is not None else None
+    if isinstance(data, dict | list) and data:
+        return data
+
+    # 2. Fall back to fenced JSON blocks only when whole text yields no dict or list.
+    fenced = _find_fenced_json(cleaned)
+    if fenced is not None:
+        return fenced
+
+    return data if data not in ("", None) else None
 
 
 def _strip_reasoning(text: str) -> str:
@@ -223,6 +236,31 @@ def extract_tool_invocations(
     return all_calls
 
 
+def _extract_thinking_parts(norm_text: str, raw_response: Any) -> list[ThinkingPart]:
+    parts: list[ThinkingPart] = []
+    seen: set[str] = set()
+
+    raw_thinking = getattr(raw_response, "thinking", None)
+    if raw_thinking and isinstance(raw_thinking, str) and raw_thinking.strip():
+        clean_raw = unique_lines(raw_thinking.strip())
+        parts.append(ThinkingPart(content=clean_raw))
+        seen.add(clean_raw)
+
+    for think_match in re.findall(r"<think>(.*?)(?:</think>|$)", norm_text, flags=re.DOTALL):
+        think_clean = unique_lines(think_match.strip())
+        if think_clean and think_clean not in seen:
+            seen.add(think_clean)
+            parts.append(ThinkingPart(content=think_clean))
+    return parts
+
+
+def _extract_response_tool_parts(clean_text: str, norm_text: str) -> list[ToolCallPart]:
+    tool_calls = extract_tool_invocations(clean_text)
+    if not tool_calls and norm_text != clean_text:
+        tool_calls = extract_tool_invocations(norm_text)
+    return [ToolCallPart(tool_name=tc.tool_name, args=tc.arguments) for tc in tool_calls]
+
+
 def parse_model_response(
     raw_response: str | Any,
     model_name: str | None = None,
@@ -238,34 +276,11 @@ def parse_model_response(
 
     raw_str = str(raw_response) if raw_response is not None else ""
     norm_text = normalize_unicode_text(raw_str)
-
-    parts: list[ModelResponsePart] = []
-
-    # Check for direct thinking attribute on response object
-    raw_thinking = getattr(raw_response, "thinking", None)
-    if raw_thinking and isinstance(raw_thinking, str) and raw_thinking.strip():
-        parts.append(ThinkingPart(content=unique_lines(raw_thinking.strip())))
-
-    # Extract all <think>...</think> and unclosed <think> blocks
-    think_matches = re.findall(r"<think>(.*?)(?:</think>|$)", norm_text, flags=re.DOTALL)
-    for think_match in think_matches:
-        think_clean = unique_lines(think_match.strip())
-        if think_clean and not any(
-            isinstance(p, ThinkingPart) and p.content == think_clean for p in parts
-        ):
-            parts.append(ThinkingPart(content=think_clean))
-
-    # Clean text outside <think> tags
     clean_text = _strip_reasoning(norm_text)
 
-    # Extract tool calls from clean text, or fall back to full normalized text if tool calls were inside reasoning
-    tool_calls = extract_tool_invocations(clean_text)
-    if not tool_calls and norm_text != clean_text:
-        tool_calls = extract_tool_invocations(norm_text)
-
-    for tc in tool_calls:
-        parts.append(ToolCallPart(tool_name=tc.tool_name, args=tc.arguments))
-
+    parts: list[ModelResponsePart] = []
+    parts.extend(_extract_thinking_parts(norm_text, raw_response))
+    parts.extend(_extract_response_tool_parts(clean_text, norm_text))
     if clean_text:
         parts.append(TextPart(content=clean_text))
 
@@ -376,7 +391,7 @@ def _parse_schema_model[T](
         model, json_err = _try_json_validate(target_schema, final_content, notes)
         if model is not None:
             return model, None, None, notes
-        last_err = json_err or last_err
+        last_err = last_err or json_err
 
     if last_err is not None:
         report = extract_schema_reflection(last_err)
@@ -427,6 +442,8 @@ def _resolve_schema_parsed_model[T](
 
     unwrapped = unwrap_output_spec(schema)
     target_schema = unwrapped[0] if unwrapped else schema
+    if target_schema is str:
+        return cast(T, final_content), None, None, []
     return _parse_schema_model(target_schema, json_data, final_content)
 
 

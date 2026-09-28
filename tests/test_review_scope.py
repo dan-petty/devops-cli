@@ -25,6 +25,7 @@ class _FakeGitHub:
 def _pull(*changed: tuple[str, str]) -> Any:
     return SimpleNamespace(
         head=SimpleNamespace(sha="abc123", repo=SimpleNamespace(full_name="fork/app")),
+        base=SimpleNamespace(sha="base456", ref="main", repo=SimpleNamespace(full_name="base/app")),
         get_files=lambda: [
             SimpleNamespace(filename=name, status=status) for name, status in changed
         ],
@@ -32,7 +33,7 @@ def _pull(*changed: tuple[str, str]) -> Any:
 
 
 def test_a_pr_review_reads_the_pr_heads_files_and_conventions(tmp_path: Path) -> None:
-    """Verify changed files are written at the head commit from the head repo, conventions too."""
+    """Verify changed files are written from head repo, and conventions are safely loaded from base (#658)."""
     gh = _FakeGitHub(
         {
             "src/app.py": "print('head version')\n",
@@ -44,14 +45,26 @@ def test_a_pr_review_reads_the_pr_heads_files_and_conventions(tmp_path: Path) ->
 
     written = _materialize_pr_head(gh, "base/app", pull, tmp_path)
 
+    head_fetches = {(repo, path, ref) for repo, path, ref in gh.fetched if repo == "fork/app"}
+    base_fetches = {(repo, path, ref) for repo, path, ref in gh.fetched if repo == "base/app"}
+
     assert (
         written,
         (tmp_path / "src/app.py").read_text(encoding="utf-8"),
         (tmp_path / ".devops/review.md").exists(),
         (tmp_path / "old.py").exists(),
         (tmp_path.parent / "escape.py").exists(),
-        {(repo, ref) for repo, _, ref in gh.fetched},
-    ) == (3, "print('head version')\n", True, False, False, {("fork/app", "abc123")})
+        head_fetches,
+        ("base/app", ".devops/review.md", "base456") in base_fetches,
+    ) == (
+        3,
+        "print('head version')\n",
+        True,
+        False,
+        False,
+        {("fork/app", "src/app.py", "abc123")},
+        True,
+    )
 
 
 def test_the_pr_command_reviews_against_the_pr_head(tmp_path: Path) -> None:

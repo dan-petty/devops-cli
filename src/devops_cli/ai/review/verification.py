@@ -27,6 +27,7 @@ from devops_cli.config.constants import (
     CONST_FIXTURE_CREDENTIAL_KEYWORDS,
     CONST_MASKED_SYNTAX_ERROR_PHRASES,
     CONST_MONOLOGUE_PREFIXES,
+    CONST_PLACEHOLDER_VALUES,
     CONST_UNINITIALIZED_CLAIM_KEYWORDS,
     CONST_VERIFICATION_UNAVAILABLE,
 )
@@ -1260,6 +1261,16 @@ def _extract_regression_test(item: dict[str, Any]) -> str | None:
     return None
 
 
+def _is_placeholder(val: Any) -> bool:
+    """Return True if val is None, empty, or a recognized placeholder like 'none', 'n/a'."""
+    if val is None:
+        return True
+    if isinstance(val, (list, tuple, set)):
+        return not val or all(_is_placeholder(item) for item in val)
+    s = str(val).strip().lower()
+    return not s or s in CONST_PLACEHOLDER_VALUES
+
+
 def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, bool]:
     """The status and reportability a verdict supports.
 
@@ -1277,20 +1288,18 @@ def _verdict_status(item: dict[str, Any], inv_matched: list[str]) -> tuple[str, 
         return "INVALIDATED", False
     if _verdict_bool(item.get("mitigated")) or status == "MITIGATED":
         # A mitigation is a claim about the code too: without a reason naming the mechanism
-        # and perimeter files it proves nothing, degrading to UNVERIFIED (reportable=False).
+        # and perimeter files it proves nothing, degrading to UNVERIFIED (reportable=True).
         reason_str = str(item.get("reason") or "").strip()
-        has_mech = bool(
-            item.get("mitigating_mechanism")
-            or item.get("mechanism")
-            or (reason_str and _extract_mitigating_mechanism(item, reason_str))
+        mech_val = item.get("mitigating_mechanism") or item.get("mechanism")
+        perim_val = item.get("perimeter_files") or item.get("perimeter")
+        has_mech = not _is_placeholder(mech_val) or bool(
+            reason_str and not _is_placeholder(_extract_mitigating_mechanism(item, reason_str))
         )
-        has_perim = bool(
-            item.get("perimeter_files")
-            or item.get("perimeter")
-            or (reason_str and _extract_perimeter_files(item, reason_str))
+        has_perim = not _is_placeholder(perim_val) or bool(
+            reason_str and not _is_placeholder(_extract_perimeter_files(item, reason_str))
         )
         if not reason_str or not has_mech or not has_perim:
-            return "UNVERIFIED", False
+            return "UNVERIFIED", True
         return "MITIGATED", True
     if confirmed:
         return "VERIFIED", _verdict_bool(item.get("reportable")) is not False
@@ -1485,9 +1494,9 @@ def _determine_mitigated_degradation_note(
     """Return specific reason why a claimed mitigation was degraded to UNVERIFIED."""
     if not reason:
         return "Mitigated verdict without explanation; degraded to UNVERIFIED"
-    if not mech:
+    if not mech or _is_placeholder(mech):
         return "Mitigated verdict without specified mitigating mechanism; degraded to UNVERIFIED"
-    if not perimeter:
+    if not perimeter or _is_placeholder(perimeter):
         return "Mitigated verdict without specified perimeter files; degraded to UNVERIFIED"
     return ""
 
@@ -1513,7 +1522,7 @@ def _resolve_status_and_verification_note(
     if status_val == "MITIGATED":
         note = (
             "Mitigated verdict without specified mitigating mechanism"
-            if not mitigating_mechanism
+            if not mitigating_mechanism or _is_placeholder(mitigating_mechanism)
             else None
         )
         return "MITIGATED", reason, citation_line, note, True
@@ -1523,7 +1532,7 @@ def _resolve_status_and_verification_note(
     )
     if is_mitigated and status_val == "UNVERIFIED":
         note = _determine_mitigated_degradation_note(reason, mitigating_mechanism, perimeter_files)
-        return "UNVERIFIED", reason, citation_line, note or None, False
+        return "UNVERIFIED", reason, citation_line, note or None, True
 
     return status_val, reason, citation_line, None, is_rep
 
@@ -1548,8 +1557,12 @@ def _resolve_finding_attributes(
     """Resolve updated severity, location, observed value, and expected value."""
     new_sev = str(item.get("severity", "")).upper().strip()
     sev = new_sev if new_sev and new_sev in _SEVERITY_RANK else f.severity
-    new_loc = str(item.get("location", "")).strip()
-    loc = new_loc if new_loc and new_loc != f.location else f.location
+    raw_loc = item.get("location")
+    if raw_loc is None or str(raw_loc).strip().lower() in ("none", "null", ""):
+        loc = f.location
+    else:
+        new_loc = str(raw_loc).strip()
+        loc = new_loc if new_loc != f.location else f.location
 
     obs_val = item.get("observed_value") or item.get("observed")
     exp_val = item.get("expected_value") or item.get("expected")
@@ -1659,6 +1672,27 @@ def _find_by_explicit_finding_id(
     return False, None
 
 
+def _is_verdict_title_compatible(f_title: str, item_title: str) -> bool:
+    """Check if model verdict title is compatible with candidate finding title."""
+    clean_item = item_title.strip().lower()
+    clean_f = f_title.strip().lower()
+    if not clean_item or not clean_f:
+        return True
+    if clean_item in clean_f or clean_f in clean_item:
+        return True
+    words_f = set(re.findall(r"[a-z0-9]+", clean_f))
+    words_item = set(re.findall(r"[a-z0-9]+", clean_item))
+    overlap = words_f & words_item
+    return len(overlap) >= 2 or (len(overlap) == 1 and len(words_item) <= 2)
+
+
+def _is_oracle_verdict_match(f: Finding, item_title: str, item_loc: str) -> bool:
+    """Check if finding matches verdict by title compatibility or location equivalence."""
+    if not item_title or _is_verdict_title_compatible(f.title, item_title):
+        return True
+    return bool(item_loc and f.location == item_loc)
+
+
 def _match_verdict_by_positional_oracle(
     unresolved: list[Finding],
     bound: dict[int, dict[str, Any]],
@@ -1669,15 +1703,17 @@ def _match_verdict_by_positional_oracle(
     if pos_id is None:
         return None
 
+    item_title = str(item.get("title") or "").strip()
+    item_loc = str(item.get("location") or "").strip()
     found_explicit, explicit_idx = _find_by_explicit_finding_id(unresolved, bound, pos_id)
-    if found_explicit:
-        return explicit_idx
+    if found_explicit and explicit_idx is not None:
+        if _is_oracle_verdict_match(unresolved[explicit_idx], item_title, item_loc):
+            return explicit_idx
 
-    if 1 <= pos_id <= len(unresolved):
-        target = pos_id - 1
-        return target if target not in bound else None
-    if pos_id == 0 and 0 not in bound:
-        return 0
+    target_idx = (pos_id - 1) if (1 <= pos_id <= len(unresolved)) else (0 if pos_id == 0 else None)
+    if target_idx is not None and target_idx not in bound:
+        if _is_oracle_verdict_match(unresolved[target_idx], item_title, item_loc):
+            return target_idx
 
     return None
 
@@ -1870,7 +1906,7 @@ def _validate_segment_findings(
     result = result.model_copy(update={"findings": pre_validated_findings})
 
     unresolved_findings = [
-        f.model_copy(update={"finding_id": i}) if f.finding_id is None else f
+        f.model_copy(update={"finding_id": i})
         for i, f in enumerate(
             (
                 f

@@ -493,6 +493,8 @@ def _review_to_markdown(review: ReviewResult | str) -> str:
         clean_text = strip_think_blocks(review)
         parsed = parse_review_response(clean_text)
         return _review_to_markdown(parsed) if parsed else clean_text
+    if getattr(review, "report_markdown", None):
+        return str(review.report_markdown)
     lines: list[str] = [f"**Recommendation: {review.recommendation}**\n"]
     if review.findings:
         lines.append("## Findings\n")
@@ -507,7 +509,9 @@ def _review_to_markdown(review: ReviewResult | str) -> str:
 def _has_review_findings(reviews: list[tuple[PersonaDefinition, ReviewResult | str]]) -> bool:
     """Return True if any review contains actionable findings."""
     for _, rev in reviews:
-        if isinstance(rev, ReviewResult) and rev.findings:
+        if isinstance(rev, ReviewResult) and any(
+            getattr(f, "reportable", True) for f in rev.findings
+        ):
             return True
         if isinstance(rev, str):
             from devops_cli.ai.thinking_stream import strip_think_blocks
@@ -516,6 +520,8 @@ def _has_review_findings(reviews: list[tuple[PersonaDefinition, ReviewResult | s
             clean = strip_think_blocks(rev)
             parsed = extract_json_block(clean, default=None)
             if isinstance(parsed, dict) and parsed.get("findings"):
+                return True
+            if "## Detailed Findings" in clean or "### [" in clean:
                 return True
     return False
 
@@ -619,10 +625,20 @@ def format_pr_review_comment(
     if not reviews:
         return ""
 
+    if is_dry_run():
+        effective_analyzers: dict[str, str] = {}
+    elif static_analyzers is not None:
+        effective_analyzers = static_analyzers
+    else:
+        analyzers_found = None
+        for _, rev in reviews:
+            if isinstance(rev, ReviewResult) and getattr(rev, "static_analyzers", None) is not None:
+                analyzers_found = rev.static_analyzers
+                break
+        effective_analyzers = analyzers_found if analyzers_found is not None else {}
+
     if not _has_review_findings(reviews):
-        if static_analyzers is None and target_dir is not None and files:
-            static_analyzers = _resolve_static_analyzer_states(target_dir, files)
-        return _format_zero_findings_comment(reviews, files, static_analyzers)
+        return _format_zero_findings_comment(reviews, files, effective_analyzers)
 
     sections = "\n\n---\n\n".join(
         f"## Review by {pd.title}\n\n{_review_to_markdown(text)}" for pd, text in reviews
@@ -1817,7 +1833,18 @@ def _prepare_branch_content(
         raise typer.Exit(0)
 
     title = f"Branch `{target_branch}` vs `{effective_base}`"
-    agents_md = _load_agents_md(repo_path)
+    agents_md = ""
+    if effective_base:
+        show_proc = _run_subprocess(
+            ["git", "--no-pager", "show", f"{effective_base}:AGENTS.md"],
+            capture_output=True,
+            text=True,
+            cwd=repo_path,
+        )
+        if show_proc.returncode == 0 and show_proc.stdout.strip():
+            agents_md = show_proc.stdout.strip()
+    if not agents_md:
+        agents_md = _load_agents_md(repo_path)
     pages = [redact_text(p) for p in diff_pages(diff_proc.stdout, _MAX_DIFF_CHARS)]
     return pages, title, agents_md, target_branch
 
@@ -1861,32 +1888,52 @@ def _prepare_pr_content(
 
 
 def _materialize_pr_head(gh: Any, repo: str, pull: Any, dest: Path) -> int:
-    """Write the PR head's version of each changed file, and its conventions, under `dest`.
-
-    A PR review's pages come from the PR's diff, but verification, the scanners and dependency
-    extraction read files from the review's target directory. That was the local checkout, which
-    holds another version of those files, or none, or another repository's under `--repo`.
-    Returns the number of files written.
-    """
+    """Write PR head's version of changed files, and base conventions, under `dest`."""
     from devops_cli.ai.review.review_environment import _TARGET_CONVENTIONS_CANDIDATES
     from devops_cli.config.constants import CONST_REVIEW_CONVENTIONS_FILE
 
-    head_repo = getattr(getattr(pull.head, "repo", None), "full_name", None) or repo
-    changed = [f.filename for f in pull.get_files() if getattr(f, "status", "") != "removed"]
+    head_obj = getattr(pull, "head", None)
+    base_obj = getattr(pull, "base", None)
+    head_repo = getattr(getattr(head_obj, "repo", None), "full_name", None) or repo
+    base_repo = getattr(getattr(base_obj, "repo", None), "full_name", None) or repo
+    base_ref = getattr(base_obj, "sha", None) or getattr(base_obj, "ref", None) or "main"
+    head_sha = getattr(head_obj, "sha", None) or "HEAD"
+    changed = [
+        f.filename
+        for f in (pull.get_files() if hasattr(pull, "get_files") else [])
+        if getattr(f, "status", "") != "removed"
+    ]
+    convention_files = set(_TARGET_CONVENTIONS_CANDIDATES) | {CONST_REVIEW_CONVENTIONS_FILE}
     root = dest.resolve()
     written = 0
-    for rel in dict.fromkeys(
-        [*changed, *_TARGET_CONVENTIONS_CANDIDATES, CONST_REVIEW_CONVENTIONS_FILE]
-    ):
+
+    for rel in convention_files:
         target = (root / rel).resolve()
         if not target.is_relative_to(root):
             continue
-        text = gh.get_file_at(head_repo, rel, pull.head.sha)
+        text = gh.get_file_at(base_repo, rel, base_ref) if gh else None
+        if text is None and (gh is None or not base_repo):
+            local_conv = Path.cwd() / rel
+            if local_conv.exists() and local_conv.is_file():
+                text = local_conv.read_text(encoding="utf-8")
+        if text is not None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+            written += 1
+
+    for rel in changed:
+        if rel in convention_files:
+            continue
+        target = (root / rel).resolve()
+        if not target.is_relative_to(root):
+            continue
+        text = gh.get_file_at(head_repo, rel, head_sha)
         if text is None:
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
         written += 1
+
     return written
 
 
@@ -2024,9 +2071,21 @@ def _run_orchestrator_review(
         _record_profile_findings(payloads, candidates)
 
     with review_stage("report"):
-        _, report_md = orchestrator.generate_consolidated_report(payloads, stage_flags=stage_flags)
+        payload_data, report_md = orchestrator.generate_consolidated_report(
+            payloads, stage_flags=stage_flags
+        )
     p_def = PERSONAS[persona or Persona.DEVSECOPS]
-    return [(p_def, report_md)]
+    raw_findings = payload_data.get("findings", []) if isinstance(payload_data, dict) else []
+    findings_list = [Finding(**f) if isinstance(f, dict) else f for f in raw_findings]
+    raw_analyzers = getattr(orchestrator, "static_analyzers", None)
+    analyzers_dict = raw_analyzers if isinstance(raw_analyzers, dict) else {}
+    result = ReviewResult(
+        findings=findings_list,
+        report_markdown=report_md,
+        static_analyzers=analyzers_dict,
+        summary="",
+    )
+    return [(p_def, result)]
 
 
 def _check_and_warn_perimeter_changes(target_type: str, changed_files: Sequence[str]) -> None:

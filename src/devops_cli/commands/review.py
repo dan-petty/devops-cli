@@ -1055,18 +1055,10 @@ def verify_finding(
         raise typer.Exit(1)
 
     finding = payload.findings[target_idx]
-    perimeter_list = [p.strip() for p in perimeter if p.strip()] if perimeter else []
-    if new_status == "MITIGATED" and not perimeter_list:
-        perimeter_list = getattr(finding, "perimeter_files", None) or (
-            [finding.location.split(":")[0].strip()] if finding.location else []
-        )
-
-    effective_reason = (
-        reason
-        or getattr(finding, "invalidation_reason", None)
-        or getattr(finding, "mitigating_mechanism", None)
-        or ("Mitigated" if new_status == "MITIGATED" else "")
+    perimeter_list = (
+        _resolve_mitigated_perimeter(finding, perimeter) if new_status == "MITIGATED" else []
     )
+    effective_reason = _resolve_verdict_reason(finding, new_status, reason)
     by = "human" if new_status != "UNVERIFIED" else None
     apply_verdict(
         finding,
@@ -1081,9 +1073,34 @@ def verify_finding(
     _record_verdict_side_effects(
         finding, new_status, effective_reason, perimeter_list, regression_test
     )
-    assert_verdict_invariants(payload.findings)
+    try:
+        assert_verdict_invariants([finding])
+    except (AssertionError, ValueError) as exc:
+        print_error(f"Cannot update finding: verdict invariants violated: {exc}", prefix=False)
+        raise typer.Exit(1) from None
+
     write_json_file(findings_file, payload)
     print_success(f"Updated finding #{target_idx + 1} status → {new_status}")
+
+
+def _resolve_mitigated_perimeter(finding: Any, perimeter: list[str] | None) -> list[str]:
+    clean = [p.strip() for p in perimeter if p.strip()] if perimeter else []
+    if clean:
+        return clean
+    if getattr(finding, "perimeter_files", None):
+        return list(finding.perimeter_files)
+    loc_file = finding.location.split(":")[0].strip() if finding.location else ""
+    return [loc_file] if loc_file else []
+
+
+def _resolve_verdict_reason(finding: Any, new_status: str, reason: str) -> str:
+    if reason:
+        return reason
+    if getattr(finding, "invalidation_reason", None):
+        return str(finding.invalidation_reason)
+    if getattr(finding, "mitigating_mechanism", None):
+        return str(finding.mitigating_mechanism)
+    return "Mitigated" if new_status == "MITIGATED" else ""
 
 
 # =============================================================================

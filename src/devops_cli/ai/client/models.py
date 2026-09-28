@@ -9,6 +9,7 @@ from typing import Any
 from devops_cli.config.constants import (
     CONST_REASONING_MODEL_EXACT,
     CONST_REASONING_MODEL_PREFIXES,
+    CONST_REASONING_MODEL_SUBSTRINGS,
 )
 from devops_cli.config.env import ENV_AI_API_KEY
 from devops_cli.config.options import AI_API_KEY
@@ -207,5 +208,7 @@ def is_reasoning_model(model: str | None) -> bool:
         return False
     m = model.strip().lower()
     if ":thinking" in m:
+        return True
+    if any(sub in m for sub in CONST_REASONING_MODEL_SUBSTRINGS):
         return True
     return m in CONST_REASONING_MODEL_EXACT or m.startswith(CONST_REASONING_MODEL_PREFIXES)

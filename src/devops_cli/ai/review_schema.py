@@ -181,7 +181,7 @@ _MARKDOWN_LINK_REGEX = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 # first other character and kept the fragment before it.
 _SEGMENT_CHARS = r"\w\-.+@~%"
 _WINDOWS_DRIVE_PREFIX = r"(?:[a-zA-Z]:[/\\])"
-_PATH_CHARS = rf"{_SEGMENT_CHARS}/\\ "
+_PATH_CHARS = rf"{_SEGMENT_CHARS}/\\"
 _LOCATION_REGEX = re.compile(
     rf"^({_WINDOWS_DRIVE_PREFIX}?[{_PATH_CHARS}]+?)(?::(\d+)(?:-(\d+))?)?$"
 )
@@ -402,15 +402,17 @@ def canonicalize_finding_location(location: str) -> str:
     if not loc:
         return ""
 
+    if " " in loc:
+        embedded = _extract_embedded_location(loc)
+        if embedded:
+            return embedded
+
     loc_file = _extract_base_file_path(loc)
     if (
         loc_file.lower() in _PROMPT_PLACEHOLDER_BASENAMES
         or Path(loc_file).name.lower() in _PROMPT_PLACEHOLDER_BASENAMES
     ):
         return ""
-
-    if not _is_structural_path_or_location(loc_file):
-        return _extract_embedded_location(loc)
 
     if m_loc := _LOCATION_REGEX.match(loc):
         return _format_location_with_lines(
@@ -419,6 +421,9 @@ def canonicalize_finding_location(location: str) -> str:
 
     if m_target := _TARGET_LOCATION_REGEX.match(loc):
         return f"{m_target.group(1).strip().replace('\\', '/')}:{m_target.group(2).strip()}"
+
+    if _is_structural_path_or_location(loc_file):
+        return loc
 
     return _extract_embedded_location(loc)
 
@@ -776,7 +781,9 @@ def _filter_non_empty_findings[T: (Finding, SavedFinding)](v: list[T]) -> list[T
     return [f for f in v if not f.is_empty]
 
 
-def _parse_location(location: str) -> tuple[str, int | None, int | None]:
+def _parse_location(
+    location: str, preserve_case: bool = True
+) -> tuple[str, int | None, int | None]:
     """Extract normalized (filepath, start_line, end_line) from a location string."""
     loc = location.strip()
     if not loc:
@@ -788,9 +795,11 @@ def _parse_location(location: str) -> tuple[str, int | None, int | None]:
         re.IGNORECASE,
     )
     if not m:
-        return loc.lower().replace("\\", "/"), None, None
+        raw_part = loc.replace("\\", "/")
+        return (raw_part if preserve_case else raw_part.lower()), None, None
 
-    file_part = (m.group(1) or "").strip().lower().replace("\\", "/")
+    raw_file = (m.group(1) or "").strip().replace("\\", "/")
+    file_part = raw_file if preserve_case else raw_file.lower()
     s_line_str = m.group(2)
     e_line_str = m.group(3)
 
@@ -886,7 +895,7 @@ def _are_findings_duplicate(primary: Finding, candidate: Finding) -> bool:
     """
     primary_file, primary_start, primary_end = _parse_location(primary.location)
     candidate_file, candidate_start, candidate_end = _parse_location(candidate.location)
-    if not primary_file or primary_file != candidate_file:
+    if not primary_file or primary_file.lower() != candidate_file.lower():
         return False
     if (primary.status in _DISMISSED_STATUSES) != (candidate.status in _DISMISSED_STATUSES):
         return False
@@ -1159,6 +1168,8 @@ class ReviewResult(BaseModel):
     confidence_score: float | None = None
     external_dependencies: list[DependencySpec] = Field(default_factory=list)
     network_references: list[NetworkReference] = Field(default_factory=list)
+    report_markdown: str | None = None
+    static_analyzers: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("findings", mode="before")
     @classmethod
@@ -1250,6 +1261,7 @@ def reset_verification_state[F: Finding](finding: F) -> F:
     """
     return finding.model_copy(
         update={
+            "finding_id": None,
             "status": DEFAULT_FINDING_STATUS,
             "reportable": True,
             "verified": False,

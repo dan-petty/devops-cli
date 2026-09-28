@@ -2418,6 +2418,8 @@ class ReviewPipelineOrchestrator:
                 orig.verification_note = v.verification_note
                 orig.citation_line = v.citation_line
                 orig.mitigating_mechanism = v.mitigating_mechanism
+                orig.perimeter_files = v.perimeter_files
+                orig.regression_test = v.regression_test
                 orig.verified_by = v.verified_by
                 orig.verified_at = v.verified_at
                 updated_saved.append(orig)
@@ -2916,7 +2918,9 @@ class ReviewPipelineOrchestrator:
 
         lines.extend(self._build_static_analyzers_section())
 
-        baseline_lines = self._build_category_baseline_section(all_findings, reportable_findings)
+        baseline_lines = self._build_category_baseline_section(
+            candidate_findings or all_findings, reportable_findings
+        )
         if baseline_lines:
             lines.extend(baseline_lines)
 
