@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -82,7 +84,7 @@ class CloudflareAccessPolicy(BaseModel):
     id: str | None = None
     name: str
     decision: str = "allow"
-    include: list[dict[str, str]] = Field(default_factory=list)
+    include: list[dict[str, Any]] = Field(default_factory=list)
 
 
 __all__ = [

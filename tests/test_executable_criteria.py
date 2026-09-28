@@ -209,13 +209,17 @@ def test_sandbox_bounds_timeout_and_terminates_process_group(tmp_path: Path) -> 
 
 
 def test_sandbox_bounds_output_bytes(tmp_path: Path) -> None:
-    """Verify that criterion stdout is truncated to bounded size cap."""
+    """Verify that criterion stdout is truncated and process killed when exceeding size cap."""
     result = execute_criterion_command(
         "python -c 'print(\"A\" * 10000)'",
         cwd=tmp_path,
         max_output_bytes=256,
     )
-    assert (result.passed, len(result.stdout)) == (True, 256)
+    assert (
+        result.passed,
+        len(result.stdout) <= 256,
+        "Output exceeded maximum limit" in str(result.error),
+    ) == (False, True, True)
 
 
 def test_finding_criteria_execution_derives_confidence_and_verifies(

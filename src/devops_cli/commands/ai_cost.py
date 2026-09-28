@@ -340,7 +340,7 @@ def cost_default(
     if eff_format in ("prometheus", "prom"):
         from devops_cli.ai.spend import export_ai_spend_prometheus
 
-        write_stdout(export_ai_spend_prometheus(ledger))
+        write_stdout(export_ai_spend_prometheus(ledger, report=report))
         return
 
     _render_report_tables(report, by)
@@ -415,7 +415,7 @@ def cost_report(
     if eff_format in ("prometheus", "prom"):
         from devops_cli.ai.spend import export_ai_spend_prometheus
 
-        write_stdout(export_ai_spend_prometheus(ledger))
+        write_stdout(export_ai_spend_prometheus(ledger, report=report))
         return
 
     _render_report_tables(report, by)

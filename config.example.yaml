@@ -135,11 +135,17 @@ cloudflare:
   account_id: null
   # Cloudflare Zone ID.
   zone_id: null
+  # Homelab public IP address or CIDR permitted to bypass Cloudflare Access (e.g. 198.51.100.1/32).
+  public_ip_bypass: null
   # Cloudflare Zero Trust Access configuration.
   access:
     enabled: false
     idp: google
     allowed_emails: []
+    # Public IP addresses or CIDR blocks permitted to bypass Cloudflare Access.
+    bypass_ips: []
+    # Homelab public IP address or CIDR permitted to bypass Cloudflare Access.
+    public_ip_bypass: null
 
 
 # ── Sandbox ───────────────────────────────────────────────────────────────────

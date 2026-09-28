@@ -18,7 +18,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import devops_cli.config.options as opt
 from devops_cli.config.constants import (
-    CONST_ADDRESSING_NODEPORT,
     CONST_AI_GATEWAY_PROVIDER,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
@@ -288,8 +287,8 @@ class KubernetesConfig(BaseModel):
         default=None,
         description="Base domain name for homelab ingress routes and tunnel services (e.g. retric.ai)",
     )
-    addressing: str = Field(
-        default=CONST_ADDRESSING_NODEPORT,
+    addressing: str | None = Field(
+        default=None,
         description="Default addressing mode for cluster services: nodeport, proxy, or fqdn.",
     )
 
@@ -307,6 +306,14 @@ class CloudflareAccessConfig(BaseModel):
     idp: str = Field(
         default="google",
         description="Identity provider name (e.g. google, one_time_pin)",
+    )
+    bypass_ips: list[str] = Field(
+        default_factory=list,
+        description="List of public IP addresses or CIDR blocks permitted to bypass Cloudflare Access authentication",
+    )
+    public_ip_bypass: str | None = Field(
+        default=None,
+        description="Homelab public IP address or CIDR block permitted to bypass Cloudflare Access authentication",
     )
 
 
@@ -327,6 +334,10 @@ class CloudflareConfig(BaseModel):
     zone_id: str | None = Field(
         default=None,
         description="Cloudflare Zone ID",
+    )
+    public_ip_bypass: str | None = Field(
+        default=None,
+        description="Homelab public IP address or CIDR block permitted to bypass Cloudflare Access authentication",
     )
     access: CloudflareAccessConfig = Field(
         default_factory=CloudflareAccessConfig,

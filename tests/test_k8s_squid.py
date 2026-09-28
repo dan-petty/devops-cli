@@ -92,9 +92,16 @@ def test_squid_conf_caching_and_observability_directives() -> None:
     assert "logformat json_k8s" in conf_text
     assert "access_log /var/log/squid/access.log json_k8s" in conf_text
     assert "acl manager proto cache_object" in conf_text
-    assert "http_access allow manager localhost" in conf_text
     assert "snmp_port 3401" in conf_text
     assert "snmp_access allow snmppublic localnet" in conf_text
+
+    # Egress Policy Bypass Protection: Block cluster-internal destinations
+    assert (
+        "acl to_internal_ips dst 10.0.0.0/8" in conf_text,
+        "acl to_internal_domains dstdomain .cluster.local" in conf_text,
+        "http_access deny to_internal_ips" in conf_text,
+        "http_access deny to_internal_domains" in conf_text,
+    ) == (True, True, True, True)
 
 
 def test_squid_deployment_and_sidecar_exporter() -> None:

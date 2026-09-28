@@ -11,17 +11,20 @@ def _calculate_days_active(
     first_ts: str | None, last_ts: str | None, days_filter: int | None
 ) -> float:
     """Calculate active calendar days represented in the spend window."""
+    if first_ts and last_ts:
+        try:
+            t0 = datetime.fromisoformat(first_ts)
+            t1 = datetime.fromisoformat(last_ts)
+            diff = (t1 - t0).total_seconds() / 86400.0
+            observed = max(1.0, round(diff, 2))
+            if days_filter is not None and days_filter > 0:
+                return min(float(days_filter), observed)
+            return observed
+        except ValueError, TypeError:
+            pass
     if days_filter is not None and days_filter > 0:
         return float(days_filter)
-    if not first_ts or not last_ts:
-        return 1.0
-    try:
-        t0 = datetime.fromisoformat(first_ts)
-        t1 = datetime.fromisoformat(last_ts)
-        diff = (t1 - t0).total_seconds() / 86400.0
-        return max(1.0, round(diff, 2))
-    except ValueError, TypeError:
-        return 1.0
+    return 1.0
 
 
 def _estimate_days_to_payoff(

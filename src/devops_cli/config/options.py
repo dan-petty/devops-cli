@@ -87,9 +87,12 @@ CLOUDFLARE_TUNNEL = "cloudflare.tunnel"
 CLOUDFLARE_ACCOUNT_ID = "cloudflare.account_id"
 CLOUDFLARE_ZONE_ID = "cloudflare.zone_id"
 CLOUDFLARE_API_TOKEN = "cloudflare.api_token"
+CLOUDFLARE_PUBLIC_IP_BYPASS = "cloudflare.public_ip_bypass"
 CLOUDFLARE_ACCESS_ENABLED = "cloudflare.access.enabled"
 CLOUDFLARE_ACCESS_ALLOWED_EMAILS = "cloudflare.access.allowed_emails"
 CLOUDFLARE_ACCESS_IDP = "cloudflare.access.idp"
+CLOUDFLARE_ACCESS_BYPASS_IPS = "cloudflare.access.bypass_ips"
+CLOUDFLARE_ACCESS_PUBLIC_IP_BYPASS = "cloudflare.access.public_ip_bypass"
 
 # Data Storage & Artifact Paths
 DATA_DIR = "data.dir"
@@ -198,9 +201,12 @@ CONFIG_OPTIONS: tuple[str, ...] = (
     CLOUDFLARE_ACCOUNT_ID,
     CLOUDFLARE_ZONE_ID,
     CLOUDFLARE_API_TOKEN,
+    CLOUDFLARE_PUBLIC_IP_BYPASS,
     CLOUDFLARE_ACCESS_ENABLED,
     CLOUDFLARE_ACCESS_ALLOWED_EMAILS,
     CLOUDFLARE_ACCESS_IDP,
+    CLOUDFLARE_ACCESS_BYPASS_IPS,
+    CLOUDFLARE_ACCESS_PUBLIC_IP_BYPASS,
 )
 
 SECRET_CONFIG_OPTIONS: frozenset[str] = frozenset(

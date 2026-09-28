@@ -103,10 +103,10 @@ config:
         processors: [memory_limiter, batch]
         exporters: [debug]
 
-# NodePort, so workstations can export too: `devops telemetry connect` finds the port
-# Kubernetes assigns. Inside the cluster the service name still works.
+# ClusterIP: In-cluster workloads export to otel-collector.otel.svc.cluster.local.
+# Workstation export uses `devops k8s port-forward` or ingress routing.
 service:
-  type: NodePort
+  type: ClusterIP
 
 ports:
   metrics:

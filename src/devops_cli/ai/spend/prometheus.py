@@ -124,15 +124,27 @@ def _build_model_counters(report: LifetimeSpendReport) -> list[str]:
     return lines
 
 
-def export_ai_spend_prometheus(ledger: SpendLedger | None = None) -> str:
+def export_ai_spend_prometheus(
+    ledger: SpendLedger | None = None,
+    report: LifetimeSpendReport | None = None,
+    days: int | None = None,
+    reference_model: str | None = None,
+    hardware_cost_usd: float | None = None,
+) -> str:
     """Export lifetime AI spend, tokens, and server metrics in Prometheus text exposition format."""
     from devops_cli.ai.spend.ledger import get_spend_ledger
 
-    active_ledger = ledger or get_spend_ledger()
-    try:
-        report = active_ledger.get_lifetime_report(group_by="all")
-    except Exception:
-        return ""
+    if report is None:
+        active_ledger = ledger or get_spend_ledger()
+        try:
+            report = active_ledger.get_lifetime_report(
+                days=days,
+                group_by="all",
+                reference_model=reference_model,
+                hardware_cost_usd=hardware_cost_usd,
+            )
+        except Exception:
+            return ""
 
     lines: list[str] = []
     lines.extend(_build_overview_gauges(report))

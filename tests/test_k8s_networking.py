@@ -207,6 +207,10 @@ def test_resolve_effective_addressing() -> None:
     settings_domain.k8s.domain = "example.com"
     settings_domain.k8s.addressing = "nodeport"
 
+    settings_domain_no_addressing = Settings()
+    settings_domain_no_addressing.k8s.domain = "example.com"
+    settings_domain_no_addressing.k8s.addressing = None
+
     settings_explicit_mode = Settings()
     settings_explicit_mode.k8s.domain = None
     settings_explicit_mode.k8s.addressing = "proxy"
@@ -215,9 +219,10 @@ def test_resolve_effective_addressing() -> None:
         _resolve_effective_addressing("fqdn", settings_empty),
         _resolve_effective_addressing(None, settings_empty),
         _resolve_effective_addressing(None, settings_domain),
+        _resolve_effective_addressing(None, settings_domain_no_addressing),
         _resolve_effective_addressing(None, settings_explicit_mode),
     )
-    assert results == ("fqdn", "nodeport", "fqdn", "proxy")
+    assert results == ("fqdn", "nodeport", "nodeport", "fqdn", "proxy")
 
 
 def test_preview_fqdn_addresses() -> None:
@@ -245,6 +250,11 @@ def test_configure_fqdn_urls() -> None:
         "llm-gateway": ["ai.example.com"],
     }
     settings = Settings()
+    settings.ai.gateway_enabled = False
+    settings.ai.tasks.analysis.provider = "copilot"
+    settings.ai.tasks.analysis.api_base_url = "https://example.com/custom"
+    settings.ai.tasks.chat.provider = "gateway"
+    settings.ai.tasks.chat.api_base_url = None
     configured: dict[str, str] = {}
 
     with patch(
@@ -258,9 +268,13 @@ def test_configure_fqdn_urls() -> None:
         configured.get("open_webui.url"),
         configured.get("ai.gateway_url"),
         settings.ai.gateway_enabled,
+        settings.ai.tasks.analysis.api_base_url,
+        settings.ai.tasks.chat.api_base_url,
     ) == (
         "https://argocd.example.com",
         "https://chat.example.com",
         "https://ai.example.com/v1",
-        True,
+        False,
+        "https://example.com/custom",
+        "https://ai.example.com/v1",
     )

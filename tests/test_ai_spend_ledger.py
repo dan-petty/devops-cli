@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -446,3 +447,74 @@ def test_spend_ledger_counterfactual_and_hardware_payoff(tmp_path: Path) -> None
         False,
         99.9865,
     )
+
+
+def test_spend_ledger_iso_date_filtering(tmp_path: Path) -> None:
+    """Verify ISO 8601 timestamp filtering eliminates lexical day leakage."""
+    db_path = tmp_path / "filter_spend.db"
+    ledger = SpendLedger(db_path=db_path)
+
+    now = datetime.now(UTC)
+    ts_recent = (now - timedelta(days=2)).isoformat()
+    ts_old = (now - timedelta(days=12)).isoformat()
+
+    ledger.record_request(
+        provider="anthropic",
+        server="example.com",
+        model="claude-3-5-sonnet",
+        prompt_tokens=100,
+        completion_tokens=50,
+        cost_usd=0.001,
+        timestamp=ts_recent,
+    )
+    ledger.record_request(
+        provider="anthropic",
+        server="example.com",
+        model="claude-3-5-sonnet",
+        prompt_tokens=200,
+        completion_tokens=100,
+        cost_usd=0.002,
+        timestamp=ts_old,
+    )
+
+    report_7d = ledger.get_lifetime_report(days=7)
+    report_all = ledger.get_lifetime_report(days=None)
+
+    assert (report_7d.total_requests, report_all.total_requests) == (1, 2)
+
+
+def test_spend_ledger_init_db_duplicate_column_tolerance(tmp_path: Path) -> None:
+    """Verify concurrent schema migrations tolerate duplicate column errors."""
+    db_path = tmp_path / "race_spend.db"
+    ledger = SpendLedger(db_path=db_path)
+
+    # Calling _init_db again when columns exist is safe and idempotent
+    ledger._init_db()
+
+    with sqlite3.connect(db_path) as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(ai_spend_records);").fetchall()}
+
+    assert ("served_by" in cols, "stage" in cols) == (True, True)
+
+
+def test_spend_ledger_export_prometheus_with_report(tmp_path: Path) -> None:
+    """Verify export_ai_spend_prometheus accepts precomputed report."""
+    from devops_cli.ai.spend.prometheus import export_ai_spend_prometheus
+
+    db_path = tmp_path / "prom_spend.db"
+    ledger = SpendLedger(db_path=db_path)
+    ledger.record_request(
+        provider="openai",
+        server="example.com",
+        model="gpt-4o",
+        prompt_tokens=500,
+        completion_tokens=100,
+        cost_usd=0.005,
+    )
+    report = ledger.get_lifetime_report(days=3, reference_model="gpt-4o")
+    prom_output = export_ai_spend_prometheus(report=report)
+
+    assert (
+        "devops_cli_ai_counterfactual_spend_usd" in prom_output,
+        "devops_cli_ai_tokens_total" in prom_output,
+    ) == (True, True)

@@ -8,15 +8,17 @@ import typer
 
 from devops_cli.cloudflare.client import CloudflareClient
 from devops_cli.config.constants import (
+    CONST_CLOUDFLARE_BYPASS_POLICY_NAME,
     CONST_CLOUDFLARE_DEFAULT_SERVICE,
     CONST_CLOUDFLARE_DEFAULT_SUBDOMAINS,
+    CONST_CLOUDFLARE_RECORD_COMMENT,
 )
 from devops_cli.config.settings import Settings, get_cloudflare_api_token, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run
 from devops_cli.exceptions.cloudflare import CloudflareAuthError, CloudflareError
 from devops_cli.lang import HELP
-from devops_cli.models.cloudflare import CloudflareDNSRecord
+from devops_cli.models.cloudflare import CloudflareDNSRecord, CloudflareTunnelIngressRule
 from devops_cli.output import (
     format_json,
     print_error,
@@ -291,21 +293,47 @@ def dns_sync(
         raise typer.Exit(code=exc.exit_code) from exc
 
 
+def _resolve_dns_target_names(target: str, domain: str) -> tuple[str, str]:
+    """Resolve target string into lowercase target name and full domain-qualified target."""
+    if target == "@":
+        full = domain
+    elif "." not in target:
+        full = f"{target}.{domain}"
+    else:
+        full = target
+    return target.lower(), full.lower()
+
+
+def _record_matches_filter(
+    record: CloudflareDNSRecord,
+    target_names: tuple[str, str],
+    target: str,
+    type_upper: str | None,
+    force: bool,
+) -> bool:
+    """Check whether a single DNS record satisfies target, type, and managed predicates."""
+    rec_name = record.name.lower()
+    if record.id != target and rec_name not in target_names:
+        return False
+    if type_upper and record.type.upper() != type_upper:
+        return False
+    if not force and (record.comment or "").strip() != CONST_CLOUDFLARE_RECORD_COMMENT:
+        return False
+    return True
+
+
 def _find_matching_records(
     existing: list[CloudflareDNSRecord],
     target: str,
     domain: str,
+    record_type: str | None = None,
+    force: bool = False,
 ) -> list[CloudflareDNSRecord]:
-    """Find existing DNS records matching a target name or ID."""
-    full_target = f"{target}.{domain}" if "." not in target and target != "@" else target
-    if target == "@":
-        full_target = domain
-    target_lower = target.lower()
-    full_target_lower = full_target.lower()
+    """Find existing DNS records matching a target name or ID, type, and managed status."""
+    target_names = _resolve_dns_target_names(target, domain)
+    type_upper = record_type.upper() if record_type else None
     return [
-        r
-        for r in existing
-        if r.id == target or r.name.lower() == target_lower or r.name.lower() == full_target_lower
+        r for r in existing if _record_matches_filter(r, target_names, target, type_upper, force)
     ]
 
 
@@ -315,6 +343,8 @@ def _execute_dns_deletions(
     domain: str,
     zone_id: str | None,
     dry_run: bool,
+    record_type: str | None = None,
+    force: bool = False,
 ) -> tuple[list[tuple[str, str]], list[str]]:
     """Delete matched DNS records or preview deletion."""
     existing = client.list_dns_records(zone_id=zone_id)
@@ -322,7 +352,9 @@ def _execute_dns_deletions(
     not_found: list[str] = []
 
     for target in targets:
-        matched = _find_matching_records(existing, target, domain)
+        matched = _find_matching_records(
+            existing, target, domain, record_type=record_type, force=force
+        )
         if not matched:
             not_found.append(target)
             continue
@@ -369,6 +401,18 @@ def dns_delete(
             help="One or more DNS record names (e.g. chat.retric.click) or record IDs to delete"
         ),
     ],
+    record_type: Annotated[
+        str | None,
+        typer.Option("--type", "-t", help="Filter by DNS record type (e.g. CNAME, A, TXT)"),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="Force deletion of records not marked as 'Managed by devops-cli'",
+        ),
+    ] = False,
     zone_id: Annotated[
         str | None,
         typer.Option("--zone-id", "-z", help="Override Cloudflare Zone ID"),
@@ -395,6 +439,8 @@ def dns_delete(
             domain=eff_domain,
             zone_id=zone_id,
             dry_run=is_dry,
+            record_type=record_type,
+            force=force,
         )
         _render_dns_delete_results(deleted, not_found, is_dry, json_output)
     except CloudflareError as exc:
@@ -458,12 +504,24 @@ def _preview_tunnel_sync(
     tunnel: str,
     service: str,
     subs: tuple[str, ...],
+    current_ingress: list[CloudflareTunnelIngressRule] | None = None,
 ) -> None:
     """Display dry-run preview of tunnel ingress route synchronization."""
     print_info(f"[yellow][DRY RUN][/yellow] Would configure tunnel {tunnel} ingress routes:")
+    target_hosts = {_format_subdomain_hostname(sub, domain).lower() for sub in subs}
     for sub in subs:
         hostname = _format_subdomain_hostname(sub, domain)
-        print_info(f"  • {hostname} -> {service}")
+        print_info(f"  • [green]+[/green] {hostname} -> {service}")
+
+    if current_ingress:
+        for r in current_ingress:
+            if not r.hostname and not r.path:
+                continue
+            if r.hostname and r.hostname.lower() in target_hosts:
+                continue
+            r_host = r.hostname or "(any)"
+            print_info(f"  • [blue]=[/blue] {r_host} -> {r.service} (preserved)")
+
     print_info("  • (catch-all) -> http_status:404")
 
 
@@ -530,7 +588,14 @@ def tunnel_sync(
     subs = _parse_subdomains_arg(subdomains)
 
     if dry_run or is_dry_run():
-        _preview_tunnel_sync(eff_domain, eff_tunnel, service, subs)
+        current_ingress: list[CloudflareTunnelIngressRule] | None = None
+        try:
+            client = _resolve_client(settings)
+            cfg = client.get_tunnel_configuration(eff_tunnel, account_id=account_id)
+            current_ingress = cfg.ingress
+        except Exception:
+            current_ingress = None
+        _preview_tunnel_sync(eff_domain, eff_tunnel, service, subs, current_ingress=current_ingress)
         return
 
     try:
@@ -579,6 +644,50 @@ def access_status(
         raise typer.Exit(code=exc.exit_code) from exc
 
 
+def _resolve_bypass_ips(
+    cli_bypass_ips: str | None,
+    settings: Settings,
+) -> list[str]:
+    """Resolve configured or passed public IP bypass addresses."""
+    if cli_bypass_ips:
+        return [ip.strip() for ip in cli_bypass_ips.split(",") if ip.strip()]
+    if settings.cloudflare.access.bypass_ips:
+        return list(settings.cloudflare.access.bypass_ips)
+    raw = settings.cloudflare.access.public_ip_bypass or settings.cloudflare.public_ip_bypass
+    if raw:
+        return [ip.strip() for ip in raw.split(",") if ip.strip()]
+    return []
+
+
+def _preview_access_sync(domain: str, emails: list[str], bypass_ips: list[str]) -> None:
+    """Preview access synchronization actions in dry-run mode."""
+    details: list[str] = []
+    if emails:
+        details.append(f"emails: {', '.join(emails)}")
+    if bypass_ips:
+        details.append(f"bypassing IPs: {', '.join(bypass_ips)}")
+    summary_str = f" ({'; '.join(details)})" if details else ""
+    print_info(
+        f"[yellow][DRY RUN][/yellow] Would protect {domain} with Cloudflare Access{summary_str}"
+    )
+
+
+def _render_access_sync_results(summary: dict[str, Any], json_output: bool) -> None:
+    """Display Access synchronization summary in table or JSON format."""
+    if json_output:
+        write_stdout(format_json(summary) + "\n")
+        return
+    print_success(
+        f"Configured Cloudflare Access application '{summary['app_name']}' for {summary['domain']}."
+    )
+    if summary.get("allowed_emails"):
+        print_info(f"Authorized emails: {', '.join(summary['allowed_emails'])}")
+    if summary.get("bypass_ips"):
+        print_info(
+            f"Public IP bypass: {', '.join(summary['bypass_ips'])} (policy '{CONST_CLOUDFLARE_BYPASS_POLICY_NAME}')"
+        )
+
+
 @access_app.command("sync")
 @trace_span("cloudflare.access.sync")
 def access_sync(
@@ -589,6 +698,14 @@ def access_sync(
     allowed_emails: Annotated[
         str | None,
         typer.Option("--allowed-emails", "-e", help="Comma-separated emails permitted to access"),
+    ] = None,
+    bypass_ips: Annotated[
+        str | None,
+        typer.Option(
+            "--bypass-ips",
+            "-b",
+            help="Comma-separated public IP addresses or CIDRs to bypass Access authentication (e.g. homelab public IP)",
+        ),
     ] = None,
     account_id: Annotated[
         str | None,
@@ -615,17 +732,18 @@ def access_sync(
     else:
         emails = list(settings.cloudflare.access.allowed_emails or [])
 
-    if not emails:
+    eff_bypass_ips = _resolve_bypass_ips(bypass_ips, settings)
+
+    if not emails and not eff_bypass_ips:
         print_error(
-            "Allowed emails are required. Set 'cloudflare.access.allowed_emails' or specify --allowed-emails."
+            "Allowed emails or bypass IPs are required. Set 'cloudflare.access.allowed_emails', "
+            "'cloudflare.access.bypass_ips', or specify --allowed-emails / --bypass-ips."
         )
         raise typer.Exit(1)
 
     is_dry = dry_run or is_dry_run()
     if is_dry:
-        print_info(
-            f"[yellow][DRY RUN][/yellow] Would protect {eff_domain} with Cloudflare Access for: {', '.join(emails)}"
-        )
+        _preview_access_sync(eff_domain, emails, eff_bypass_ips)
         return
 
     try:
@@ -633,15 +751,50 @@ def access_sync(
         summary = client.sync_access_application(
             domain=eff_domain,
             allowed_emails=emails,
+            bypass_ips=eff_bypass_ips,
             account_id=account_id,
         )
-        if json_output:
-            write_stdout(format_json(summary) + "\n")
-            return
-        print_success(
-            f"Configured Cloudflare Access application '{summary['app_name']}' for {eff_domain}."
-        )
-        print_info(f"Authorized emails: {', '.join(summary['allowed_emails'])}")
+        _render_access_sync_results(summary, json_output)
     except CloudflareError as exc:
         _print_cloudflare_error("Access synchronization failed", exc)
+        raise typer.Exit(code=exc.exit_code) from exc
+
+
+@access_app.command("policies")
+@trace_span("cloudflare.access.policies")
+def access_policies(
+    app_id: Annotated[str, typer.Argument(help="Access application ID")],
+    account_id: Annotated[
+        str | None,
+        typer.Option("--account-id", "-a", help="Override Cloudflare Account ID"),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", "-j", help="Output policies in JSON format"),
+    ] = False,
+) -> None:
+    """List Cloudflare Zero Trust Access policies for an application."""
+    settings = load_settings()
+    try:
+        client = _resolve_client(settings)
+        policies = client.get_access_policies(app_id, account_id=account_id)
+        if json_output:
+            write_stdout(format_json([p.model_dump() for p in policies]) + "\n")
+            return
+        if not policies:
+            print_info(f"No Access policies configured for application {app_id}.")
+            return
+        columns = [("Policy ID", "dim"), ("Name", "bold cyan"), "Decision", "Rules"]
+        rows = [
+            [
+                p.id or "-",
+                p.name,
+                p.decision,
+                str(len(p.include)),
+            ]
+            for p in policies
+        ]
+        print_table(f"Access Policies for App {app_id}", columns=columns, rows=rows)
+    except CloudflareError as exc:
+        _print_cloudflare_error("Failed listing Access policies", exc)
         raise typer.Exit(code=exc.exit_code) from exc

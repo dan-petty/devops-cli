@@ -244,6 +244,10 @@ CONST_CLOUDFLARE_CFARGOTUNNEL_SUFFIX = ".cfargotunnel.com"
 CONST_CLOUDFLARE_DEFAULT_SERVICE = "http://traefik.kube-system.svc.cluster.local:80"
 CONST_CLOUDFLARE_CATCHALL_SERVICE = "http_status:404"
 CONST_CLOUDFLARE_DEFAULT_SUBDOMAINS: tuple[str, ...] = ("*", "@")
+CONST_CLOUDFLARE_RECORD_COMMENT: Final[str] = "Managed by devops-cli"
+CONST_CLOUDFLARE_BYPASS_POLICY_NAME: Final[str] = "homelab-public-ip-bypass"
+CONST_CLOUDFLARE_ALLOW_POLICY_NAME: Final[str] = "Allow homelab authorized emails"
+CONST_CLOUDFLARE_DEFAULT_SESSION_DURATION: Final[str] = "24h"
 
 
 CONST_URL_K8S_DOWNLOAD_BASE = "https://dl.k8s.io"
@@ -2173,3 +2177,23 @@ CONST_HOST_SANDBOX_SYSTEM_DIRS: tuple[str, ...] = ("/usr",)
 # Maximum window duration permitted for Prometheus pool load queries (30 days in seconds)
 # to prevent resource exhaustion and unbounded range vectors (CWE-400).
 CONST_MAX_PROMETHEUS_WINDOW_SECONDS: Final[int] = 30 * 86400
+
+# Receiver objects and prefixes permitted for code expression exemptions in secret masking.
+CONST_CODE_EXEMPTION_RECEIVERS: Final[frozenset[str]] = frozenset(
+    {
+        "req",
+        "request",
+        "res",
+        "response",
+        "params",
+        "props",
+        "self",
+        "this",
+        "process",
+        "config",
+        "settings",
+        "context",
+        "ctx",
+        "session",
+    }
+)
