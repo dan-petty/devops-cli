@@ -61,7 +61,7 @@ Thumbs.db
 secrets/
 
 # Local project config override (copy config.example.yaml → config.yaml to activate)
-config.yaml
+/config.yaml
 
 # Local data directory — reports, review output, computed artefacts
 .data/*
@@ -69,3 +69,10 @@ config.yaml
 
 # Claude
 .claude/
+
+# Kilo Code
+.kilo/
+
+# Import analysis cache
+.grimp_cache/
+.import_linter_cache/

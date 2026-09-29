@@ -725,6 +725,28 @@ class TestPrCommands:
             assert result.exit_code == 0
             assert "ready for review" in result.output.lower()
 
+    def test_pr_ready_check_fetch_failure_handles_gracefully(self, runner: CliRunner) -> None:
+        """devops pr ready exits 1 with diagnostic message if check verdicts fetch raises error."""
+        mock_preflight = json.dumps({"number": 179, "draft": True, "head": {"sha": "sha123"}})
+        with (
+            patch("shutil.which", return_value="/usr/bin/gh"),
+            patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
+            patch(
+                "devops_cli.commands.pr.run_gh",
+                return_value=MagicMock(returncode=0, stdout=mock_preflight, stderr=""),
+            ),
+            patch(
+                "devops_cli.github.check_verdict.fetch_pr_check_verdicts",
+                side_effect=RuntimeError("API endpoint unavailable"),
+            ),
+        ):
+            result = runner.invoke(app, ["ready", "179"])
+            assert (
+                result.exit_code,
+                "Failed fetching PR #179 check verdicts: API endpoint unavailable" in result.output,
+                "Pass --force to override" in result.output,
+            ) == (1, True, True)
+
     def test_pr_diff_success(self, runner: CliRunner) -> None:
         """devops pr diff outputs unified diff."""
         mock_diff = "diff --git a/file.py b/file.py\n+new line"

@@ -675,7 +675,7 @@
     "category": "documentation_context",
     "description": "Flagging internal Kubernetes cluster URLs (http://*.svc.cluster.local) in manifests, ConfigMaps, or internal configs as insecure HTTP communication.",
     "signature_patterns": [
-      "(?:insecure|unencrypted|plaintext|plain)\\s+http\\s+(?:communication|endpoint|traffic|services?).*?(?:\\.svc\\.cluster\\.local|internal|ollama|gateway|vllm|backend)",
+      "(?:insecure|unencrypted|plaintext)\\s+http\\s+(?:communication|endpoint|traffic|service|services)\\b.*?(?:\\.svc\\.cluster\\.local|internal|ollama|gateway|vllm|backend)",
       "http://[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+\\.svc\\.cluster\\.local",
       "\\b(?:insecure\\s+communication|unencrypted\\s+proxy|plaintext\\s+traffic|http\\s+endpoint|plain\\s+http).*\\b(?:llm\\s+services|proxy|squid|k8s|cluster|internal\\s+service|backend)",
       "\\b(?:insecure\\s+http\\s+entry\\s+points|unencrypted\\s+prometheus\\s+export|plain\\s+http\\s+for\\s+internal)",
@@ -928,6 +928,50 @@
     "resolution": "Prometheus queries in devops-cli use standard PromQL instant queries against /api/v1/query with standard parameter encoding.",
     "occurrence_count": 1,
     "last_seen": "2026-09-28T20:18:57",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-JSON-LOADS-ARBITRARY-CODE-EXECUTION",
+    "name": "JSON Loads Exception Handling Arbitrary Code Execution Claim",
+    "category": "syntax_grammar",
+    "description": "Claiming that catching json.JSONDecodeError, TypeError, or ValueError on json.loads() allows arbitrary code execution or code injection.",
+    "signature_patterns": [
+      "(?:insecure\\s+exception\\s+handling\\s+allows\\s+arbitrary\\s+code\\s+execution|arbitrary\\s+code\\s+execution).*json",
+      "json\\.loads.*(?:arbitrary\\s+code\\s+execution|code\\s+injection)",
+      "except\\s+json\\.JSONDecodeError.*(?:arbitrary\\s+code|code\\s+injection)"
+    ],
+    "pattern_keywords": [
+      "json_loads_arbitrary_code_execution",
+      "json_exception_code_execution"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "Standard json.loads parses serialized JSON data and cannot execute code; catching decoding exceptions is standard defensive error handling.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-29T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-AST-PARSE-SYNTAX-WARNING-SUPPRESSION",
+    "name": "Offline AST Parsing SyntaxWarning Suppression Claim",
+    "category": "syntax_grammar",
+    "description": "Claiming that suppressing SyntaxWarning during offline ast.parse of arbitrary code snippets or files is insecure suppression or vulnerability masking.",
+    "signature_patterns": [
+      "(?:insecure|overly\\s+broad)\\s+suppression\\s+of\\s+(?:syntax\\s*warnings?|syntaxwarnings?).*ast",
+      "suppression\\s+of\\s+syntaxwarnings?\\s+during\\s+ast\\s+parsing",
+      "ast\\.parse.*warnings\\.simplefilter.*ignore.*SyntaxWarning"
+    ],
+    "pattern_keywords": [
+      "ast_parse_syntax_warning_suppression",
+      "syntaxwarning_suppression_ast"
+    ],
+    "file_patterns": [
+      "*.py"
+    ],
+    "resolution": "Offline AST analysis of arbitrary foreign code safely suppresses non-fatal syntax warnings to prevent terminal and logger corruption; syntax errors raise SyntaxError and are handled.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-29T00:00:00",
     "source": "builtin"
   }
 ]

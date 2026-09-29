@@ -6,13 +6,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-_HOOK = Path("scripts/check_structural_invariants.py")
-
 
 def _run(*paths: Path) -> subprocess.CompletedProcess[str]:
-    """Invoke the hook exactly as pre-commit does."""
+    """Invoke the structural invariants sentinel exactly as pre-commit does."""
     return subprocess.run(
-        [sys.executable, str(_HOOK), *(str(p) for p in paths)],
+        [
+            sys.executable,
+            "-m",
+            "devops_cli.security.structural_invariants",
+            *(str(p) for p in paths),
+        ],
         capture_output=True,
         text=True,
         check=False,

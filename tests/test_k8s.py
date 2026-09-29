@@ -243,6 +243,27 @@ def test_adopt_helm_resource_if_conflict(mock_run: MagicMock) -> None:
     assert mock_run.call_count == 2
 
 
+@patch("devops_cli.commands.k8s._run_cmd")
+def test_recover_stuck_helm_release_if_pending(mock_run: MagicMock) -> None:
+    """_recover_stuck_helm_release_if_pending deletes lock secret when release is stuck in pending state."""
+    from devops_cli.commands.k8s import _recover_stuck_helm_release_if_pending
+
+    err_unrelated = "Error: timed out waiting for condition"
+    res_unrelated = _recover_stuck_helm_release_if_pending(err_unrelated, "argocd", "argocd")
+
+    err_lock = "Error: UPGRADE FAILED: another operation (install/upgrade/rollback) is in progress"
+    mock_run.side_effect = [
+        MagicMock(
+            returncode=0, stdout=json.dumps({"version": 50, "info": {"status": "pending-upgrade"}})
+        ),
+        MagicMock(returncode=0, stdout="secret deleted"),
+    ]
+    res_lock = _recover_stuck_helm_release_if_pending(
+        err_lock, "argocd", "argocd", context="local-k3s"
+    )
+    assert (res_unrelated, res_lock, mock_run.call_count) == (False, True, 2)
+
+
 def test_k8s_apply_and_logs() -> None:
     """Verify k8s apply and logs commands."""
     with patch("devops_cli.commands.k8s._run_cmd") as mock_run:
@@ -825,10 +846,10 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
     repo_root = Path(__file__).resolve().parent.parent
 
-    # 1. Ollama Deployment: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup, readiness and liveness probes
+    # 1. Ollama DaemonSet: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup, readiness and liveness probes
     ollama_path = repo_root / "k8s" / "llm" / "profiles" / "ollama-profiles.yaml"
     ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
-    dep = next(d for d in ollama_docs if d and d.get("kind") == "Deployment")
+    dep = next(d for d in ollama_docs if d and d.get("kind") in ("Deployment", "DaemonSet"))
     container = dep["spec"]["template"]["spec"]["containers"][0]
     resources = container.get("resources", {})
     startup = container["startupProbe"]

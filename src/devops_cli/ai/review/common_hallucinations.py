@@ -477,13 +477,18 @@ def _verify_syntax_grammar_ground_truth(
     if file_path.suffix.lower() != ".py":
         return False
     try:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", SyntaxWarning)
-            tree = ast.parse(file_path.read_text(encoding="utf-8", errors="replace"))
+            tree = ast.parse(content)
     except SyntaxError:
         return False
     del tree
     entry_id = entry.id.lower()
+    if "json" in entry_id and "loads" in entry_id:
+        return "json.loads" in content
+    if "ast" in entry_id and "syntax" in entry_id:
+        return "ast.parse" in content
     if any(word in entry_id for word in ("missing", "symbol", "header")):
         return False
     return bool(SYNTAX_CLAIM.search(f"{finding.title}\n{finding.description or ''}"))
@@ -589,6 +594,8 @@ def _verify_test_mocks_ground_truth(
 def _verify_documentation_context_ground_truth(
     finding: Finding, entry: CommonHallucinationEntry, file_path: Path
 ) -> bool:
+    if file_path.name in ("common_hallucinations.json", "mitigated_findings.json"):
+        return True
     parts = set(file_path.parts)
     if parts & {"docs", "tasks"} or file_path.suffix.lower() in (".md", ".rst", ".txt"):
         return True

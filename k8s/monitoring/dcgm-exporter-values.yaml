@@ -2,10 +2,10 @@
 # Chart: nvidia-dcgm/dcgm-exporter
 # Repo:  https://nvidia.github.io/dcgm-exporter/helm-charts
 #
-# DCGM supports Maxwell and newer GeForce and Quadro GPUs and Kepler and newer datacenter GPUs,
-# so every card in the pool. Profiling fields (DCGM_FI_PROF_*) need datacenter GPUs and the
-# SYS_ADMIN capability, so they are left out and the exporter runs without it. Which fields a
-# card reports varies; the dashboards use device fields every supported card has.
+# DCGM supports Maxwell and newer GeForce and Quadro GPUs and Kepler and newer datacenter GPUs.
+# Datacenter GPUs (such as Tesla PG500-216) require the SYS_ADMIN capability to access hardware
+# performance counters without failing host engine checks. Which fields a card reports varies;
+# the dashboards use device fields supported across cards.
 
 image:
   tag: 4.6.1-4.8.4-distroless
@@ -23,17 +23,21 @@ tolerations:
     effect: NoSchedule
 
 # Root reads the kubelet's pod-resources socket, which maps each GPU to the pod using it.
+# SYS_ADMIN capability is required on datacenter GPUs for DCGM host engine hardware counter collection.
 securityContext:
   runAsNonRoot: false
   runAsUser: 0
   allowPrivilegeEscalation: false
   capabilities:
     drop: ["ALL"]
-    add: []
+    add: ["SYS_ADMIN"]
 
 arguments:
   - "-f"
   - "/etc/dcgm-exporter/dcp-metrics-included.csv"
+
+rollingUpdate:
+  maxUnavailable: "50%"
 
 serviceMonitor:
   enabled: true

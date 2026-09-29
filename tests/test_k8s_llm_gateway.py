@@ -47,10 +47,12 @@ def _load_kind(path: Path, kind: str) -> dict[str, Any]:
 
 
 def _load_deployment(path: Path, name: str) -> dict[str, Any]:
-    """Return the Deployment with the given metadata.name from a multi-document manifest."""
+    """Return the Deployment or DaemonSet with the given metadata.name from a multi-document manifest."""
     docs = yaml.safe_load_all(path.read_text(encoding="utf-8"))
     return next(
-        d for d in docs if d and d.get("kind") == "Deployment" and d["metadata"]["name"] == name
+        d
+        for d in docs
+        if d and d.get("kind") in ("Deployment", "DaemonSet") and d["metadata"]["name"] == name
     )
 
 
@@ -404,10 +406,13 @@ class TestK8sLLMGatewayManifests:
             _flag(args, "--max-model-len"),
             _flag(args, "--gpu-memory-utilization"),
             _flag(args, "--max-num-seqs"),
+            "--enable-auto-tool-choice" in args,
+            _flag(args, "--tool-call-parser"),
             "--quantization" in args,
             container["resources"]["limits"]["nvidia.com/gpu"],
             container["resources"]["limits"]["memory"],
-            dep["spec"]["strategy"]["type"],
+            dep["kind"],
+            dep["spec"]["updateStrategy"]["type"],
         ) == (
             VLLM_IMAGE,
             ["vllm", "serve"],
@@ -417,10 +422,13 @@ class TestK8sLLMGatewayManifests:
             "65536",
             "0.95",
             "64",
+            True,
+            "hermes",
             False,
             "2",
             "48Gi",
-            "Recreate",
+            "DaemonSet",
+            "RollingUpdate",
         )
 
     def test_vllm_single_deployment_fits_one_16gib_gpu(self) -> None:
@@ -440,9 +448,12 @@ class TestK8sLLMGatewayManifests:
             _flag(args, "--kv-cache-dtype"),
             _flag(args, "--gpu-memory-utilization"),
             _flag(args, "--max-num-seqs"),
+            "--enable-auto-tool-choice" in args,
+            _flag(args, "--tool-call-parser"),
             container["resources"]["limits"]["nvidia.com/gpu"],
             container["resources"]["limits"]["memory"],
-            dep["spec"]["strategy"]["type"],
+            dep["kind"],
+            dep["spec"]["updateStrategy"]["type"],
         ) == (
             "vllm-16gib",
             VLLM_IMAGE,
@@ -454,22 +465,31 @@ class TestK8sLLMGatewayManifests:
             "fp8",
             "0.95",
             "16",
+            True,
+            "hermes",
             "1",
             "12Gi",
-            "Recreate",
+            "DaemonSet",
+            "RollingUpdate",
         )
 
     @pytest.mark.parametrize(
-        ("deployment_name", "gpu_count_requirement"),
+        ("deployment_name", "expected_vram"),
         [
-            ("vllm-48gib", ("Gt", ["1"])),
-            ("vllm-16gib", ("In", ["1"])),
+            ("vllm-16gib", "16Gi"),
+            ("vllm-24gib", "24Gi"),
+            ("vllm-32gib", "32Gi"),
+            ("vllm-48gib", "48Gi"),
+            ("vllm-64gib", "64Gi"),
+            ("vllm-72gib", "72Gi"),
+            ("vllm-96gib", "96Gi"),
+            ("vllm-128gib", "128Gi"),
         ],
     )
-    def test_vllm_profiles_select_gpu_count_and_architecture(
-        self, deployment_name: str, gpu_count_requirement: tuple[str, list[str]]
+    def test_vllm_profiles_select_total_vram_and_architecture(
+        self, deployment_name: str, expected_vram: str
     ) -> None:
-        """Verify each vLLM profile targets Ampere-or-newer GPUs under either GPU label scheme."""
+        """Verify each vLLM profile targets Ampere-or-newer GPUs and matching total VRAM under either GPU label scheme."""
         dep = _load_deployment(VLLM_PROFILES_MANIFEST, deployment_name)
         terms = _node_selector_terms(dep["spec"]["template"]["spec"])
         summary = sorted(
@@ -477,25 +497,34 @@ class TestK8sLLMGatewayManifests:
                 arch["key"],
                 arch["operator"],
                 sorted(arch["values"]),
-                (count["operator"], count["values"]),
+                vram["key"],
+                vram["operator"],
+                vram["values"],
             )
             for term in terms
             for arch in term["matchExpressions"]
             if arch["key"] in GPU_ARCHITECTURE_LABELS
-            for count in term["matchExpressions"]
-            if count["key"] == "nvidia.com/gpu.count"
+            for vram in term["matchExpressions"]
+            if vram["key"] == "nvidia.com/gpu.total-vram-gib"
         )
 
         assert summary == [
-            (label, "In", VLLM_ARCHITECTURES, gpu_count_requirement)
+            (
+                label,
+                "In",
+                VLLM_ARCHITECTURES,
+                "nvidia.com/gpu.total-vram-gib",
+                "In",
+                [expected_vram],
+            )
             for label in GPU_ARCHITECTURE_LABELS
         ]
 
     def test_ollama_profiles_define_standard_vram_tiers(self) -> None:
         """Verify ollama-profiles defines the 8 standard VRAM tiers with nvidia runtime and persistent data."""
         docs = list(yaml.safe_load_all(OLLAMA_PROFILES_MANIFEST.read_text(encoding="utf-8")))
-        deployments = [d for d in docs if d and d.get("kind") == "Deployment"]
-        dep_names = [d["metadata"]["name"] for d in deployments]
+        daemonsets = [d for d in docs if d and d.get("kind") == "DaemonSet"]
+        dep_names = [d["metadata"]["name"] for d in daemonsets]
         expected_names = [
             "ollama-16gib",
             "ollama-24gib",
@@ -508,10 +537,10 @@ class TestK8sLLMGatewayManifests:
         ]
         assert (
             dep_names,
-            all(d["spec"]["template"]["spec"]["runtimeClassName"] == "nvidia" for d in deployments),
+            all(d["spec"]["template"]["spec"]["runtimeClassName"] == "nvidia" for d in daemonsets),
             all(
                 any(v["name"] == "ollama-data" for v in d["spec"]["template"]["spec"]["volumes"])
-                for d in deployments
+                for d in daemonsets
             ),
         ) == (
             expected_names,

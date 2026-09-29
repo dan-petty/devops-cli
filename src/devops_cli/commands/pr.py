@@ -274,17 +274,18 @@ def _resolve_pr_head_sha(number: int, repo: str | None = None) -> str:
     return head_data.get("sha", "") if isinstance(head_data, dict) else ""
 
 
-def _format_bucket_badge(bucket: str) -> str:
+def _format_bucket_badge(bucket: Any) -> str:
     """Format check bucket with color coding."""
-    if bucket == "pass":
+    val = bucket.value if hasattr(bucket, "value") else str(bucket)
+    if val == "pass":
         return "[green]✓ pass[/green]"
-    if bucket == "skipping":
+    if val == "skipping":
         return "[dim]– skipping[/dim]"
-    if bucket == "pending":
+    if val == "pending":
         return "[yellow]● pending[/yellow]"
-    if bucket == "cancel":
+    if val == "cancel":
         return "[bold magenta]⊘ cancel[/bold magenta]"
-    if bucket == "fail":
+    if val == "fail":
         return "[bold red]✗ fail[/bold red]"
     return "[bold red]? unread[/bold red]"
 
@@ -305,9 +306,7 @@ def _render_check_verdict_table(number: int, verdict: Any) -> None:
     rows = [
         [
             mask_secrets(item.name),
-            _format_bucket_badge(
-                str(item.bucket.value if hasattr(item.bucket, "value") else item.bucket)
-            ),
+            _format_bucket_badge(item.bucket),
             mask_secrets(item.link),
         ]
         for item in verdict.items
@@ -1011,7 +1010,15 @@ def _validate_pr_ready_checks(
     sha = _extract_pr_head_sha(pr_data)
     if not sha:
         return
-    verdict = fetch_pr_check_verdicts(number, repo=repo, head_sha=sha, runner=run_gh)
+    try:
+        verdict = fetch_pr_check_verdicts(number, repo=repo, head_sha=sha, runner=run_gh)
+    except Exception as exc:
+        print_error(
+            f"Failed fetching PR #{number} check verdicts: {exc}. Pass --force to override.",
+            safe=True,
+        )
+        raise typer.Exit(1) from exc
+
     if verdict.is_passing:
         return
     if verdict.exit_code == 8:

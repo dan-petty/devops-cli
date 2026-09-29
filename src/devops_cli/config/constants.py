@@ -382,6 +382,8 @@ CONST_STATUS_MITIGATED = "MITIGATED"
 CONST_STATUS_SUCCESS = "SUCCESS"
 
 CONST_GIT_MAIN_BRANCH = "main"
+CONST_SAFE_GIT_REF_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_\-/.^~@]+$")
+CONST_SAFE_GIT_RELPATH_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_\-/.@+]+$")
 CONST_DEFAULT_LINE_NUMBER = 1
 CONST_MARKDOWN_HEADING_LEVEL = 3
 

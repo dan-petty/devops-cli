@@ -266,11 +266,14 @@ def execute_criterion_command(
     if exec_args[0] in {"python", "python3"} and "-W" not in exec_args:
         exec_args[1:1] = ["-W", "ignore::SyntaxWarning"]
 
+    src_dir = cwd / "src"
+    py_path = f"{src_dir}:{cwd}" if src_dir.is_dir() else str(cwd)
     res = sb.execute(
         args=exec_args,
         cwd=cwd,
         timeout=timeout,
         max_output_bytes=max_output_bytes,
+        env={"PYTHONPATH": py_path},
     )
     return CriterionExecutionResult(
         command=command,
@@ -301,6 +304,8 @@ def _is_tautological_verification_command(command: str) -> bool:
     """Return True if command merely checks file text or symbol existence without demonstrating a defect."""
     clean = command.strip().lower()
     if clean.startswith(("git grep", "grep")) or "grep " in clean:
+        return True
+    if "imports successfully" in clean or "import successfully" in clean:
         return True
     return any(kw in clean for kw in _TAUTOLOGICAL_SUBSTRINGS)
 
