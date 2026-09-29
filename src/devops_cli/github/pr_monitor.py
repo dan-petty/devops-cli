@@ -856,3 +856,8 @@ def monitor_pr(
             return _build_monitor_timeout_result(latest_status, pr_number, elapsed)
 
         time.sleep(min(float(valid_interval), time_left))
+
+
+def sort_prs_oldest_first(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sort pull requests in ascending order by PR number (FIFO / oldest first)."""
+    return sorted(prs, key=lambda p: int(p.get("number") or 0))

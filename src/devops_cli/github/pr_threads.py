@@ -122,6 +122,27 @@ query GetReviewThreads($owner: String!, $repo: String!, $pr: Int!, $cursor: Stri
 }
 """.strip()
 
+_QUERY_GET_REVIEW_THREAD = """
+query GetReviewThread($threadId: ID!) {
+  node(id: $threadId) {
+    ... on PullRequestReviewThread {
+      id
+      isResolved
+      path
+      line
+      comments(first: 50) {
+        nodes {
+          id
+          body
+          author { login }
+          createdAt
+        }
+      }
+    }
+  }
+}
+""".strip()
+
 _MUTATION_ADD_REPLY = """
 mutation AddReply($threadId: ID!, $body: String!) {
   addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) {
@@ -287,6 +308,26 @@ def _attempt_resolve_thread(thread_id: str, pr_number: int) -> ThreadResolutionR
         return ThreadResolutionResult(thread_id=thread_id, is_resolved=False, success=False)
 
 
+def get_pr_review_thread(thread_id: str) -> ReviewThread:
+    """Retrieve an individual PR review thread by its GraphQL node ID."""
+    data = _run_graphql_query(
+        _QUERY_GET_REVIEW_THREAD,
+        variables={"threadId": thread_id},
+    )
+    node = data.get("data", {}).get("node")
+    if not isinstance(node, dict) or not node.get("id"):
+        raise GitHubOperationError(f"Review thread {thread_id} not found.")
+    return _parse_review_thread(node)
+
+
+def has_non_opener_reply(thread: ReviewThread) -> bool:
+    """Return True if at least one comment after the first is authored by someone other than the opener."""
+    if len(thread.comments) <= 1:
+        return False
+    opener = (thread.comments[0].author or "").strip().lower()
+    return any((c.author or "").strip().lower() != opener for c in thread.comments[1:])
+
+
 def resolve_all_pr_review_threads(
     owner: str,
     repo: str,
@@ -299,7 +340,7 @@ def resolve_all_pr_review_threads(
         owner: Repository owner/org.
         repo: Repository name (with or without owner prefix).
         pr_number: Pull request number.
-        only_replied: If True, only threads with at least one reply (len(comments) > 1) are resolved.
+        only_replied: If True, only threads with a reply from someone other than the thread opener are resolved.
 
     Returns:
         List of ThreadResolutionResult for each attempted thread resolution.
@@ -309,5 +350,5 @@ def resolve_all_pr_review_threads(
     if not unresolved:
         return []
 
-    targets = [t for t in unresolved if not only_replied or len(t.comments) > 1]
+    targets = [t for t in unresolved if not only_replied or has_non_opener_reply(t)]
     return [_attempt_resolve_thread(t.id, pr_number) for t in targets]

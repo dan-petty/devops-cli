@@ -1250,6 +1250,7 @@ Programmatically mark a pull request review discussion thread as resolved.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `thread_id` | `string` | Yes | - | - |
+| `without_reply` | `boolean` | No | `False` | - |
 
 ### `pr_threads_list`
 
