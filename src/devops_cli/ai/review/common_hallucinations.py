@@ -514,14 +514,27 @@ def _verify_secret_scanning_ground_truth(
             lines = content.splitlines()
             if 1 <= num <= len(lines):
                 target_line = lines[num - 1]
-                return bool(
+                has_masked = bool(
                     re.search(
                         r"<masked-[a-zA-Z0-9_\-]+>|\*{3,}redacted\*{3,}",
                         target_line,
                         re.IGNORECASE,
                     )
-                    or not re.search(r"['\"][^'\"]{6,}['\"]", target_line)
                 )
+                if has_masked:
+                    return True
+                # Clean line of getattr/get attribute keys and standard option name strings
+                cleaned_line = re.sub(
+                    r"(?:getattr|hasattr|setattr|\.get)\s*\([^)]*['\"][a-zA-Z0-9_]+['\"]",
+                    "",
+                    target_line,
+                )
+                cleaned_line = re.sub(
+                    r"['\"](?:password|secret|token|api_key|host|port|db|key|name)['\"]",
+                    "",
+                    cleaned_line,
+                )
+                return not bool(re.search(r"['\"][^'\"]{6,}['\"]", cleaned_line))
         except Exception:
             pass
     return True

@@ -6,8 +6,9 @@
     "description": "Claiming that unparenthesized or bracketless multi-exception clauses (e.g. 'except TimeoutError, ConnectionRefusedError:') are invalid syntax, SyntaxError, or Python 2 syntax.",
     "signature_patterns": [
       "(?:bracketless|unparenthesized)\\s+except",
-      "except\\s+[a-zA-Z0-9_]+,\\s*[a-zA-Z0-9_]+.*(?:syntaxerror|invalid\\s*syntax|python\\s*2)",
-      "(?:syntaxerror|invalid\\s*syntax).*(?:bracketless|unparenthesized|without\\s+parentheses)"
+      "except\\s+[a-zA-Z0-9_]+,\\s*[a-zA-Z0-9_]+.*(?:syntaxerror|invalid\\s*syntax|python\\s*2|syntax\\s+is\\s+invalid)",
+      "(?:syntaxerror|invalid\\s*syntax).*(?:bracketless|unparenthesized|without\\s+parentheses)",
+      "catches\\s+[a-zA-Z0-9_]+(?:,\\s*[a-zA-Z0-9_]+)*\\s+but\\s+this\\s+syntax\\s+is\\s+invalid"
     ],
     "pattern_keywords": [
       "pep758",
@@ -859,6 +860,74 @@
     "resolution": "The pricing ledger is an offline cost calculation utility; inspecting strings with urlsplit performs no network requests and cannot cause SSRF.",
     "occurrence_count": 1,
     "last_seen": "2026-09-28T00:00:00",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-GRAPHQL-JSON-DUMPS",
+    "name": "GraphQL Request Payload json.dumps False Positive",
+    "category": "general",
+    "description": "Claiming that using json.dumps() for GraphQL query payloads or variables causes double encoding or is an invalid request format.",
+    "signature_patterns": [
+      "json\\.dumps.*graphql.*(?:double\\s+encod|invalid\\s+payload|redundant)",
+      "graphql.*json\\.dumps.*(?:double\\s+encod|invalid\\s+payload|redundant)"
+    ],
+    "pattern_keywords": [
+      "graphql_json_dumps",
+      "graphql_payload_double_encoding"
+    ],
+    "file_patterns": [
+      "src/devops_cli/github/*",
+      "src/devops_cli/ai/*"
+    ],
+    "resolution": "GraphQL endpoints over HTTP POST require standard JSON payloads with query strings and variable mappings serialized according to the GraphQL over HTTP specification.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-28T20:18:57",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-EXAMPLE-COM-WEBHOOK",
+    "name": "RFC 2606 Example Domain Webhook False Positive",
+    "category": "test_mocks",
+    "description": "Flagging example.com or example.org webhook endpoints or URLs in default settings, examples, or test fixtures as security or reachability defects.",
+    "signature_patterns": [
+      "(?:webhook|url|endpoint).*example\\.(?:com|org|net).*(?:unreachable|invalid|insecure)",
+      "example\\.(?:com|org|net).*(?:webhook|endpoint).*(?:unreachable|invalid|insecure)"
+    ],
+    "pattern_keywords": [
+      "example_com_webhook",
+      "rfc2606_webhook_endpoint"
+    ],
+    "file_patterns": [
+      "src/devops_cli/config/*",
+      "tests/*",
+      "*.example*",
+      "config.example.yaml"
+    ],
+    "resolution": "Per RFC 2606 and project AGENTS.md rules, example.com is the mandatory standard placeholder domain for dummy test values, templates, and documentation.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-28T20:18:57",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-PROMETHEUS-TELEMETRY-METRIC",
+    "name": "Prometheus Metric or OpenTelemetry Query False Positive",
+    "category": "general",
+    "description": "Flagging valid Prometheus PromQL metric queries or OpenTelemetry attribute keys as malformed, unquoted, or broken.",
+    "signature_patterns": [
+      "(?:promql|prometheus).*metric.*(?:invalid|malformed|unquoted)",
+      "query.*(?:/api/v1/query|prometheus).*(?:malformed|broken)"
+    ],
+    "pattern_keywords": [
+      "prometheus_query_metric",
+      "promql_metric_syntax"
+    ],
+    "file_patterns": [
+      "src/devops_cli/argo/*",
+      "src/devops_cli/telemetry/*"
+    ],
+    "resolution": "Prometheus queries in devops-cli use standard PromQL instant queries against /api/v1/query with standard parameter encoding.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-28T20:18:57",
     "source": "builtin"
   },
   {

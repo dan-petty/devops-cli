@@ -2203,6 +2203,7 @@ CONST_HOST_SANDBOX_DEFAULT_ENV: tuple[tuple[str, str], ...] = (
     ("LC_ALL", "C.UTF-8"),
     ("TMPDIR", "/tmp"),  # nosec B108
     ("PYTHONDONTWRITEBYTECODE", "1"),
+    ("PYTHONWARNINGS", "ignore::SyntaxWarning"),
 )
 CONST_HOST_SANDBOX_SYSTEM_SYMLINKS: tuple[str, ...] = ("/bin", "/lib", "/lib64", "/sbin")
 CONST_HOST_SANDBOX_SYSTEM_DIRS: tuple[str, ...] = ("/usr",)

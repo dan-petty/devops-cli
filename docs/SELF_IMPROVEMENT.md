@@ -197,6 +197,42 @@ Five systemic updates harden the loop against recurrence:
 4. **Prompt Instruction Hardening**: Updated `src/devops_cli/ai/tasks/verify_finding_system.md`, `src/devops_cli/ai/tasks/review.md`, and `src/devops_cli/ai/personas/devsecops/prompt.md` with explicit invalidation rules against tautological criteria, offline URL parsing, and internal cluster networking.
 5. **Defensive API & Git Execution Hardening**: Added CRLF header sanitization in gateway, URL scheme validation in gateway bench, run_id regex validation in run store, and git argument separators in analyze.
 
+#### Calibration Record: Session `20260928-201857`
+
+This session evaluated repository review telemetry `/workspaces/devops-cli/.data/reviews/20260928-201857`, identifying transient Cloudflare HTTP 524 gateway timeouts on provider endpoints, Python 3.12+ invalid regex escape sequence warnings, and 18 subsystem code quality and security findings:
+
+| Claim / Observation | Why it was false / Remediated |
+| --- | --- |
+| Transient HTTP 524 gateway timeouts caused skipped file reviews | Review agent retried only 2 times with static backoff. Elevated `DEFAULT_REVIEW_RETRY_ATTEMPTS = 6`, exponential backoff `2.0s` to `60.0s`, broadened retry status codes (408, 429, 500, 502-504, 520-524), and sanitized Cloudflare HTML error bodies in `ai/client/base.py`. |
+| `<unknown>:1: SyntaxWarning: "\w" is an invalid escape sequence` emitted during review | LLM-generated criteria and naked `ast.parse` in symbol/outline scanners emitted unescaped regex warnings under Python 3.12+. Added `PYTHONWARNINGS="ignore::SyntaxWarning"` to sandbox environment, wrapped internal `ast.parse` in `warnings.catch_warnings()`, and instructed review models to use raw strings (`r'...'`) or double backslashes. |
+| Python 3.14 PEP 758 multi-exception syntax falsely flagged as syntax error | LLM claimed `except TypeError, ValueError:` syntax is invalid. Broadened `HALLUCINATION-PEP758-EXCEPT` signatures to match `catches X, Y but this syntax is invalid`. |
+| Tautological criteria commands auto-verifying false findings | Criteria running `python -c "import foo; print('ok')"` exited 0 without assertions, triggering false auto-promotions. Hardened `_is_tautological_verification_command` in `review_environment.py` to require active assertions (`assert`, `sys.exit`, `pytest`). |
+| Insecure dynamic reflection via `_LAZY_OBJECT_MAPPING` in `commands/mcp.py` & `commands/repos.py` | **Remediated**: removed `_LAZY_OBJECT_MAPPING`, `__getattr__`, and `_get` wrappers; replaced with direct static imports. |
+| Potential path traversal in `devops repos clone-org` | **Remediated**: added `validate_no_path_traversal` and `is_relative_to` checks on `repo.name`. |
+| Predictable static temporary file in `KubernetesService.switch_context` | **Remediated**: replaced static `.tmp` file with `NamedTemporaryFile(delete=False, dir=parent)` with `0o600` permissions and atomic replacement. |
+| Inverted return value in `LibraryVectorStore.ensure_collection_exists` | **Remediated**: returned `True` when collection exists (`if info: return True`). |
+| Unbounded refresh calculation in `LiveResourceWatcher` | **Remediated**: bounded refresh rate calculation with `min(30, max(1, int(1.0 / max(0.01, self.interval_seconds))))`. |
+| Dangling client reference on close in `HttpClientBroker` | **Remediated**: guaranteed `_sync_client = None` and `_async_client = None` are always cleared on `close()` and `aclose()`. |
+| Missing async client cleanup helper in `http/pool.py` | **Remediated**: added `aclose_shared_clients()` helper. |
+| Incomplete error metrics in `cli_command_handler` | **Remediated**: passed `error_type=type(exc).__name__` in `DevOpsCLIError` handler. |
+| Missing dictionary support in `ResourceInformer._normalize_event` | **Remediated**: extracted metadata cleanly via `_extract_event_metadata` supporting both objects and raw event dictionaries. |
+| Broad exception handling in `_fetch_metric_value` in `argo/rollouts.py` | **Remediated**: narrowed `except Exception:` to `(httpx2.HTTPError, ValueError, KeyError, IndexError, TypeError)`. |
+| Broad exception handling in `instruction_generator.py` | **Remediated**: narrowed `except Exception:` to `(tomllib.TOMLDecodeError, OSError)`. |
+| Unvalidated output path in `grafana dashboards export` | **Remediated**: added `validate_no_path_traversal` before path resolution. |
+| Root equality bypass in review feedback exporter | **Remediated**: enforced `resolved_out != root` in `ai/review/exporter.py`. |
+| Missing path traversal validation in `inspect_git_manifest_drift` | **Remediated**: decomposed into pure helper functions with `validate_no_path_traversal`. |
+| Unbounded callable import and resource leak in `memory_profiler.py` | **Remediated**: added `try/finally` around broker in `_exercise_http_pool`, and validated module/function names against identifier regex. |
+| Unsanitized error messages in `k8s/security_stream.py` | **Remediated**: applied `mask_secrets` to `proc.stderr`. |
+| Unvalidated `currentStepIndex` in `ArgoRolloutState.from_manifest` | **Remediated**: safely parsed `current_step` to integer or `None`. |
+| Swallowed `ModuleNotFoundError` in `ai/__init__.py` dynamic loader | **Remediated**: verified `exc.name == f"devops_cli.ai.{name}"` before suppressing. |
+
+Systemic hardening updates resulting from this session:
+1. **Resilient HTTP Backoff & Error Stripping**: Elevated review retry attempts to 6 with exponential backoff and HTML tag stripping on provider errors.
+2. **Dual-Layer Escape Sequence Suppression**: Configured sandbox environment variable `PYTHONWARNINGS` and wrapped internal AST parsers to eliminate false `SyntaxWarning: "\w"`.
+3. **Strict Criteria Assertion Enforcement**: Hardened criteria evaluation to disallow unasserted `print(...)` commands from auto-verifying defects.
+4. **Anti-Hallucination Expansions**: Registered `HALLUCINATION-GRAPHQL-JSON-DUMPS`, `HALLUCINATION-EXAMPLE-COM-WEBHOOK`, `HALLUCINATION-PROMETHEUS-TELEMETRY-METRIC`, and broadened `HALLUCINATION-PEP758-EXCEPT`.
+5. **Systemic Code Hardening Across 18 Subsystems**: Closed path traversal, resource lifecycle, exception scoping, and type safety vulnerabilities project-wide.
+
 ### Phase 4: Root Cause & Severity Classification
 - Isolate exact failure mechanisms and categorize severity:
   - **CRITICAL**: Exploitable vulnerability, auth bypass, credential leak, SSRF, arbitrary file write outside root, or fatal crash.

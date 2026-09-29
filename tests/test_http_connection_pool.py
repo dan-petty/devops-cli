@@ -336,3 +336,41 @@ def test_an_edited_configuration_changes_the_context() -> None:
         after = context_module.configured_context()
     context_module.reset_context_cache()
     assert (before, after) == ("homelab-k3s", "staging")
+
+
+def test_http_client_broker_close_resets_client_references() -> None:
+    """Verify HttpClientBroker resets _sync_client and _async_client to None on close/aclose."""
+    import asyncio
+
+    from devops_cli.http.broker import HttpClientBroker
+
+    broker = HttpClientBroker()
+    mock_sync = MagicMock(is_closed=False)
+    mock_async = MagicMock(is_closed=False)
+    mock_async.aclose = MagicMock(return_value=asyncio.sleep(0))
+
+    broker._sync_client = mock_sync
+    broker._async_client = mock_async
+
+    broker.close()
+    assert (broker._sync_client, mock_sync.close.call_count) == (None, 1)
+
+    asyncio.run(broker.aclose())
+    assert (broker._async_client, mock_async.aclose.call_count) == (None, 1)
+
+
+def test_aclose_shared_clients_releases_async_pool() -> None:
+    """Verify aclose_shared_clients awaits closing all active async clients."""
+    import asyncio
+
+    from devops_cli.http import pool
+
+    mock_client = MagicMock(is_closed=False)
+    mock_client.aclose = MagicMock(return_value=asyncio.sleep(0))
+
+    with pool._LOCK:
+        pool._ASYNC_CLIENTS["test-key"] = mock_client
+
+    asyncio.run(pool.aclose_shared_clients())
+
+    assert (len(pool._ASYNC_CLIENTS), mock_client.aclose.call_count) == (0, 1)
