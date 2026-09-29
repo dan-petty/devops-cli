@@ -60,6 +60,14 @@ This task addresses workspace extension configuration, elimination of Continue.d
   - Retained local workstation Git daemon port (9418) for container repository synchronization.
   - Updated `src/devops_cli/templates/devcontainer.json.j2` to conditionally forward Kubernetes ports only when minikube is enabled, defaulting to 9418.
   - Updated `docs/DEVCONTAINER_USAGE.md` manifest example to reflect modern ingress-based cluster access.
+- [x] **Kubernetes Deploy-Stack Error Remediation & Lifecycle Resilience**:
+  - Remediated `ollama.yaml` missing path error by updating `_MANIFESTS_BY_STACK["llm"]` to reference active LLM profiles (`services.yaml`, `pvc.yaml`, `ollama-profiles.yaml`, `vllm-profiles.yaml`) and gateway manifests (`configmap.yaml`, `deployment.yaml`, `service.yaml`).
+  - Added architectural invariant test `test_manifests_by_stack_files_exist` in `tests/test_architectural_invariants.py` ensuring all referenced manifests exist on disk.
+  - Implemented automated Helm pending lock self-healing `_recover_stuck_helm_release_if_pending` in `stack_lifecycle.py` to automatically detect and delete orphaned release lock secrets on `UPGRADE FAILED: another operation is in progress`. Added unit test `test_recover_stuck_helm_release_if_pending` in `tests/test_k8s.py`.
+  - Remediated `dcgm-exporter` DaemonSet upgrade failure by adding `SYS_ADMIN` capability in `k8s/monitoring/dcgm-exporter-values.yaml` (required for DCGM hardware counters on datacenter GPUs like Tesla PG500-216) and configuring `rollingUpdate.maxUnavailable: "50%"` so unready or offline nodes do not deadlock cluster rollouts.
+  - Decomposed `teardown_stack` into `_teardown_namespaces` to maintain $M \le 10$ cyclomatic complexity limits.
+  - Installed `devops-cli` in editable mode into the devcontainer system environment, ensuring bare `devops` CLI invocations track the active workspace repository.
 - [x] **Verification**:
+  - Validated live on cluster: `devops k8s deploy-stack --stack all` completed with 100% success across all components in 46 seconds (down from 10m 55s with 3 errors).
   - Validated 100% pass across all pre-commit hooks (`uv run pre-commit run --all-files`).
   - Validated 100% pass across all 10 CI quality gates (`uv run devops ci`).

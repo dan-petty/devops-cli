@@ -243,6 +243,27 @@ def test_adopt_helm_resource_if_conflict(mock_run: MagicMock) -> None:
     assert mock_run.call_count == 2
 
 
+@patch("devops_cli.commands.k8s._run_cmd")
+def test_recover_stuck_helm_release_if_pending(mock_run: MagicMock) -> None:
+    """_recover_stuck_helm_release_if_pending deletes lock secret when release is stuck in pending state."""
+    from devops_cli.commands.k8s import _recover_stuck_helm_release_if_pending
+
+    err_unrelated = "Error: timed out waiting for condition"
+    res_unrelated = _recover_stuck_helm_release_if_pending(err_unrelated, "argocd", "argocd")
+
+    err_lock = "Error: UPGRADE FAILED: another operation (install/upgrade/rollback) is in progress"
+    mock_run.side_effect = [
+        MagicMock(
+            returncode=0, stdout=json.dumps({"version": 50, "info": {"status": "pending-upgrade"}})
+        ),
+        MagicMock(returncode=0, stdout="secret deleted"),
+    ]
+    res_lock = _recover_stuck_helm_release_if_pending(
+        err_lock, "argocd", "argocd", context="local-k3s"
+    )
+    assert (res_unrelated, res_lock, mock_run.call_count) == (False, True, 2)
+
+
 def test_k8s_apply_and_logs() -> None:
     """Verify k8s apply and logs commands."""
     with patch("devops_cli.commands.k8s._run_cmd") as mock_run:

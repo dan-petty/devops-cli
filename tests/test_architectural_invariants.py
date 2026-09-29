@@ -531,3 +531,16 @@ def test_a_broad_ignore_defeats_a_broad_select() -> None:
         _ruff_enforces("RUF043", ["ALL"], ["RUF"]),
         _ruff_enforces("RUF043", ["ALL"], []),
     ) == (False, True)
+
+
+def test_manifests_by_stack_files_exist() -> None:
+    """Every Kubernetes manifest declared in _MANIFESTS_BY_STACK must exist on disk."""
+    from devops_cli.commands.k8s.stack_lifecycle import _MANIFESTS_BY_STACK
+
+    missing_manifests = [
+        f"{stack_name}:{path}"
+        for stack_name, paths in _MANIFESTS_BY_STACK.items()
+        for path in paths
+        if not path.exists()
+    ]
+    assert missing_manifests == []

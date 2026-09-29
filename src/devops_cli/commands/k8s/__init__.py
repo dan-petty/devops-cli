@@ -77,6 +77,7 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     _adopt_helm_resource_if_conflict,
     _bootstrap_openwebui_account,
     _ensure_qdrant_api_key_secret,
+    _recover_stuck_helm_release_if_pending,
     bootstrap_openwebui,
     deploy_stack,
     sync_secrets,
@@ -140,6 +141,7 @@ __all__ = [
     "_k8s_clients",
     "_minikube_running",
     "_parse_minikube_service_url",
+    "_recover_stuck_helm_release_if_pending",
     "_resolve_accessible_url",
     "_resolve_k8s_node_port_url",
     "_resolve_stacks",
@@ -204,6 +206,7 @@ _STACK_ATTRS = {
     "teardown_stack",
     "_adopt_helm_resource_if_conflict",
     "_bootstrap_openwebui_account",
+    "_recover_stuck_helm_release_if_pending",
 }
 
 
