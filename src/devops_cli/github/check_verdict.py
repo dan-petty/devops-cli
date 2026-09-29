@@ -34,7 +34,7 @@ class CheckBucket(StrEnum):
     UNREAD = CONST_GH_CHECK_BUCKET_UNREAD
 
 
-_BUCKET_NAME_MAP: Final[dict[str, CheckBucket]] = {
+BUCKET_CLASSIFIER_MAP: Final[dict[str, CheckBucket]] = {
     "pass": CheckBucket.PASS,
     "success": CheckBucket.PASS,
     "fail": CheckBucket.FAIL,
@@ -55,6 +55,7 @@ _BUCKET_NAME_MAP: Final[dict[str, CheckBucket]] = {
     "cancel": CheckBucket.CANCEL,
     "cancelled": CheckBucket.CANCEL,
 }
+_BUCKET_NAME_MAP: Final[dict[str, CheckBucket]] = BUCKET_CLASSIFIER_MAP
 
 
 class PRCheckItem(BaseModel):
@@ -131,12 +132,14 @@ def _resolve_bucket(
     status_str: str,
 ) -> tuple[CheckBucket, str]:
     """Resolve matched check bucket and fallback state name."""
-    if bucket_str in _BUCKET_NAME_MAP:
-        return _BUCKET_NAME_MAP[bucket_str], bucket_str
-    if conclusion_str in _BUCKET_NAME_MAP:
-        return _BUCKET_NAME_MAP[conclusion_str], conclusion_str
-    if status_str in _BUCKET_NAME_MAP:
-        return _BUCKET_NAME_MAP[status_str], status_str
+    if bucket_str in BUCKET_CLASSIFIER_MAP:
+        return BUCKET_CLASSIFIER_MAP[bucket_str], bucket_str
+    if status_str in {"in_progress", "queued", "waiting", "requested", "pending"}:
+        return CheckBucket.PENDING, status_str
+    if conclusion_str in BUCKET_CLASSIFIER_MAP:
+        return BUCKET_CLASSIFIER_MAP[conclusion_str], conclusion_str
+    if status_str in BUCKET_CLASSIFIER_MAP:
+        return BUCKET_CLASSIFIER_MAP[status_str], status_str
     return CheckBucket.UNREAD, "unknown"
 
 
@@ -183,6 +186,7 @@ def _check_run_dict_to_item(cr: dict[str, Any]) -> PRCheckItem:
         name=str(cr.get("name") or "unknown"),
         conclusion=cr.get("conclusion"),
         status=cr.get("status"),
+        workflow=str(cr.get("app", {}).get("name") or ""),
         link=str(cr.get("html_url") or ""),
     )
 

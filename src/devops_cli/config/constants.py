@@ -461,15 +461,6 @@ CONST_GH_CHECK_BUCKETS: Final[frozenset[str]] = frozenset(
     }
 )
 
-CONST_GH_FAILING_CHECK_CONCLUSIONS: Final[frozenset[str]] = frozenset(
-    {
-        "failure",
-        "timed_out",
-        "cancelled",
-        "action_required",
-        "startup_failure",
-    }
-)
 CONST_PR_API_STATE_MAP: Final[dict[str, str]] = {
     "all": "all",
     "closed": "closed",

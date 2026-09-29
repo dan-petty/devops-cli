@@ -11,7 +11,6 @@ import typer
 
 from devops_cli.config.constants import (
     CONST_GH_CLI,
-    CONST_GH_FAILING_CHECK_CONCLUSIONS,
     CONST_PR_API_STATE_MAP,
 )
 from devops_cli.config.defaults import DEFAULT_PR_LIMIT, DEFAULT_PR_STATE
@@ -263,19 +262,6 @@ def _render_pr_view_fallback(number: int, repo: str | None = None) -> bool:
 
         write_stream(f"\nDescription:\n{mask_secrets(body)}\n\n")
     return True
-
-
-def _check_run_badge(cr: dict[str, Any]) -> str:
-    """Format check run conclusion or status into a colorized badge."""
-    conclusion = str(cr.get("conclusion") or "")
-    status = str(cr.get("status") or "")
-    if conclusion == "success":
-        return "[green]✓ success[/green]"
-    if status in {"in_progress", "queued", "waiting"}:
-        return f"[yellow]● {status}[/yellow]"
-    if conclusion:
-        return f"[bold red]✗ {conclusion}[/bold red]"
-    return f"[dim]{status}[/dim]"
 
 
 def _resolve_pr_head_sha(number: int, repo: str | None = None) -> str:
@@ -579,7 +565,7 @@ def _emit_structured_monitor_result(output_format: str, result: Any, pr_number: 
         "success": result.success,
         "exit_code": result.exit_code,
         "message": result.message,
-        "status": _sanitize_threads_for_output(result.status.model_dump()),
+        "status": _sanitize_threads_for_output(result.status.model_dump(mode="json")),
     }
     if output_format == "json":
         print_out(json.dumps(sanitized_payload, indent=2))
@@ -974,46 +960,6 @@ def _extract_pr_head_sha(pr_data: dict[str, Any] | None) -> str:
     return str(head.get("sha", "")) if isinstance(head, dict) else ""
 
 
-def _parse_check_run_failures(raw_json: str) -> list[str]:
-    """Parse check-runs response JSON and return names of failing checks."""
-    try:
-        data = json.loads(raw_json)
-    except json.JSONDecodeError:
-        return []
-    return [
-        f"{cr.get('name', 'unknown')} ({conclusion})"
-        for cr in data.get("check_runs", [])
-        if (conclusion := str(cr.get("conclusion") or "").lower())
-        in CONST_GH_FAILING_CHECK_CONCLUSIONS
-    ]
-
-
-def _fetch_commit_check_runs(repo: str | None, sha: str) -> str:
-    """Query GitHub API for check runs on a specific commit SHA."""
-    from devops_cli.core.repo import get_repo_origin_name
-
-    target = repo or get_repo_origin_name()
-    if not target or "/" not in target:
-        return ""
-    owner, repo_name = target.split("/", 1)
-    res = run_gh(
-        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{sha}/check-runs"],
-        check=False,
-        quiet=True,
-    )
-    return res.stdout.strip() if res.returncode == 0 else ""
-
-
-def _get_failing_checks(number: int, repo: str | None, pr_data: dict[str, Any] | None) -> list[str]:
-    """Inspect PR commit check runs for failing conclusions."""
-    active_data = pr_data or _fetch_pr_details(number, repo)
-    sha = _extract_pr_head_sha(active_data)
-    if not sha:
-        return []
-    raw_json = _fetch_commit_check_runs(repo, sha)
-    return _parse_check_run_failures(raw_json) if raw_json else []
-
-
 def _emit_ready_check_pending(number: int, verdict: Any) -> None:
     """Emit pending check error and exit with code 8."""
     from devops_cli.github.check_verdict import CheckBucket
@@ -1291,8 +1237,15 @@ def _classify_check_run(run: Any) -> tuple[str | None, str | None]:
     name = str(run.get("name") or "check")
     if run.get("status") != "completed":
         return None, name
-    if str(run.get("conclusion") or "").lower() in CONST_GH_FAILING_CHECK_CONCLUSIONS:
-        return name, None
+    from devops_cli.github.check_verdict import CheckBucket, classify_check_item
+
+    item = classify_check_item(
+        name=name,
+        conclusion=run.get("conclusion"),
+        status=run.get("status"),
+    )
+    if item.bucket in (CheckBucket.FAIL, CheckBucket.CANCEL, CheckBucket.UNREAD):
+        return item.name, None
     return None, None
 
 
@@ -1364,6 +1317,8 @@ def _fetch_commit_statuses_payload(
 
 def _failing_check_runs(owner: str, repo_name: str, head_sha: str) -> tuple[list[str], list[str]]:
     """Return the names of concluded-failing and still-running checks and statuses for a commit."""
+    from devops_cli.github.check_verdict import CheckBucket, classify_check_item
+
     check_runs = _fetch_check_runs_payload(owner, repo_name, head_sha)
     failing: list[str] = []
     pending: list[str] = []
@@ -1378,12 +1333,14 @@ def _failing_check_runs(owner: str, repo_name: str, head_sha: str) -> tuple[list
     for st in statuses:
         if not isinstance(st, dict):
             continue
-        context = str(st.get("context") or "status")
-        state = str(st.get("state") or "").lower()
-        if state in ("failure", "error"):
-            failing.append(context)
-        elif state == "pending":
-            pending.append(context)
+        item = classify_check_item(
+            name=str(st.get("context") or "status"),
+            state=st.get("state"),
+        )
+        if item.bucket == CheckBucket.PENDING:
+            pending.append(item.name)
+        elif item.bucket in (CheckBucket.FAIL, CheckBucket.CANCEL, CheckBucket.UNREAD):
+            failing.append(item.name)
 
     return failing, pending
 

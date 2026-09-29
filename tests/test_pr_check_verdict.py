@@ -252,3 +252,127 @@ def test_fetch_pr_check_verdicts_fails_closed_when_rest_fails() -> None:
         verdict.is_passing,
         "REST HTTP 500 error" in verdict.unread_reason,
     ) == (1, False, True)
+
+
+def test_bucket_parity_against_gh_pr_checks_json_bucket() -> None:
+    """Verify exact parity between GitHub CLI json buckets and REST conclusions/statuses."""
+    gh_buckets = ["pass", "fail", "pending", "skipping", "cancel"]
+    classified_from_gh = [classify_check_item("t", bucket=b).bucket for b in gh_buckets]
+    expected_gh = [
+        CheckBucket.PASS,
+        CheckBucket.FAIL,
+        CheckBucket.PENDING,
+        CheckBucket.SKIPPING,
+        CheckBucket.CANCEL,
+    ]
+
+    rest_conclusions = [
+        ("success", CheckBucket.PASS),
+        ("failure", CheckBucket.FAIL),
+        ("timed_out", CheckBucket.FAIL),
+        ("action_required", CheckBucket.FAIL),
+        ("startup_failure", CheckBucket.FAIL),
+        ("stale", CheckBucket.FAIL),
+        ("cancelled", CheckBucket.CANCEL),
+        ("skipped", CheckBucket.SKIPPING),
+        ("neutral", CheckBucket.SKIPPING),
+    ]
+    concl_actual = [
+        classify_check_item("t", conclusion=c, status="completed").bucket
+        for c, _ in rest_conclusions
+    ]
+    concl_expected = [exp for _, exp in rest_conclusions]
+
+    rest_statuses = [
+        ("queued", CheckBucket.PENDING),
+        ("in_progress", CheckBucket.PENDING),
+        ("waiting", CheckBucket.PENDING),
+        ("requested", CheckBucket.PENDING),
+        ("pending", CheckBucket.PENDING),
+    ]
+    status_actual = [classify_check_item("t", status=s).bucket for s, _ in rest_statuses]
+    status_expected = [exp for _, exp in rest_statuses]
+
+    commit_states = [
+        ("success", CheckBucket.PASS),
+        ("failure", CheckBucket.FAIL),
+        ("error", CheckBucket.FAIL),
+        ("pending", CheckBucket.PENDING),
+    ]
+    states_actual = [classify_check_item("t", state=st).bucket for st, _ in commit_states]
+    states_expected = [exp for _, exp in commit_states]
+
+    assert (
+        classified_from_gh,
+        concl_actual,
+        status_actual,
+        states_actual,
+    ) == (
+        expected_gh,
+        concl_expected,
+        status_expected,
+        states_expected,
+    )
+
+
+def test_rest_pagination_slurp_bucket_count_matches_total_count() -> None:
+    """Verify multi-page slurped REST check-runs parse correctly and bucket count matches total_count."""
+    page_1 = {
+        "total_count": 5,
+        "check_runs": [
+            {
+                "name": "check-1",
+                "status": "completed",
+                "conclusion": "success",
+                "html_url": "https://example.com/1",
+            },
+            {
+                "name": "check-2",
+                "status": "completed",
+                "conclusion": "skipped",
+                "html_url": "https://example.com/2",
+            },
+            {
+                "name": "check-3",
+                "status": "completed",
+                "conclusion": "failure",
+                "html_url": "https://example.com/3",
+            },
+        ],
+    }
+    page_2 = {
+        "total_count": 5,
+        "check_runs": [
+            {
+                "name": "check-4",
+                "status": "completed",
+                "conclusion": "cancelled",
+                "html_url": "https://example.com/4",
+            },
+            {
+                "name": "check-5",
+                "status": "in_progress",
+                "conclusion": None,
+                "html_url": "https://example.com/5",
+            },
+        ],
+    }
+    slurped_payload = json.dumps([page_1, page_2])
+    mock_runner = MagicMock(
+        side_effect=[
+            MagicMock(returncode=1, stdout="", stderr="CLI json not available"),
+            MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "headsha999"}}), stderr=""),
+            MagicMock(returncode=0, stdout=slurped_payload, stderr=""),
+        ]
+    )
+    verdict = fetch_pr_check_verdicts(401, repo="owner/repo", runner=mock_runner)
+    assert (
+        len(verdict.items),
+        verdict.exit_code,
+        verdict.is_passing,
+        verdict.pass_count,
+        verdict.skipping_count,
+        verdict.fail_count,
+        verdict.cancel_count,
+        verdict.pending_count,
+    ) == (5, 1, False, 1, 1, 1, 1, 1)
