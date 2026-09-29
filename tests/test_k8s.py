@@ -825,10 +825,10 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
     repo_root = Path(__file__).resolve().parent.parent
 
-    # 1. Ollama Deployment: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup, readiness and liveness probes
+    # 1. Ollama DaemonSet: unconstrained memory limits for node-adaptive scaling, requests 8Gi, robust startup, readiness and liveness probes
     ollama_path = repo_root / "k8s" / "llm" / "profiles" / "ollama-profiles.yaml"
     ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
-    dep = next(d for d in ollama_docs if d and d.get("kind") == "Deployment")
+    dep = next(d for d in ollama_docs if d and d.get("kind") in ("Deployment", "DaemonSet"))
     container = dep["spec"]["template"]["spec"]["containers"][0]
     resources = container.get("resources", {})
     startup = container["startupProbe"]
