@@ -1335,6 +1335,7 @@ class ReviewPipelineOrchestrator:
         self.errored_files: dict[str, str] = {}
         self.static_analyzers: dict[str, str] = {}
         self._conventions_by_dir: dict[Path, str] = {}
+        self.personas: list[str] = []
 
     def _resolve_file_path(self, fpath: str) -> Path:
         """Resolve fpath to an existing file within target_dir or its repository, never outside.
@@ -2267,6 +2268,7 @@ class ReviewPipelineOrchestrator:
             return
 
         active_personas = personas or ["devsecops", "architect", "qa"]
+        self.personas = list(active_personas)
         total_files = len(file_payloads)
         server_info = self._get_server_info()
 
@@ -3429,6 +3431,7 @@ class ReviewPipelineOrchestrator:
         self,
         file_payloads: list[FileReviewPayload],
         stage_flags: ReviewStageFlags | None = None,
+        personas: list[str] | None = None,
     ) -> tuple[dict[str, Any], str]:
         """Generate consolidated findings.json and client-facing Markdown report."""
         if stage_flags is not None and not stage_flags.reporting:
@@ -3437,6 +3440,12 @@ class ReviewPipelineOrchestrator:
                 prefix=False,
             )
             return {}, ""
+
+        resolved_personas = (
+            personas
+            or (self.personas if self.personas else None)
+            or ["devsecops", "architect", "qa"]
+        )
 
         with trace_span(
             "review.report_generation",
@@ -3460,7 +3469,7 @@ class ReviewPipelineOrchestrator:
 
         payload_out = ReviewSessionPayload(
             generated_at=datetime.now(UTC).isoformat(),
-            personas=["devsecops", "architect", "qa"],
+            personas=resolved_personas,
             findings=all_findings,
             external_dependencies=all_deps,
             network_references=all_nets,
@@ -3474,6 +3483,7 @@ class ReviewPipelineOrchestrator:
 
         candidates = ReviewSessionPayload(
             generated_at=payload_out.generated_at,
+            personas=resolved_personas,
             findings=[f for payload in file_payloads for f in payload.findings],
         )
         (self.session_dir / CONST_REVIEW_CANDIDATES_FILENAME).write_text(
