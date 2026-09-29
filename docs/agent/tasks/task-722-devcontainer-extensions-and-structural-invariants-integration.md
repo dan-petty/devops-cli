@@ -55,6 +55,11 @@ This task addresses workspace extension configuration, elimination of Continue.d
     - `review_environment.py`: Configured `PYTHONPATH` in bubblewrap sandbox execution and enhanced `_is_tautological_verification_command` to detect trivial import-only criteria.
     - `verify_finding_system.md`: Extended verification system prompt to invalidate hallucinations regarding JSON parsing exceptions, AST parsing syntax warning suppressions, and hallucination catalog data files.
     - `common_hallucinations.json` & `common_hallucinations.py`: Tightened Kubernetes cluster overlay HTTP regex and added catalog entries for `HALLUCINATION-JSON-LOADS-ARBITRARY-CODE-EXECUTION` and `HALLUCINATION-AST-PARSE-SYNTAX-WARNING-SUPPRESSION`.
+- [x] **DevContainer Port List Cleanup for Cloudflare K8s Ingress**:
+  - Cleaned up `.devcontainer/devcontainer.json` by removing the 11 legacy Kubernetes cluster ports (8080, 8030, 8090, 16686, 3000, 6333, 6379, 9090, 4317, 4318, 11434) now accessed via Cloudflare ingress and internal cluster networking.
+  - Retained local workstation Git daemon port (9418) for container repository synchronization.
+  - Updated `src/devops_cli/templates/devcontainer.json.j2` to conditionally forward Kubernetes ports only when minikube is enabled, defaulting to 9418.
+  - Updated `docs/DEVCONTAINER_USAGE.md` manifest example to reflect modern ingress-based cluster access.
 - [x] **Verification**:
   - Validated 100% pass across all pre-commit hooks (`uv run pre-commit run --all-files`).
   - Validated 100% pass across all 10 CI quality gates (`uv run devops ci`).
