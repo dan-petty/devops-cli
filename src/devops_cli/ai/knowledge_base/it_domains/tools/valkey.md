@@ -22,7 +22,7 @@ In the `devops-cli` ecosystem, Valkey serves as:
 
 ### Deployment Topologies in DevOps CLI
 1. **Local Workstation Minikube**:
-   - Deployed as `valkey/valkey:8.0-alpine` via declarative manifests in `k8s/llm/valkey.yaml` and Helm values in `k8s/argocd/values.yaml`.
+   - Deployed as `valkey/valkey:9.1.2-alpine` via declarative manifests in `k8s/llm/valkey.yaml` and Helm values in `k8s/argocd/values.yaml`.
    - Exposed on standard port `6379` with automated service URL detection (`valkey.url`) and port-forwarding management (`devops k8s port-forward --valkey-port 6379`).
 2. **Ephemeral Testing Sandbox**:
    - Ephemeral rootless containers via `Testcontainers` / Docker sandbox fixtures for offline integration tests without cluster dependencies.

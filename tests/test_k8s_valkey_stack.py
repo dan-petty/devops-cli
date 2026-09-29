@@ -42,7 +42,7 @@ def test_argocd_values_specifies_valkey_image() -> None:
     assert redis_cfg.get("enabled") is True, "Redis component must be enabled"
     assert "image" in redis_cfg, "Redis component must explicitly override container image"
     assert redis_cfg["image"]["repository"] == "valkey/valkey"
-    assert redis_cfg["image"]["tag"] == "8.0-alpine"
+    assert redis_cfg["image"]["tag"] == "9.1.2-alpine"
 
 
 def test_llm_valkey_manifest_specification() -> None:
@@ -64,7 +64,7 @@ def test_llm_valkey_manifest_specification() -> None:
     assert containers, f"Expected container definitions in Deployment in {valkey_path}"
     container = containers[0]
     assert container.get("name") == "valkey"
-    assert container.get("image") == "valkey/valkey:8.0-alpine"
+    assert container.get("image") == "valkey/valkey:9.1.2-alpine"
     assert "valkey-server" in container.get("command", [])
 
     service = next((d for d in docs if isinstance(d, dict) and d.get("kind") == "Service"), None)

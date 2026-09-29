@@ -30,7 +30,7 @@ spec:
           emptyDir: {}
       containers:
         - name: jaeger
-          image: jaegertracing/all-in-one:1.62.0
+          image: jaegertracing/jaeger:2.21.0
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -41,13 +41,11 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-          env:
-            - name: COLLECTOR_OTLP_ENABLED
-              value: "true"
-            - name: SPAN_STORAGE_TYPE
-              value: "memory"
-            - name: MEMORY_MAX_TRACES
-              value: "10000"
+          # Jaeger v2's binary config format (config.yaml) replaces v1's
+          # SPAN_STORAGE_TYPE / MEMORY_MAX_TRACES / COLLECTOR_OTLP_ENABLED
+          # environment variables, which are no longer read; the default
+          # all-in-one image config already enables OTLP receivers and uses
+          # in-memory storage (100000 max traces per store) out of the box.
           ports:
             - name: ui
               containerPort: 16686
