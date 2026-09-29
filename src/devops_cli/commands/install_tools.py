@@ -222,9 +222,14 @@ def _resolve_argo_expected_checksum(checksums_url: str, legacy_sha_url: str, gz_
     try:
         checksums_text = _download(checksums_url).decode()
         return _parse_checksum_file(checksums_text, gz_name)
-    except httpx2.HTTPError, ValidationError, ToolDownloadError, IndexError, ValueError:
+    except httpx2.HTTPError, ValidationError, ToolDownloadError:
         sha256_text = _download(legacy_sha_url).decode()
-        return sha256_text.split()[0]
+        tokens = sha256_text.split()
+        if not tokens:
+            raise ValidationError(
+                f"No checksum found in {legacy_sha_url}", field="checksum"
+            ) from None
+        return tokens[0]
 
 
 def _install_argo(version: str, target_dir: Path) -> None:
@@ -257,7 +262,7 @@ def _resolve_rollouts_expected_checksum(primary_url: str, fallback_url: str, bin
     try:
         checksums_text = _download(primary_url).decode()
         return _parse_checksum_file(checksums_text, bin_name)
-    except httpx2.HTTPError, ValidationError, ToolDownloadError, IndexError, ValueError:
+    except httpx2.HTTPError, ValidationError, ToolDownloadError:
         checksums_text = _download(fallback_url).decode()
         return _parse_checksum_file(checksums_text, bin_name)
 

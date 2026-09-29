@@ -347,3 +347,54 @@ def test_deterministic_url_signal_breaking_checkers() -> None:
         "deterministic:benign_compliment",
         "deterministic:localhost_default_config",
     )
+
+
+def test_verify_ground_truth_json_loads_and_ast_syntax_warning(tmp_path: Path) -> None:
+    """Verify ground truth verification for json.loads and ast.parse syntax warning suppression."""
+    py_json_file = tmp_path / "checks.py"
+    py_json_file.write_text(
+        "import json\ndef parse(raw):\n    try:\n        return json.loads(raw)\n    except json.JSONDecodeError, ValueError:\n        return None\n",
+        encoding="utf-8",
+    )
+    json_entry = CommonHallucinationEntry(
+        id="HALLUCINATION-JSON-LOADS-ARBITRARY-CODE-EXECUTION",
+        name="JSON Loads ACE",
+        category=HallucinationCategory.SYNTAX_GRAMMAR,
+        description="json.loads exception handling allows ACE",
+        signature_patterns=[r"json\.loads.*arbitrary"],
+        pattern_keywords=["json_loads_arbitrary_code_execution"],
+        file_patterns=["*.py"],
+        resolution="Defensive error handling",
+    )
+    json_finding = Finding(
+        severity="CRITICAL",
+        location=f"{py_json_file}:5",
+        title="Insecure Exception Handling Allows Arbitrary Code Execution",
+        description="The exception handling in parse catches json.JSONDecodeError, ValueError allowing arbitrary code execution",
+    )
+    json_gt = verify_ground_truth_hallucination(json_finding, json_entry, py_json_file)
+
+    py_ast_file = tmp_path / "classify.py"
+    py_ast_file.write_text(
+        "import ast, warnings\ndef parse_tree(code):\n    with warnings.catch_warnings():\n        warnings.simplefilter('ignore', SyntaxWarning)\n        return ast.parse(code)\n",
+        encoding="utf-8",
+    )
+    ast_entry = CommonHallucinationEntry(
+        id="HALLUCINATION-AST-PARSE-SYNTAX-WARNING-SUPPRESSION",
+        name="AST Parse SyntaxWarning",
+        category=HallucinationCategory.SYNTAX_GRAMMAR,
+        description="SyntaxWarning suppression in AST parsing",
+        signature_patterns=[r"suppression.*syntaxwarning"],
+        pattern_keywords=["ast_parse_syntax_warning_suppression"],
+        file_patterns=["*.py"],
+        resolution="Harmless warning suppression",
+    )
+    ast_finding = Finding(
+        severity="MEDIUM",
+        location=f"{py_ast_file}:4",
+        title="Insecure Suppression of SyntaxWarnings in AST Parsing",
+        description="Suppression of SyntaxWarnings during AST parsing masks issues",
+    )
+    ast_gt = verify_ground_truth_hallucination(ast_finding, ast_entry, py_ast_file)
+
+    assert (json_gt, ast_gt) == (True, True)

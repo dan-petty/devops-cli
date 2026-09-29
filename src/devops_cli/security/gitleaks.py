@@ -96,7 +96,7 @@ def _scan_file_native_secrets(file_path: Path) -> list[Finding]:
             for line_idx, line in enumerate(f, start=1):
                 findings.extend(_scan_line_for_secrets(line, file_path, line_idx))
     except Exception as exc:
-        logger.debug("Failed reading %s for native secret scan: %s", file_path, exc)
+        logger.debug("Failed reading %s for native scan: %s", file_path, exc)
         return []
     return findings
 

@@ -266,11 +266,14 @@ def execute_criterion_command(
     if exec_args[0] in {"python", "python3"} and "-W" not in exec_args:
         exec_args[1:1] = ["-W", "ignore::SyntaxWarning"]
 
+    src_dir = cwd / "src"
+    py_path = f"{src_dir}:{cwd}" if src_dir.is_dir() else str(cwd)
     res = sb.execute(
         args=exec_args,
         cwd=cwd,
         timeout=timeout,
         max_output_bytes=max_output_bytes,
+        env={"PYTHONPATH": py_path},
     )
     return CriterionExecutionResult(
         command=command,
@@ -292,7 +295,11 @@ def _is_tautological_verification_command(command: str) -> bool:
         return True
     if "co_varnames" in clean or "__code__" in clean:
         return True
-    return any(kw in clean for kw in ("hasattr(", "getattr(", "isinstance(", "type("))
+    if any(kw in clean for kw in ("hasattr(", "getattr(", "isinstance(", "type(")):
+        return True
+    if "imports successfully" in clean or "import successfully" in clean:
+        return True
+    return False
 
 
 def _evaluate_criteria_verdict(
