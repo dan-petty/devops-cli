@@ -2077,7 +2077,7 @@ def _run_orchestrator_review(
 
     with review_stage("report"):
         payload_data, report_md = orchestrator.generate_consolidated_report(
-            payloads, stage_flags=stage_flags
+            payloads, stage_flags=stage_flags, personas=active_p
         )
     p_def = PERSONAS[persona or Persona.DEVSECOPS]
     raw_findings = payload_data.get("findings", []) if isinstance(payload_data, dict) else []
