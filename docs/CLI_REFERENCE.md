@@ -4267,7 +4267,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 
 #### `devops ai gateway scale`
 
-**Inspect or scale inference backend (vLLM, LightLLM) serving configurations.**
+**Inspect or scale vLLM inference backend serving configuration.**
 
 ```bash
 devops ai gateway scale [OPTIONS]
@@ -4277,7 +4277,6 @@ devops ai gateway scale [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--backend`, `-b` | `string` | `vllm` | Inference backend to scale: vllm or lightllm. |
 | `--replicas`, `-r` | `integer` | - | Replica count for backend deployment. |
 | `--tensor-parallel-size`, `-tp` | `integer` | - | Tensor Parallelism degree for vLLM (e.g. 2). |
 | `--apply`, `--no-apply` | `boolean` | - | Apply replica scale mutation to Kubernetes deployment via kubectl. |
@@ -4295,7 +4294,7 @@ devops ai gateway probe-backend [OPTIONS] <backend>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<backend>` | `string` | Yes | Backend to probe: vllm, lightllm, or ollama. |
+| `<backend>` | `string` | Yes | Backend to probe: vllm or ollama. |
 
 **Options:**
 

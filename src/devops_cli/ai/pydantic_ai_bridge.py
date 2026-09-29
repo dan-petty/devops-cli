@@ -33,7 +33,6 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_END_STRATEGY,
     DEFAULT_AI_GATEWAY_URL,
     DEFAULT_CURRENT_PATH,
-    DEFAULT_LIGHTLLM_URL,
     DEFAULT_PORTKEY_GATEWAY_URL,
 )
 from devops_cli.config.settings import Settings, get_ai_api_key, load_settings
@@ -84,7 +83,6 @@ def _resolve_remote_provider_endpoint(
     gateway_urls = {
         "litellm": ai_cfg.gateway_url or DEFAULT_AI_GATEWAY_URL,
         "portkey": ai_cfg.portkey_url or DEFAULT_PORTKEY_GATEWAY_URL,
-        "lightllm": ai_cfg.lightllm_url or DEFAULT_LIGHTLLM_URL,
     }
     if prov in gateway_urls:
         return target, gateway_urls[prov]
@@ -360,7 +358,7 @@ def build_fallback_cascade_model(
 ) -> Any:
     """Build a FallbackModel cascading across multiple providers or models.
 
-    Tries each resolved model in sequence upon errors (e.g. LiteLLM -> Portkey -> LightLLM -> Ollama).
+    Tries each resolved model in sequence upon errors (e.g. LiteLLM -> Portkey -> Ollama).
     """
     active_settings = settings or load_settings()
     resolved_models: list[Any] = []

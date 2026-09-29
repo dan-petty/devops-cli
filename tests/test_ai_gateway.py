@@ -197,6 +197,50 @@ class TestGatewayRouter:
             96,
         )
 
+    def test_probe_backend_vllm_and_ollama(self) -> None:
+        """Verify probe_backend supports vLLM and Ollama inference endpoints."""
+        config = AIConfig(
+            vllm_url="http://example.com:8000/v1",
+            ollama_urls=["http://example.com:11434"],
+        )
+        router = GatewayRouter(config)
+        mock_vllm = MagicMock(
+            status_code=200,
+            json=lambda: {"data": [{"id": DEFAULT_VLLM_SERVED_MODEL_NAME}]},
+        )
+        mock_ollama = MagicMock(
+            status_code=200,
+            json=lambda: {"models": [{"name": "qwen2.5-coder:14b"}]},
+        )
+
+        with patch.object(httpx2.Client, "get", return_value=mock_vllm):
+            res_vllm = router.probe_backend("vllm")
+
+        with patch.object(httpx2.Client, "get", return_value=mock_ollama):
+            res_ollama = router.probe_backend("ollama")
+
+        assert (
+            res_vllm["backend"],
+            res_vllm["healthy"],
+            res_vllm["model_count"],
+            res_ollama["backend"],
+            res_ollama["healthy"],
+            res_ollama["model_count"],
+        ) == (
+            "vllm",
+            True,
+            1,
+            "ollama",
+            True,
+            1,
+        )
+
+    def test_probe_backend_unsupported_raises(self) -> None:
+        """Verify probe_backend raises ValueError when backend is unsupported."""
+        router = GatewayRouter()
+        with pytest.raises(ValueError, match="Unknown backend type"):
+            router.probe_backend("unsupported-backend")
+
 
 class TestAIGatewayCLI:
     """Test suite for CLI devops ai gateway commands."""
@@ -304,6 +348,45 @@ class TestAIGatewayCLI:
             4,
         )
 
+    def test_probe_backend_command(self) -> None:
+        """Verify 'devops ai gateway probe-backend' prints backend health status."""
+        mock_vllm = MagicMock(
+            status_code=200,
+            json=lambda: {"data": [{"id": DEFAULT_VLLM_SERVED_MODEL_NAME}]},
+        )
+
+        with patch.object(httpx2.Client, "get", return_value=mock_vllm):
+            res_table = runner.invoke(
+                gateway_cli_app,
+                ["probe-backend", "vllm", "--backend-url", "http://example.com:8000/v1"],
+            )
+            res_json = runner.invoke(
+                gateway_cli_app,
+                [
+                    "probe-backend",
+                    "vllm",
+                    "--backend-url",
+                    "http://example.com:8000/v1",
+                    "--format",
+                    "json",
+                ],
+            )
+
+        parsed = json.loads(res_json.output)
+        assert (
+            res_table.exit_code,
+            res_json.exit_code,
+            "Inference Backend Health" in res_table.output,
+            parsed["healthy"],
+            parsed["backend"],
+        ) == (
+            0,
+            0,
+            True,
+            True,
+            "vllm",
+        )
+
 
 class TestFastMCPGatewayTools:
     """Test suite for FastMCP server gateway tool bindings."""
@@ -315,7 +398,6 @@ class TestFastMCPGatewayTools:
             ai_gateway_failover,
             ai_gateway_routes,
             ai_gateway_status,
-            ai_lightllm_scale,
             ai_vllm_scale,
             get_ai_gateway_resource,
         )
@@ -325,11 +407,10 @@ class TestFastMCPGatewayTools:
             ai_gateway_routes()
             ai_gateway_failover("devops-coder", simulate=True)
             ai_vllm_scale(replicas=2, tensor_parallel_size=2)
-            ai_lightllm_scale(replicas=2, tensor_parallel_size=1)
-            ai_backend_probe("lightllm")
+            ai_backend_probe("vllm")
             get_ai_gateway_resource()
 
-        assert mock_run.call_count == 7
+        assert mock_run.call_count == 6
 
 
 class TestRouterAndClientGatewayIntegration:

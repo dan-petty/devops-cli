@@ -83,7 +83,6 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `gateway_weights` | `dict` | `{}` | - | - |
 | `gateway_concurrency` | `dict` | `{}` | - | - |
 | `portkey_url` | `str` | `http://localhost:8787/v1` | - | - |
-| `lightllm_url` | `str` | `http://localhost:8000/v1` | - | - |
 | `vllm_url` | `str` | `http://localhost:8000/v1` | - | - |
 | `api_base_url` | `Union` | - | `DEVOPS_CLI_AI_API_BASE_URL` | - |
 | `allow_private_network` | `bool` | `False` | `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` | - |
