@@ -2,7 +2,7 @@
 # Tiers: 16gib, 24gib, 32gib, 48gib, 64gib, 72gib, 96gib, 128gib.
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: vllm-16gib
   namespace: llm
@@ -17,9 +17,8 @@ metadata:
     llm.devops.io/vram-gib: 16gib
     llm.devops.io/total-vram-gib: '16'
 spec:
-  replicas: 1
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: vllm-16gib
@@ -42,22 +41,30 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["16Gi"]
+              - matchExpressions:
                   - key: nvidia.com/gpu.family
                     operator: In
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.count
-                    operator: In
-                    values: ["1"]
-                  - key: nvidia.com/gpu.vram-gib
+                  - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["16Gi"]
               - matchExpressions:
                   - key: nvidia.com/gpu.architecture
                     operator: In
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.count
+                  - key: nvidia.com/gpu.vram-gib
                     operator: In
-                    values: ["1"]
+                    values: ["16Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.vram-gib
                     operator: In
                     values: ["16Gi"]
@@ -83,6 +90,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -165,7 +175,7 @@ spec:
         emptyDir: {}
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: vllm-24gib
   namespace: llm
@@ -180,9 +190,8 @@ metadata:
     llm.devops.io/vram-gib: 24gib
     llm.devops.io/total-vram-gib: '24'
 spec:
-  replicas: 0
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: vllm-24gib
@@ -200,6 +209,24 @@ spec:
         llm.devops.io/total-vram-gib: '24'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["24Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["24Gi"]
       containers:
       - name: vllm
         image: vllm/vllm-openai:v0.30.0
@@ -220,6 +247,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -302,7 +332,7 @@ spec:
         emptyDir: {}
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: vllm-32gib
   namespace: llm
@@ -317,9 +347,8 @@ metadata:
     llm.devops.io/vram-gib: 32gib
     llm.devops.io/total-vram-gib: '32'
 spec:
-  replicas: 0
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: vllm-32gib
@@ -337,6 +366,24 @@ spec:
         llm.devops.io/total-vram-gib: '32'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["32Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["32Gi"]
       containers:
       - name: vllm
         image: vllm/vllm-openai:v0.30.0
@@ -357,6 +404,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -439,7 +489,7 @@ spec:
         emptyDir: {}
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: vllm-48gib
   namespace: llm
@@ -454,9 +504,8 @@ metadata:
     llm.devops.io/vram-gib: 48gib
     llm.devops.io/total-vram-gib: '48'
 spec:
-  replicas: 0
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: vllm-48gib
@@ -479,22 +528,16 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: nvidia.com/gpu.family
+                  - key: nvidia.com/gpu.architecture
                     operator: In
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.count
-                    operator: Gt
-                    values: ["1"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["48Gi"]
               - matchExpressions:
-                  - key: nvidia.com/gpu.architecture
+                  - key: nvidia.com/gpu.family
                     operator: In
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.count
-                    operator: Gt
-                    values: ["1"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["48Gi"]
@@ -520,6 +563,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -602,7 +648,7 @@ spec:
         emptyDir: {}
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: vllm-64gib
   namespace: llm
@@ -617,9 +663,8 @@ metadata:
     llm.devops.io/vram-gib: 64gib
     llm.devops.io/total-vram-gib: '64'
 spec:
-  replicas: 0
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: vllm-64gib
@@ -637,6 +682,24 @@ spec:
         llm.devops.io/total-vram-gib: '64'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["64Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["64Gi"]
       containers:
       - name: vllm
         image: vllm/vllm-openai:v0.30.0
@@ -659,6 +722,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -741,7 +807,7 @@ spec:
         emptyDir: {}
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: vllm-72gib
   namespace: llm
@@ -756,9 +822,8 @@ metadata:
     llm.devops.io/vram-gib: 72gib
     llm.devops.io/total-vram-gib: '72'
 spec:
-  replicas: 0
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: vllm-72gib
@@ -776,6 +841,24 @@ spec:
         llm.devops.io/total-vram-gib: '72'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["72Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["72Gi"]
       containers:
       - name: vllm
         image: vllm/vllm-openai:v0.30.0
@@ -798,6 +881,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -880,7 +966,7 @@ spec:
         emptyDir: {}
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: vllm-96gib
   namespace: llm
@@ -895,9 +981,8 @@ metadata:
     llm.devops.io/vram-gib: 96gib
     llm.devops.io/total-vram-gib: '96'
 spec:
-  replicas: 0
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: vllm-96gib
@@ -915,6 +1000,24 @@ spec:
         llm.devops.io/total-vram-gib: '96'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["96Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["96Gi"]
       containers:
       - name: vllm
         image: vllm/vllm-openai:v0.30.0
@@ -937,6 +1040,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -1019,7 +1125,7 @@ spec:
         emptyDir: {}
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: vllm-128gib
   namespace: llm
@@ -1034,9 +1140,8 @@ metadata:
     llm.devops.io/vram-gib: 128gib
     llm.devops.io/total-vram-gib: '128'
 spec:
-  replicas: 0
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: vllm-128gib
@@ -1054,6 +1159,24 @@ spec:
         llm.devops.io/total-vram-gib: '128'
     spec:
       runtimeClassName: nvidia
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["128Gi"]
+              - matchExpressions:
+                  - key: nvidia.com/gpu.family
+                    operator: In
+                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values: ["128Gi"]
       containers:
       - name: vllm
         image: vllm/vllm-openai:v0.30.0
@@ -1076,6 +1199,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - llama3_json
         ports:
         - containerPort: 8000
           name: http

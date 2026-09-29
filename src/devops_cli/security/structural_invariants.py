@@ -1,31 +1,17 @@
-#!/usr/bin/env python3
-"""Fail a commit whose changed files breach the project's AST invariants.
-
-AGENTS.md caps cyclomatic complexity at 10 and nesting depth at 5. Those caps were checked
-only by `tests/test_architectural_invariants.py`, which runs inside a test suite that takes
-minutes -- so a breach was found after the work was finished rather than as it was written.
-
-This is deliberately standalone. Importing `devops_cli` to reuse `run_complexity_scan`
-costs about five seconds of interpreter startup before a single file is read, which is more
-than a pre-commit hook has to spend; the same walk over the standard library's `ast` runs
-in a fraction of that. The definitions here are the ones `security/complexity.py` applies,
-and `tests/test_architectural_invariants.py` remains the authority over the whole tree.
-"""
+"""AST-based structural invariants sentinel and verification module."""
 
 from __future__ import annotations
 
 import ast
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
-MAX_NESTING_DEPTH = 5
-MAX_COMPLEXITY = 10
+from devops_cli.config.defaults import DEFAULT_MAX_COMPLEXITY, DEFAULT_MAX_NESTING_DEPTH
 
-# These mirror `devops_cli/security/complexity.py` exactly, because a hook that applies a
-# stricter definition than the project's own scanner rejects code the project accepts. The
-# first version of this file counted `Try` rather than `ExceptHandler`, counted
-# comprehensions, and recursed into nested functions; it reported 334 breaches where the
-# scanner reports 240, and a nesting breach the scanner does not see at all.
+MAX_NESTING_DEPTH: int = DEFAULT_MAX_NESTING_DEPTH
+MAX_COMPLEXITY: int = DEFAULT_MAX_COMPLEXITY
+
 _DEPTH_AND_BRANCH = (
     ast.If,
     ast.While,
@@ -68,15 +54,12 @@ def measure(node: ast.AST) -> tuple[int, int]:
     return state["complexity"], state["depth"]
 
 
-def breaches(path: Path) -> tuple[list[str], int]:
-    """Report nesting breaches, and count complexity breaches separately.
-
-    Only nesting fails a commit. AGENTS.md caps complexity at 10, but 240 functions in
-    `src/` breach it today and nothing enforces it -- `devops ci` has no complexity gate,
-    Ruff's `C901` is not enabled, and the one architectural test passes
-    `max_complexity=100`, so it catches nesting alone. Failing on complexity here would
-    block work on any of those files rather than hold a line the codebase is on.
-    """
+def breaches(
+    path: Path,
+    max_depth: int = DEFAULT_MAX_NESTING_DEPTH,
+    max_complexity: int = DEFAULT_MAX_COMPLEXITY,
+) -> tuple[list[str], int]:
+    """Report nesting breaches, and count complexity breaches separately."""
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except (OSError, SyntaxError) as exc:
@@ -88,35 +71,48 @@ def breaches(path: Path) -> tuple[list[str], int]:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         complexity, depth = measure(node)
-        if depth > MAX_NESTING_DEPTH:
-            found.append(f"{path}:{node.lineno}: {node.name} nesting {depth} > {MAX_NESTING_DEPTH}")
-        over_complex += int(complexity > MAX_COMPLEXITY)
+        if depth > max_depth:
+            found.append(f"{path}:{node.lineno}: {node.name} nesting {depth} > {max_depth}")
+        over_complex += int(complexity > max_complexity)
     return found, over_complex
 
 
-def main(argv: list[str]) -> int:
-    """Check the files pre-commit passed, reporting every breach before failing."""
+def check_structural_invariants(
+    paths: Sequence[Path | str],
+    max_depth: int = DEFAULT_MAX_NESTING_DEPTH,
+    max_complexity: int = DEFAULT_MAX_COMPLEXITY,
+) -> tuple[list[str], int]:
+    """Audit paths for structural invariant violations, returning breaches and complexity count."""
     found: list[str] = []
     over_complex = 0
-    for name in argv:
+    for name in paths:
         path = Path(name)
         if path.suffix == ".py" and path.is_file():
-            file_found, file_complex = breaches(path)
+            file_found, file_complex = breaches(
+                path, max_depth=max_depth, max_complexity=max_complexity
+            )
             found.extend(file_found)
             over_complex += file_complex
+    return found, over_complex
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Check Python files passed via argv, reporting every breach before failing."""
+    args = sys.argv[1:] if argv is None else argv
+    found, over_complex = check_structural_invariants(args)
 
     for line in found:
         print(line, file=sys.stderr)
     if found:
         print(
             f"\n{len(found)} nesting breach(es). AGENTS.md caps nesting depth at "
-            f"{MAX_NESTING_DEPTH}; decompose the block into a helper.",
+            f"{DEFAULT_MAX_NESTING_DEPTH}; decompose the block into a helper.",
             file=sys.stderr,
         )
     if over_complex:
         print(
             f"note: {over_complex} changed function(s) exceed complexity "
-            f"{MAX_COMPLEXITY}. Not blocking -- see the roadmap entry on the existing debt.",
+            f"{DEFAULT_MAX_COMPLEXITY}. Not blocking -- see the roadmap entry on the existing debt.",
             file=sys.stderr,
         )
     return 1 if found else 0

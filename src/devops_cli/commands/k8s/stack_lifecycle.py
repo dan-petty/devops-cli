@@ -118,8 +118,15 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         DEFAULT_K8S_DIR / "otel" / "jaeger.yaml",
     ],
     "llm": [
+        DEFAULT_K8S_DIR / "llm" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "llm" / "valkey.yaml",
-        DEFAULT_K8S_DIR / "llm" / "ollama.yaml",
+        DEFAULT_K8S_DIR / "llm" / "profiles" / "services.yaml",
+        DEFAULT_K8S_DIR / "llm" / "profiles" / "pvc.yaml",
+        DEFAULT_K8S_DIR / "llm" / "profiles" / "ollama-profiles.yaml",
+        DEFAULT_K8S_DIR / "llm" / "profiles" / "vllm-profiles.yaml",
+        DEFAULT_K8S_DIR / "llm" / "gateway" / "configmap.yaml",
+        DEFAULT_K8S_DIR / "llm" / "gateway" / "deployment.yaml",
+        DEFAULT_K8S_DIR / "llm" / "gateway" / "service.yaml",
     ],
     "logging": [
         DEFAULT_K8S_DIR / "logging" / "networkpolicy.yaml",
@@ -127,6 +134,47 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
 }
 
 VALID_STACKS: tuple[str, ...] = ("infra", "llm", "logging", "all")
+
+
+def _recover_stuck_helm_release_if_pending(
+    error_output: str, release_name: str, namespace: str, context: str | None = None
+) -> bool:
+    """If Helm failed due to another operation in progress, clean up stuck pending lock."""
+    if "another operation" not in error_output:
+        return False
+
+    helm_ctx = ["--kube-context", context] if context else []
+    status_cmd = ["helm", "status", release_name, "-n", namespace, "-o", "json"] + helm_ctx
+    res = runtime._run_cmd(status_cmd, check=False, capture=True)
+    if res.returncode != 0 or not res.stdout:
+        return False
+
+    try:
+        data = json.loads(res.stdout)
+        status = str(data.get("info", {}).get("status", ""))
+        version = data.get("version")
+        if status.startswith("pending-") and version:
+            secret_name = f"sh.helm.release.v1.{release_name}.v{version}"
+            msg = (
+                f"Helm release '{release_name}' in namespace '{namespace}' is stuck in '{status}' "
+                f"(revision {version}). Cleaning up release lock secret '{secret_name}'..."
+            )
+            print_warning(msg)
+            k_ctx = ["--context", context] if context else []
+            del_cmd = [
+                "kubectl",
+                "delete",
+                "secret",
+                secret_name,
+                "-n",
+                namespace,
+                "--ignore-not-found",
+            ] + k_ctx
+            runtime._run_cmd(del_cmd, check=False)
+            return True
+    except json.JSONDecodeError, KeyError, TypeError:
+        pass
+    return False
 
 
 def _adopt_helm_resource_if_conflict(
@@ -480,18 +528,25 @@ def _run_helm_with_adoption_retries(
     release: dict[str, str],
     effective_context: str | None,
 ) -> Any:
-    """Execute Helm upgrade command retrying up to 5 times on adoptable resource conflicts."""
+    """Execute Helm upgrade command retrying up to 5 times on adoptable resource conflicts or stuck pending locks."""
     result = runtime._run_cmd(helm_cmd, check=False, capture=True)
     for _ in range(5):
         if result.returncode == 0:
             break
         err_msg = (result.stderr or "") + " " + (result.stdout or "")
-        if not _adopt_helm_resource_if_conflict(
+        pending_recovered = _recover_stuck_helm_release_if_pending(
             err_msg,
             release["name"],
             release["namespace"],
             context=effective_context,
-        ):
+        )
+        conflicts_adopted = _adopt_helm_resource_if_conflict(
+            err_msg,
+            release["name"],
+            release["namespace"],
+            context=effective_context,
+        )
+        if not (pending_recovered or conflicts_adopted):
             break
         result = runtime._run_cmd(helm_cmd, check=False, capture=True)
     return result
@@ -719,6 +774,32 @@ def sync_secrets(
             print_info(f"{svc.capitalize()} secret not found in active cluster.", prefix=False)
 
 
+def _teardown_namespaces(stack: str, k8s_dir: Path, kubectl_ctx: list[str]) -> None:
+    """Delete Kubernetes namespaces corresponding to torn-down stacks."""
+    normalized_stack = stack.lower()
+    if normalized_stack == "all":
+        print_info(MESSAGES.k8s.removing_stack_namespaces, prefix=False)
+        runtime._run_cmd(
+            ["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"] + kubectl_ctx,
+            check=False,
+        )
+        return
+
+    ns_map: dict[str, tuple[str, ...]] = {
+        "infra": ("argocd", "monitoring", "otel"),
+        "llm": ("llm",),
+        "logging": ("logging",),
+    }
+    targets = ns_map.get(normalized_stack, ())
+    if targets:
+        print_info(f"Removing {normalized_stack} namespace(s)...", prefix=False)
+        for ns in targets:
+            runtime._run_cmd(
+                ["kubectl", "delete", "namespace", ns, "--ignore-not-found"] + kubectl_ctx,
+                check=False,
+            )
+
+
 def teardown_stack(
     k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
@@ -779,31 +860,6 @@ def teardown_stack(
         )
 
     # 3. Clean up namespaces
-    normalized_stack = stack.lower()
-    if normalized_stack == "all":
-        print_info(MESSAGES.k8s.removing_stack_namespaces, prefix=False)
-        runtime._run_cmd(
-            ["kubectl", "delete", "-k", str(k8s_dir), "--ignore-not-found"] + kubectl_ctx,
-            check=False,
-        )
-    elif normalized_stack == "infra":
-        print_info(MESSAGES.k8s.removing_infra_namespaces, prefix=False)
-        for ns in ["argocd", "monitoring", "otel"]:
-            runtime._run_cmd(
-                ["kubectl", "delete", "namespace", ns, "--ignore-not-found"] + kubectl_ctx,
-                check=False,
-            )
-    elif normalized_stack == "llm":
-        print_info(MESSAGES.k8s.removing_llm_namespace, prefix=False)
-        runtime._run_cmd(
-            ["kubectl", "delete", "namespace", "llm", "--ignore-not-found"] + kubectl_ctx,
-            check=False,
-        )
-    elif normalized_stack == "logging":
-        print_info("Removing logging namespace...", prefix=False)
-        runtime._run_cmd(
-            ["kubectl", "delete", "namespace", "logging", "--ignore-not-found"] + kubectl_ctx,
-            check=False,
-        )
+    _teardown_namespaces(stack, k8s_dir, kubectl_ctx)
 
     print_success(f"Kubernetes stack ({stack}) torn down.")

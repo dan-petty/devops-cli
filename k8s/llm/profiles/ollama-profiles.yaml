@@ -2,7 +2,7 @@
 # Tiers: 16gib, 24gib, 32gib, 48gib, 64gib, 72gib, 96gib, 128gib.
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: ollama-16gib
   namespace: llm
@@ -15,9 +15,8 @@ metadata:
     llm.devops.io/vram-gib: 16gib
     llm.devops.io/total-vram-gib: '16'
 spec:
-  replicas: 0
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: ollama-16gib
@@ -41,10 +40,6 @@ spec:
                   - key: nvidia.com/gpu.architecture
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.total-vram-gib
-                    operator: In
-                    values: ["16Gi"]
-              - matchExpressions:
                   - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
@@ -55,22 +50,12 @@ spec:
                   - key: nvidia.com/gpu.architecture
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.vram-gib
-                    operator: In
-                    values: ["16Gi"]
-                  - key: nvidia.com/gpu.count
-                    operator: In
-                    values: ["1"]
-              - matchExpressions:
                   - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.vram-gib
                     operator: In
                     values: ["16Gi"]
-                  - key: nvidia.com/gpu.count
-                    operator: In
-                    values: ["1"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
@@ -148,7 +133,7 @@ spec:
           optional: false
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: ollama-24gib
   namespace: llm
@@ -161,9 +146,8 @@ metadata:
     llm.devops.io/vram-gib: 24gib
     llm.devops.io/total-vram-gib: '24'
 spec:
-  replicas: 1
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: ollama-24gib
@@ -187,36 +171,12 @@ spec:
                   - key: nvidia.com/gpu.architecture
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.total-vram-gib
-                    operator: In
-                    values: ["24Gi", "28Gi"]
-              - matchExpressions:
                   - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["24Gi", "28Gi"]
-              - matchExpressions:
-                  - key: nvidia.com/gpu.architecture
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.vram-gib
-                    operator: In
-                    values: ["24Gi"]
-                  - key: nvidia.com/gpu.count
-                    operator: In
-                    values: ["1"]
-              - matchExpressions:
-                  - key: nvidia.com/gpu.family
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.vram-gib
-                    operator: In
-                    values: ["24Gi"]
-                  - key: nvidia.com/gpu.count
-                    operator: In
-                    values: ["1"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
@@ -294,7 +254,7 @@ spec:
           optional: false
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: ollama-32gib
   namespace: llm
@@ -307,9 +267,8 @@ metadata:
     llm.devops.io/vram-gib: 32gib
     llm.devops.io/total-vram-gib: '32'
 spec:
-  replicas: 0
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: ollama-32gib
@@ -333,36 +292,12 @@ spec:
                   - key: nvidia.com/gpu.architecture
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.total-vram-gib
-                    operator: In
-                    values: ["32Gi"]
-              - matchExpressions:
                   - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["32Gi"]
-              - matchExpressions:
-                  - key: nvidia.com/gpu.architecture
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.vram-gib
-                    operator: In
-                    values: ["32Gi"]
-                  - key: nvidia.com/gpu.count
-                    operator: In
-                    values: ["1"]
-              - matchExpressions:
-                  - key: nvidia.com/gpu.family
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.vram-gib
-                    operator: In
-                    values: ["32Gi"]
-                  - key: nvidia.com/gpu.count
-                    operator: In
-                    values: ["1"]
       containers:
       - name: ollama
         image: ollama/ollama:0.32.14
@@ -440,7 +375,7 @@ spec:
           optional: false
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: ollama-48gib
   namespace: llm
@@ -453,9 +388,8 @@ metadata:
     llm.devops.io/vram-gib: 48gib
     llm.devops.io/total-vram-gib: '48'
 spec:
-  replicas: 0
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: ollama-48gib
@@ -479,10 +413,6 @@ spec:
                   - key: nvidia.com/gpu.architecture
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.total-vram-gib
-                    operator: In
-                    values: ["48Gi"]
-              - matchExpressions:
                   - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
@@ -566,7 +496,7 @@ spec:
           optional: false
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: ollama-64gib
   namespace: llm
@@ -579,9 +509,8 @@ metadata:
     llm.devops.io/vram-gib: 64gib
     llm.devops.io/total-vram-gib: '64'
 spec:
-  replicas: 1
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: ollama-64gib
@@ -605,10 +534,6 @@ spec:
                   - key: nvidia.com/gpu.architecture
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.total-vram-gib
-                    operator: In
-                    values: ["64Gi"]
-              - matchExpressions:
                   - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
@@ -692,7 +617,7 @@ spec:
           optional: false
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: ollama-72gib
   namespace: llm
@@ -705,9 +630,8 @@ metadata:
     llm.devops.io/vram-gib: 72gib
     llm.devops.io/total-vram-gib: '72'
 spec:
-  replicas: 0
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: ollama-72gib
@@ -731,10 +655,6 @@ spec:
                   - key: nvidia.com/gpu.architecture
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.total-vram-gib
-                    operator: In
-                    values: ["72Gi"]
-              - matchExpressions:
                   - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
@@ -818,7 +738,7 @@ spec:
           optional: false
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: ollama-96gib
   namespace: llm
@@ -831,9 +751,8 @@ metadata:
     llm.devops.io/vram-gib: 96gib
     llm.devops.io/total-vram-gib: '96'
 spec:
-  replicas: 0
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: ollama-96gib
@@ -857,10 +776,6 @@ spec:
                   - key: nvidia.com/gpu.architecture
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.total-vram-gib
-                    operator: In
-                    values: ["96Gi"]
-              - matchExpressions:
                   - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
@@ -944,7 +859,7 @@ spec:
           optional: false
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: ollama-128gib
   namespace: llm
@@ -957,9 +872,8 @@ metadata:
     llm.devops.io/vram-gib: 128gib
     llm.devops.io/total-vram-gib: '128'
 spec:
-  replicas: 0
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: ollama-128gib
@@ -983,10 +897,6 @@ spec:
                   - key: nvidia.com/gpu.architecture
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.total-vram-gib
-                    operator: In
-                    values: ["128Gi"]
-              - matchExpressions:
                   - key: nvidia.com/gpu.family
                     operator: NotIn
                     values: ["ada-lovelace", "ampere", "blackwell", "hopper"]

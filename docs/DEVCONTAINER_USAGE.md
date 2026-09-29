@@ -84,41 +84,11 @@ For existing repositories or custom setups, create `.devcontainer/devcontainer.j
     "UV_CACHE_DIR": "${containerWorkspaceFolder}/.uv"
   },
   "forwardPorts": [
-    8080,
-    8030,
-    8090,
-    16686,
-    6333,
-    6379,
-    11434
+    9418
   ],
   "portsAttributes": {
-    "8080": {
-      "label": "ArgoCD Web UI",
-      "onAutoForward": "notify"
-    },
-    "8030": {
-      "label": "Grafana Dashboard",
-      "onAutoForward": "notify"
-    },
-    "8090": {
-      "label": "Prometheus Metrics",
-      "onAutoForward": "notify"
-    },
-    "16686": {
-      "label": "Jaeger Query UI",
-      "onAutoForward": "notify"
-    },
-    "6333": {
-      "label": "Qdrant Vector DB",
-      "onAutoForward": "notify"
-    },
-    "6379": {
-      "label": "Valkey Cache",
-      "onAutoForward": "ignore"
-    },
-    "11434": {
-      "label": "Ollama LLM Engine",
+    "9418": {
+      "label": "Git Daemon",
       "onAutoForward": "ignore"
     }
   },

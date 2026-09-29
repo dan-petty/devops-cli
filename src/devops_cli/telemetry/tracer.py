@@ -532,7 +532,7 @@ def _resolve_git_dir_from_file(marker: Path) -> Path | None:
                 return None
             target = (marker.parent / target_str).resolve()
             return target if target.is_dir() else None
-    except OSError, RuntimeError, ValueError:
+    except OSError, RuntimeError:
         pass
     return None
 

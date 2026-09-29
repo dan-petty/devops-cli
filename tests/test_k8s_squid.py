@@ -183,7 +183,7 @@ def test_ollama_proxy_integration() -> None:
             (K8S_DIR / "llm" / "profiles" / "ollama-profiles.yaml").read_text(encoding="utf-8")
         )
     )
-    dep_doc = next(d for d in docs if d and d.get("kind") == "Deployment")
+    dep_doc = next(d for d in docs if d and d.get("kind") in ("Deployment", "DaemonSet"))
     containers = dep_doc["spec"]["template"]["spec"]["containers"]
     ollama_c = next(c for c in containers if c["name"] == "ollama")
     env_map = {e["name"]: e["value"] for e in ollama_c.get("env", []) if "value" in e}
