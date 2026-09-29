@@ -34,6 +34,10 @@ This task addresses workspace extension configuration, elimination of Continue.d
 - [x] **Cache Cleanup & Ignore Hygiene**:
   - Removed ephemeral `.grimp_cache/` and `.import_linter_cache/` directories.
   - Added `.kilo/`, `.grimp_cache/`, and `.import_linter_cache/` to `.gitignore`.
+- [x] **vLLM Workload Profiles & Auto Tool Choice Configuration**:
+  - Configured `--enable-auto-tool-choice` and `--tool-call-parser` (`hermes` for Qwen/DeepSeek-Distill-Qwen profiles, `llama3_json` for DeepSeek-Distill-Llama profile) across all inference tiers in `k8s/llm/profiles/vllm-profiles.yaml`.
+  - Added structural assertions in `tests/test_k8s_llm_gateway.py` validating that vLLM profile args enforce `--enable-auto-tool-choice` and `--tool-call-parser`.
+  - Applied updated manifests to cluster (`kubectl apply -f k8s/llm/profiles/vllm-profiles.yaml -n llm`) and verified zero-downtime rolling update.
 - [x] **Verification**:
   - Validated 100% pass across all pre-commit hooks (`uv run pre-commit run --all-files`).
   - Validated 100% pass across all 10 CI quality gates (`uv run devops ci`).

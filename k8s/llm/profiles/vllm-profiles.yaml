@@ -83,6 +83,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -220,6 +223,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -357,6 +363,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -520,6 +529,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -659,6 +671,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -798,6 +813,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -937,6 +955,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - hermes
         ports:
         - containerPort: 8000
           name: http
@@ -1076,6 +1097,9 @@ spec:
         - 0.0.0.0
         - --port
         - '8000'
+        - --enable-auto-tool-choice
+        - --tool-call-parser
+        - llama3_json
         ports:
         - containerPort: 8000
           name: http
