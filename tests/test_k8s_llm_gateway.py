@@ -29,7 +29,7 @@ NETWORKPOLICY_MANIFEST = PROFILES_DIR / "networkpolicy.yaml"
 LLM_KUSTOMIZATION = Path("k8s/llm/kustomization.yaml")
 OPEN_WEBUI_VALUES = Path("k8s/llm/values-open-webui.yaml")
 
-GATEWAY_IMAGE = "ghcr.io/berriai/litellm:v1.102.1"
+GATEWAY_IMAGE = "ghcr.io/berriai/litellm:v1.103.0"
 GATEWAY_SECRET = "llm-gateway-secrets"
 GATEWAY_SECRET_KEY = "master-key"
 
