@@ -1481,3 +1481,53 @@ def test_execute_page_review_with_backoff_exhausts_retries() -> None:
                 )
 
     assert calls == 2
+
+
+def test_generate_consolidated_report_records_active_personas(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify generate_consolidated_report records active personas in findings.json and candidates.json."""
+    import json
+
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
+    orchestrator = ReviewPipelineOrchestrator(
+        session_id="persona-record-test", llm_client=MagicMock()
+    )
+    finding = SavedFinding(
+        location="src/sample.py:10",
+        title="Sample Finding",
+        description="Sample Description",
+        status="VERIFIED",
+        verified=True,
+        verified_by="criteria",
+        persona="devsecops",
+        reportable=True,
+    )
+    payload = FileReviewPayload(file_path="src/sample.py", findings=[finding])
+
+    # Case 1: Explicit personas passed to generate_consolidated_report
+    orchestrator.generate_consolidated_report([payload], personas=["devsecops"])
+    findings_data = json.loads(
+        (orchestrator.session_dir / "findings.json").read_text(encoding="utf-8")
+    )
+    candidates_data = json.loads(
+        (orchestrator.session_dir / "candidates.json").read_text(encoding="utf-8")
+    )
+    assert (findings_data["personas"], candidates_data["personas"]) == (
+        ["devsecops"],
+        ["devsecops"],
+    )
+
+    # Case 2: Personas stored from execute_multi_persona_review
+    orchestrator.personas = ["qa", "auditor"]
+    orchestrator.generate_consolidated_report([payload])
+    findings_data2 = json.loads(
+        (orchestrator.session_dir / "findings.json").read_text(encoding="utf-8")
+    )
+    candidates_data2 = json.loads(
+        (orchestrator.session_dir / "candidates.json").read_text(encoding="utf-8")
+    )
+    assert (findings_data2["personas"], candidates_data2["personas"]) == (
+        ["qa", "auditor"],
+        ["qa", "auditor"],
+    )
