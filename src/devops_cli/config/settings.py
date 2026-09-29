@@ -57,7 +57,6 @@ from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_FEEDBACK_DATASET_PATH,
     DEFAULT_JAEGER_URL,
-    DEFAULT_LIGHTLLM_URL,
     DEFAULT_LLM_CACHE_DATA_DIR,
     DEFAULT_LLM_CACHE_ENABLED,
     DEFAULT_LLM_CACHE_MAX_ENTRIES,
@@ -426,7 +425,6 @@ class AIConfig(BaseModel):
     gateway_weights: dict[str, int] = Field(default_factory=dict)
     gateway_concurrency: dict[str, int] = Field(default_factory=dict)
     portkey_url: str = DEFAULT_PORTKEY_GATEWAY_URL
-    lightllm_url: str = DEFAULT_LIGHTLLM_URL
     vllm_url: str = DEFAULT_VLLM_URL
     api_base_url: str | None = None
     allow_private_network: bool = False

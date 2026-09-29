@@ -1618,13 +1618,11 @@ CONST_AI_GATEWAY_PROVIDER_LITELLM: Final[str] = "litellm"
 CONST_AI_GATEWAY_PROVIDER_PORTKEY: Final[str] = "portkey"
 CONST_AI_GATEWAY_DEFAULT_PORT: Final[int] = 4000
 CONST_AI_PORTKEY_DEFAULT_PORT: Final[int] = 8787
-CONST_AI_LIGHTLLM_DEFAULT_PORT: Final[int] = 8000
-CONST_AI_BACKEND_LIGHTLLM: Final[str] = "lightllm"
-CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama", "vllm", "lightllm")
+CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama", "vllm")
 CONST_AI_PROMPT_CACHE_TTL_5M: Final[str] = "5m"
 CONST_AI_PROMPT_CACHE_TTL_1H: Final[str] = "1h"
 CONST_AI_PROMPT_CACHE_TTLS: Final[tuple[str, ...]] = ("5m", "1h")
-CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "lightllm", "ollama")
+CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "ollama")
 CONST_AI_DEFAULT_CACHE_MARKER_KIND: Final[str] = "cache-point"
 CONST_AI_ALLOW_PRIVATE_NETWORK_ENV: Final[str] = "DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK"
 
@@ -2187,9 +2185,7 @@ CONST_MAX_SCHEMA_REFLECTION_ERRORS: Final[int] = 5
 CONST_MAX_INPUT_VALUE_REPR_LENGTH: Final[int] = 60
 
 # ── LLM Gateway Dynamic Hardware Routing Constants ────────────────────────────
-CONST_CONTINUOUS_BATCHING_ENGINES: Final[frozenset[str]] = frozenset(
-    {"vllm", "lightllm", "sglang", "tgi"}
-)
+CONST_CONTINUOUS_BATCHING_ENGINES: Final[frozenset[str]] = frozenset({"vllm", "sglang", "tgi"})
 CONST_ENGINE_MULTIPLIER_CONTINUOUS_BATCHING: Final[float] = 3.0
 CONST_ENGINE_MULTIPLIER_SERIAL: Final[float] = 1.0
 CONST_DEFAULT_CONTINUOUS_CONCURRENCY: Final[int] = 64

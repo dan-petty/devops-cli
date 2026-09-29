@@ -754,13 +754,12 @@
     "category": "boundary_errors",
     "description": "Flagging default configuration fallback URLs pointing to localhost or 127.0.0.1 (e.g. 'http://localhost:8000/v1' or 'http://localhost:11434') as SSRF vulnerabilities.",
     "signature_patterns": [
-      "(?:default_lightllm_url|default_.*_url|default\\s+url).*\\b(?:localhost|127\\.0\\.0\\.1)\\b.*(?:ssrf|server-side\\s+request)",
+      "(?:default_.*_url|default\\s+url).*\\b(?:localhost|127\\.0\\.0\\.1)\\b.*(?:ssrf|server-side\\s+request)",
       "\\b(?:ssrf|server-side\\s+request).*\\b(?:localhost|127\\.0\\.0\\.1)\\b.*(?:default|fallback)"
     ],
     "pattern_keywords": [
       "localhost_default_url",
-      "loopback_default_ssrf",
-      "default_lightllm_url"
+      "loopback_default_ssrf"
     ],
     "file_patterns": [
       "src/devops_cli/config/*",

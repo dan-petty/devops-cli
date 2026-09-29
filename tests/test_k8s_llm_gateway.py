@@ -656,7 +656,7 @@ class TestK8sLLMGatewayManifests:
         )
 
     def test_llm_namespace_default_perimeter_excludes_gateway_and_vllm(self) -> None:
-        """Verify llm-default-perimeter excludes gateway, vLLM, portkey, lightllm and the run index
+        """Verify llm-default-perimeter excludes gateway, vLLM, portkey, and the run index
         to avoid additive policy leakage."""
         np_path = Path("k8s/llm/networkpolicy.yaml")
         docs = list(yaml.safe_load_all(np_path.read_text(encoding="utf-8")))
@@ -669,7 +669,7 @@ class TestK8sLLMGatewayManifests:
             sorted(name_expr["values"]),
         ) == (
             "NotIn",
-            ["lightllm", "llm-gateway", "portkey", "valkey-runs", "vllm", "vllm-single"],
+            ["llm-gateway", "portkey", "valkey-runs", "vllm", "vllm-single"],
         )
 
     def test_zero_homelab_ip_or_hostname_leakage(self) -> None:
@@ -747,8 +747,7 @@ class TestK8sLLMGatewayManifests:
             "ollama" in allowed_names,
             "vllm" in allowed_names,
             "vllm-single" in allowed_names,
-            "lightllm" in allowed_names,
             "valkey" in allowed_names,
             "ollama" in allowed_providers,
             "vllm" in allowed_providers,
-        ) == (True, True, True, True, True, True, True, True)
+        ) == (True, True, True, True, True, True, True)
