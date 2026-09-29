@@ -287,47 +287,57 @@ def _resolve_pr_head_sha(number: int, repo: str | None = None) -> str:
     return head_data.get("sha", "") if isinstance(head_data, dict) else ""
 
 
-def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
-    """Render check runs via REST API when gh pr checks fails or hits rate limits."""
-    sha = _resolve_pr_head_sha(number, repo)
-    if not sha:
-        return False
-    from devops_cli.core.repo import get_repo_origin_name
+def _format_bucket_badge(bucket: str) -> str:
+    """Format check bucket with color coding."""
+    if bucket == "pass":
+        return "[green]✓ pass[/green]"
+    if bucket == "skipping":
+        return "[dim]– skipping[/dim]"
+    if bucket == "pending":
+        return "[yellow]● pending[/yellow]"
+    if bucket == "cancel":
+        return "[bold magenta]⊘ cancel[/bold magenta]"
+    if bucket == "fail":
+        return "[bold red]✗ fail[/bold red]"
+    return "[bold red]? unread[/bold red]"
+
+
+def _render_check_verdict_table(number: int, verdict: Any) -> None:
+    """Render check verdict table using Rich print_table."""
     from devops_cli.security.sanitizer import mask_secrets
 
-    target = repo or get_repo_origin_name()
-    if not target or "/" not in target:
-        return False
-    owner, repo_name = target.split("/", 1)
+    if not verdict.items:
+        if verdict.unread_reason:
+            print_error(
+                f"Failed to read checks for PR #{number}: {mask_secrets(verdict.unread_reason)}"
+            )
+        else:
+            print_info(f"No check runs found for PR #{number}.")
+        return
 
-    res = run_gh(
-        [CONST_GH_CLI, "api", f"repos/{owner}/{repo_name}/commits/{sha}/check-runs"],
-        check=False,
-        quiet=True,
-    )
-    if res.returncode != 0 or not res.stdout.strip():
-        return False
-    try:
-        data = json.loads(res.stdout)
-    except json.JSONDecodeError:
-        return False
-    check_runs = data.get("check_runs", [])
-    if not check_runs:
-        print_info(f"No check runs found for PR #{number}.")
-        return True
     rows = [
         [
-            mask_secrets(str(cr.get("name", ""))),
-            _check_run_badge(cr),
-            mask_secrets(str(cr.get("html_url", ""))),
+            mask_secrets(item.name),
+            _format_bucket_badge(
+                str(item.bucket.value if hasattr(item.bucket, "value") else item.bucket)
+            ),
+            mask_secrets(item.link),
         ]
-        for cr in check_runs
+        for item in verdict.items
     ]
     print_table(
         title=f"CI Quality Gate Checks (PR #{number})",
         columns=["Check", "Status", "URL"],
         rows=rows,
     )
+
+
+def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
+    """Render check runs via REST API when gh pr checks fails or hits rate limits."""
+    from devops_cli.github.check_verdict import fetch_pr_check_verdicts
+
+    verdict = fetch_pr_check_verdicts(number, repo=repo, runner=run_gh)
+    _render_check_verdict_table(number, verdict)
     return True
 
 
@@ -375,20 +385,12 @@ def pr_checks(
 ) -> None:
     """Check remote CI quality gate status on a pull request."""
     _require_gh_cli()
-    from devops_cli.security.sanitizer import mask_secrets
+    from devops_cli.github.check_verdict import fetch_pr_check_verdicts
 
-    cmd = [CONST_GH_CLI, "pr", "checks", str(number)]
-    if repo:
-        cmd.extend(["--repo", repo])
-    res = run_gh(cmd, check=False)
-    if res.stdout:
-        typer.echo(mask_secrets(res.stdout.rstrip()))
-    if res.returncode != 0:
-        if _render_pr_checks_fallback(number, repo):
-            return
-        if res.stderr:
-            typer.echo(mask_secrets(res.stderr.rstrip()), err=True)
-        raise typer.Exit(res.returncode)
+    verdict = fetch_pr_check_verdicts(number, repo=repo, runner=run_gh)
+    _render_check_verdict_table(number, verdict)
+    if verdict.exit_code != 0:
+        raise typer.Exit(verdict.exit_code)
 
 
 # =============================================================================
@@ -1012,21 +1014,62 @@ def _get_failing_checks(number: int, repo: str | None, pr_data: dict[str, Any] |
     return _parse_check_run_failures(raw_json) if raw_json else []
 
 
+def _emit_ready_check_pending(number: int, verdict: Any) -> None:
+    """Emit pending check error and exit with code 8."""
+    from devops_cli.github.check_verdict import CheckBucket
+
+    pending = [item.name for item in verdict.items if item.bucket == CheckBucket.PENDING]
+    print_error(
+        f"Cannot mark PR #{number} as ready for review: {len(pending)} check(s) still pending: {', '.join(pending)}.",
+        safe=True,
+    )
+    print_info("Pass --force to override failing check verification.")
+    raise typer.Exit(8)
+
+
+def _emit_ready_check_failures(number: int, verdict: Any) -> None:
+    """Emit failing or unread check errors and exit with code 1."""
+    from devops_cli.github.check_verdict import CheckBucket
+
+    if verdict.fail_count > 0 or verdict.cancel_count > 0:
+        failing = [
+            f"{item.name} ({item.state or item.bucket.value})"
+            for item in verdict.items
+            if item.bucket in (CheckBucket.FAIL, CheckBucket.CANCEL)
+        ]
+        print_error(
+            f"Cannot mark PR #{number} as ready for review: {len(failing)} check(s) failed:",
+            safe=True,
+        )
+        for item in failing:
+            print_error(f"  ✗ {item}", prefix=False, safe=True)
+        print_info("Pass --force to override failing check verification.")
+        raise typer.Exit(1)
+
+    reason = verdict.unread_reason or "unread check status"
+    print_error(
+        f"Cannot mark PR #{number} as ready for review: check verification failed closed: {reason}.",
+        safe=True,
+    )
+    print_info("Pass --force to override failing check verification.")
+    raise typer.Exit(1)
+
+
 def _validate_pr_ready_checks(
     number: int, repo: str | None, pr_data: dict[str, Any] | None
 ) -> None:
     """Ensure PR has no failing commit check runs prior to marking ready."""
-    failing = _get_failing_checks(number, repo, pr_data)
-    if not failing:
+    from devops_cli.github.check_verdict import fetch_pr_check_verdicts
+
+    sha = _extract_pr_head_sha(pr_data)
+    if not sha:
         return
-    print_error(
-        f"Cannot mark PR #{number} as ready for review: {len(failing)} check(s) failed:",
-        safe=True,
-    )
-    for item in failing:
-        print_error(f"  ✗ {item}", prefix=False, safe=True)
-    print_info("Pass --force to override failing check verification.")
-    raise typer.Exit(1)
+    verdict = fetch_pr_check_verdicts(number, repo=repo, head_sha=sha, runner=run_gh)
+    if verdict.is_passing:
+        return
+    if verdict.exit_code == 8:
+        _emit_ready_check_pending(number, verdict)
+    _emit_ready_check_failures(number, verdict)
 
 
 def _verify_pr_draft_transition(number: int, repo: str | None) -> None:

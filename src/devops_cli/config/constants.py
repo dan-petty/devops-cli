@@ -443,6 +443,24 @@ CONST_GH_NON_API_COMMANDS: Final[frozenset[str]] = frozenset(
         "--help",
     }
 )
+CONST_GH_CHECK_BUCKET_PASS: Final[str] = "pass"
+CONST_GH_CHECK_BUCKET_FAIL: Final[str] = "fail"
+CONST_GH_CHECK_BUCKET_PENDING: Final[str] = "pending"
+CONST_GH_CHECK_BUCKET_SKIPPING: Final[str] = "skipping"
+CONST_GH_CHECK_BUCKET_CANCEL: Final[str] = "cancel"
+CONST_GH_CHECK_BUCKET_UNREAD: Final[str] = "unread"
+
+CONST_GH_CHECK_BUCKETS: Final[frozenset[str]] = frozenset(
+    {
+        CONST_GH_CHECK_BUCKET_PASS,
+        CONST_GH_CHECK_BUCKET_FAIL,
+        CONST_GH_CHECK_BUCKET_PENDING,
+        CONST_GH_CHECK_BUCKET_SKIPPING,
+        CONST_GH_CHECK_BUCKET_CANCEL,
+        CONST_GH_CHECK_BUCKET_UNREAD,
+    }
+)
+
 CONST_GH_FAILING_CHECK_CONCLUSIONS: Final[frozenset[str]] = frozenset(
     {
         "failure",

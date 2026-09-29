@@ -16,6 +16,13 @@ from devops_cli.github.branch_protection import (
     load_branch_protection_policies,
     sync_branch_protection,
 )
+from devops_cli.github.check_verdict import (
+    CheckBucket,
+    CheckVerdictSummary,
+    PRCheckItem,
+    classify_check_item,
+    fetch_pr_check_verdicts,
+)
 from devops_cli.github.client import GhCliClient, GitHubClient, RepoInfo
 from devops_cli.github.graphql import (
     GitHubGraphQLClient,
@@ -100,6 +107,8 @@ __all__ = [
     "BranchProtectionAuditResult",
     "BranchProtectionPolicy",
     "BranchProtectionSyncResult",
+    "CheckBucket",
+    "CheckVerdictSummary",
     "GhCliClient",
     "GitHubClient",
     "GitHubGraphQLClient",
@@ -119,6 +128,7 @@ __all__ = [
     "MilestoneProgress",
     "MilestoneSpec",
     "MilestoneSyncResult",
+    "PRCheckItem",
     "ProjectField",
     "ProjectFieldOption",
     "ProjectItem",
@@ -142,6 +152,7 @@ __all__ = [
     "audit_repository_labels",
     "build_protection_payload",
     "calculate_milestone_progress",
+    "classify_check_item",
     "close_repository_milestone",
     "create_repository_issue",
     "diff_branch_protection",
@@ -149,6 +160,7 @@ __all__ = [
     "diff_milestones",
     "encrypt_secret",
     "extract_roadmap_milestones",
+    "fetch_pr_check_verdicts",
     "find_remote_project",
     "get_issues_summary",
     "get_pages_builds",
