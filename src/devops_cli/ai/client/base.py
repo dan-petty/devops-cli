@@ -16,7 +16,7 @@ def _clean_http_error_body(raw_body: str) -> str:
     if not raw_body:
         return ""
     clean = raw_body.strip()
-    if "<html" in clean.lower() or "<!doctype" in clean.lower():
+    if any(tag in clean.lower() for tag in ("<html", "<!doctype", "<head", "<body", "<div")):
         title_match = re.search(r"<title[^>]*>(.*?)</title>", clean, re.IGNORECASE)
         if title_match:
             title_text = title_match.group(1).strip()

@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import uuid
+import warnings
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -147,7 +148,9 @@ def detect_trust_remote_code(target_dir: Path) -> bool:
             resolved_py = py_file.resolve()
             if not resolved_py.is_relative_to(resolved_target):
                 continue
-            tree = ast.parse(resolved_py.read_text(encoding="utf-8"))
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(resolved_py.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if isinstance(node, ast.keyword) and node.arg == "trust_remote_code":
                     if isinstance(node.value, ast.Constant) and bool(node.value.value):

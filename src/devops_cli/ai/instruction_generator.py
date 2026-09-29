@@ -104,7 +104,7 @@ def parse_project_metadata(repo_path: Path) -> ProjectMetadata:
                     project, name, description
                 )
             dependencies, dev_dependencies = _extract_pyproject_deps(data)
-        except Exception as exc:
+        except (tomllib.TOMLDecodeError, OSError) as exc:
             logger.debug("Failed parsing pyproject.toml at %s: %s", pyproject_file, exc)
 
     has_devcontainer = (resolved_path / ".devcontainer" / "devcontainer.json").is_file() or (

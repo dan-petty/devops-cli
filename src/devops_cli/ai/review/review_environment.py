@@ -285,14 +285,24 @@ def execute_criterion_command(
     )
 
 
+_TAUTOLOGICAL_SUBSTRINGS: tuple[str, ...] = (
+    "co_varnames",
+    "__code__",
+    "hasattr(",
+    "getattr(",
+    "isinstance(",
+    "type(",
+    "syntax error",
+    "no syntax errors",
+)
+
+
 def _is_tautological_verification_command(command: str) -> bool:
     """Return True if command merely checks file text or symbol existence without demonstrating a defect."""
     clean = command.strip().lower()
-    if clean.startswith(("git grep", "grep")):
+    if clean.startswith(("git grep", "grep")) or "grep " in clean:
         return True
-    if "co_varnames" in clean or "__code__" in clean:
-        return True
-    return any(kw in clean for kw in ("hasattr(", "getattr(", "isinstance(", "type("))
+    return any(kw in clean for kw in _TAUTOLOGICAL_SUBSTRINGS)
 
 
 def _evaluate_criteria_verdict(

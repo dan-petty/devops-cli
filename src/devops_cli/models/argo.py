@@ -189,13 +189,19 @@ class ArgoRolloutState(BaseModel):
         steps = canary.get("steps")
         active_strategy = "canary" if canary else ("blueGreen" if strategy else "")
 
+        step_idx = status.get("currentStepIndex")
+        try:
+            parsed_step = int(step_idx) if step_idx is not None else None
+        except ValueError, TypeError:
+            parsed_step = None
+
         return cls(
             name=str(meta.get("name", "")),
             namespace=str(meta.get("namespace", "")),
             phase=str(status.get("phase", "Unknown")),
             message=str(status.get("message", "")),
             strategy=active_strategy,
-            current_step=status.get("currentStepIndex"),
+            current_step=parsed_step,
             total_steps=len(steps) if isinstance(steps, list) else 0,
             desired_replicas=int(spec.get("replicas", 0) or 0),
             ready_replicas=int(status.get("readyReplicas", 0) or 0),

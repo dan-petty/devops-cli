@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import warnings
 
 
 def extract_python_source_symbols(content: str | None) -> set[str]:
@@ -10,7 +11,9 @@ def extract_python_source_symbols(content: str | None) -> set[str]:
     if not content:
         return set()
     try:
-        tree = ast.parse(content)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(content)
     except SyntaxError, ValueError, RecursionError:
         return set()
 

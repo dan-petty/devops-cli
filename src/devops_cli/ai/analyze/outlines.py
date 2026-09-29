@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import re
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -249,7 +250,9 @@ def _extract_python_pseudocode_outline(content: str) -> list[str]:
     """Extract AST signatures and key statements directly from Python source code."""
     lines: list[str] = []
     try:
-        tree = ast.parse(content)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(content)
         for node in tree.body:
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 lines.extend(_extract_function_pseudocode(node))

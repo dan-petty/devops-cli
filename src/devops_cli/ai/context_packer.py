@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import bisect
 import logging
+import warnings
 from collections.abc import Collection, Sequence
 from pathlib import Path
 
@@ -409,7 +410,9 @@ class ContextPacker:
         cfg = config or self.config
         orig_tokens = count_tokens(code)
         try:
-            tree = ast.parse(code)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(code)
         except SyntaxError:
             return _handle_syntax_fallback(code, orig_tokens, cfg)
 

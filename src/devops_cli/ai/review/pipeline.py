@@ -1232,7 +1232,19 @@ def _execute_page_review_with_backoff(
                 file_replies=file_replies,
                 payload=payload,
             )
-        except (AIClientError, httpx2.HTTPError, OSError) as exc:
+        except (AIClientError, httpx2.HTTPError, OSError, Exception) as exc:
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                raise
+            is_transient = (
+                isinstance(exc, (AIClientError, httpx2.HTTPError, OSError))
+                or any(
+                    str(code) in str(exc)
+                    for code in (408, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524)
+                )
+                or "timeout" in str(exc).lower()
+            )
+            if not is_transient and attempt > 1:
+                raise
             if attempt >= max_retries:
                 raise
             backoff = min(
@@ -2014,7 +2026,7 @@ class ReviewPipelineOrchestrator:
                 name=p_def.title,
                 system_prompt=sys_prompt,
                 output_type=ReviewResult,
-                retries=3,
+                retries=DEFAULT_REVIEW_RETRY_ATTEMPTS,
             )
             pipeline.add_agent(agent)
 
@@ -2027,7 +2039,7 @@ class ReviewPipelineOrchestrator:
                 name=p_def.title,
                 system_prompt=_persona_system_prompt(p_def, target_conventions),
                 output_type=ReviewResult,
-                retries=3,
+                retries=DEFAULT_REVIEW_RETRY_ATTEMPTS,
             )
             pipeline.add_agent(agent)
 

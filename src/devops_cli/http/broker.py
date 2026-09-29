@@ -139,16 +139,18 @@ class HttpClientBroker:
     def close(self) -> None:
         """Close synchronous client connections."""
         with self._lock:
-            if self._sync_client is not None and not self._sync_client.is_closed:
-                self._sync_client.close()
-                self._sync_client = None
+            client = self._sync_client
+            self._sync_client = None
+            if client is not None and not client.is_closed:
+                client.close()
 
     async def aclose(self) -> None:
         """Close asynchronous client connections."""
         with self._lock:
-            if self._async_client is not None and not self._async_client.is_closed:
-                await self._async_client.aclose()
-                self._async_client = None
+            client = self._async_client
+            self._async_client = None
+            if client is not None and not client.is_closed:
+                await client.aclose()
 
     def __enter__(self) -> HttpClientBroker:
         return self

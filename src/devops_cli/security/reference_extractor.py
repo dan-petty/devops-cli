@@ -20,6 +20,7 @@ import textwrap
 import tokenize
 import tomllib
 import urllib.parse
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -781,7 +782,9 @@ def _extract_python_literals_and_comments(source: str) -> list[tuple[str, int]]:
     parsed_ast = False
 
     try:
-        tree = ast.parse(source)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(source)
         parsed_ast = True
         visitor = PythonSymbolVisitor()
         visitor.visit(tree)

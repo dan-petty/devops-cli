@@ -162,9 +162,27 @@ class KubernetesService:
                 )
 
             data["current-context"] = name
-            temp_path = kubeconfig_path.with_suffix(".tmp")
-            temp_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-            temp_path.replace(kubeconfig_path)
+            import os
+            import tempfile
+
+            parent_dir = kubeconfig_path.parent
+            dumped_yaml = yaml.safe_dump(data, sort_keys=False)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=parent_dir,
+                delete=False,
+                encoding="utf-8",
+                prefix=".kubeconfig-",
+                suffix=".tmp",
+            ) as tf:
+                os.chmod(tf.name, 0o600)
+                tf.write(dumped_yaml)
+                temp_file_path = Path(tf.name)
+            try:
+                temp_file_path.replace(kubeconfig_path)
+            except Exception:
+                temp_file_path.unlink(missing_ok=True)
+                raise
 
             self.reset_instance()
             self.load_config(context=name)

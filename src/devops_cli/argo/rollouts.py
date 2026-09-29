@@ -85,9 +85,9 @@ def _fetch_metric_value(query: str) -> float | None:
     if not prom_url:
         return None
 
-    try:
-        import httpx2
+    import httpx2
 
+    try:
         validate_service_url(prom_url, "Prometheus", allow=settings.ai.allow_private_network)
         with httpx2.Client() as client:
             resp = client.get(
@@ -100,7 +100,8 @@ def _fetch_metric_value(query: str) -> float | None:
                 results = data.get("data", {}).get("result", [])
                 if results and "value" in results[0]:
                     return float(results[0]["value"][1])
-    except Exception:
+    except (httpx2.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+        logger.debug("Failed to query Prometheus metric: %s", exc)
         return None
 
     return None
