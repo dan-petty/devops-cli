@@ -2206,13 +2206,13 @@ def pr_thread_reply(thread_id: str, body: str) -> str:
 
 
 @mcp.tool()
-def pr_thread_resolve(thread_id: str) -> str:
+def pr_thread_resolve(thread_id: str, without_reply: bool = False) -> str:
     """Programmatically mark a pull request review discussion thread as resolved."""
     _validate_mcp_arg("thread_id", thread_id)
-    return _run_mcp_cmd(
-        ["uv", "run", "devops", "pr", "threads", "resolve", thread_id],
-        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-    )
+    cmd = ["uv", "run", "devops", "pr", "threads", "resolve", thread_id]
+    if without_reply:
+        cmd.append("--without-reply")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS)
 
 
 @mcp.tool()

@@ -694,18 +694,17 @@ class PRCommandHelp:
         "Resolve all or replied review discussion threads for a pull request."
     )
     threads_only_replied: str = (
-        "Only resolve threads that have received one or more in-thread replies."
+        "Only resolve threads that have received a reply from someone other than the thread opener."
     )
+    threads_without_reply: str = "Force resolution of review threads even if they lack a reply from someone other than the thread opener."
     readiness_allow_draft: str = (
         "Report a draft pull request as ready; GitHub still refuses to merge one."
     )
     readiness_allow_pending_checks: str = (
         "Treat checks that are still running as acceptable rather than blocking."
     )
-    check_readiness_auto_resolve: str = (
-        "Automatically resolve review discussion threads that have received replies."
-    )
-    allow_replied_threads: str = "Treat review discussion threads that have received replies as addressed rather than blocking."
+    check_readiness_auto_resolve: str = "Automatically resolve review discussion threads that have received a reply from someone other than the thread opener."
+    allow_replied_threads: str = "Treat review discussion threads that have received a reply from someone other than the thread opener as addressed rather than blocking."
     thread_id: str = "Review thread GraphQL ID (e.g. PRRT_...)."
     thread_ids: str = "One or more review thread GraphQL IDs to resolve."
     unresolved_only: str = "Filter to display only unresolved review discussion threads."

@@ -18,6 +18,7 @@ from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
+from devops_cli.github.pr_monitor import sort_prs_oldest_first
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
@@ -1215,8 +1216,10 @@ def _evaluate_threads_blockers(
         return []
 
     if allow_replied_threads:
-        unreplied = [t for t in unresolved if len(t.comments) <= 1]
-        replied = [t for t in unresolved if len(t.comments) > 1]
+        from devops_cli.github.pr_threads import has_non_opener_reply
+
+        unreplied = [t for t in unresolved if not has_non_opener_reply(t)]
+        replied = [t for t in unresolved if has_non_opener_reply(t)]
         if replied:
             print_info(
                 f"PR #{pr_num} has {len(replied)} review discussion thread(s) with replies awaiting reviewer resolution."
@@ -1659,7 +1662,7 @@ def _update_single_pr(
 
 
 def _fetch_open_prs(repo: str | None, base: str | None) -> list[dict[str, Any]]:
-    """Fetch candidate open pull requests matching base branch."""
+    """Fetch candidate open pull requests matching base branch in oldest-first order."""
     cmd = [
         CONST_GH_CLI,
         "pr",
@@ -1680,7 +1683,9 @@ def _fetch_open_prs(repo: str | None, base: str | None) -> list[dict[str, Any]]:
         return []
     try:
         prs = json.loads(res.stdout)
-        return prs if isinstance(prs, list) else []
+        if not isinstance(prs, list):
+            return []
+        return sort_prs_oldest_first(prs)
     except json.JSONDecodeError:
         return []
 
@@ -1714,6 +1719,8 @@ def _update_all_prs(
     if not prs:
         print_info(MESSAGES.pr.update_branch_no_prs)
         return
+
+    prs = sort_prs_oldest_first(prs)
 
     rows: list[list[str]] = []
     for pr in prs:
@@ -1853,12 +1860,43 @@ def reply_thread(
     print_success(f"In-thread reply posted successfully (Comment ID: [bold]{comment.id}[/bold])")
 
 
+def _validate_thread_reply_before_resolution(thread_id: str) -> None:
+    """Ensure a review thread has a non-opener reply before allowing resolution."""
+    from devops_cli.github.pr_threads import get_pr_review_thread, has_non_opener_reply
+
+    try:
+        thread = get_pr_review_thread(thread_id)
+    except Exception as exc:
+        print_error(f"Failed to fetch review thread {thread_id}: {exc}", prefix=False)
+        raise typer.Exit(1)
+
+    if not has_non_opener_reply(thread):
+        print_error(
+            f"Thread {thread_id} has no reply from someone other than the thread opener. "
+            "Pass --without-reply to force resolution.",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+
 @threads_app.command("resolve")
 def resolve_threads(
     thread_ids: Annotated[list[str], typer.Argument(help=HELP.pr.thread_ids)],
+    without_reply: Annotated[
+        bool,
+        typer.Option(
+            "--without-reply",
+            "-w",
+            help=HELP.pr.threads_without_reply,
+        ),
+    ] = False,
 ) -> None:
     """Programmatically mark one or more PR review discussion threads as resolved."""
     from devops_cli.github.pr_threads import resolve_pr_review_thread
+
+    if not without_reply:
+        for tid in thread_ids:
+            _validate_thread_reply_before_resolution(tid)
 
     resolved_count = 0
     for tid in thread_ids:
