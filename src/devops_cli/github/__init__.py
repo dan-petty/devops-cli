@@ -17,6 +17,7 @@ from devops_cli.github.branch_protection import (
     sync_branch_protection,
 )
 from devops_cli.github.check_verdict import (
+    BUCKET_CLASSIFIER_MAP,
     CheckBucket,
     CheckVerdictSummary,
     PRCheckItem,
@@ -103,6 +104,7 @@ from devops_cli.github.secrets import (
 from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
 
 __all__ = [
+    "BUCKET_CLASSIFIER_MAP",
     "BranchProtectionAuditFinding",
     "BranchProtectionAuditResult",
     "BranchProtectionPolicy",
