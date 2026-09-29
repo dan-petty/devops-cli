@@ -137,7 +137,13 @@
         "google.google-antigravity",
         "github.vscode-github-actions",
         "ms-vscode.makefile-tools",
-        "golang.Go"
+        "golang.Go",
+        "DavidAnson.vscode-markdownlint",
+        "rust-lang.rust-analyzer",
+        "firefox-devtools.vscode-firefox-debug",
+        "ms-windows-ai-studio.windows-ai-studio",
+        "kilocode.Kilo-Code",
+        "saoudrizwan.claude-dev"
       ],
       "settings": {
         "editor.formatOnSave": true,
@@ -153,7 +159,22 @@
         "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
-        }
+        },
+        "[markdown]": {
+          "editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
+        },
+        "markdownlint.config": {
+          "default": true,
+          "MD013": false,
+          "MD024": false,
+          "MD033": false
+        },
+        "[rust]": {
+          "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        },
+        "rust-analyzer.check.command": "clippy",
+        "ollama.endpoint": "http://vllm-16gib.llm.svc.cluster.local:8000",
+        "ollama.model": "gpt-oss:20b"
       }
     },
     "antigravity": {

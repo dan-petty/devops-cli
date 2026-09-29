@@ -1,0 +1,39 @@
+# Task 722: Configure DevContainer Extensions and Integrate Structural Invariants Sentinel
+
+**Issue**: [#722](https://github.com/dan-petty/devops-cli/issues/722)
+**Status**: Done
+**Milestone**: `v0.2.24`
+**Priority**: `priority/p2-medium`
+**Scope**: `type/feature`, `scope/cli`, `priority/p2-medium`
+
+---
+
+## 1. Description & Objectives
+
+This task addresses workspace extension configuration, elimination of Continue.dev remnants, and the architectural integration of the AST structural invariants pre-commit sentinel directly into the `devops_cli` source tree.
+
+### Key Deliverables Completed:
+- [x] **DevContainer & VS Code Extension Configuration**:
+  - Configured requested developer and agent extensions in `.devcontainer/devcontainer.json`:
+    - `DavidAnson.vscode-markdownlint` (configured markdown formatting and linting rules)
+    - `rust-lang.rust-analyzer` (configured default rust formatter and clippy check command)
+    - `firefox-devtools.vscode-firefox-debug` (configured for client/desktop UI execution)
+    - `ms-windows-ai-studio.windows-ai-studio` (installed and active)
+    - `kilocode.Kilo-Code` (installed and active)
+    - `saoudrizwan.claude-dev` (Cline) (installed and active)
+  - Configured `ollama.endpoint` and `ollama.model` in `.devcontainer/devcontainer.json` and `.vscode/settings.json`.
+- [x] **Elimination of Continue.dev Remnants**:
+  - Completely removed legacy Continue.dev workspace configurations, stubs, and test references.
+  - Reverted agent scaffolding in `tests/test_instruction_generator.py` with structural tuple equality checks adhering to $M \le 10$ complexity invariants.
+- [x] **Integration of Structural Invariants Sentinel**:
+  - Relocated and integrated the standalone AST structural invariants sentinel from `/scripts` into `src/devops_cli/security/structural_invariants.py`.
+  - Completely deleted the `/workspaces/devops-cli/scripts` directory, satisfying the zero stray scripts mandate.
+  - Updated `.pre-commit-config.yaml` to run `uv run python3 -m devops_cli.security.structural_invariants`.
+  - Updated `tests/test_structural_invariant_hook.py` to test `devops_cli.security.structural_invariants`.
+  - Added gate assertion in `tests/test_architectural_invariants.py` ensuring neither stray scripts nor `scripts/` directory exist in the repository root.
+- [x] **Cache Cleanup & Ignore Hygiene**:
+  - Removed ephemeral `.grimp_cache/` and `.import_linter_cache/` directories.
+  - Added `.kilo/`, `.grimp_cache/`, and `.import_linter_cache/` to `.gitignore`.
+- [x] **Verification**:
+  - Validated 100% pass across all pre-commit hooks (`uv run pre-commit run --all-files`).
+  - Validated 100% pass across all 10 CI quality gates (`uv run devops ci`).
