@@ -20,7 +20,7 @@ graph TD
 ```
 
 - **Stack Metadata**:
-  - `monitoring`: Prometheus Community chart (`kube-prometheus`) + Grafana dashboards in `monitoring` namespace.
+  - `monitoring`: Grafana Kubernetes Monitoring chart (`k8s-monitoring`) with Alloy, kube-state-metrics, and node-exporter in `monitoring` namespace.
   - `gitops`: ArgoCD server, controller, and repo server in `argocd` namespace.
   - `tracing`: Jaeger distributed tracing query & collector in `otel` namespace.
   - `otel`: OpenTelemetry Collector DaemonSet/Deployment and Jaeger in `otel` namespace.

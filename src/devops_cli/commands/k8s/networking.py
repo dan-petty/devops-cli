@@ -90,6 +90,14 @@ def _extract_first_node_ip(item: dict[str, Any]) -> str | None:
     return None
 
 
+def _is_node_ready(item: dict[str, Any]) -> bool:
+    """Return True if node Ready condition is True or conditions are omitted."""
+    conditions = item.get("status", {}).get("conditions")
+    if not conditions:
+        return True
+    return any(cond.get("type") == "Ready" and cond.get("status") == "True" for cond in conditions)
+
+
 def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | None:
     """Query Kubernetes nodes to find node IP and construct nodePort URL."""
     try:
@@ -106,9 +114,10 @@ def _resolve_k8s_node_port_url(ctx_args: list[str], node_port: int) -> str | Non
 
             nodes_data = json.loads(nodes_res.stdout)
             for item in nodes_data.get("items", []):
-                node_ip = _extract_first_node_ip(item)
-                if node_ip:
-                    return f"http://{node_ip}:{node_port}"
+                if _is_node_ready(item):
+                    node_ip = _extract_first_node_ip(item)
+                    if node_ip:
+                        return f"http://{node_ip}:{node_port}"
     except Exception as exc:
         logger.debug("Failed to resolve k8s node port URL: %s", exc)
     return None

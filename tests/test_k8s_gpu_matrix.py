@@ -149,7 +149,7 @@ def test_gateway_routing_entries_generation() -> None:
 
 
 def test_k8s_manifests_service_aliases_consistency() -> None:
-    """Verify profiles/services.yaml defines all 16 Service aliases with expected labels."""
+    """Verify profiles/services.yaml defines all 8 Ollama Service aliases with expected labels."""
     services_path = PROFILES_DIR / "services.yaml"
     docs = list(yaml.safe_load_all(services_path.read_text(encoding="utf-8")))
     services = [d for d in docs if d and d.get("kind") == "Service"]
@@ -159,11 +159,9 @@ def test_k8s_manifests_service_aliases_consistency() -> None:
     assert (
         len(services),
         "ollama-16gib" in names,
-        "vllm-48gib" in names,
         ollama_16["spec"]["selector"],
     ) == (
-        16,
-        True,
+        8,
         True,
         {"llm.devops.io/provider": "ollama", "llm.devops.io/vram-gib": "16gib"},
     )
@@ -171,20 +169,16 @@ def test_k8s_manifests_service_aliases_consistency() -> None:
 
 def test_k8s_manifests_profiles_files_exist() -> None:
     """Verify profile manifest files and kustomization exist and are valid."""
-    vllm_path = PROFILES_DIR / "vllm-profiles.yaml"
     ollama_path = PROFILES_DIR / "ollama-profiles.yaml"
     kust_path = PROFILES_DIR / "kustomization.yaml"
 
-    vllm_docs = list(yaml.safe_load_all(vllm_path.read_text(encoding="utf-8")))
     ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
     kust = yaml.safe_load(kust_path.read_text(encoding="utf-8"))
 
     assert (
-        len(vllm_docs) == 8,
         len(ollama_docs) == 8,
         "services.yaml" in kust.get("resources", []),
     ) == (
-        True,
         True,
         True,
     )

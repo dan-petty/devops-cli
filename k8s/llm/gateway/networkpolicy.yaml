@@ -57,7 +57,7 @@ spec:
       ports:
         - protocol: TCP
           port: 6379
-    # Allow direct egress to private RFC 1918 inference backends without proxying through Squid
+    # Allow direct egress to private RFC 1918 inference backends
     - to:
         - ipBlock:
             cidr: 10.0.0.0/8
@@ -80,11 +80,3 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Squid forward proxy in squid namespace
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: squid
-      ports:
-        - protocol: TCP
-          port: 3128

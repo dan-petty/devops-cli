@@ -63,11 +63,3 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Squid forward proxy in squid namespace
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: squid
-      ports:
-        - protocol: TCP
-          port: 3128

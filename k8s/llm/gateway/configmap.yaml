@@ -14,32 +14,58 @@ data:
     model_list:
       - model_name: devops-chat
         litellm_params:
-          model: ollama_chat/qwen2.5-coder:7b
+          model: ollama_chat/gpt-oss:20b
+          api_base: http://ollama-16gib.llm.svc.cluster.local:11434
+          weight: 6
+      - model_name: devops-chat
+        litellm_params:
+          model: ollama_chat/gpt-oss:20b
           api_base: http://ollama-24gib.llm.svc.cluster.local:11434
+          weight: 1
+      - model_name: devops-chat
+        litellm_params:
+          model: ollama_chat/gpt-oss:20b
+          api_base: http://ollama-48gib.llm.svc.cluster.local:11434
+          weight: 3
 
       - model_name: devops-coder
         litellm_params:
-          model: openai/qwen2.5-coder-14b-instruct
-          api_base: http://vllm-16gib.llm.svc.cluster.local:8000/v1
-          api_key: none
-        # Prompt budget inside the 16K vLLM window, leaving 4K tokens for the reply.
-        model_info:
-          max_input_tokens: 12288
+          model: ollama_chat/qwen3-coder:30b
+          api_base: http://ollama-48gib.llm.svc.cluster.local:11434
 
       - model_name: devops-reasoning
         litellm_params:
-          model: openai/qwen3-coder:30b
-          api_base: http://vllm-48gib.llm.svc.cluster.local:8000/v1
-          api_key: none
-        # Prompt budget inside the 64K vLLM window, leaving 4K tokens for the reply.
-        model_info:
-          max_input_tokens: 61440
+          model: ollama_chat/qwen3-coder:30b
+          api_base: http://ollama-48gib.llm.svc.cluster.local:11434
 
       # mode: embedding makes health checks embed rather than generate, which bge-m3 rejects.
-      - model_name: devops-embedding
+      - model_name: bge-m3:latest
         litellm_params:
-          model: ollama/bge-m3
+          model: ollama/bge-m3:latest
+          api_base: http://ollama-16gib.llm.svc.cluster.local:11434
+          weight: 2
+        model_info:
+          mode: embedding
+      - model_name: bge-m3:latest
+        litellm_params:
+          model: ollama/bge-m3:latest
           api_base: http://ollama-24gib.llm.svc.cluster.local:11434
+          weight: 1
+        model_info:
+          mode: embedding
+
+      - model_name: embeddinggemma:300m
+        litellm_params:
+          model: ollama/embeddinggemma:300m
+          api_base: http://ollama-16gib.llm.svc.cluster.local:11434
+          weight: 2
+        model_info:
+          mode: embedding
+      - model_name: embeddinggemma:300m
+        litellm_params:
+          model: ollama/embeddinggemma:300m
+          api_base: http://ollama-24gib.llm.svc.cluster.local:11434
+          weight: 1
         model_info:
           mode: embedding
 
@@ -49,57 +75,76 @@ data:
       # - Ollama on multi-GPU Volta node (Tesla V100 64GiB VRAM): dedicated inference worker.
       - model_name: devops-review
         litellm_params:
-          model: openai/qwen3-coder:30b
-          api_base: http://vllm-48gib.llm.svc.cluster.local:8000/v1
-          api_key: none
-          weight: 6
-        model_info:
-          max_input_tokens: 61440
+          model: ollama_chat/qwen3-coder:30b
+          api_base: http://ollama-48gib.llm.svc.cluster.local:11434
+          weight: 8
       - model_name: devops-review
         litellm_params:
-          model: openai/qwen3-coder:30b
-          api_base: http://ollama-64gib.llm.svc.cluster.local:11434/v1
-          api_key: none
-          weight: 1
-        model_info:
-          max_input_tokens: 43904
-
-      - model_name: devops-flagship
+          model: ollama_chat/qwen3-coder:30b
+          api_base: http://ollama-64gib.llm.svc.cluster.local:11434
+          weight: 3
+      - model_name: devops-review
         litellm_params:
-          model: openai/cogito-v2:70b
-          api_base: http://vllm-64gib.llm.svc.cluster.local:8000/v1
-          api_key: none
-        model_info:
-          max_input_tokens: 32768
+          model: ollama_chat/gpt-oss:20b
+          api_base: http://ollama-16gib.llm.svc.cluster.local:11434
+          weight: 6
+      - model_name: devops-review
+        litellm_params:
+          model: ollama_chat/gpt-oss:20b
+          api_base: http://ollama-24gib.llm.svc.cluster.local:11434
+          weight: 1
 
       - model_name: gemma4:31b
         litellm_params:
           model: ollama_chat/gemma4:31b
-          api_base: http://ollama-64gib.llm.svc.cluster.local:11434
-        model_info:
-          max_input_tokens: 32768
-
-      - model_name: ollama/*
+          api_base: http://ollama-48gib.llm.svc.cluster.local:11434
+          model_info:
+            max_input_tokens: 128000
+          weight: 3
+      - model_name: gemma4:31b
         litellm_params:
-          model: openai/*
-          api_base: http://ollama-24gib.llm.svc.cluster.local:11434/v1
-          api_key: none
-        model_info:
-          health_check_model: openai/qwen2.5-coder:7b
+          model: ollama_chat/gemma4:31b
+          api_base: http://ollama-64gib.llm.svc.cluster.local:11434
+          model_info:
+            max_input_tokens: 128000
+          weight: 1
+
+      - model_name: qwen3.8:27b
+        litellm_params:
+          model: ollama_chat/qwen3.8:27b
+          api_base: http://ollama-48gib.llm.svc.cluster.local:11434
+          model_info:
+            max_input_tokens: 128000
+          weight: 3
+      - model_name: qwen3.8:27b
+        litellm_params:
+          model: ollama_chat/qwen3.8:27b
+          api_base: http://ollama-64gib.llm.svc.cluster.local:11434
+          model_info:
+            max_input_tokens: 128000
+          weight: 1
+
+      - model_name: cogito-v2:70b
+        litellm_params:
+          model: ollama_chat/cogito-v2:70b
+          api_base: http://ollama-64gib.llm.svc.cluster.local:11434
+          model_info:
+            max_input_tokens: 128000
 
     litellm_settings:
       # Per-deployment requests, failures and latency at /metrics/, scraped by Prometheus. The
       # Ollama nodes export no metrics of their own, so this is how their load is seen.
       callbacks: ["prometheus"]
+      require_auth_for_metrics_endpoint: false
       drop_params: true
 
     router_settings:
       # simple-shuffle routes requests weighted by throughput (litellm_params.weight),
       # directing traffic according to measured backend capacity.
       routing_strategy: simple-shuffle
-      num_retries: 3
+      num_retries: 5
       # Long code reviews on the 32B model can generate for several minutes.
-      timeout: 600
+      timeout: 1500
       # Check prompt size against max_input_tokens before calling a backend, so an oversized
       # prompt moves straight to its context-window fallback instead of failing first.
       enable_pre_call_checks: true

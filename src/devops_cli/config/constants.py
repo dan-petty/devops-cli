@@ -1553,6 +1553,26 @@ CONST_THREAT_INTEL_CACHE_PREFIX: Final[str] = "valkey:threat_intel:domain"
 # RAG embedding distributed caching
 CONST_VALKEY_EMBEDDING_PREFIX: Final[str] = "valkey:rag:embedding"
 
+# Canonical embedding dimensions for widely used embedding models to ensure deterministic fallback synchronization
+CONST_KNOWN_EMBEDDING_DIMENSIONS: Final[dict[str, int]] = {
+    "bge-m3": 1024,
+    "bge-large": 1024,
+    "bge-base": 768,
+    "bge-small": 384,
+    "nomic-embed-text": 768,
+    "text-embedding-3-small": 1536,
+    "text-embedding-3-large": 3072,
+    "text-embedding-ada-002": 1536,
+    "all-minilm": 384,
+    "qwen3-embedding": 768,
+    "embeddinggemma": 768,
+}
+
+# Helm releases that deploy DaemonSets across all cluster nodes
+CONST_HELM_DAEMONSET_RELEASES: Final[frozenset[str]] = frozenset(
+    {"k8s-monitoring", "dcgm-exporter", "fluent-bit"}
+)
+
 # GitHub CLI rate limiter mutation verbs and HTTP methods
 CONST_GH_MUTATION_VERBS: Final[frozenset[str]] = frozenset(
     {
