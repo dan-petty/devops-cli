@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Roadmap Planning Glossary & GitHub-Source ADR (`CONTEXT.md`, `docs/adr/`)**:
   - Added `CONTEXT.md`, the glossary for release planning and the roadmap jobs, and `docs/adr/0001-github-is-the-roadmap-source.md`, which makes GitHub issues, milestones and the project board the roadmap's source of truth (#746).
   - Scheduled the roadmap jobs in `docs/ROADMAP.md` (#739-#744, with #745 in the backlog), revised the #697 and #704 entries, and removed the superseded #418, #696 and #699 entries (#746).
+- **Roadmap Service Decisions, Machine-Account & Polling ADRs (`CONTEXT.md`, `docs/adr/`)**:
+  - Resolved the glossary's open boundaries (Item, Candidate, Blocked, Dependency, Stalled, Cut, Current release, Critical fix, Value, Effort, Reprioritization, Closure) and added Service, the homelab deployment that runs the roadmap jobs (#756).
+  - Added `docs/adr/0002-roadmap-jobs-act-as-a-machine-account.md` and `docs/adr/0003-polling-is-how-the-roadmap-sees-changes.md`, revised the #739-#743 roadmap entries, moved #741 to v0.2.26 beside #752 and #753, and added #754 and #755 to the backlog (#756).
 
 ### Removed
 - **LightLLM Inference Backend (`devops_cli.ai`, `k8s/llm`)**:
