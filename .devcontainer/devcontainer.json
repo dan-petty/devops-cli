@@ -86,7 +86,6 @@
         "DavidAnson.vscode-markdownlint",
         "rust-lang.rust-analyzer",
         "firefox-devtools.vscode-firefox-debug",
-        "ms-windows-ai-studio.windows-ai-studio",
         "kilocode.Kilo-Code",
         "saoudrizwan.claude-dev"
       ],

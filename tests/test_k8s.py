@@ -174,7 +174,7 @@ def test_k8s_deploy_stack_all_dry_run() -> None:
         result = runner.invoke(app, ["deploy-stack", "--stack", "all"])
         assert result.exit_code == 0
         assert "argocd" in result.output
-        assert "kube-prometheus" in result.output
+        assert "k8s-monitoring" in result.output
         assert "ollama" in result.output
         assert "valkey.yaml" in result.output
     finally:
@@ -970,20 +970,30 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
     assert fb_values["resources"]["limits"]["cpu"] == "500m"
     assert fb_values["resources"]["limits"]["memory"] == "1024Mi"
 
-    # 11. Prometheus stack values: elevated requests and limits to eliminate OOM kills
-    prom_values = yaml.safe_load(
-        (repo_root / "k8s" / "monitoring" / "prometheus-values.yaml").read_text(encoding="utf-8")
+    # 11. K8s monitoring stack values: elevated requests and limits to eliminate OOM kills
+    k8s_mon_values = yaml.safe_load(
+        (repo_root / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
+            encoding="utf-8"
+        )
     )
+    ksm_res = k8s_mon_values["telemetryServices"]["kube-state-metrics"]["resources"]
+    node_res = k8s_mon_values["telemetryServices"]["node-exporter"]["resources"]
+    alloy_metrics_res = k8s_mon_values["collectors"]["alloy-metrics"]["alloy"]["resources"]
     assert (
-        prom_values["prometheus"]["prometheusSpec"]["resources"]["requests"]["memory"] == "1024Mi"
+        ksm_res["requests"]["memory"],
+        ksm_res["limits"]["memory"],
+        node_res["requests"]["memory"],
+        node_res["limits"]["memory"],
+        alloy_metrics_res["requests"]["memory"],
+        alloy_metrics_res["limits"]["memory"],
+    ) == (
+        "64Mi",
+        "256Mi",
+        "64Mi",
+        "256Mi",
+        "256Mi",
+        "1024Mi",
     )
-    assert prom_values["prometheus"]["prometheusSpec"]["resources"]["limits"]["memory"] == "4096Mi"
-    assert prom_values["grafana"]["resources"]["requests"]["memory"] == "768Mi"
-    assert prom_values["grafana"]["resources"]["limits"]["memory"] == "2048Mi"
-    assert prom_values["nodeExporter"]["resources"]["requests"]["memory"] == "64Mi"
-    assert prom_values["nodeExporter"]["resources"]["limits"]["memory"] == "256Mi"
-    assert prom_values["kubeStateMetrics"]["resources"]["requests"]["memory"] == "64Mi"
-    assert prom_values["kubeStateMetrics"]["resources"]["limits"]["memory"] == "256Mi"
 
     # 12. GPU Feature Discovery DaemonSet: Burstable QoS requests and limits
     gfd_docs = list(

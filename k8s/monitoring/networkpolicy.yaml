@@ -14,15 +14,35 @@ spec:
     # 1. Allow intra-namespace pod communications (Prometheus, Grafana, node-exporter, kube-state-metrics)
     - from:
         - podSelector: {}
-    # 2. Allow external ingress to Grafana (3000) and Prometheus (9090) via NodePort, LoadBalancer, or ingress controllers (0.0.0.0/0)
+    # 2. Allow external and Traefik ingress to monitoring services (0.0.0.0/0 and kube-system/traefik)
     - from:
         - ipBlock:
             cidr: 0.0.0.0/0
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
       ports:
+        - protocol: TCP
+          port: 80
         - protocol: TCP
           port: 3000
         - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8082
+        - protocol: TCP
           port: 9090
+        - protocol: TCP
+          port: 9100
+        - protocol: TCP
+          port: 9400
+        - protocol: TCP
+          port: 12345
     # 3. Allow OpenTelemetry collector to push metrics to Prometheus remote write receiver (9090)
     - from:
         - namespaceSelector:
@@ -86,7 +106,15 @@ spec:
           port: 8888
         - protocol: TCP
           port: 16686
-    # 5. Outbound external egress (e.g. Grafana plugins/alerts) with cloud metadata SSRF strictly blocked
+    # 5. Allow egress to logging namespace for Loki log shipping
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: logging
+      ports:
+        - protocol: TCP
+          port: 3100
+    # 6. Outbound external egress (e.g. Grafana plugins/alerts) with cloud metadata SSRF strictly blocked
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

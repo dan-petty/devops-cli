@@ -68,14 +68,15 @@ def test_the_llm_dashboard_queries_only_metrics_the_stack_exposes() -> None:
     ) == ([], True, False)
 
 
-def test_prometheus_scrapes_both_vllm_servers_and_the_gateway() -> None:
-    """Verify each monitor selects its services by their labels and scrapes a port they have."""
-    values = yaml.safe_load((K8S / "monitoring/prometheus-values.yaml").read_text("utf-8"))
-    spec = values["prometheus"]["prometheusSpec"]
-    monitors = {m["name"]: m for m in values["prometheus"]["additionalServiceMonitors"]}
-    all_services = list(_yaml_docs(K8S / "llm/profiles/services.yaml")) + list(
-        _yaml_docs(K8S / "llm/gateway/service.yaml")
-    )
+def test_monitoring_scrapes_the_gateway() -> None:
+    """Verify k8s-monitoring has prometheusOperatorObjects enabled and defines gateway ServiceMonitor."""
+    values = yaml.safe_load((K8S / "monitoring/k8s-monitoring-values.yaml").read_text("utf-8"))
+    poo = values["prometheusOperatorObjects"]
+    extra_objects = values.get("extraObjects", [])
+    monitors = {
+        m["metadata"]["name"]: m["spec"] for m in extra_objects if m.get("kind") == "ServiceMonitor"
+    }
+    all_services = list(_yaml_docs(K8S / "llm/gateway/service.yaml"))
 
     def scraped(monitor: dict[str, Any]) -> list[tuple[str, str]]:
         selector = monitor["selector"]
@@ -92,17 +93,12 @@ def test_prometheus_scrapes_both_vllm_servers_and_the_gateway() -> None:
             if endpoint["port"] in {p["name"] for p in svc["spec"]["ports"]}
         ]
 
-    vllm_scraped = scraped(monitors["vllm"])
     gateway_scraped = scraped(monitors["llm-gateway"])
 
     assert (
-        spec["serviceMonitorSelectorNilUsesHelmValues"],
-        any(name == "vllm-16gib" and path == "/metrics" for name, path in vllm_scraped),
-        any(name == "vllm-48gib" and path == "/metrics" for name, path in vllm_scraped),
+        poo["enabled"],
         gateway_scraped,
     ) == (
-        False,
-        True,
         True,
         [("llm-gateway", "/metrics/")],
     )

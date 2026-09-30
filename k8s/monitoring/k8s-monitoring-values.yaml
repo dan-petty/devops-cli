@@ -1,0 +1,112 @@
+# Grafana Kubernetes Monitoring Helm values
+# Chart: grafana/k8s-monitoring
+# Repo:  https://grafana.github.io/helm-charts
+# https://github.com/grafana/k8s-monitoring-helm/tree/main/charts/k8s-monitoring
+
+cluster:
+  name: devops-cluster
+
+destinations:
+  localPrometheus:
+    type: prometheus
+    url: http://prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+  localLoki:
+    type: loki
+    url: http://loki.logging.svc.cluster.local:3100/loki/api/v1/push
+
+# ── Features ─────────────────────────────────────────────────────────────────
+clusterMetrics:
+  enabled: true
+  collector: alloy-metrics
+
+clusterEvents:
+  enabled: true
+  collector: alloy-singleton
+
+podLogsViaLoki:
+  enabled: true
+  collector: alloy-logs
+
+prometheusOperatorObjects:
+  enabled: true
+  collector: alloy-metrics
+
+prometheusMetricsReceiver:
+  enabled: true
+  collector: alloy-metrics
+
+# ── Telemetry Services ───────────────────────────────────────────────────────
+telemetryServices:
+  kube-state-metrics:
+    deploy: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+  node-exporter:
+    deploy: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# ── Collectors ───────────────────────────────────────────────────────────────
+collectors:
+  alloy-metrics:
+    presets:
+      - clustered
+      - statefulset
+    alloy:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 1000m
+          memory: 1024Mi
+  alloy-singleton:
+    alloy:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+  alloy-logs:
+    presets:
+      - daemonset
+      - filesystem-log-reader
+    alloy:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+# ── Extra Monitoring Objects ─────────────────────────────────────────────────
+extraObjects:
+  - apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: llm-gateway
+      namespace: llm
+      labels:
+        app.kubernetes.io/name: llm-gateway
+        app.kubernetes.io/part-of: devops-cli-stack
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: llm-gateway
+      endpoints:
+        - port: http
+          path: /metrics/
+          interval: 15s

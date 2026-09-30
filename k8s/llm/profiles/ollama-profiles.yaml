@@ -9,11 +9,10 @@ metadata:
   labels:
     app.kubernetes.io/name: ollama-16gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/model: qwen2.5-coder-7b
     llm.devops.io/backend: ollama
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: 16gib
-    llm.devops.io/total-vram-gib: '16'
+    llm.devops.io/total-vram-gib: "16"
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -25,11 +24,10 @@ spec:
       labels:
         app.kubernetes.io/name: ollama-16gib
         app.kubernetes.io/part-of: devops-cli-stack
-        llm.devops.io/model: qwen2.5-coder-7b
         llm.devops.io/backend: ollama
         llm.devops.io/provider: ollama
         llm.devops.io/vram-gib: 16gib
-        llm.devops.io/total-vram-gib: '16'
+        llm.devops.io/total-vram-gib: "16"
     spec:
       runtimeClassName: nvidia
       affinity:
@@ -37,100 +35,72 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: nvidia.com/gpu.architecture
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.family
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.architecture
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.family
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
-                    values: ["16Gi"]
-              - matchExpressions:
-                  - key: nvidia.com/gpu.architecture
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.family
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.vram-gib
-                    operator: In
-                    values: ["16Gi"]
+                    values: ["16Gi", "20Gi"]
       containers:
-      - name: ollama
-        image: ollama/ollama:0.34.4
-        env:
-        - name: OLLAMA_HOST
-          value: 0.0.0.0:11434
-        - name: OLLAMA_MODELS
-          value: /root/.ollama/models
-        - name: OLLAMA_CONTEXT_LENGTH
-          value: '32768'
-        - name: OLLAMA_MAX_LOADED_MODELS
-          value: '2'
-        - name: OLLAMA_NUM_PARALLEL
-          value: '1'
-        - name: OLLAMA_KV_CACHE_TYPE
-          value: q8_0
-        - name: OLLAMA_NO_CLOUD
-          value: '1'
-        - name: HTTP_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: HTTPS_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: SSL_CERT_DIR
-          value: /etc/ssl/certs:/etc/ssl/squid-ca
-        - name: NO_PROXY
-          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,portkey,qdrant
-        ports:
-        - containerPort: 11434
-          name: http
-        resources:
-          requests:
-            cpu: 3000m
-            memory: 8Gi
-            nvidia.com/gpu: '1'
-          limits:
-            nvidia.com/gpu: '1'
-        startupProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 5
-          failureThreshold: 60
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 5
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 15
-          periodSeconds: 15
-          timeoutSeconds: 10
-          failureThreshold: 6
-        volumeMounts:
-        - name: ollama-data
-          mountPath: /root/.ollama
-        - name: squid-ca-cert
-          mountPath: /etc/ssl/squid-ca
-          readOnly: true
+        - name: ollama
+          image: ollama/ollama:0.34.4
+          env:
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: "16000"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "2"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "4"
+            - name: OLLAMA_KV_CACHE_TYPE
+              value: q8_0
+            - name: OLLAMA_NO_CLOUD
+              value: "1"
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              cpu: 3000m
+              memory: 8Gi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
       volumes:
-      - name: ollama-data
-        hostPath:
-          path: /var/lib/ollama
-          type: DirectoryOrCreate
-      - name: squid-ca-cert
-        configMap:
-          name: squid-ca-cert
-          optional: false
+        - name: ollama-data
+          hostPath:
+            path: /var/lib/ollama
+            type: DirectoryOrCreate
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -140,11 +110,10 @@ metadata:
   labels:
     app.kubernetes.io/name: ollama-24gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/model: qwen2.5-coder-14b
     llm.devops.io/backend: ollama
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: 24gib
-    llm.devops.io/total-vram-gib: '24'
+    llm.devops.io/total-vram-gib: "24"
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -156,11 +125,10 @@ spec:
       labels:
         app.kubernetes.io/name: ollama-24gib
         app.kubernetes.io/part-of: devops-cli-stack
-        llm.devops.io/model: qwen2.5-coder-14b
         llm.devops.io/backend: ollama
         llm.devops.io/provider: ollama
         llm.devops.io/vram-gib: 24gib
-        llm.devops.io/total-vram-gib: '24'
+        llm.devops.io/total-vram-gib: "24"
     spec:
       runtimeClassName: nvidia
       affinity:
@@ -168,90 +136,72 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: nvidia.com/gpu.architecture
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.family
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.architecture
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.family
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["24Gi", "28Gi"]
       containers:
-      - name: ollama
-        image: ollama/ollama:0.34.4
-        env:
-        - name: OLLAMA_HOST
-          value: 0.0.0.0:11434
-        - name: OLLAMA_MODELS
-          value: /root/.ollama/models
-        - name: OLLAMA_CONTEXT_LENGTH
-          value: '32768'
-        - name: OLLAMA_MAX_LOADED_MODELS
-          value: '2'
-        - name: OLLAMA_NUM_PARALLEL
-          value: '1'
-        - name: OLLAMA_KV_CACHE_TYPE
-          value: q8_0
-        - name: OLLAMA_NO_CLOUD
-          value: '1'
-        - name: HTTP_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: HTTPS_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: SSL_CERT_DIR
-          value: /etc/ssl/certs:/etc/ssl/squid-ca
-        - name: NO_PROXY
-          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,portkey,qdrant
-        ports:
-        - containerPort: 11434
-          name: http
-        resources:
-          requests:
-            cpu: 3000m
-            memory: 8Gi
-            nvidia.com/gpu: '1'
-          limits:
-            nvidia.com/gpu: '1'
-        startupProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 5
-          failureThreshold: 60
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 5
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 15
-          periodSeconds: 15
-          timeoutSeconds: 10
-          failureThreshold: 6
-        volumeMounts:
-        - name: ollama-data
-          mountPath: /root/.ollama
-        - name: squid-ca-cert
-          mountPath: /etc/ssl/squid-ca
-          readOnly: true
+        - name: ollama
+          image: ollama/ollama:0.34.4
+          env:
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: "48000"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "2"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "4"
+            - name: OLLAMA_KV_CACHE_TYPE
+              value: q8_0
+            - name: OLLAMA_NO_CLOUD
+              value: "1"
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              cpu: 3000m
+              memory: 8Gi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
       volumes:
-      - name: ollama-data
-        hostPath:
-          path: /var/lib/ollama
-          type: DirectoryOrCreate
-      - name: squid-ca-cert
-        configMap:
-          name: squid-ca-cert
-          optional: false
+        - name: ollama-data
+          hostPath:
+            path: /var/lib/ollama
+            type: DirectoryOrCreate
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -261,11 +211,10 @@ metadata:
   labels:
     app.kubernetes.io/name: ollama-32gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/model: qwen3-coder-30b
     llm.devops.io/backend: ollama
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: 32gib
-    llm.devops.io/total-vram-gib: '32'
+    llm.devops.io/total-vram-gib: "32"
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -277,11 +226,10 @@ spec:
       labels:
         app.kubernetes.io/name: ollama-32gib
         app.kubernetes.io/part-of: devops-cli-stack
-        llm.devops.io/model: qwen3-coder-30b
         llm.devops.io/backend: ollama
         llm.devops.io/provider: ollama
         llm.devops.io/vram-gib: 32gib
-        llm.devops.io/total-vram-gib: '32'
+        llm.devops.io/total-vram-gib: "32"
     spec:
       runtimeClassName: nvidia
       affinity:
@@ -289,90 +237,74 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: nvidia.com/gpu.architecture
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.family
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.architecture
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.family
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
-                    values: ["32Gi"]
+                    values: ["32Gi", "36Gi", "40Gi", "44Gi"]
       containers:
-      - name: ollama
-        image: ollama/ollama:0.34.4
-        env:
-        - name: OLLAMA_HOST
-          value: 0.0.0.0:11434
-        - name: OLLAMA_MODELS
-          value: /root/.ollama/models
-        - name: OLLAMA_CONTEXT_LENGTH
-          value: '48000'
-        - name: OLLAMA_MAX_LOADED_MODELS
-          value: '2'
-        - name: OLLAMA_NUM_PARALLEL
-          value: '1'
-        - name: OLLAMA_KV_CACHE_TYPE
-          value: q8_0
-        - name: OLLAMA_NO_CLOUD
-          value: '1'
-        - name: HTTP_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: HTTPS_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: SSL_CERT_DIR
-          value: /etc/ssl/certs:/etc/ssl/squid-ca
-        - name: NO_PROXY
-          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,portkey,qdrant
-        ports:
-        - containerPort: 11434
-          name: http
-        resources:
-          requests:
-            cpu: 2000m
-            memory: 8Gi
-            nvidia.com/gpu: '1'
-          limits:
-            nvidia.com/gpu: '1'
-        startupProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 5
-          failureThreshold: 60
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 5
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 15
-          periodSeconds: 15
-          timeoutSeconds: 10
-          failureThreshold: 6
-        volumeMounts:
-        - name: ollama-data
-          mountPath: /root/.ollama
-        - name: squid-ca-cert
-          mountPath: /etc/ssl/squid-ca
-          readOnly: true
+        - name: ollama
+          image: ollama/ollama:0.34.4
+          env:
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: "48000"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "4"
+            - name: OLLAMA_KV_CACHE_TYPE
+              value: q8_0
+            - name: OLLAMA_SCHED_SPREAD
+              value: "1"
+            - name: OLLAMA_NO_CLOUD
+              value: "1"
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              cpu: 2000m
+              memory: 8Gi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
       volumes:
-      - name: ollama-data
-        hostPath:
-          path: /var/lib/ollama
-          type: DirectoryOrCreate
-      - name: squid-ca-cert
-        configMap:
-          name: squid-ca-cert
-          optional: false
+        - name: ollama-data
+          hostPath:
+            path: /var/lib/ollama
+            type: DirectoryOrCreate
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -382,11 +314,10 @@ metadata:
   labels:
     app.kubernetes.io/name: ollama-48gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/model: cogito-v2-70b
     llm.devops.io/backend: ollama
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: 48gib
-    llm.devops.io/total-vram-gib: '48'
+    llm.devops.io/total-vram-gib: "48"
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -398,11 +329,10 @@ spec:
       labels:
         app.kubernetes.io/name: ollama-48gib
         app.kubernetes.io/part-of: devops-cli-stack
-        llm.devops.io/model: cogito-v2-70b
         llm.devops.io/backend: ollama
         llm.devops.io/provider: ollama
         llm.devops.io/vram-gib: 48gib
-        llm.devops.io/total-vram-gib: '48'
+        llm.devops.io/total-vram-gib: "48"
     spec:
       runtimeClassName: nvidia
       affinity:
@@ -410,90 +340,74 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: nvidia.com/gpu.architecture
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.family
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.architecture
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.family
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
-                    values: ["48Gi"]
+                    values: ["48Gi", "52Gi", "56Gi", "60Gi"]
       containers:
-      - name: ollama
-        image: ollama/ollama:0.34.4
-        env:
-        - name: OLLAMA_HOST
-          value: 0.0.0.0:11434
-        - name: OLLAMA_MODELS
-          value: /root/.ollama/models
-        - name: OLLAMA_CONTEXT_LENGTH
-          value: '65536'
-        - name: OLLAMA_MAX_LOADED_MODELS
-          value: '2'
-        - name: OLLAMA_NUM_PARALLEL
-          value: '1'
-        - name: OLLAMA_KV_CACHE_TYPE
-          value: q8_0
-        - name: OLLAMA_NO_CLOUD
-          value: '1'
-        - name: HTTP_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: HTTPS_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: SSL_CERT_DIR
-          value: /etc/ssl/certs:/etc/ssl/squid-ca
-        - name: NO_PROXY
-          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,portkey,qdrant
-        ports:
-        - containerPort: 11434
-          name: http
-        resources:
-          requests:
-            cpu: 6000m
-            memory: 24Gi
-            nvidia.com/gpu: '2'
-          limits:
-            nvidia.com/gpu: '2'
-        startupProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 5
-          failureThreshold: 60
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 5
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 15
-          periodSeconds: 15
-          timeoutSeconds: 10
-          failureThreshold: 6
-        volumeMounts:
-        - name: ollama-data
-          mountPath: /root/.ollama
-        - name: squid-ca-cert
-          mountPath: /etc/ssl/squid-ca
-          readOnly: true
+        - name: ollama
+          image: ollama/ollama:0.34.4
+          env:
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: "128000"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "4"
+            - name: OLLAMA_KV_CACHE_TYPE
+              value: q8_0
+            - name: OLLAMA_SCHED_SPREAD
+              value: "1"
+            - name: OLLAMA_NO_CLOUD
+              value: "1"
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              cpu: 6000m
+              memory: 24Gi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
       volumes:
-      - name: ollama-data
-        hostPath:
-          path: /var/lib/ollama
-          type: DirectoryOrCreate
-      - name: squid-ca-cert
-        configMap:
-          name: squid-ca-cert
-          optional: false
+        - name: ollama-data
+          hostPath:
+            path: /var/lib/ollama
+            type: DirectoryOrCreate
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -503,11 +417,10 @@ metadata:
   labels:
     app.kubernetes.io/name: ollama-64gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/model: cogito-v2-70b
     llm.devops.io/backend: ollama
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: 64gib
-    llm.devops.io/total-vram-gib: '64'
+    llm.devops.io/total-vram-gib: "64"
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -519,11 +432,10 @@ spec:
       labels:
         app.kubernetes.io/name: ollama-64gib
         app.kubernetes.io/part-of: devops-cli-stack
-        llm.devops.io/model: cogito-v2-70b
         llm.devops.io/backend: ollama
         llm.devops.io/provider: ollama
         llm.devops.io/vram-gib: 64gib
-        llm.devops.io/total-vram-gib: '64'
+        llm.devops.io/total-vram-gib: "64"
     spec:
       runtimeClassName: nvidia
       affinity:
@@ -531,90 +443,74 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: nvidia.com/gpu.architecture
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.family
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.architecture
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.family
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
-                    values: ["64Gi"]
+                    values: ["64Gi", "68Gi"]
       containers:
-      - name: ollama
-        image: ollama/ollama:0.34.4
-        env:
-        - name: OLLAMA_HOST
-          value: 0.0.0.0:11434
-        - name: OLLAMA_MODELS
-          value: /root/.ollama/models
-        - name: OLLAMA_CONTEXT_LENGTH
-          value: '65536'
-        - name: OLLAMA_MAX_LOADED_MODELS
-          value: '2'
-        - name: OLLAMA_NUM_PARALLEL
-          value: '1'
-        - name: OLLAMA_KV_CACHE_TYPE
-          value: q8_0
-        - name: OLLAMA_NO_CLOUD
-          value: '1'
-        - name: HTTP_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: HTTPS_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: SSL_CERT_DIR
-          value: /etc/ssl/certs:/etc/ssl/squid-ca
-        - name: NO_PROXY
-          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,portkey,qdrant
-        ports:
-        - containerPort: 11434
-          name: http
-        resources:
-          requests:
-            cpu: 4000m
-            memory: 8Gi
-            nvidia.com/gpu: '2'
-          limits:
-            nvidia.com/gpu: '2'
-        startupProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 5
-          failureThreshold: 60
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 5
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 15
-          periodSeconds: 15
-          timeoutSeconds: 10
-          failureThreshold: 6
-        volumeMounts:
-        - name: ollama-data
-          mountPath: /root/.ollama
-        - name: squid-ca-cert
-          mountPath: /etc/ssl/squid-ca
-          readOnly: true
+        - name: ollama
+          image: ollama/ollama:0.34.4
+          env:
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: "160000"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "4"
+            - name: OLLAMA_KV_CACHE_TYPE
+              value: q8_0
+            - name: OLLAMA_SCHED_SPREAD
+              value: "1"
+            - name: OLLAMA_NO_CLOUD
+              value: "1"
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              cpu: 4000m
+              memory: 8Gi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
       volumes:
-      - name: ollama-data
-        hostPath:
-          path: /var/lib/ollama
-          type: DirectoryOrCreate
-      - name: squid-ca-cert
-        configMap:
-          name: squid-ca-cert
-          optional: false
+        - name: ollama-data
+          hostPath:
+            path: /var/lib/ollama
+            type: DirectoryOrCreate
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -624,11 +520,10 @@ metadata:
   labels:
     app.kubernetes.io/name: ollama-72gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/model: cogito-v2-70b
     llm.devops.io/backend: ollama
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: 72gib
-    llm.devops.io/total-vram-gib: '72'
+    llm.devops.io/total-vram-gib: "72"
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -640,11 +535,10 @@ spec:
       labels:
         app.kubernetes.io/name: ollama-72gib
         app.kubernetes.io/part-of: devops-cli-stack
-        llm.devops.io/model: cogito-v2-70b
         llm.devops.io/backend: ollama
         llm.devops.io/provider: ollama
         llm.devops.io/vram-gib: 72gib
-        llm.devops.io/total-vram-gib: '72'
+        llm.devops.io/total-vram-gib: "72"
     spec:
       runtimeClassName: nvidia
       affinity:
@@ -652,90 +546,74 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: nvidia.com/gpu.architecture
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.family
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.architecture
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.family
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
-                    values: ["72Gi"]
+                    values: ["72Gi", "76Gi", "80Gi", "84Gi", "88Gi", "92Gi"]
       containers:
-      - name: ollama
-        image: ollama/ollama:0.34.4
-        env:
-        - name: OLLAMA_HOST
-          value: 0.0.0.0:11434
-        - name: OLLAMA_MODELS
-          value: /root/.ollama/models
-        - name: OLLAMA_CONTEXT_LENGTH
-          value: '65536'
-        - name: OLLAMA_MAX_LOADED_MODELS
-          value: '2'
-        - name: OLLAMA_NUM_PARALLEL
-          value: '1'
-        - name: OLLAMA_KV_CACHE_TYPE
-          value: q8_0
-        - name: OLLAMA_NO_CLOUD
-          value: '1'
-        - name: HTTP_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: HTTPS_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: SSL_CERT_DIR
-          value: /etc/ssl/certs:/etc/ssl/squid-ca
-        - name: NO_PROXY
-          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,portkey,qdrant
-        ports:
-        - containerPort: 11434
-          name: http
-        resources:
-          requests:
-            cpu: 8000m
-            memory: 36Gi
-            nvidia.com/gpu: '3'
-          limits:
-            nvidia.com/gpu: '3'
-        startupProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 5
-          failureThreshold: 60
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 5
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 15
-          periodSeconds: 15
-          timeoutSeconds: 10
-          failureThreshold: 6
-        volumeMounts:
-        - name: ollama-data
-          mountPath: /root/.ollama
-        - name: squid-ca-cert
-          mountPath: /etc/ssl/squid-ca
-          readOnly: true
+        - name: ollama
+          image: ollama/ollama:0.34.4
+          env:
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: "192000"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "4"
+            - name: OLLAMA_KV_CACHE_TYPE
+              value: q8_0
+            - name: OLLAMA_SCHED_SPREAD
+              value: "1"
+            - name: OLLAMA_NO_CLOUD
+              value: "1"
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              cpu: 8000m
+              memory: 36Gi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
       volumes:
-      - name: ollama-data
-        hostPath:
-          path: /var/lib/ollama
-          type: DirectoryOrCreate
-      - name: squid-ca-cert
-        configMap:
-          name: squid-ca-cert
-          optional: false
+        - name: ollama-data
+          hostPath:
+            path: /var/lib/ollama
+            type: DirectoryOrCreate
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -745,11 +623,10 @@ metadata:
   labels:
     app.kubernetes.io/name: ollama-96gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/model: cogito-v2-70b
     llm.devops.io/backend: ollama
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: 96gib
-    llm.devops.io/total-vram-gib: '96'
+    llm.devops.io/total-vram-gib: "96"
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -761,11 +638,10 @@ spec:
       labels:
         app.kubernetes.io/name: ollama-96gib
         app.kubernetes.io/part-of: devops-cli-stack
-        llm.devops.io/model: cogito-v2-70b
         llm.devops.io/backend: ollama
         llm.devops.io/provider: ollama
         llm.devops.io/vram-gib: 96gib
-        llm.devops.io/total-vram-gib: '96'
+        llm.devops.io/total-vram-gib: "96"
     spec:
       runtimeClassName: nvidia
       affinity:
@@ -773,90 +649,84 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: nvidia.com/gpu.architecture
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.family
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.architecture
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.family
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
-                    values: ["96Gi"]
+                    values:
+                      [
+                        "96Gi",
+                        "100Gi",
+                        "104Gi",
+                        "108Gi",
+                        "112Gi",
+                        "116Gi",
+                        "120Gi",
+                        "124Gi",
+                      ]
       containers:
-      - name: ollama
-        image: ollama/ollama:0.34.4
-        env:
-        - name: OLLAMA_HOST
-          value: 0.0.0.0:11434
-        - name: OLLAMA_MODELS
-          value: /root/.ollama/models
-        - name: OLLAMA_CONTEXT_LENGTH
-          value: '65536'
-        - name: OLLAMA_MAX_LOADED_MODELS
-          value: '2'
-        - name: OLLAMA_NUM_PARALLEL
-          value: '1'
-        - name: OLLAMA_KV_CACHE_TYPE
-          value: q8_0
-        - name: OLLAMA_NO_CLOUD
-          value: '1'
-        - name: HTTP_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: HTTPS_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: SSL_CERT_DIR
-          value: /etc/ssl/certs:/etc/ssl/squid-ca
-        - name: NO_PROXY
-          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,portkey,qdrant
-        ports:
-        - containerPort: 11434
-          name: http
-        resources:
-          requests:
-            cpu: 8000m
-            memory: 48Gi
-            nvidia.com/gpu: '3'
-          limits:
-            nvidia.com/gpu: '3'
-        startupProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 5
-          failureThreshold: 60
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 5
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 15
-          periodSeconds: 15
-          timeoutSeconds: 10
-          failureThreshold: 6
-        volumeMounts:
-        - name: ollama-data
-          mountPath: /root/.ollama
-        - name: squid-ca-cert
-          mountPath: /etc/ssl/squid-ca
-          readOnly: true
+        - name: ollama
+          image: ollama/ollama:0.34.4
+          env:
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: "224000"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "4"
+            - name: OLLAMA_KV_CACHE_TYPE
+              value: q8_0
+            - name: OLLAMA_SCHED_SPREAD
+              value: "1"
+            - name: OLLAMA_NO_CLOUD
+              value: "1"
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              cpu: 8000m
+              memory: 48Gi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
       volumes:
-      - name: ollama-data
-        hostPath:
-          path: /var/lib/ollama
-          type: DirectoryOrCreate
-      - name: squid-ca-cert
-        configMap:
-          name: squid-ca-cert
-          optional: false
+        - name: ollama-data
+          hostPath:
+            path: /var/lib/ollama
+            type: DirectoryOrCreate
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -866,11 +736,10 @@ metadata:
   labels:
     app.kubernetes.io/name: ollama-128gib
     app.kubernetes.io/part-of: devops-cli-stack
-    llm.devops.io/model: deepseek-r1-70b
     llm.devops.io/backend: ollama
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: 128gib
-    llm.devops.io/total-vram-gib: '128'
+    llm.devops.io/total-vram-gib: "128"
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -882,11 +751,10 @@ spec:
       labels:
         app.kubernetes.io/name: ollama-128gib
         app.kubernetes.io/part-of: devops-cli-stack
-        llm.devops.io/model: deepseek-r1-70b
         llm.devops.io/backend: ollama
         llm.devops.io/provider: ollama
         llm.devops.io/vram-gib: 128gib
-        llm.devops.io/total-vram-gib: '128'
+        llm.devops.io/total-vram-gib: "128"
     spec:
       runtimeClassName: nvidia
       affinity:
@@ -894,87 +762,71 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: nvidia.com/gpu.architecture
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
-                  - key: nvidia.com/gpu.family
-                    operator: NotIn
-                    values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.architecture
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
+                  # - key: nvidia.com/gpu.family
+                  #   operator: NotIn
+                  #   values: ["ada-lovelace", "ampere", "blackwell", "hopper"]
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
                     values: ["128Gi"]
       containers:
-      - name: ollama
-        image: ollama/ollama:0.34.4
-        env:
-        - name: OLLAMA_HOST
-          value: 0.0.0.0:11434
-        - name: OLLAMA_MODELS
-          value: /root/.ollama/models
-        - name: OLLAMA_CONTEXT_LENGTH
-          value: '65536'
-        - name: OLLAMA_MAX_LOADED_MODELS
-          value: '2'
-        - name: OLLAMA_NUM_PARALLEL
-          value: '1'
-        - name: OLLAMA_KV_CACHE_TYPE
-          value: q8_0
-        - name: OLLAMA_NO_CLOUD
-          value: '1'
-        - name: HTTP_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: HTTPS_PROXY
-          value: http://squid.squid.svc.cluster.local:3128
-        - name: SSL_CERT_DIR
-          value: /etc/ssl/certs:/etc/ssl/squid-ca
-        - name: NO_PROXY
-          value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.local,local,.lan,lan,.internal,internal,.svc,svc,.cluster.local,cluster.local,.llm.svc.cluster.local,llm-gateway,ollama,ollama-16gib,ollama-32gib,vllm,vllm-16gib,vllm-48gib,valkey,portkey,qdrant
-        ports:
-        - containerPort: 11434
-          name: http
-        resources:
-          requests:
-            cpu: 8000m
-            memory: 64Gi
-            nvidia.com/gpu: '4'
-          limits:
-            nvidia.com/gpu: '4'
-        startupProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 5
-          failureThreshold: 60
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 5
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 11434
-          initialDelaySeconds: 15
-          periodSeconds: 15
-          timeoutSeconds: 10
-          failureThreshold: 6
-        volumeMounts:
-        - name: ollama-data
-          mountPath: /root/.ollama
-        - name: squid-ca-cert
-          mountPath: /etc/ssl/squid-ca
-          readOnly: true
+        - name: ollama
+          image: ollama/ollama:0.34.4
+          env:
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: "256000"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "4"
+            - name: OLLAMA_KV_CACHE_TYPE
+              value: q8_0
+            - name: OLLAMA_SCHED_SPREAD
+              value: "1"
+            - name: OLLAMA_NO_CLOUD
+              value: "1"
+          ports:
+            - containerPort: 11434
+              name: http
+          resources:
+            requests:
+              cpu: 8000m
+              memory: 64Gi
+          startupProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
       volumes:
-      - name: ollama-data
-        hostPath:
-          path: /var/lib/ollama
-          type: DirectoryOrCreate
-      - name: squid-ca-cert
-        configMap:
-          name: squid-ca-cert
-          optional: false
+        - name: ollama-data
+          hostPath:
+            path: /var/lib/ollama
+            type: DirectoryOrCreate

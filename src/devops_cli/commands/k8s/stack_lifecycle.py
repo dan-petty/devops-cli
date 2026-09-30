@@ -15,6 +15,7 @@ import typer
 import devops_cli.commands.k8s.cluster_runtime as runtime
 import devops_cli.commands.k8s.networking as net
 from devops_cli.commands.k8s.cluster_runtime import run_subprocess as run_subprocess
+from devops_cli.config.constants import CONST_HELM_DAEMONSET_RELEASES
 from devops_cli.config.defaults import (
     DEFAULT_K8S_DIR,
     DEFAULT_K8S_STACK,
@@ -33,7 +34,7 @@ from devops_cli.output import (
 _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
     "infra": {
         "argo": "https://argoproj.github.io/argo-helm",
-        "prometheus-community": "https://prometheus-community.github.io/helm-charts",
+        "grafana": "https://grafana.github.io/helm-charts",
         "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
         "nvidia-dcgm": "https://nvidia.github.io/dcgm-exporter/helm-charts",
     },
@@ -63,10 +64,10 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "values": str(DEFAULT_K8S_DIR / "argocd" / "values.yaml"),
         },
         {
-            "name": "kube-prometheus",
-            "chart": "prometheus-community/kube-prometheus-stack",
+            "name": "k8s-monitoring",
+            "chart": "grafana/k8s-monitoring",
             "namespace": "monitoring",
-            "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
+            "values": str(DEFAULT_K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml"),
         },
         {
             "name": "dcgm-exporter",
@@ -121,9 +122,7 @@ _MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         DEFAULT_K8S_DIR / "llm" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "llm" / "valkey.yaml",
         DEFAULT_K8S_DIR / "llm" / "profiles" / "services.yaml",
-        DEFAULT_K8S_DIR / "llm" / "profiles" / "pvc.yaml",
         DEFAULT_K8S_DIR / "llm" / "profiles" / "ollama-profiles.yaml",
-        DEFAULT_K8S_DIR / "llm" / "profiles" / "vllm-profiles.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway" / "configmap.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway" / "deployment.yaml",
         DEFAULT_K8S_DIR / "llm" / "gateway" / "service.yaml",
@@ -558,6 +557,7 @@ def _install_single_release(
     helm_ctx: list[str],
     wait: bool,
     timeout: str,
+    unready_nodes: Sequence[str] = (),
 ) -> None:
     """Install or upgrade a single Helm release with conflict adoption retries."""
     if release["name"] == "qdrant":
@@ -570,8 +570,14 @@ def _install_single_release(
                 prefix=False,
             )
             raise typer.Exit(1)
+    effective_wait = wait
+    if wait and unready_nodes and release["name"] in CONST_HELM_DAEMONSET_RELEASES:
+        print_warning(
+            f"Cluster has unready nodes ({', '.join(unready_nodes)}). Skipping Helm '--wait' for DaemonSet release '{release['name']}'."
+        )
+        effective_wait = False
     print_info(f"[bold]Installing {release['name']}...[/bold]", prefix=False)
-    helm_cmd = _build_helm_upgrade_cmd(release, helm_ctx, wait, timeout)
+    helm_cmd = _build_helm_upgrade_cmd(release, helm_ctx, effective_wait, timeout)
     result = _run_helm_with_adoption_retries(helm_cmd, release, effective_context)
     if result.returncode != 0:
         err_details = (result.stderr or result.stdout or "").strip()
@@ -722,9 +728,18 @@ def deploy_stack(
     # 4. Install native manifests
     _apply_manifest_files(all_manifests, kubectl_ctx)
 
-    # 5. Install Helm releases
+    # 5. Check for unready cluster nodes to avoid DaemonSet wait timeouts
+    unready_nodes = runtime._get_unready_nodes(context=effective_context)
+    if unready_nodes and wait:
+        print_warning(
+            f"Detected unready cluster nodes: {', '.join(unready_nodes)}. Skipping Helm '--wait' for DaemonSet releases to prevent deadline timeouts."
+        )
+
+    # 6. Install Helm releases
     for release in all_releases:
-        _install_single_release(release, effective_context, helm_ctx, wait, timeout)
+        _install_single_release(
+            release, effective_context, helm_ctx, wait, timeout, unready_nodes=unready_nodes
+        )
 
     # 6. Post-deployment networking & credentials
     write_stdout("\n")

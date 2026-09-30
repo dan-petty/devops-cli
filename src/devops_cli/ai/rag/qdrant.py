@@ -54,6 +54,9 @@ def _is_transient_qdrant_error(exc: Exception) -> bool:
     )
 
 
+_DIM_MISMATCH_WARNED_COLLECTIONS: set[str] = set()
+
+
 def _coerce_point_id(p_id: Any) -> int | str:
     """Coerce arbitrary point ID to valid Qdrant integer or UUID string."""
     if isinstance(p_id, int):
@@ -332,6 +335,7 @@ class QdrantClient:
         """Delete a collection from Qdrant."""
         self._verified_collections.pop(name, None)
         self._dim_mismatch_warned.discard(name)
+        _DIM_MISMATCH_WARNED_COLLECTIONS.discard(name)
         try:
             res = self._execute_with_retry(
                 lambda c: c.delete_collection(collection_name=name),
@@ -435,12 +439,29 @@ class QdrantClient:
                 if "not found" in err_str or "404" in err_str:
                     return []
                 if "vector dimension error" in err_str or "dimension error" in err_str:
-                    if name not in self._dim_mismatch_warned:
-                        self._dim_mismatch_warned.add(name)
-                        logger.warning("Qdrant vector dimension mismatch in '%s': %s", name, exc)
+                    self._handle_dim_mismatch(name, exc, len(query_vector))
                     return []
                 logger.debug("Error searching collection %s: %s", name, exc)
                 raise QdrantClientError(f"Search failed in '{name}': {exc}") from exc
+
+    def _handle_dim_mismatch(self, name: str, exc: Exception, query_dim: int) -> None:
+        """Handle vector dimension mismatch by warning once and recreating collection."""
+        if name in _DIM_MISMATCH_WARNED_COLLECTIONS:
+            return
+        clean_err = str(exc).split("Raw response content:")[0].strip()
+        logger.warning(
+            "Qdrant collection '%s' vector dimension mismatch (%s). Recreating with dimension %d...",
+            name,
+            clean_err,
+            query_dim,
+        )
+        try:
+            self.delete_collection(name)
+            self.ensure_collection(name, vector_size=query_dim)
+        except Exception as recreate_err:
+            logger.debug("Failed to auto-recreate collection %s: %s", name, recreate_err)
+        _DIM_MISMATCH_WARNED_COLLECTIONS.add(name)
+        self._dim_mismatch_warned.add(name)
 
     def delete_points_by_file(
         self, name: str, file_path: str, *, project_name: str | None = None

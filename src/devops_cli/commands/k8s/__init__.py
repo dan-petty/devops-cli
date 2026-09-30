@@ -30,6 +30,7 @@ from devops_cli.commands.k8s.cluster_context import (
 )
 from devops_cli.commands.k8s.cluster_runtime import (
     _cluster_reachable,
+    _get_unready_nodes,
     _k8s_clients,
     _minikube_running,
     _run_cmd,
@@ -138,6 +139,7 @@ __all__ = [
     "_detect_service_url",
     "_ensure_qdrant_api_key_secret",
     "_extract_first_node_ip",
+    "_get_unready_nodes",
     "_k8s_clients",
     "_minikube_running",
     "_parse_minikube_service_url",
@@ -189,6 +191,7 @@ _RUNTIME_ATTRS = {
     "_start_minikube",
     "should_autostart_minikube",
     "_k8s_clients",
+    "_get_unready_nodes",
     "_validate_k8s_identifier",
 }
 _NETWORKING_ATTRS = {

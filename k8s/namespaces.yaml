@@ -65,16 +65,6 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: squid
-  labels:
-    app.kubernetes.io/part-of: devops-cli-stack
-    pod-security.kubernetes.io/enforce: baseline
-    pod-security.kubernetes.io/warn: baseline
-    pod-security.kubernetes.io/audit: baseline
----
-apiVersion: v1
-kind: Namespace
-metadata:
   name: cloudflared
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
