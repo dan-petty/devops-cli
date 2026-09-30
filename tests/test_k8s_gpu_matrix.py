@@ -23,6 +23,7 @@ from devops_cli.k8s.gpu_matrix import (
 runner = CliRunner()
 
 PROFILES_DIR = Path("k8s/llm/profiles")
+GATEWAY_DIR = Path("k8s/llm/gateway")
 
 
 def test_gpu_matrix_entries_completeness() -> None:
@@ -73,7 +74,7 @@ def test_gpu_profile_model_allocation_boundaries() -> None:
         ("qwen2.5-coder-14b-instruct", "AWQ"),
         ("qwen3-coder:30b", 2),
         ("qwen3-coder:30b", 65536),
-        ("cogito-v2:70b", 4),
+        ("deepseek-r1:70b", 4),
     )
 
 
@@ -126,24 +127,35 @@ def test_service_aliases_definition_and_ports() -> None:
 
 
 def test_gateway_routing_entries_generation() -> None:
-    """Verify LiteLLM routing entries are correctly generated from aliases."""
+    """Verify LiteLLM routing entries match k8s gateway configmap model list."""
     entries = get_gateway_routing_entries()
-    model_names = [e["model_name"] for e in entries]
+    unique_models = list(dict.fromkeys(e["model_name"] for e in entries))
     api_bases = [e["litellm_params"]["api_base"] for e in entries]
+
+    cm_path = GATEWAY_DIR / "configmap.yaml"
+    cm_docs = list(yaml.safe_load_all(cm_path.read_text(encoding="utf-8")))
+    cm = next(d for d in cm_docs if d and d.get("kind") == "ConfigMap")
+    cm_model_list = yaml.safe_load(cm["data"]["config.yaml"])["model_list"]
 
     assert (
         len(entries),
-        model_names,
+        unique_models,
         all(".llm.svc.cluster.local" in base for base in api_bases),
+        entries == cm_model_list,
     ) == (
-        5,
+        21,
         [
             "devops-chat",
             "devops-coder",
             "devops-reasoning",
-            "devops-flagship",
-            "devops-embedding",
+            "bge-m3:latest",
+            "embeddinggemma:300m",
+            "devops-review",
+            "gemma4:31b",
+            "qwen3.8:27b",
+            "deepseek-r1:70b",
         ],
+        True,
         True,
     )
 
@@ -193,7 +205,7 @@ def test_cli_gpu_matrix_table_output() -> None:
         "Homelab GPU Inference Matrix" in result.output,
         "qwen2.5-coder:7b" in result.output,
         "qwen3-coder:30b" in result.output,
-        "cogito-v2:70b" in result.output,
+        "deepseek-r1:70b" in result.output,
     ) == (
         0,
         True,

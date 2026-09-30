@@ -899,6 +899,30 @@ CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Substrings indicating that a criteria command is tautological (testing symbol existence or reflection only).
+CONST_TAUTOLOGICAL_CRITERIA_SUBSTRINGS: Final[tuple[str, ...]] = (
+    "co_varnames",
+    "__code__",
+    "hasattr(",
+    "getattr(",
+    "isinstance(",
+    "type(",
+    "syntax error",
+    "no syntax errors",
+    "successfully",
+    "method exists",
+    "function exists",
+    "class exists",
+    "symbol exists",
+    "validates input",
+    "exists and validates",
+    "is defined",
+    "defined successfully",
+    "imported successfully",
+    "import successfully",
+    "imports successfully",
+)
+
 # ── Review Schemas & Deterministic Verification Constants ─────────────────────
 CONST_ABSENCE_FINDING_MARKERS: Final[tuple[str, ...]] = (
     "missing",

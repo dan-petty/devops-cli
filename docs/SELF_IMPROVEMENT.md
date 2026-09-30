@@ -261,6 +261,38 @@ Systemic hardening updates resulting from this session:
 6. **Task Document Hygiene & Leakage Sanitization**: Sanitized ephemeral scratchpad paths and eliminated duplicated text across task tracking documents.
 7. **Feedback Dataset Export**: Exported 1744 findings to `.data/reviews/feedback_dataset.jsonl` with 100% categorized statuses.
 
+#### Calibration Record: Session `20260930-133320`
+
+This session evaluated repository review telemetry `/workspaces/devops-cli/.data/reviews/20260930-133320`, triaging 154 findings (1 Critical, 39 High, 78 Medium, 36 Low; 34 Verified, 116 Unverified, 4 Mitigated), remediating genuine TUI markup errors, dependency vulnerabilities, exception handling, and manifest configurations, closing tautological criteria loopholes, reclassifying and expanding the anti-hallucination catalog, and hardening reviewer/verifier prompts:
+
+| Claim / Observation | Why it was false / Remediated |
+| --- | --- |
+| MarkupError Crash on ANSI Log Streams in `src/devops_cli/ui/widgets.py:322` (CRITICAL) | **Remediated**: Set `markup=False` on `#log-body` and `#log-status` in `LogPane` and use `Text.from_ansi(...)` from `devops_cli.output` to prevent Rich markup parsing errors when streaming ANSI-bracketed container logs in `devops tui`. Added regression test `test_the_log_pane_renders_ansi_and_unencoded_markup_without_error`. |
+| Dependency Advisories in `uv.lock` (HIGH) | **Remediated**: Upgraded `urllib3` from 2.7.0 to 2.8.0 and `pyjwt` from 2.14.0 to 2.15.1 in `uv.lock`, resolving CVE advisories reported by `uv audit`. |
+| Broad Exception Handling in Node Status Retrieval in `src/devops_cli/commands/k8s/cluster_runtime.py:197` (HIGH) | **Remediated**: Moved `import json` to module level and replaced broad `except Exception:` with narrow `except (subprocess.SubprocessError, OSError, json.JSONDecodeError, KeyError, TypeError):` in `_get_unready_nodes`. |
+| Git Show Flag Injection in `src/devops_cli/commands/analyze.py:192` (HIGH) | **Remediated**: Added `--` argument separator before `f"{revision}:{rel_path}"` in `_fetch_git_file_content` to prevent flag injection attacks. |
+| Insecure Container Image Tag Pinning in `k8s/llm/portkey/deployment.yaml` (MEDIUM) | **Remediated**: Pinned `portkeyai/gateway:1.15.0` (from `:latest`) with `imagePullPolicy: IfNotPresent`. |
+| LiteLLM Gateway Cascading Retry Storm in `k8s/llm/gateway/configmap.yaml` (MEDIUM) | **Remediated**: Configured circuit breaker settings `allowed_fails: 3` and `cooldown_time: 30` under `router_settings` in LiteLLM configmap. |
+| Missing `$KUBECONFIG` Documentation Context in `k8s/README.md` (LOW) | **Remediated**: Documented `$KUBECONFIG` environment variable requirements and deployment verification commands. |
+| Container Runs as Root & SYS_ADMIN in `k8s/monitoring/dcgm-exporter-values.yaml` (CRITICAL/HIGH) | **False Positive**: NVIDIA DCGM Exporter requires root privileges (`runAsUser: 0`) and `SYS_ADMIN` capability to access `/dev/nvidia*` character devices and communicate with NVML for host GPU metrics. |
+| Insecure Direct Object Reference in Backend Probe in `src/devops_cli/ai/gateway.py:518` (HIGH) | **False Positive**: `probe_backend` operates strictly on administrative cluster URLs resolved from validated internal configuration, not arbitrary user-supplied input. Promoted by tautological criterion `print('Method exists and validates input')`. |
+| Potential Logic Error in Author Comparison in `src/devops_cli/github/pr_threads.py:327` (HIGH) | **False Positive**: GitHub login handles are strictly normalized alphanumeric handles without whitespace or arbitrary casing according to GitHub platform invariants. Promoted by tautological criterion exiting 0. |
+| Overly Permissive Egress Policy in `k8s/llm/profiles/networkpolicy.yaml` (HIGH) | **False Positive**: LLM profile pods (Ollama, vLLM) require outbound internet egress (`0.0.0.0/0`) to pull model weights from public model registries (HuggingFace, Ollama Registry); metadata endpoints (`169.254.169.254/32`) are explicitly blocked. |
+| Missing Pod-Security Labels on Namespace `cloudflared` in `k8s/namespaces.yaml` (HIGH) | **False Positive**: Hallucination of absence; `cloudflared` namespace already specifies `pod-security.kubernetes.io/enforce: restricted`, `warn: restricted`, and `audit: restricted`. |
+| Overly Broad Retry Logic in Sync/Async Transport in `src/devops_cli/ai/retries/__init__.py:92, 123` (HIGH) | **False Positive**: `default_validate` raises `HTTPStatusError`, which Tenacity filters using `is_retryable_status_code`; client errors are not retried. Misaligned rule category `syntax_grammar` caused catalog matcher to discard rule. |
+| Unencrypted Internal Service Endpoint in `.devcontainer/devcontainer.json` (HIGH) | **False Positive**: Internal cluster overlay URLs communicating across local devcontainer port bridges operate over plaintext HTTP by design. |
+| Missing LightLLM Backend URL Resolution in `src/devops_cli/ai/gateway.py:574` (MEDIUM) | **False Positive**: LightLLM was deliberately decommissioned from `CONST_AI_BACKENDS` under pre-1.0 zero backwards compatibility standards. |
+| Task Document Formatting Artifacts & Duplication in `docs/agent/tasks/` (MEDIUM/LOW) | **Remediated**: Cleaned up duplicated description sections and stray asterisks in `task-686`, `task-696`, `task-697`, `task-698`, `task-702`, `task-703`, `task-707`, `task-709`, `task-710`, `task-711`. |
+
+Systemic hardening updates resulting from this session:
+1. **Hardened Tautological Criteria Gate (`review_environment.py` & `constants.py`)**: Defined canonical `CONST_TAUTOLOGICAL_CRITERIA_SUBSTRINGS` in `config/constants.py` and updated `_is_tautological_verification_command` to intercept static prints (`print('...successfully')`, `print('Method exists...')`, `print('...validates input')`), symbol existence checks, and reflection introspection, preventing tautological exit 0 commands from promoting false findings.
+2. **Category Realignment in Anti-Hallucination Catalog**: Reclassified `HALLUCINATION-TENACITY-TRANSPORT-HTTP-STATUS` and `HALLUCINATION-ASYNC-POOL-CLIENT-LEAK` from `syntax_grammar` to `general` in `common_hallucinations.json`, ensuring non-syntax findings match the rules.
+3. **Overlay HTTP File Pattern Expansion**: Expanded `file_patterns` on `HALLUCINATION-K8S-CLUSTER-OVERLAY-HTTP` to include `*devcontainer.json*`, `*.json`, and `*.j2`.
+4. **New Declarative Anti-Hallucination Entries**: Added 5 new entries: `HALLUCINATION-DCGM-EXPORTER-PRIVILEGED`, `HALLUCINATION-AUTHOR-COMPARISON-NORMALIZATION`, `HALLUCINATION-BACKEND-PROBE-EGRESS`, `HALLUCINATION-LLM-DIRECT-EGRESS-NETWORKPOLICY`, and `HALLUCINATION-DECOMMISSIONED-BACKEND-RESOLUTION`.
+5. **Prompt Protocol Hardening**: Added explicit grounding rules to `review.md` and `verify_finding_system.md` for DCGM exporter root/SYS_ADMIN privileges, LLM model download internet egress, decommissioned backends, GitHub username normalization, and task tracking file status.
+6. **Task Tracking Document Hygiene**: Cleaned formatting artifacts, removed duplicate overview lines, and corrected markdown bolding across task files.
+7. **Feedback Dataset Export**: Re-exported feedback dataset via `devops review export-feedback`.
+
 ### Phase 4: Root Cause & Severity Classification
 - Isolate exact failure mechanisms and categorize severity:
   - **CRITICAL**: Exploitable vulnerability, auth bypass, credential leak, SSRF, arbitrary file write outside root, or fatal crash.

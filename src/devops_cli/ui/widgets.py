@@ -36,6 +36,7 @@ from devops_cli.config.defaults import (
     DEFAULT_LOG_REDRAW_INTERVAL_SECONDS,
     DEFAULT_LOG_STREAM_POLL_SECONDS,
 )
+from devops_cli.output import Text
 from devops_cli.ui.log_buffer import VirtualLogBuffer
 from devops_cli.ui.projections import (
     DOCKER_RESOURCE_COLUMNS,
@@ -308,8 +309,8 @@ class LogPane(Vertical):
         self._producer: threading.Thread | None = None
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="log-status")
-        yield Static("", id="log-body")
+        yield Static("", id="log-status", markup=False)
+        yield Static("", id="log-body", markup=False)
 
     def on_mount(self) -> None:
         """Size the viewport to the pane and draw the empty state."""
@@ -328,7 +329,9 @@ class LogPane(Vertical):
         keep up with a log producing far more lines than a terminal can display.
         """
         lines = self.buffer.viewport_lines()
-        self.query_one("#log-body", Static).update("\n".join(line.text for line in lines))
+        self.query_one("#log-body", Static).update(
+            Text.from_ansi("\n".join(line.text for line in lines))
+        )
         self.query_one("#log-status", Static).update(f"{self.title} — {self.buffer.status()}")
 
     # -- Streaming ------------------------------------------------------------

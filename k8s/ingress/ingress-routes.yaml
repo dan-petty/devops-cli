@@ -135,7 +135,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: kube-prometheus-grafana
+                name: grafana
                 port:
                   number: 80
 ---
@@ -159,7 +159,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: k8s-monitoring-alloy-metrics
+                name: prometheus
                 port:
                   number: 9090
 ---

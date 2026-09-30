@@ -19,6 +19,7 @@ from devops_cli.config.constants import (
     CONST_DISALLOWED_SHELL_TOKENS,
     CONST_FORBIDDEN_PYTHON_CRITERIA_MODULES,
     CONST_REVIEW_CONVENTIONS_FILE,
+    CONST_TAUTOLOGICAL_CRITERIA_SUBSTRINGS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CRITERIA_EXECUTION_TIMEOUT_SECONDS,
@@ -288,26 +289,12 @@ def execute_criterion_command(
     )
 
 
-_TAUTOLOGICAL_SUBSTRINGS: tuple[str, ...] = (
-    "co_varnames",
-    "__code__",
-    "hasattr(",
-    "getattr(",
-    "isinstance(",
-    "type(",
-    "syntax error",
-    "no syntax errors",
-)
-
-
 def _is_tautological_verification_command(command: str) -> bool:
     """Return True if command merely checks file text or symbol existence without demonstrating a defect."""
     clean = command.strip().lower()
     if clean.startswith(("git grep", "grep")) or "grep " in clean:
         return True
-    if "imports successfully" in clean or "import successfully" in clean:
-        return True
-    return any(kw in clean for kw in _TAUTOLOGICAL_SUBSTRINGS)
+    return any(kw in clean for kw in CONST_TAUTOLOGICAL_CRITERIA_SUBSTRINGS)
 
 
 def _evaluate_criteria_verdict(

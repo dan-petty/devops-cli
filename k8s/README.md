@@ -14,10 +14,14 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 
 - minikube running (`minikube status` or auto-started by postStart.sh)
 - kubectl and helm on PATH (installed by devcontainer features)
+- standard Kubernetes context configuration (the CLI uses `$KUBECONFIG` or defaults to `~/.kube/config`)
 
 ## Quick Start
 
 ```bash
+# Ensure kubectl can access the cluster. The devops CLI uses the standard KUBECONFIG environment variable or ~/.kube/config:
+export KUBECONFIG=$HOME/.kube/config
+
 # Deploy default infrastructure stack (ArgoCD, K8s Monitoring, OTEL)
 devops k8s deploy-stack
 

@@ -34,6 +34,7 @@ from devops_cli.output import (
 _HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
     "infra": {
         "argo": "https://argoproj.github.io/argo-helm",
+        "prometheus-community": "https://prometheus-community.github.io/helm-charts",
         "grafana": "https://grafana.github.io/helm-charts",
         "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
         "nvidia-dcgm": "https://nvidia.github.io/dcgm-exporter/helm-charts",
@@ -68,6 +69,18 @@ _HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "chart": "grafana/k8s-monitoring",
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml"),
+        },
+        {
+            "name": "prometheus",
+            "chart": "prometheus-community/prometheus",
+            "namespace": "monitoring",
+            "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
+        },
+        {
+            "name": "grafana",
+            "chart": "grafana/grafana",
+            "namespace": "monitoring",
+            "values": str(DEFAULT_K8S_DIR / "monitoring" / "grafana-values.yaml"),
         },
         {
             "name": "dcgm-exporter",

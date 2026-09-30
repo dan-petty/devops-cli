@@ -48,6 +48,10 @@ runner = CliRunner()
         "predict_linear(disk_free[6h], 4 * 3600)",
         "up offset 1w",
         "count(up == 0)",
+        "rate(node_cpu_seconds_total[$__rate_interval])",
+        "sum(rate(container_cpu_usage_seconds_total[${__rate_interval}]))",
+        "avg_over_time(metric[$__range:$__interval])",
+        "rate(x[$resolution])",
     ],
 )
 def test_valid_expressions_are_never_rejected(expression: str) -> None:

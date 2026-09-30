@@ -1262,6 +1262,35 @@ async def test_the_log_pane_status_reports_stream_position(
 
 
 @pytest.mark.asyncio
+async def test_the_log_pane_renders_ansi_and_unencoded_markup_without_error(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """Log lines containing ANSI escapes and unescaped markup brackets must not fail with MarkupError."""
+    patched_fetchers()
+    app = DashboardApp(refresh_interval=0)
+    raw_log = (
+        "\x1b[90m2026-09-30T11:06:39Z\x1b[0m \x1b[31mERR\x1b[0m "
+        '\x1b[1mCannot create service\x1b[0m \x1b[36merror=\x1b[0m\x1b[31m\x1b[1m"service not found"\x1b[0m\x1b[0m '
+        "&ServiceBackendPort{Name:,Number:80,}"
+    )
+    async with app.run_test() as pilot:
+        pane = app.query_one("#log-pane", LogPane)
+        pane.title = "kube-system/traefik-0 [custom]"
+        await _stream_into(pilot, pane, [raw_log])
+        body = str(app.query_one("#log-body", Static).render())
+        status = str(app.query_one("#log-status", Static).render())
+        assert (
+            "Cannot create service" in body,
+            "&ServiceBackendPort{Name:,Number:80,}" in body,
+            status,
+        ) == (
+            True,
+            True,
+            "kube-system/traefik-0 [custom] — 1 retained of 1 (following)",
+        )
+
+
+@pytest.mark.asyncio
 async def test_a_broken_log_stream_is_reported_in_the_pane(
     patched_fetchers: Callable[..., None],
 ) -> None:
@@ -1892,7 +1921,12 @@ async def test_the_stream_reader_runs_on_a_daemon_thread(
     try:
         async with app.run_test() as pilot:
             pane = app.query_one("#log-pane", LogPane)
-            pane.start_stream(lambda: iter(release.wait(30) or ["x"]))
+
+            def _hanging_stream() -> list[str]:
+                release.wait(30)
+                return ["x"]
+
+            pane.start_stream(_hanging_stream)
             await pilot.pause(0.1)
             assert pane._producer is not None
             assert pane._producer.daemon is True

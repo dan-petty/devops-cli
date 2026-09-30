@@ -14,18 +14,31 @@ data:
     model_list:
       - model_name: devops-chat
         litellm_params:
-          model: ollama_chat/gpt-oss:20b
+          model: ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
           api_base: http://ollama-16gib.llm.svc.cluster.local:11434
-          weight: 6
+          model_info:
+            max_input_tokens: 96000
+          weight: 10
       - model_name: devops-chat
         litellm_params:
-          model: ollama_chat/gpt-oss:20b
+          model: ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
           api_base: http://ollama-24gib.llm.svc.cluster.local:11434
+          model_info:
+            max_input_tokens: 128000
           weight: 1
       - model_name: devops-chat
         litellm_params:
-          model: ollama_chat/gpt-oss:20b
+          model: ollama_chat/qwen3.8:27b
           api_base: http://ollama-48gib.llm.svc.cluster.local:11434
+          model_info:
+            max_input_tokens: 128000
+          weight: 5
+      - model_name: devops-chat
+        litellm_params:
+          model: ollama_chat/qwen3.8:27b
+          api_base: http://ollama-64gib.llm.svc.cluster.local:11434
+          model_info:
+            max_input_tokens: 128000
           weight: 3
 
       - model_name: devops-coder
@@ -77,17 +90,17 @@ data:
         litellm_params:
           model: ollama_chat/qwen3-coder:30b
           api_base: http://ollama-48gib.llm.svc.cluster.local:11434
-          weight: 8
+          weight: 9
       - model_name: devops-review
         litellm_params:
           model: ollama_chat/qwen3-coder:30b
           api_base: http://ollama-64gib.llm.svc.cluster.local:11434
-          weight: 3
+          weight: 6
       - model_name: devops-review
         litellm_params:
           model: ollama_chat/gpt-oss:20b
           api_base: http://ollama-16gib.llm.svc.cluster.local:11434
-          weight: 6
+          weight: 8
       - model_name: devops-review
         litellm_params:
           model: ollama_chat/gpt-oss:20b
@@ -111,11 +124,25 @@ data:
 
       - model_name: qwen3.8:27b
         litellm_params:
+          model: ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
+          api_base: http://ollama-16gib.llm.svc.cluster.local:11434
+          model_info:
+            max_input_tokens: 96000
+          weight: 5
+      - model_name: qwen3.8:27b
+        litellm_params:
+          model: ollama_chat/hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
+          api_base: http://ollama-24gib.llm.svc.cluster.local:11434
+          model_info:
+            max_input_tokens: 128000
+          weight: 1
+      - model_name: qwen3.8:27b
+        litellm_params:
           model: ollama_chat/qwen3.8:27b
           api_base: http://ollama-48gib.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 128000
-          weight: 3
+          weight: 5
       - model_name: qwen3.8:27b
         litellm_params:
           model: ollama_chat/qwen3.8:27b
@@ -124,9 +151,9 @@ data:
             max_input_tokens: 128000
           weight: 1
 
-      - model_name: cogito-v2:70b
+      - model_name: deepseek-r1:70b
         litellm_params:
-          model: ollama_chat/cogito-v2:70b
+          model: ollama_chat/deepseek-r1:70b
           api_base: http://ollama-64gib.llm.svc.cluster.local:11434
           model_info:
             max_input_tokens: 128000
@@ -143,6 +170,8 @@ data:
       # directing traffic according to measured backend capacity.
       routing_strategy: simple-shuffle
       num_retries: 5
+      allowed_fails: 3
+      cooldown_time: 30
       # Long code reviews on the 32B model can generate for several minutes.
       timeout: 1500
       # Check prompt size against max_input_tokens before calling a backend, so an oversized
