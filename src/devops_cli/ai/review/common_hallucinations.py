@@ -489,6 +489,10 @@ def _verify_syntax_grammar_ground_truth(
         return "json.loads" in content
     if "ast" in entry_id and "syntax" in entry_id:
         return "ast.parse" in content
+    if "tenacity" in entry_id or "retry" in entry_id:
+        return "create_retry_transport" in content or "is_retryable_status_code" in content
+    if "async" in entry_id and "pool" in entry_id:
+        return "aclose_shared_clients" in content or "_ASYNC_CLIENTS" in content
     if any(word in entry_id for word in ("missing", "symbol", "header")):
         return False
     return bool(SYNTAX_CLAIM.search(f"{finding.title}\n{finding.description or ''}"))
@@ -587,6 +591,8 @@ def _verify_test_mocks_ground_truth(
         "00000000",
         "assertion",
         "tuple",
+        "traversal",
+        "fixture",
     )
     return any(kw in finding_text for kw in mock_keywords)
 
@@ -602,6 +608,11 @@ def _verify_documentation_context_ground_truth(
     entry_id = entry.id.upper()
     if "k8s" in parts:
         return any(kw in entry_id for kw in ("OVERLAY", "NODEPORT", "HTTP", "PROMPT", "DOC"))
+    if "JAEGER" in entry_id:
+        try:
+            return "jaegertracing/jaeger" in file_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
     if "MITIGATION" in entry_id and "mitigated_findings" in file_path.name:
         try:
             return file_path.read_text(encoding="utf-8").strip() in ("[]", "")
@@ -653,8 +664,32 @@ def _verify_boundary_errors_ground_truth(
     finding_text = f"{finding.title} {finding.description or ''}".lower()
     if _UNTRUSTED_INPUT_CLAIM.search(finding_text):
         return False
+    entry_id = entry.id.upper()
+    if "GPU-FEATURE-DISCOVERY" in entry_id:
+        return "gpu-feature-discovery" in str(file_path).lower()
+    if "KUBE-ROUTER" in entry_id:
+        return "networkpolicy" in str(file_path).lower()
     if any(pat in finding_text for pat in ("cwe-400", "cwe400", "read_text", "exhaustion")):
         return _check_boundary_cwe400_local_file(finding, file_path)
+    return False
+
+
+def _verify_general_ground_truth(
+    finding: Finding, entry: CommonHallucinationEntry, file_path: Path
+) -> bool:
+    entry_id = entry.id.upper()
+    finding_text = f"{finding.title} {finding.description or ''}".lower()
+    if "ERROR-METRICS" in entry_id:
+        try:
+            return "type(exc).__name__" in file_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+    if "PROMETHEUS" in entry_id or "TELEMETRY" in entry_id:
+        return any(
+            term in finding_text for term in ("promql", "prometheus", "opentelemetry", "query")
+        )
+    if "LOCALHOST" in entry_id or "LOOPBACK" in entry_id:
+        return any(term in finding_text for term in ("localhost", "127.0.0.1", "loopback"))
     return False
 
 
@@ -669,6 +704,7 @@ _GROUND_TRUTH_VERIFIERS: dict[
     HallucinationCategory.DOCUMENTATION_CONTEXT: _verify_documentation_context_ground_truth,
     HallucinationCategory.MUTABLE_DEFAULTS: _verify_mutable_defaults_ground_truth,
     HallucinationCategory.BOUNDARY_ERRORS: _verify_boundary_errors_ground_truth,
+    HallucinationCategory.GENERAL: _verify_general_ground_truth,
 }
 
 

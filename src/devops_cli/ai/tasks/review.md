@@ -17,6 +17,10 @@ Work through grounding, inspection, falsification, and formulation before report
 - GraphQL endpoints over HTTP POST require standard JSON payloads with query strings and variable mappings (`json.dumps()`); this is not double-encoding or payload corruption.
 - Sample or fallback webhooks pointing to RFC 2606 domains (`example.com`, `example.org`) or `localhost` are standard documentation/template placeholders, not reachability or security defects.
 - Prometheus instant query endpoints (`/api/v1/query`) and OpenTelemetry metrics follow standard telemetry conventions; querying them is not a syntax or query flaw.
+- Hardware discovery daemonsets (such as NVIDIA GPU Feature Discovery) legitimately require privileged host access and host paths (`/sys`, NVML) to discover hardware topology and label nodes.
+- Jaeger v2 is an OpenTelemetry-native binary distributed as `jaegertracing/jaeger`, whereas `all-in-one` is the deprecated v1 distribution.
+- Telemetry metric labels recording exception class names (`type(exc).__name__`) represent standard failure classification, not information exposure (CWE-200).
+- Tenacity retry transports raising `HTTPStatusError` in `default_validate` are filtered by downstream retry predicates (`is_retryable_status_code`); client errors (400, 401, 403, 404, 422) are not retried.
 
 ### 2. Inspect
 
