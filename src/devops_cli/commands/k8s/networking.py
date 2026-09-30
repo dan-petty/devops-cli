@@ -374,10 +374,10 @@ def _configure_infra_stack_urls(
     raw_argocd = _detect_service_url("argocd-server", "argocd", context=effective_context)
     raw_grafana = _detect_service_url(
         "kube-prometheus-grafana", "monitoring", context=effective_context
-    )
+    ) or _detect_service_url("grafana", "monitoring", context=effective_context)
     raw_prom = _detect_service_url(
         "kube-prometheus-kube-prome-prometheus", "monitoring", context=effective_context
-    )
+    ) or _detect_service_url("prometheus", "monitoring", context=effective_context)
     raw_jaeger = _detect_service_url("jaeger", "otel", context=effective_context)
 
     argocd_url = _resolve_accessible_url(raw_argocd, preferred_localhost_ports=[8080])

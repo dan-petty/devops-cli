@@ -73,6 +73,10 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
       ports:
         - protocol: TCP
           port: 443
@@ -80,6 +84,8 @@ spec:
           port: 6443
         - protocol: TCP
           port: 8443
+        - protocol: TCP
+          port: 9100
         - protocol: TCP
           port: 10250
     # 4. Allow cross-namespace metrics scraping (LLM and OTel)

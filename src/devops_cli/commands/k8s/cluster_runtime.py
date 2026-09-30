@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from typing import Any
 
@@ -181,7 +182,6 @@ def _get_unready_nodes(context: str | None = None) -> list[str]:
         )
         if res.returncode != 0 or not res.stdout:
             return []
-        import json
 
         data = json.loads(res.stdout)
         unready: list[str] = []
@@ -194,5 +194,5 @@ def _get_unready_nodes(context: str | None = None) -> list[str]:
             if not is_ready:
                 unready.append(name)
         return unready
-    except Exception:
+    except subprocess.SubprocessError, OSError, json.JSONDecodeError, KeyError, TypeError:
         return []

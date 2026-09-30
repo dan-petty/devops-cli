@@ -691,7 +691,10 @@
     "file_patterns": [
       "k8s/*",
       "*.yaml",
-      "*.yml"
+      "*.yml",
+      "*.json",
+      "*devcontainer.json*",
+      "*.j2"
     ],
     "resolution": "Kubernetes internal cluster overlay networking standardly communicates over plaintext HTTP between pods within cluster boundaries.",
     "occurrence_count": 1,
@@ -976,19 +979,21 @@
   {
     "id": "HALLUCINATION-TENACITY-TRANSPORT-HTTP-STATUS",
     "name": "Tenacity HTTP Transport Overly Broad Status Code Validation Claim",
-    "category": "syntax_grammar",
+    "category": "general",
     "description": "Claiming that checking resp.status_code >= 400 in default_validate treats all 4xx/5xx responses as retryable errors, ignoring that Tenacity's should_retry filters with is_retryable_status_code.",
     "signature_patterns": [
-      "(?:overly\\s+broad\\s+http\\s+status\\s+code\\s+validation|resp\\.status_code\\s*>=\\s*400)",
-      "treat(?:s|ing)\\s+all\\s+(?:4xx|5xx).*as\\s+retryable",
-      "create_retry_transport.*(?:status_code|retryable)"
+      "(?:overly\\s+broad\\s+(?:http\\s+status\\s+code\\s+validation|retry\\s+logic)|resp\\.status_code\\s*>=\\s*400)",
+      "treat(?:s|ing)\\s+all\\s+(?:4xx|5xx|responses?).*as\\s+(?:retryable|an?\\s+error)",
+      "(?:create_retry_transport|create_async_retry_transport).*(?:status_code|retryable|retry\\s+logic)"
     ],
     "pattern_keywords": [
       "tenacity_http_status_validation",
-      "retry_transport_status_code"
+      "retry_transport_status_code",
+      "overly_broad_retry_logic"
     ],
     "file_patterns": [
-      "*.py"
+      "*.py",
+      "src/devops_cli/ai/retries/*"
     ],
     "resolution": "In create_retry_transport, default_validate raises HTTPStatusError, which is then filtered by Tenacity retry logic using is_retryable_status_code; non-transient 4xx codes (400, 401, 403, 404, 422) are never retried.",
     "occurrence_count": 1,
@@ -998,7 +1003,7 @@
   {
     "id": "HALLUCINATION-ASYNC-POOL-CLIENT-LEAK",
     "name": "Async HTTP Client Pool Clear-Before-Iteration Resource Leak Claim",
-    "category": "syntax_grammar",
+    "category": "general",
     "description": "Claiming that aclose_shared_clients leaks clients in _ASYNC_CLIENTS when an exception occurs during close, even though _ASYNC_CLIENTS.clear() executes atomically before iteration.",
     "signature_patterns": [
       "aclose_shared_clients.*(?:remains?\\s+in.*_async_clients|resource\\s+leak)",
@@ -1009,7 +1014,9 @@
       "async_client_shutdown_leak"
     ],
     "file_patterns": [
-      "src/devops_cli/http/*"
+      "src/devops_cli/http/*",
+      "src/devops_cli/ai/*",
+      "*.py"
     ],
     "resolution": "_ASYNC_CLIENTS is atomically copied and cleared under _LOCK before iteration; individual closure exceptions do not leave references in the tracking dictionary.",
     "occurrence_count": 1,
@@ -1122,6 +1129,123 @@
     "resolution": "Internal telemetry and Prometheus metric labels standardly record exception class names to provide error counts by failure type without exposing sensitive data.",
     "occurrence_count": 1,
     "last_seen": "2026-09-30T05:34:18",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-DCGM-EXPORTER-PRIVILEGED",
+    "name": "NVIDIA DCGM Exporter Root User and SYS_ADMIN Capability Claim",
+    "category": "general",
+    "description": "Flagging runAsUser: 0 or SYS_ADMIN capability in NVIDIA DCGM Exporter configuration as a container security vulnerability.",
+    "signature_patterns": [
+      "(?:container\\s+runs\\s+as\\s+root\\s+user|privileged\\s+sys_admin\\s+capability\\s+granted)",
+      "(?:dcgm[-_]exporter|dcgm).*?(?:runasuser|root|sys_admin|privileged)"
+    ],
+    "pattern_keywords": [
+      "dcgm_exporter_root",
+      "dcgm_sys_admin_capability"
+    ],
+    "file_patterns": [
+      "*dcgm-exporter*",
+      "k8s/monitoring/*",
+      "*.yaml",
+      "*.yml"
+    ],
+    "resolution": "NVIDIA DCGM Exporter requires root privileges (runAsUser: 0) and SYS_ADMIN capability to access host GPU character devices (/dev/nvidia*) and communicate with the NVIDIA Management Library (NVML).",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-30T13:33:20",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-AUTHOR-COMPARISON-NORMALIZATION",
+    "name": "GitHub PR Author Comparison Normalization Claim",
+    "category": "general",
+    "description": "Claiming author comparison in PR comment thread logic needs case folding or whitespace stripping, ignoring GitHub API username normalization invariants.",
+    "signature_patterns": [
+      "(?:potential\\s+logic\\s+error\\s+in\\s+author\\s+comparison|author\\s+comparison\\s+for\\s+non-opener\\s+reply)",
+      "has_non_opener_reply.*?(?:whitespace|case|strip|lower)"
+    ],
+    "pattern_keywords": [
+      "pr_thread_author_comparison",
+      "author_comparison_normalization"
+    ],
+    "file_patterns": [
+      "*pr_threads.py*",
+      "src/devops_cli/github/*",
+      "*.py"
+    ],
+    "resolution": "GitHub login handles are strictly normalized alphanumeric handles without arbitrary leading/trailing whitespace or case collisions according to GitHub platform invariants.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-30T13:33:20",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-BACKEND-PROBE-EGRESS",
+    "name": "Backend Probe Insecure Direct Object Reference or SSRF Claim",
+    "category": "general",
+    "description": "Claiming probe_backend or backend health checks allow Insecure Direct Object Reference (IDOR) or arbitrary SSRF egress, ignoring that targets are resolved from validated internal configuration.",
+    "signature_patterns": [
+      "insecure\\s+direct\\s+object\\s+reference\\s+in\\s+backend\\s+probe",
+      "(?:probe_backend|gatewayrouter).*?(?:idor|direct\\s+object\\s+reference)"
+    ],
+    "pattern_keywords": [
+      "backend_probe_idor",
+      "gateway_router_backend_probe"
+    ],
+    "file_patterns": [
+      "*gateway.py*",
+      "src/devops_cli/ai/*",
+      "*.py"
+    ],
+    "resolution": "Backend health probing in GatewayRouter operates strictly on administrative cluster URLs resolved from validated internal configuration, not unauthenticated user-supplied query parameters.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-30T13:33:20",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-LLM-DIRECT-EGRESS-NETWORKPOLICY",
+    "name": "LLM Profiles Internet Egress NetworkPolicy Permissiveness Claim",
+    "category": "boundary_errors",
+    "description": "Flagging 0.0.0.0/0 outbound egress in LLM profiles NetworkPolicy as overly permissive, ignoring that inference engines must download model weights from public model hubs.",
+    "signature_patterns": [
+      "overly\\s+permissive\\s+egress\\s+policy\\s+allows\\s+internet\\s+access",
+      "networkpolicy.*?(?:0\\.0\\.0\\.0/0|internet\\s+access).*?(?:ollama|vllm|model|llm)"
+    ],
+    "pattern_keywords": [
+      "llm_profiles_internet_egress",
+      "model_download_networkpolicy"
+    ],
+    "file_patterns": [
+      "k8s/llm/*",
+      "k8s/llm/profiles/*",
+      "*.yaml",
+      "*.yml"
+    ],
+    "resolution": "LLM backend pods require outbound internet egress to download model weights from HuggingFace and public model registries; metadata service (169.254.169.254/32) is explicitly blocked.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-30T13:33:20",
+    "source": "builtin"
+  },
+  {
+    "id": "HALLUCINATION-DECOMMISSIONED-BACKEND-RESOLUTION",
+    "name": "Decommissioned AI Backend URL Resolution Claim",
+    "category": "general",
+    "description": "Claiming that _resolve_backend_url lacks resolution for decommissioned backends like LightLLM, which were intentionally removed under pre-1.0 zero backwards compatibility standards.",
+    "signature_patterns": [
+      "missing\\s+lightllm\\s+backend\\s+url\\s+resolution",
+      "_resolve_backend_url.*?(?:lightllm|decommissioned)"
+    ],
+    "pattern_keywords": [
+      "decommissioned_backend_resolution",
+      "lightllm_url_resolution"
+    ],
+    "file_patterns": [
+      "*gateway.py*",
+      "src/devops_cli/ai/*",
+      "*.py"
+    ],
+    "resolution": "LightLLM was deliberately decommissioned from CONST_AI_BACKENDS and runtime configurations under pre-1.0 zero backwards compatibility standards.",
+    "occurrence_count": 1,
+    "last_seen": "2026-09-30T13:33:20",
     "source": "builtin"
   }
 ]

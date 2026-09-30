@@ -1,0 +1,92 @@
+# Grafana Helm values
+# Chart: grafana/grafana
+# Repo:  https://grafana.github.io/helm-charts
+# https://github.com/grafana/helm-charts/tree/main/charts/grafana
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 1024Mi
+
+persistence:
+  enabled: true
+  storageClassName: local-path
+  size: 5Gi
+
+initChownData:
+  enabled: false
+
+adminPassword: ""
+
+grafana.ini:
+  security:
+    allow_embedding: true
+  auth.anonymous:
+    enabled: true
+    org_role: Viewer
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        url: http://prometheus.monitoring.svc.cluster.local:9090
+        access: proxy
+        isDefault: true
+      - name: Loki
+        type: loki
+        uid: loki
+        url: http://loki.logging.svc.cluster.local:3100
+        access: proxy
+        isDefault: false
+        jsonData:
+          maxLines: 1000
+      - name: Jaeger
+        type: jaeger
+        uid: jaeger
+        url: http://jaeger.otel.svc.cluster.local:16686
+        access: proxy
+        isDefault: false
+
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: default
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/default
+
+dashboards:
+  default:
+    node-exporter-full:
+      gnetId: 1860
+      revision: 37
+      datasource: Prometheus
+    nvidia-dcgm:
+      gnetId: 12239
+      revision: 2
+      datasource: Prometheus
+
+sidecar:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    labelValue: ""
+    searchNamespace: ALL
+  datasources:
+    enabled: true

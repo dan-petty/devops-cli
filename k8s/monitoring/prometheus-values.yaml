@@ -1,0 +1,69 @@
+# Prometheus Server Helm values
+# Chart: prometheus-community/prometheus
+# Repo:  https://prometheus-community.github.io/helm-charts
+
+server:
+  retention: 30d
+
+  extraArgs:
+    web.enable-remote-write-receiver: ""
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2048Mi
+
+  persistentVolume:
+    enabled: true
+    storageClass: local-path
+    size: 20Gi
+
+  service:
+    servicePort: 9090
+
+# Disable sub-charts already deployed by k8s-monitoring
+alertmanager:
+  enabled: false
+
+prometheus-node-exporter:
+  enabled: false
+
+kube-state-metrics:
+  enabled: false
+
+prometheus-pushgateway:
+  enabled: false
+
+scrapeConfigs:
+  kubernetes-nodes:
+    enabled: false
+  kubernetes-nodes-cadvisor:
+    enabled: false
+  kubernetes-api-servers:
+    post_relabel_configs: |
+      - action: replace
+        target_label: cluster
+        replacement: homelab-k3s
+  kubernetes-pods:
+    post_relabel_configs: |
+      - action: replace
+        target_label: cluster
+        replacement: homelab-k3s
+  kubernetes-pods-slow:
+    post_relabel_configs: |
+      - action: replace
+        target_label: cluster
+        replacement: homelab-k3s
+  kubernetes-service-endpoints:
+    post_relabel_configs: |
+      - action: replace
+        target_label: cluster
+        replacement: homelab-k3s
+  kubernetes-service-endpoints-slow:
+    post_relabel_configs: |
+      - action: replace
+        target_label: cluster
+        replacement: homelab-k3s

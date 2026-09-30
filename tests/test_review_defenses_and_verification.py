@@ -219,6 +219,8 @@ def test_tautological_verification_command_detection() -> None:
         'python -c "print(_query_model_info.__code__.co_varnames)"',
         "python -c \"assert hasattr(obj, 'target')\"",
         'grep -n "password" config.yaml',
+        "python -c \"from src.devops_cli.ai.retries import create_retry_transport; print('Transport created successfully')\"",
+        "python -c \"from src.devops_cli.ai.gateway import GatewayRouter; router = GatewayRouter(); print('Method exists and validates input')\"",
     )
     non_tautological_cmds = (
         "pytest tests/test_security_gitleaks.py -k test_gitleaks",
@@ -233,7 +235,7 @@ def test_tautological_verification_command_detection() -> None:
     )
 
     assert (tautological_results, non_tautological_results) == (
-        (True, True, True, True),
+        (True, True, True, True, True, True),
         (False, False, False),
     )
 

@@ -109,7 +109,7 @@ class TestK8sLLMGatewayManifests:
                 "devops-review",
                 "gemma4:31b",
                 "qwen3.8:27b",
-                "cogito-v2:70b",
+                "deepseek-r1:70b",
             ],
             "simple-shuffle",
             2,
@@ -159,9 +159,9 @@ class TestK8sLLMGatewayManifests:
             m["litellm_params"]["api_base"]: m["litellm_params"].get("weight") for m in deployments
         }
         assert weights == {
-            "http://ollama-48gib.llm.svc.cluster.local:11434": 8,
-            "http://ollama-64gib.llm.svc.cluster.local:11434": 3,
-            "http://ollama-16gib.llm.svc.cluster.local:11434": 6,
+            "http://ollama-48gib.llm.svc.cluster.local:11434": 9,
+            "http://ollama-64gib.llm.svc.cluster.local:11434": 6,
+            "http://ollama-16gib.llm.svc.cluster.local:11434": 8,
             "http://ollama-24gib.llm.svc.cluster.local:11434": 1,
         }
 
@@ -182,6 +182,7 @@ class TestK8sLLMGatewayManifests:
                 "http://ollama-16gib.llm.svc.cluster.local:11434",
                 "http://ollama-24gib.llm.svc.cluster.local:11434",
                 "http://ollama-48gib.llm.svc.cluster.local:11434",
+                "http://ollama-64gib.llm.svc.cluster.local:11434",
             ],
             [
                 "http://ollama-16gib.llm.svc.cluster.local:11434",
