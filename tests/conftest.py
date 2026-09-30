@@ -62,6 +62,7 @@ def prevent_external_network_calls():
 
     orig_connect = socket.socket.connect
     orig_connect_ex = socket.socket.connect_ex
+    orig_getaddrinfo = socket.getaddrinfo
 
     def _is_loopback(host: str) -> bool:
         if host == "localhost":
@@ -70,6 +71,26 @@ def prevent_external_network_calls():
             return ipaddress.ip_address(host).is_loopback
         except ValueError:
             return False
+
+    def _is_ip_literal(host: str) -> bool:
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return True
+
+    # A blocked connect still pays for a real DNS query first, and the extractor resolves every
+    # domain-like token it scans: each lookup costs a round trip per xdist worker. Fail external
+    # names the way an unresolvable one does, so callers take their existing gaierror path at once.
+    def guarded_getaddrinfo(host, *args, **kwargs):
+        name = host.decode() if isinstance(host, bytes) else str(host)
+        if host is None or _is_loopback(name) or _is_ip_literal(name):
+            return orig_getaddrinfo(host, *args, **kwargs)
+        raise socket.gaierror(
+            socket.EAI_NONAME,
+            f"External DNS lookup blocked during test execution: {name}. "
+            "All external APIs and endpoints must be mocked in tests.",
+        )
 
     def guarded_connect(self, address):
         if isinstance(address, tuple) and len(address) >= 2:
@@ -96,8 +117,32 @@ def prevent_external_network_calls():
     with (
         patch.object(socket.socket, "connect", guarded_connect),
         patch.object(socket.socket, "connect_ex", guarded_connect_ex),
+        patch.object(socket, "getaddrinfo", guarded_getaddrinfo),
     ):
         yield
+
+
+@pytest.fixture
+def public_dns(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Resolve every external hostname to one public address, for tests that validate egress.
+
+    The session guard fails external lookups, so a test whose code checks that a URL resolves
+    to a public address declares this fixture instead of depending on real DNS.
+    """
+    import socket
+
+    address = "93.184.215.14"
+    guarded = socket.getaddrinfo
+
+    def resolve(host, port, *args, **kwargs):
+        try:
+            return guarded(host, port, *args, **kwargs)
+        except socket.gaierror:
+            number = int(port) if isinstance(port, int) or str(port or "").isdigit() else 0
+            return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, number))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    return address
 
 
 # Rich reads COLUMNS once, when a console is built, and `devops_cli.output.console` caches one per

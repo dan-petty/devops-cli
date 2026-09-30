@@ -17,7 +17,11 @@ import typer
 from pydantic import BaseModel, ConfigDict
 from typer.core import TyperGroup
 
-from devops_cli.config.constants import CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY
+from devops_cli.config.constants import (
+    CONST_CI_SLOWEST_TESTS_SHOWN,
+    CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY,
+    CONST_CI_TEST_BUDGET_SECONDS,
+)
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
     DEFAULT_PYTEST_NUMPROCESSES,
@@ -124,6 +128,11 @@ def _announce_gate_root(root: Path) -> None:
     if is_stale_linked_worktree(root):
         stale = MESSAGES.ci.gate_root_stale.format(root=root, root_arg=shlex.quote(str(root)))
         _get("print_warning")(stale, safe=True)
+    from devops_cli.ci import diagnostics
+
+    if fstype := diagnostics.slow_mount_fstype(root):
+        slow = MESSAGES.ci.gate_root_slow_mount.format(root=root, fstype=fstype)
+        _get("print_warning")(slow, safe=True)
 
 
 class CheckResult(BaseModel):
@@ -365,6 +374,7 @@ async def _run_all_checks_async(
                     "-n",
                     "auto",
                     f"--maxprocesses={_resolve_pytest_worker_count()}",
+                    f"--durations={CONST_CI_SLOWEST_TESTS_SHOWN}",
                     "--cov=src",
                     "--cov-report=term-missing",
                 ],
@@ -616,6 +626,25 @@ def _try_fast_cached_ci(
     return True
 
 
+def _warn_when_over_budget(results: list[CheckResult]) -> None:
+    """Warn when the test step ran past its budget, naming the tests that took longest."""
+    test_result = next((res for res in results if res.name == "test"), None)
+    if test_result is None or test_result.duration_seconds <= CONST_CI_TEST_BUDGET_SECONDS:
+        return
+    from devops_cli.ci.diagnostics import slowest_tests
+    from devops_cli.output import format_duration
+
+    _get("print_warning")(
+        MESSAGES.ci.test_budget_exceeded.format(
+            duration=format_duration(test_result.duration_seconds),
+            budget=format_duration(CONST_CI_TEST_BUDGET_SECONDS),
+        ),
+        safe=True,
+    )
+    for entry in slowest_tests(test_result.stdout):
+        _get("print_muted")(f"  {entry}")
+
+
 def _handle_ci_results(
     results: list[CheckResult],
     root: Path,
@@ -694,6 +723,7 @@ def all_checks(
     )
     _print_failures(results)
     _print_summary(results, total_elapsed=time.perf_counter() - start_time)
+    _warn_when_over_budget(results)
     _handle_ci_results(results, root, all_files, ci_options)
 
 

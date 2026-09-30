@@ -70,6 +70,7 @@ def test_parse_vault_uri_rejects_percent_encoded_traversal() -> None:
 # ── 3. Web Fetch Tool Case-Insensitive Domains & SSRF ─────────────────────────
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_web_fetch_tool_case_insensitive_domains() -> None:
     """Verify that web_fetch_tool performs case-insensitive domain matching."""
     tool = web_fetch_tool(allowed_domains=["example.com"], blocked_domains=["evil.com"])

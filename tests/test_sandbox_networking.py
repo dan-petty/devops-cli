@@ -123,6 +123,7 @@ def test_sandbox_network_config_sandbox_namespace_mode() -> None:
     assert has_dns, "Sandbox namespace policy must allow CoreDNS egress on port 53"
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_sandbox_network_config_public_whitelist_validation_and_policy() -> None:
     """Verify public whitelist validates domain names, rejects private/metadata IPs, and generates egress policy."""
     # Valid public domains and IPs
@@ -244,6 +245,7 @@ def test_workload_sandbox_config_integration(tmp_path: Path) -> None:
     assert dry["network_config"]["mode"] == "isolated"
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_cli_sandbox_network_policy_command() -> None:
     """Verify `devops sandbox network-policy` CLI command generates valid Kubernetes YAML."""
     res = runner.invoke(

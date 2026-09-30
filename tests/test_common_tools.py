@@ -37,6 +37,7 @@ def test_html_to_markdown() -> None:
 
 
 @patch("devops_cli.ai.common_tools.new_http_client")
+@pytest.mark.usefixtures("public_dns")
 def test_web_fetch_tool_success(mock_get_client: MagicMock) -> None:
     mock_resp = MagicMock()
     mock_resp.content = b"<html><body><h1>Docs</h1><p>Welcome to docs</p></body></html>"
@@ -106,6 +107,7 @@ def test_tavily_search_tool(mock_get_client: MagicMock) -> None:
     assert any(line.startswith("- **Pydantic AI** (https://ai.pydantic.dev)") for line in lines)
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_web_fetch_tool_blocks_post_redirect_to_private_host() -> None:
     tool = web_fetch_tool()
     fn = tool.function

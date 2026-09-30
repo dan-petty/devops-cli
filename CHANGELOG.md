@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **LightLLM Inference Backend (`devops_cli.ai`, `k8s/llm`)**:
   - Fully removed the unused `ghcr.io/modeltc/lightllm` inference backend, including `k8s/llm/lightllm/` manifests, `CONST_AI_BACKEND_LIGHTLLM`, `GatewayRouter.scale_lightllm()`, the `devops-cli-ai_lightllm_scale` MCP tool, and all associated CLI, configuration, and test references. The `devops ai gateway scale` command now exclusively targets the vLLM backend.
 
+### Fixed
+- **Quality Gate Within Its Five-Minute Budget (`devops ci`, `tests/`)**:
+  - The secops dry-run tests enable dry-run mode instead of running trivy, kube-linter and pluto over the whole workspace until they time out (#748).
+  - The test network guard now fails external DNS lookups too; tests that validate egress against a resolving hostname declare the `public_dns` fixture (#748).
+  - `devops ci` warns when the workspace is on a 9p or drvfs share of a host folder, and lists pytest's slowest tests when the test step runs past the 5-minute budget (#748).
+
 ## [0.2.24] - 2026-09-28
 
 ### Fixed & Hardened

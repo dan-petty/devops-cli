@@ -115,6 +115,13 @@ CONST_CI_CACHE_FILENAME = "ci_cache.json"
 # Click context meta key the `devops ci` group sets when a subcommand only prints its help,
 # so the gate does not announce the root it would check.
 CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY: Final[str] = "devops_cli.ci.subcommand_shows_help"
+# The gate runs before every push, so its test step must stay inside this budget; past it, the
+# gate names the slowest tests from a pytest durations report of this many entries.
+CONST_CI_TEST_BUDGET_SECONDS: Final[float] = 300.0
+CONST_CI_SLOWEST_TESTS_SHOWN: Final[int] = 10
+# Host-folder shares (WSL's drvfs over 9p) answer each file check hundreds of times slower than
+# a Linux filesystem, which multiplies the gate's time for a workspace checked out on them.
+CONST_SLOW_WORKSPACE_FSTYPES: Final[frozenset[str]] = frozenset({"9p", "drvfs"})
 CONST_LLM_CACHE_DIR_NAME = "llm"
 CONST_BENCHMARKS_DIR_NAME = "benchmarks"
 CONST_AUDIT_LOG_NAME = "audit.jsonl"

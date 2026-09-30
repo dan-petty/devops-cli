@@ -288,3 +288,13 @@ def test_network_guard_blocks_external_socket_calls() -> None:
             sock.connect(("192.0.2.1", 80))
     finally:
         sock.close()
+
+
+def test_network_guard_blocks_external_dns_lookups() -> None:
+    """Verify that tests cannot resolve external hostnames, while loopback names still resolve."""
+    import socket
+
+    with pytest.raises(socket.gaierror, match="External DNS lookup blocked during test execution"):
+        socket.getaddrinfo("api.osv.dev", 443)
+    assert socket.getaddrinfo("localhost", 80)
+    assert socket.getaddrinfo("127.0.0.1", 80)
