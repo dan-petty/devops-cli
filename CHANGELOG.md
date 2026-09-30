@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Roadmap Planning Glossary & GitHub-Source ADR (`CONTEXT.md`, `docs/adr/`)**:
   - Added `CONTEXT.md`, the glossary for release planning and the roadmap jobs, and `docs/adr/0001-github-is-the-roadmap-source.md`, which makes GitHub issues, milestones and the project board the roadmap's source of truth (#746).
-  - Scheduled the roadmap jobs in `docs/ROADMAP.md` (#739-#744, with #745 in the backlog), revised the #697 and #704 entries, and removed the superseded #696 and #699 entries (#746).
+  - Scheduled the roadmap jobs in `docs/ROADMAP.md` (#739-#744, with #745 in the backlog), revised the #697 and #704 entries, and removed the superseded #418, #696 and #699 entries (#746).
 
 ### Removed
 - **LightLLM Inference Backend (`devops_cli.ai`, `k8s/llm`)**:
