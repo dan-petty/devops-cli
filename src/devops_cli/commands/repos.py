@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 if TYPE_CHECKING:
     from devops_cli.github.client import GitHubClient
@@ -101,6 +101,42 @@ def _sync_and_reload_workspace(root: Path, ws_file: Path) -> None:
     _reload_workspace(ws_file)
 
 
+def _resolve_safe_org_dir(root: Path, org_name: str) -> Path:
+    """Validate organization name against path traversal and return resolved directory."""
+    try:
+        validate_no_path_traversal(org_name, label="Organization name")
+    except Exception as exc:
+        print_error(f"Invalid organization name: {exc}", prefix=False)
+        raise typer.Exit(1) from exc
+
+    org_dir = (root / org_name).resolve()
+    if not org_dir.is_relative_to(root):
+        print_error("Invalid destination path: path traversal not allowed.", prefix=False)
+        raise typer.Exit(1)
+    return org_dir
+
+
+def _clone_single_org_repo(repo: Any, org_dir: Path) -> None:
+    """Clone a single repository within the validated organization directory."""
+    try:
+        validate_no_path_traversal(repo.name, label="Repository name")
+    except Exception:
+        print_error(f"skip {repo.name} (path traversal detected)")
+        return
+    dest = (org_dir / repo.name).resolve()
+    if not dest.is_relative_to(org_dir):
+        print_error(f"skip {repo.name} (path traversal detected)")
+        return
+    if dest.exists():
+        print_warning(f"skip {repo.name} (already exists)")
+        return
+    try:
+        clone_repo(_github_https_url(repo.full_name), dest)
+        print_success(f"done {repo.name}")
+    except (OSError, subprocess.SubprocessError, Exception) as exc:
+        print_error(f"fail {repo.name}: {mask_secrets(str(exc))}")
+
+
 # =============================================================================
 # Command: devops repos clone-org
 # =============================================================================
@@ -135,6 +171,7 @@ def clone_org(
         raise typer.Exit(1)
 
     root = (base_dir or settings.repos.base_dir).resolve()
+    org_dir = _resolve_safe_org_dir(root, org_name)
     client = _require_client(settings)
 
     repos = client.get_org_repos(
@@ -143,30 +180,13 @@ def clone_org(
         include_forks=forks,
         include_archived=False,
     )
-    org_dir = root / org_name
     org_dir.mkdir(parents=True, exist_ok=True)
 
     print_info(
         MESSAGES.repos.cloning_org_repos.format(count=len(repos), dest=org_dir), prefix=False
     )
     for repo in track_progress(repos, description="Cloning..."):
-        try:
-            validate_no_path_traversal(repo.name, label="Repository name")
-        except Exception:
-            print_error(f"skip {repo.name} (path traversal detected)")
-            continue
-        dest = (org_dir / repo.name).resolve()
-        if not dest.is_relative_to(org_dir.resolve()):
-            print_error(f"skip {repo.name} (path traversal detected)")
-            continue
-        if dest.exists():
-            print_warning(f"skip {repo.name} (already exists)")
-            continue
-        try:
-            clone_repo(_github_https_url(repo.full_name), dest)
-            print_success(f"done {repo.name}")
-        except (OSError, subprocess.SubprocessError, Exception) as exc:
-            print_error(f"fail {repo.name}: {mask_secrets(str(exc))}")
+        _clone_single_org_repo(repo, org_dir)
 
     _sync_and_reload_workspace(root, settings.workspace.file)
 
@@ -176,30 +196,34 @@ def clone_org(
 # =============================================================================
 
 
+def _extract_url_path(url: str) -> tuple[str, bool]:
+    """Extract raw path from URL and return whether it is a file:// scheme."""
+    clean = url.strip()
+    if ":" in clean and "://" not in clean:
+        _, _, path = clean.rpartition(":")
+        return path, False
+    if "://" in clean:
+        parsed = urlsplit(clean)
+        return parsed.path, parsed.scheme == "file"
+    return clean, False
+
+
 def _parse_clone_destination(url: str) -> tuple[str, str]:
     """Extract organization/group and repository name from a Git clone URL.
 
     Returns (org_name, repo_name). Falls back to ("_standalone", repo_name)
     when no organization or owner can be determined from the URL.
     """
-    clean = url.strip()
-    if ":" in clean and "://" not in clean:
-        _, _, path = clean.rpartition(":")
-    elif "://" in clean:
-        parsed = urlsplit(clean)
-        path = parsed.path
-        if parsed.scheme == "file":
-            parts = [p for p in path.strip("/").split("/") if p]
-            repo = parts[-1].removesuffix(CONST_GITHUB_REPO_SUFFIX) if parts else "repo"
-            return "_standalone", Path(repo).name
-    else:
-        path = clean
-
+    path, is_file_scheme = _extract_url_path(url)
+    validate_no_path_traversal(path, label="URL path")
     parts = [p for p in path.strip("/").split("/") if p]
     if not parts:
         return "_standalone", "repo"
 
     repo_name = Path(parts[-1].removesuffix(CONST_GITHUB_REPO_SUFFIX)).name
+    if is_file_scheme:
+        return "_standalone", repo_name
+
     if len(parts) >= 2 and ("." in parts[0] or ":" in parts[0]):
         parts = parts[1:]
 
@@ -230,13 +254,19 @@ def clone(
 
     settings = load_settings()
     root = (base_dir or settings.repos.base_dir).resolve()
-    org_name, raw_name = _parse_clone_destination(url)
-    dest_dir = root / org_name
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        org_name, raw_name = _parse_clone_destination(url)
+        validate_no_path_traversal(org_name, label="Organization name")
+        validate_no_path_traversal(raw_name, label="Repository name")
+    except Exception:
+        print_error(MESSAGES.repos.invalid_dest_path, prefix=False)
+        raise typer.Exit(1)
 
+    dest_dir = (root / org_name).resolve()
     dest = (dest_dir / raw_name).resolve()
     if (
-        not dest.is_relative_to(root.resolve())
+        not dest.is_relative_to(root)
+        or not dest.is_relative_to(dest_dir)
         or org_name in (".", "..")
         or raw_name in (".", "..")
     ):
@@ -247,6 +277,7 @@ def clone(
         print_warning(MESSAGES.repos.already_exists.format(dest=dest), prefix=False)
         raise typer.Exit(1)
 
+    dest_dir.mkdir(parents=True, exist_ok=True)
     masked_url = mask_secrets(url)
     print_info(MESSAGES.repos.cloning_repo.format(url=masked_url, dest=dest), prefix=False)
     clone_repo(url, dest)
