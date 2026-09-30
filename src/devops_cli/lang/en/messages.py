@@ -691,6 +691,12 @@ class CIMessages:
         "aside, keeping any uncommitted work, and re-create it with `git worktree add` from "
         "the main checkout."
     )
+    gate_root_slow_mount: str = (
+        "{root} is on a {fstype} share of a host folder, where each file check takes hundreds "
+        "of times longer than on a Linux filesystem, so the tests run several times slower. "
+        "Clone the repository into the WSL filesystem or a container volume and reopen it there."
+    )
+    test_budget_exceeded: str = "Tests took {duration}, over the {budget} budget. Slowest tests:"
 
 
 @dataclass(frozen=True)

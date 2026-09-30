@@ -134,6 +134,7 @@ def test_normalize_jaeger_spans() -> None:
     assert spans[0]["status"]["code"] == "STATUS_CODE_OK"
 
 
+@pytest.mark.usefixtures("public_dns")
 def test_query_jaeger_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify querying Jaeger REST API with HTTP response handling."""
     test_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"

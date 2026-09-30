@@ -51,6 +51,7 @@ class TestGatewayRouter:
             True,
         )
 
+    @pytest.mark.usefixtures("public_dns")
     def test_probe_gateway_success(self) -> None:
         """Verify probe_gateway returns healthy status when gateway responds with 200."""
         router = GatewayRouter(AIConfig(gateway_url="http://example.com/v1"))
@@ -74,6 +75,7 @@ class TestGatewayRouter:
             2,
         )
 
+    @pytest.mark.usefixtures("public_dns")
     def test_probe_gateway_degraded_http_status(self) -> None:
         """Verify probe_gateway marks status degraded when gateway returns 503."""
         router = GatewayRouter(AIConfig(gateway_url="http://example.com/v1"))
@@ -85,6 +87,7 @@ class TestGatewayRouter:
 
         assert (status.healthy, status.details.get("status_code")) == (False, 503)
 
+    @pytest.mark.usefixtures("public_dns")
     def test_probe_gateway_connection_failure(self) -> None:
         """Verify probe_gateway gracefully handles network connection errors with bounded details."""
         router = GatewayRouter(AIConfig(gateway_url="http://example.com/v1"))
@@ -197,6 +200,7 @@ class TestGatewayRouter:
             96,
         )
 
+    @pytest.mark.usefixtures("public_dns")
     def test_probe_backend_vllm_and_ollama(self) -> None:
         """Verify probe_backend supports vLLM and Ollama inference endpoints."""
         config = AIConfig(
@@ -466,6 +470,7 @@ class TestRouterAndClientGatewayIntegration:
             True,
         )
 
+    @pytest.mark.usefixtures("public_dns")
     def test_probe_gateway_strips_v1_and_updates_circuit_breaker(self, tmp_path: Path) -> None:
         """Verify health probe strips /v1 and updates circuit breaker on failure."""
         state_file = tmp_path / "gw_state.json"

@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx2
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -65,6 +66,7 @@ class TestPortkeyGatewayRouter:
             DEFAULT_VLLM_SERVED_MODEL_NAME,
         )
 
+    @pytest.mark.usefixtures("public_dns")
     def test_portkey_probe_gateway_success(self) -> None:
         """Verify probe_gateway handles Portkey endpoints and records backend counts."""
         config = AIConfig(
@@ -92,6 +94,7 @@ class TestPortkeyGatewayRouter:
             2,
         )
 
+    @pytest.mark.usefixtures("public_dns")
     def test_portkey_probe_gateway_degraded(self) -> None:
         """Verify Portkey probe_gateway marks status degraded on 503."""
         config = AIConfig(
@@ -107,6 +110,7 @@ class TestPortkeyGatewayRouter:
 
         assert (status.healthy, status.details.get("status_code")) == (False, 503)
 
+    @pytest.mark.usefixtures("public_dns")
     def test_portkey_probe_gateway_connection_failure(self) -> None:
         """Verify Portkey probe handles connection errors with bounded details."""
         config = AIConfig(
