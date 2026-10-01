@@ -608,13 +608,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Interactive Actions*: Instant keybinding triggers to run readiness checks (`p` -> `devops pr check-readiness`), view failing run logs (`v` -> `devops gh runs view`), or open PR in browser (`o`).
   - *Projects v2 Mini-Kanban*: Responsive columnar view showing active milestone issues across `Backlog`, `Ready`, `In Progress`, `In Review`, and `Done` with taxonomy labels.
   - *API Quota Gauge*: Live visual token-bucket meter displaying remaining GitHub REST/GraphQL rate limits and reset countdown (`devops gh rate-limit`).
-- [ ] **Cloud-Native Cluster Runtime, Pod Inspector & Live Log Streamer (`tab-k8s`) (P0 - Critical, Issue #686)**:
-  - *Context & Rationale*: Transforms the primitive 10-pod table into a live, interactive Kubernetes console.
-  - *Multi-Namespace Filtering*: Namespace selector dropdown, search query bar (`/`), and status filters (`Running`, `Pending`, `CrashLoopBackOff`, `Failed`).
-  - *Integrated Log Streamer Drawer*: Embedded `RichLog` drawer streaming live container logs with auto-scroll and follow mode (`l`), backed by non-blocking Stern/Kubernetes log tailing.
-  - *Cluster Health & Minikube Overview*: Node resource allocation (CPU/Memory gauges), Minikube GPU status badge (`Active` / `Fallback`), and service ingress URL table (`devops k8s configure-urls`).
-  - *Port-Forward Daemon Manager*: Real-time list of active background port forwards (`devops k8s port-forward --status`) with one-key start and terminate controls.
-  - *Interactive Pod Actions*: Restart pod (`r`), stream logs (`l`), view manifest YAML (`y`), or inspect pod events (`e`).
+- [x] **Truthful Pod Status, Filters, Container-Aware Logs and a Pod Inspector in the Dashboard (`devops dashboard`, `devops k8s pods`) (P1 - High, Issue #686)**:
+  - *Context & Rationale*: The Kubernetes tab showed raw pod phases rather than kubectl's STATUS and READY, had no filters, followed only a pod's first container's logs, and named Minikube on every cluster.
+  - *Deliverable*: One pod status model (`PodInfo.from_pod`) gives kubectl's STATUS and READY wherever pods are listed: the dashboard, `devops dashboard --summary`, `devops k8s pods` and `--watch`. A banner names the context, the Ready nodes and the unhealthy pods, or the context and the real error when disconnected. Namespace and text filters survive refreshes and keep the highlighted pod on screen. Logs follow the default container, `c` cycles containers, and a replaced stream is closed. `e` opens an inspector with the pod's containers and recent events. The Minikube probe is removed. Node gauges, the manifest view, restart, port-forwards and service URLs are #807-#811.
+  - *Constraint*: The dashboard writes nothing to the cluster. Checking STATUS and READY against `kubectl get pods -A` on a live cluster is left to a person.
 - [ ] **Docker Containers & Multi-Tier Workload Sandbox Console (`tab-docker`) (P1 - High, Issue #687)**:
   - *Context & Rationale*: Comprehensive workstation container and sandbox observability hub.
   - *Multi-Tier Sandbox Inspector*: Dedicated view of running Docker and Kubernetes sandboxes (`devops sandbox status`) showing active network modes (`isolated`, `sandbox_namespace`, `public_whitelist`, `local_whitelist`), cgroup resource limits, and health probe states.
