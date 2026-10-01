@@ -44,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The `ai_architecture` tool, which called a nonexistent `devops analyze architecture`, and the parameters `repos_sync(all_repos)`, `k8s_audit(namespace)` and `k8s_chaos(action)`, which their commands never took (#836).
 
 ### Fixed
+- **Branch Analysis Reads the Base Revision Again (`devops analyze branch`, `devops review`)**:
+  - `symbols_removed` lists the symbols a branch removed again, so a review's "cites a removed symbol" check works. Since f93231b (#738) the base file was read as a pathspec and came back empty. Enhanced branch analyses cached since then must be regenerated with `devops analyze branch --update-all` (#787).
 - **Kubernetes Monitoring Stack Integration & Dashboard Metrics (`k8s/monitoring`)**:
   - Configured `kube-state-metrics` with `metricLabelsAllowlist` and extra collector `endpoints` to emit resource labels and endpoint info for Kubernetes Views dashboards (#825).
   - Expanded Alloy cAdvisor and KSM `metricsTuning.includeMetrics` to capture container CFS throttling, OOM events, network errors, and pod container status metrics (#825).

@@ -801,6 +801,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: The Kubernetes Views dashboards read `kube_*_labels`, `kube_endpoint_info` and container throttling, OOM and network-error series that kube-state-metrics never emitted or Alloy's allowlists dropped, and the monitoring perimeter blocked the Prometheus server's scrape of CoreDNS on 9153.
   - *Deliverable*: kube-state-metrics gains a `metricLabelsAllowlist` and the `endpoints` collector, Alloy's cAdvisor and KSM allowlists keep the missing series, and the perimeter admits egress to `kube-system` on 9153; tests pin each value, the DCGM scrape timeout and capability, and that the collector is scraped once, through its pod annotations.
   - *Constraint*: No collector or Qdrant ServiceMonitor: #693 scrapes the collector directly, and Qdrant's authenticated scrape is #823.
+- [x] **The Symbol Delta Reads the Base Revision Again (P0 - Critical, Issue #787)**:
+  - *Context & Rationale*: f93231b (#738) changed the base-revision read in `commands/analyze.py` to `git show -- <rev>:<path>`, which git takes as a pathspec, so the base file was always empty: every head symbol counted as added, `symbols_removed` was always empty, and review's "cites a removed symbol" check never fired.
+  - *Deliverable*: The base file is read again, and a test against a real repository under `tmp_path` removes a symbol and finds it in `symbols_removed`. Enhanced branch analyses cached since f93231b need `devops analyze branch --update-all`.
+  - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, so it joins the current release.
 
 ### Multi-IDE MCP Scaffolding, Context Budgeting & Invariant Pinning (v0.2.25 - Scheduled)
 - [ ] **Pipeline Stage Context Budgeting & Invariant Pinning (P0 - Critical)**:

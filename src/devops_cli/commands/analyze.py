@@ -148,9 +148,8 @@ def _fetch_git_file_content(repo: Path, revision: str, rel_path: str) -> str | N
     try:
         from devops_cli.core.process import run_subprocess
 
-        proc = run_subprocess(
-            ["git", "--no-pager", "show", "--", f"{revision}:{rel_path}"], cwd=repo
-        )
+        # No "--": git would read "<rev>:<path>" as a pathspec; both parts are validated above.
+        proc = run_subprocess(["git", "--no-pager", "show", f"{revision}:{rel_path}"], cwd=repo)
         if proc.returncode == 0:
             return proc.stdout
     except Exception:
