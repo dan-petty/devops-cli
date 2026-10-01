@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fully removed the unused `ghcr.io/modeltc/lightllm` inference backend, including `k8s/llm/lightllm/` manifests, `CONST_AI_BACKEND_LIGHTLLM`, `GatewayRouter.scale_lightllm()`, the `devops-cli-ai_lightllm_scale` MCP tool, and all associated CLI, configuration, and test references. The `devops ai gateway scale` command now exclusively targets the vLLM backend.
 
 ### Fixed
+- **Gitleaks Scans Every File of a List Target (`devops_cli.security.gitleaks`)**:
+  - A list target, such as the files of a review, now runs Gitleaks once per file and merges the outcomes, keeping every finding and the worst status. Before, the binary scanned only the first file, and since #763 the built-in patterns did too (#781).
 - **Quality Gate Within Its Five-Minute Budget (`devops ci`, `tests/`)**:
   - The secops dry-run tests enable dry-run mode instead of running trivy, kube-linter and pluto over the whole workspace until they time out (#748).
   - The test network guard now fails external DNS lookups too; tests that validate egress against a resolving hostname declare the `public_dns` fixture (#748).
