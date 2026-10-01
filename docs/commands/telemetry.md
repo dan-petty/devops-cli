@@ -68,7 +68,7 @@ devops telemetry test [OPTIONS]
 
 ## `devops telemetry profile`
 
-**Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans.**
+**Run a command, or name a trace, and show its span waterfall as Jaeger recorded it.**
 
 ```bash
 devops telemetry profile [OPTIONS] <command>
@@ -84,8 +84,7 @@ devops telemetry profile [OPTIONS] <command>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--trace-id`, `-t` | `string` | - | Specific trace ID to visualize from in-memory span buffer. |
-| `--last`, `-l` | `boolean` | - | Render waterfall for the most recently executed command trace. |
+| `--trace-id`, `-t` | `string` | - | Trace ID to read from Jaeger and show, instead of running a command. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

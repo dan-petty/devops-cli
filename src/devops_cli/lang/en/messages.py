@@ -95,14 +95,16 @@ class AIMessages:
     harness_offload_title: str = "Sub-Agent Local Offload"
     default_quiesce_reason: str = "Operator requested emergency quiesce"
     quiesce_dry_run: str = "[DRY RUN] Quiesce simulated: {badge} | Reason: {reason}"
-    quiesce_executed: str = "Quiesce executed: {badge} | Suspended: {count} task(s)"
+    quiesce_executed: str = "Quiesce flag set: {badge} | Reason: {reason}"
     failover_dry_run: str = "[DRY RUN] Failover simulated: {badge} -> {target}"
-    failover_executed: str = "Failover engaged: {badge} -> {target} ({count} task(s))"
-    resume_dry_run: str = "[DRY RUN] Resume simulated: {badge} | Reactivated: {count} task(s)"
-    resume_executed: str = "Constellation resumed: {badge} | Reactivated: {count} task(s)"
+    failover_executed: str = (
+        "Fallback recorded: {badge} -> {target}; `devops ai gateway failover` reroutes requests"
+    )
+    resume_dry_run: str = "[DRY RUN] Flag not cleared: {badge}"
     constellation_title: str = "Agent Constellation Fleet"
-    constellation_tasks_title: str = "Agent Constellation Tasks"
-    invalid_drain_timeout: str = "Invalid --drain-timeout '{timeout}': must be non-negative (>= 0)."
+    constellation_flag_only: str = (
+        "[dim]This flag records intent only: no running task reads it.[/dim]"
+    )
 
 
 @dataclass(frozen=True)

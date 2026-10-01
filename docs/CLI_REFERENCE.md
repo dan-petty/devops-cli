@@ -3179,7 +3179,7 @@ devops ai chaos-model [OPTIONS]
 
 ### `devops ai quiesce`
 
-**Centralized emergency quiesce cleanly suspending active agent loops and background tasks.**
+**Set the constellation quiesce flag with a reason; it stops nothing.**
 
 ```bash
 devops ai quiesce [OPTIONS]
@@ -3189,14 +3189,13 @@ devops ai quiesce [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--reason`, `-r` | `string` | `Operator requested emergency quiesce` | Reason for constellation quiesce or emergency failover. |
-| `--drain-timeout` | `float` | `5.0` | Drain timeout in seconds to wait for in-flight tasks to complete. |
+| `--reason`, `-r` | `string` | `Operator requested emergency quiesce` | Reason recorded with the constellation quiesce flag. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops ai failover`
 
-**Emergency failover controller re-routing tasks to designated fallback endpoints.**
+**Record a fallback route in the constellation flag; `devops ai gateway failover` reroutes requests.**
 
 ```bash
 devops ai failover [OPTIONS]
@@ -3210,11 +3209,10 @@ devops ai failover [OPTIONS]
 | `--target-model` | `string` | `qwen2.5-coder:7b` | Fallback AI model to route execution to upon fault. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-| `--force` | `boolean` | - | Bypass model capability tier minimum checks during failover. |
 
 ### `devops ai resume`
 
-**Gracefully resume suspended constellation agent loops and task runners.**
+**Clear the constellation quiesce or failover flag.**
 
 ```bash
 devops ai resume [OPTIONS]
@@ -3229,7 +3227,7 @@ devops ai resume [OPTIONS]
 
 ### `devops ai constellation`
 
-**Display constellation fleet status, active fallback routes, and suspended tasks.**
+**Show the constellation flag: state, reason and recorded fallback route.**
 
 ```bash
 devops ai constellation [OPTIONS]
@@ -7501,7 +7499,7 @@ devops telemetry test [OPTIONS]
 
 ### `devops telemetry profile`
 
-**Display terminal-rendered waterfall breakdown and latency heatmap of OpenTelemetry spans.**
+**Run a command, or name a trace, and show its span waterfall as Jaeger recorded it.**
 
 ```bash
 devops telemetry profile [OPTIONS] <command>
@@ -7517,8 +7515,7 @@ devops telemetry profile [OPTIONS] <command>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--trace-id`, `-t` | `string` | - | Specific trace ID to visualize from in-memory span buffer. |
-| `--last`, `-l` | `boolean` | - | Render waterfall for the most recently executed command trace. |
+| `--trace-id`, `-t` | `string` | - | Trace ID to read from Jaeger and show, instead of running a command. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

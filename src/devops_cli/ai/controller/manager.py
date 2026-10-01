@@ -7,29 +7,18 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
 
-from devops_cli.ai.capability import (
-    VIRTUAL_MODEL_TIER_MAPPING,
-    ModelCapabilityTier,
-    resolve_capability_tier,
-    validate_failover_capability,
-)
 from devops_cli.ai.controller.models import (
-    AgentTaskType,
     ConstellationStatus,
     FailoverResult,
     QuiesceResult,
     QuiesceSnapshot,
     QuiesceState,
     ResumeResult,
-    SuspendedTask,
-    _utc_now_iso,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_FALLBACK_MODEL,
     DEFAULT_AI_FALLBACK_PROVIDER,
-    DEFAULT_CONSTELLATION_DRAIN_TIMEOUT,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.paths import is_forbidden_system_path
@@ -116,136 +105,42 @@ def _write_snapshot_file(file_path: Path, snapshot: QuiesceSnapshot) -> None:
         raise
 
 
-def _validate_tasks_failover_capability(
-    tasks: list[SuspendedTask],
-    target_model: str,
-    target_provider: str,
-    *,
-    force: bool = False,
-) -> None:
-    """Ensure all rerouted tasks meet minimum capability requirements for the target fallback model."""
-    for task in tasks:
-        role_key = (
-            task.original_model
-            if task.original_model in VIRTUAL_MODEL_TIER_MAPPING
-            else task.name
-            if task.name in VIRTUAL_MODEL_TIER_MAPPING
-            else task.task_type
-        )
-        tier = resolve_capability_tier(role_key)
-        if tier in (ModelCapabilityTier.REASONING, ModelCapabilityTier.CODING):
-            validate_failover_capability(
-                tier.value,
-                target_model,
-                target_provider,
-                force=force,
-            )
-
-
-def _mark_tasks_resumed(
-    tasks: list[SuspendedTask],
-    registered_tasks: dict[str, SuspendedTask],
-    now_iso: str,
-    *,
-    dry_run: bool,
-) -> None:
-    """Update status and timestamps for resumed tasks."""
-    for task in tasks:
-        task.status = "resumed"
-        task.resumed_at = now_iso
-        if not dry_run and task.task_id in registered_tasks:
-            reg = registered_tasks[task.task_id]
-            reg.status = "resumed"
-            reg.resumed_at = now_iso
-
-
 class ConstellationManager:
-    """Controller managing emergency quiesce, fallback routing, and resumption for agent loops."""
+    """Set, record and clear the constellation flag in the data directory.
+
+    The flag records an operator's intent to quiesce or fail over; no running task reads it,
+    and requests are rerouted by `devops ai gateway failover`.
+    """
 
     def __init__(self, data_dir: Path | str | None = None) -> None:
         self.data_dir = _resolve_data_dir(data_dir)
         self.agent_dir = self.data_dir / "agent"
         self.snapshot_file = self.agent_dir / "quiesce.json"
-        self._registered_tasks: dict[str, SuspendedTask] = {}
-
-    def register_task(
-        self,
-        task_id: str,
-        task_type: AgentTaskType,
-        name: str,
-        provider: str,
-        model: str,
-        state_payload: dict[str, Any] | None = None,
-    ) -> SuspendedTask:
-        """Register an active background task or agent loop with the constellation controller."""
-        task = SuspendedTask(
-            task_id=task_id,
-            task_type=task_type,
-            name=name,
-            original_provider=provider,
-            original_model=model,
-            status="active",
-            state_payload=state_payload or {},
-        )
-        self._registered_tasks[task_id] = task
-        return task
-
-    def unregister_task(self, task_id: str) -> bool:
-        """Remove a completed task from tracking."""
-        return bool(self._registered_tasks.pop(task_id, None))
 
     def quiesce(
         self,
         reason: str = MESSAGES.ai.default_quiesce_reason,
-        drain_timeout: float = DEFAULT_CONSTELLATION_DRAIN_TIMEOUT,
         dry_run: bool = False,
     ) -> QuiesceResult:
-        """Cleanly freeze registered agent loops, cron jobs, and task runners."""
+        """Set the quiesce flag with a reason."""
         with trace_span(
             "ai.constellation.quiesce",
-            attributes={
-                "quiesce.reason": reason,
-                "quiesce.dry_run": dry_run,
-                "quiesce.drain_timeout": drain_timeout,
-            },
+            attributes={"quiesce.reason": reason, "quiesce.dry_run": dry_run},
         ):
-            now_iso = _utc_now_iso()
-            tasks_to_suspend: list[SuspendedTask] = []
-            for task in self._registered_tasks.values():
-                if dry_run:
-                    simulated_task = task.model_copy(deep=True)
-                    simulated_task.status = "suspended"
-                    simulated_task.suspended_at = now_iso
-                    tasks_to_suspend.append(simulated_task)
-                else:
-                    task.status = "suspended"
-                    task.suspended_at = now_iso
-                    tasks_to_suspend.append(task)
-
-            snapshot = QuiesceSnapshot(
-                state=QuiesceState.QUIESCED,
-                reason=reason,
-                tasks=tasks_to_suspend,
-            )
-
+            snapshot = QuiesceSnapshot(state=QuiesceState.QUIESCED, reason=reason)
             devops_cli_ai_quiesce_events_total.inc()
-
             if not dry_run:
                 _write_snapshot_file(self.snapshot_file, snapshot)
-
-            message = (
-                f"Constellation quiesced successfully ({len(tasks_to_suspend)} tasks suspended)."
-                if not dry_run
-                else f"[DRY RUN] Constellation quiesce simulated for {len(tasks_to_suspend)} tasks."
-            )
-
             return QuiesceResult(
                 success=True,
                 state=QuiesceState.QUIESCED,
                 reason=reason,
-                suspended_count=len(tasks_to_suspend),
                 snapshot_path=str(self.snapshot_file),
-                message=message,
+                message=(
+                    "[DRY RUN] Quiesce flag not written."
+                    if dry_run
+                    else "Quiesce flag set. No running task reads it."
+                ),
                 dry_run=dry_run,
             )
 
@@ -254,166 +149,78 @@ class ConstellationManager:
         target_provider: str = DEFAULT_AI_FALLBACK_PROVIDER,
         target_model: str = DEFAULT_AI_FALLBACK_MODEL,
         dry_run: bool = False,
-        force: bool = False,
     ) -> FailoverResult:
-        """Safely re-route pending tasks to designated fallback endpoint."""
+        """Record a fallback route in the flag."""
         with trace_span(
             "ai.constellation.failover",
             attributes={
                 "failover.target_provider": target_provider,
                 "failover.target_model": target_model,
                 "failover.dry_run": dry_run,
-                "failover.force": force,
             },
         ):
-            existing_snapshot = _read_snapshot_file(self.snapshot_file)
-            if existing_snapshot:
-                snapshot = (
-                    existing_snapshot if not dry_run else existing_snapshot.model_copy(deep=True)
-                )
-            else:
-                base_tasks = [
-                    t.model_copy(deep=True) if dry_run else t
-                    for t in self._registered_tasks.values()
-                ]
-                snapshot = QuiesceSnapshot(
-                    state=QuiesceState.FAILOVER,
-                    reason="Automatic failover",
-                    tasks=base_tasks,
-                )
-
-            _validate_tasks_failover_capability(
-                snapshot.tasks,
-                target_model,
-                target_provider,
-                force=force,
-            )
-
+            snapshot = _read_snapshot_file(self.snapshot_file) or QuiesceSnapshot(reason="Failover")
             snapshot.state = QuiesceState.FAILOVER
             snapshot.active_fallback = (target_provider, target_model)
-
-            for task in snapshot.tasks:
-                task.fallback_provider = target_provider
-                task.fallback_model = target_model
-                task.status = "failed_over"
-                if not dry_run and task.task_id in self._registered_tasks:
-                    self._registered_tasks[task.task_id].fallback_provider = target_provider
-                    self._registered_tasks[task.task_id].fallback_model = target_model
-                    self._registered_tasks[task.task_id].status = "failed_over"
-
             devops_cli_ai_failover_events_total.inc(
                 labels={"provider": target_provider, "model": target_model}
             )
-
             if not dry_run:
                 _write_snapshot_file(self.snapshot_file, snapshot)
-
-            message = (
-                f"Emergency failover routing engaged to {target_provider}/{target_model} "
-                f"across {len(snapshot.tasks)} tasks."
-                if not dry_run
-                else f"[DRY RUN] Emergency failover simulated to {target_provider}/{target_model}."
-            )
-
             return FailoverResult(
                 success=True,
                 state=QuiesceState.FAILOVER,
                 target_provider=target_provider,
                 target_model=target_model,
-                rerouted_count=len(snapshot.tasks),
                 snapshot_path=str(self.snapshot_file),
-                message=message,
+                message=(
+                    "[DRY RUN] Failover flag not written."
+                    if dry_run
+                    else (
+                        f"Fallback {target_provider}/{target_model} recorded in the flag; "
+                        "`devops ai gateway failover` reroutes requests."
+                    )
+                ),
                 dry_run=dry_run,
             )
 
     def resume(self, dry_run: bool = False) -> ResumeResult:
-        """Resume suspended constellation loops with active or restored routes."""
-        with trace_span(
-            "ai.constellation.resume",
-            attributes={"resume.dry_run": dry_run},
-        ):
-            existing_snapshot = _read_snapshot_file(self.snapshot_file)
-            if existing_snapshot:
-                snapshot = (
-                    existing_snapshot if not dry_run else existing_snapshot.model_copy(deep=True)
-                )
-                tasks = snapshot.tasks
-            else:
-                snapshot = None
-                tasks = [
-                    t.model_copy(deep=True) if dry_run else t
-                    for t in self._registered_tasks.values()
-                ]
-
-            now_iso = _utc_now_iso()
-            resumed_count = len(tasks)
-
-            _mark_tasks_resumed(
-                tasks,
-                self._registered_tasks,
-                now_iso,
-                dry_run=dry_run,
-            )
-
-            if snapshot:
-                snapshot.state = QuiesceState.RESUMED
-
+        """Clear the quiesce or failover flag."""
+        with trace_span("ai.constellation.resume", attributes={"resume.dry_run": dry_run}):
+            snapshot = _read_snapshot_file(self.snapshot_file)
             devops_cli_ai_resumptions_total.inc()
-
-            if not dry_run and snapshot:
+            if snapshot is not None and not dry_run:
+                snapshot.state = QuiesceState.RESUMED
+                snapshot.active_fallback = None
                 _write_snapshot_file(self.snapshot_file, snapshot)
-
-            message = (
-                f"Constellation resumed successfully ({resumed_count} tasks reactivated)."
-                if not dry_run
-                else f"[DRY RUN] Constellation resumption simulated for {resumed_count} tasks."
-            )
-
+            if dry_run:
+                message = "[DRY RUN] Flag not cleared."
+            elif snapshot is None:
+                message = "No quiesce or failover flag was set."
+            else:
+                message = "Quiesce and failover flag cleared."
             return ResumeResult(
                 success=True,
                 state=QuiesceState.RESUMED,
-                resumed_count=resumed_count,
                 snapshot_path=str(self.snapshot_file),
                 message=message,
                 dry_run=dry_run,
             )
 
     def status(self) -> ConstellationStatus:
-        """Inspect current quiesce state, active fallback route, and tasks."""
+        """Read the flag as last set."""
         snapshot = _read_snapshot_file(self.snapshot_file)
         if not snapshot:
             return ConstellationStatus(
                 state=QuiesceState.IDLE,
                 is_quiesced=False,
-                suspended_task_count=0,
-                tasks=list(self._registered_tasks.values()),
                 snapshot_path=str(self.snapshot_file),
             )
-
-        is_quiesced = snapshot.state in (QuiesceState.QUIESCED, QuiesceState.FAILOVER)
-        suspended_count = (
-            len(snapshot.tasks)
-            if snapshot.state in (QuiesceState.QUIESCED, QuiesceState.FAILOVER)
-            else 0
-        )
         return ConstellationStatus(
             state=snapshot.state,
-            is_quiesced=is_quiesced,
+            is_quiesced=snapshot.state in (QuiesceState.QUIESCED, QuiesceState.FAILOVER),
             reason=snapshot.reason,
             quiesced_at=snapshot.quiesced_at,
-            suspended_task_count=suspended_count,
-            tasks=snapshot.tasks,
             active_fallback=snapshot.active_fallback,
             snapshot_path=str(self.snapshot_file),
         )
-
-    def is_quiesced(self) -> bool:
-        """Return True if constellation is currently quiesced or in failover state."""
-        return self.status().is_quiesced
-
-    def get_active_route(self, provider: str, model: str) -> tuple[str, str]:
-        """Resolve effective provider and model routing applying active fallback when engaged."""
-        st = self.status()
-        if st.state == QuiesceState.FAILOVER and st.active_fallback:
-            return st.active_fallback
-        return (provider, model)

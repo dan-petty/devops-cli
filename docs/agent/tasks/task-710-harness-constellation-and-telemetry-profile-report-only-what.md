@@ -1,7 +1,7 @@
 # Task 710: Harness, Constellation and Telemetry Profile Report Only What Actually Ran
 
 **Issue**: [#710](https://github.com/dan-petty/devops-cli/issues/710)
-**Status**: In Progress
+**Status**: Done
 **Milestone**: `v0.2.24`
 **Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/telemetry`, `priority/p0-critical`
@@ -21,8 +21,12 @@
 - Maintain cyclomatic complexity $M \le 10$ and nesting depth $\le 5$.
 - 100% passing across Gated CI validation suite (`uv run devops ci`).
 
-## 2. Delivery in Three Parts
+## 2. Delivered
 
 - [x] **Part 1, harness**: `AgentHarness.from_config` builds the harness from the configured AI provider and model, every slot `configured` rather than an unchecked `attached`, and `ai harness status` shows them. `execute_tiered` runs the sub-agent's local searches and reports the search it ran (`search`), the files and matches, and a `summary`, naming no model; the templated Tier 1 "Decomposed" and Tier 3 "Verified … against architectural invariants" text, the `len(text) // 4` token estimates and `tokens_used`, and `harness run`'s `--frontier-model`/`--local-model` options are removed. `ai_harness_status` no longer claims to report sandbox state. Verified by `tests/test_harness_slots.py`, including a CLI test that changes the configured model and asserts `status` follows it (it showed `claude` and `attached` before).
-- [ ] **Part 2, constellation**: delete task registration and per-task fields; quiesce, failover and resume set and clear a flag only.
-- [ ] **Part 3, telemetry profile**: `profile <command>` reads the command's trace back from Jaeger with a bounded poll, exits non-zero without a collector or a trace or command, and loses the `sample.*` fallback and `--last`; the MCP tool passes the command positionally.
+- [x] **Part 2, constellation**: nothing named a consumer, so task registration (`register_task`, `unregister_task`), `SuspendedTask`, `AgentTaskType`, the per-task fields and counts, and the unread `is_quiesced()` and `get_active_route()` are deleted. `ai quiesce` sets the flag with a reason, `ai failover` records a fallback route in it (`ai gateway failover` reroutes requests), `ai resume` clears it, and `ai constellation` shows it and says no running task reads it. `--drain-timeout` and failover's `--force`, which acted on tasks, are removed. Verified by `tests/test_ai_controller.py`, including a CLI test that writes `quiesce.json` directly and asserts `ai constellation` follows it.
+- [x] **Part 3, telemetry profile**: `profile <command>` runs the command inside a `telemetry.profile` span, with the caller's full environment, so `run_subprocess` hands the child that span's trace; it flushes queued exports (`OTelTelemetryClient.flush`) and reads the trace back from Jaeger (`query_jaeger_trace`), polling until the span count stops growing within 10 seconds. It exits 2 without a command or `--trace-id`, and 1 when export is off or no spans reach Jaeger. The `sample.*` fallback and `--last` are deleted, and the MCP tool passes the command positionally, with an optional `trace_id`. Verified by `tests/test_telemetry_profile.py`, including tests where the spans in Jaeger change and the waterfall follows.
+
+## 3. Verification
+
+- The 123 test files that touch telemetry, the tracer, subprocesses, the harness, the controller or MCP: 2,596 passed.

@@ -70,8 +70,7 @@ class OptionHelp:
     fallback_provider: str = "Fallback AI provider to route execution to upon fault."
     fallback_model: str = "Fallback AI model to route execution to upon fault."
     prompt: str = "Prompt text or workload payload to evaluate."
-    quiesce_reason: str = "Reason for constellation quiesce or emergency failover."
-    drain_timeout: str = "Drain timeout in seconds to wait for in-flight tasks to complete."
+    quiesce_reason: str = "Reason recorded with the constellation quiesce flag."
     concurrency: str = "Maximum number of concurrent review workers."
     parallel: str = "Execute multi-file review stages concurrently using async worker pool."
 
@@ -170,16 +169,13 @@ class AICommandHelp:
     target_file: str = "Target source file to synthesize unit tests for."
     harness: str = "Manage agent harness slots, sub-agent local offloading, and tiered synthesis."
     chaos_model: str = "Model dependency chaos engineering suite simulating provider faults and validating local failovers."
-    quiesce: str = (
-        "Centralized emergency quiesce cleanly suspending active agent loops and background tasks."
-    )
+    quiesce: str = "Set the constellation quiesce flag with a reason; it stops nothing."
     failover: str = (
-        "Emergency failover controller re-routing tasks to designated fallback endpoints."
+        "Record a fallback route in the constellation flag; `devops ai gateway failover` "
+        "reroutes requests."
     )
-    resume: str = "Gracefully resume suspended constellation agent loops and task runners."
-    constellation: str = (
-        "Display constellation fleet status, active fallback routes, and suspended tasks."
-    )
+    resume: str = "Clear the constellation quiesce or failover flag."
+    constellation: str = "Show the constellation flag: state, reason and recorded fallback route."
     ingest: str = "Ingest library API contracts, type stubs, and documentation."
     ingest_library: str = (
         "Introspect an installed Python package and extract its public API contract."
@@ -1029,8 +1025,7 @@ class TelemetryCommandHelp:
     command_to_profile: str = (
         "CLI command string to profile and render waterfall for (e.g. 'devops k8s contexts')."
     )
-    trace_id: str = "Specific trace ID to visualize from in-memory span buffer."
-    last: str = "Render waterfall for the most recently executed command trace."
+    trace_id: str = "Trace ID to read from Jaeger and show, instead of running a command."
     logfire: str = "Display Logfire structured observability bridge status and token metrics."
     test_logfire: str = "Emit test span via Logfire bridge."
 
