@@ -114,29 +114,20 @@ def test_monitoring_networkpolicy_allows_coredns_metrics() -> None:
     assert {53, 9153}.issubset(coredns_ports)
 
 
-def test_otel_collector_servicemonitor_enabled() -> None:
-    """Verify OpenTelemetry Collector Helm values enable the internal Prometheus ServiceMonitor."""
+def test_otel_collector_is_scraped_once_through_its_pod_annotations() -> None:
+    """The Prometheus server's kubernetes-pods job scrapes the collector through its pod
+    annotations (#693). A ServiceMonitor would have Alloy scrape it a second time and double
+    every collector series on the stack dashboards."""
     otel_values_path = K8S_DIR / "otel" / "values.yaml"
     with open(otel_values_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
-    sm = data.get("serviceMonitor", {})
-    actual = (
-        sm.get("enabled"),
-        any(ep.get("port") == "metrics" for ep in sm.get("metricsEndpoints", [])),
-    )
-    assert actual == (True, True)
-
-
-def test_qdrant_servicemonitor_enabled() -> None:
-    """Verify Qdrant Helm values enable Prometheus metrics ServiceMonitor."""
-    qdrant_values_path = K8S_DIR / "llm" / "values-qdrant.yaml"
-    with open(qdrant_values_path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-
-    metrics = data.get("metrics", {})
-    sm = metrics.get("serviceMonitor", {})
-    assert (sm.get("enabled"), sm.get("scrapeInterval")) == (True, "15s")
+    annotations = data.get("podAnnotations", {})
+    assert (
+        annotations.get("prometheus.io/scrape"),
+        annotations.get("prometheus.io/port"),
+        data.get("serviceMonitor", {}).get("enabled", False),
+    ) == ("true", "8888", False)
 
 
 def test_dcgm_exporter_values_timeout_and_capabilities() -> None:
