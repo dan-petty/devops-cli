@@ -9,7 +9,7 @@ from __future__ import annotations
 import inspect
 import json
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any, cast
 
 import json_repair
@@ -44,8 +44,11 @@ _TOOL_EXTRACT_PAGE_SIZE = DEFAULT_TOOL_EXTRACT_PAGE_SIZE
 _TOOL_EXTRACT_OVERLAP = DEFAULT_TOOL_EXTRACT_OVERLAP
 
 
-# A ```json or bare ``` fence; a fence naming another language holds code, not the answer.
-_JSON_FENCE = re.compile(r"```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```", re.IGNORECASE)
+# A ```json or bare ``` fence opening a line; a fence naming another language holds code.
+_JSON_FENCE_OPEN = re.compile(r"^[ \t]*```(?:json)?[ \t]*\r?\n", re.IGNORECASE | re.MULTILINE)
+# A closing fence is a line holding nothing but the backticks.
+_FENCE_CLOSE = re.compile(r"\r?\n[ \t]*```[ \t]*(?=\r?\n|$)")
+_JSON_DECODER = json.JSONDecoder()
 
 
 def _clean_repair_text(text: str, max_length: int | None = None) -> str | None:
@@ -56,11 +59,38 @@ def _clean_repair_text(text: str, max_length: int | None = None) -> str | None:
     return cleaned if cleaned else None
 
 
+def _decode_leading_value(text: str) -> Any:
+    """Decode the JSON object or array that opens ``text``, ignoring whatever follows it.
+
+    A decoder reads each string value whole, so a code fence nested in one never ends it.
+    """
+    stripped = text.lstrip()
+    if not stripped.startswith(("{", "[")):
+        return None
+    try:
+        return _JSON_DECODER.raw_decode(stripped)[0]
+    except ValueError:
+        return None
+
+
+def _fenced_values(cleaned: str) -> Iterator[Any]:
+    """Yield the JSON value of each ```json or bare fence, in order.
+
+    Valid JSON is decoded exactly; only a block that needs repair is cut at its closing line.
+    """
+    for opening in _JSON_FENCE_OPEN.finditer(cleaned):
+        body = cleaned[opening.end() :]
+        value = _decode_leading_value(body)
+        if value is None:
+            closing = _FENCE_CLOSE.search(body)
+            value = _repair_loads((body[: closing.start()] if closing else body).strip())
+        yield value
+
+
 def _find_fenced_json(cleaned: str) -> Any:
-    for block in _JSON_FENCE.findall(cleaned):
-        data = _repair_loads(block.strip())
-        if isinstance(data, dict | list) and data:
-            return data
+    for value in _fenced_values(cleaned):
+        if isinstance(value, dict | list) and value:
+            return value
     return None
 
 
@@ -70,16 +100,16 @@ def repair_json_string(text: str, *, max_length: int | None = None) -> Any:
     if cleaned is None:
         return None
 
-    # 1. Parse the whole cleaned text first.
-    data = _repair_loads(cleaned)
-    if isinstance(data, dict | list) and data:
-        return data
-
-    # 2. Fall back to fenced JSON blocks only when whole text yields no dict or list.
+    # 1. A fenced block holds the answer. Prose around it is not part of it, and json-repair
+    #    would turn its brackets (`[OWASP A03](...)`, `items[0]`) into list items.
     fenced = _find_fenced_json(cleaned)
     if fenced is not None:
         return fenced
 
+    # 2. Without a usable block, repair the whole text.
+    data = _repair_loads(cleaned)
+    if isinstance(data, dict | list) and data:
+        return data
     return data if data not in ("", None) else None
 
 

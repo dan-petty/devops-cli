@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fully removed the unused `ghcr.io/modeltc/lightllm` inference backend, including `k8s/llm/lightllm/` manifests, `CONST_AI_BACKEND_LIGHTLLM`, `GatewayRouter.scale_lightllm()`, the `devops-cli-ai_lightllm_scale` MCP tool, and all associated CLI, configuration, and test references. The `devops ai gateway scale` command now exclusively targets the vLLM backend.
 
 ### Fixed
+- **Bracketed Prose No Longer Costs a Reply Its Structured Output (`devops_cli.ai.response_repair`)**:
+  - A reply citing `[OWASP A03](…)` or `items[0]` around its ```json block parses to the same findings as one without brackets again. Fenced blocks are decoded before the whole reply, with `raw_decode` so fences nested in string values survive, and a block needing repair is cut only at a line holding just the closing fence (#786).
 - **Quality Gate Within Its Five-Minute Budget (`devops ci`, `tests/`)**:
   - The secops dry-run tests enable dry-run mode instead of running trivy, kube-linter and pluto over the whole workspace until they time out (#748).
   - The test network guard now fails external DNS lookups too; tests that validate egress against a resolving hostname declare the `public_dns` fixture (#748).

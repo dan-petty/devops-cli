@@ -796,6 +796,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: 5d34541 (#763) made `run_gitleaks_scan` (`security/gitleaks.py:238`) scan only `target[0]` of a list, and the review pipeline passes every reviewed file (`ai/review/pipeline.py:1080`), so only the first file of a review is scanned for secrets.
   - *Deliverable*: A list target scans every file again, with a test where only the second of two files holds a secret.
   - *Constraint*: Critical fix: a P0 security regression whose introducing commit is cited, so it joins the current release.
+- [x] **Brackets in a Reply's Prose Cost It Its Structured Output (P0 - Critical, Issue #786)**:
+  - *Context & Rationale*: 95ed4cc (#675) made `repair_json_string` parse the whole reply before its fenced blocks, and json-repair turns bracketed prose (`[OWASP A03](…)`, `items[0]`, `request.args["id"]`) into list items, so the review parser dropped every finding in such a reply.
+  - *Deliverable*: Fenced blocks come first again, decoded with `raw_decode` so fences nested in string values survive; only a block needing repair is cut, at a line holding just the closing fence.
+  - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, so it joins the current release.
 - [x] **Plan the Architecture Review's Deepening Candidates and Defects (P1 - High, Issue #782)**:
   - *Context & Rationale*: An architecture review on 2026-10-01 found ten deepening candidates and five defects in the hot spots since v0.2.23 and the GitHub modules the roadmap jobs build on.
   - *Deliverable*: Items #767-#781; `CONTEXT.md` Code review terms (Finding, Verdict, Review session, Known false positive); entries for #781, #768 and #767; backlog rows for the rest; #768 added to the dependencies of #739, #740, #742, #743 and #752, and #767 to #741.
