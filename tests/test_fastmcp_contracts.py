@@ -99,7 +99,6 @@ def test_fastmcp_tools_registration() -> None:
         "ai_repomap",
         "ai_diagram",
         "ai_test_gen",
-        "ai_architecture",
         "ai_harness_status",
         "ai_subagent_offload",
         "ai_chaos_model",

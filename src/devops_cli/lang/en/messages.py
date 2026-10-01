@@ -308,6 +308,10 @@ class DocsMessages:
     check_failed: str = (
         "Documentation check failed. Run 'devops docs generate' to refresh documentation."
     )
+    argv_unresolved: str = "{location} {owner}: 'devops {command_line}': {problem}."
+    argv_unknown_command: str = "unknown command '{token}' under '{command_path}'"
+    argv_unknown_option: str = "unknown option '{token}' for '{command_path}'"
+    argv_unexpected_argument: str = "unexpected extra argument '{token}' for '{command_path}'"
     synced_readme: str = "✓ Synchronized Command Matrix table in {path}"
     unsupported_format: str = (
         "Unsupported documentation format: {format}. Supported: markdown, json"

@@ -11,6 +11,7 @@ import click
 import typer
 
 from devops_cli import __version__
+from devops_cli.config.constants import CONST_CLI_ROOT_LEVEL_COMMANDS
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import dry_run_requested_by_environment, is_dry_run, set_dry_run
 from devops_cli.lang import HELP
@@ -83,9 +84,10 @@ def _delegate(module_path: str, command_name: str, args: list[str]) -> None:
     module_app = module.app
     command = typer.main.get_command(module_app)
 
-    effective_args = [command_name, *args] if command_name in ("format", "lint") else list(args)
+    is_root_level = command_name in CONST_CLI_ROOT_LEVEL_COMMANDS
+    effective_args = [command_name, *args] if is_root_level else list(args)
 
-    prog = "devops" if command_name in ("format", "lint") else f"devops {command_name}"
+    prog = "devops" if is_root_level else f"devops {command_name}"
 
     # Fast dispatch for help queries to avoid importing telemetry/OTLP network exporters
     if any(a in ("-h", "--help") for a in args):

@@ -33,9 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - STATUS and READY match `kubectl get pods` wherever pods are listed: the dashboard, `devops dashboard --summary`, `devops k8s pods` and `--watch`. The Kubernetes tab's banner names the context, the Ready nodes and the unhealthy pods, or the context and the real error when it cannot connect (#686).
   - Namespace and text filters survive refreshes and keep the highlighted pod on screen. Logs follow a pod's default container, `c` cycles containers, a replaced log stream is closed, and `e` opens the pod's containers and recent events. The Minikube probe is gone (#686).
 
+### Changed
+- **MCP Tool `k8s_chaos` Previews by Default**:
+  - `experiment` is the positional argument, and a new `dry_run` parameter (default `true`) passes `--dry-run`, so the tool runs an experiment only when `dry_run` is false (#836).
+
 ### Removed
 - **LightLLM Inference Backend (`devops_cli.ai`, `k8s/llm`)**:
   - Fully removed the unused `ghcr.io/modeltc/lightllm` inference backend, including `k8s/llm/lightllm/` manifests, `CONST_AI_BACKEND_LIGHTLLM`, `GatewayRouter.scale_lightllm()`, the `devops-cli-ai_lightllm_scale` MCP tool, and all associated CLI, configuration, and test references. The `devops ai gateway scale` command now exclusively targets the vLLM backend.
+- **MCP Tools and Parameters With No Command Behind Them**:
+  - The `ai_architecture` tool, which called a nonexistent `devops analyze architecture`, and the parameters `repos_sync(all_repos)`, `k8s_audit(namespace)` and `k8s_chaos(action)`, which their commands never took (#836).
 
 ### Fixed
 - **Kubernetes Monitoring Stack Integration & Dashboard Metrics (`k8s/monitoring`)**:
@@ -69,6 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tests Never Reach Port-Forwarded Services (`tests/conftest.py`)**:
   - The test network guard refuses loopback connects to any port the test process is not listening on, and a port refuses again once its listener closes, so a workstation's port-forwards (OTLP collector, Valkey, Ollama, ArgoCD) are never reached by the suite; one run had made 5,716 such connects. The refusal is the `ConnectionRefusedError` clients already handle (#837).
   - `EmbeddingsEngine` no longer skips its Valkey probe under pytest, and `test_popeye_dry_run` no longer runs the real popeye binary (#837).
+- **MCP Tools Call Commands That Exist (`devops mcp`, `devops docs check`)**:
+  - Twelve MCP entry points called commands or options the CLI does not have and failed on every call. They now call real commands: `benchmark_embeddings` and `benchmark_suite` run `devops ai benchmark`; `scan_gitleaks`, `scan_semgrep` and `scan_checkov` run `devops scan secrets`, `sast` and `iac`; `resource://workspace/status` runs `devops repos list`; `scan_complexity` passes `--max-indent`; `resource://argo/fleet/status` no longer passes `--json` (#836).
+  - `devops docs check` resolves every `uv run devops` argv in the MCP server against the real command tree without running it, and reports each defect at its server line (#836).
 
 ## [0.2.24] - 2026-09-28
 

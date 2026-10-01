@@ -6,7 +6,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 
 | Tool Name | Description |
 |---|---|
-| [`ai_architecture`](#ai-architecture) | Analyze architectural module boundaries, dependency graphs, and cyclic imports. |
 | [`ai_ast_graph`](#ai-ast-graph) | Synthesize whole-repository code symbol and reference graph across polyglot languages. |
 | [`ai_ast_parse`](#ai-ast-parse) | Parse a polyglot source file (Python, TypeScript, JavaScript, Go, Rust, Java, C#, C, C++, HCL, shell, Markdown) into syntax symbols or execute S-expression query. |
 | [`ai_backend_probe`](#ai-backend-probe) | Directly probe health, latency, and registered models of an inference backend. |
@@ -169,17 +168,6 @@ Pass the domain name alone, for example `k8s`. |
 | [`workspace_list`](#workspace-list) | Show the active VS Code workspace file and configured repository directories. |
 
 ---
-
-### `ai_architecture`
-
-Analyze architectural module boundaries, dependency graphs, and cyclic imports.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `target` | `string` | No | `src` | - |
-| `max_depth` | `integer` | No | `4` | - |
 
 ### `ai_ast_graph`
 
@@ -952,11 +940,7 @@ Pass the domain name alone, for example `k8s`.
 
 Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks.
 
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `namespace` | `string` | No | `default` | - |
+*No parameters required.*
 
 ### `k8s_bootstrap`
 
@@ -976,9 +960,9 @@ Inject or validate Kubernetes chaos engineering experiments and cluster resilien
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `action` | `string` | No | `validate` | - |
 | `experiment` | `string` | No | `pod-failure` | - |
 | `namespace` | `string` | No | `default` | - |
+| `dry_run` | `boolean` | No | `True` | - |
 
 ### `k8s_create_tls_secret`
 
@@ -1346,11 +1330,7 @@ Display uncommitted changes and branch drift across workspace repositories.
 
 Fetch and pull tracking branches across workspace repositories.
 
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `all_repos` | `boolean` | No | `False` | - |
+*No parameters required.*
 
 ### `review_branch`
 

@@ -94,6 +94,15 @@ CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
 CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
     CONST_MCP_EAGER_DOMAINS | CONST_MCP_LAZY_DOMAINS | {"github", "secrets", "benchmarks"}
 )
+# The module whose tools and resources shell out to `devops`, and the argv head that marks
+# such a call. `devops docs check` resolves every list that starts with it.
+CONST_MCP_SERVER_MODULE = "devops_cli.ai.mcp.server"
+CONST_DEVOPS_ARGV_PREFIX: Final[tuple[str, ...]] = ("uv", "run", "devops")
+# The list methods that add tokens to an argv the MCP server builds up in a variable.
+CONST_ARGV_EXTENDING_METHODS: Final[frozenset[str]] = frozenset({"append", "extend"})
+# Root commands whose module app takes the command's own name as its first argument:
+# `devops lint` runs the `lint` subcommand of `devops_cli.commands.ci`.
+CONST_CLI_ROOT_LEVEL_COMMANDS: Final[frozenset[str]] = frozenset({"format", "lint"})
 CONST_SYSTEM_TEMP_DIRS: tuple[Path, ...] = (Path("/tmp"), Path("/var/tmp"))  # nosec B108
 CONST_FORBIDDEN_SYSTEM_DIRS: tuple[Path, ...] = (
     Path("/etc"),
