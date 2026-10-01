@@ -14,6 +14,10 @@ destinations:
     type: loki
     url: http://loki.logging.svc.cluster.local:3100/loki/api/v1/push
 
+# ── Self-Reporting ───────────────────────────────────────────────────────────
+selfReporting:
+  enabled: false
+
 # ── Features ─────────────────────────────────────────────────────────────────
 clusterMetrics:
   enabled: true
@@ -93,6 +97,7 @@ collectors:
       - clustered
       - statefulset
     alloy:
+      enableReporting: false
       resources:
         requests:
           cpu: 100m
@@ -102,6 +107,7 @@ collectors:
           memory: 1024Mi
   alloy-singleton:
     alloy:
+      enableReporting: false
       resources:
         requests:
           cpu: 50m
@@ -114,6 +120,7 @@ collectors:
       - daemonset
       - filesystem-log-reader
     alloy:
+      enableReporting: false
       resources:
         requests:
           cpu: 50m
