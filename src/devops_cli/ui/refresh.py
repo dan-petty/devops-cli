@@ -98,19 +98,24 @@ __all__ = [
 
 
 def pod_log_source(
-    pod: str, namespace: str, tail_lines: int = DEFAULT_LOG_TAIL_LINES
+    pod: str,
+    namespace: str,
+    container: str | None = None,
+    tail_lines: int = DEFAULT_LOG_TAIL_LINES,
 ) -> Callable[[], Iterable[str]]:
-    """Build a callable yielding a pod's log lines, followed live.
+    """Build a callable yielding one container's log lines, followed live.
 
     The stream is opened inside the callable rather than here, so the blocking connection
-    is established on the worker thread that consumes it and never on the UI thread.
+    is established on the worker thread that consumes it and never on the UI thread. A pod
+    with more than one container needs the container named: the API server answers 400
+    otherwise.
     """
 
     def open_stream() -> Iterable[str]:
         from devops_cli.k8s.service import KubernetesService
 
         stream = KubernetesService.get_instance().read_pod_logs(
-            pod=pod, namespace=namespace, tail_lines=tail_lines, follow=True
+            pod=pod, namespace=namespace, container=container, tail_lines=tail_lines, follow=True
         )
         if isinstance(stream, str):
             return stream.splitlines()

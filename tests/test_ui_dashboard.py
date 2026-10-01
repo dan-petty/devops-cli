@@ -10,8 +10,12 @@ import pytest
 from textual.widgets import TabbedContent
 from typer.testing import CliRunner
 
+import devops_cli.commands.dashboard as dashboard_command
+import devops_cli.ui.data_providers as data_providers
 from devops_cli.commands.dashboard import app as dashboard_app
+from devops_cli.config.defaults import DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS
 from devops_cli.main import app as main_app
+from devops_cli.models.k8s import PodInfo
 from devops_cli.ui.dashboard import DashboardApp, HelpScreen
 from devops_cli.ui.data_providers import (
     DockerSummary,
@@ -25,6 +29,8 @@ from devops_cli.ui.data_providers import (
     fetch_telemetry_status,
     fetch_valkey_status,
 )
+from devops_cli.ui.projections import k8s_banner
+from tests.k8s_fakes import FakeCoreV1, crashlooping_pod, healthy_pod, node
 
 runner = CliRunner()
 
@@ -34,32 +40,81 @@ runner = CliRunner()
 # =============================================================================
 
 
-def test_fetch_k8s_status_success() -> None:
-    """fetch_k8s_status returns structured pod records when Kubernetes client succeeds."""
-    mock_pod = MagicMock()
-    mock_pod.metadata.name = "devops-api-7b8f9c-xyz"
-    mock_pod.metadata.namespace = "devops-system"
-    mock_pod.status.phase = "Running"
-    mock_container_status = MagicMock()
-    mock_container_status.ready = True
-    mock_container_status.restart_count = 0
-    mock_pod.status.container_statuses = [mock_container_status]
+@pytest.fixture
+def lab_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Name the context the provider reports, whatever the workstation has configured."""
+    monkeypatch.setattr(data_providers, "_k8s_context_name", lambda: "lab")
 
-    mock_v1 = MagicMock()
-    mock_v1.list_pod_for_all_namespaces.return_value.items = [mock_pod]
 
-    with (
-        patch("devops_cli.ui.data_providers._get_k8s_client", return_value=mock_v1),
-        patch("devops_cli.ui.data_providers.is_minikube_running", return_value=True),
-    ):
-        summary = fetch_k8s_status()
-        assert isinstance(summary, K8sSummary)
-        assert summary.connected is True
-        assert summary.minikube_active is True
-        assert len(summary.pods) == 1
-        assert summary.pods[0]["name"] == "devops-api-7b8f9c-xyz"
-        assert summary.pods[0]["status"] == "Running"
-        assert summary.pods[0]["ready"] == "1/1"
+def _serve(monkeypatch: pytest.MonkeyPatch, core: FakeCoreV1) -> FakeCoreV1:
+    monkeypatch.setattr(data_providers, "_get_k8s_client", lambda: core)
+    return core
+
+
+@pytest.mark.usefixtures("lab_context")
+def test_fetch_k8s_status_reads_pods_and_nodes_on_one_bounded_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pods become typed records, nodes are counted Ready, and neither call can hang."""
+    core = _serve(
+        monkeypatch,
+        FakeCoreV1(
+            pods=[healthy_pod("api-0", "shop"), crashlooping_pod("exporter-0", "monitoring")],
+            nodes=[node("worker-1"), node("worker-2"), node("worker-3"), node("worker-4", "False")],
+        ),
+    )
+    summary = fetch_k8s_status()
+    assert (
+        summary.connected,
+        summary.context,
+        [(pod.name, pod.status, pod.ready_containers) for pod in summary.pods],
+        (summary.nodes_ready, summary.nodes_total),
+        [(method, kwargs.get("_request_timeout")) for method, kwargs in core.calls],
+        "3/4 nodes Ready" in k8s_banner(summary),
+    ) == (
+        True,
+        "lab",
+        [("api-0", "Running", "1/1"), ("exporter-0", "CrashLoopBackOff", "0/1")],
+        (3, 4),
+        [
+            ("list_pod_for_all_namespaces", DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS),
+            ("list_node", DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS),
+        ],
+        True,
+    )
+
+
+@pytest.mark.usefixtures("lab_context")
+def test_pods_still_render_when_the_node_list_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Listing nodes needs a cluster-scoped permission listing pods does not."""
+    from kubernetes.client.exceptions import ApiException  # type: ignore[import-untyped]
+
+    _serve(
+        monkeypatch,
+        FakeCoreV1(pods=[healthy_pod("api-0")], nodes=ApiException(status=403, reason="Forbidden")),
+    )
+    summary = fetch_k8s_status()
+    assert (summary.connected, len(summary.pods), summary.nodes_error) == (
+        True,
+        1,
+        "403 Forbidden",
+    )
+    assert "nodes: unavailable (403 Forbidden)" in k8s_banner(summary)
+
+
+@pytest.mark.usefixtures("lab_context")
+def test_a_failed_pod_list_reports_the_context_and_the_masked_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The banner names the cluster it tried, and a token in the error is not echoed."""
+    _serve(monkeypatch, FakeCoreV1(pods=ConnectionError("refused, token=ghp_" + "a" * 36)))
+    summary = fetch_k8s_status()
+    banner = k8s_banner(summary)
+    assert (
+        summary.connected,
+        "Disconnected | context lab — ConnectionError: refused" in banner,
+        "ghp_" + "a" * 36 in banner,
+    ) == (False, True, False)
 
 
 def test_fetch_k8s_status_failure() -> None:
@@ -70,6 +125,47 @@ def test_fetch_k8s_status_failure() -> None:
         assert summary.connected is False
         assert summary.pods == []
         assert "No cluster" in summary.error_message
+
+
+@pytest.mark.usefixtures("lab_context")
+def test_the_kubernetes_snapshot_runs_no_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A banner badge ran a CLI on every refresh, with a timeout of half an hour."""
+    import subprocess
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("the Kubernetes provider started a subprocess")
+
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    monkeypatch.setattr(subprocess, "Popen", forbidden)
+    monkeypatch.setattr("devops_cli.core.process.run_subprocess", forbidden)
+    _serve(monkeypatch, FakeCoreV1(pods=[healthy_pod("api-0")], nodes=[node("worker-1")]))
+    assert fetch_k8s_status().connected is True
+
+
+@pytest.mark.parametrize(
+    ("configured", "kubeconfig", "expected"),
+    [
+        ("lab", ("ambient",), "lab"),
+        (None, ("ambient",), "ambient"),
+        (None, (), ""),
+    ],
+)
+def test_the_context_named_is_the_configured_one_or_kubectls_current_one(
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str | None,
+    kubeconfig: tuple[str, ...],
+    expected: str,
+) -> None:
+    """The banner names the cluster the dashboard actually connects to."""
+
+    def contexts() -> tuple[list[dict[str, str]], dict[str, str]]:
+        if not kubeconfig:
+            raise ValueError("no kubeconfig")
+        return [{"name": kubeconfig[0]}], {"name": kubeconfig[0]}
+
+    monkeypatch.setattr("devops_cli.k8s.context.resolve_context", lambda: configured)
+    monkeypatch.setattr("kubernetes.config.list_kube_config_contexts", contexts)
+    assert data_providers._k8s_context_name() == expected
 
 
 def test_fetch_docker_status_success() -> None:
@@ -286,6 +382,33 @@ def test_cli_dashboard_summary_option() -> None:
     assert "Telemetry Metrics" in res.output
     assert "AI Review Findings" in res.output
     assert "Valkey Caching" in res.output
+
+
+def test_the_summary_lists_unhealthy_pods_first_and_counts_the_rest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first ten pods by API order hid whichever pod was actually failing."""
+    pods = [
+        PodInfo(name=f"web-{index:02d}", status="Running", ready_containers="1/1")
+        for index in range(13)
+    ]
+    pods[7:7] = [PodInfo(name="crash-a", status="CrashLoopBackOff", unhealthy=True)]
+    pods.append(PodInfo(name="crash-b", status="Error", unhealthy=True))
+    summary = K8sSummary(connected=True, context="lab", pods=pods)
+    monkeypatch.setattr(dashboard_command, "fetch_k8s_status", lambda: summary)
+    monkeypatch.setattr(dashboard_command, "fetch_docker_status", DockerSummary)
+    monkeypatch.setattr(dashboard_command, "fetch_telemetry_status", TelemetrySummary)
+    monkeypatch.setattr(dashboard_command, "fetch_review_status", ReviewSummary)
+    monkeypatch.setattr(dashboard_command, "fetch_valkey_status", ValkeySummary)
+    res = runner.invoke(dashboard_app, ["--summary"])
+    order = [res.output.index(name) for name in ("crash-a", "crash-b", "web-00", "web-07")]
+    assert (
+        res.exit_code,
+        order == sorted(order),
+        "web-08" in res.output,
+        "5 more pods not shown" in res.output,
+        "context lab" in res.output,
+    ) == (0, True, False, True, True)
 
 
 def test_cli_main_dashboard_command() -> None:

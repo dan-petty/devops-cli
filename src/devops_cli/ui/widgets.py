@@ -22,11 +22,12 @@ from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import DataTable, Static, TabbedContent, TabPane
+from textual.widgets import DataTable, Input, Select, Static, TabbedContent, TabPane
 
 from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_DOCKER,
+    CONST_DASHBOARD_DOMAIN_K8S,
     CONST_DASHBOARD_DOMAIN_LABELS,
     CONST_DOCKER_RESOURCE_CONTAINERS,
     CONST_DOCKER_RESOURCE_LABELS,
@@ -37,19 +38,27 @@ from devops_cli.config.defaults import (
     DEFAULT_LOG_REDRAW_INTERVAL_SECONDS,
     DEFAULT_LOG_STREAM_POLL_SECONDS,
 )
+from devops_cli.models.k8s import PodInfo
 from devops_cli.output import Text
 from devops_cli.ui.log_buffer import VirtualLogBuffer
+from devops_cli.ui.pod_inspector import PodInspector
 from devops_cli.ui.projections import (
     CONST_FINDING_DETAIL_EMPTY,
+    CONST_K8S_ALL_NAMESPACES,
+    CONST_K8S_ALL_NAMESPACES_LABEL,
     DOCKER_RESOURCE_COLUMNS,
     DOMAIN_COLUMNS,
     REVIEW_SESSION_COLUMNS,
     docker_resource_keys,
     docker_resource_label,
     docker_resource_rows,
+    filter_pods,
     finding_detail,
     finding_records,
+    k8s_filter_banner,
+    k8s_pod_row,
     loading_banner,
+    namespace_choices,
     render_banner,
     render_domain,
     render_keys,
@@ -143,7 +152,175 @@ class DomainPanel(Vertical):
         redraw_table(self.query_one(DataTable), rows, render_keys(snapshot))
 
 
-__all__ = ["DockerPanel", "DomainPanel", "LogPane", "ReviewPanel", "redraw_table"]
+__all__ = ["DockerPanel", "DomainPanel", "K8sPanel", "LogPane", "ReviewPanel", "redraw_table"]
+
+
+class K8sPanel(Vertical):
+    """The Kubernetes domain: a banner, a namespace selector and text filter, and the pods.
+
+    Both filters are applied to every snapshot, so a refresh never undoes them, and the
+    table is redrawn by pod key, so the cursor stays on its pod. The panel keeps each
+    listed pod's record, so opening its logs or inspecting it needs no further lookup.
+    """
+
+    # Hidden from the footer, which already truncates; the help screen lists them. Bound
+    # here, so they act only while focus is inside the Kubernetes tab.
+    BINDINGS = [
+        Binding("slash", "focus_filter", "Filter pods", show=False),
+        Binding("e", "inspect", "Inspect pod", show=False),
+        Binding("escape", "clear_filter", "Clear filter", show=False),
+    ]
+
+    DEFAULT_CSS = """
+    K8sPanel {
+        height: 1fr;
+    }
+    K8sPanel > Static {
+        padding: 0 1;
+        margin-bottom: 1;
+        background: $boost;
+        color: $text;
+    }
+    K8sPanel #k8s-filters {
+        height: auto;
+    }
+    K8sPanel #k8s-namespace {
+        width: 32;
+    }
+    K8sPanel #k8s-filter {
+        width: 1fr;
+    }
+    K8sPanel > DataTable {
+        height: 1fr;
+    }
+    """
+
+    def __init__(
+        self, domain: str = CONST_DASHBOARD_DOMAIN_K8S, *, stale_after: float | None = None
+    ) -> None:
+        super().__init__(id=f"panel-{domain}")
+        self.domain = domain
+        self.stale_after = stale_after
+        self._snapshot = DomainSnapshot(domain=domain)
+        # Every pod in the last snapshot by row key, and the subset the filters list.
+        self._pods: dict[str, PodInfo] = {}
+        self._shown: dict[str, PodInfo] = {}
+        # The namespaces the selector offers. The chosen one is read from the selector
+        # itself, so a choice made while a refresh is queued is never overwritten.
+        self._namespaces: tuple[str, ...] = ()
+
+    @property
+    def label(self) -> str:
+        """Human-readable name for this domain."""
+        return CONST_DASHBOARD_DOMAIN_LABELS.get(self.domain, self.domain.title())
+
+    def compose(self) -> ComposeResult:
+        yield Static(loading_banner(self.domain), id=f"{self.domain}-banner")
+        yield Horizontal(
+            Select(
+                [(CONST_K8S_ALL_NAMESPACES_LABEL, CONST_K8S_ALL_NAMESPACES)],
+                value=CONST_K8S_ALL_NAMESPACES,
+                allow_blank=False,
+                id="k8s-namespace",
+            ),
+            Input(placeholder="/ filter by namespace, name or status", id="k8s-filter"),
+            id="k8s-filters",
+        )
+        yield DataTable(id=f"{self.domain}-table")
+
+    def on_mount(self) -> None:
+        """Install the column headers."""
+        table = self._table()
+        table.cursor_type = "row"
+        table.add_columns(*DOMAIN_COLUMNS[self.domain])
+
+    def _table(self) -> DataTable[Any]:
+        return self.query_one(f"#{self.domain}-table", DataTable)
+
+    def _select(self) -> Select[str]:
+        return self.query_one("#k8s-namespace", Select)
+
+    def _namespace(self) -> str:
+        """Return the chosen namespace, or the empty string for all of them."""
+        value = self._select().value
+        return value if isinstance(value, str) else CONST_K8S_ALL_NAMESPACES
+
+    def apply(self, snapshot: DomainSnapshot) -> None:
+        """Render a snapshot through the current filters.
+
+        Called from the UI thread only; workers hand snapshots across via the app.
+        """
+        self._snapshot = snapshot
+        pods = snapshot.data.pods if snapshot.data is not None else []
+        self._pods = dict(zip(render_keys(snapshot), pods, strict=True))
+        self._offer_namespaces()
+        self._redraw()
+
+    def _offer_namespaces(self) -> None:
+        """Offer the namespaces in the snapshot, keeping the one chosen.
+
+        Replacing a Select's options resets its selection, so they are replaced only when
+        the namespaces change, and the choice is put back at once.
+        """
+        chosen = self._namespace()
+        choices = namespace_choices(self._pods.values(), chosen)
+        if choices == self._namespaces:
+            return
+        self._namespaces = choices
+        select = self._select()
+        select.set_options(
+            [
+                (CONST_K8S_ALL_NAMESPACES_LABEL, CONST_K8S_ALL_NAMESPACES),
+                *((namespace, namespace) for namespace in choices),
+            ]
+        )
+        select.value = chosen
+
+    def _redraw(self) -> None:
+        """Redraw the banner and the pods the filters leave listed."""
+        namespace, text = self._namespace(), self.query_one("#k8s-filter", Input).value
+        self._shown = filter_pods(self._pods, namespace, text)
+        banner = render_banner(self._snapshot, stale_after=self.stale_after)
+        if namespace != CONST_K8S_ALL_NAMESPACES or text.strip():
+            banner = k8s_filter_banner(banner, len(self._shown), len(self._pods))
+        self.query_one(f"#{self.domain}-banner", Static).update(banner)
+        rows = [k8s_pod_row(pod) for pod in self._shown.values()]
+        redraw_table(self._table(), rows, list(self._shown))
+
+    def pod_for(self, row_key: str | None) -> PodInfo | None:
+        """Return the pod a listed row shows, if it is still listed."""
+        return self._shown.get(row_key) if row_key is not None else None
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Apply a namespace choice.
+
+        The choice is read from the selector, not the message: restoring it after new
+        options posts a change to the reset value first, which is stale by now.
+        """
+        self._redraw()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Apply the text filter as it is typed."""
+        self._redraw()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Enter in the filter box hands the arrow keys back to the pods."""
+        self._table().focus()
+
+    def action_focus_filter(self) -> None:
+        """Move to the text filter."""
+        self.query_one("#k8s-filter", Input).focus()
+
+    def action_clear_filter(self) -> None:
+        """Clear the text filter and return to the pods."""
+        self.query_one("#k8s-filter", Input).value = ""
+        self._table().focus()
+
+    def action_inspect(self) -> None:
+        """Open the inspector on the highlighted pod."""
+        pod = self.pod_for(_highlighted_key(self._table()))
+        if pod is not None:
+            self.app.push_screen(PodInspector(pod))
 
 
 class DockerPanel(Vertical):
@@ -375,12 +552,15 @@ class ReviewPanel(Vertical):
         pane.display = not pane.display
 
 
-class LogPane(Vertical):
+class LogPane(Vertical, can_focus=True):
     """A virtualized log tail bound to a bounded buffer.
 
     Only the lines currently on screen are rendered, and only the most recent
     ``max_lines`` are retained, so a tail of a busy pod costs a fixed amount of memory and
     a fixed amount of work per frame no matter how long it runs.
+
+    The pane takes focus so its scroll keys reach it: Textual looks for a key's binding
+    only on the focused widget and its ancestors.
     """
 
     BINDINGS = [
@@ -389,6 +569,8 @@ class LogPane(Vertical):
         Binding("pageup", "scroll_pages(-1)", "Page Up", show=False),
         Binding("pagedown", "scroll_pages(1)", "Page Down", show=False),
         Binding("end", "follow", "Follow", show=True),
+        # The app knows which pod is tailed and how to open its streams.
+        Binding("c", "app.next_container", "Next container", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -399,6 +581,9 @@ class LogPane(Vertical):
         padding: 0 1;
         background: $boost;
         color: $text;
+    }
+    LogPane:focus > #log-status {
+        text-style: bold;
     }
     LogPane > #log-body {
         height: 1fr;
@@ -418,9 +603,14 @@ class LogPane(Vertical):
         self.buffer = buffer if buffer is not None else VirtualLogBuffer()
         self.title = title
         self.redraw_interval = redraw_interval
+        # The current stream's stop flag and queue. Each stream gets its own, so stopping
+        # one can never be undone by starting the next.
         self._stop = threading.Event()
         self._lines: queue.Queue[str | None] = queue.Queue(maxsize=CONST_LOG_STREAM_QUEUE_SIZE)
         self._producer: threading.Thread | None = None
+        # Held across a buffer write and the stop check before it, and across stopping a
+        # stream and clearing the buffer, so a stopped stream cannot write one more line.
+        self._write_lock = threading.Lock()
 
     def compose(self) -> ComposeResult:
         yield Static("", id="log-status", markup=False)
@@ -451,15 +641,21 @@ class LogPane(Vertical):
     # -- Streaming ------------------------------------------------------------
 
     def start_stream(self, source: Callable[[], Iterable[str]]) -> None:
-        """Consume a line source, redrawing as lines arrive."""
-        self._stop.clear()
-        self.buffer.clear()
+        """Consume a line source, redrawing as lines arrive, in place of any previous one.
+
+        The previous stream is stopped by its own flag, which its producer and consumer
+        both watch, so neither reads or writes again once the new stream starts.
+        """
+        with self._write_lock:
+            self._stop.set()
+            self.buffer.clear()
+        self._stop = threading.Event()
         self._lines = queue.Queue(maxsize=CONST_LOG_STREAM_QUEUE_SIZE)
         self._producer = threading.Thread(
             target=self._produce, args=(source, self._stop, self._lines), daemon=True
         )
         self._producer.start()
-        self._consume()
+        self._consume(self._stop, self._lines)
 
     def stop_stream(self) -> None:
         """Ask the stream to finish."""
@@ -513,24 +709,23 @@ class LogPane(Vertical):
             # Sentinel: tells the consumer the stream ended rather than merely paused.
             lines.put(None, timeout=DEFAULT_LOG_STREAM_POLL_SECONDS)
 
-    @work(thread=True, group="log-stream", exclusive=True)
-    def _consume(self) -> None:
-        """Drain produced lines, coalescing redraws as they arrive.
+    @work(thread=True, group="log-stream")
+    def _consume(self, stop: threading.Event, lines: queue.Queue[str | None]) -> None:
+        """Drain one stream's lines, coalescing redraws as they arrive.
 
         Waits with a timeout rather than blocking, so the stop flag is observed promptly
         even when the stream is silent, and the worker Textual waits for on shutdown is
-        always one that can return.
+        always one that can return. Cancelling a thread worker does not stop its thread,
+        so the stream's own flag is what ends it.
         """
         last_draw = 0.0
-        lines = self._lines
-        while not self._stop.is_set():
+        while not stop.is_set():
             try:
                 text = lines.get(timeout=DEFAULT_LOG_STREAM_POLL_SECONDS)
             except queue.Empty:
                 continue
-            if text is None:
+            if text is None or not self._append(stop, text):
                 break
-            self.buffer.append(text.rstrip("\n"))
             now = time.monotonic()
             if now - last_draw >= self.redraw_interval:
                 last_draw = now
@@ -538,6 +733,14 @@ class LogPane(Vertical):
         # A final redraw guarantees the last lines are shown even if the stream ended
         # inside a coalescing window.
         self._schedule_redraw()
+
+    def _append(self, stop: threading.Event, text: str) -> bool:
+        """Add a stream's line to the buffer unless the stream was stopped meanwhile."""
+        with self._write_lock:
+            if stop.is_set():
+                return False
+            self.buffer.append(text.rstrip("\n"))
+            return True
 
     def _schedule_redraw(self) -> None:
         """Ask the UI thread to redraw, tolerating an app that is shutting down."""

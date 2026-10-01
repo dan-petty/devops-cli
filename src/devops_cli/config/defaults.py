@@ -780,6 +780,10 @@ DEFAULT_DASHBOARD_STALE_SECONDS: float = 30.0
 # a terminal can usefully repaint; every line is still retained, only the drawing is
 # coalesced, which is what keeps the UI thread free under load.
 DEFAULT_LOG_REDRAW_INTERVAL_SECONDS: float = 0.05
+# Most recent events the pod inspector lists for one pod.
+DEFAULT_K8S_POD_EVENT_LIMIT: int = 20
+# Pods `devops dashboard --summary` lists, unhealthy ones first; it counts the rest.
+DEFAULT_DASHBOARD_SUMMARY_POD_ROWS: int = 10
 
 # ── Telemetry Span Buffer ───────────────────────────────────────────────────
 # Completed spans retained in memory for the waterfall view and offline inspection.

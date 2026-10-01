@@ -22,13 +22,17 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.service import KubernetesService
-from devops_cli.models.k8s import K8sEvent, K8sInformerState
+from devops_cli.models.k8s import K8sEvent, K8sInformerState, PodInfo
 
 logger = logging.getLogger(__name__)
 
 
 def _extract_event_metadata(obj: Any, default_namespace: str) -> tuple[str, str, str]:
-    """Extract (name, namespace, status) from a Kubernetes object or dictionary."""
+    """Extract (name, namespace, status) from a Kubernetes object or dictionary.
+
+    The watch lists pods, so an object's status is the one `kubectl get pods` prints: the
+    phase alone reads Running for a pod whose container is crashlooping.
+    """
     if isinstance(obj, dict):
         d_meta = obj.get("metadata")
         d_status = obj.get("status")
@@ -42,9 +46,7 @@ def _extract_event_metadata(obj: Any, default_namespace: str) -> tuple[str, str,
     meta = getattr(obj, "metadata", None)
     name = str(getattr(meta, "name", "unknown") or "unknown")
     namespace = str(getattr(meta, "namespace", default_namespace) or default_namespace)
-    st = getattr(obj, "status", None)
-    status = str(getattr(st, "phase", "Active") or "Active")
-    return name, namespace, status
+    return name, namespace, PodInfo.from_pod(obj).status
 
 
 class ResourceInformer:
