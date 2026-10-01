@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -9,6 +10,7 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.scan import app as scan_app
+from devops_cli.security.bandit import BanditScanner
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.dive import DiveScanner
 from devops_cli.security.pipeline import build_report
@@ -214,3 +216,16 @@ def test_scan_report_fail_on_evaluation(tmp_path: Path) -> None:
             res_default.exit_code,
             "Scanner 'mock_unavail' was not run" in res_default.output,
         ) == (0, True)
+
+
+def test_a_scan_outcome_records_when_the_scanner_started_and_finished(tmp_path: Path) -> None:
+    """SARIF invocations carry the scanner's execution window in UTC."""
+    utc_millis = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
+    with patch("devops_cli.security.base.check_binary", return_value=False):
+        outcome = BanditScanner().scan(tmp_path)
+    assert (
+        outcome.status,
+        bool(utc_millis.match(outcome.started_utc or "")),
+        bool(utc_millis.match(outcome.ended_utc or "")),
+        (outcome.started_utc or "") <= (outcome.ended_utc or ""),
+    ) == ("unavailable", True, True, True)

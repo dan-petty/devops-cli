@@ -907,7 +907,7 @@ def scan_report(
     report = build_report(results, target_abs, policy=policy, min_severity=min_severity)
 
     if sarif is not None:
-        write_sarif(report.findings, sarif)
+        write_sarif(report.findings, sarif, report.outcomes)
 
     if json_output:
         write_stdout(format_json(report.as_dict()))
