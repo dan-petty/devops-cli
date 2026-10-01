@@ -64,9 +64,9 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_pages_verify`](#gh-pages-verify) | Verify local repository readiness for GitHub Pages publishing. |
 | [`gh_project_audit`](#gh-project-audit) | Audit project board health and alignment against standardized template. |
 | [`gh_project_list`](#gh-project-list) | List available GitHub Projects v2 boards for user or organization. |
-| [`gh_project_reconcile`](#gh-project-reconcile) | Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items. |
+| [`gh_project_reconcile`](#gh-project-reconcile) | Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing each change and its source. |
 | [`gh_project_status`](#gh-project-status) | Inspect GitHub Projects v2 template configuration, fields, and view definitions. |
-| [`gh_project_sync`](#gh-project-sync) | Synchronize task items from task tracking into GitHub Projects v2 status. |
+| [`gh_project_sync`](#gh-project-sync) | Create or update the project board, add open issues, and reconcile Status, Priority and Milestone. |
 | [`gh_rate_limit`](#gh-rate-limit) | Inspect GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 | [`gh_run_view`](#gh-run-view) | View details and diagnostic failure logs of a specific GitHub Actions workflow run. |
 | [`gh_runs_list`](#gh-runs-list) | List recent GitHub Actions CI/CD workflow runs. |
@@ -823,7 +823,7 @@ List available GitHub Projects v2 boards for user or organization.
 
 ### `gh_project_reconcile`
 
-Reconcile custom fields (Status, Priority, Category, Value, Effort) on GitHub Projects v2 items.
+Reconcile Status, Priority and Milestone on GitHub Projects v2 items, listing each change and its source.
 
 **Parameters:**
 
@@ -841,7 +841,7 @@ Inspect GitHub Projects v2 template configuration, fields, and view definitions.
 
 ### `gh_project_sync`
 
-Synchronize task items from task tracking into GitHub Projects v2 status.
+Create or update the project board, add open issues, and reconcile Status, Priority and Milestone.
 
 **Parameters:**
 

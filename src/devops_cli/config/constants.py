@@ -2196,9 +2196,9 @@ CONST_GITIGNORE_PATTERN_STYLE: Final[str] = "gitignore"
 # `deleteProjectV2Workflow` -- there is no mutation that enables or configures one -- so
 # these are reported as a gap against the live board rather than applied.
 CONST_PROJECT_WORKFLOW_EXPECTATIONS: Final[dict[str, str]] = {
-    "Item added to project": "Set Status to Todo",
+    "Item added to project": "Set Status to Backlog",
     "Item closed": "Set Status to Done",
-    "Item reopened": "Set Status to Todo",
+    "Item reopened": "Set Status to Backlog",
     "Pull request linked to issue": "Set Status to In Progress",
     "Pull request merged": "Set Status to Done",
     "Auto-close issue": "Close the issue when its linked pull request merges",

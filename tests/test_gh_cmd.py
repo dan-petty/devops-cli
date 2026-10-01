@@ -302,23 +302,57 @@ def test_gh_views_audit() -> None:
 
 
 def test_gh_project_reconcile() -> None:
-    """devops gh project reconcile triggers field reconciliation."""
+    """devops gh project reconcile lists every field change with what decided it."""
     mock_res = {
         "project_number": 2,
         "items_evaluated": 10,
-        "items_reconciled": 8,
-        "dry_run": False,
+        "items_reconciled": 1,
+        "dry_run": True,
+        "changes": [
+            {
+                "url": "https://github.com/dan-petty/devops-cli/issues/7",
+                "field": "Status",
+                "old": None,
+                "new": "Backlog",
+                "source": "default for an unset status",
+            }
+        ],
     }
     with patch(
         "devops_cli.github.projects.reconcile_project_custom_fields",
         return_value=mock_res,
     ):
         result = runner.invoke(
-            app, ["project", "reconcile", "--project-number", "2", "--repo", "dan-petty/devops-cli"]
+            app,
+            [
+                "project",
+                "reconcile",
+                "--project-number",
+                "2",
+                "--repo",
+                "dan-petty/devops-cli",
+                "--dry-run",
+            ],
         )
-        assert result.exit_code == 0
-        assert "Reconciled project #2" in result.output
-        assert "8/10 items updated" in result.output
+    assert (
+        result.exit_code,
+        "default for an unset status" in result.output,
+        "1 of 10 items" in result.output,
+    ) == (0, True, True)
+
+
+def test_gh_project_reconcile_refuses_a_missing_board() -> None:
+    """Without a matching board, reconcile must not guess a board number."""
+    with (
+        patch("devops_cli.github.projects.find_remote_project", return_value=None),
+        patch("devops_cli.github.projects.reconcile_project_custom_fields") as mock_reconcile,
+    ):
+        result = runner.invoke(app, ["project", "reconcile", "--repo", "dan-petty/devops-cli"])
+    assert (result.exit_code, mock_reconcile.called, "--project-number" in result.output) == (
+        1,
+        False,
+        True,
+    )
 
 
 def test_gh_pr_threads_alias() -> None:

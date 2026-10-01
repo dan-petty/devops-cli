@@ -6124,7 +6124,7 @@ devops gh project status [OPTIONS]
 
 #### `devops gh project sync`
 
-**Sync task items from docs/agent/tasks directory into GitHub Projects status.**
+**Create or update the project board from its template, add open issues, and reconcile Status, Priority and Milestone; task files are not read.**
 
 ```bash
 devops gh project sync [OPTIONS]
@@ -6138,11 +6138,11 @@ devops gh project sync [OPTIONS]
 | `--template`, `-t` | `path` | `.github/project-template.json` | Path to project template JSON |
 | `--repo`, `-R` | `string` | - | Target repository |
 | `--dry-run`, `--no-dry-run` | `boolean` | - | Preview task card items without remote mutations |
-| `--reconcile-fields`, `--no-reconcile-fields` | `boolean` | `True` | Automatically infer and update project custom fields from taxonomy labels and issue state. |
+| `--reconcile-fields`, `--no-reconcile-fields` | `boolean` | `True` | Also reconcile Status, Priority and Milestone from issue state and labels. |
 
 #### `devops gh project reconcile`
 
-**Reconcile custom fields (Status, Priority, Category, Value, Effort) on project items.**
+**Reconcile Status, Priority and Milestone on project items, listing each change and its source; the board owns Status.**
 
 ```bash
 devops gh project reconcile [OPTIONS]

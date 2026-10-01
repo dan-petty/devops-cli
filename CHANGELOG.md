@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Gitleaks Scans Every File of a List Target (`devops_cli.security.gitleaks`)**:
   - A list target, such as the files of a review, now runs Gitleaks once per file and merges the outcomes, keeping every finding and the worst status. Before, the binary scanned only the first file, and since #763 the built-in patterns did too (#781).
+- **Board-Owned Project Status and Truthful Reconciliation (`devops gh project reconcile`, `devops gh project sync`)**:
+  - The board owns Status: reconcile sets it only when unset, or when an item's state forces Done, In Review or In Progress, so manual triage is no longer reverted. Status labels match exactly, Priority only fills an unset field from its label, and Category, Value and Effort are no longer inferred (#703).
+  - `devops gh project reconcile` lists every field change with its old and new value and the source that decided it, and refuses to guess a board number when no board matches the template (#703).
+  - Failed reads of the board, issues or pull requests now raise instead of reading as empty, roadmap sync and release epics read every issue rather than the first 200 or 300, and each pull request is reconciled once (#703).
 - **Quality Gate Within Its Five-Minute Budget (`devops ci`, `tests/`)**:
   - The secops dry-run tests enable dry-run mode instead of running trivy, kube-linter and pluto over the whole workspace until they time out (#748).
   - The test network guard now fails external DNS lookups too; tests that validate egress against a resolving hostname declare the `public_dns` fixture (#748).

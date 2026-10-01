@@ -1,7 +1,7 @@
 # Task 703: Board-Owned Project Status, Declared Field Sources and Truthful Project Sync
 
 **Issue**: [#703](https://github.com/dan-petty/devops-cli/issues/703)
-**Status**: Backlog
+**Status**: Done
 **Milestone**: `v0.2.24`
 **Priority**: `priority/p0-critical`
 **Scope**: `type/feature`, `scope/github`, `priority/p0-critical`
@@ -20,3 +20,20 @@ Docs say `devops gh project sync` pushes task-file status to the board (`src/dev
 - Unit and integration test coverage with structural tuple equality assertions.
 - Maintain cyclomatic complexity $M \le 10$ and nesting depth $\le 5$.
 - 100% passing across Gated CI validation suite (`uv run devops ci`).
+
+## 2. Delivered
+
+- [x] `reconcile_project_custom_fields` returns `changes`: each field change with its item, old and new value, and the source that decided it (the planned changes in a dry run, the applied ones otherwise). `devops gh project reconcile` prints them as a table.
+- [x] The board owns Status. `plan_item_changes` sets it only when unset (from an exact `status/*` label, otherwise Backlog) or when the item's state forces Done (closed issue, merged or closed pull request), In Review (open pull request, or an issue with a linked open pull request) or In Progress (draft pull request).
+- [x] Status labels match exactly, so `status/ready-to-merge` and `status/triage` no longer read as Ready; `status/blocked` maps only when the board's template has a Blocked status. `CONST_PROJECT_WORKFLOW_EXPECTATIONS` expects Backlog, not Todo.
+- [x] Priority only fills an unset field from its `priority/*` label. Category, Value and Effort are never inferred: no join key between the matrix and items exists, so they stay unset unless set by hand. The taxonomy and title-keyword mappings are removed.
+- [x] Fetch failures raise `GitHubOperationError` instead of returning `[]` or `None`: the board items, repository issues and pull requests, and `get_repository_issues`, whose REST fallback now paginates. Roadmap sync, milestone reconciliation and release epics read every issue (`limit=None`) and no longer treat a failed read as an empty repository.
+- [x] The issues fetch drops pull requests, which the pulls fetch supplies with their merge state, so each pull request is reconciled once.
+- [x] `project reconcile` and `project workflows list` refuse to guess board #2 when no board matches the template.
+- [x] `devops gh issues sync-roadmap` reports how many eligible items fell back to `scope/cli`.
+- [x] The `project sync` help, the `gh_project_sync` and `gh_project_reconcile` MCP descriptions, `docs/agent/tasks/README.md` and the project-management knowledge base say what sync and reconcile do.
+
+## 3. Verification
+
+- `devops gh project reconcile --dry-run` against board #2 (read-only): would change 337 of 472 items, 480 field changes. Every change fills an unset field or forces a closed item to Done: Status unset to Done 212, unset to Backlog 81, unset to In Review 2, set to Done (closed) 42; Priority unset to a label's value 143. No set Status is moved for any other reason, and no Category, Value or Effort is written. Before dropping pull requests from the issues fetch, the same run counted 683 items, reconciling each pull request twice.
+- The 15 test files that touch projects, issues, roadmap sync, release epics and the `gh` commands: 351 passed.

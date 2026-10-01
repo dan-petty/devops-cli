@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.github.client import parse_paginated_json
 from devops_cli.github.rate_limiter import run_gh
 
 logger = logging.getLogger(__name__)
@@ -98,19 +99,24 @@ def _parse_single_issue(item: dict[str, Any]) -> GitHubIssue:
     )
 
 
+# gh issue list pages through results up to --limit, so "every issue" is a limit above any
+# repository's issue count rather than a separate code path.
+_EVERY_ISSUE = 100_000
+
+
 def _filter_rest_issues(
-    raw_list: list[Any], milestone: str | None, limit: int
+    raw_list: list[Any], milestone: str | None, limit: int | None
 ) -> list[GitHubIssue]:
     """Filter raw REST issue dictionaries into typed GitHubIssue objects."""
     issues: list[GitHubIssue] = []
     for item in raw_list:
-        if not isinstance(item, dict) or "pull_request" in item:
+        if not isinstance(item, dict) or "pull_request" in item or "number" not in item:
             continue
         parsed = _parse_single_issue(item)
         if milestone and parsed.milestone != milestone:
             continue
         issues.append(parsed)
-        if len(issues) >= limit:
+        if limit is not None and len(issues) >= limit:
             break
     return issues
 
@@ -120,24 +126,24 @@ def _fetch_issues_rest(
     state: str = "open",
     milestone: str | None = None,
     labels: list[str] | None = None,
-    limit: int = 30,
+    limit: int | None = 30,
 ) -> list[GitHubIssue]:
-    """Retrieve issues via GitHub REST API when gh issue list encounters rate limits or errors."""
-    api_path = f"repos/{repo}/issues?state={state}&per_page={min(max(limit, 1), 100)}"
+    """Retrieve every page of issues via the REST API when gh issue list fails.
+
+    Raises when this read fails too, so a failure never looks like a repository with no issues.
+    """
+    api_path = f"repos/{repo}/issues?state={state}&per_page=100"
     if labels:
         api_path += f"&labels={','.join(labels)}"
-    cmd = [CONST_GH_CLI, "api", api_path]
-    res = run_gh(cmd, check=False, quiet=True)
-    if res.returncode != 0 or not res.stdout.strip():
-        return []
-    try:
-        raw_list = json.loads(res.stdout)
-        if not isinstance(raw_list, list):
-            return []
-        return _filter_rest_issues(raw_list, milestone, limit)
-    except Exception as exc:
-        logger.debug("Failed to parse REST issues: %s", exc)
-        return []
+    res = run_gh([CONST_GH_CLI, "api", "--paginate", api_path], check=False, quiet=True)
+    if res.returncode != 0:
+        err_output = f"{res.stderr or ''} {res.stdout or ''}".strip()
+        raise GitHubOperationError(
+            f"Failed to read issues for {repo} (exit {res.returncode}): {err_output[:256]}",
+            operation="fetch_issues",
+            details={"repo": repo, "state": state},
+        )
+    return _filter_rest_issues(parse_paginated_json(res.stdout or ""), milestone, limit)
 
 
 def get_repository_issues(
@@ -146,9 +152,9 @@ def get_repository_issues(
     milestone: str | None = None,
     label: str | None = None,
     labels: list[str] | None = None,
-    limit: int = 30,
+    limit: int | None = 30,
 ) -> list[GitHubIssue]:
-    """Retrieve issues from repository via gh issue list with REST fallback."""
+    """Retrieve issues via gh issue list with a REST fallback; ``limit=None`` reads every issue."""
     cmd = [
         CONST_GH_CLI,
         "issue",
@@ -158,7 +164,7 @@ def get_repository_issues(
         "--state",
         state,
         "--limit",
-        str(limit),
+        str(_EVERY_ISSUE if limit is None else limit),
         "--json",
         "number,title,state,milestone,labels,assignees,createdAt,updatedAt,url",
     ]

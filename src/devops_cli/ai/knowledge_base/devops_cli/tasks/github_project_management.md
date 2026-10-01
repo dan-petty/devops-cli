@@ -149,9 +149,10 @@ devops gh milestones close v0.2.14
      - `In Review`: Pull Request opened with automated review and CI checks running.
      - `Done`: PR squash-merged, remote CI checks green, and issue closed.
    - Run `devops gh project audit` and `devops gh views audit` to detect missing fields, invalid options, or misconfigured view filters.
-5. **Data-Driven Custom Field Reconciliation (`devops gh project sync`)**:
-   - Enforce enrichment of all 6 custom project fields (`Status`, `Milestone`, `Priority`, `Category`, `Value`, `Effort`) for every issue and PR card.
-   - Reconcile project item custom fields using declarative taxonomy mappings (`infer_item_category_value_effort` mapping `type/*` and `priority/*` to strategic categories, business value, and engineering effort).
+5. **Custom Field Reconciliation (`devops gh project sync`, `devops gh project reconcile`)**:
+   - The board owns Status: reconcile sets it only when it is unset (from an exact `status/*` label, otherwise Backlog) or when issue or pull request state forces Done, In Review or In Progress, so manual triage is never reverted.
+   - Priority fills an unset field from its `priority/*` label, and Milestone mirrors the issue's milestone. Category, Value and Effort are never inferred; they stay as set by hand.
+   - `devops gh project reconcile --dry-run` lists every change with its old and new value and the source that decided it.
    - Run `devops gh project sync` (or FastMCP `gh_project_sync`) after creating issues, pushing branches, or opening PRs to keep project views fully updated.
 6. **Active Milestone Resource Population & Zero-Empty Queue/Projects Policy**:
    - When initializing a new release branch or activating a milestone, AI agents must proactively author GitHub tracking issues for every planned deliverable in `docs/ROADMAP.md`.
