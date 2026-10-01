@@ -25,6 +25,7 @@ from devops_cli.config.constants import (
     CONST_DOCKER_RESOURCES,
     CONST_LOG_STREAM_QUEUE_SIZE,
 )
+from devops_cli.config.defaults import DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS
 from devops_cli.models.k8s import ContainerInfo, PodEventInfo, PodInfo
 from devops_cli.ui.dashboard import DashboardApp, HelpScreen
 from devops_cli.ui.data_providers import (
@@ -79,7 +80,7 @@ from devops_cli.ui.refresh import (
 )
 from devops_cli.ui.state import DashboardState, DomainSnapshot
 from devops_cli.ui.widgets import DockerPanel, DomainPanel, K8sPanel, LogPane, ReviewPanel
-from tests.k8s_fakes import NOW, FakeCoreV1, crashlooping_pod, event, pod, terminated
+from tests.k8s_fakes import NOW, FakeCoreV1, crashlooping_pod, event, pod, running, terminated
 from tests.k8s_fakes import status as container_status
 
 # =============================================================================
@@ -1813,6 +1814,45 @@ def test_a_pod_log_source_splits_a_non_streaming_response(
     assert list(pod_log_source("api-0", "devops-system")()) == ["alpha", "beta"]
 
 
+class _FakeLogStream:
+    """A followed log as the service returns it: lines, and close() to stop reading."""
+
+    def __init__(self, lines: list[str]) -> None:
+        self.lines = lines
+        self.closed = 0
+
+    def __iter__(self) -> Any:
+        return iter(self.lines)
+
+    def close(self) -> None:
+        self.closed += 1
+
+
+@pytest.mark.parametrize("closed_first", [False, True])
+def test_closing_a_pod_log_source_closes_its_stream_whenever_it_opens(
+    monkeypatch: pytest.MonkeyPatch, closed_first: bool
+) -> None:
+    """The pane may stop a stream before its worker has opened the connection."""
+    stream = _FakeLogStream(["one"])
+
+    class FakeService:
+        @staticmethod
+        def get_instance() -> Any:
+            return FakeService()
+
+        def read_pod_logs(self, **kwargs: Any) -> Any:
+            return stream
+
+    monkeypatch.setattr("devops_cli.k8s.service.KubernetesService", FakeService)
+    source = pod_log_source("api-0", "devops-system")
+    if closed_first:
+        source.close()
+    opened = source()
+    if not closed_first:
+        source.close()
+    assert (list(opened), stream.closed) == (["one"], 1)
+
+
 # =============================================================================
 # Docker Inventory
 # =============================================================================
@@ -2807,14 +2847,25 @@ async def test_escape_clears_the_filter_and_returns_to_the_table(
 async def test_choosing_a_namespace_lists_only_its_pods(
     patched_fetchers: Callable[..., None],
 ) -> None:
-    """The selector narrows the table to one namespace."""
+    """The selector is reached and operated from the keyboard, and narrows the table.
+
+    From the pod table, shift+tab passes the text box to the selector; Enter opens it,
+    and its options are All namespaces, kube-system, monitoring and shop.
+    """
     patched_fetchers(k8s=_cluster)
     app = DashboardApp(refresh_interval=0)
     async with app.run_test() as pilot:
         await _loaded(pilot, app)
-        app.query_one("#k8s-namespace", Select).value = "monitoring"
+        await pilot.press("shift+tab", "shift+tab")
+        focused = app.focused.id if app.focused else None
+        await pilot.press("enter", "down", "down", "enter")
         await pilot.pause()
-        assert (len(_shown(app)), "showing 12 of 63" in _k8s_banner_text(app)) == (12, True)
+        assert (
+            focused,
+            app.query_one("#k8s-namespace", Select).value,
+            len(_shown(app)),
+            "showing 12 of 63" in _k8s_banner_text(app),
+        ) == ("k8s-namespace", "monitoring", 12, True)
 
 
 @pytest.mark.asyncio
@@ -2889,6 +2940,79 @@ async def test_the_cursor_stays_on_its_pod_or_the_nearest_row(
             "web-27",
             expected_row,
             expected_pod,
+        )
+
+
+def _two_namespaces(*, ahead: int = 0) -> K8sSummary:
+    """40 pods in alpha, then 60 in beta, listed after `ahead` pods in jobs."""
+    return K8sSummary(
+        connected=True,
+        context="lab",
+        pods=[
+            *(_pod(f"j-{index:03d}", "jobs") for index in range(ahead)),
+            *(_pod(f"a-{index:03d}", "alpha") for index in range(40)),
+            *(_pod(f"b-{index:03d}", "beta") for index in range(60)),
+        ],
+    )
+
+
+def _cursor_on_screen(table: DataTable[Any]) -> bool:
+    """Whether the highlighted row lies inside the window the table is scrolled to."""
+    rows = table.scrollable_content_region.height - table.header_height
+    return table.scroll_y <= table.cursor_row < table.scroll_y + rows
+
+
+async def _scrolled(pilot: Any) -> None:
+    """Wait out the scrolls a redraw defers, each until after the next screen refresh (#834)."""
+    for _ in range(4):
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_choosing_a_namespace_keeps_the_highlighted_pod_on_screen(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """b-030 moved from row 70 to row 30 under the offset row 70 needed, out of sight.
+
+    Enter and `e` then acted on a pod the operator could not see.
+    """
+    patched_fetchers(k8s=_two_namespaces)
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test(size=(120, 30)) as pilot:
+        await _loaded(pilot, app)
+        table = app.query_one("#k8s-table", DataTable)
+        table.move_cursor(row=70)
+        await _scrolled(pilot)
+        before = (_shown(app)[table.cursor_row], table.scroll_y > 30, _cursor_on_screen(table))
+        app.query_one("#k8s-namespace", Select).value = "beta"
+        await _scrolled(pilot)
+        assert (before, _shown(app)[table.cursor_row], _cursor_on_screen(table)) == (
+            ("b-030", True, True),
+            "b-030",
+            True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_pods_added_above_the_cursor_leave_its_pod_on_screen(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """A refresh listing 30 new pods first left the highlighted pod below the window."""
+    cluster = {"summary": _two_namespaces()}
+    patched_fetchers(k8s=lambda: cluster["summary"])
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test(size=(120, 30)) as pilot:
+        await _loaded(pilot, app)
+        table = app.query_one("#k8s-table", DataTable)
+        table.move_cursor(row=5)
+        await _scrolled(pilot)
+        cluster["summary"] = _two_namespaces(ahead=30)
+        await _refresh(pilot, app)
+        await _scrolled(pilot)
+        assert (table.cursor_row, _shown(app)[table.cursor_row], _cursor_on_screen(table)) == (
+            35,
+            "a-005",
+            True,
         )
 
 
@@ -3000,6 +3124,28 @@ async def test_enter_streams_the_default_container_and_c_moves_to_the_next(
         assert (requested, app.query_one("#log-pane", LogPane).title) == expected
 
 
+@pytest.mark.asyncio
+async def test_a_pod_without_a_name_opens_no_stream_and_no_inspector(
+    patched_fetchers: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A record whose pod has no name would stream and inspect pod '', which the API refuses."""
+    nameless = pod()
+    nameless.metadata.name = None
+    requested: list[str | None] = []
+    patched_fetchers(k8s=lambda: K8sSummary(connected=True, pods=[PodInfo.from_pod(nameless)]))
+    monkeypatch.setattr(dashboard_module, "pod_log_source", _recording_source(requested))
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        await pilot.press("enter", "e")
+        await pilot.pause()
+        assert (
+            requested,
+            app.query_one(TabbedContent).active,
+            isinstance(app.screen, PodInspector),
+        ) == ([], "tab-k8s", False)
+
+
 def test_log_titles_name_the_container_and_its_place_among_them() -> None:
     """Init containers are counted, so every container of the pod can be reached with `c`."""
     info = PodInfo.from_pod(pod("web-0", containers=("app", "web"), init_containers=("migrate",)))
@@ -3104,6 +3250,55 @@ async def test_opening_a_second_pod_stops_the_first_pods_stream(
         release.set()
 
 
+class _ClosableSource:
+    """A pod log source recording when the pane closes it."""
+
+    def __init__(self, name: str, closed: list[str]) -> None:
+        self.name = name
+        self.closed = closed
+
+    def __call__(self) -> Any:
+        return iter([f"{self.name} line"])
+
+    def close(self) -> None:
+        self.closed.append(self.name)
+
+
+@pytest.mark.asyncio
+async def test_switching_streams_closes_the_one_before(
+    patched_fetchers: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stopped stream of a quiet container kept its connection and thread until exit.
+
+    `c` and Enter on another pod close the stream they replace; quitting closes the last.
+    """
+    closed: list[str] = []
+    patched_fetchers(
+        k8s=lambda: K8sSummary(
+            connected=True, pods=[_pod("web-0", containers=("app", "sidecar")), _pod("web-1")]
+        )
+    )
+    monkeypatch.setattr(
+        dashboard_module,
+        "pod_log_source",
+        lambda pod, namespace, container=None, **_: _ClosableSource(f"{pod}/{container}", closed),
+    )
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        await _loaded(pilot, app)
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("c")
+        await pilot.pause()
+        await pilot.press("1", "down", "enter")
+        await pilot.pause()
+        switched = list(closed)
+    assert (switched, closed) == (
+        ["web-0/app", "web-0/sidecar"],
+        ["web-0/app", "web-0/sidecar", "web-1/app"],
+    )
+
+
 # =============================================================================
 # Pod Inspector
 # =============================================================================
@@ -3184,7 +3379,7 @@ async def test_e_inspects_the_pod_from_its_record_and_its_newest_events(
                     {
                         "namespace": "monitoring",
                         "field_selector": EVENT_FIELD_SELECTOR,
-                        "_request_timeout": 5.0,
+                        "_request_timeout": DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS,
                     },
                 )
             ],
@@ -3215,15 +3410,20 @@ async def test_a_failed_events_call_is_shown_in_the_inspector(
 
 
 def test_container_rows_show_state_and_last_termination() -> None:
-    """Init containers are listed too, marked as such."""
+    """Init containers are listed too, marked as such.
+
+    A previous run that ended without a reason, as one killed by a signal can, is named
+    by its state.
+    """
     info = PodInfo.from_pod(
         pod(
+            statuses=[container_status("app", running(), restarts=1, last=terminated(137))],
             init_containers=("migrate",),
             init_statuses=[container_status("migrate", terminated(0, "Completed"))],
         )
     )
     assert pod_container_rows(info) == [
-        ("app", "example.com/app:1", "no", "0", "—", "—"),
+        ("app", "example.com/app:1", "no", "1", "Running", "Terminated (exit 137)"),
         ("migrate (init)", "example.com/migrate:1", "no", "0", "Terminated: Completed", "—"),
     ]
 

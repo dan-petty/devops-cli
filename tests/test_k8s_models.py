@@ -13,7 +13,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from kubernetes import client  # type: ignore[import-untyped]
-from pydantic import ValidationError
 from typer.testing import CliRunner
 
 import devops_cli.ui.data_providers as data_providers
@@ -302,10 +301,12 @@ def test_the_default_container_follows_the_annotation_when_it_names_one(
     assert PodInfo.from_pod(api_pod).default_container == expected
 
 
-def test_a_pod_record_cannot_leave_out_its_name() -> None:
-    """A typed record replaces the dict that rendered an empty pod name."""
-    with pytest.raises(ValidationError):
-        PodInfo.model_validate({"namespace": "default"})
+def test_a_pod_without_metadata_reads_as_a_nameless_pod_in_default() -> None:
+    """Reading a partial object never raises; the dashboard refuses a record without a name."""
+    bare = pod()
+    bare.metadata = None
+    info = PodInfo.from_pod(bare)
+    assert (info.name, info.namespace, info.uid, info.status) == ("", "default", "", "Running")
 
 
 # =============================================================================

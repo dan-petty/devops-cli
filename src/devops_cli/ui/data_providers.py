@@ -11,7 +11,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import (
+    CONST_K8S_IN_CLUSTER_CONTEXT,
     CONST_K8S_POD_EVENT_FIELD_SELECTOR,
+    CONST_K8S_SERVICE_HOST_ENV,
     CONST_TELEMETRY_PANEL_MAX_SERIES,
 )
 from devops_cli.config.defaults import (
@@ -147,24 +149,32 @@ def _get_k8s_client() -> Any:
     The dashboard must show the cluster the workstation is configured for. Loading the
     kubeconfig without a context silently follows `kubectl config current-context`, so the
     panel would report on a different cluster than every other command.
+
+    A pod's service account is used only inside a pod and only when no kubeconfig context
+    can be named. Falling back whenever the kubeconfig failed replaced its error, such as a
+    context missing from the file, with the fallback's own, and inside a pod connected to
+    a cluster other than the one the banner named.
     """
     from kubernetes import client, config  # type: ignore[import-untyped]
 
     from devops_cli.k8s.context import resolve_context
 
-    try:
-        config.load_kube_config(context=resolve_context())
-    except Exception as exc:
-        logger.debug("Falling back to incluster k8s config: %s", exc)
+    if _in_a_pod() and not _kubeconfig_context():
         config.load_incluster_config()
+    else:
+        config.load_kube_config(context=resolve_context())
     return client.CoreV1Api()
 
 
-def _k8s_context_name() -> str:
-    """Name the context `_get_k8s_client` connects with: the configured one, else kubectl's.
+def _in_a_pod() -> bool:
+    """Whether this process runs in a Kubernetes pod, which has a service account."""
+    return bool(os.environ.get(CONST_K8S_SERVICE_HOST_ENV))
 
-    Read from the kubeconfig rather than from the client, so a cluster that cannot be
-    reached is still named in the banner that says so.
+
+def _kubeconfig_context() -> str:
+    """Name the kubeconfig context to connect with: the configured one, else kubectl's.
+
+    Empty when neither exists, as for a pod with no kubeconfig.
     """
     from kubernetes import config
 
@@ -179,6 +189,16 @@ def _k8s_context_name() -> str:
         logger.debug("No current kubeconfig context to name: %s", exc)
         return ""
     return str(current.get("name") or "")
+
+
+def _k8s_context_name() -> str:
+    """Name the context `_get_k8s_client` connects with, or the pod's service account.
+
+    Read from the kubeconfig rather than from the client, so a cluster that cannot be
+    reached is still named in the banner that says so.
+    """
+    context = _kubeconfig_context()
+    return context or (CONST_K8S_IN_CLUSTER_CONTEXT if _in_a_pod() else "")
 
 
 def describe_api_error(exc: Exception) -> str:

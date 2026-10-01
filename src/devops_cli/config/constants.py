@@ -2007,6 +2007,11 @@ CONST_K8S_DEFAULT_CONTAINER_ANNOTATION: Final[str] = "kubectl.kubernetes.io/defa
 CONST_K8S_POD_EVENT_FIELD_SELECTOR: Final[str] = (
     "involvedObject.kind=Pod,involvedObject.name={name},involvedObject.uid={uid}"
 )
+# Set by the kubelet in every pod, and read by the client's in-cluster loader: outside a
+# pod there is no service account to connect with.
+CONST_K8S_SERVICE_HOST_ENV: Final[str] = "KUBERNETES_SERVICE_HOST"
+# What the dashboard banner names when it connects with the pod's service account.
+CONST_K8S_IN_CLUSTER_CONTEXT: Final[str] = "in-cluster"
 
 # ── Dashboard TUI Domains ────────────────────────────────────────────────────
 # Each domain is one tab of the workstation dashboard, refreshed by its own worker.

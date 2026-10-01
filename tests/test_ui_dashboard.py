@@ -142,30 +142,82 @@ def test_the_kubernetes_snapshot_runs_no_subprocess(monkeypatch: pytest.MonkeyPa
     assert fetch_k8s_status().connected is True
 
 
+def _in_a_pod(monkeypatch: pytest.MonkeyPatch, in_pod: bool) -> None:
+    """Set or clear the variables the kubelet gives every pod, whatever this shell has."""
+    if in_pod:
+        monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "example.com")
+        monkeypatch.setenv("KUBERNETES_SERVICE_PORT", "443")
+    else:
+        monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
+        monkeypatch.delenv("KUBERNETES_SERVICE_PORT", raising=False)
+
+
 @pytest.mark.parametrize(
-    ("configured", "kubeconfig", "expected"),
+    ("configured", "kubeconfig", "in_pod", "expected"),
     [
-        ("lab", ("ambient",), "lab"),
-        (None, ("ambient",), "ambient"),
-        (None, (), ""),
+        ("lab", ("ambient",), False, "lab"),
+        (None, ("ambient",), False, "ambient"),
+        (None, (), False, ""),
+        (None, ("ambient",), True, "ambient"),
+        (None, (), True, "in-cluster"),
+        ("lab", (), True, "lab"),
     ],
 )
 def test_the_context_named_is_the_configured_one_or_kubectls_current_one(
     monkeypatch: pytest.MonkeyPatch,
     configured: str | None,
     kubeconfig: tuple[str, ...],
+    in_pod: bool,
     expected: str,
 ) -> None:
-    """The banner names the cluster the dashboard actually connects to."""
+    """The banner names the cluster the dashboard actually connects to.
+
+    Only a pod with no kubeconfig context to name connects with its service account.
+    """
 
     def contexts() -> tuple[list[dict[str, str]], dict[str, str]]:
         if not kubeconfig:
             raise ValueError("no kubeconfig")
         return [{"name": kubeconfig[0]}], {"name": kubeconfig[0]}
 
+    _in_a_pod(monkeypatch, in_pod)
     monkeypatch.setattr("devops_cli.k8s.context.resolve_context", lambda: configured)
     monkeypatch.setattr("kubernetes.config.list_kube_config_contexts", contexts)
     assert data_providers._k8s_context_name() == expected
+
+
+@pytest.mark.parametrize("in_pod", [False, True])
+def test_a_context_missing_from_the_kubeconfig_is_reported_as_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, in_pod: bool
+) -> None:
+    """The banner gave the in-cluster fallback's error, `Service host/port is not set`.
+
+    Inside a pod the fallback connected instead, to a cluster other than the one named.
+    """
+    from kubernetes.config import kube_config  # type: ignore[import-untyped]
+
+    kubeconfig = tmp_path / "config"
+    kubeconfig.write_text(
+        json.dumps(
+            {
+                "apiVersion": "v1",
+                "kind": "Config",
+                "clusters": [{"name": "other", "cluster": {"server": "https://example.com"}}],
+                "users": [{"name": "other", "user": {"token": "dummy"}}],
+                "contexts": [{"name": "other", "context": {"cluster": "other", "user": "other"}}],
+                "current-context": "other",
+            }
+        )
+    )
+    _in_a_pod(monkeypatch, in_pod)
+    monkeypatch.setattr(kube_config, "KUBE_CONFIG_DEFAULT_LOCATION", str(kubeconfig))
+    monkeypatch.setattr("devops_cli.k8s.context.resolve_context", lambda: "lab")
+    banner = k8s_banner(fetch_k8s_status())
+    assert (
+        "Disconnected | context lab — ConfigException" in banner,
+        "Expected object with name lab" in banner,
+        "Service" in banner,
+    ) == (True, True, False)
 
 
 def test_fetch_docker_status_success() -> None:

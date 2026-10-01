@@ -36,6 +36,7 @@ from devops_cli.config.constants import (
     CONST_FINDING_DETAIL_HEADER_FIELDS,
     CONST_FINDING_DETAIL_KEPT_CONTROLS,
     CONST_FINDING_DETAIL_SECTION_FIELDS,
+    CONST_K8S_CONTAINER_TERMINATED,
     CONST_UNICODE_CONTROL_CATEGORY,
 )
 from devops_cli.models.k8s import ContainerInfo, PodEventInfo, PodInfo
@@ -448,7 +449,7 @@ def _last_termination_cell(container: ContainerInfo) -> str:
     """Render why the container's previous run ended, with its exit code."""
     if container.last_exit_code is None:
         return container.last_termination_reason or CONST_INSPECTOR_EMPTY_CELL
-    reason = container.last_termination_reason or "Terminated"
+    reason = container.last_termination_reason or CONST_K8S_CONTAINER_TERMINATED
     return f"{reason} (exit {container.last_exit_code})"
 
 

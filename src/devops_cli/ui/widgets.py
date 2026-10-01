@@ -16,7 +16,7 @@ import queue
 import threading
 import time
 from collections.abc import Callable, Iterable
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from textual import work
 from textual.app import ComposeResult
@@ -75,6 +75,20 @@ def _highlighted_key(table: DataTable[Any]) -> str | None:
     return table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
 
 
+def _body_rows_shown(table: DataTable[Any]) -> int:
+    """Count the rows a table shows below its header; none while it is not displayed.
+
+    The dashboard's rows are one line high, so a row's index is its line in the body.
+    """
+    header = table.header_height if table.show_header else 0
+    return max(0, table.scrollable_content_region.height - header)
+
+
+def _offset_showing(row: int, scroll_y: float, shown: int) -> float:
+    """Return the offset nearest `scroll_y` whose window of `shown` rows includes `row`."""
+    return min(max(scroll_y, row - shown + 1), row)
+
+
 def redraw_table(
     table: DataTable[Any],
     rows: list[tuple[str, ...]],
@@ -90,16 +104,25 @@ def redraw_table(
     its index on the shorter table. Both scroll offsets are restored after the next
     refresh: moving the cursor schedules its own scroll into view, which would otherwise
     undo them, and a table narrower than its columns is read scrolled to the right.
+
+    A highlighted row that was on screen stays on screen: when a filter or new rows above
+    it move it out of the old window, the view scrolls the least distance that shows it.
+    One the operator had scrolled away from is left where it is.
     """
     key, index = _highlighted_key(table), table.cursor_row
     scroll_x, scroll_y = table.scroll_x, table.scroll_y
+    shown = _body_rows_shown(table)
+    on_screen = scroll_y <= index < scroll_y + shown
     table.clear()
     for row_key, cells in zip(keys, rows, strict=True):
         table.add_row(*cells, key=row_key)
     if not (keep_place and table.row_count):
         return
     restored = table.get_row_index(key) if key is not None and key in table.rows else index
-    table.move_cursor(row=min(restored, table.row_count - 1), scroll=False)
+    restored = min(restored, table.row_count - 1)
+    table.move_cursor(row=restored, scroll=False)
+    if on_screen:
+        scroll_y = _offset_showing(restored, scroll_y, shown)
     table.call_after_refresh(table.scroll_to, x=scroll_x, y=scroll_y, animate=False)
 
 
@@ -288,8 +311,13 @@ class K8sPanel(Vertical):
         redraw_table(self._table(), rows, list(self._shown))
 
     def pod_for(self, row_key: str | None) -> PodInfo | None:
-        """Return the pod a listed row shows, if it is still listed."""
-        return self._shown.get(row_key) if row_key is not None else None
+        """Return the pod a listed row shows, if it is still listed and has a name.
+
+        A record read from an object without a name cannot be tailed or inspected: the
+        API would be asked for pod ''.
+        """
+        pod = self._shown.get(row_key) if row_key is not None else None
+        return pod if pod is not None and pod.name else None
 
     def on_select_changed(self, event: Select.Changed) -> None:
         """Apply a namespace choice.
@@ -552,6 +580,14 @@ class ReviewPanel(Vertical):
         pane.display = not pane.display
 
 
+@runtime_checkable
+class _ClosableSource(Protocol):
+    """A log source that can stop a read blocked in its producer, as a pod's can."""
+
+    def close(self) -> None:
+        """Stop the stream, from any thread."""
+
+
 class LogPane(Vertical, can_focus=True):
     """A virtualized log tail bound to a bounded buffer.
 
@@ -608,6 +644,8 @@ class LogPane(Vertical, can_focus=True):
         self._stop = threading.Event()
         self._lines: queue.Queue[str | None] = queue.Queue(maxsize=CONST_LOG_STREAM_QUEUE_SIZE)
         self._producer: threading.Thread | None = None
+        # The current stream's source, closed when the stream is replaced or stopped.
+        self._source: Callable[[], Iterable[str]] | None = None
         # Held across a buffer write and the stop check before it, and across stopping a
         # stream and clearing the buffer, so a stopped stream cannot write one more line.
         self._write_lock = threading.Lock()
@@ -644,11 +682,15 @@ class LogPane(Vertical, can_focus=True):
         """Consume a line source, redrawing as lines arrive, in place of any previous one.
 
         The previous stream is stopped by its own flag, which its producer and consumer
-        both watch, so neither reads or writes again once the new stream starts.
+        both watch, so neither reads or writes again once the new stream starts. Its source
+        is closed too, when it can be: a producer blocked reading a quiet container sees no
+        flag, and would hold its connection and thread until the container wrote again.
         """
         with self._write_lock:
             self._stop.set()
             self.buffer.clear()
+        self._close_source()
+        self._source = source
         self._stop = threading.Event()
         self._lines = queue.Queue(maxsize=CONST_LOG_STREAM_QUEUE_SIZE)
         self._producer = threading.Thread(
@@ -658,8 +700,15 @@ class LogPane(Vertical, can_focus=True):
         self._consume(self._stop, self._lines)
 
     def stop_stream(self) -> None:
-        """Ask the stream to finish."""
+        """Ask the stream to finish, closing its source if it can be closed."""
         self._stop.set()
+        self._close_source()
+
+    def _close_source(self) -> None:
+        """Close the current stream's source, once."""
+        source, self._source = self._source, None
+        if isinstance(source, _ClosableSource):
+            source.close()
 
     def on_unmount(self) -> None:
         """Stop streaming when the pane goes away.
@@ -684,8 +733,10 @@ class LogPane(Vertical, can_focus=True):
         doing this read inside the worker meant pressing `q` hung the application until the
         process was killed.
 
-        This thread is a daemon and is never joined: it is blocked in a socket read that
-        cannot be interrupted, so the only way to stop waiting for it is not to.
+        This thread is a daemon and is never joined: it may be blocked in a socket read
+        that only closing its source ends, and a source that cannot be closed leaves it
+        blocked, so nothing waits for it. A closed source ends the read with an end of
+        stream or an error, and the thread returns.
         """
         try:
             for text in source():
