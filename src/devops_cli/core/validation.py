@@ -41,8 +41,15 @@ _LOOPBACK_AND_LOCAL_HOSTS: frozenset[str] = frozenset(
 )
 
 
-def is_non_public_ip(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Return True if the IP address is private, loopback, link-local, or non-global."""
+def is_non_public_ip(
+    addr: (
+        ipaddress.IPv4Address
+        | ipaddress.IPv6Address
+        | ipaddress.IPv4Network
+        | ipaddress.IPv6Network
+    ),
+) -> bool:
+    """Return True if the IP address or network is private, loopback, link-local, or non-global."""
     return not addr.is_global
 
 

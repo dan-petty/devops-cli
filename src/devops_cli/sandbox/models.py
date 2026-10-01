@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -33,7 +33,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SANDBOX_NAMESPACE,
     DEFAULT_SANDBOX_PIDS_LIMIT,
 )
-from devops_cli.core.validation import is_loopback_or_private_host
+from devops_cli.core.validation import is_loopback_or_private_host, is_non_public_ip
 
 
 class SandboxStatus(StrEnum):
@@ -58,14 +58,48 @@ class SandboxNetworkMode(StrEnum):
 def _extract_host_or_ip(endpoint: str) -> str:
     """Extract hostname, domain, or IP from a URL or bare endpoint string."""
     clean = endpoint.strip()
+    if not clean:
+        return ""
     if "://" in clean:
-        parsed = urlparse(clean)
-        return parsed.hostname or ""
+        return urlparse(clean).hostname or ""
+    if clean.startswith("["):
+        split_host = urlsplit(f"//{clean}").hostname
+        if split_host:
+            return split_host
+    try:
+        net = ipaddress.ip_network(clean, strict=False)
+        return str(net) if "/" in clean else str(net.network_address)
+    except ValueError:
+        pass
     if "/" in clean:
-        return clean.split("/")[0].strip()
-    if ":" in clean and not clean.startswith("["):
-        return clean.split(":")[0].strip()
+        clean = clean.split("/")[0].strip()
+    if ":" in clean:
+        clean = clean.split(":")[0].strip()
     return clean.strip("[]")
+
+
+def _is_forbidden_local_ip(
+    ip_obj: (
+        ipaddress.IPv4Address
+        | ipaddress.IPv6Address
+        | ipaddress.IPv4Network
+        | ipaddress.IPv6Network
+    ),
+) -> bool:
+    """Return whether an IP address or network is link-local metadata forbidden in local whitelist."""
+    return ip_obj.is_link_local or str(ip_obj).startswith("169.254.")
+
+
+def _is_private_or_loopback(
+    ip_obj: (
+        ipaddress.IPv4Address
+        | ipaddress.IPv6Address
+        | ipaddress.IPv4Network
+        | ipaddress.IPv6Network
+    ),
+) -> bool:
+    """Return whether an IP address or network is private or loopback."""
+    return ip_obj.is_private or ip_obj.is_loopback
 
 
 def _validate_public_whitelist_item(item: str) -> None:
@@ -113,22 +147,8 @@ def _build_dns_egress_rule() -> dict[str, Any]:
     }
 
 
-def _resolve_public_host(host: str) -> list[str]:
-    """Resolve public host/domain to validated public IPv4/IPv6 address strings."""
-    try:
-        ip_net = ipaddress.ip_network(host, strict=False)
-        if (
-            ip_net.is_private
-            or ip_net.is_loopback
-            or ip_net.is_link_local
-            or ip_net.is_reserved
-            or ip_net.is_multicast
-        ):
-            raise ValueError(f"Public whitelist entry resolves to non-public network: {ip_net}")
-        return [str(ip_net) if "/" in host else f"{host}/32"]
-    except ValueError as exc:
-        if "non-public network" in str(exc):
-            raise
+def _resolve_public_dns(host: str) -> list[str]:
+    """Resolve public domain name via DNS to validated public CIDRs."""
     try:
         addr_info = socket.getaddrinfo(host, None)
         resolved_ips = {str(info[4][0]) for info in addr_info if len(info) >= 5}
@@ -139,34 +159,29 @@ def _resolve_public_host(host: str) -> list[str]:
     cidrs: list[str] = []
     for ip_str in sorted(resolved_ips):
         ip_obj = ipaddress.ip_address(ip_str)
-        if (
-            ip_obj.is_private
-            or ip_obj.is_loopback
-            or ip_obj.is_link_local
-            or ip_obj.is_reserved
-            or ip_obj.is_multicast
-        ):
+        if is_non_public_ip(ip_obj):
             raise ValueError(
                 f"Public whitelist domain '{host}' resolves to non-public address '{ip_str}'."
             )
-        cidrs.append(f"{ip_str}/32")
+        cidrs.append(ipaddress.ip_network(ip_obj).with_prefixlen)
     return cidrs
 
 
-def _resolve_local_host(host: str) -> list[str]:
-    """Resolve local host/domain to validated private/loopback IPv4/IPv6 address strings."""
-    if host in ("localhost", "host.docker.internal"):
-        return ["127.0.0.1/32"]
+def _resolve_public_host(host: str) -> list[str]:
+    """Resolve public host/domain to validated public IPv4/IPv6 address strings."""
     try:
         ip_net = ipaddress.ip_network(host, strict=False)
-        if ip_net.is_link_local or str(ip_net).startswith("169.254."):
-            raise ValueError(f"Link-local cloud metadata '{host}' is forbidden in local whitelist.")
-        if not (ip_net.is_private or ip_net.is_loopback):
-            raise ValueError(f"Local whitelist entry '{host}' must be a private or loopback IP.")
-        return [str(ip_net) if "/" in host else f"{host}/32"]
+        if is_non_public_ip(ip_net):
+            raise ValueError(f"Public whitelist entry resolves to non-public network: {ip_net}")
+        return [ip_net.with_prefixlen]
     except ValueError as exc:
-        if "forbidden" in str(exc) or "must be a private" in str(exc):
+        if "non-public network" in str(exc):
             raise
+    return _resolve_public_dns(host)
+
+
+def _resolve_local_dns(host: str) -> list[str]:
+    """Resolve local domain name via DNS to validated private/loopback CIDRs."""
     try:
         addr_info = socket.getaddrinfo(host, None)
         resolved_ips = {str(info[4][0]) for info in addr_info if len(info) >= 5}
@@ -177,16 +192,33 @@ def _resolve_local_host(host: str) -> list[str]:
     cidrs: list[str] = []
     for ip_str in sorted(resolved_ips):
         ip_obj = ipaddress.ip_address(ip_str)
-        if ip_obj.is_link_local or ip_str.startswith("169.254."):
+        if _is_forbidden_local_ip(ip_obj):
             raise ValueError(
                 f"Local whitelist hostname '{host}' resolves to forbidden link-local '{ip_str}'."
             )
-        if not (ip_obj.is_private or ip_obj.is_loopback):
+        if not _is_private_or_loopback(ip_obj):
             raise ValueError(
                 f"Local whitelist hostname '{host}' resolves to non-private address '{ip_str}'."
             )
-        cidrs.append(f"{ip_str}/32")
+        cidrs.append(ipaddress.ip_network(ip_obj).with_prefixlen)
     return cidrs
+
+
+def _resolve_local_host(host: str) -> list[str]:
+    """Resolve local host/domain to validated private/loopback IPv4/IPv6 address strings."""
+    if host in ("localhost", "host.docker.internal"):
+        return ["127.0.0.1/32"]
+    try:
+        ip_net = ipaddress.ip_network(host, strict=False)
+        if _is_forbidden_local_ip(ip_net):
+            raise ValueError(f"Link-local cloud metadata '{host}' is forbidden in local whitelist.")
+        if not _is_private_or_loopback(ip_net):
+            raise ValueError(f"Local whitelist entry '{host}' must be a private or loopback IP.")
+        return [ip_net.with_prefixlen]
+    except ValueError as exc:
+        if "forbidden" in str(exc) or "must be a private" in str(exc):
+            raise
+    return _resolve_local_dns(host)
 
 
 def _build_public_whitelist_egress(whitelist: list[str]) -> list[dict[str, Any]]:

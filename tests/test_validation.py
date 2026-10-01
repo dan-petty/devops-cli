@@ -22,10 +22,17 @@ from devops_cli.core.validation import (
 
 
 def test_is_non_public_ip() -> None:
-    assert is_non_public_ip(ipaddress.ip_address("127.0.0.1")) is True
-    assert is_non_public_ip(ipaddress.ip_address("10.0.0.1")) is True
-    assert is_non_public_ip(ipaddress.ip_address("192.168.1.1")) is True
-    assert is_non_public_ip(ipaddress.ip_address("8.8.8.8")) is False
+    assert (
+        is_non_public_ip(ipaddress.ip_address("127.0.0.1")),
+        is_non_public_ip(ipaddress.ip_address("10.0.0.1")),
+        is_non_public_ip(ipaddress.ip_address("192.168.1.1")),
+        is_non_public_ip(ipaddress.ip_address("8.8.8.8")),
+        is_non_public_ip(ipaddress.ip_address("::1")),
+        is_non_public_ip(ipaddress.ip_address("fd00::1")),
+        is_non_public_ip(ipaddress.ip_address("2606:4700::1")),
+        is_non_public_ip(ipaddress.ip_network("192.168.1.0/24")),
+        is_non_public_ip(ipaddress.ip_network("2606:4700::/32")),
+    ) == (True, True, True, False, True, True, False, True, False)
 
 
 def test_validate_url_valid() -> None:
