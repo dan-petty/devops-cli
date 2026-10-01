@@ -308,6 +308,41 @@ def test_network_guard_blocks_external_dns_lookups() -> None:
     assert socket.getaddrinfo("127.0.0.1", 80)
 
 
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost"])
+def test_network_guard_refuses_loopback_services_the_test_did_not_start(host: str) -> None:
+    """A loopback port the test process does not listen on refuses, even when a service answers.
+
+    The service listens through the C socket type, as a port-forward in another process does: the
+    kernel accepts connections on a port the guard never saw a test open.
+    """
+    import _socket
+    import errno
+    import socket
+
+    with socket.socket() as service, socket.socket() as client, socket.socket() as probe:
+        service.bind(("127.0.0.1", 0))
+        _socket.socket.listen(service)
+        address = (host, service.getsockname()[1])
+        with pytest.raises(ConnectionRefusedError) as refused:
+            client.connect(address)
+        assert (refused.value.errno, probe.connect_ex(address)) == (
+            errno.ECONNREFUSED,
+            errno.ECONNREFUSED,
+        )
+
+
+def test_network_guard_lets_a_test_reach_a_server_it_started() -> None:
+    """A server the test starts in-process stays reachable over loopback."""
+    import socket
+
+    with socket.socket() as server, socket.socket() as client, socket.socket() as probe:
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        address = server.getsockname()
+        client.connect(address)
+        assert (client.getpeername(), probe.connect_ex(address)) == (address, 0)
+
+
 def test_is_cloud_metadata_host_superset() -> None:
     """Verify is_cloud_metadata_host matches ollama superset (bare metadata, trailing dots, IPv6, ULA)."""
     from devops_cli.core.validation import is_cloud_metadata_host
