@@ -20,6 +20,7 @@ from devops_cli.ai.common_tools import (
     x_search_tool,
 )
 from devops_cli.exceptions.security import SSRFBlockedError
+from tests.web_fakes import StubWeb
 
 
 def test_typed_dict_schemas() -> None:
@@ -68,24 +69,15 @@ def test_x_search_tool_native_export() -> None:
     assert hasattr(tool, "name") or callable(tool)
 
 
-@patch("devops_cli.ai.common_tools.new_http_client")
-@pytest.mark.usefixtures("public_dns")
-def test_web_fetch_tool_structure(mock_http_client: MagicMock) -> None:
-    mock_resp = MagicMock()
-    mock_resp.content = (
-        b"<html><head><title>Test Page</title></head><body><h1>Hello</h1><p>Body</p></body></html>"
+def test_web_fetch_tool_structure(stub_web: StubWeb) -> None:
+    stub_web.page(
+        "https://example.com/",
+        "<html><head><title>Test Page</title></head><body><h1>Hello</h1><p>Body</p></body></html>",
     )
-    mock_resp.text = (
-        "<html><head><title>Test Page</title></head><body><h1>Hello</h1><p>Body</p></body></html>"
-    )
-    mock_resp.status_code = 200
-    mock_client = MagicMock()
-    mock_client.get.return_value = mock_resp
-    mock_http_client.return_value = mock_client
 
     tool = web_fetch_tool(max_content_length=1000)
     assert isinstance(tool, Tool)
-    res = tool.execute(url="https://docs.pydantic.dev")
+    res = tool.execute(url="https://example.com/")
     assert "# Hello" in res or "Body" in res
 
 
