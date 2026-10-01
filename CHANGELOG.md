@@ -78,6 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MCP Tools Call Commands That Exist (`devops mcp`, `devops docs check`)**:
   - Twelve MCP entry points called commands or options the CLI does not have and failed on every call. They now call real commands: `benchmark_embeddings` and `benchmark_suite` run `devops ai benchmark`; `scan_gitleaks`, `scan_semgrep` and `scan_checkov` run `devops scan secrets`, `sast` and `iac`; `resource://workspace/status` runs `devops repos list`; `scan_complexity` passes `--max-indent`; `resource://argo/fleet/status` no longer passes `--json` (#836).
   - `devops docs check` resolves every `uv run devops` argv in the MCP server against the real command tree without running it, and reports each defect at its server line (#836).
+- **MCP Tools Refuse Coerced Arguments Before They Run (`devops_cli.ai.mcp`)**:
+  - Tool arguments are validated against each tool's published schema before its handler runs, for listed and withheld tools alike. A boolean, string or integral float is refused where an integer is expected: `review_pr` with `{"number": true, "post": true}` had built `devops review pr 1 --post`. A refusal names each parameter once, with the expected type and the allowed parameters, and never echoes a value. Rejected inputs no longer reach FastMCP's warning log, and `jsonschema` is a runtime dependency (#862).
 
 ## [0.2.24] - 2026-09-28
 

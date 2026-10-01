@@ -100,6 +100,66 @@ CONST_MCP_SERVER_MODULE = "devops_cli.ai.mcp.server"
 CONST_DEVOPS_ARGV_PREFIX: Final[tuple[str, ...]] = ("uv", "run", "devops")
 # The list methods that add tokens to an argv the MCP server builds up in a variable.
 CONST_ARGV_EXTENDING_METHODS: Final[frozenset[str]] = frozenset({"append", "extend"})
+# The class of mistake a refused MCP tool argument is reported as, so a model can correct the
+# call in one turn (#862).
+CONST_ARGUMENT_HALLUCINATED: Final[str] = "HALLUCINATED_PARAM"
+CONST_ARGUMENT_MISSING: Final[str] = "MISSING_PARAM"
+CONST_ARGUMENT_TYPE_MISMATCH: Final[str] = "TYPE_MISMATCH"
+CONST_ARGUMENT_INVALID_CHOICE: Final[str] = "INVALID_CHOICE"
+CONST_ARGUMENT_OUT_OF_RANGE: Final[str] = "OUT_OF_RANGE"
+CONST_ARGUMENT_CONSTRAINT_VIOLATION: Final[str] = "CONSTRAINT_VIOLATION"
+# The JSON Schema keyword that refused an argument, by the class of mistake it signals. It
+# covers every keyword the current tool registry publishes, which a test holds it to; a
+# keyword outside it is still a refusal, reported as a constraint violation.
+CONST_JSON_SCHEMA_VIOLATION_KINDS: Final[dict[str, str]] = {
+    "additionalProperties": CONST_ARGUMENT_HALLUCINATED,
+    "required": CONST_ARGUMENT_MISSING,
+    "type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "anyOf": CONST_ARGUMENT_TYPE_MISMATCH,
+    "oneOf": CONST_ARGUMENT_TYPE_MISMATCH,
+    "enum": CONST_ARGUMENT_INVALID_CHOICE,
+    "const": CONST_ARGUMENT_INVALID_CHOICE,
+    "minimum": CONST_ARGUMENT_OUT_OF_RANGE,
+    "maximum": CONST_ARGUMENT_OUT_OF_RANGE,
+    "exclusiveMinimum": CONST_ARGUMENT_OUT_OF_RANGE,
+    "exclusiveMaximum": CONST_ARGUMENT_OUT_OF_RANGE,
+    "minLength": CONST_ARGUMENT_OUT_OF_RANGE,
+    "maxLength": CONST_ARGUMENT_OUT_OF_RANGE,
+    "minItems": CONST_ARGUMENT_OUT_OF_RANGE,
+    "maxItems": CONST_ARGUMENT_OUT_OF_RANGE,
+}
+# The pydantic error type that refused an argument the published schema allowed, such as a
+# strict PR number's `1.0` were the schema check bypassed. Its type errors cover the six JSON
+# value types.
+CONST_PYDANTIC_VIOLATION_KINDS: Final[dict[str, str]] = {
+    "unexpected_keyword_argument": CONST_ARGUMENT_HALLUCINATED,
+    "missing_argument": CONST_ARGUMENT_MISSING,
+    "dict_type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "list_type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "string_type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "int_type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "float_type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "bool_type": CONST_ARGUMENT_TYPE_MISMATCH,
+    "none_required": CONST_ARGUMENT_TYPE_MISMATCH,
+}
+# How each bound a JSON Schema can publish reads after the type it bounds: "integer >= 1".
+CONST_JSON_SCHEMA_BOUND_PHRASES: Final[dict[str, str]] = {
+    "minimum": ">= {}",
+    "maximum": "<= {}",
+    "exclusiveMinimum": "> {}",
+    "exclusiveMaximum": "< {}",
+    "minLength": "of length >= {}",
+    "maxLength": "of length <= {}",
+    "minItems": "of size >= {}",
+    "maxItems": "of size <= {}",
+}
+# An undeclared parameter's name is the caller's own text, so a refusal echoes only a masked
+# prefix of it this long.
+CONST_MCP_UNDECLARED_PARAMETER_ECHO_LENGTH: Final[int] = 64
+# FastMCP logs a refused call's pydantic errors here, and each error carries the rejected value,
+# which the log keeps as this placeholder instead.
+CONST_FASTMCP_SERVER_LOGGER: Final[str] = "fastmcp.server.server"
+CONST_REDACTED_LOG_VALUE: Final[str] = "<redacted>"
 # Root commands whose module app takes the command's own name as its first argument:
 # `devops lint` runs the `lint` subcommand of `devops_cli.commands.ci`.
 CONST_CLI_ROOT_LEVEL_COMMANDS: Final[frozenset[str]] = frozenset({"format", "lint"})

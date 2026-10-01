@@ -26,6 +26,7 @@ dependencies = [
     "qdrant-client==1.19.1",
     "pydantic-settings==2.15.0",
     "json-repair==0.63.4",
+    "jsonschema==4.26.0",
     "tldextract==5.3.2",
     "pathspec==1.1.1",
     "python-hcl2==8.1.4",
@@ -73,7 +74,6 @@ dev = [
     "actionlint-py==1.7.12.24",
     "pre-commit==4.6.2",
     "hypothesis==6.168.3",
-    "jsonschema==4.26.0",
 ]
 
 [tool.hatch.build.targets.wheel]
