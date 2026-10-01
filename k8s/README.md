@@ -152,12 +152,21 @@ Dashboards live in `monitoring/dashboards/`. Its `kustomization.yaml` generates 
 
 `devops k8s deploy-stack` applies them through the root kustomization, in the same run that creates the `monitoring` namespace, and `teardown-stack` removes them. Grafana holds these six dashboards as provisioned and refuses to save over them, so change the JSON file and deploy again. To provision another dashboard, add it to a generator entry; each ConfigMap must stay under the 262,144 bytes kubectl's last-applied annotation allows.
 
-`llm-stack.json` and `otel-collector.json` are not provisioned. They reach Grafana through its API:
+The three stack dashboards chart a stack from the series its exporter serves. They are not provisioned and reach Grafana through its API:
+
+| Dashboard | Exporter | How Prometheus gets its series |
+| :--- | :--- | :--- |
+| `llm-stack.json`, "LLM Gateway & GPUs" (`devops-llm-stack`) | LiteLLM's Prometheus callback on the gateway (`/metrics/`), and the NVIDIA DCGM exporter on every GPU node | The `llm-gateway` ServiceMonitor in `monitoring/k8s-monitoring-values.yaml` and the DCGM chart's own ServiceMonitor (`serviceMonitor.enabled` in `monitoring/dcgm-exporter-values.yaml`), read by Alloy, which remote-writes to the server |
+| `otel-collector.json`, "OpenTelemetry Collector" (`devops-otel-traces`) | The collector's own telemetry on port 8888 | The server's `kubernetes-pods` job, through the `prometheus.io/scrape` and `prometheus.io/port` pod annotations in `otel/values.yaml`; not through Alloy, so the collector's export failures stay visible when Alloy is what fails |
+| `prometheus-server.json`, "Prometheus Server" (`devops-prometheus-server`) | The Prometheus server's own `/metrics`, and `up` for every target | The server's `prometheus` job, which scrapes itself (`scrapeConfigs.prometheus` in `monitoring/prometheus-values.yaml`) |
+
 ```bash
 devops grafana dashboards lint k8s/monitoring/dashboards  # also catches a uid two files share
 devops grafana dashboards sync                            # posts every file in the directory
 ```
 `sync` exits 1 if any dashboard failed. It reports the provisioned dashboards as skipped, not failed.
+
+`tests/test_stack_dashboards.py` checks every query against captures of these exporters in `tests/fixtures/metrics/`: each series it selects, each label it matches or groups by, and the scrape in the table. No query falls back to a constant such as `or vector(0)`, so a panel without data reads "No data" rather than zero, and a panel drawn against a limit extends its axis to that limit. The gateway's failure, cooldown and fallback panels and the collector's span export failures stay empty until the first such event.
 
 ## Teardown
 
@@ -283,8 +292,9 @@ k8s/
 │       ├── k8s-views-nodes.json, k8s-views-namespaces.json # ConfigMap grafana-k8s-node-dashboards
 │       ├── devops-cli.json   # devops-cli commands, reviews, RAG and spend (grafana-devops-cli-dashboards)
 │       ├── ai-spend.json     # AI spend and LLM usage (grafana-devops-cli-dashboards)
-│       ├── llm-stack.json    # LLM stack; not provisioned, reaches Grafana through sync
-│       └── otel-collector.json # Collector and traces; not provisioned, reaches Grafana through sync
+│       ├── llm-stack.json    # LiteLLM gateway and GPUs; not provisioned, reaches Grafana through sync
+│       ├── otel-collector.json # The collector's own telemetry; not provisioned, reaches Grafana through sync
+│       └── prometheus-server.json # The Prometheus server; not provisioned, reaches Grafana through sync
 ├── otel/
 │   ├── kustomization.yaml    # Kustomize overlay for OpenTelemetry
 │   ├── namespace.yaml        # otel namespace
