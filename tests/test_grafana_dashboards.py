@@ -14,6 +14,7 @@ from devops_cli.grafana import (
     layout,
     lint_dashboard,
     lint_dashboard_file,
+    lint_dashboard_files,
     load_dashboard,
     row,
     stat,
@@ -399,6 +400,65 @@ def test_cli_json_output_is_machine_readable() -> None:
 
     assert result.exit_code == 0
     assert len(payload) == len(list(_REPO_DASHBOARDS.glob("*.json")))
+
+
+def _write_dashboards(directory: Path, uids: dict[str, str]) -> list[Path]:
+    """Write one empty dashboard per file name, with the given uid."""
+    for name, uid in uids.items():
+        (directory / name).write_text(
+            json.dumps({"uid": uid, "title": name, "panels": []}), encoding="utf-8"
+        )
+    return [directory / name for name in uids]
+
+
+def test_dashboards_sharing_a_uid_each_name_the_other(tmp_path: Path) -> None:
+    """Grafana keeps one dashboard per uid, so the second file silently overwrites the first."""
+    reports = lint_dashboard_files(
+        _write_dashboards(tmp_path, {"a.json": "shared", "b.json": "shared", "c.json": "own"})
+    )
+
+    assert [(r.source_file, [i.message for i in r.errors]) for r in reports] == [
+        ("a.json", ["Dashboard uid 'shared' is also used by b.json; Grafana keeps only one"]),
+        ("b.json", ["Dashboard uid 'shared' is also used by a.json; Grafana keeps only one"]),
+        ("c.json", []),
+    ]
+
+
+def test_cli_fails_on_a_shared_uid_and_names_both_files(tmp_path: Path) -> None:
+    """The table and `--json` both exit 1, and the error is reported under each file."""
+    _write_dashboards(tmp_path, {"a.json": "shared", "b.json": "shared"})
+
+    table = runner.invoke(grafana_app, ["dashboards", "lint", str(tmp_path)])
+    as_json = runner.invoke(grafana_app, ["dashboards", "lint", str(tmp_path), "--json"])
+    reports = json.loads(as_json.output)
+
+    assert (
+        table.exit_code,
+        "also used by b.json" in table.output and "also used by a.json" in table.output,
+        as_json.exit_code,
+        [
+            (report["source_file"], [issue["message"] for issue in report["issues"]])
+            for report in reports
+        ],
+    ) == (
+        1,
+        True,
+        1,
+        [
+            ("a.json", ["Dashboard uid 'shared' is also used by b.json; Grafana keeps only one"]),
+            ("b.json", ["Dashboard uid 'shared' is also used by a.json; Grafana keeps only one"]),
+        ],
+    )
+
+
+def test_cli_json_output_exits_non_zero_on_errors(tmp_path: Path) -> None:
+    """`--json` gates CI the same way the table does."""
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"uid": "", "title": "Bad", "panels": []}), encoding="utf-8")
+
+    result = runner.invoke(grafana_app, ["dashboards", "lint", str(bad), "--json"])
+
+    assert (result.exit_code, json.loads(result.output)[0]["source_file"]) == (1, "bad.json")
 
 
 def test_cli_supports_dry_run() -> None:

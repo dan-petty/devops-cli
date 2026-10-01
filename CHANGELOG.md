@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **devops-cli Dashboards Chart What the CLI Sends (`k8s/monitoring/dashboards/`, `devops grafana dashboards sync`)**:
+  - The devops-cli and AI spend dashboards chart command latency at p50, p95 and p99, error share by command, findings by severity, and reviews by target type, reading every counter through `rate()` or `increase()`. Panels say when a value is approximate, and grouped panels no longer draw an unlabelled zero series (#692).
+  - A kustomize `configMapGenerator` provisions six dashboards through the Grafana sidecar in place of the hand-copied ConfigMaps, and `dashboards sync` skips dashboards Grafana reports as provisioned (#692).
 - **SARIF Runs Reflect What Each Scanner Did (`devops scan report --sarif`)**:
   - Only a scanner that ran gets a SARIF run, zero results included, with `invocations[].executionSuccessful` and its start and end times. A scanner that was unavailable, failed, not applicable or fell back to built-in patterns gets no run, only a notification on devops-cli's own invocation, so an upload never closes a tool's alerts for a scan that did not happen, and built-in pattern findings are attributed to devops-cli rather than to the real tool (#708).
   - Non-gating findings, such as Dive's efficiency score, are emitted at `note` level as `problem.severity: recommendation`, without a `security-severity` (#708).

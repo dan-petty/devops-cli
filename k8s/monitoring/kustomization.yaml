@@ -5,5 +5,4 @@ resources:
   - namespace.yaml
   - networkpolicy.yaml
   - service-aliases.yaml
-  - k8s-global-dashboards-configmap.yaml
-  - k8s-node-dashboards-configmap.yaml
+  - dashboards
