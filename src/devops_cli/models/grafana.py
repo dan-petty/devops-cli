@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -13,6 +15,27 @@ class GrafanaDashboard(BaseModel):
     folder_title: str = Field("General", alias="folderTitle")
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class GrafanaDashboardMeta(BaseModel):
+    """How Grafana holds a dashboard: the `meta` block of /api/dashboards/uid/<uid>."""
+
+    provisioned: bool = False
+
+
+class GrafanaDashboardDetail(BaseModel):
+    """A dashboard from /api/dashboards/uid/<uid>, reduced to its metadata."""
+
+    meta: GrafanaDashboardMeta = Field(default_factory=GrafanaDashboardMeta)
+
+
+class DashboardSyncOutcome(StrEnum):
+    """What `grafana dashboards sync` did with one dashboard file."""
+
+    SYNCED = "synced"
+    # Grafana holds the dashboard as provisioned and refuses an API save over it.
+    SKIPPED = "skipped"
+    FAILED = "failed"
 
 
 class GrafanaDatasource(BaseModel):
