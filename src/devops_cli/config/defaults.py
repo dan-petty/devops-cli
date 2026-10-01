@@ -437,6 +437,9 @@ DEFAULT_K8S_NAMESPACE: str = "default"
 DEFAULT_OBSERVABILITY_NAMESPACE: str = "observability"
 DEFAULT_K8S_STACK: str = "infra"
 DEFAULT_K8S_ALL_STACK: str = "all"
+# Helm names one conflicting resource per failed attempt, so adopting the ten CRDs of
+# prometheus-operator-crds that an earlier chart left unowned takes ten retries
+DEFAULT_HELM_RECOVERY_MAX_RETRIES: int = 20
 DEFAULT_K8S_TLS_SECRET_NAME: str = "homelab-tls"
 DEFAULT_CERT_COMMON_NAME: str = "homelab.local"
 DEFAULT_K8S_LOGS_TAIL: int = 100
