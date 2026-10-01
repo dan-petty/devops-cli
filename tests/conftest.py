@@ -11,10 +11,13 @@ import weakref
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from tests.web_fakes import StubWeb
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -179,6 +182,42 @@ def public_dns(monkeypatch: pytest.MonkeyPatch) -> str:
 
     monkeypatch.setattr(socket, "getaddrinfo", resolve)
     return address
+
+
+@pytest.fixture
+def stub_web(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Iterator[StubWeb]:
+    """Answer every httpx2 client from canned pages, so a fetch never leaves the process.
+
+    Clients keep the broker's own redirect limit and request hooks; only their transport is the
+    stub's. They stay classes, so code that subclasses them or checks isinstance still works.
+    External names resolve to a public address, as `public_dns` does.
+    """
+    import httpx2
+
+    from devops_cli.http import broker
+    from tests.web_fakes import StubWeb
+
+    web = StubWeb()
+    transport = httpx2.MockTransport(web.handle)
+
+    class StubClient(httpx2.Client):
+        """An httpx2.Client whose transport is always the stub's."""
+
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**{**kwargs, "transport": transport})
+
+    class StubAsyncClient(httpx2.AsyncClient):
+        """An httpx2.AsyncClient whose transport is always the stub's."""
+
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**{**kwargs, "transport": transport})
+
+    monkeypatch.setattr(httpx2, "Client", StubClient)
+    monkeypatch.setattr(httpx2, "AsyncClient", StubAsyncClient)
+    stub_broker = broker.HttpClientBroker()
+    monkeypatch.setattr(broker, "DEFAULT_HTTP_BROKER", stub_broker)
+    yield web
+    stub_broker.close()
 
 
 # Rich reads COLUMNS once, when a console is built, and `devops_cli.output.console` caches one per

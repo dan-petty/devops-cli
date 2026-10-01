@@ -44,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The `ai_architecture` tool, which called a nonexistent `devops analyze architecture`, and the parameters `repos_sync(all_repos)`, `k8s_audit(namespace)` and `k8s_chaos(action)`, which their commands never took (#836).
 
 ### Fixed
+- **Branch Analysis Reads the Base Revision Again (`devops analyze branch`, `devops review`)**:
+  - `symbols_removed` lists the symbols a branch removed again, so a review's "cites a removed symbol" check works. Since f93231b (#738) the base file was read as a pathspec and came back empty. Enhanced branch analyses cached since then must be regenerated with `devops analyze branch --update-all` (#787).
 - **Kubernetes Monitoring Stack Integration & Dashboard Metrics (`k8s/monitoring`)**:
   - Configured `kube-state-metrics` with `metricLabelsAllowlist` and extra collector `endpoints` to emit resource labels and endpoint info for Kubernetes Views dashboards (#825).
   - Expanded Alloy cAdvisor and KSM `metricsTuning.includeMetrics` to capture container CFS throttling, OOM events, network errors, and pod container status metrics (#825).
@@ -80,6 +82,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `devops docs check` resolves every `uv run devops` argv in the MCP server against the real command tree without running it, and reports each defect at its server line (#836).
 - **MCP Tools Refuse Coerced Arguments Before They Run (`devops_cli.ai.mcp`)**:
   - Tool arguments are validated against each tool's published schema before its handler runs, for listed and withheld tools alike. A boolean, string or integral float is refused where an integer is expected: `review_pr` with `{"number": true, "post": true}` had built `devops review pr 1 --post`. A refusal names each parameter once, with the expected type and the allowed parameters, and never echoes a value. Rejected inputs no longer reach FastMCP's warning log, and `jsonschema` is a runtime dependency (#862).
+
+### Security
+- **`web_fetch` Vets Every Redirect Hop Before Sending It (`devops_cli.ai.common_tools`, `devops_cli.http.broker`)**:
+  - A redirect chain could reach a link-local or private address: only the first URL and the final response were checked. Now each hop goes through the HTTP broker's request hook before it is sent. Only http and https are allowed, the domain lists apply with case and trailing dots ignored, and the address must be public whatever `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK` says. Both broker clients follow at most 10 redirects (#860).
+  - Each fetch uses its own client, so no cookies carry over between fetches, and a request's egress policy can only add restrictions to the broker's own SSRF check (#860).
 
 ## [0.2.24] - 2026-09-28
 

@@ -9,11 +9,13 @@ from __future__ import annotations
 import html
 import re
 import urllib.parse
+from functools import partial
 from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
     from devops_cli.ai.agents.tools import Tool
 
+from devops_cli.config.constants import CONST_HTTP_EGRESS_POLICY_EXTENSION
 from devops_cli.config.defaults import (
     DEFAULT_DUCKDUCKGO_MAX_RESULTS,
     DEFAULT_DUCKDUCKGO_TIMEOUT_SECONDS,
@@ -26,7 +28,7 @@ from devops_cli.config.defaults import (
     DEFAULT_WEB_FETCH_TIMEOUT_SECONDS,
 )
 from devops_cli.core.validation import validate_url_egress
-from devops_cli.exceptions.security import SSRFBlockedError
+from devops_cli.http.broker import get_broker
 from devops_cli.http.client import new_http_client
 
 # =============================================================================
@@ -276,13 +278,6 @@ else:
 # =============================================================================
 
 
-def _is_private_or_loopback(host: str) -> bool:
-    """Validate if a hostname or IP address resolves to private/loopback space."""
-    from devops_cli.core.validation import is_loopback_or_private_host
-
-    return is_loopback_or_private_host(host)
-
-
 def is_private_ip_or_localhost(url_or_host: str) -> bool:
     """Validate if a URL or hostname resolves to private/loopback/link-local space."""
     parsed = urllib.parse.urlparse(url_or_host)
@@ -318,33 +313,45 @@ def _html_to_markdown(raw_html: str) -> str:
 # =============================================================================
 
 
+def _canonical_host(name: str) -> str:
+    """Return a host or domain name lowercased and without its trailing dot, as DNS compares it."""
+    return name.lower().rstrip(".")
+
+
+def _in_domains(hostname: str, domains: list[str]) -> bool:
+    """Return True if `hostname` is one of `domains` or a subdomain of one."""
+    return any(hostname == d or hostname.endswith(f".{d}") for d in map(_canonical_host, domains))
+
+
 def _validate_fetch_domain(
     hostname: str,
     allowed_domains: list[str] | None,
     blocked_domains: list[str] | None,
 ) -> None:
     """Validate requested hostname against domain allow/block lists."""
-    if blocked_domains and any(
-        hostname == d.lower() or hostname.endswith(f".{d.lower()}") for d in blocked_domains
-    ):
+    hostname = _canonical_host(hostname)
+    if blocked_domains and _in_domains(hostname, blocked_domains):
         raise ValueError(f"Domain '{hostname}' is in blocked_domains")
 
-    if allowed_domains and not any(
-        hostname == d.lower() or hostname.endswith(f".{d.lower()}") for d in allowed_domains
-    ):
+    if allowed_domains and not _in_domains(hostname, allowed_domains):
         raise ValueError(f"Domain '{hostname}' is not in allowed_domains")
 
 
-def _validate_response_egress(resp: Any, fallback_url: str) -> None:
-    """Validate redirected response target against SSRF and DNS rebinding."""
-    if not hasattr(resp, "url") or not resp.url:
-        return
-    target_str = str(resp.url)
-    if target_str.startswith(("http://", "https://")):
-        validate_url_egress(target_str, purpose="web_fetch", allow_private=False)
-    elif raw_host := getattr(resp.url, "host", None) or getattr(resp.url, "hostname", None):
-        if _is_private_or_loopback(str(raw_host)):
-            raise SSRFBlockedError(target_url=target_str or fallback_url)
+def _validate_fetch_hop(
+    url: str,
+    allowed_domains: list[str] | None,
+    blocked_domains: list[str] | None,
+) -> None:
+    """Veto one web_fetch hop: http or https, within the domain lists, and public.
+
+    The address check ignores DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK, so no environment lets a page
+    or a redirect it sends reach a private, loopback or link-local address.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
+    _validate_fetch_domain(parsed.hostname or "", allowed_domains, blocked_domains)
+    validate_url_egress(url, purpose="web_fetch", allow_private=False)
 
 
 def web_fetch_tool(
@@ -356,21 +363,26 @@ def web_fetch_tool(
     headers: dict[str, str] | None = None,
 ) -> Tool:
     """Create a Tool that fetches the content of a web page and converts it to markdown."""
+    egress_policy = partial(
+        _validate_fetch_hop, allowed_domains=allowed_domains, blocked_domains=blocked_domains
+    )
 
     def fetch_web_page(url: str) -> str:
         """Fetch URL content and return cleaned markdown text."""
-        parsed = urllib.parse.urlparse(url)
-        if parsed.scheme not in ("http", "https"):
-            raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
-
-        hostname = (parsed.hostname or "").lower()
-        _validate_fetch_domain(hostname, allowed_domains, blocked_domains)
-        validate_url_egress(url, purpose="web_fetch", allow_private=False)
-
-        client = new_http_client(headers=headers or {})
+        egress_policy(url)
         try:
-            resp = client.get(url, follow_redirects=True, timeout=DEFAULT_WEB_FETCH_TIMEOUT_SECONDS)
-            _validate_response_egress(resp, url)
+            # The broker's request hook holds every redirect hop to egress_policy before sending
+            # it. The tool's own headers keep the caller's trace context from the fetched site, and
+            # a client of its own keeps one site's cookies from every later fetch.
+            with get_broker().new_client() as client:
+                request = client.build_request(
+                    "GET",
+                    url,
+                    headers=headers,
+                    timeout=DEFAULT_WEB_FETCH_TIMEOUT_SECONDS,
+                    extensions={CONST_HTTP_EGRESS_POLICY_EXTENSION: egress_policy},
+                )
+                resp = client.send(request)
             resp.raise_for_status()
 
             raw_bytes = resp.content
@@ -518,7 +530,6 @@ __all__ = [
     "XSearchSubagentTool",
     "XSearchTool",
     "_html_to_markdown",
-    "_is_private_or_loopback",
     "duckduckgo_search_tool",
     "exa_answer_tool",
     "exa_find_similar_tool",

@@ -8,23 +8,13 @@ import pytest
 
 from devops_cli.ai.common_tools import (
     _html_to_markdown,
-    _is_private_or_loopback,
     duckduckgo_search_tool,
     tavily_search_tool,
     web_fetch_tool,
 )
 from devops_cli.exceptions.security import SSRFBlockedError
-
-
-def test_is_private_or_loopback() -> None:
-    assert _is_private_or_loopback("localhost") is True
-    assert _is_private_or_loopback("127.0.0.1") is True
-    assert _is_private_or_loopback("10.0.0.1") is True
-    assert _is_private_or_loopback("192.168.1.1") is True
-    assert _is_private_or_loopback("169.254.169.254") is True
-    assert _is_private_or_loopback("cluster.local") is True
-    assert _is_private_or_loopback("api.github.com") is False
-    assert _is_private_or_loopback("pydantic.dev") is False
+from devops_cli.http.broker import get_broker
+from tests.web_fakes import StubWeb
 
 
 def test_html_to_markdown() -> None:
@@ -36,15 +26,10 @@ def test_html_to_markdown() -> None:
     assert "alert(1)" not in md
 
 
-@patch("devops_cli.ai.common_tools.new_http_client")
-@pytest.mark.usefixtures("public_dns")
-def test_web_fetch_tool_success(mock_get_client: MagicMock) -> None:
-    mock_resp = MagicMock()
-    mock_resp.content = b"<html><body><h1>Docs</h1><p>Welcome to docs</p></body></html>"
-    mock_resp.text = "<html><body><h1>Docs</h1><p>Welcome to docs</p></body></html>"
-    mock_client = MagicMock()
-    mock_client.get.return_value = mock_resp
-    mock_get_client.return_value = mock_client
+def test_web_fetch_tool_success(stub_web: StubWeb) -> None:
+    stub_web.page(
+        "https://example.com/docs", "<html><body><h1>Docs</h1><p>Welcome to docs</p></body></html>"
+    )
 
     fetch_tool = web_fetch_tool(max_content_length=1000)
     assert fetch_tool.name == "web_fetch"
@@ -107,24 +92,85 @@ def test_tavily_search_tool(mock_get_client: MagicMock) -> None:
     assert any(line.startswith("- **Pydantic AI** (https://ai.pydantic.dev)") for line in lines)
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_web_fetch_tool_blocks_post_redirect_to_private_host() -> None:
-    tool = web_fetch_tool()
-    fn = tool.function
+@pytest.mark.parametrize(
+    "hop",
+    ["http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:8200/v1/sys/health"],
+    ids=["link-local", "loopback"],
+)
+def test_web_fetch_tool_never_requests_a_private_redirect_hop(
+    stub_web: StubWeb, monkeypatch: pytest.MonkeyPatch, hop: str
+) -> None:
+    """A public, then private, then public 3xx chain stops before the private hop is sent.
 
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.content = b"<html>Private Data</html>"
-    mock_resp.text = "Private Data"
-    mock_resp.url = MagicMock()
-    mock_resp.url.host = "169.254.169.254"
+    The environment admits private networks, so only the tool's own per-hop policy can refuse it.
+    """
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
+    stub_web.redirect("https://example.com/start", hop)
+    stub_web.redirect(hop, "https://example.com/final")
+    stub_web.page("https://example.com/final", "<h1>Final</h1>")
 
-    mock_client = MagicMock()
-    mock_client.get.return_value = mock_resp
+    res = web_fetch_tool().execute(url="https://example.com/start")
 
-    with patch("devops_cli.ai.common_tools.new_http_client", return_value=mock_client):
-        res = fn("https://example.com/forward")
-        assert "blocked" in res.lower() or "error" in res.lower() or "ssrf" in res.lower()
+    assert (stub_web.requested, "# Final" in res) == (["https://example.com/start"], False)
+
+
+@pytest.mark.parametrize(
+    "hop",
+    ["https://blocked.com/final", "https://blocked.com./final"],
+    ids=["exact", "trailing-dot"],
+)
+def test_web_fetch_tool_never_requests_a_redirect_to_a_blocked_domain(
+    stub_web: StubWeb, hop: str
+) -> None:
+    """A redirect hop is held to the tool's domain lists, not only the first URL.
+
+    A trailing dot names the same host, so it does not get past the deny-list.
+    """
+    stub_web.redirect("https://example.com/start", hop)
+    stub_web.page(hop, "<h1>Final</h1>")
+
+    res = web_fetch_tool(blocked_domains=["blocked.com"]).execute(url="https://example.com/start")
+
+    assert (stub_web.requested, "# Final" in res) == (["https://example.com/start"], False)
+
+
+@pytest.mark.parametrize(
+    ("blocked", "url"),
+    [("blocked.com", "https://blocked.com./page"), ("blocked.com.", "https://blocked.com/page")],
+    ids=["url", "list-entry"],
+)
+def test_web_fetch_tool_refuses_a_blocked_first_url_whatever_the_trailing_dot(
+    stub_web: StubWeb, blocked: str, url: str
+) -> None:
+    """A host and a deny-list entry are matched without their trailing dot."""
+    with pytest.raises(ValueError, match="blocked_domains"):
+        web_fetch_tool(blocked_domains=[blocked]).execute(url=url)
+
+    assert stub_web.requested == []
+
+
+def test_web_fetch_tool_keeps_no_cookie_between_fetches(stub_web: StubWeb) -> None:
+    """A cookie a fetched site sets is never sent on a later fetch, nor kept by the shared client."""
+    stub_web.page("https://example.com/set", "<h1>Set</h1>", {"set-cookie": "track=abc; Path=/"})
+    stub_web.page("https://example.com/docs", "<h1>Docs</h1>")
+
+    web_fetch_tool().execute(url="https://example.com/set")
+    web_fetch_tool().execute(url="https://example.com/docs")
+
+    sent, shared_jar = stub_web.sent[1].headers, get_broker().get_client().cookies.jar
+    assert ("cookie" in sent, len(shared_jar)) == (False, 0)
+
+
+def test_web_fetch_tool_sends_its_own_headers_without_trace_context(stub_web: StubWeb) -> None:
+    """A fetched page receives the tool's headers and never the caller's traceparent."""
+    stub_web.page("https://example.com/docs", "<h1>Docs</h1>")
+    span = {"trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "span_id": "00f067aa0ba902b7"}
+
+    with patch("devops_cli.telemetry.context.get_current_span_context", return_value=span):
+        web_fetch_tool(headers={"Accept-Language": "en"}).execute(url="https://example.com/docs")
+
+    sent = stub_web.sent[0].headers
+    assert (sent.get("accept-language"), "traceparent" in sent) == ("en", False)
 
 
 def test_web_fetch_tool_blocks_dns_rebinding() -> None:
