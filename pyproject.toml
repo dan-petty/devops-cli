@@ -72,6 +72,7 @@ dev = [
     "bandit==1.9.4",
     "actionlint-py==1.7.12.24",
     "pre-commit==4.6.2",
+    "hypothesis==6.168.3",
 ]
 
 [tool.hatch.build.targets.wheel]
