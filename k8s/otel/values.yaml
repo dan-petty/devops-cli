@@ -115,3 +115,9 @@ ports:
     enabled: true
   otlp-http:
     enabled: true
+
+serviceMonitor:
+  enabled: true
+  metricsEndpoints:
+    - port: metrics
+      interval: 15s

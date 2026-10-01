@@ -56,3 +56,9 @@ podSecurityContext:
 
 # fsGroup: 1000 manages volume permissions; disable root chown initContainer
 updateVolumeFsOwnership: false
+
+metrics:
+  serviceMonitor:
+    enabled: true
+    scrapeInterval: 15s
+    scrapeTimeout: 10s

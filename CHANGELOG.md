@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fully removed the unused `ghcr.io/modeltc/lightllm` inference backend, including `k8s/llm/lightllm/` manifests, `CONST_AI_BACKEND_LIGHTLLM`, `GatewayRouter.scale_lightllm()`, the `devops-cli-ai_lightllm_scale` MCP tool, and all associated CLI, configuration, and test references. The `devops ai gateway scale` command now exclusively targets the vLLM backend.
 
 ### Fixed
+- **Kubernetes Monitoring Stack Integration & Dashboard Metrics (`k8s/monitoring`, `k8s/otel`, `k8s/llm`)**:
+  - Configured `kube-state-metrics` with `metricLabelsAllowlist` and extra collector `endpoints` to emit resource labels and endpoint info for Kubernetes Views dashboards (#825).
+  - Expanded Alloy cAdvisor and KSM `metricsTuning.includeMetrics` to capture container CFS throttling, OOM events, network errors, and pod container status metrics (#825).
+  - Enabled Prometheus `serviceMonitor` for OpenTelemetry Collector (port 8888) and Qdrant vector database (port 6333) (#825).
+  - Permitted port 9153 (TCP) in monitoring NetworkPolicy egress for CoreDNS metrics scraping (#825).
 - **Gitleaks Scans Every File of a List Target (`devops_cli.security.gitleaks`)**:
   - A list target, such as the files of a review, now runs Gitleaks once per file and merges the outcomes, keeping every finding and the worst status. Before, the binary scanned only the first file, and since #763 the built-in patterns did too (#781).
 - **Board-Owned Project Status and Truthful Reconciliation (`devops gh project reconcile`, `devops gh project sync`)**:
