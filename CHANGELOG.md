@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Architecture Review Planning (`CONTEXT.md`, `docs/ROADMAP.md`)**:
   - Added the Code review glossary terms (Finding, Verdict, Review session, Known false positive) (#782).
   - Planned the architecture review's ten deepening candidates and five defects as #767-#781: the gitleaks list-target regression as a v0.2.24 critical fix, the roadmap store in v0.2.25, the GitHub session in v0.2.26 and the rest in the backlog (#782).
+- **Dashboard Keeps Its Place Across Refreshes (`devops dashboard`, `devops tui`)**:
+  - A refresh keeps each table's highlighted row and its horizontal and vertical scroll, on every tab, instead of returning to the first row every five seconds. Rows carry stable keys, so repeated records stay separate rows and a record that vanishes leaves the cursor at its index (#684).
+  - The AI Review findings sub-tab shows the highlighted finding's full record in a detail pane beside the table, toggled with `i`, with model-written markup and control characters shown literally. Every finding of a session is listed, not just the first 50 (#684).
 
 ### Removed
 - **LightLLM Inference Backend (`devops_cli.ai`, `k8s/llm`)**:
@@ -49,6 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ai harness status` shows the configured provider and model with every slot `configured`, instead of a hard-coded `claude-3-7-sonnet` with every slot `attached`. `ai harness run` and `offload` report the local search they ran and what it found, without templated model "Tier 1/Tier 3" text, token estimates, or the unused `--frontier-model`/`--local-model` options (#710).
   - `ai quiesce`, `ai failover`, `ai resume` and `ai constellation` set, record and show a flag, and say so. Task registration, which nothing called, and the per-task counts, `--drain-timeout` and failover's `--force` are removed; `ai gateway failover` reroutes requests (#710).
   - `telemetry profile <command>` reads the command's trace back from Jaeger, waiting until it stops growing, and exits non-zero without a command or trace, with telemetry export off, or when no spans reach Jaeger. The `sample.*` fallback spans and the unused `--last` are removed, and the MCP tool passes the command positionally (#710).
+- **The Workspace Tripwire Passes From a Linked Worktree (`tests/conftest.py`)**:
+  - `uv run devops ci` no longer fails from a linked worktree. The #749 tripwire required `.git/index`, which a linked worktree lacks, so it reported every file the gate regenerates as modified by tests; git now finds the index itself (#824).
+- **Deploy-Stack Installs the Prometheus Operator CRDs (`devops k8s deploy-stack`, `devops k8s teardown-stack`)**:
+  - The infra stack installs `prometheus-community/prometheus-operator-crds` before k8s-monitoring and dcgm-exporter, whose ServiceMonitors need its CRDs. Since #734 removed kube-prometheus-stack, a cluster without leftover CRDs got no Alloy, and so no cluster metrics, pod logs, or gateway and GPU metrics. Teardown leaves the CRDs in place, and they carry `helm.sh/resource-policy: keep` (#819).
+  - Adoption of pre-existing resources handles cluster-scoped ones such as leftover CRDs, annotates the release's namespace that Helm checks, and retries until every leftover is adopted or a retry fails unchanged (#819).
 
 ## [0.2.24] - 2026-09-28
 

@@ -598,10 +598,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Refactoring Potential & Legacy Elimination*: Refactor `src/devops_cli/commands/k8s/` to support declarative ingress definitions; isolate tunnel credentials in Kubernetes secrets; eliminate bespoke localhost-only assumptions in service discovery.
 
 ### Reactive Workstation Command Center, Interactive TUI & Unified Operations Hub (v0.2.24 - Active Release)
-- [ ] **Reactive Multi-Workspace Textual TUI Architecture & Master-Detail Navigation (`devops dashboard`, `devops tui`) (P0 - Critical, Issue #684)**:
-  - *Context & Rationale*: Modernizes the basic Textual dashboard from static read-only tables into a reactive, multi-workspace workstation command center with non-blocking async workers (`work()`), real-time push events, and master-detail ergonomic split screens (navigation tree/list on left, contextual detail inspector with YAML/logs/markdown on right).
-  - *Unified Workspaces*: Seamlessly tabs between 7 domain workspaces: (1) `PR & Git Lifecycle`, (2) `K8s & Minikube`, (3) `Docker & Sandboxes`, (4) `SecOps & Vault`, (5) `GitOps & ArgoCD`, (6) `AI Constellation & Memory`, and (7) `Telemetry & Loki Logs`.
-  - *Stateful Navigation*: Preserves active table selections, scroll positions, and filter queries across tab switches with URL-like hash routing.
+- [x] **Dashboard Keeps Its Place Across Refreshes and Shows a Finding Detail Pane (`devops dashboard`, `devops tui`) (P1 - High, Issue #684)**:
+  - *Context & Rationale*: Every five-second refresh redrew each table with `DataTable.clear()`, which put the cursor on the first row and scrolled to the top, so the operator lost their place on every tab. Findings showed only truncated table cells, and the provider listed just the first 50.
+  - *Deliverable*: Every row has a stable key from a pure identity function per table (`ui/projections.py`), and `redraw_table` keeps the highlighted row and both scroll offsets through a refresh; a vanished record leaves the cursor at its index, and a different review session returns to the top. The AI Review findings sub-tab gains a scrollable detail pane (`i` toggles it) that renders the highlighted finding's full record as plain text, with model-written markup and control characters shown literally. Every finding of a session is listed.
+  - *Constraint*: New workspaces, hash routing, push events, filters and inspectors stay with #685-#691; #686's `/` filter builds on these row keys.
 - [ ] **Interactive GitHub Lifecycle, PR Monitor & Projects v2 Kanban Hub (`tab-github`) (P0 - Critical, Issue #685)**:
   - *Context & Rationale*: Embeds full GitHub engineering workflow visibility directly inside the terminal.
   - *Chronological FIFO PR Queue*: Live pull request queue prioritized from oldest to newest with status badges (CI check conclusion, Copilot review settling indicator, unresolved review threads counter). Selecting a PR opens an inspector pane with commit diff summary and failing check logs.
@@ -804,6 +804,14 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: An architecture review on 2026-10-01 found ten deepening candidates and five defects in the hot spots since v0.2.23 and the GitHub modules the roadmap jobs build on.
   - *Deliverable*: Items #767-#781; `CONTEXT.md` Code review terms (Finding, Verdict, Review session, Known false positive); entries for #781, #768 and #767; backlog rows for the rest; #768 added to the dependencies of #739, #740, #742, #743 and #752, and #767 to #741.
   - *Constraint*: Merges into `release/v0.2.24`. v0.2.25 holds 12 open items afterwards.
+- [x] **The Workspace Tripwire Passes From a Linked Worktree (P0 - Critical, Issue #824)**:
+  - *Context & Rationale*: e8eaf4a (#749) made `_is_git_file_modified` (`tests/conftest.py`) report a change whenever `.git/index` was missing. A linked worktree's `.git` is a file, so every file `devops ci` regenerates during pytest was reported as modified, and the gate failed from every worktree.
+  - *Deliverable*: git finds the index itself; a test in a linked worktree checks that a file with only a new mtime is not reported and an edited one is.
+  - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, so it joins the current release.
+- [x] **Deploy-Stack Installs the Prometheus Operator CRDs Its ServiceMonitors Need (P0 - Critical, Issue #819)**:
+  - *Context & Rationale*: fdd4d0f (#734) replaced kube-prometheus-stack with k8s-monitoring 4.x and the standalone Prometheus chart, neither of which ships the `monitoring.coreos.com` CRDs. k8s-monitoring's `extraObjects` and dcgm-exporter still render ServiceMonitors, so on a cluster without leftover CRDs both releases failed and `deploy-stack --stack infra` installed no Alloy. The homelab's leftover CRDs hid it, and `_adopt_helm_resource_if_conflict` could not adopt them because they are cluster-scoped.
+  - *Deliverable*: `prometheus-operator-crds` is the first infra release and teardown keeps it; adoption handles `in namespace ""` without `-n`, annotates the release's namespace, and retries once per leftover CRD until a retry fails unchanged. Unit tests cover the order, both adoption shapes, the retries and teardown.
+  - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, so it joins the current release. The live runs on a scratch cluster and the homelab are left to a person.
 
 ### Multi-IDE MCP Scaffolding, Context Budgeting & Invariant Pinning (v0.2.25 - Scheduled)
 - [ ] **Pipeline Stage Context Budgeting & Invariant Pinning (P0 - Critical)**:
