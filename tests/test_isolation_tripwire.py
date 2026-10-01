@@ -91,7 +91,7 @@ def test_check_config_diff_permutations(tmp_path: Path) -> None:
 
 
 def test_check_tracked_diff_detects_mutations(tmp_path: Path) -> None:
-    """Verify _check_tracked_diff detects deleted and modified tracked files plus index.lock."""
+    """Verify _check_tracked_diff detects deleted and modified tracked files."""
     f1 = tmp_path / "tracked1.py"
     f1.write_text("print('v1')", encoding="utf-8")
     init_st1 = f1.stat()
@@ -105,16 +105,12 @@ def test_check_tracked_diff_detects_mutations(tmp_path: Path) -> None:
         "tracked2.py": (init_st2.st_mtime_ns, init_st2.st_size),
     }
 
-    # Simulate f1 modified, f2 deleted, and .git/index.lock created
+    # Simulate f1 modified and f2 deleted
     f1.write_text("print('v2-modified')", encoding="utf-8")
     f2.unlink()
-    git_dir = tmp_path / ".git"
-    git_dir.mkdir()
-    (git_dir / "index.lock").write_text("lock", encoding="utf-8")
 
     diffs = _check_tracked_diff(tmp_path, snapshot)
     assert diffs == [
-        ".git/index.lock (left behind by tests)",
         "tracked1.py (modified by tests)",
         "tracked2.py (deleted by tests)",
     ]
@@ -161,21 +157,37 @@ def test_check_test_paths_isolated_rejects_project_dir(tmp_path: Path) -> None:
 
 
 def test_evaluate_workspace_tripwire_aggregates_failures(tmp_path: Path) -> None:
-    """Verify _evaluate_workspace_tripwire aggregates config, tracked, and forbidden failures."""
+    """Verify _evaluate_workspace_tripwire aggregates config, tracked, lock, and forbidden failures."""
     repo_dir = tmp_path / "eval_repo"
     repo_dir.mkdir()
     (repo_dir / "config.yaml").write_text("bad: true", encoding="utf-8")
     (repo_dir / "test_config.yaml").write_text("leak: true", encoding="utf-8")
-    snapshot: dict[str, Any] = {
+    git_dir = repo_dir / ".git"
+    git_dir.mkdir()
+    (git_dir / "index.lock").write_text("lock", encoding="utf-8")
+
+    snapshot_unlocked: dict[str, Any] = {
         "repo_root": repo_dir,
         "config_state": None,
         "tracked_snapshot": {},
+        "had_index_lock": False,
     }
-    failures = _evaluate_workspace_tripwire(snapshot)
+    failures = _evaluate_workspace_tripwire(snapshot_unlocked)
+
+    snapshot_locked: dict[str, Any] = {
+        "repo_root": repo_dir,
+        "config_state": None,
+        "tracked_snapshot": {},
+        "had_index_lock": True,
+    }
+    failures_locked = _evaluate_workspace_tripwire(snapshot_locked)
+
     assert (
         "config.yaml (created by tests)" in failures,
+        ".git/index.lock (left behind by tests)" in failures,
         "test_config.yaml (test path found in project directory)" in failures,
-    ) == (True, True)
+        ".git/index.lock (left behind by tests)" in failures_locked,
+    ) == (True, True, True, False)
 
 
 def test_session_hooks_lifecycle(tmp_path: Path) -> None:

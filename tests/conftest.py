@@ -440,10 +440,8 @@ def _is_git_file_modified(repo_root: Path, rel_path: str) -> bool:
 
 
 def _check_tracked_diff(repo_root: Path, snapshot: dict[str, tuple[int, int]]) -> list[str]:
-    """Detect modifications or deletions in git-tracked files and presence of index.lock."""
+    """Detect modifications or deletions in git-tracked files."""
     diffs: list[str] = []
-    if (repo_root / ".git" / "index.lock").exists():
-        diffs.append(".git/index.lock (left behind by tests)")
     for rel_path, (init_mtime, init_size) in snapshot.items():
         full = repo_root / rel_path
         if not full.exists():
@@ -478,6 +476,8 @@ def _evaluate_workspace_tripwire(snapshot: dict[str, Any]) -> list[str]:
     cfg_diff = _check_config_diff(repo_root, snapshot.get("config_state"))
     if cfg_diff is not None:
         failures.append(cfg_diff)
+    if not snapshot.get("had_index_lock", False) and (repo_root / ".git" / "index.lock").exists():
+        failures.append(".git/index.lock (left behind by tests)")
     failures.extend(_check_tracked_diff(repo_root, snapshot.get("tracked_snapshot", {})))
     failures.extend(_check_forbidden_test_paths(repo_root))
     return failures
@@ -494,6 +494,7 @@ def pytest_sessionstart(session: pytest.Session) -> None:
         "repo_root": repo_root,
         "config_state": cfg_path.read_bytes() if cfg_path.exists() else None,
         "tracked_snapshot": _snapshot_tracked_files(repo_root, tracked),
+        "had_index_lock": (repo_root / ".git" / "index.lock").exists(),
     }
 
 
