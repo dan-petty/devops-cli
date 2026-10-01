@@ -800,6 +800,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: 87076d5 (#684) opened each newly highlighted finding at the top with `scroll_home(animate=False)`, which Textual defers until after the next screen refresh; `test_another_finding_is_detailed_from_the_top` could read the old offset first, and CI on GitHub's runner failed intermittently.
   - *Deliverable*: The pane scrolls with `immediate=True`; a test reads `scroll_y` straight after the highlight handler, with no pause.
   - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, so it joins the current release.
+- [x] **Kubernetes Monitoring Telemetry Integration and Dashboard Metric Fixes (P1 - High, Issue #825)**:
+  - *Context & Rationale*: The Kubernetes Views dashboards read `kube_*_labels`, `kube_endpoint_info` and container throttling, OOM and network-error series that kube-state-metrics never emitted or Alloy's allowlists dropped, and the monitoring perimeter blocked the Prometheus server's scrape of CoreDNS on 9153.
+  - *Deliverable*: kube-state-metrics gains a `metricLabelsAllowlist` and the `endpoints` collector, Alloy's cAdvisor and KSM allowlists keep the missing series, and the perimeter admits egress to `kube-system` on 9153; tests pin each value, the DCGM scrape timeout and capability, and that the collector is scraped once, through its pod annotations.
+  - *Constraint*: No collector or Qdrant ServiceMonitor: #693 scrapes the collector directly, and Qdrant's authenticated scrape is #823.
 
 ### Multi-IDE MCP Scaffolding, Context Budgeting & Invariant Pinning (v0.2.25 - Scheduled)
 - [ ] **Pipeline Stage Context Budgeting & Invariant Pinning (P0 - Critical)**:
