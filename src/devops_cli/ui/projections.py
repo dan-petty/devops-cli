@@ -11,9 +11,14 @@ enough to be obviously correct.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import json
+import textwrap
+import unicodedata
+from collections import Counter
+from collections.abc import Callable, Iterable
 from typing import Any
 
+from devops_cli.ai.review_schema import format_clean_text_field
 from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_AI,
     CONST_DASHBOARD_DOMAIN_DOCKER,
@@ -27,6 +32,11 @@ from devops_cli.config.constants import (
     CONST_DOCKER_RESOURCE_NETWORKS,
     CONST_DOCKER_RESOURCE_REGISTRIES,
     CONST_DOCKER_RESOURCE_VOLUMES,
+    CONST_FINDING_DETAIL_FIELD_FALLBACKS,
+    CONST_FINDING_DETAIL_HEADER_FIELDS,
+    CONST_FINDING_DETAIL_KEPT_CONTROLS,
+    CONST_FINDING_DETAIL_SECTION_FIELDS,
+    CONST_UNICODE_CONTROL_CATEGORY,
 )
 from devops_cli.ui.data_providers import (
     DockerSummary,
@@ -42,6 +52,8 @@ CONST_STATUS_DOT_WARN = "[yellow]●[/yellow]"
 CONST_STATUS_DOT_ERROR = "[red]●[/red]"
 
 CONST_AI_TITLE_MAX_CHARS = 45
+
+CONST_FINDING_DETAIL_EMPTY = "No finding selected."
 
 DOMAIN_COLUMNS: dict[str, tuple[str, ...]] = {
     CONST_DASHBOARD_DOMAIN_K8S: ("Namespace", "Pod Name", "Status", "Ready", "Restarts"),
@@ -258,6 +270,171 @@ def valkey_rows(summary: ValkeySummary) -> list[tuple[str, ...]]:
 
 
 # =============================================================================
+# Row identities
+# =============================================================================
+#
+# One identity per row, in row order, naming the record the row shows. A refresh redraws
+# every table, and the identity is how the redraw finds the row the operator was on.
+
+
+def k8s_identities(summary: K8sSummary) -> list[tuple[str, ...]]:
+    """Identify pods by namespace and name: a name is unique only within its namespace."""
+    return _records(summary.pods, ("namespace", "name"))
+
+
+def docker_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Identify containers by id."""
+    return _records(summary.containers, ("id",))
+
+
+def telemetry_identities(summary: TelemetrySummary) -> list[tuple[str, ...]]:
+    """Identify instruments by kind and name: a counter and a gauge may share a name."""
+    return [(kind, name) for name, kind, _value in telemetry_rows(summary)]
+
+
+def ai_identities(summary: ReviewSummary) -> list[tuple[str, ...]]:
+    """Identify findings by persona, location and full title.
+
+    Findings carry no id in practice, and the row shows neither the persona nor more than
+    the start of the title, so the identity is built from the record.
+    """
+    return _records(summary.findings, ("persona", "location", "title"))
+
+
+def images_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Identify images by id."""
+    return _records(summary.images, ("id",))
+
+
+def networks_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Identify networks by id."""
+    return _records(summary.networks, ("id",))
+
+
+def volumes_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Identify volumes by name, which Docker keeps unique."""
+    return _records(summary.volumes, ("name",))
+
+
+def registries_identities(summary: DockerSummary) -> list[tuple[str, ...]]:
+    """Identify registries by name."""
+    return _records(summary.registries, ("name",))
+
+
+def valkey_identities(summary: ValkeySummary) -> list[tuple[str, ...]]:
+    """Identify cache properties by their name."""
+    return [(name,) for name, _value in valkey_rows(summary)]
+
+
+def row_keys(identities: Iterable[tuple[str, ...]]) -> list[str]:
+    """Turn row identities into table row keys, unique even when identities repeat.
+
+    Each identity is numbered by how often it has already occurred, so two containers
+    sharing the empty-id fallback are two rows rather than a `DuplicateKey` that blanks the
+    whole panel. Textual keys rows by string, so the result is encoded as JSON.
+    """
+    seen: Counter[tuple[str, ...]] = Counter()
+    keys: list[str] = []
+    for identity in identities:
+        keys.append(json.dumps([*identity, seen[identity]]))
+        seen[identity] += 1
+    return keys
+
+
+# =============================================================================
+# Finding detail
+# =============================================================================
+
+
+def _confidence(score: Any) -> str:
+    """Render a confidence score to two decimals, as `review findings` does."""
+    try:
+        return f"{float(score):.2f}"
+    except TypeError, ValueError:
+        return str(score)
+
+
+def _one_per_line(values: Any) -> str:
+    """Render a list one item per line."""
+    return "\n".join(map(str, values)) if isinstance(values, list) else str(values)
+
+
+_DETAIL_FORMATTERS: dict[str, Callable[[Any], str]] = {
+    "confidence_score": _confidence,
+    "description": format_clean_text_field,
+    "fix": format_clean_text_field,
+    "references": _one_per_line,
+}
+
+
+def _escape_controls(text: str) -> str:
+    """Write control characters as visible escapes, keeping line breaks and tabs.
+
+    Textual strips only a handful of control characters, so a raw ESC in model-written
+    text would otherwise reach the terminal as the start of an escape sequence.
+    """
+    return "".join(
+        char.encode("unicode_escape").decode("ascii")
+        if unicodedata.category(char) == CONST_UNICODE_CONTROL_CATEGORY
+        and char not in CONST_FINDING_DETAIL_KEPT_CONTROLS
+        else char
+        for char in text
+    )
+
+
+def _trim(text: str) -> str:
+    """Drop the blank lines around a value and its trailing whitespace.
+
+    The first line keeps its indentation: stripping it alone would set quoted code's first
+    line left of the lines below it.
+    """
+    body = text.rstrip()
+    start = body.rfind("\n", 0, len(body) - len(body.lstrip())) + 1
+    return body[start:]
+
+
+def _detail_value(record: dict[str, Any], field: str) -> str:
+    """Render one field of a finding, or an empty string when it holds nothing.
+
+    Only None, a blank string and an empty list count as nothing: a confidence of 0.0 or a
+    citation on line 0 is a value. Indentation every line of a text shares is removed
+    first, so quoted code starts at the margin with its own structure intact.
+    """
+    value = record.get(field)
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        value = textwrap.dedent(value)
+    return _trim(_escape_controls(_DETAIL_FORMATTERS.get(field, str)(value)))
+
+
+def _detail_field(record: dict[str, Any], field: str) -> str:
+    """Render a field, reading its fallback when the field itself is blank."""
+    fallback = CONST_FINDING_DETAIL_FIELD_FALLBACKS.get(field)
+    text = _detail_value(record, field)
+    return text or (_detail_value(record, fallback) if fallback else "")
+
+
+def finding_detail(record: dict[str, Any]) -> str:
+    """Render a finding's full record as plain labelled text for the detail pane.
+
+    The text is model output quoting repository content, so it is returned as-is for a
+    widget with markup off, with control characters already escaped.
+    """
+    header = "\n".join(
+        f"{label}: {text}"
+        for field, label in CONST_FINDING_DETAIL_HEADER_FIELDS
+        if (text := _detail_field(record, field))
+    )
+    sections = [
+        f"{label}:\n{text}"
+        for field, label in CONST_FINDING_DETAIL_SECTION_FIELDS
+        if (text := _detail_field(record, field))
+    ]
+    return "\n\n".join(block for block in (header, *sections) if block)
+
+
+# =============================================================================
 # Snapshot rendering
 # =============================================================================
 
@@ -277,6 +454,14 @@ _ROWS: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
     CONST_DASHBOARD_DOMAIN_VALKEY: valkey_rows,
 }
 
+_IDENTITIES: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
+    CONST_DASHBOARD_DOMAIN_K8S: k8s_identities,
+    CONST_DASHBOARD_DOMAIN_DOCKER: docker_identities,
+    CONST_DASHBOARD_DOMAIN_TELEMETRY: telemetry_identities,
+    CONST_DASHBOARD_DOMAIN_AI: ai_identities,
+    CONST_DASHBOARD_DOMAIN_VALKEY: valkey_identities,
+}
+
 
 DOCKER_RESOURCE_COLUMNS: dict[str, tuple[str, ...]] = {
     CONST_DOCKER_RESOURCE_CONTAINERS: ("Container ID", "Name", "Image", "Status"),
@@ -294,6 +479,14 @@ DOCKER_RESOURCE_ROWS: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
     CONST_DOCKER_RESOURCE_REGISTRIES: registries_rows,
 }
 
+DOCKER_RESOURCE_IDENTITIES: dict[str, Callable[[Any], list[tuple[str, ...]]]] = {
+    CONST_DOCKER_RESOURCE_CONTAINERS: docker_identities,
+    CONST_DOCKER_RESOURCE_IMAGES: images_identities,
+    CONST_DOCKER_RESOURCE_NETWORKS: networks_identities,
+    CONST_DOCKER_RESOURCE_VOLUMES: volumes_identities,
+    CONST_DOCKER_RESOURCE_REGISTRIES: registries_identities,
+}
+
 DOCKER_RESOURCE_COUNTS: dict[str, Callable[[Any], int]] = {
     CONST_DOCKER_RESOURCE_CONTAINERS: lambda summary: len(summary.containers),
     CONST_DOCKER_RESOURCE_IMAGES: lambda summary: len(summary.images),
@@ -308,6 +501,13 @@ def docker_resource_rows(resource: str, snapshot: Any) -> list[tuple[str, ...]]:
     if snapshot.data is None:
         return []
     return DOCKER_RESOURCE_ROWS[resource](snapshot.data)
+
+
+def docker_resource_keys(resource: str, snapshot: Any) -> list[str]:
+    """Key each row of one Docker resource view, in row order."""
+    if snapshot.data is None:
+        return []
+    return row_keys(DOCKER_RESOURCE_IDENTITIES[resource](snapshot.data))
 
 
 def docker_resource_label(resource: str, snapshot: Any) -> str:
@@ -339,6 +539,13 @@ def review_session_rows(snapshot: Any) -> list[tuple[str, ...]]:
     ]
 
 
+def review_session_keys(snapshot: Any) -> list[str]:
+    """Key each review session row by its name."""
+    if snapshot.data is None:
+        return []
+    return row_keys((info.name,) for info in snapshot.data.sessions)
+
+
 def render_banner(snapshot: DomainSnapshot, *, stale_after: float | None = None) -> str:
     """Render the banner line for a domain snapshot.
 
@@ -367,6 +574,24 @@ def render_rows(snapshot: DomainSnapshot) -> list[tuple[str, ...]]:
     return _ROWS[snapshot.domain](snapshot.data)
 
 
+def render_keys(snapshot: DomainSnapshot) -> list[str]:
+    """Key each row `render_rows` projects from the same snapshot, in the same order."""
+    if snapshot.data is None:
+        return []
+    return row_keys(_IDENTITIES[snapshot.domain](snapshot.data))
+
+
+def finding_records(snapshot: DomainSnapshot, keys: list[str]) -> dict[str, dict[str, Any]]:
+    """Map each findings table row key to the finding record that row shows.
+
+    The keys are the ones the table was drawn with, from `render_keys(snapshot)`, so the
+    map and the table cannot disagree about which key names which finding.
+    """
+    if snapshot.data is None:
+        return {}
+    return dict(zip(keys, snapshot.data.findings, strict=True))
+
+
 def render_domain(
     snapshot: DomainSnapshot, *, stale_after: float | None = None
 ) -> tuple[str, list[tuple[str, ...]]]:
@@ -375,35 +600,52 @@ def render_domain(
 
 
 __all__ = [
+    "CONST_FINDING_DETAIL_EMPTY",
     "DOCKER_RESOURCE_COLUMNS",
+    "DOCKER_RESOURCE_IDENTITIES",
     "DOCKER_RESOURCE_ROWS",
     "DOMAIN_COLUMNS",
     "REVIEW_SESSION_COLUMNS",
     "ai_banner",
+    "ai_identities",
     "ai_rows",
     "docker_banner",
+    "docker_identities",
+    "docker_resource_keys",
     "docker_resource_label",
     "docker_resource_rows",
     "docker_rows",
     "error_banner",
+    "finding_detail",
+    "finding_records",
     "images_banner",
+    "images_identities",
     "images_rows",
     "k8s_banner",
+    "k8s_identities",
     "k8s_rows",
     "loading_banner",
     "networks_banner",
+    "networks_identities",
     "networks_rows",
     "registries_banner",
+    "registries_identities",
     "registries_rows",
     "render_banner",
     "render_domain",
+    "render_keys",
     "render_rows",
+    "review_session_keys",
     "review_session_rows",
+    "row_keys",
     "stale_banner",
     "telemetry_banner",
+    "telemetry_identities",
     "telemetry_rows",
     "valkey_banner",
+    "valkey_identities",
     "valkey_rows",
     "volumes_banner",
+    "volumes_identities",
     "volumes_rows",
 ]
