@@ -335,3 +335,25 @@ def test_argo_cd_apps_list_and_status_render(monkeypatch: pytest.MonkeyPatch) ->
         res_status = runner.invoke(argo_app, ["cd", "apps", "status", "sample-app"])
         assert res_status.exit_code == 0
         assert "sample-app" in res_status.output
+
+
+def test_argo_cd_apps_list_null_items(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify argo cd apps list handles null items array when zero apps exist (#765)."""
+    import httpx2
+
+    def fake_get(self: object, url: str, **kwargs: object) -> httpx2.Response:
+        req = httpx2.Request("GET", url)
+        return httpx2.Response(200, json={"metadata": {}, "items": None}, request=req)
+
+    monkeypatch.setattr(httpx2.Client, "get", fake_get)
+    monkeypatch.setattr(
+        "devops_cli.commands.argo.validate_service_url", lambda *args, **kwargs: None
+    )
+
+    mock_settings = Settings()
+    mock_settings.argocd.url = "http://localhost:8080"
+    mock_settings.ai.allow_private_network = True
+
+    with patch("devops_cli.commands.argo.load_settings", return_value=mock_settings):
+        res = runner.invoke(argo_app, ["cd", "apps", "list"])
+        assert (res.exit_code, "ArgoCD Applications" in res.output) == (0, True)
