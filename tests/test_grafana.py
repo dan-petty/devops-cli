@@ -74,6 +74,7 @@ def test_grafana_dashboards_sync_success(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_grafana_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify grafana dashboards list, export, import, search, datasources, and alerts execution."""
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "devops_cli.core.validation.validate_service_url", lambda *args, **kwargs: None
     )
@@ -154,27 +155,22 @@ def test_grafana_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         patch("devops_cli.commands.grafana.load_settings", return_value=mock_settings),
     ):
         res_list = runner.invoke(grafana_app, ["dashboards", "list"])
-        assert res_list.exit_code == 0
         export_out = Path("test_exported.json")
-        try:
-            res_export = runner.invoke(
-                grafana_app,
-                ["dashboards", "export", "cluster-overview", "--output", str(export_out)],
-            )
-            assert res_export.exit_code == 0
-            assert export_out.exists()
-        finally:
-            if export_out.exists():
-                export_out.unlink()
-
+        res_export = runner.invoke(
+            grafana_app,
+            ["dashboards", "export", "cluster-overview", "--output", str(export_out)],
+        )
         res_import = runner.invoke(grafana_app, ["dashboards", "import", str(sample_dash_file)])
-        assert res_import.exit_code == 0
-
         res_search = runner.invoke(grafana_app, ["search", "--query", "cluster"])
-        assert res_search.exit_code == 0
-
         res_ds = runner.invoke(grafana_app, ["datasources"])
-        assert res_ds.exit_code == 0
-
         res_alerts = runner.invoke(grafana_app, ["alerts"])
-        assert res_alerts.exit_code == 0
+
+        assert (
+            res_list.exit_code,
+            res_export.exit_code,
+            export_out.exists(),
+            res_import.exit_code,
+            res_search.exit_code,
+            res_ds.exit_code,
+            res_alerts.exit_code,
+        ) == (0, 0, True, 0, 0, 0, 0)
