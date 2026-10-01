@@ -18,6 +18,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Commands run per hour, by command group. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -33,7 +34,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(devops_cli_command_total[1h])) by (command) or vector(0)",
+          "expr": "sum by (command) (increase(devops_cli_command_total[1h]))",
           "legendFormat": "devops {{command}}",
           "refId": "A"
         }
@@ -41,6 +42,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Review wall time over the last hour, by target type (branch, pr or path). Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 7200 s.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -51,19 +53,26 @@
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
       "id": 3,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-      "title": "AI Review Duration",
+      "title": "AI Review Duration (p50, p95)",
       "type": "timeseries",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(devops_cli_review_duration_seconds_sum[5m])) / sum(rate(devops_cli_review_duration_seconds_count[5m])) or vector(0)",
-          "legendFormat": "Avg Review Duration",
+          "expr": "histogram_quantile(0.5, sum by (le, target_type) (increase(devops_cli_review_duration_seconds_bucket[1h])))",
+          "legendFormat": "p50 {{target_type}}",
           "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, target_type) (increase(devops_cli_review_duration_seconds_bucket[1h])))",
+          "legendFormat": "p95 {{target_type}}",
+          "refId": "B"
         }
       ]
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "RAG retrieval time over the last hour. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 5000 ms.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -74,26 +83,95 @@
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
       "id": 4,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-      "title": "RAG Query Latency",
+      "title": "RAG Query Latency (p50, p95)",
       "type": "timeseries",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(devops_cli_rag_query_duration_ms_sum[5m])) / sum(rate(devops_cli_rag_query_duration_ms_count[5m])) or vector(0)",
-          "legendFormat": "Avg RAG Search (ms)",
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(devops_cli_rag_query_duration_ms_bucket[1h])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(devops_cli_rag_query_duration_ms_bucket[1h])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Command wall time over the last hour, by command group. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low. A quantile past the top bucket comes out as that bucket's bound, 600 s.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "drawStyle": "line", "lineInterpolation": "smooth" },
+          "unit": "s"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "id": 11,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "title": "Command Latency (p50, p95, p99)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.5, sum by (le, command) (increase(devops_cli_command_duration_seconds_bucket[1h])))",
+          "legendFormat": "p50 {{command}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, command) (increase(devops_cli_command_duration_seconds_bucket[1h])))",
+          "legendFormat": "p95 {{command}}",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le, command) (increase(devops_cli_command_duration_seconds_bucket[1h])))",
+          "legendFormat": "p99 {{command}}",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Share of the last hour's runs of each command group that ended in an error; a group with runs and no errors shows 0. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "drawStyle": "line", "lineInterpolation": "smooth" },
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+      "id": 12,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "title": "Command Error Share",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "(sum by (command) (increase(devops_cli_command_total{status=\"error\"}[1h])) or sum by (command) (increase(devops_cli_command_total[1h])) * 0) / sum by (command) (increase(devops_cli_command_total[1h]))",
+          "legendFormat": "devops {{command}}",
           "refId": "A"
         }
       ]
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
       "id": 5,
       "title": "AI Review Findings Breakdown",
       "type": "row"
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Reviews run per hour, by target type (branch, pr or path). Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -101,7 +179,60 @@
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "id": 13,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "title": "Reviews by Target Type",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (target_type) (increase(devops_cli_review_duration_seconds_count[1h]))",
+          "legendFormat": "{{target_type}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Review findings per hour, stacked by severity. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792). `review pr --post --no-reporting` records no findings metric, so those runs are missing (#791).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": { "group": "A", "mode": "normal" }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "id": 14,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "title": "Findings by Severity",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (severity) (increase(devops_cli_findings_total[1h]))",
+          "legendFormat": "{{severity}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Review findings per hour, by persona. Until #791 lands, every finding counts under the requested persona, or devsecops by default. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792). `review pr --post --no-reporting` records no findings metric, so those runs are missing (#791).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "drawStyle": "bars" },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
       "id": 6,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "title": "Findings by Persona",
@@ -109,7 +240,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(devops_cli_findings_total) by (persona) or vector(0)",
+          "expr": "sum by (persona) (increase(devops_cli_findings_total[1h]))",
           "legendFormat": "{{persona}}",
           "refId": "A"
         }
@@ -117,6 +248,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Review findings per hour, by status. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792). `review pr --post --no-reporting` records no findings metric, so those runs are missing (#791).",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -124,7 +256,7 @@
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
       "id": 7,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "title": "Findings by Status (Verified vs Unverified vs Mitigated)",
@@ -132,7 +264,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(devops_cli_findings_total) by (status) or vector(0)",
+          "expr": "sum by (status) (increase(devops_cli_findings_total[1h]))",
           "legendFormat": "{{status}}",
           "refId": "A"
         }
@@ -140,13 +272,14 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
       "id": 8,
       "title": "AI Spend & Economics",
       "type": "row"
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "LLM spend over the dashboard's time range. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -161,21 +294,22 @@
           "unit": "currencyUSD"
         }
       },
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 19 },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 35 },
       "id": 9,
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
       },
-      "title": "Total Lifetime AI Spend",
+      "title": "AI Spend in Range",
       "type": "stat",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(devops_cli_ai_spend_usd_total) or vector(0)",
+          "expr": "sum(increase(devops_cli_ai_spend_usd_total[$__range])) or vector(0)",
+          "instant": true,
           "legendFormat": "Spend USD",
           "refId": "A"
         }
@@ -190,7 +324,7 @@
           "unit": "currencyUSD"
         }
       },
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 19 },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 35 },
       "id": 10,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "title": "AI Spend Rate by Server ($/hr)",
@@ -198,7 +332,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[5m])) by (server) * 3600 or vector(0)",
+          "expr": "sum by (server) (rate(devops_cli_ai_spend_usd_total[5m])) * 3600",
           "legendFormat": "{{server}}",
           "refId": "A"
         }

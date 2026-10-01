@@ -773,7 +773,13 @@ class GrafanaMessages:
     dir_not_found: str = "Dashboard directory '{path}' not found."
     no_json_files: str = "No dashboard JSON files found in '{path}'."
     synced_dashboard: str = "Synced dashboard: [bold]{title}[/bold] ({file})"
-    sync_completed: str = "Dashboard sync completed: {synced}/{total} synced successfully."
+    sync_skipped_provisioned: str = (
+        "Skipped dashboard: [bold]{title}[/bold] ({file}) is provisioned from a file, and "
+        "Grafana refuses API saves over it."
+    )
+    sync_completed: str = (
+        "Dashboard sync completed: {synced} synced, {skipped} skipped, {failed} failed."
+    )
     table_title_search: str = "Grafana Search: {query}"
     table_title_datasources: str = "Grafana Datasources"
     table_title_alerts: str = "Grafana Alert Rules"

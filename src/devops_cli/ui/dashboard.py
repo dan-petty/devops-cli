@@ -106,6 +106,7 @@ class HelpScreen(ModalScreen[None]):
             f"  1-{len(CONST_DASHBOARD_DOMAINS)} : Switch Tabs\n"
             f"        {tab_hints}\n"
             "  l   : Streamed pod logs\n"
+            "  i   : Toggle finding detail (AI Review)\n"
             "  r   : Refresh active data sources\n"
             "  ctrl+p : Command palette\n"
             "  ?   : Open this help dialog\n"
