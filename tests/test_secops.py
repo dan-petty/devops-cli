@@ -114,9 +114,10 @@ def test_popeye_parser() -> None:
     assert "PODS" in findings[0].title
 
 
-def test_popeye_dry_run() -> None:
+def test_popeye_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
     findings = run_popeye_scan()
-    assert isinstance(findings, list)
+    assert [f.title for f in findings] == ["[DRY-RUN] Simulated Popeye Kubernetes Cluster Scan"]
 
 
 def test_pluto_parser() -> None:

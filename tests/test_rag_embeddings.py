@@ -581,7 +581,6 @@ def test_init_valkey_fast_probe_offline(monkeypatch: pytest.MonkeyPatch) -> None
         def ping(self) -> bool:
             return False
 
-    monkeypatch.setenv("DEVOPS_CLI_TEST_LIVE_VALKEY", "1")
     monkeypatch.setattr("devops_cli.valkey.client.ValkeyClient", _OfflineValkeyClient)
     ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
     engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
@@ -600,20 +599,49 @@ def test_init_valkey_fast_probe_online(monkeypatch: pytest.MonkeyPatch) -> None:
         def ping(self) -> bool:
             return True
 
-    monkeypatch.setenv("DEVOPS_CLI_TEST_LIVE_VALKEY", "1")
     monkeypatch.setattr("devops_cli.valkey.client.ValkeyClient", _OnlineValkeyClient)
     ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
     engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
     assert engine._valkey is not None
 
 
-def test_init_valkey_skipped_during_pytest() -> None:
-    """Verify _init_valkey returns None during pytest by default to avoid live service leaks."""
-    from devops_cli.ai.rag.embeddings import _DEFAULT_VALKEY
+def test_init_valkey_runs_without_l2_when_valkey_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify _init_valkey returns None when the network guard refuses the configured Valkey.
 
-    ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
-    engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
-    assert engine._valkey is None
+    A service listens on the configured port through the C socket type, as a port-forward to a
+    live Valkey does, so the kernel would accept the probe. The guard refuses it with the
+    `ConnectionRefusedError` the client handles, and the service sees no connection.
+    """
+    import _socket
+    import socket
+
+    from devops_cli.ai.rag.embeddings import _DEFAULT_VALKEY
+    from devops_cli.config.settings import reset_settings_cache
+    from devops_cli.valkey.client import ValkeyClient
+
+    raised: list[type[Exception]] = []
+    create_socket = ValkeyClient._create_socket
+
+    def recording_create_socket(self: ValkeyClient) -> socket.socket:
+        try:
+            return create_socket(self)
+        except Exception as exc:
+            raised.append(type(exc))
+            raise
+
+    monkeypatch.setattr(ValkeyClient, "_create_socket", recording_create_socket)
+    with socket.socket() as service:
+        service.bind(("127.0.0.1", 0))
+        _socket.socket.listen(service)
+        service.setblocking(False)
+        monkeypatch.setenv("DEVOPS_CLI_VALKEY_HOST", "127.0.0.1")
+        monkeypatch.setenv("DEVOPS_CLI_VALKEY_PORT", str(service.getsockname()[1]))
+        reset_settings_cache()
+        ai_cfg = AIConfig(provider="ollama", ollama_urls=[])
+        engine = EmbeddingsEngine(ai_cfg, valkey_client=_DEFAULT_VALKEY)
+        with pytest.raises(BlockingIOError):
+            service.accept()
+    assert (engine._valkey, raised) == (None, [ConnectionRefusedError])
 
 
 def _capture_embedding_posts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
