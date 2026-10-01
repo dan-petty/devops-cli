@@ -1966,6 +1966,53 @@ CONST_K8S_INFORMER_EVENTS: Final[tuple[str, ...]] = (
     CONST_K8S_EVENT_ERROR,
 )
 
+# ── Kubernetes Pod Status ────────────────────────────────────────────────────
+# The STATUS kubectl prints for a pod, ported from its `printPod`: the pod's reason or
+# phase, unless an init or app container's waiting or terminated reason says more. Every
+# value here is one the Kubernetes API itself defines.
+CONST_K8S_POD_RUNNING: Final[str] = "Running"
+CONST_K8S_POD_COMPLETED: Final[str] = "Completed"
+CONST_K8S_POD_NOT_READY: Final[str] = "NotReady"
+CONST_K8S_POD_TERMINATING: Final[str] = "Terminating"
+CONST_K8S_POD_UNKNOWN: Final[str] = "Unknown"
+CONST_K8S_POD_INITIALIZING: Final[str] = "PodInitializing"
+CONST_K8S_POD_REASON_NODE_LOST: Final[str] = "NodeLost"
+CONST_K8S_POD_REASON_SCHEDULING_GATED: Final[str] = "SchedulingGated"
+# Phases a pod never leaves: deleting one does not make it Terminating.
+CONST_K8S_POD_TERMINAL_PHASES: Final[frozenset[str]] = frozenset({"Succeeded", "Failed"})
+CONST_K8S_INIT_STATUS_PREFIX: Final[str] = "Init:"
+CONST_K8S_SIGNAL_STATUS_PREFIX: Final[str] = "Signal:"
+CONST_K8S_EXIT_CODE_STATUS_PREFIX: Final[str] = "ExitCode:"
+# Pod and node condition types, and the status a condition holds when it is met.
+CONST_K8S_CONDITION_READY: Final[str] = "Ready"
+CONST_K8S_CONDITION_INITIALIZED: Final[str] = "Initialized"
+CONST_K8S_CONDITION_SCHEDULED: Final[str] = "PodScheduled"
+CONST_K8S_CONDITION_TRUE: Final[str] = "True"
+# An init container with this restart policy is a sidecar that keeps running beside the
+# app containers, so it counts toward READY.
+CONST_K8S_RESTART_POLICY_ALWAYS: Final[str] = "Always"
+# The statuses a pod can show without needing attention. Any other status is unhealthy,
+# and so is a Running pod whose READY count is short.
+CONST_K8S_HEALTHY_POD_STATUSES: Final[frozenset[str]] = frozenset(
+    {CONST_K8S_POD_RUNNING, CONST_K8S_POD_COMPLETED}
+)
+# A container's current state, named as `kubectl describe pod` names it.
+CONST_K8S_CONTAINER_RUNNING: Final[str] = "Running"
+CONST_K8S_CONTAINER_WAITING: Final[str] = "Waiting"
+CONST_K8S_CONTAINER_TERMINATED: Final[str] = "Terminated"
+# The container `kubectl logs` and `kubectl exec` pick when none is named.
+CONST_K8S_DEFAULT_CONTAINER_ANNOTATION: Final[str] = "kubectl.kubernetes.io/default-container"
+# Matches a pod's events as `kubectl describe pod` does: by uid as well as name, so a
+# StatefulSet pod recreated under the same name does not show its predecessor's events.
+CONST_K8S_POD_EVENT_FIELD_SELECTOR: Final[str] = (
+    "involvedObject.kind=Pod,involvedObject.name={name},involvedObject.uid={uid}"
+)
+# Set by the kubelet in every pod, and read by the client's in-cluster loader: outside a
+# pod there is no service account to connect with.
+CONST_K8S_SERVICE_HOST_ENV: Final[str] = "KUBERNETES_SERVICE_HOST"
+# What the dashboard banner names when it connects with the pod's service account.
+CONST_K8S_IN_CLUSTER_CONTEXT: Final[str] = "in-cluster"
+
 # ── Dashboard TUI Domains ────────────────────────────────────────────────────
 # Each domain is one tab of the workstation dashboard, refreshed by its own worker.
 CONST_DASHBOARD_DOMAIN_K8S: Final[str] = "k8s"
@@ -2014,6 +2061,14 @@ CONST_DOCKER_RESOURCE_LABELS: Final[dict[str, str]] = {
 # Tab holding the streamed log pane. Not a data domain: it has no provider and is filled
 # by selecting a pod rather than by the refresh cycle.
 CONST_LOGS_TAB_ID: Final[str] = "tab-logs"
+# The dashboard's top-level tabs, told apart from the tabs nested inside a panel.
+CONST_DASHBOARD_TABS_ID: Final[str] = "dashboard-tabs"
+# The widget a tab focuses when it becomes active, so its keys work without pressing Tab.
+# A tab not listed here focuses the first widget in it that can take focus.
+CONST_DASHBOARD_TAB_FOCUS: Final[dict[str, str]] = {
+    f"tab-{CONST_DASHBOARD_DOMAIN_K8S}": f"#{CONST_DASHBOARD_DOMAIN_K8S}-table",
+    CONST_LOGS_TAB_ID: "#log-pane",
+}
 
 # ── Dashboard Finding Detail ─────────────────────────────────────────────────
 # The AI Review pane beside the findings table: these short fields as `label: value`

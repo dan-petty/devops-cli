@@ -8,7 +8,10 @@ from typing import Final
 import typer
 
 from devops_cli.config.constants import CONST_DASHBOARD_DOMAINS
-from devops_cli.config.defaults import DEFAULT_DASHBOARD_REFRESH_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_DASHBOARD_REFRESH_SECONDS,
+    DEFAULT_DASHBOARD_SUMMARY_POD_ROWS,
+)
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import HELP
 from devops_cli.output import (
@@ -26,6 +29,7 @@ from devops_cli.ui.data_providers import (
     fetch_telemetry_status,
     fetch_valkey_status,
 )
+from devops_cli.ui.projections import k8s_banner, k8s_pod_row
 
 # Derived from the configured domains so a new tab cannot be reachable in the TUI while
 # remaining unselectable from the command line.
@@ -44,15 +48,17 @@ app = new_typer(
 
 
 def _render_k8s_panel() -> Panel:
+    """List the pods that need attention first, and count the ones left out."""
     summary = fetch_k8s_status()
     table = Table(box=box.SIMPLE, show_header=True)
     table.add_column("Namespace", style="cyan")
     table.add_column("Pod Name", style="white")
-    table.add_column("Status", style="green")
+    table.add_column("Status")
     table.add_column("Ready")
     table.add_column("Restarts")
-    for p in summary.pods[:10]:
-        table.add_row(p["namespace"], p["name"], p["status"], p["ready"], p["restarts"])
+    pods = sorted(summary.pods, key=lambda pod: not pod.unhealthy)
+    for pod in pods[:DEFAULT_DASHBOARD_SUMMARY_POD_ROWS]:
+        table.add_row(*k8s_pod_row(pod))
     if not summary.pods:
         table.add_row(
             "—",
@@ -61,14 +67,9 @@ def _render_k8s_panel() -> Panel:
             "—",
             "—",
         )
-    status_badge = (
-        "[green]Connected[/green]" if summary.connected else "[yellow]Disconnected[/yellow]"
-    )
-    mk_text = " | Minikube: Active" if summary.minikube_active else ""
-    content = Group(
-        Text.from_markup(f"Status: {status_badge}{mk_text}"),
-        table,
-    )
+    hidden = len(pods) - DEFAULT_DASHBOARD_SUMMARY_POD_ROWS
+    footer = [Text(f"{hidden} more pods not shown", style="dim")] if hidden > 0 else []
+    content = Group(Text.from_markup(k8s_banner(summary)), table, *footer)
     return Panel(content, title="Kubernetes Status", border_style="blue")
 
 

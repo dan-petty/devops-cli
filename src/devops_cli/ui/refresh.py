@@ -13,8 +13,9 @@ here means the behaviour can be tested without running an app.
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable, Iterable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import (
     CONST_DASHBOARD_DOMAIN_AI,
@@ -33,6 +34,9 @@ from devops_cli.ui.data_providers import (
     fetch_valkey_status,
 )
 from devops_cli.ui.state import DashboardState, DomainSnapshot
+
+if TYPE_CHECKING:
+    from devops_cli.k8s.service import PodLogStream
 
 logger = logging.getLogger(__name__)
 
@@ -91,29 +95,65 @@ def refresh_all(
 
 __all__ = [
     "DOMAIN_FETCHERS",
+    "PodLogSource",
     "pod_log_source",
     "refresh_all",
     "refresh_domain",
 ]
 
 
-def pod_log_source(
-    pod: str, namespace: str, tail_lines: int = DEFAULT_LOG_TAIL_LINES
-) -> Callable[[], Iterable[str]]:
-    """Build a callable yielding a pod's log lines, followed live.
+class PodLogSource:
+    """One container's log lines, followed live, opened when called and closable at any time.
 
-    The stream is opened inside the callable rather than here, so the blocking connection
-    is established on the worker thread that consumes it and never on the UI thread.
+    The stream is opened when the source is called rather than when it is built, so the
+    blocking connection is established on the worker thread that consumes it and never on
+    the UI thread. Closing it ends a read blocked on a quiet container, so a replaced
+    stream gives back its connection and thread; a source closed before its stream opened
+    closes the stream as soon as it does.
     """
 
-    def open_stream() -> Iterable[str]:
+    def __init__(self, pod: str, namespace: str, container: str | None, tail_lines: int) -> None:
+        self.pod, self.namespace, self.container = pod, namespace, container
+        self.tail_lines = tail_lines
+        self._lock = threading.Lock()
+        self._stream: PodLogStream | None = None
+        self._closed = False
+
+    def __call__(self) -> Iterable[str]:
         from devops_cli.k8s.service import KubernetesService
 
         stream = KubernetesService.get_instance().read_pod_logs(
-            pod=pod, namespace=namespace, tail_lines=tail_lines, follow=True
+            pod=self.pod,
+            namespace=self.namespace,
+            container=self.container,
+            tail_lines=self.tail_lines,
+            follow=True,
         )
         if isinstance(stream, str):
             return stream.splitlines()
+        with self._lock:
+            self._stream, closed = stream, self._closed
+        if closed:
+            stream.close()
         return stream
 
-    return open_stream
+    def close(self) -> None:
+        """Stop the stream, now if it is open or else as soon as it opens."""
+        with self._lock:
+            self._closed, stream = True, self._stream
+        if stream is not None:
+            stream.close()
+
+
+def pod_log_source(
+    pod: str,
+    namespace: str,
+    container: str | None = None,
+    tail_lines: int = DEFAULT_LOG_TAIL_LINES,
+) -> PodLogSource:
+    """Build the source of one container's log lines, followed live.
+
+    A pod with more than one container needs the container named: the API server answers
+    400 otherwise.
+    """
+    return PodLogSource(pod, namespace, container, tail_lines)

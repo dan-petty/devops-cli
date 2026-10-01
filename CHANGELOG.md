@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dashboard Keeps Its Place Across Refreshes (`devops dashboard`, `devops tui`)**:
   - A refresh keeps each table's highlighted row and its horizontal and vertical scroll, on every tab, instead of returning to the first row every five seconds. Rows carry stable keys, so repeated records stay separate rows and a record that vanishes leaves the cursor at its index (#684).
   - The AI Review findings sub-tab shows the highlighted finding's full record in a detail pane beside the table, toggled with `i`, with model-written markup and control characters shown literally. Every finding of a session is listed, not just the first 50 (#684).
+- **Truthful Pod Status, Filters and a Pod Inspector (`devops dashboard`, `devops k8s pods`)**:
+  - STATUS and READY match `kubectl get pods` wherever pods are listed: the dashboard, `devops dashboard --summary`, `devops k8s pods` and `--watch`. The Kubernetes tab's banner names the context, the Ready nodes and the unhealthy pods, or the context and the real error when it cannot connect (#686).
+  - Namespace and text filters survive refreshes and keep the highlighted pod on screen. Logs follow a pod's default container, `c` cycles containers, a replaced log stream is closed, and `e` opens the pod's containers and recent events. The Minikube probe is gone (#686).
 
 ### Removed
 - **LightLLM Inference Backend (`devops_cli.ai`, `k8s/llm`)**:
