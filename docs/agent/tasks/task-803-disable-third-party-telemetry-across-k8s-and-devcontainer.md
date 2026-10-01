@@ -37,6 +37,10 @@ Root causes & telemetry vectors addressed:
 - [x] **DevContainer Environment & Template** (`.devcontainer/devcontainer.json`, `src/devops_cli/templates/devcontainer.json.j2`):
   - Set `telemetry.telemetryLevel: "off"`, `redhat.telemetry.enabled: false`, and `workbench.enableExperiments: false` under editor customizations.
   - Injected environment variables into `containerEnv`: `DO_NOT_TRACK`, `HF_HUB_DISABLE_TELEMETRY`, `SCARF_NO_ANALYTICS`, `NEXT_TELEMETRY_DISABLED`, `CHECKPOINT_DISABLE`, `DOTNET_CLI_TELEMETRY_OPTOUT`, `ANONYMIZED_TELEMETRY`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_TELEMETRY`, `GOTELEMETRY`, `PIP_DISABLE_PIP_VERSION_CHECK`, `npm_config_update_notifier`, `DOCKER_CLI_HINTS`, `MINIKUBE_WANTUPDATENOTIFICATION`, and `MINIKUBE_WANTREPORTERRORPROMPT`.
-- [x] **Automated Regression Test Suite** (`tests/test_third_party_telemetry.py`):
+- [x] **Agent Instructions & Instruction Generator** (`AGENTS.md`, `src/devops_cli/ai/instruction_generator.py`, `tests/test_instruction_generator.py`):
+  - Codified the Mandatory Third-Party Telemetry & Phone-Home Opt-Outs policy into `AGENTS.md` and `instruction_generator.py`.
+  - Added requirement for AI agents to disable third-party telemetry and phone-home mechanisms across all tools and configurations when it does not impact functional user experience.
+  - Added requirement for AI agents to confirm with the user before disabling web integrations that provide tangible functionality (e.g. plugin/extension update checks, news feeds).
+- [x] **Automated Regression Test Suite** (`tests/test_third_party_telemetry.py`, `tests/test_instruction_generator.py`):
   - Authored comprehensive structural assertions verifying zero telemetry across all modified manifests, configs, and devcontainer definitions.
   - Validated 100% pass rate with zero flaky tests.

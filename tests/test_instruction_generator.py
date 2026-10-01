@@ -128,6 +128,9 @@ def test_generate_agents_md_contains_required_sections() -> None:
     assert "asyncio.Semaphore(5)" in content
     assert "Comprehensive Sanitization of Internal Systems & Homelab Data" in content
     assert "<storage-node>" in content
+    assert "Mandatory Third-Party Telemetry & Phone-Home Opt-Outs" in content
+    assert "Strict Opt-Out of Non-Functional Third-Party Telemetry" in content
+    assert "Confirmation Required for Functional Web Integrations" in content
 
     # Verify external/generic project AGENTS.md omits pre-1.0 alpha lifecycle block
     meta_generic = ProjectMetadata(
