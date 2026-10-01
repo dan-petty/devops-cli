@@ -30,9 +30,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A refresh keeps each table's highlighted row and its horizontal and vertical scroll, on every tab, instead of returning to the first row every five seconds. Rows carry stable keys, so repeated records stay separate rows and a record that vanishes leaves the cursor at its index (#684).
   - The AI Review findings sub-tab shows the highlighted finding's full record in a detail pane beside the table, toggled with `i`, with model-written markup and control characters shown literally. Every finding of a session is listed, not just the first 50 (#684).
 
+### Changed
+- **MCP Tool `k8s_chaos` Previews by Default**:
+  - `experiment` is the positional argument, and a new `dry_run` parameter (default `true`) passes `--dry-run`, so the tool runs an experiment only when `dry_run` is false (#836).
+
 ### Removed
 - **LightLLM Inference Backend (`devops_cli.ai`, `k8s/llm`)**:
   - Fully removed the unused `ghcr.io/modeltc/lightllm` inference backend, including `k8s/llm/lightllm/` manifests, `CONST_AI_BACKEND_LIGHTLLM`, `GatewayRouter.scale_lightllm()`, the `devops-cli-ai_lightllm_scale` MCP tool, and all associated CLI, configuration, and test references. The `devops ai gateway scale` command now exclusively targets the vLLM backend.
+- **MCP Tools and Parameters With No Command Behind Them**:
+  - The `ai_architecture` tool, which called a nonexistent `devops analyze architecture`, and the parameters `repos_sync(all_repos)`, `k8s_audit(namespace)` and `k8s_chaos(action)`, which their commands never took (#836).
 
 ### Fixed
 - **Kubernetes Monitoring Stack Integration & Dashboard Metrics (`k8s/monitoring`)**:
@@ -63,6 +69,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Adoption of pre-existing resources handles cluster-scoped ones such as leftover CRDs, annotates the release's namespace that Helm checks, and retries until every leftover is adopted or a retry fails unchanged (#819).
 - **The Finding Detail Pane Opens Each Finding at the Top at Once (`devops dashboard`)**:
   - Highlighting another finding scrolls the detail pane to the top immediately instead of after the next screen refresh, which a slower machine had not always drawn; CI failed intermittently on it (#834).
+- **MCP Tools Call Commands That Exist (`devops mcp`, `devops docs check`)**:
+  - Twelve MCP entry points called commands or options the CLI does not have and failed on every call. They now call real commands: `benchmark_embeddings` and `benchmark_suite` run `devops ai benchmark`; `scan_gitleaks`, `scan_semgrep` and `scan_checkov` run `devops scan secrets`, `sast` and `iac`; `resource://workspace/status` runs `devops repos list`; `scan_complexity` passes `--max-indent`; `resource://argo/fleet/status` no longer passes `--json` (#836).
+  - `devops docs check` resolves every `uv run devops` argv in the MCP server against the real command tree without running it, and reports each defect at its server line (#836).
 
 ## [0.2.24] - 2026-09-28
 
