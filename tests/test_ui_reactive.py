@@ -2411,6 +2411,38 @@ async def test_another_finding_is_detailed_from_the_top(
 
 
 @pytest.mark.asyncio
+async def test_highlighting_another_finding_scrolls_the_pane_up_at_once(
+    patched_fetchers: Callable[..., None],
+) -> None:
+    """The pane is at the top as soon as another finding is shown, not after the next screen
+    refresh, which a slower machine may not have drawn by the time anyone reads the pane."""
+    description = "\n".join(f"Line {number}." for number in range(80))
+    patched_fetchers(
+        ai=lambda: ReviewSummary(
+            has_session=True,
+            session_name="s",
+            total_findings=3,
+            findings=[_finding(index, description=description) for index in range(3)],
+        )
+    )
+    app = DashboardApp(refresh_interval=0)
+    async with app.run_test() as pilot:
+        table = await _findings_focused(pilot, app)
+        pane = app.query_one("#finding-detail-pane", VerticalScroll)
+        pane.scroll_to(y=40, animate=False)
+        await pilot.pause()
+        scrolled = pane.scroll_y
+        app.query_one("#panel-ai", ReviewPanel).on_data_table_row_highlighted(
+            DataTable.RowHighlighted(table, 2, table.ordered_rows[2].key)
+        )
+        assert (scrolled, pane.scroll_y, _detail_text(app).splitlines()[0]) == (
+            40,
+            0,
+            "Title: Finding 2",
+        )
+
+
+@pytest.mark.asyncio
 async def test_a_session_highlight_leaves_the_detail_pane_alone(
     patched_fetchers: Callable[..., None],
 ) -> None:

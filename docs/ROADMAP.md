@@ -796,6 +796,10 @@ High-density product roadmap, engineering milestones, and open-source integratio
   - *Context & Rationale*: fdd4d0f (#734) replaced kube-prometheus-stack with k8s-monitoring 4.x and the standalone Prometheus chart, neither of which ships the `monitoring.coreos.com` CRDs. k8s-monitoring's `extraObjects` and dcgm-exporter still render ServiceMonitors, so on a cluster without leftover CRDs both releases failed and `deploy-stack --stack infra` installed no Alloy. The homelab's leftover CRDs hid it, and `_adopt_helm_resource_if_conflict` could not adopt them because they are cluster-scoped.
   - *Deliverable*: `prometheus-operator-crds` is the first infra release and teardown keeps it; adoption handles `in namespace ""` without `-n`, annotates the release's namespace, and retries once per leftover CRD until a retry fails unchanged. Unit tests cover the order, both adoption shapes, the retries and teardown.
   - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, so it joins the current release. The live runs on a scratch cluster and the homelab are left to a person.
+- [x] **The Finding Detail Pane Scrolls to the Top Before the Next Refresh (P0 - Critical, Issue #834)**:
+  - *Context & Rationale*: 87076d5 (#684) opened each newly highlighted finding at the top with `scroll_home(animate=False)`, which Textual defers until after the next screen refresh; `test_another_finding_is_detailed_from_the_top` could read the old offset first, and CI on GitHub's runner failed intermittently.
+  - *Deliverable*: The pane scrolls with `immediate=True`; a test reads `scroll_y` straight after the highlight handler, with no pause.
+  - *Constraint*: Critical fix: a P0 regression whose introducing commit is cited, so it joins the current release.
 
 ### Multi-IDE MCP Scaffolding, Context Budgeting & Invariant Pinning (v0.2.25 - Scheduled)
 - [ ] **Pipeline Stage Context Budgeting & Invariant Pinning (P0 - Critical)**:
