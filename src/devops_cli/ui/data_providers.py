@@ -545,7 +545,7 @@ def fetch_review_status(session: str | None = None) -> ReviewSummary:
             verified_count=verified_count,
             unverified_count=unverified_count,
             severity_distribution=severities,
-            findings=raw_findings[:50],
+            findings=raw_findings,
         )
     except Exception as exc:
         logger.warning("Failed to parse review summary from %s: %s", session_dir, exc)
