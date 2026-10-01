@@ -54,6 +54,14 @@ extraEnvVars:
     value: "true"
   - name: WEBUI_SECRET_KEY_FILE
     value: "/app/backend/data/.webui_secret_key"
+  - name: ENABLE_VERSION_UPDATE_CHECK
+    value: "false"
+  - name: ANONYMIZED_TELEMETRY
+    value: "false"
+  - name: DO_NOT_TRACK
+    value: "true"
+  - name: SCARF_NO_ANALYTICS
+    value: "true"
 
 # Valkey cache integration (replaces Redis)
 websocket:

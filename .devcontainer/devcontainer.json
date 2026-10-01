@@ -54,7 +54,22 @@
     "GIT_CONFIG_KEY_3": "credential.https://gist.github.com.helper",
     "GIT_CONFIG_VALUE_3": "!gh auth git-credential",
     "UV_MALWARE_CHECK": "1",
-    "UV_CACHE_DIR": "${containerWorkspaceFolder}/.uv"
+    "UV_CACHE_DIR": "${containerWorkspaceFolder}/.uv",
+    "DO_NOT_TRACK": "1",
+    "HF_HUB_DISABLE_TELEMETRY": "1",
+    "SCARF_NO_ANALYTICS": "true",
+    "NEXT_TELEMETRY_DISABLED": "1",
+    "CHECKPOINT_DISABLE": "1",
+    "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+    "ANONYMIZED_TELEMETRY": "false",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_TELEMETRY": "1",
+    "GOTELEMETRY": "off",
+    "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+    "npm_config_update_notifier": "false",
+    "DOCKER_CLI_HINTS": "false",
+    "MINIKUBE_WANTUPDATENOTIFICATION": "false",
+    "MINIKUBE_WANTREPORTERRORPROMPT": "false"
   },
   "forwardPorts": [
     9418
@@ -90,6 +105,9 @@
         "saoudrizwan.claude-dev"
       ],
       "settings": {
+        "telemetry.telemetryLevel": "off",
+        "redhat.telemetry.enabled": false,
+        "workbench.enableExperiments": false,
         "editor.formatOnSave": true,
         "editor.tabSize": 2,
         "editor.insertSpaces": true,
@@ -134,6 +152,9 @@
         "anthropic.claude-code"
       ],
       "settings": {
+        "telemetry.telemetryLevel": "off",
+        "redhat.telemetry.enabled": false,
+        "workbench.enableExperiments": false,
         "editor.formatOnSave": true,
         "editor.tabSize": 2,
         "editor.insertSpaces": true,

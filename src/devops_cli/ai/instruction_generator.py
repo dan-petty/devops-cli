@@ -283,6 +283,21 @@ codebase or reviewing target repositories.
     endpoints.
   - Enforce subprocess safety with explicit command argument lists, bounded timeouts, and error
     handling.
+  - **Mandatory Third-Party Telemetry & Phone-Home Opt-Outs**:
+    - **Strict Opt-Out of Non-Functional Third-Party Telemetry**: AI agents, automated workflows,
+      and configuration templates MUST always disable and opt out of third-party telemetry, phone-home
+      mechanisms, anonymous usage reporting, crash analytics, and background update checks across all
+      tools, services, workloads, container environments, and CLI configurations whenever doing so does
+      not impact the functional user experience (e.g. Grafana reporting, Alloy telemetry, Loki usage
+      reports, Traefik anonymous usage, Open WebUI analytics, LiteLLM telemetry, and DevContainer
+      toolchain opt-outs like `DO_NOT_TRACK=1`, `GOTELEMETRY=off`, `PIP_DISABLE_PIP_VERSION_CHECK=1`,
+      `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`).
+    - **Confirmation Required for Functional Web Integrations**: For web integrations and external
+      network calls that provide tangible user-facing functionality or dynamic content (such as IDE
+      plugin and extension update notifications, live community news feeds, or marketplace catalogs),
+      AI agents MUST NOT unilaterally disable them without confirming with the user first. Always
+      distinguish purely passive background telemetry and phone-home traffic from active user-facing
+      capabilities, confirming user intent before suppressing functional web integrations.
 - **Strict Prohibition of Brittle Pattern Subsets & Mandatory Constants/Defaults Placement**:
   - Matching against a list of strings or regular expressions is **ONLY acceptable if it covers 100% of possible scenarios** (i.e. mathematically bounded, closed, exhaustive domains defined by official RFCs or deterministic language grammars).
   - Matching against a **limited or arbitrary subset of a larger or unknown list of possible values is strictly prohibited**. Never guess or match against ad-hoc prefixes, suffixes, or partial word lists (e.g. arbitrary identifier prefixes, property suffixes, or selective web TLDs). Instead, use mature, robust engineering solutions such as programming language symbol parsers (e.g. Python AST visitors, tokenizer pipelines), official registries (e.g. Mozilla Public Suffix List via `tldextract`), or system domain lookup tooling.
