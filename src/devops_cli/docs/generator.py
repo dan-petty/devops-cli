@@ -5,12 +5,10 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import re
-from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 import click
-import typer
 from pydantic import BaseModel, Field
 
 from devops_cli.config.constants import (
@@ -18,6 +16,7 @@ from devops_cli.config.constants import (
     CONST_STANDARD_HTML_TAGS,
 )
 from devops_cli.config.env import EnvVarSpec, get_all_env_var_specs
+from devops_cli.docs.command_resolver import module_click_command
 from devops_cli.output import write_text_file
 from devops_cli.telemetry import trace_span
 
@@ -329,11 +328,9 @@ class DocGenerator:
         if not module_path.startswith("devops_cli.commands."):
             return None
         try:
-            module = import_module(module_path)
-            app_obj = getattr(module, "app", None)
-            if app_obj is None:
+            click_cmd = module_click_command(module_path)
+            if click_cmd is None:
                 return None
-            click_cmd = typer.main.get_command(app_obj)
             return self._introspect_leaf_or_group(click_cmd, name, module_path, summary)
         except Exception as exc:
             return CommandGroupDoc(
@@ -1038,9 +1035,11 @@ class DocGenerator:
     def check_docs(
         self, output_dir: Path, check_readme_table: bool = True
     ) -> tuple[bool, list[str]]:
-        """Verify if on-disk docs match current generated docs."""
+        """Verify on-disk docs match the generated docs and every MCP argv resolves."""
+        from devops_cli.docs.mcp_argv_collector import check_mcp_server_argv
+
         docs = self.generate_all_docs(output_dir)
-        errors: list[str] = []
+        errors: list[str] = check_mcp_server_argv()
 
         for rel_path, expected_content in docs.items():
             target_path = output_dir / rel_path

@@ -72,7 +72,7 @@ async def test_create_devops_mcp_toolset() -> None:
     # Eager domains are offered without a round trip.
     assert "review_path" in tool_names
     assert "config_show" in tool_names
-    assert "ai_architecture" in tool_names
+    assert "ai_repomap" in tool_names
 
     # Gated domains appear once hydrated, and are absent before.
     gated = {

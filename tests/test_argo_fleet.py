@@ -276,14 +276,10 @@ def test_mcp_argo_fleet_status_resource() -> None:
     """Verify FastMCP resource get_argo_fleet_status_resource queries read-only apps list."""
     from devops_cli.ai.mcp.server import get_argo_fleet_status_resource
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value='{"items": []}') as mock_cmd:
-        out = get_argo_fleet_status_resource()
-        assert "items" in out
-        mock_cmd.assert_called_once()
-        cmd = mock_cmd.call_args[0][0]
-        assert "cd" in cmd
-        assert "apps" in cmd
-        assert "list" in cmd
+    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="argocd   Synced") as mock_cmd:
+        get_argo_fleet_status_resource()
+
+    assert mock_cmd.call_args.args[0] == ["uv", "run", "devops", "argo", "cd", "apps", "list"]
 
 
 def test_execute_cluster_sync_live() -> None:

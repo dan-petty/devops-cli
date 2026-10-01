@@ -229,12 +229,12 @@ def repos_status() -> str:
 
 
 @mcp.tool()
-def repos_sync(all_repos: bool = False) -> str:
+def repos_sync() -> str:
     """Fetch and pull tracking branches across workspace repositories."""
-    cmd = ["uv", "run", "devops", "repos", "sync"]
-    if all_repos:
-        cmd.append("--all")
-    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS * 2)
+    return _run_mcp_cmd(
+        ["uv", "run", "devops", "repos", "sync"],
+        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS * 2,
+    )
 
 
 @mcp.tool()
@@ -1156,7 +1156,7 @@ def get_workspace_resource() -> str:
     """Return live workspace inventory and repository statuses."""
     return _run_mcp_resource(
         "resource://workspace/status",
-        ["uv", "run", "devops", "workspace", "list"],
+        ["uv", "run", "devops", "repos", "list"],
         timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
     )
 
@@ -1238,16 +1238,7 @@ def get_gh_views_resource() -> str:
 def get_argo_fleet_status_resource() -> str:
     """Return live ArgoCD multi-cluster fleet synchronization status across all managed clusters."""
     return _run_mcp_cmd(
-        [
-            "uv",
-            "run",
-            "devops",
-            "argo",
-            "cd",
-            "apps",
-            "list",
-            "--json",
-        ],
+        ["uv", "run", "devops", "argo", "cd", "apps", "list"],
         timeout=DEFAULT_MCP_TOOL_FAST_TIMEOUT_SECONDS,
     )
 
@@ -1854,7 +1845,7 @@ def scan_gitleaks(target: str = ".") -> str:
     """Scan git repository or directory for hardcoded secrets, tokens, and private keys."""
     _validate_mcp_arg("target", target)
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "scan", "gitleaks", target],
+        ["uv", "run", "devops", "scan", "secrets", target],
         timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
 
@@ -1865,7 +1856,7 @@ def scan_semgrep(target: str = ".", config: str = "auto") -> str:
     _validate_mcp_arg("target", target)
     _validate_mcp_arg("config", config)
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "scan", "semgrep", target, "--config", config],
+        ["uv", "run", "devops", "scan", "sast", target, "--config", config],
         timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
 
@@ -1875,7 +1866,7 @@ def scan_checkov(target: str = ".") -> str:
     """Scan Infrastructure-as-Code (Terraform, Helm, Kubernetes, Dockerfile) via Checkov."""
     _validate_mcp_arg("target", target)
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "scan", "checkov", target],
+        ["uv", "run", "devops", "scan", "iac", target],
         timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
 
@@ -1898,7 +1889,7 @@ def scan_complexity(
             target,
             "--max-complexity",
             str(max_complexity),
-            "--max-nesting-depth",
+            "--max-indent",
             str(max_nesting_depth),
         ],
         timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
@@ -1928,37 +1919,24 @@ def scan_sbom(target: str = ".", format: str = "cyclonedx") -> str:
 
 @mcp.tool()
 def k8s_chaos(
-    action: str = "validate",
     experiment: str = "pod-failure",
     namespace: str = "default",
+    dry_run: bool = True,
 ) -> str:
     """Inject or validate Kubernetes chaos engineering experiments and cluster resilience."""
-    _validate_mcp_arg("action", action)
     _validate_mcp_arg("experiment", experiment)
     _validate_mcp_arg("namespace", namespace)
-    return _run_mcp_cmd(
-        [
-            "uv",
-            "run",
-            "devops",
-            "k8s",
-            "chaos",
-            action,
-            "--experiment",
-            experiment,
-            "--namespace",
-            namespace,
-        ],
-        timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
-    )
+    cmd = ["uv", "run", "devops", "k8s", "chaos", experiment, "--namespace", namespace]
+    if dry_run:
+        cmd.append("--dry-run")
+    return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
 
 
 @mcp.tool()
-def k8s_audit(namespace: str = "default") -> str:
+def k8s_audit() -> str:
     """Audit Kubernetes cluster security posture, RBAC policies, and CIS benchmarks."""
-    _validate_mcp_arg("namespace", namespace)
     return _run_mcp_cmd(
-        ["uv", "run", "devops", "k8s", "audit", "--namespace", namespace],
+        ["uv", "run", "devops", "k8s", "audit"],
         timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
     )
 
@@ -2093,11 +2071,13 @@ def benchmark_embeddings(
             "uv",
             "run",
             "devops",
+            "ai",
             "benchmark",
-            "embeddings",
+            "--type",
+            "embedding",
             "--provider",
             provider,
-            "--model",
+            "--models",
             model,
             "--samples",
             str(samples),
@@ -2120,6 +2100,7 @@ def benchmark_suite(
         "uv",
         "run",
         "devops",
+        "ai",
         "benchmark",
         "--suite",
         "--models",
@@ -2133,26 +2114,6 @@ def benchmark_suite(
     if dry_run:
         cmd.append("--dry-run")
     return _run_mcp_cmd(cmd, timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS)
-
-
-@mcp.tool()
-def ai_architecture(target: str = "src", max_depth: int = 4) -> str:
-    """Analyze architectural module boundaries, dependency graphs, and cyclic imports."""
-    _validate_mcp_arg("target", target)
-    _validate_mcp_int_bound("max_depth", max_depth, min_val=1)
-    return _run_mcp_cmd(
-        [
-            "uv",
-            "run",
-            "devops",
-            "analyze",
-            "architecture",
-            target,
-            "--max-depth",
-            str(max_depth),
-        ],
-        timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-    )
 
 
 @mcp.tool()
